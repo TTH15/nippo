@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
+
+:root {
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-brand: #1e3a5f;
+  --color-accent: #3b82f6;
+  --color-danger: #ef4444;
+  --color-success: #22c55e;
+  --color-text: #0f172a;
+  --color-muted: #64748b;
+}
+
+body {
+  font-family: 'Noto Sans JP', sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Utility for number inputs — hide spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
