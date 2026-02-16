@@ -3,6 +3,8 @@ import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { currentMonthJST } from "@/lib/date";
 
+export const dynamic = "force-dynamic";
+
 export type MonthlyEntry = {
   driver: { id: string; name: string };
   totalTakuhaibinCompleted: number;

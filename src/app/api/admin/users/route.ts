@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
+export const dynamic = "force-dynamic";
+
 // GET: 全ドライバー一覧（コース情報含む）
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");

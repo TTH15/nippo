@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
+export const dynamic = "force-dynamic";
+
 // GET: 自分の希望休一覧
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");

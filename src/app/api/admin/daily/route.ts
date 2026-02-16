@@ -3,6 +3,8 @@ import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { todayJST } from "@/lib/date";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;

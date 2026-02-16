@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
+export const dynamic = "force-dynamic";
+
 // GET: 指定期間のシフト取得
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");

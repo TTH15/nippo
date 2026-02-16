@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
+export const dynamic = "force-dynamic";
+
 // PUT: ドライバー更新
 export async function PUT(
   req: NextRequest,

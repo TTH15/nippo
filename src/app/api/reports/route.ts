@@ -4,6 +4,8 @@ import { supabase } from "@/server/db/client";
 import { todayJST } from "@/lib/date";
 import { bus, DailyReportSubmittedPayload } from "@/server/events/bus";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
