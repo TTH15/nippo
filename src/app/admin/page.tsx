@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch } from "@/lib/api";
+import { getDisplayName } from "@/lib/displayName";
 
 type Entry = {
-  driver: { id: string; name: string };
+  driver: { id: string; name: string; display_name?: string | null };
   report: {
     takuhaibin_completed: number;
     takuhaibin_returned: number;
@@ -80,7 +81,7 @@ export default function AdminDailyPage() {
                 <div className="flex flex-wrap gap-2">
                   {notSubmitted.map((e) => (
                     <span key={e.driver.id} className="px-3 py-1 bg-red-100 text-red-700 text-sm rounded-full font-medium">
-                      {e.driver.name}
+                      {getDisplayName(e.driver)}
                     </span>
                   ))}
                 </div>
@@ -104,7 +105,7 @@ export default function AdminDailyPage() {
                   <tbody>
                     {submitted.map((e) => (
                       <tr key={e.driver.id} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="py-3 px-4 font-medium">{e.driver.name}</td>
+                        <td className="py-3 px-4 font-medium">{getDisplayName(e.driver)}</td>
                         <td className="py-3 px-3 text-right tabular-nums">{e.report!.takuhaibin_completed}</td>
                         <td className="py-3 px-3 text-right tabular-nums text-orange-600">{e.report!.takuhaibin_returned}</td>
                         <td className="py-3 px-3 text-right tabular-nums">{e.report!.nekopos_completed}</td>

@@ -15,11 +15,14 @@ export async function PUT(
 
   try {
     const body = await req.json();
-    const { name, officeCode, driverCode, courseIds } = body;
+    const { name, officeCode, driverCode, courseIds, displayName } = body;
     const { id: driverId } = await params;
 
     const updates: Record<string, unknown> = {};
     if (name) updates.name = name.trim();
+    if (displayName !== undefined) {
+      updates.display_name = typeof displayName === "string" && displayName.trim() ? displayName.trim() : null;
+    }
     if (officeCode && /^\d{6}$/.test(officeCode)) {
       updates.office_code = officeCode;
     }

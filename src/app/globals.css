@@ -31,3 +31,12 @@ input[type="number"]::-webkit-outer-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
 }
+
+/* 月次集計の月タブ：スクロールバー非表示（スワイプは可能） */
+.month-tabs-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.month-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}

@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     .from("shifts")
     .select(`
       id, shift_date, course_id, driver_id,
-      drivers (id, name)
+      drivers (id, name, display_name)
     `)
     .gte("shift_date", startDate)
     .lte("shift_date", endDate);
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers } = await supabase
     .from("drivers")
     .select(`
-      id, name, role,
+      id, name, display_name, role,
       driver_courses (course_id)
     `)
     .eq("role", "DRIVER")

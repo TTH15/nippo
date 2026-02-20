@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { getDisplayName } from "@/lib/displayName";
 
 type Course = { id: string; name: string; color: string };
 type Driver = {
   id: string;
   name: string;
+  display_name?: string | null;
   role: string;
   company_code: string;
   office_code: string;
@@ -27,6 +29,7 @@ export default function UsersPage() {
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [form, setForm] = useState({
     name: "",
+    displayName: "",
     officeCode: "",
     driverNumber: "", // 6桁の数字部分
     courseIds: [] as string[],
@@ -64,7 +67,7 @@ export default function UsersPage() {
 
   const openNew = () => {
     setEditingDriver(null);
-    setForm({ name: "", officeCode: "", driverNumber: "", courseIds: [] });
+    setForm({ name: "", displayName: "", officeCode: "", driverNumber: "", courseIds: [] });
     setShowModal(true);
   };
 
@@ -72,8 +75,9 @@ export default function UsersPage() {
     setEditingDriver(d);
     setForm({
       name: d.name,
+      displayName: d.display_name?.trim() ?? getDisplayName(d),
       officeCode: d.office_code || "",
-      driverNumber: d.driver_code?.slice(3) || "", // 会社コード部分を除く
+      driverNumber: d.driver_code?.slice(3) || "",
       courseIds: d.driver_courses.map((dc) => dc.course_id),
     });
     setShowModal(true);
@@ -98,6 +102,7 @@ export default function UsersPage() {
           method: "PUT",
           body: JSON.stringify({
             name: form.name,
+            displayName: form.displayName.trim() || null,
             officeCode: form.officeCode,
             driverCode,
             courseIds: form.courseIds,
@@ -108,6 +113,7 @@ export default function UsersPage() {
           method: "POST",
           body: JSON.stringify({
             name: form.name,
+            displayName: form.displayName.trim() || null,
             officeCode: form.officeCode,
             driverCode,
             companyCode,
@@ -168,6 +174,7 @@ export default function UsersPage() {
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
                   <th className="py-2.5 px-4 text-left font-medium text-slate-600">名前</th>
+                  <th className="py-2.5 px-4 text-left font-medium text-slate-600">表示名</th>
                   <th className="py-2.5 px-4 text-left font-medium text-slate-600">ドライバーコード</th>
                   <th className="py-2.5 px-4 text-left font-medium text-slate-600">事業所</th>
                   <th className="py-2.5 px-4 text-left font-medium text-slate-600">担当コース</th>
@@ -178,6 +185,7 @@ export default function UsersPage() {
                 {drivers.map((d) => (
                   <tr key={d.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
                     <td className="py-2.5 px-4 font-medium text-slate-800">{d.name}</td>
+                    <td className="py-2.5 px-4 text-slate-600">{getDisplayName(d)}</td>
                     <td className="py-2.5 px-4 font-mono text-slate-600">{d.driver_code || "-"}</td>
                     <td className="py-2.5 px-4 text-slate-600">{d.office_code || "-"}</td>
                     <td className="py-2.5 px-4">
@@ -235,6 +243,18 @@ export default function UsersPage() {
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">表示名</label>
+                <input
+                  type="text"
+                  value={form.displayName}
+                  onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+                  placeholder="未入力なら苗字のみ表示"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                <p className="text-xs text-slate-500 mt-1">シフト・日報などで表示します。空欄の場合は苗字のみ表示されます。</p>
               </div>
 
               <div>

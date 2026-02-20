@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers, error } = await supabase
     .from("drivers")
     .select(`
-      id, name, role, company_code, office_code, driver_code, created_at,
+      id, name, display_name, role, company_code, office_code, driver_code, created_at,
       driver_courses (
         course_id,
         courses (id, name, color)
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, officeCode, driverCode, companyCode, courseIds = [] } = body;
+    const { name, officeCode, driverCode, companyCode, courseIds = [], displayName } = body;
 
     if (!name || typeof name !== "string" || !name.trim()) {
       return NextResponse.json({ error: "名前を入力してください" }, { status: 400 });
@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
       .from("drivers")
       .insert({ 
         name: name.trim(), 
+        display_name: typeof displayName === "string" && displayName.trim() ? displayName.trim() : null,
         role: "DRIVER", 
         pin_hash: pinHash,
         company_code: companyCode || user.companyCode,

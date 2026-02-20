@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch } from "@/lib/api";
+import { getDisplayName } from "@/lib/displayName";
 
 type Course = { id: string; name: string; color: string; sort_order: number };
 type Driver = {
   id: string;
   name: string;
+  display_name?: string | null;
   role: string;
   driver_courses: { course_id: string; courses: { id: string; name: string; color: string } }[];
 };
@@ -115,7 +117,7 @@ export default function CoursesPage() {
                               key={d.id}
                               className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded"
                             >
-                              {d.name}
+                              {getDisplayName(d)}
                             </span>
                           ))
                         ) : (

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch } from "@/lib/api";
+import { getDisplayName } from "@/lib/displayName";
 
 type Entry = {
-  driver: { id: string; name: string };
+  driver: { id: string; name: string; display_name?: string | null };
   totalTakuhaibinCompleted: number;
   totalTakuhaibinReturned: number;
   totalNekoposCompleted: number;
@@ -27,10 +28,27 @@ function currentMonth() {
   return `${y}-${m}`;
 }
 
+/** 表示用の月リスト（過去24ヶ月 + 今月、今月が最後＝一番右） */
+function buildMonthTabs(): { value: string; label: string }[] {
+  const now = new Date();
+  const tabs: { value: string; label: string }[] = [];
+  for (let i = 24; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    tabs.push({ value: `${y}-${m}`, label: `${y}年${d.getMonth() + 1}月` });
+  }
+  return tabs;
+}
+
+const MONTH_TABS = buildMonthTabs();
+
 export default function AdminMonthlyPage() {
   const [month, setMonth] = useState(currentMonth());
   const [data, setData] = useState<MonthlyResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   const load = (m: string) => {
     setLoading(true);
@@ -42,6 +60,18 @@ export default function AdminMonthlyPage() {
 
   useEffect(() => {
     load(month);
+  }, [month]);
+
+  // 初期表示で一番右（今月）までスクロール
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+  }, []);
+
+  // 選択月が変わったときにそのタブが見えるようにスクロール
+  useEffect(() => {
+    const el = tabRefs.current.get(month);
+    if (el && scrollRef.current) el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
   }, [month]);
 
   const downloadCsv = () => {
@@ -68,16 +98,37 @@ export default function AdminMonthlyPage() {
       <div className="max-w-5xl">
         <h1 className="text-2xl font-bold text-brand-900 mb-6">月次集計</h1>
 
-        <div className="flex items-center gap-3 mb-6">
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-brand-600"
-          />
+        <div className="flex items-center gap-4 mb-6">
+          <div className="flex-1 min-w-0">
+            <div
+              ref={scrollRef}
+              className="month-tabs-scroll flex gap-0 overflow-x-auto scroll-smooth border-b border-slate-200 pb-px"
+            >
+              {MONTH_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  ref={(el) => {
+                    if (el) tabRefs.current.set(tab.value, el);
+                  }}
+                  type="button"
+                  onClick={() => setMonth(tab.value)}
+                  className={`
+                    flex-shrink-0 px-4 py-2.5 text-sm font-medium whitespace-nowrap
+                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 rounded-t
+                    ${month === tab.value
+                      ? "text-brand-700 border-b-2 border-brand-600 -mb-px bg-brand-50/50"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                    }
+                  `}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <button
             onClick={downloadCsv}
-            className="px-4 py-2 bg-brand-800 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors"
+            className="flex-shrink-0 px-4 py-2 bg-brand-800 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors"
           >
             CSV ダウンロード
           </button>
@@ -109,7 +160,7 @@ export default function AdminMonthlyPage() {
                 <tbody>
                   {data.entries.map((e) => (
                     <tr key={e.driver.id} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-3 px-4 font-medium">{e.driver.name}</td>
+                      <td className="py-3 px-4 font-medium">{getDisplayName(e.driver)}</td>
                       <td className="py-3 px-3 text-right tabular-nums">{e.workDays}</td>
                       <td className="py-3 px-3 text-right tabular-nums">{fmt(e.totalTakuhaibinCompleted)}</td>
                       <td className="py-3 px-3 text-right tabular-nums text-orange-600">{fmt(e.totalTakuhaibinReturned)}</td>

@@ -6,7 +6,7 @@ import { currentMonthJST } from "@/lib/date";
 export const dynamic = "force-dynamic";
 
 export type MonthlyEntry = {
-  driver: { id: string; name: string };
+  driver: { id: string; name: string; display_name?: string | null };
   totalTakuhaibinCompleted: number;
   totalTakuhaibinReturned: number;
   totalNekoposCompleted: number;
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   // Get all drivers
   const { data: drivers } = await supabase
     .from("drivers")
-    .select("id, name")
+    .select("id, name, display_name")
     .eq("role", "DRIVER")
     .order("name");
 
@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
       totals.tc * rates.takuhaibin + totals.nc * rates.nekopos;
 
     return {
-      driver: { id: d.id, name: d.name },
+      driver: { id: d.id, name: d.name, display_name: d.display_name ?? null },
       totalTakuhaibinCompleted: totals.tc,
       totalTakuhaibinReturned: totals.tr,
       totalNekoposCompleted: totals.nc,

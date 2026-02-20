@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   // All drivers
   const { data: drivers, error: dErr } = await supabase
     .from("drivers")
-    .select("id, name")
+    .select("id, name, display_name")
     .eq("role", "DRIVER")
     .order("name");
 
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   const reportMap = new Map(reports?.map((r) => [r.driver_id, r]));
 
   const result = (drivers ?? []).map((d) => ({
-    driver: { id: d.id, name: d.name },
+    driver: { id: d.id, name: d.name, display_name: d.display_name ?? null },
     report: reportMap.get(d.id) ?? null,
   }));
 

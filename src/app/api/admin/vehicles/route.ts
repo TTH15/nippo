@@ -11,7 +11,13 @@ export async function GET(req: NextRequest) {
 
   const { data: vehicles, error } = await supabase
     .from("vehicles")
-    .select("*")
+    .select(`
+      *,
+      vehicle_drivers (
+        driver_id,
+        drivers (id, name, display_name)
+      )
+    `)
     .order("name");
 
   if (error) {
@@ -31,9 +37,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       name,
+      numberPrefix,
+      numberHiragana,
+      numberNumeric,
       currentMileage = 0,
       lastOilChangeMileage = 0,
-      oilChangeInterval = 5000,
+      oilChangeInterval = 3000,
+      purchaseCost = 0,
+      monthlyInsurance = 0,
+      driverIds = [],
     } = body;
 
     if (!name || typeof name !== "string") {
@@ -44,9 +56,14 @@ export async function POST(req: NextRequest) {
       .from("vehicles")
       .insert({
         name: name.trim(),
+        number_prefix: numberPrefix || null,
+        number_hiragana: numberHiragana || null,
+        number_numeric: numberNumeric || null,
         current_mileage: currentMileage,
         last_oil_change_mileage: lastOilChangeMileage,
         oil_change_interval: oilChangeInterval,
+        purchase_cost: purchaseCost,
+        monthly_insurance: monthlyInsurance,
       })
       .select()
       .single();
@@ -56,7 +73,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ vehicle });
+    // ドライバーリレーションを追加
+    if (Array.isArray(driverIds) && driverIds.length > 0) {
+      const vehicleDrivers = driverIds.map((driverId: string) => ({
+        vehicle_id: vehicle.id,
+        driver_id: driverId,
+      }));
+      await supabase.from("vehicle_drivers").insert(vehicleDrivers);
+    }
+
+    // リレーション込みで再取得
+    const { data: vehicleWithDrivers } = await supabase
+      .from("vehicles")
+      .select(`
+        *,
+        vehicle_drivers (
+          driver_id,
+          drivers (id, name, display_name)
+        )
+      `)
+      .eq("id", vehicle.id)
+      .single();
+
+    return NextResponse.json({ vehicle: vehicleWithDrivers });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
