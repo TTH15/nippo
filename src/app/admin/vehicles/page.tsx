@@ -21,6 +21,8 @@ type VehicleDriver = {
 type Vehicle = {
   id: string;
   name: string;
+  manufacturer?: string | null;
+  brand?: string | null;
   number_prefix?: string | null;
   number_hiragana?: string | null;
   number_numeric?: string | null;
@@ -41,6 +43,8 @@ export default function VehiclesPage() {
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [form, setForm] = useState({
     name: "",
+    manufacturer: "",
+    brand: "",
     numberPrefix: "",
     numberHiragana: "",
     numberNumeric: "",
@@ -77,6 +81,8 @@ export default function VehiclesPage() {
     setEditingVehicle(null);
     setForm({
       name: "",
+      manufacturer: "",
+      brand: "",
       numberPrefix: "",
       numberHiragana: "",
       numberNumeric: "",
@@ -94,6 +100,8 @@ export default function VehiclesPage() {
     setEditingVehicle(v);
     setForm({
       name: v.name,
+      manufacturer: v.manufacturer || "",
+      brand: v.brand || "",
       numberPrefix: v.number_prefix || "",
       numberHiragana: v.number_hiragana || "",
       numberNumeric: v.number_numeric || "",
@@ -213,18 +221,27 @@ export default function VehiclesPage() {
               const remainingMonths = getRemainingMonths(v);
               const vehicleDrivers = v.vehicle_drivers || [];
 
+              // 登録順のNoを計算（配列のインデックス+1）
+              const vehicleIndex = vehicles.findIndex((veh) => veh.id === v.id);
+              const vehicleNo = vehicleIndex >= 0 ? vehicleIndex + 1 : 1;
+
               return (
                 <div key={v.id} className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
-                  {/* ヘッダー: No. + ドライバーラベル + ナンバープレート */}
-                  <div className="flex items-start justify-between mb-6">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <span className="text-lg font-bold text-slate-900">No.{v.name.replace(/\D/g, "") || "0001"}</span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* 左側: No、ドライバーラベル、ナンバープレート、写真、車種 */}
+                    <div className="space-y-4">
+                      {/* No */}
+                      <div>
+                        <span className="text-lg font-bold text-slate-900">No.{String(vehicleNo).padStart(4, "0")}</span>
+                      </div>
+
+                      {/* 利用ドライバーラベル */}
                       <div className="flex flex-wrap gap-1.5">
                         {vehicleDrivers.length > 0 ? (
                           vehicleDrivers.map((vd) => (
                             <span
                               key={vd.driver_id}
-                              className="px-2 py-0.5 bg-slate-100 text-slate-700 text-xs rounded font-medium"
+                              className="px-2 py-0.5 bg-slate-800 text-white text-xs rounded font-medium"
                             >
                               {getDisplayName(vd.drivers)}
                             </span>
@@ -233,37 +250,66 @@ export default function VehiclesPage() {
                           <span className="px-2 py-0.5 bg-slate-50 text-slate-400 text-xs rounded">未設定</span>
                         )}
                       </div>
-                    </div>
-                    {(v.number_prefix || v.number_hiragana || v.number_numeric) && (
-                      <div className="bg-black text-yellow-300 px-3 py-1.5 rounded font-mono text-sm font-bold border-2 border-yellow-400">
-                        <div className="text-center leading-tight">
-                          <div>{v.number_prefix || "京都"}</div>
-                          <div className="text-xs mt-0.5">
-                            {v.number_hiragana || "と"} {v.number_numeric || "00-00"}
+
+                      {/* ナンバープレート */}
+                      {(v.number_prefix || v.number_hiragana || v.number_numeric) && (
+                        <div className="bg-black text-yellow-300 px-3 py-1.5 rounded font-mono text-sm font-bold border-2 border-yellow-400 w-fit">
+                          <div className="text-center leading-tight">
+                            <div>{v.number_prefix || "京都"}</div>
+                            <div className="text-xs mt-0.5">
+                              {v.number_hiragana || "と"} {v.number_numeric || "00-00"}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
+                      )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* 左側: 車両情報 */}
-                    <div className="space-y-4">
                       {/* 車両画像プレースホルダー */}
-                      <div className="h-32 bg-slate-100 rounded flex items-center justify-center text-slate-400 text-sm">
+                      <div className="h-48 bg-slate-100 rounded flex items-center justify-center text-slate-400 text-sm">
                         車両画像
                       </div>
-                      <div className="text-sm text-slate-600">{v.name}</div>
 
+                      {/* 車種（メーカー名とブランド名を分けて表示） */}
+                      {(v.manufacturer || v.brand) && (
+                        <div>
+                          {v.manufacturer && (
+                            <span className="text-xs text-slate-500">{v.manufacturer}</span>
+                          )}
+                          {v.manufacturer && v.brand && <span className="text-xs text-slate-500 mx-1"> </span>}
+                          {v.brand && (
+                            <span className="text-base font-semibold text-slate-900">{v.brand}</span>
+                          )}
+                        </div>
+                      )}
+                      {!v.manufacturer && !v.brand && v.name && (
+                        <div className="text-sm text-slate-600">{v.name}</div>
+                      )}
+                    </div>
+
+                    {/* 右側: 次回車検・定期点検、オイル交換ゲージ、回収ROIゲージ */}
+                    <div className="space-y-4">
                       {/* 次回車検・定期点検 */}
                       <div className="space-y-2 text-sm">
-                        <div>
+                        <div className="flex items-center justify-between">
                           <span className="text-slate-500">次回車検</span>
-                          <span className="ml-2 font-medium text-slate-900">2026年8月</span>
+                          <span className="font-medium text-slate-900">2026年8月</span>
+                          <button
+                            onClick={() => openEdit(v)}
+                            className="text-slate-400 hover:text-slate-600"
+                            title="編集"
+                          >
+                            ✏️
+                          </button>
                         </div>
-                        <div>
+                        <div className="flex items-center justify-between">
                           <span className="text-slate-500">次回定期点検</span>
-                          <span className="ml-2 font-medium text-slate-900">2026年2月</span>
+                          <span className="font-medium text-slate-900">2026年2月</span>
+                          <button
+                            onClick={() => openEdit(v)}
+                            className="text-slate-400 hover:text-slate-600"
+                            title="編集"
+                          >
+                            ✏️
+                          </button>
                         </div>
                       </div>
 
@@ -307,10 +353,8 @@ export default function VehiclesPage() {
                           )}
                         </div>
                       </div>
-                    </div>
 
-                    {/* 右側: 回収ROIゲージ */}
-                    <div className="space-y-4">
+                      {/* 回収ROIゲージ */}
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-xs text-slate-600">
                           <span>回収済み</span>
@@ -390,6 +434,29 @@ export default function VehiclesPage() {
                     placeholder="例: 軽バン 1号"
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">メーカー名</label>
+                    <input
+                      type="text"
+                      value={form.manufacturer}
+                      onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
+                      placeholder="例: スズキ"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">ブランド名</label>
+                    <input
+                      type="text"
+                      value={form.brand}
+                      onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))}
+                      placeholder="例: エブリイ"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
                 </div>
 
                 <div>

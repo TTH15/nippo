@@ -37,6 +37,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       name,
+      manufacturer,
+      brand,
       numberPrefix,
       numberHiragana,
       numberNumeric,
@@ -56,6 +58,8 @@ export async function POST(req: NextRequest) {
       .from("vehicles")
       .insert({
         name: name.trim(),
+        manufacturer: manufacturer?.trim() || null,
+        brand: brand?.trim() || null,
         number_prefix: numberPrefix || null,
         number_hiragana: numberHiragana || null,
         number_numeric: numberNumeric || null,
