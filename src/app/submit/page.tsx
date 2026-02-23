@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import html2canvas from "html2canvas";
 import { Nav } from "@/lib/components/Nav";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getStoredDriver } from "@/lib/api";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
-import { JukenCertificate, type JukenNumbers } from "@/lib/components/JukenCertificate";
+import { JukenCertificate, type JukenNumbers, type JukenOverlay } from "@/lib/components/JukenCertificate";
 
 type Vehicle = {
   id: string;
@@ -31,6 +32,9 @@ export default function SubmitPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const [driverProfile, setDriverProfile] = useState<{ name: string; officeCode: string; driverCode: string } | null>(null);
+  const [certImageDataUrl, setCertImageDataUrl] = useState<string | null>(null);
+  const certRef = useRef<HTMLDivElement | null>(null);
 
   const set = (key: keyof typeof form, value: string) => {
     if (value !== "" && !/^\d+$/.test(value)) return;
@@ -41,11 +45,13 @@ export default function SubmitPage() {
     const load = async () => {
       setVehiclesLoading(true);
       try {
-        const [vehiclesRes, prefRes] = await Promise.all([
+        const [vehiclesRes, prefRes, profileRes] = await Promise.all([
           apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles"),
           apiFetch<{ vehicleId: string | null }>("/api/reports/vehicle-preference"),
+          apiFetch<{ name: string; officeCode: string; driverCode: string }>("/api/reports/profile").catch(() => null),
         ]);
         setVehicles(vehiclesRes.vehicles);
+        if (profileRes) setDriverProfile(profileRes);
         if (prefRes.vehicleId && vehiclesRes.vehicles.some((v) => v.id === prefRes.vehicleId)) {
           setSelectedVehicleId(prefRes.vehicleId);
           const idx = vehiclesRes.vehicles.findIndex((v) => v.id === prefRes.vehicleId);
@@ -108,6 +114,23 @@ export default function SubmitPage() {
     }
   };
 
+  const jukenOverlay: JukenOverlay | undefined = useMemo(() => {
+    const driver = driverProfile ?? getStoredDriver();
+    if (!driver?.name) return undefined;
+    const digits6 = (driver.driverCode ?? "").replace(/\D/g, "").slice(-6);
+    const today = new Date();
+    return {
+      officeCode: driver.officeCode ?? "",
+      personalNumber: digits6,
+      name: driver.name,
+      date: {
+        year: today.getFullYear(),
+        month: today.getMonth() + 1,
+        day: today.getDate(),
+      },
+    };
+  }, [driverProfile]);
+
   const jukenNumbers: JukenNumbers = useMemo(() => {
     const tkComp = Number(form.takuhaibinCompleted) || 0;
     const tkRet = Number(form.takuhaibinReturned) || 0;
@@ -144,27 +167,99 @@ export default function SubmitPage() {
     { key: "nekoposReturned", label: "ネコポス", sub: "持戻" },
   ];
 
+  // 提出完了時に証明書を画像化（長押し保存・ダウンロード用）
+  useEffect(() => {
+    if (status !== "success") return;
+    setCertImageDataUrl(null);
+    const timer = setTimeout(async () => {
+      if (!certRef.current) return;
+      try {
+        const canvas = await html2canvas(certRef.current, {
+          scale: 3,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          logging: false,
+        });
+        setCertImageDataUrl(canvas.toDataURL("image/png"));
+      } catch (e) {
+        console.error(e);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [status]);
+
+  const downloadCertImage = () => {
+    if (!certImageDataUrl) return;
+    const a = document.createElement("a");
+    a.href = certImageDataUrl;
+    a.download = `配達受託者控_${new Date().toISOString().slice(0, 10)}.png`;
+    a.click();
+  };
+
   if (status === "success") {
     return (
       <>
         <Nav />
-        <div className="max-w-sm mx-auto mt-20 text-center p-8">
-          <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-            </svg>
+        <div className="max-w-sm mx-auto mt-12 px-4 pb-12">
+          {/* キャプチャ用（画面外に配置） */}
+          <div className="fixed left-[-9999px] top-0" aria-hidden>
+            <JukenCertificate
+              certificateRef={(el) => { certRef.current = el; }}
+              numbers={jukenNumbers}
+              overlay={jukenOverlay}
+              hideDownloadButton
+            />
           </div>
-          <h2 className="text-lg font-bold text-slate-800 mb-2">送信完了</h2>
-          <p className="text-sm text-slate-500 mb-6">本日の日報を提出しました</p>
-          <button
-            onClick={() => {
-              setStatus("idle");
-              setForm({ takuhaibinCompleted: "", takuhaibinReturned: "", nekoposCompleted: "", nekoposReturned: "" });
-            }}
-            className="text-sm text-brand-600 font-medium hover:underline"
-          >
-            もう一度入力する（上書き）
-          </button>
+
+          <div className="text-center mb-6">
+            <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="text-lg font-bold text-slate-800 mb-2">送信完了</h2>
+            <p className="text-sm text-slate-500 mb-6">本日の日報を提出しました</p>
+          </div>
+
+          {/* 配達受託者控画像：長押しでカメラロールに保存 */}
+          <div className="mb-6">
+            <p className="text-sm font-medium text-slate-700 mb-2">配達受託者控</p>
+            {certImageDataUrl ? (
+              <>
+                <img
+                  src={certImageDataUrl}
+                  alt="配達受託者控"
+                  className="w-full max-w-[600px] mx-auto rounded-lg border border-slate-200 block"
+                  style={{ maxHeight: "70vh", objectFit: "contain" }}
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  スマホでは画像を長押しでカメラロールに保存できます
+                </p>
+                <button
+                  type="button"
+                  onClick={downloadCertImage}
+                  className="mt-3 w-full py-2.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  PNGでダウンロード
+                </button>
+              </>
+            ) : (
+              <p className="text-sm text-slate-500 py-8">画像を生成しています...</p>
+            )}
+          </div>
+
+          <div className="text-center">
+            <button
+              onClick={() => {
+                setStatus("idle");
+                setForm({ takuhaibinCompleted: "", takuhaibinReturned: "", nekoposCompleted: "", nekoposReturned: "" });
+                setCertImageDataUrl(null);
+              }}
+              className="text-sm text-brand-600 font-medium hover:underline"
+            >
+              もう一度入力する（上書き）
+            </button>
+          </div>
         </div>
       </>
     );
@@ -239,15 +334,6 @@ export default function SubmitPage() {
                 />
               </div>
             ))}
-          </div>
-
-          {/* 配達受託者控 JPG出力 */}
-          <div className="pt-4 border-t border-slate-200">
-            <p className="text-sm font-medium text-slate-700 mb-2">配達受託者控</p>
-            <JukenCertificate numbers={jukenNumbers} />
-            <p className="text-xs text-slate-500 mt-2">
-              PDFをPNGにエクスポートして <code className="bg-slate-100 px-1 rounded">/image/juken_certificate.png</code> に配置すると、その上に数字が重なります。位置は調整可能です。
-            </p>
           </div>
 
           {status === "error" && (

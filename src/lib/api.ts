@@ -5,6 +5,7 @@ type StoredDriver = {
   name: string; 
   role: string;
   companyCode?: string;
+  officeCode?: string;
   driverCode?: string;
 };
 

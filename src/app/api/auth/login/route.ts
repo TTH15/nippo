@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       // ドライバーコードでドライバーを検索
       const { data: driver, error } = await supabase
         .from("drivers")
-        .select("id, name, role, company_code, driver_code, pin_hash")
+        .select("id, name, role, company_code, office_code, driver_code, pin_hash")
         .eq("driver_code", code)
         .eq("role", "DRIVER")
         .single();
@@ -86,7 +86,8 @@ export async function POST(req: NextRequest) {
           name: driver.name, 
           role: driver.role,
           companyCode: driver.company_code,
-          driverCode: driver.driver_code,
+          officeCode: driver.office_code ?? "",
+          driverCode: driver.driver_code ?? "",
         },
       });
     }
