@@ -46,7 +46,8 @@ export async function GET(req: NextRequest) {
     .gte("report_date", startDate)
     .lte("report_date", endDate);
 
-  const reportMap = new Map<string (typeof reports)[0]>();
+  type ReportRow = NonNullable<typeof reports>[number];
+  const reportMap = new Map<string, ReportRow>();
   reports?.forEach((r) => reportMap.set(`${r.driver_id}:${r.report_date}`, r));
 
   const dateMap = new Map<string, { yamato: number; amazon: number; profit: number }>();

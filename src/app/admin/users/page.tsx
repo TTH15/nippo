@@ -475,7 +475,7 @@ export default function UsersPage() {
                     <div className="flex items-end">
                       <button
                         type="button"
-                        onClick={fetchAddressFromPostalCode}
+                        onClick={() => fetchAddressFromPostalCode()}
                         disabled={postalLoading || toHalfWidth(form.postalCode).replace(/[-\s]/g, "").replace(/\D/g, "").length < 7}
                         className="px-3 py-2 text-sm bg-slate-100 text-slate-700 rounded hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
