@@ -95,7 +95,7 @@ export default function AdminMonthlyPage() {
 
   return (
     <AdminLayout>
-      <div className="max-w-5xl">
+      <div className="w-full">
         <h1 className="text-2xl font-bold text-brand-900 mb-6">月次集計</h1>
 
         <div className="flex items-center gap-4 mb-6">

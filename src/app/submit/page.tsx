@@ -1,8 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Nav } from "@/lib/components/Nav";
 import { apiFetch } from "@/lib/api";
+import { VehiclePlate } from "@/lib/components/VehiclePlate";
+import { JukenCertificate, type JukenNumbers } from "@/lib/components/JukenCertificate";
+
+type Vehicle = {
+  id: string;
+  name: string;
+  number_prefix?: string | null;
+  number_class?: string | null;
+  number_hiragana?: string | null;
+  number_numeric?: string | null;
+  manufacturer?: string | null;
+  brand?: string | null;
+  current_mileage: number;
+};
 
 export default function SubmitPage() {
   const [form, setForm] = useState({
@@ -11,13 +25,63 @@ export default function SubmitPage() {
     nekoposCompleted: "",
     nekoposReturned: "",
   });
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [meterValue, setMeterValue] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [carouselIndex, setCarouselIndex] = useState(0);
 
   const set = (key: keyof typeof form, value: string) => {
-    // Only allow non-negative integers
     if (value !== "" && !/^\d+$/.test(value)) return;
     setForm((f) => ({ ...f, [key]: value }));
+  };
+
+  useEffect(() => {
+    const load = async () => {
+      setVehiclesLoading(true);
+      try {
+        const [vehiclesRes, prefRes] = await Promise.all([
+          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles"),
+          apiFetch<{ vehicleId: string | null }>("/api/reports/vehicle-preference"),
+        ]);
+        setVehicles(vehiclesRes.vehicles);
+        if (prefRes.vehicleId && vehiclesRes.vehicles.some((v) => v.id === prefRes.vehicleId)) {
+          setSelectedVehicleId(prefRes.vehicleId);
+          const idx = vehiclesRes.vehicles.findIndex((v) => v.id === prefRes.vehicleId);
+          if (idx >= 0) setCarouselIndex(idx);
+        } else if (vehiclesRes.vehicles.length > 0) {
+          setSelectedVehicleId(vehiclesRes.vehicles[0].id);
+          setCarouselIndex(0);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setVehiclesLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const saveVehiclePreference = async (vehicleId: string) => {
+    try {
+      await apiFetch("/api/reports/vehicle-preference", {
+        method: "PUT",
+        body: JSON.stringify({ vehicleId }),
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleVehicleSelect = (v: Vehicle, index: number) => {
+    setSelectedVehicleId(v.id);
+    setCarouselIndex(index);
+    saveVehiclePreference(v.id);
+    if (v.current_mileage > 0) {
+      setMeterValue(String(v.current_mileage));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -33,14 +97,46 @@ export default function SubmitPage() {
           takuhaibinReturned: Number(form.takuhaibinReturned) || 0,
           nekoposCompleted: Number(form.nekoposCompleted) || 0,
           nekoposReturned: Number(form.nekoposReturned) || 0,
+          vehicleId: selectedVehicleId,
+          meterValue: meterValue ? Number(meterValue) : null,
         }),
       });
+      if (selectedVehicleId) saveVehiclePreference(selectedVehicleId);
       setStatus("success");
     } catch (err: unknown) {
       setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : "送信に失敗しました");
     }
   };
+
+  const jukenNumbers: JukenNumbers = useMemo(() => {
+    const tkComp = Number(form.takuhaibinCompleted) || 0;
+    const tkRet = Number(form.takuhaibinReturned) || 0;
+    const nkComp = Number(form.nekoposCompleted) || 0;
+    const nkRet = Number(form.nekoposReturned) || 0;
+
+    const takuhaibinMochidashi = tkComp + tkRet;
+    const nekoposMochidashi = nkComp + nkRet;
+    const totalMochidashi = takuhaibinMochidashi + nekoposMochidashi;
+    const totalHaikan = tkComp + nkComp;
+    const totalModori = tkRet + nkRet;
+    const totalHaikanModori = totalHaikan + totalModori;
+
+    return {
+      takuhaibinMochidashi,
+      takuhaibinHaikan: tkComp,
+      takuhaibinModori: tkRet,
+      takuhaibinHaikanModori: takuhaibinMochidashi,
+      nekoposMochidashi,
+      nekoposHaikan: nkComp,
+      nekoposModori: nkRet,
+      nekoposHaikanModori: nekoposMochidashi,
+      totalMochidashi,
+      totalHaikan,
+      totalModori,
+      totalHaikanModori,
+    };
+  }, [form]);
 
   const fields: { key: keyof typeof form; label: string; sub: string }[] = [
     { key: "takuhaibinCompleted", label: "宅急便", sub: "完了" },
@@ -62,7 +158,10 @@ export default function SubmitPage() {
           <h2 className="text-lg font-bold text-slate-800 mb-2">送信完了</h2>
           <p className="text-sm text-slate-500 mb-6">本日の日報を提出しました</p>
           <button
-            onClick={() => { setStatus("idle"); setForm({ takuhaibinCompleted: "", takuhaibinReturned: "", nekoposCompleted: "", nekoposReturned: "" }); }}
+            onClick={() => {
+              setStatus("idle");
+              setForm({ takuhaibinCompleted: "", takuhaibinReturned: "", nekoposCompleted: "", nekoposReturned: "" });
+            }}
             className="text-sm text-brand-600 font-medium hover:underline"
           >
             もう一度入力する（上書き）
@@ -77,6 +176,48 @@ export default function SubmitPage() {
       <Nav />
       <div className="max-w-sm mx-auto px-4 py-8">
         <h1 className="text-lg font-bold text-brand-900 mb-6">本日の日報</h1>
+
+        {/* 車両選択カルーセル */}
+        {vehiclesLoading ? (
+          <p className="text-sm text-slate-500 mb-4">車両読み込み中...</p>
+        ) : vehicles.length > 0 ? (
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-slate-700 mb-2">使用車両</label>
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              {vehicles.map((v, i) => (
+                <div key={v.id} className="flex-shrink-0">
+                  <VehiclePlate
+                    vehicle={v}
+                    selected={selectedVehicleId === v.id}
+                    onClick={() => handleVehicleSelect(v, i)}
+                    compact
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mt-1">タップで選択（前回の選択が保存されます）</p>
+          </div>
+        ) : null}
+
+        {/* メーター入力 */}
+        {vehicles.length > 0 && (
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-slate-700 mb-1">メーター数値（km）</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              min="0"
+              placeholder="例: 14567"
+              value={meterValue}
+              onChange={(e) => {
+                const v = e.target.value.replace(/\D/g, "");
+                setMeterValue(v);
+              }}
+              className="w-full px-4 py-3 text-lg font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <p className="text-xs text-slate-500 mt-1">車両のメーター数値として記録されます</p>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -99,6 +240,15 @@ export default function SubmitPage() {
                 />
               </div>
             ))}
+          </div>
+
+          {/* 配達受託者控 JPG出力 */}
+          <div className="pt-4 border-t border-slate-200">
+            <p className="text-sm font-medium text-slate-700 mb-2">配達受託者控</p>
+            <JukenCertificate numbers={jukenNumbers} />
+            <p className="text-xs text-slate-500 mt-2">
+              PDFをPNGにエクスポートして <code className="bg-slate-100 px-1 rounded">/image/juken_certificate.png</code> に配置すると、その上に数字が重なります。位置は調整可能です。
+            </p>
           </div>
 
           {status === "error" && (

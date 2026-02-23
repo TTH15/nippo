@@ -58,3 +58,12 @@ input[type="number"] {
 .month-tabs-scroll::-webkit-scrollbar {
   display: none;
 }
+
+/* 車両カルーセル等：スクロールバー非表示 */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

@@ -80,7 +80,7 @@ export default function CoursesPage() {
 
   return (
     <AdminLayout>
-      <div className="max-w-3xl">
+      <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">コース管理</h1>
           <button

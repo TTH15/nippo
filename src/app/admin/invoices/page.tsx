@@ -33,7 +33,7 @@ export default function InvoicesPage() {
 
   return (
     <AdminLayout>
-      <div className="max-w-5xl">
+      <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-xl font-bold text-slate-900">請求書一覧</h1>

@@ -125,7 +125,7 @@ export default function AddressBookPage() {
 
   return (
     <AdminLayout>
-      <div className="max-w-4xl">
+      <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-xl font-bold text-slate-900">アドレス帳（法人）</h1>

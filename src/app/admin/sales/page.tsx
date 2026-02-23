@@ -84,7 +84,7 @@ export default function SalesPage() {
 
   return (
     <AdminLayout>
-      <div className="max-w-6xl">
+      <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-xl font-bold text-slate-900">売上分析</h1>

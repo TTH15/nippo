@@ -219,7 +219,7 @@ export default function VehiclesPage() {
 
   return (
     <AdminLayout>
-      <div className="max-w-6xl">
+      <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">車両管理</h1>
           <button

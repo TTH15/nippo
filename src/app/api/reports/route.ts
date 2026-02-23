@@ -16,6 +16,8 @@ export async function POST(req: NextRequest) {
     const takuhaibinReturned = Number(body.takuhaibinReturned) || 0;
     const nekoposCompleted = Number(body.nekoposCompleted) || 0;
     const nekoposReturned = Number(body.nekoposReturned) || 0;
+    const vehicleId = body.vehicleId ?? null;
+    const meterValue = body.meterValue != null ? Number(body.meterValue) : null;
 
     // Validate non-negative integers
     if (
@@ -26,7 +28,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Values must be non-negative integers" }, { status: 400 });
     }
 
+    if (meterValue != null && (meterValue < 0 || !Number.isInteger(meterValue))) {
+      return NextResponse.json({ error: "Meter value must be non-negative integer" }, { status: 400 });
+    }
+
     const reportDate = todayJST();
+
+    // 車両のメーター値を更新
+    if (vehicleId && meterValue != null) {
+      await supabase
+        .from("vehicles")
+        .update({ current_mileage: meterValue, updated_at: new Date().toISOString() })
+        .eq("id", vehicleId);
+    }
 
     // Upsert
     const { data, error } = await supabase
@@ -39,6 +53,8 @@ export async function POST(req: NextRequest) {
           takuhaibin_returned: takuhaibinReturned,
           nekopos_completed: nekoposCompleted,
           nekopos_returned: nekoposReturned,
+          vehicle_id: vehicleId,
+          meter_value: meterValue,
           submitted_at: new Date().toISOString(),
         },
         { onConflict: "driver_id,report_date" }

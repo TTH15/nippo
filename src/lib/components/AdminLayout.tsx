@@ -17,6 +17,7 @@ const navItems: NavItem[] = [
     children: [
       { href: "/admin/users", label: "ドライバー管理" },
       { href: "/admin/shifts", label: "シフト" },
+      { href: "/admin/daily", label: "日報提出状況確認" },
     ],
   },
   { href: "/admin/vehicles", label: "車両" },
@@ -90,8 +91,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex bg-slate-50">
-      {/* Sidebar */}
-      <aside className="w-56 bg-slate-900 text-white flex flex-col shrink-0 h-screen sticky top-0" style={{ overflow: "visible" }}>
+      {/* Sidebar（フライアウトが車両カード等の上に表示されるようz-indexを設定） */}
+      <aside className="relative z-50 w-56 bg-slate-900 text-white flex flex-col shrink-0 h-screen sticky top-0" style={{ overflow: "visible" }}>
         {/* Logo */}
         <div className="h-14 flex items-center px-5 border-b border-slate-700/60">
           <span className="text-lg font-extrabold tracking-tight">日報集計</span>
@@ -195,7 +196,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
+      <main className="relative z-0 flex-1 overflow-auto">
         <div className="p-6">{children}</div>
       </main>
     </div>
