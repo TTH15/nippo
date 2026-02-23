@@ -15,7 +15,7 @@ export async function PUT(
 
   try {
     const body = await req.json();
-    const { name, officeCode, driverCode, courseIds, displayName } = body;
+    const { name, officeCode, driverCode, courseIds, displayName, postalCode, address, phone, bankName, bankNo, bankHolder } = body;
     const { id: driverId } = await params;
 
     const updates: Record<string, unknown> = {};
@@ -34,6 +34,12 @@ export async function PUT(
         updates.pin_hash = await bcrypt.hash(pinPart, 10);
       }
     }
+    if (postalCode !== undefined) updates.postal_code = typeof postalCode === "string" ? postalCode.trim() || null : null;
+    if (address !== undefined) updates.address = typeof address === "string" ? address.trim() || null : null;
+    if (phone !== undefined) updates.phone = typeof phone === "string" ? phone.trim() || null : null;
+    if (bankName !== undefined) updates.bank_name = typeof bankName === "string" ? bankName.trim() || null : null;
+    if (bankNo !== undefined) updates.bank_no = typeof bankNo === "string" ? bankNo.trim() || null : null;
+    if (bankHolder !== undefined) updates.bank_holder = typeof bankHolder === "string" ? bankHolder.trim() || null : null;
 
     if (Object.keys(updates).length > 0) {
       const { error } = await supabase

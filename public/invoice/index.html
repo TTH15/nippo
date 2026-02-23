@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>請求書作成システム</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="wrap">
+        <!-- 上部のコントロールバー -->
+        <div class="control-bar">
+            <div class="control-left">
+                <h1 style="margin:0;font-size:18px;">請求書作成システム</h1>
+            </div>
+            <div class="control-right">
+                <div class="tax-control">
+                    <span class="tax-label">消費税</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="taxEnabled" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <input type="number" id="taxRate" value="10" min="0" max="100" step="1" class="tax-rate-input">
+                    <span class="tax-percent">%</span>
+                </div>
+                <button class="btn ghost" id="addressBookBtn">アドレス帳</button>
+                <button class="btn primary" id="pdfBtn">PDFダウンロード</button>
+                <button class="btn" id="printBtn">印刷</button>
+            </div>
+        </div>
+
+        <!-- 請求先・請求元入力エリア -->
+        <div class="invoice-parties-container">
+            <div class="party-box">
+                <div class="party-label">請求元</div>
+                <select id="fromPartySelect" class="party-select">
+                    <option value="ace_creation">株式会社ACE CREATION</option>
+                    <option value="new">新規のアドレスを入力</option>
+                </select>
+            </div>
+
+            <div class="arrow-container">
+                <svg class="arrow-svg" viewBox="0 0 100 40" preserveAspectRatio="none">
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="#111" />
+                        </marker>
+                    </defs>
+                    <line x1="0" y1="20" x2="100" y2="20" stroke="#111" stroke-width="2" marker-end="url(#arrowhead)" />
+                </svg>
+                <button class="swap-btn" id="swapPartiesBtn" title="請求先と請求元を入れ替え">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M7 16V4M7 4L3 8M7 4L11 8M17 8V20M17 20L21 16M17 20L13 16" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="party-box">
+                <div class="party-label">請求先</div>
+                <select id="toPartySelect" class="party-select">
+                    <option value="new">新規のアドレスを入力</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="preview-wrap">
+            <div class="panel preview" id="preview">
+                <div class="sheet" id="sheet">
+                    <div class="title">御 請 求 書</div>
+
+                    <div class="meta">
+                        <div class="box to-box">
+                            <div class="to-name">
+                                <span id="p_toCompany" contenteditable="true" class="editable"></span>
+                                <span id="p_honorific_clickable" contenteditable="false"
+                                    title="クリックで御中/様を切り替え">御中</span>
+                            </div>
+                            <div class="kv">
+                                <div id="p_toAddr" contenteditable="true" class="editable"></div>
+                                <div id="p_toTelContainer" style="display: none;">電話：<span id="p_toTel"
+                                        contenteditable="true" class="editable"></span></div>
+                                <div id="p_toRegContainer" style="display: none;">登録番号：<span id="p_toReg"
+                                        contenteditable="true" class="editable"></span></div>
+                            </div>
+                            <div class="kv greeting-section">
+                                <div id="p_greeting" class="readonly-field">下記の通りご請求申し上げます。</div>
+                                <div id="p_subject" contenteditable="true" class="editable"></div>
+                            </div>
+                        </div>
+                        <div class="box" style="position: relative;">
+                            <!-- 印鑑画像（ACE CREATIONの場合のみ表示） -->
+                            <img id="aceStamp" src="ACE_CREATION_stamp_1.png" alt="" class="ace-stamp"
+                                style="display: none;">
+
+                            <div class="kv right">
+                                <div><b>請求日：</b><span id="p_issueDate" contenteditable="true" class="editable">2025年 月
+                                        日</span></div>
+                                <div><b>請求書番号：</b><span id="p_invoiceNo" contenteditable="true"
+                                        class="editable">###########</span></div>
+                            </div>
+                            <div class="kv" style="margin-top:14px">
+                                <div style="font-size:16px; font-weight:600; margin-top:4px;" id="p_fromName"
+                                    class="editable"></div>
+                                <div id="p_fromAddr" contenteditable="true" class="editable"></div>
+                                <div id="p_fromTelContainer" style="display: none;">電話：<span id="p_fromTel"
+                                        contenteditable="true" class="editable"></span>
+                                </div>
+                                <div id="p_fromRegContainer" style="display: none;">登録番号：<span id="p_fromReg"
+                                        contenteditable="true" class="editable"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="headline">
+                        <div class="muted">ご請求金額</div>
+                        <div class="sum" id="p_billAmountDisplay" contenteditable="true" class="editable">￥ （税込）
+                        </div>
+                    </div>
+
+                    <!-- 共通テーブルヘッダー -->
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th style="width: 55%;">摘要</th>
+                                <th style="width: 12%;">数量</th>
+                                <th style="width: 12%;">単価</th>
+                                <th style="width: 21%;">金額</th>
+                            </tr>
+                        </thead>
+                        <tbody class="section-group">
+                            <!-- 統合セクション -->
+                            <tr class="section-row">
+                                <td class="section-name-cell" colspan="4">
+                                    <div class="section-header-wrapper">
+                                        <div class="section-header-content">
+                                            <select class="inner section-select" data-section="main">
+                                                <option value="Amazon" selected>Amazon</option>
+                                                <option value="ヤマト運輸">ヤマト運輸</option>
+                                                <option value="郵便局">郵便局</option>
+                                            </select>
+                                        </div>
+                                        <button class="add-row-btn hide-print"
+                                            onclick="addTableRow('main')">行を追加</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                        <tbody id="p_main"></tbody>
+
+                        <tbody class="section-group">
+                            <!-- 控除セクション -->
+                            <tr class="section-row">
+                                <td class="section-name-cell" colspan="4">
+                                    <div class="section-header-wrapper">
+                                        <div class="section-header-content">
+                                            <div class="inner">控除</div>
+                                        </div>
+                                        <button class="add-row-btn hide-print"
+                                            onclick="addTableRow('deduct')">行を追加</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                        <tbody id="p_deduct"></tbody>
+                    </table>
+
+                    <div class="totals">
+                        <div class="row">
+                            <div class="total-label">小計</div>
+                            <div class="total-amount" id="p_subtotal"></div>
+                        </div>
+                        <div class="row" id="p_taxRow">
+                            <div class="total-label" id="p_taxLabel">消費税（10%）</div>
+                            <div class="total-amount" id="p_tax"></div>
+                        </div>
+                        <div class="row">
+                            <div class="total-label">控除計</div>
+                            <div class="total-amount" id="p_deductTotal"></div>
+                        </div>
+                        <div class="row final-total">
+                            <div class="total-label"><b>合計</b></div>
+                            <div class="total-amount" id="p_total"></div>
+                        </div>
+                    </div>
+
+                    <div class="bank">
+                        <div><b>振込期日</b> <span id="p_dueDate" contenteditable="true" class="editable">2025年12月31日</span>
+                        </div>
+                        <div><b>振込先</b> <span id="p_bankName" contenteditable="true" class="editable">京都信用金庫
+                                梅津支店</span>
+                        </div>
+                        <div><span></span><span id="p_bankNo" contenteditable="true" class="editable">普通 3058832</span>
+                        </div>
+                        <div><span></span><span id="p_bankHolder" contenteditable="true"
+                                class="editable">口座名義：カ)ｴｰｽｸﾘｴｲｼｮﾝ</span>
+                        </div>
+                        <div>
+                            <span></span>
+                            <div class="notes" id="p_notes" contenteditable="true" class="editable">
+                                上記口座にお振込みをお願いいたします。</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row" style="margin-top:12px;justify-content:center">
+                <span class="chip"><span class="muted">プレビューはA4表示</span></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- アドレス帳モーダル -->
+    <div id="addressBookModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>アドレス帳</h2>
+                <button class="modal-close" id="addressBookClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- タブナビゲーション -->
+                <div class="tab-navigation">
+                    <button class="tab-btn active" data-tab="corporate">法人</button>
+                    <button class="tab-btn" data-tab="individual">個人</button>
+                </div>
+
+                <!-- 法人タブコンテンツ -->
+                <div class="tab-content active" id="corporateTab">
+                    <div class="address-list-header">
+                        <h3>法人アドレス</h3>
+                        <a href="/admin/invoices/addressbook" target="_top" class="btn primary">アドレス帳で登録</a>
+                    </div>
+                    <div id="corporateListContainer">
+                        <!-- 動的に生成される -->
+                    </div>
+                </div>
+
+                <!-- 個人タブコンテンツ -->
+                <div class="tab-content" id="individualTab">
+                    <div class="address-list-header">
+                        <h3>個人アドレス</h3>
+                        <a href="/admin/users" target="_top" class="btn primary">ドライバー管理で登録</a>
+                    </div>
+                    <div id="individualListContainer">
+                        <!-- 動的に生成される -->
+                    </div>
+                </div>
+
+                <!-- 新規追加フォーム（DB移行のため非表示・アドレス帳ページで登録） -->
+                <div class="address-form" id="addressForm" style="display: none !important;">
+                    <div class="form-header">
+                        <h3 id="formTitle">新しいアドレスを追加</h3>
+                        <button class="btn ghost small" id="hideAddFormBtn">キャンセル</button>
+                    </div>
+
+                    <!-- 種別は非表示（タブで決定される） -->
+                    <input type="hidden" id="entityTypeHidden" value="corporate">
+
+                    <div class="form-row">
+                        <label id="nameLabel">会社名 *</label>
+                        <input type="text" id="newCompanyName" placeholder="株式会社○○" required>
+                    </div>
+                    <div class="form-row">
+                        <label>郵便番号</label>
+                        <input type="text" id="newPostalCode" placeholder="123-4567" maxlength="8">
+                    </div>
+                    <div class="form-row">
+                        <label>住所</label>
+                        <input type="text" id="newAddress" placeholder="東京都○○区○○1-2-3">
+                    </div>
+                    <div class="form-row">
+                        <label>電話番号</label>
+                        <input type="text" id="newPhone" placeholder="03-1234-5678">
+                    </div>
+                    <div class="form-row">
+                        <label>インボイス登録番号</label>
+                        <input type="text" id="newInvoiceNo" placeholder="T1234567890123">
+                    </div>
+
+                    <!-- 個人向け振込先情報 -->
+                    <div id="bankInfoSection" style="display: none;">
+                        <h4
+                            style="margin: 20px 0 12px 0; font-size: 14px; color: #666; border-bottom: 1px solid #eee; padding-bottom: 8px;">
+                            振込先情報（個人は必須）</h4>
+                        <div class="form-row">
+                            <label>金融機関名 *</label>
+                            <input type="text" id="newBankName" placeholder="京都信用金庫 梅津支店" required>
+                        </div>
+                        <div class="form-row">
+                            <label>口座種別・番号 *</label>
+                            <input type="text" id="newBankNo" placeholder="普通 3058832" required>
+                        </div>
+                        <div class="form-row">
+                            <label>口座名義 *</label>
+                            <input type="text" id="newBankHolder" placeholder="口座名義" required>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn primary" id="saveAddressBtn">保存</button>
+                        <button class="btn ghost" id="clearFormBtn">クリア</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- libs -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

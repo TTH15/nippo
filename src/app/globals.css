@@ -2,7 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
+/* ナンバープレート専用フォント */
+@font-face {
+  font-family: 'TrmFontJB';
+  src: url('/fonts/TrmFontJB.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* プレート内フォント指定（WDXL, Kaisei は layout の link で読み込み） */
+.plate-font-kanji {
+  font-family: 'WDXL Lubrifont JP N', 'Hiragino Kaku Gothic ProN', sans-serif;
+}
+.plate-font-hiragana {
+  font-family: 'Kaisei Tokumin', 'Hiragino Mincho ProN', serif;
+}
+.plate-font-numeric {
+  font-family: 'TrmFontJB', monospace;
+}
 
 :root {
   --color-bg: #f8fafc;
@@ -16,7 +34,7 @@
 }
 
 body {
-  font-family: 'Noto Sans JP', sans-serif;
+  font-family: 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
   background-color: var(--color-bg);
   color: var(--color-text);
   -webkit-font-smoothing: antialiased;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
@@ -21,9 +22,14 @@ function todayStr() {
 }
 
 export default function AdminDailyPage() {
+  const router = useRouter();
   const [date, setDate] = useState(todayStr());
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    router.replace("/admin/sales");
+  }, [router]);
 
   const load = (d: string) => {
     setLoading(true);

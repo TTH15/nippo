@@ -15,6 +15,12 @@ type Driver = {
   office_code: string;
   driver_code: string;
   created_at: string;
+  postal_code?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  bank_name?: string | null;
+  bank_no?: string | null;
+  bank_holder?: string | null;
   driver_courses: { course_id: string; courses: Course }[];
 };
 
@@ -33,6 +39,12 @@ export default function UsersPage() {
     officeCode: "",
     driverNumber: "", // 6桁の数字部分
     courseIds: [] as string[],
+    postalCode: "",
+    address: "",
+    phone: "",
+    bankName: "",
+    bankNo: "",
+    bankHolder: "",
   });
   const [saving, setSaving] = useState(false);
   const [companyCode, setCompanyCode] = useState(COMPANY_CODE);
@@ -67,7 +79,19 @@ export default function UsersPage() {
 
   const openNew = () => {
     setEditingDriver(null);
-    setForm({ name: "", displayName: "", officeCode: "", driverNumber: "", courseIds: [] });
+    setForm({
+      name: "",
+      displayName: "",
+      officeCode: "",
+      driverNumber: "",
+      courseIds: [],
+      postalCode: "",
+      address: "",
+      phone: "",
+      bankName: "",
+      bankNo: "",
+      bankHolder: "",
+    });
     setShowModal(true);
   };
 
@@ -79,6 +103,12 @@ export default function UsersPage() {
       officeCode: d.office_code || "",
       driverNumber: d.driver_code?.slice(3) || "",
       courseIds: d.driver_courses.map((dc) => dc.course_id),
+      postalCode: d.postal_code || "",
+      address: d.address || "",
+      phone: d.phone || "",
+      bankName: d.bank_name || "",
+      bankNo: d.bank_no || "",
+      bankHolder: d.bank_holder || "",
     });
     setShowModal(true);
   };
@@ -106,6 +136,12 @@ export default function UsersPage() {
             officeCode: form.officeCode,
             driverCode,
             courseIds: form.courseIds,
+            postalCode: form.postalCode.trim() || null,
+            address: form.address.trim() || null,
+            phone: form.phone.trim() || null,
+            bankName: form.bankName.trim() || null,
+            bankNo: form.bankNo.trim() || null,
+            bankHolder: form.bankHolder.trim() || null,
           }),
         });
       } else {
@@ -118,6 +154,12 @@ export default function UsersPage() {
             driverCode,
             companyCode,
             courseIds: form.courseIds,
+            postalCode: form.postalCode.trim() || null,
+            address: form.address.trim() || null,
+            phone: form.phone.trim() || null,
+            bankName: form.bankName.trim() || null,
+            bankNo: form.bankNo.trim() || null,
+            bankHolder: form.bankHolder.trim() || null,
           }),
         });
       }
@@ -153,7 +195,7 @@ export default function UsersPage() {
       <div className="max-w-4xl">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">ユーザー管理</h1>
+            <h1 className="text-xl font-bold text-slate-900">ドライバー管理</h1>
             <p className="text-sm text-slate-500 mt-0.5">会社コード: {companyCode}</p>
           </div>
           <button
@@ -228,10 +270,10 @@ export default function UsersPage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-5">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md max-h-[90vh] overflow-y-auto p-5">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
-              {editingDriver ? "ユーザー編集" : "新規ユーザー追加"}
+              {editingDriver ? "ドライバー編集" : "新規ドライバー追加"}
             </h2>
 
             <div className="space-y-4">
@@ -316,6 +358,74 @@ export default function UsersPage() {
                       {c.name}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              <div className="pt-4 mt-4 border-t border-slate-200">
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">請求書用情報（個人）</h3>
+                <p className="text-xs text-slate-500 mb-3">請求書の請求元として使用する際の住所・振込先情報</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">郵便番号</label>
+                    <input
+                      type="text"
+                      value={form.postalCode}
+                      onChange={(e) => setForm((f) => ({ ...f, postalCode: e.target.value }))}
+                      placeholder="123-4567"
+                      maxLength={8}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">住所</label>
+                    <input
+                      type="text"
+                      value={form.address}
+                      onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                      placeholder="東京都○○区○○1-2-3"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">電話番号</label>
+                    <input
+                      type="text"
+                      value={form.phone}
+                      onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                      placeholder="03-1234-5678"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">金融機関名</label>
+                    <input
+                      type="text"
+                      value={form.bankName}
+                      onChange={(e) => setForm((f) => ({ ...f, bankName: e.target.value }))}
+                      placeholder="京都信用金庫 梅津支店"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">口座種別・番号</label>
+                    <input
+                      type="text"
+                      value={form.bankNo}
+                      onChange={(e) => setForm((f) => ({ ...f, bankNo: e.target.value }))}
+                      placeholder="普通 3058832"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">口座名義</label>
+                    <input
+                      type="text"
+                      value={form.bankHolder}
+                      onChange={(e) => setForm((f) => ({ ...f, bankHolder: e.target.value }))}
+                      placeholder="口座名義：ヤマダ タロウ"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
                 </div>
               </div>
             </div>

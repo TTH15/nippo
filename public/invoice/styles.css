@@ -1,0 +1,1464 @@
+/* ==============================================
+   カラーパレット・基本変数
+   ============================================== */
+
+:root {
+    --ink: #111;               /* メインテキスト色 */
+    --muted: #666;             /* サブテキスト色 */
+    --border: #ddd;            /* 境界線色 */
+    --accent: #111;            /* アクセント色 */
+    --light-gray: #f8f8f8;     /* 薄いグレー背景 */
+    --add-btn-left: -40px;     /* ＋ボタンの左位置調整 */
+}
+
+/* ==============================================
+   全体の基本スタイル
+   ============================================== */
+
+/* ボックスサイズ設定 */
+* {
+    box-sizing: border-box;
+}
+
+/* ページ全体のスタイル */
+body {
+    margin: 0;
+    font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: var(--ink);         /* メインテキスト色 */
+    background: #f6f6f6;       /* ページ背景色 */
+}
+
+/* ==============================================
+   メインレイアウト（編集画面+プレビュー画面）
+   ============================================== */
+
+/* 全体のコンテナ */
+.wrap {
+    display: flex;
+    flex-direction: column;
+    padding: 20px;             /* 画面全体の余白 */
+}
+
+/* コントロールバー */
+.control-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+.control-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.control-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.tax-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-right: 16px;
+    border-right: 1px solid var(--border);
+    margin-right: 16px;
+}
+
+.tax-label {
+    font-size: 14px;
+    color: var(--ink);
+    white-space: nowrap;
+}
+
+/* トグルスイッチ */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .3s;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: #111;
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(20px);
+}
+
+.tax-rate-input {
+    width: 60px;
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    text-align: center;
+}
+
+.tax-rate-input:disabled {
+    background-color: #f5f5f5;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.tax-percent {
+    font-size: 14px;
+    color: var(--ink);
+}
+
+/* 請求先・請求元入力エリア */
+.invoice-parties-container {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+.party-box {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.party-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.party-input {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 16px;
+    font-weight: 600;
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    transition: all 0.2s ease;
+    font-family: inherit;
+}
+
+.party-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.05);
+}
+
+.party-input::placeholder {
+    color: #ccc;
+}
+
+.arrow-container {
+    position: relative;
+    flex: 0 0 150px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.arrow-svg {
+    width: 100%;
+    height: 40px;
+}
+
+.swap-btn {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 36px;
+    height: 36px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.swap-btn:hover {
+    background: var(--accent);
+    color: #fff;
+    transform: translate(-50%, -50%) rotate(180deg);
+}
+
+.swap-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* モバイル対応 */
+@media (max-width: 768px) {
+    .invoice-parties-container {
+        flex-direction: column;
+        gap: 16px;
+    }
+    
+    .arrow-container {
+        flex: 0 0 auto;
+        width: 100%;
+        height: 80px;
+    }
+    
+    .arrow-svg {
+        transform: rotate(90deg);
+        width: 40px;
+        height: 100%;
+    }
+    
+    .swap-btn {
+        transform: translate(-50%, -50%) rotate(90deg);
+    }
+    
+    .swap-btn:hover {
+        transform: translate(-50%, -50%) rotate(270deg);
+    }
+    
+    .control-bar {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .control-left,
+    .control-right {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .preview-wrap {
+        padding: 10px;
+    }
+    
+    .preview {
+        transform: scale(0.5);
+        transform-origin: top center;
+    }
+}
+
+/* パネル（編集画面・プレビュー画面共通） */
+.panel {
+    background: #fff;          /* パネル背景色 */
+    border: 1px solid var(--border);
+    border-radius: 8px;        /* パネルの角の丸み */
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);  /* パネルの影 */
+}
+
+/* ==============================================
+   編集画面（左側）のスタイル
+   ============================================== */
+
+/* 編集フォームエリア */
+.form {
+    width: 420px;              /* 編集画面の幅 */
+    padding: 20px;             /* 編集画面内の余白 */
+}
+
+/* 編集画面の見出し */
+.form h2 {
+    font-size: 16px;           /* 見出しサイズ */
+    margin: 8px 0 12px 0;      /* 見出しの余白 */
+}
+
+/* ==============================================
+   フォーム要素のスタイル
+   ============================================== */
+
+/* 横並びレイアウト用 */
+.row {
+    display: flex;
+    gap: 10px;                 /* 要素間の間隔 */
+}
+
+/* ラベル（項目名） */
+label {
+    display: block;
+    font-size: 12px;           /* ラベル文字サイズ */
+    color: var(--muted);       /* ラベル文字色 */
+    margin: 10px 0 6px;        /* ラベルの余白 */
+}
+
+/* 入力フィールド（テキスト・セレクト・テキストエリア） */
+input, select, textarea {
+    width: 100%;
+    padding: 10px 12px;        /* 入力欄内の余白 */
+    border: 1px solid var(--border);
+    border-radius: 6px;        /* 入力欄の角の丸み */
+    background: #fff;
+    font-size: 14px;           /* 入力文字サイズ */
+}
+
+/* テキストエリア専用設定 */
+textarea {
+    min-height: 64px;          /* テキストエリアの最小高さ */
+    resize: vertical;          /* 縦方向のみリサイズ可能 */
+}
+
+/* ==============================================
+   ボタンのスタイル
+   ============================================== */
+
+/* 基本ボタン */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .5em;                 /* ボタン内要素の間隔 */
+    padding: 10px 14px;        /* ボタン内余白 */
+    border-radius: 6px;        /* ボタンの角の丸み */
+    border: 1px solid var(--border);
+    background: #fff;          /* ボタン背景色 */
+    cursor: pointer;
+}
+
+/* プライマリボタン（重要なアクション） */
+.btn.primary {
+    background: var(--accent); /* アクセント背景色 */
+    color: #fff;               /* 白文字 */
+    border-color: var(--accent);
+}
+
+/* ゴーストボタン（控えめなアクション） */
+.btn.ghost {
+    background: #fff;          /* 白背景 */
+}
+
+/* 小さいボタン */
+.btn.small {
+    padding: 6px 10px;         /* 小さいボタンの余白 */
+    font-size: 12px;           /* 小さいボタンの文字サイズ */
+}
+
+/* ==============================================
+   レイアウト・ユーティリティクラス
+   ============================================== */
+
+/* セクション区切り */
+.section {
+    padding: 12px 0;           /* セクション上下の余白 */
+    border-top: 1px solid #eee; /* セクション区切り線 */
+    margin-top: 16px;          /* セクション上マージン */
+}
+
+/* 左右に要素を配置 */
+.flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* サブテキスト色 */
+.muted {
+    color: var(--muted);
+}
+
+/* 等幅フォント */
+.code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+}
+/* ==============================================
+   プレビュー画面全体のレイアウト設定
+   ============================================== */
+
+/* プレビューエリア全体のコンテナ */
+.preview-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* A4サイズのプレビューパネル */
+.preview {
+    width: 210mm;        /* A4幅 */
+    height: 297mm;       /* A4高さ */
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: auto;
+    overflow: hidden;
+    position: relative;
+    box-sizing: border-box;
+}
+
+/* 実際の請求書シート（余白設定） */
+.sheet {
+    width: 210mm;
+    height: 297mm;
+    padding: 18mm 16mm 16mm 16mm;  /* 上右下左の余白 */
+    box-sizing: border-box;
+}
+
+/* ==============================================
+   請求書タイトル部分
+   ============================================== */
+
+/* 「御 請 求 書」のタイトル */
+.title {
+    font-weight: 700;
+    letter-spacing: .4em;    /* 文字間隔 */
+    border-bottom: 2px solid #111;
+    font-size: 24px;         /* タイトルサイズ */
+    padding-bottom: 8px;
+    margin-bottom: 24px;
+    text-align: center;
+}
+
+/* ==============================================
+   宛先・自社情報エリア（上部の2つのボックス）
+   ============================================== */
+
+/* 左右に分かれたメタ情報コンテナ */
+.meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;               /* 左右のボックス間の間隔 */
+    margin-bottom: 20px;
+    align-items: stretch;    /* 左右のボックスの高さを揃える */
+}
+
+/* 各ボックス（左：宛先、右：自社情報） */
+.meta .box {
+    flex: 1;
+}
+
+/* 右側のボックス（自社情報）の幅を固定 */
+.meta .box:last-child {
+    flex: 0 0 auto;
+    min-width: 250px;        /* 右側ボックスの最小幅 */
+}
+
+/* 基本的なキー・バリュー表示スタイル */
+.kv {
+    font-size: 13px;         /* 文字サイズ */
+    line-height: 1.6;        /* 行間 */
+}
+
+.kv div {
+    margin-bottom: 2px;      /* 各行の下マージン */
+    display: block;          /* 縦並び表示を確実にする */
+    width: 100%;             /* 幅を100%にして横並びを防ぐ */
+}
+
+.kv b {
+    min-width: 80px;         /* ラベル部分の最小幅 */
+    display: inline-block;
+}
+
+/* 右寄せ表示用のスタイル（差出人エリアでは左寄せをオーバーライド） */
+.kv.right {
+    text-align: right;
+}
+
+.kv.right div {
+    text-align: right;
+}
+
+.kv.right b {
+    margin-right: 8px;
+}
+
+/* 右側ボックス全体を左寄せに変更 */
+.meta .box:last-child .kv {
+    text-align: left;
+}
+
+/* ACE CREATION印鑑のスタイル */
+.ace-stamp {
+    position: absolute;
+    top: 60%;
+    right: 10px;
+    transform: translateY(-50%);
+    width: 120px;
+    height: auto;
+    opacity: 0.9;
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* kvエリアを印鑑より前面に配置 */
+.meta .box:last-child .kv {
+    position: relative;
+    z-index: 1;
+}
+
+.meta .box:last-child .kv div {
+    text-align: left;
+    display: block;          /* 縦並び表示を確実にする */
+    width: 100%;             /* 幅を100%にして横並びを防ぐ */
+    float: none;             /* フロートを無効化 */
+    clear: both;             /* フロートをクリア */
+}
+
+/* 請求日・請求書番号エリアのスタイル調整 */
+.meta .box:last-child .kv.right {
+    text-align: left; /* 全体は左寄せ */
+}
+
+.meta .box:last-child .kv.right div {
+    text-align: left; /* div全体は左寄せ */
+    display: flex; /* flexboxで配置 */
+    justify-content: space-between; /* 左右に分ける */
+    align-items: baseline; /* ベースライン揃え */
+}
+
+.meta .box:last-child .kv.right b {
+    margin-right: 8px;
+    flex-shrink: 0; /* ラベル部分の幅を固定 */
+}
+
+.meta .box:last-child .kv.right span {
+    text-align: right; /* 数字部分は右寄せ */
+    margin-left: auto; /* 右端に配置 */
+}
+
+/* 宛先ボックス（左側）のスタイル */
+.to-box {
+    padding: 12px;           /* ボックス内の余白 */
+    display: flex;
+    flex-direction: column;
+    height: 100%;            /* 高さを最大に */
+}
+
+/* 挨拶文セクションを下に配置 */
+.greeting-section {
+    margin-top: 45px;  /* 上マージンを自動で最大に */
+    padding-bottom: 6px;          /* 下部にパディング */
+}
+
+.greeting-section #p_subject {
+    margin-top: 4px;
+}
+
+.to-name {
+    font-size: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    width: 100%;
+    border-bottom: 1px solid #000;
+    font-weight: 600;
+}
+
+/* 宛名入力欄 - 御中/様まで広げる */
+#p_toCompany {
+    flex: 1;
+    min-width: 0;
+    margin-right: 8px;
+}
+
+/* ==============================================
+   ご請求金額エリア
+   ============================================== */
+
+/* 請求金額の見出し行 */
+.headline {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 20px 0 16px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 8px;
+    width: 60%;
+    margin-right: 40%;
+}
+
+/* 「ご請求金額」ラベル */
+.headline .muted {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* 実際の請求金額 */
+.headline .sum {
+    font-size: 20px;         /* 金額の文字サイズ */
+    font-weight: 700;
+    text-align: right;
+}
+
+/* ==============================================
+   明細テーブル関連（画像デザイン完全再現）
+   ============================================== */
+
+/* テーブル全体のスタイル */
+.tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;         /* テーブル内文字サイズ */
+    margin-top: 0px;
+    margin-bottom: 16px;
+    position: relative;      /* 追加ボタンの基準となる位置 */
+    border: none;            /* 外枠は削除 */
+}
+
+/* テーブルヘッダーのスタイル */
+.tbl thead th {
+    background: #000;        /* 黒背景 */
+    color: #fff;             /* 白文字 */
+    font-weight: 600;
+    text-align: center;      /* 中央揃え */
+    padding: 6px 12px;      /* 上下の余白を少し増やす */
+    border: none;            /* ボーダーなし */
+    height: 28px;
+}
+
+/* テーブル本体のセルスタイル */
+.tbl tbody td {
+    border: none;            /* ボーダーなし */
+    border-bottom: 1px solid #000;  /* 下線のみ */
+    padding: 5px 10px;       /* 行をやや詰める */
+    text-align: left;
+    background: #fff;        /* 白背景 */
+    line-height: 1.45;       /* 文字が切れない程度に圧縮 */
+}
+
+/* 右寄せセル */
+.tbl tbody td.right {
+    text-align: right;
+}
+
+/* セクショングループ */
+.section-group {
+    position: relative;
+    z-index: 1;
+}
+
+/* セクションヘッダー行 */
+.section-row {
+    border: none;
+    position: relative;
+    z-index: 2;
+    height: auto !important;
+    min-height: 35px;
+}
+
+/* セクション名セル（摘要欄に表示） */
+.section-name-cell {
+    position: relative;
+    overflow: visible !important;
+    z-index: 2;
+    padding: 0 !important;
+    border-bottom: 1px solid #000 !important;
+}
+
+/* セクションヘッダーの外側ラッパー */
+.section-header-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    width: 70%;
+}
+
+/* セクションヘッダーのコンテンツ（中央揃え） */
+.section-header-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.section-name-cell .inner {
+    border: none !important;
+    padding: 0 !important;
+    text-align: center;
+    vertical-align: middle;
+    font-weight: bold;
+    color: #000;
+    background: transparent;
+    font-size: 14px;
+    line-height: 1.4;   /* セクション見出しもやや詰める */
+    flex-shrink: 0;
+}
+
+/* セクション選択ドロップダウンのサイズ調整 */
+.section-select {
+    flex-shrink: 0;
+}
+
+/* 行を追加ボタン */
+.add-row-btn {
+    background: rgb(210, 210, 210);
+    color: rgb(108, 108, 108);
+    border: 1px solid rgb(210, 210, 210);
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.add-row-btn:hover {
+        background: rgb(230, 230, 230);
+        border-color: rgb(230, 230, 230);
+}
+
+/* 旧add-btnスタイル（互換性のため残す） */
+.add-btn {
+    position: relative;
+    background: var(--accent);
+    color: #fff;
+    border: 1px solid var(--accent);
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 14px;
+    font-weight: normal;
+    line-height: 1;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0;
+    margin: 0;
+    flex-shrink: 0;
+    box-sizing: border-box;
+}
+
+.add-btn:hover {
+    background: #333;
+    border-color: #333;
+    transform: scale(1.1);
+}
+
+
+/* 右寄せ用クラス */
+.right {
+    text-align: right;
+}
+
+/* ==============================================
+   合計・税額エリア（画像デザイン完全再現）
+   ============================================== */
+
+/* 合計セクション全体 */
+.totals {
+    margin-top: 24px;
+    margin-left: 50%;
+    width: 50%;
+}
+
+/* 各合計行 */
+.totals .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #000;
+    padding: 4px 0;           /* 行の高さを低めに */
+}
+
+/* 合計行のラベル部分 */
+.totals .total-label {
+    flex: 1;
+    text-align: left;
+    padding-left: 12px;
+    font-weight: normal;
+    font-size: 13px;          /* ラベル文字を少し小さく */
+}
+
+/* 合計行の金額部分（テーブルの金額列と幅を揃える） */
+.totals .total-amount {
+    width: 120px;            /* テーブルの金額列と同じ幅 */
+    text-align: right;
+    padding-right: 12px;
+    font-weight: normal;
+    font-size: 13px;          /* 金額文字も少し小さく */
+}
+
+/* 最終合計行（合計）のスタイル */
+.totals .row.final-total {
+    background: #000;        /* 黒背景 */
+    color: #fff;             /* 白文字 */
+}
+
+.totals .row.final-total .total-label {
+    font-weight: 700;
+    font-size: 15px;          /* 合計ラベルだけは大きめ */
+}
+
+.totals .row.final-total .total-amount {
+    font-weight: 700;
+    font-size: 15px;         /* 少し大きめの文字 */
+}
+
+/* ==============================================
+   振込情報エリア
+   ============================================== */
+
+/* 振込情報セクション */
+.bank {
+    margin-top: 24px;        /* 上マージン */
+    border-top: 1px solid #000;
+    padding-top: 12px;       /* 上パディング */
+    font-size: 13px;         /* 文字サイズ */
+    line-height: 1.6;        /* 行間 */
+}
+
+.bank > div {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    margin-bottom: 4px;
+}
+
+.bank > div b {
+    display: inline-block;
+    min-width: 80px;         /* ラベル部分の最小幅 */
+    margin-right: 12px;      /* ラベルと値の間隔 */
+}
+
+.bank > div:not(.notes) {
+    padding-bottom: 2px;
+}
+
+.bank > div.transfer {
+    -left: 80%;
+}
+
+.bank .notes {
+    margin-top: 8px;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+/* 備考欄 */
+.notes {
+    margin-top: 8px;
+    font-size: 12px;         /* 備考文字サイズ */
+    color: #444;             /* 備考文字色 */
+    line-height: 1.5;
+}
+
+/* ==============================================
+   フッター
+   ============================================== */
+
+/* ページ下部のフッターテキスト */
+.footer {
+    position: absolute;
+    bottom: 10mm;            /* 下からの距離 */
+    left: 16mm;              /* 左からの距離 */
+    right: 16mm;             /* 右からの距離 */
+    font-size: 10px;         /* フッター文字サイズ */
+    color: #666;             /* フッター文字色 */
+    text-align: center;
+}
+/* PDF生成時に非表示にする要素 */
+/* PDF生成時のスタイル調整 */
+.pdf-generating {
+  overflow: visible !important;
+}
+
+.pdf-generating .add-btn,
+.pdf-generating button,
+.pdf-generating .btn {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+.pdf-generating .section-group,
+.pdf-generating .section-row,
+.pdf-generating .section-name-cell,
+.pdf-generating .section-name-cell .inner,
+.pdf-generating .section-select {
+  overflow: visible !important;
+  white-space: nowrap !important;
+  position: relative !important;
+}
+
+.pdf-generating .section-row {
+  height: auto !important;
+  min-height: 30px !important;
+  z-index: 10 !important;
+}
+
+.pdf-generating .section-name-cell {
+  padding: 0 !important;
+  z-index: 11 !important;
+}
+
+.pdf-generating .section-header-wrapper {
+  padding: 5px 10px !important;
+}
+
+.pdf-generating .section-header-content {
+  padding: 2px 0 !important;
+}
+
+.pdf-generating .section-name-cell .inner {
+  padding: 0 !important;
+  line-height: 1.5 !important;
+  overflow: visible !important;
+}
+
+/* PDF生成時のテーブル行のパディング調整 */
+.pdf-generating .tbl tbody td {
+  padding: 6px 10px !important;
+  line-height: 1.6 !important;
+  vertical-align: middle !important;
+  overflow: visible !important;
+}
+
+.pdf-generating .editable-cell {
+  line-height: 1.6 !important;
+  padding: 3px 4px !important;
+  overflow: visible !important;
+}
+
+@media print {
+  /* ページ設定 */
+  @page {
+    size: A4;
+    margin: 0;
+  }
+  
+  body {
+    background: #fff;
+    margin: 0;
+    padding: 0;
+    width: 210mm;
+    height: 297mm;
+  }
+  
+  .wrap {
+    display: block;
+    padding: 0;
+    width: 210mm;
+    height: 297mm;
+  }
+  
+  .control-bar {
+    display: none !important;
+  }
+  
+  .preview-wrap {
+    position: static;
+    padding: 0;
+    margin: 0;
+  }
+  
+  .preview {
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+    width: 210mm;
+    height: 297mm;
+  }
+  
+  .sheet {
+    width: 210mm;
+    height: 297mm;
+    padding: 18mm 16mm 16mm 16mm;
+    box-sizing: border-box;
+  }
+  
+  /* 非表示要素 */
+  .hide-print,
+  .add-btn,
+  .add-row-btn,
+  button,
+  .btn {
+    display: none !important;
+  }
+  
+  /* 入力フィールドの見た目を整える */
+  input[type="text"],
+  input[type="number"],
+  .editable-cell {
+    border: none !important;
+    background: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  
+  /* テーブルのレイアウト固定 */
+  table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  
+  /* ¥マークの印刷調整 */
+  .yen-symbol {
+    position: static;
+    display: inline;
+    transform: none;
+  }
+  
+  /* 選択範囲の表示を消す */
+  *::selection {
+    background: transparent;
+  }
+}
+.tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);display:inline-block}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);padding:6px 10px;border-radius:999px;font-size:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.hr{height:1px;background:var(--border);margin:12px 0}
+
+/* ==============================================
+   プレビュー直接編集機能
+   ============================================== */
+
+/* 編集可能な要素のスタイル */
+.editable {
+    transition: background-color 0.2s ease;
+    border-radius: 2px;
+    padding: 1px 2px;
+    min-height: 1.2em;
+    display: inline-block;
+    min-width: 20px;
+}
+
+.editable:hover {
+    background-color: #f0f8ff;
+    outline: 1px dashed #ccc;
+}
+
+.editable:focus {
+    background-color: #fff;
+    outline: 2px solid #4a90e2;
+    box-shadow: 0 0 3px rgba(74, 144, 226, 0.3);
+}
+
+/* 読み取り専用フィールドのスタイル */
+.readonly-field {
+    padding: 1px 2px;
+    border-radius: 2px;
+}
+
+/* ==============================================
+   セクションヘッダーと追加ボタン
+   ============================================== */
+
+/* この部分は上で新しく定義済み */
+
+/* 追加ボタン */
+.add-btn {
+    background: rgba(74, 144, 226, 0.1);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    color: #000;
+    transition: all 0.2s ease;
+    margin-left: 10px;
+}
+
+.add-btn:hover {
+    background: rgba(74, 144, 226, 0.2);
+    border-color:rgb(0, 0, 0);
+    transform: scale(1.1);
+}
+
+/* 印刷時に非表示 */
+.hide-print {
+    display: block;
+}
+
+/* ==============================================
+   宛名エリアのスタイル
+   ============================================== */
+
+/* 宛名行全体のスタイルは上記で定義済み */
+
+/* 敬称クリック可能エリア */
+#p_honorific_clickable {
+    cursor: pointer;
+    user-select: none;
+    background-color: transparent;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: background-color 0.2s ease;
+    margin-left: auto; /* 右端に配置 */
+}
+
+#p_honorific_clickable:hover {
+    background-color: #f0f8ff;
+}
+
+/* テーブル内の編集可能セル */
+.editable-cell {
+    border: none;
+    background: transparent;
+    width: 100%;
+    padding: 2px 4px;        /* 行をやや詰める */
+    font-size: inherit;
+    font-family: inherit;
+    text-align: inherit;
+}
+
+.editable-cell:focus {
+    outline: 2px solid #4a90e2;
+    background: #fff;
+}
+
+/* セクション選択ドロップダウンのスタイル */
+.section-select {
+    border: none;
+    background: transparent;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--ink);
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 4px center;
+    background-repeat: no-repeat;
+    background-size: 16px;
+    padding-right: 24px;
+}
+
+.section-select:hover {
+    background-color: var(--light-gray);
+}
+
+.section-select:focus {
+    background-color: var(--light-gray);
+    box-shadow: 0 0 0 2px rgba(17, 17, 17, 0.1);
+}
+
+/* 印刷時はドロップダウンの矢印を非表示 */
+@media print {
+    .section-select {
+        background-image: none !important;
+        padding-right: 8px !important;
+        appearance: none !important;
+        -webkit-appearance: none !important;
+        -moz-appearance: none !important;
+    }
+}
+
+/* ¥マークのスタイル */
+.yen-symbol {
+    font-size: 14px;
+    color: #000;  /* 黒色に変更 */
+    pointer-events: none;
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+/* ==============================================
+   アドレス帳モーダル
+   ============================================== */
+
+.modal {
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background-color: white;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 800px;
+    max-height: 90%;
+    overflow-y: auto;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    padding: 3%;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #eee;
+    position: sticky;
+    top: 0;
+    z-index: 999;
+    background-color: white;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 20px;
+    color: #333;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-close:hover {
+    color: #000;
+}
+
+.modal-body {
+    padding: 0;
+}
+
+/* タブナビゲーション */
+.tab-navigation {
+    display: flex;
+    border-bottom: 1px solid #eee;
+    background: #f8f9fa;
+}
+
+.tab-btn {
+    flex: 1;
+    padding: 16px 24px;
+    background: none;
+    border: none;
+    font-size: 16px;
+    font-weight: 500;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-bottom: 3px solid transparent;
+}
+
+.tab-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: #333;
+}
+
+.tab-btn.active {
+    color: #007bff;
+    border-bottom-color: #007bff;
+    background: white;
+}
+
+/* タブコンテンツ */
+.tab-content {
+    display: none;
+    padding: 24px;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.address-form {
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid #eee;
+}
+
+.address-form h3 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    color: #333;
+}
+
+.form-row {
+    margin-bottom: 16px;
+}
+
+.form-row label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 600;
+    color: #333;
+    font-size: 14px;
+}
+
+.form-row input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.form-row input:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+.address-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.address-list-header h3 {
+    margin: 0;
+    font-size: 16px;
+    color: #333;
+}
+
+.form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #eee;
+}
+
+.form-header h3 {
+    margin: 0;
+    font-size: 16px;
+    color: #333;
+}
+
+
+.address-item {
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 12px;
+    background: #fafafa;
+}
+
+.address-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.address-item-name {
+    font-weight: 600;
+    font-size: 16px;
+    color: #333;
+}
+
+.address-item-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.address-item-details {
+    font-size: 14px;
+    color: #666;
+    line-height: 1.4;
+}
+
+.address-item-details div {
+    margin-bottom: 2px;
+}
+
+
+.entity-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    margin-left: 8px;
+}
+
+.entity-badge.corporate {
+    background-color: #e3f2fd;
+    color: #1976d2;
+}
+
+.entity-badge.individual {
+    background-color: #f3e5f5;
+    color: #7b1fa2;
+}
+
+/* 請求先・請求元選択エリアのスタイル調整 */
+.party-select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    background: white;
+}
+
+.party-select:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}

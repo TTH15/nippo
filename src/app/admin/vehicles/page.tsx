@@ -7,6 +7,30 @@ import { getDisplayName } from "@/lib/displayName";
 
 const LEASE_COST = 35000; // 月々リース代
 
+/**
+ * 一連番号を4桁配列で返す。空き桁は "・"。
+ * 右詰めで数字が入る（電卓方式）。
+ */
+function plateDigits(raw: string): [string, string, string, string] {
+  const digits = raw.replace(/\D/g, "").slice(0, 4);
+  const arr: string[] = Array(4).fill("・");
+  for (let i = 0; i < digits.length; i++) {
+    arr[4 - digits.length + i] = digits[i];
+  }
+  return arr as [string, string, string, string];
+}
+
+/**
+ * プレート表示用フォーマット。4桁のときのみハイフン、それ以外はスペース。
+ * 例: "2123"→"21-23", "254"→"・2 54", "43"→"・・ 43"
+ */
+function formatPlateNumeric(raw: string): string {
+  const d = plateDigits(raw);
+  const digits = raw.replace(/\D/g, "");
+  const sep = digits.length === 4 ? "-" : " ";
+  return `${d[0]}${d[1]}${sep}${d[2]}${d[3]}`;
+}
+
 type Driver = {
   id: string;
   name: string;
@@ -24,6 +48,7 @@ type Vehicle = {
   manufacturer?: string | null;
   brand?: string | null;
   number_prefix?: string | null;
+  number_class?: string | null;
   number_hiragana?: string | null;
   number_numeric?: string | null;
   current_mileage: number;
@@ -46,6 +71,7 @@ export default function VehiclesPage() {
     manufacturer: "",
     brand: "",
     numberPrefix: "",
+    numberClass: "",
     numberHiragana: "",
     numberNumeric: "",
     currentMileage: 0,
@@ -84,6 +110,7 @@ export default function VehiclesPage() {
       manufacturer: "",
       brand: "",
       numberPrefix: "",
+      numberClass: "",
       numberHiragana: "",
       numberNumeric: "",
       currentMileage: 0,
@@ -103,6 +130,7 @@ export default function VehiclesPage() {
       manufacturer: v.manufacturer || "",
       brand: v.brand || "",
       numberPrefix: v.number_prefix || "",
+      numberClass: v.number_class || "",
       numberHiragana: v.number_hiragana || "",
       numberNumeric: v.number_numeric || "",
       currentMileage: v.current_mileage,
@@ -226,46 +254,127 @@ export default function VehiclesPage() {
               const vehicleNo = vehicleIndex >= 0 ? vehicleIndex + 1 : 1;
 
               return (
-                <div key={v.id} className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* 左側: No、ドライバーラベル、ナンバープレート、写真、車種 */}
-                    <div className="space-y-4">
-                      {/* No */}
-                      <div>
-                        <span className="text-lg font-bold text-slate-900">No.{String(vehicleNo).padStart(4, "0")}</span>
-                      </div>
+                <div key={v.id} className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm relative">
+                  {/* 右上の編集アイコン */}
+                  <button
+                    onClick={() => openEdit(v)}
+                    className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors"
+                    title="編集"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
 
-                      {/* 利用ドライバーラベル */}
-                      <div className="flex flex-wrap gap-1.5">
-                        {vehicleDrivers.length > 0 ? (
-                          vehicleDrivers.map((vd) => (
-                            <span
-                              key={vd.driver_id}
-                              className="px-2 py-0.5 bg-slate-800 text-white text-xs rounded font-medium"
-                            >
-                              {getDisplayName(vd.drivers)}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="px-2 py-0.5 bg-slate-50 text-slate-400 text-xs rounded">未設定</span>
-                        )}
+                  <div className="flex gap-8">
+                    {/* 左側: No、ドライバーラベル、ナンバープレート、写真、車種 */}
+                    <div className="flex-shrink-0 w-64 space-y-4">
+                      {/* No + ドライバーラベル（横並び） */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xl font-bold text-slate-900">
+                          No.{String(vehicleNo).padStart(4, "0")}
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {vehicleDrivers.length > 0 ? (
+                            vehicleDrivers.map((vd) => (
+                              <span
+                                key={vd.driver_id}
+                                className="px-2.5 py-1 bg-slate-800 text-white text-xs rounded font-medium"
+                              >
+                                {getDisplayName(vd.drivers)}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="px-2.5 py-1 bg-slate-50 text-slate-400 text-xs rounded">未設定</span>
+                          )}
+                        </div>
                       </div>
 
                       {/* ナンバープレート */}
                       {(v.number_prefix || v.number_hiragana || v.number_numeric) && (
-                        <div className="bg-black text-yellow-300 px-3 py-1.5 rounded font-mono text-sm font-bold border-2 border-yellow-400 w-fit">
-                          <div className="text-center leading-tight">
-                            <div>{v.number_prefix || "京都"}</div>
-                            <div className="text-xs mt-0.5">
-                              {v.number_hiragana || "と"} {v.number_numeric || "00-00"}
+                        <div
+                          className="relative bg-black rounded-lg overflow-hidden"
+                          style={{
+                            aspectRatio: "2 / 1",
+                            maxWidth: "240px",
+                            border: "2.5px solid #b8a038",
+                            boxShadow: "inset 0 0 0 2px #1a1a1a, 0 2px 8px rgba(0,0,0,0.3)",
+                          }}
+                        >
+                          {/* ボルト穴（左上） */}
+                          <div
+                            className="absolute flex items-center justify-center"
+                            style={{ top: "10%", left: "12%", width: "12px", height: "12px" }}
+                          >
+                            <div
+                              className="rounded-full"
+                              style={{
+                                width: "10px",
+                                height: "10px",
+                                // border: "1.5px solid #a09030",
+                                background: "radial-gradient(circle at 40% 40%, #555 0%, #222 60%, #111 100%)",
+                              }}
+                            />
+                          </div>
+                          {/* ボルト穴（右上） */}
+                          <div
+                            className="absolute flex items-center justify-center"
+                            style={{ top: "10%", right: "12%", width: "12px", height: "12px" }}
+                          >
+                            <div
+                              className="rounded-full"
+                              style={{
+                                width: "10px",
+                                height: "10px",
+                                // border: "1.5px solid #a09030",
+                                background: "radial-gradient(circle at 40% 40%, #555 0%, #222 60%, #111 100%)",
+                              }}
+                            />
+                          </div>
+                          {/* プレート内容 */}
+                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            {/* 上段: 地域名 + 分類番号 */}
+                            <div
+                              className="flex items-baseline gap-1.5 pt-3"
+                              style={{ color: "#e8d44d", marginBottom: "2px" }}
+                            >
+                              <span className="plate-font-kanji" style={{ fontSize: "1.9rem", letterSpacing: "0.08em" }}>
+                                {v.number_prefix || "京都"}
+                              </span>
+                              <span className="plate-font-numeric" style={{ fontSize: "1.75rem", letterSpacing: "0.06em" }}>
+                                {v.number_class || "400"}
+                              </span>
+                            </div>
+                            {/* 下段: ひらがな + 一連番号 */}
+                            <div
+                              className="flex items-center pb-3"
+                              style={{ color: "#e8d44d", gap: "0.35rem" }}
+                            >
+                              <span
+                                className="plate-font-hiragana font-bold flex items-center"
+                                style={{ fontSize: "2rem", lineHeight: 1, height: "100%" }}
+                              >
+                                {v.number_hiragana || "わ"}
+                              </span>
+                              <span
+                                className="plate-font-numeric font-black tracking-wider"
+                                style={{
+                                  fontSize: "4rem",
+                                  lineHeight: 1,
+                                  letterSpacing: "0.02em",
+                                  textShadow: "0 0 6px rgba(232,212,77,0.3)",
+                                }}
+                              >
+                                {formatPlateNumeric(v.number_numeric || "")}
+                              </span>
                             </div>
                           </div>
                         </div>
                       )}
 
-                      {/* 車両画像プレースホルダー */}
-                      <div className="h-48 bg-slate-100 rounded flex items-center justify-center text-slate-400 text-sm">
-                        車両画像
+                      {/* 車両画像プレースホルダー（16:9） */}
+                      <div className="w-full aspect-video bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-sm overflow-hidden">
+                        <span>車両画像</span>
                       </div>
 
                       {/* 車種（メーカー名とブランド名を分けて表示） */}
@@ -276,7 +385,7 @@ export default function VehiclesPage() {
                           )}
                           {v.manufacturer && v.brand && <span className="text-xs text-slate-500 mx-1"> </span>}
                           {v.brand && (
-                            <span className="text-base font-semibold text-slate-900">{v.brand}</span>
+                            <span className="text-lg font-semibold text-slate-900">{v.brand}</span>
                           )}
                         </div>
                       )}
@@ -286,127 +395,102 @@ export default function VehiclesPage() {
                     </div>
 
                     {/* 右側: 次回車検・定期点検、オイル交換ゲージ、回収ROIゲージ */}
-                    <div className="space-y-4">
-                      {/* 次回車検・定期点検 */}
-                      <div className="space-y-2 text-sm">
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-500">次回車検</span>
+                    <div className="flex-1 space-y-6">
+                      {/* 次回車検・定期点検（横並び） */}
+                      <div className="flex items-center gap-6 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-600">次回車検</span>
                           <span className="font-medium text-slate-900">2026年8月</span>
-                          <button
-                            onClick={() => openEdit(v)}
-                            className="text-slate-400 hover:text-slate-600"
-                            title="編集"
-                          >
-                            ✏️
-                          </button>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-500">次回定期点検</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-600">次回定期点検</span>
                           <span className="font-medium text-slate-900">2026年2月</span>
-                          <button
-                            onClick={() => openEdit(v)}
-                            className="text-slate-400 hover:text-slate-600"
-                            title="編集"
-                          >
-                            ✏️
-                          </button>
                         </div>
                       </div>
 
                       {/* オイル交換ゲージ */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-xs text-slate-600">
-                          <span>前回オイル交換</span>
-                          <span className="font-medium">{fmt(v.last_oil_change_mileage)} km</span>
-                        </div>
-                        <div className="relative h-8 bg-green-50 rounded border border-green-200">
+                      <div className="pt-2">
+                        {/* ラベル行 */}
+                        <div className="relative h-10 mb-1">
+                          {/* 前回オイル交換（左端） */}
+                          <div className="absolute left-0 top-0 text-left">
+                            <div className="text-[10px] text-slate-500 leading-tight">前回オイル交換</div>
+                            <div className="text-xs font-medium text-slate-800 leading-tight">{fmt(v.last_oil_change_mileage)} km</div>
+                          </div>
+                          {/* 現在走行距離（現在位置） */}
                           <div
-                            className="absolute top-0 left-0 h-full bg-green-400 rounded"
-                            style={{ width: `${oilProgress}%` }}
-                          />
-                          <div
-                            className="absolute top-0 h-full w-0.5 bg-green-700 z-10"
-                            style={{ left: `${oilProgress}%` }}
-                          />
-                          <div className="absolute inset-0 flex items-center justify-between px-2 text-xs font-medium text-green-900">
-                            <span>{fmt(v.last_oil_change_mileage)}</span>
-                            <span>{fmt(nextOilChangeKm)}</span>
+                            className="absolute top-0 whitespace-nowrap"
+                            style={{
+                              left: `${oilProgress}%`,
+                              transform: `translateX(${oilProgress > 70 ? "-80%" : oilProgress < 30 ? "0%" : "-50%"})`,
+                            }}
+                          >
+                            <div className="text-[10px] text-slate-500 leading-tight">現在走行距離</div>
+                            <div className="text-xs font-bold text-slate-900 leading-tight">{fmt(v.current_mileage)} km</div>
+                          </div>
+                          {/* 次回オイル交換（右端） */}
+                          <div className="absolute right-0 top-0 text-right">
+                            <div className="text-[10px] text-slate-500 leading-tight">次回オイル交換</div>
+                            <div className="text-xs font-medium text-slate-800 leading-tight">{fmt(nextOilChangeKm)} km</div>
                           </div>
                         </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-500">次回オイル交換</span>
-                          <span className="font-medium text-slate-900">{fmt(nextOilChangeKm)} km</span>
-                          <button
-                            onClick={() => openEdit(v)}
-                            className="text-slate-400 hover:text-slate-600"
-                            title="編集"
-                          >
-                            ✏️
-                          </button>
+                        {/* ▼ マーカー行 */}
+                        <div className="relative h-3">
+                          {/* 前回位置 ▼ */}
+                          <div className="absolute left-0 top-0 -translate-x-[3px] text-slate-400 text-[10px] leading-none">▼</div>
+                          {/* 現在位置 ▼ */}
+                          <div
+                            className="absolute top-0 text-green-600 text-[10px] leading-none"
+                            style={{ left: `${oilProgress}%`, transform: "translateX(-50%)" }}
+                          >▼</div>
                         </div>
-                        <div className="text-xs text-slate-600">
-                          現在走行距離: <span className="font-medium">{fmt(v.current_mileage)} km</span>
-                          {oilRemaining > 0 ? (
-                            <span className="ml-2 text-green-600">あと {fmt(oilRemaining)} km</span>
-                          ) : (
-                            <span className="ml-2 text-red-600">交換時期です</span>
-                          )}
+                        {/* ゲージバー */}
+                        <div className="relative h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className={`absolute top-0 left-0 h-full rounded-full transition-all ${oilRemaining > 0 ? "bg-green-500" : "bg-red-500"
+                              }`}
+                            style={{ width: `${Math.min(oilProgress, 100)}%` }}
+                          />
                         </div>
                       </div>
 
                       {/* 回収ROIゲージ */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-xs text-slate-600">
-                          <span>回収済み</span>
-                          <span className="font-medium">{fmt(recovered)}円</span>
+                      <div className="flex gap-3 items-start">
+                        {/* 左側: ラベルと金額（縦並び、ゲージの位置に対応） */}
+                        <div className="flex flex-col text-xs text-slate-600 min-w-[110px]">
+                          <div className="mb-1">
+                            <div className="text-slate-500 text-[10px]">回収済み</div>
+                            <div className="font-medium text-xs">{fmt(recovered)}円</div>
+                          </div>
+                          <div className="flex-1 flex items-center">
+                            {remainingMonths !== null && remainingMonths > 0 && (
+                              <div>
+                                <div className="text-slate-500 text-[10px]">回収まで</div>
+                                <div className="font-medium text-xs text-blue-600">残り約{remainingMonths}ヶ月</div>
+                              </div>
+                            )}
+                            {purchaseCost > 0 && recovered >= purchaseCost && (
+                              <div className="font-medium text-xs text-green-600">✓ 回収完了</div>
+                            )}
+                          </div>
+                          <div className="mt-auto">
+                            <div className="text-slate-500 text-[10px]">購入費用</div>
+                            <div className="font-medium text-xs text-slate-900">{fmt(purchaseCost)}円</div>
+                          </div>
                         </div>
-                        <div className="relative h-8 bg-blue-50 rounded border border-blue-200">
+                        {/* 右側: ゲージ */}
+                        <div className="flex-1 relative h-20 bg-blue-50 rounded border border-blue-200 overflow-hidden">
                           <div
-                            className="absolute top-0 left-0 h-full bg-blue-600 rounded"
+                            className="absolute top-0 left-0 h-full bg-blue-600 transition-all"
                             style={{ width: `${recoveryProgress}%` }}
                           />
-                          <div className="absolute inset-0 flex items-center justify-between px-2 text-xs font-medium text-blue-900">
-                            <span>{fmt(recovered)}</span>
-                            <span>{fmt(purchaseCost)}</span>
+                          <div className="absolute inset-0 flex flex-col justify-between py-1 px-2">
+                            <div className="text-[10px] font-medium text-blue-900">{fmt(recovered)}</div>
+                            <div className="text-[10px] font-medium text-blue-900 text-right">{fmt(purchaseCost)}</div>
                           </div>
                         </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-500">購入費用</span>
-                          <span className="font-medium text-slate-900">{fmt(purchaseCost)}円</span>
-                          <button
-                            onClick={() => deleteVehicle(v.id, v.name)}
-                            className="text-slate-400 hover:text-red-600"
-                            title="削除"
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                        {remainingMonths !== null && remainingMonths > 0 && (
-                          <div className="text-xs text-slate-600">
-                            回収まで: <span className="font-medium text-blue-600">残り約{remainingMonths}ヶ月</span>
-                          </div>
-                        )}
-                        {purchaseCost > 0 && recovered >= purchaseCost && (
-                          <div className="text-xs font-medium text-green-600">✓ 回収完了</div>
-                        )}
                       </div>
                     </div>
-                  </div>
-
-                  {/* 編集・削除ボタン */}
-                  <div className="mt-4 pt-4 border-t border-slate-200 flex justify-end gap-2">
-                    <button
-                      onClick={() => openEdit(v)}
-                      className="px-3 py-1 text-xs text-slate-600 hover:text-slate-800 transition-colors"
-                    >
-                      編集
-                    </button>
-                    <button
-                      onClick={() => deleteVehicle(v.id, v.name)}
-                      className="px-3 py-1 text-xs text-red-500 hover:text-red-700 transition-colors"
-                    >
-                      削除
-                    </button>
                   </div>
                 </div>
               );
@@ -461,29 +545,91 @@ export default function VehiclesPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">ナンバープレート</label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-2 mb-2">
                     <input
                       type="text"
                       value={form.numberPrefix}
                       onChange={(e) => setForm((f) => ({ ...f, numberPrefix: e.target.value }))}
-                      placeholder="都道府県（例: 京都）"
+                      placeholder="地域名（例: 京都）"
+                      className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <input
+                      type="text"
+                      value={form.numberClass}
+                      onChange={(e) => setForm((f) => ({ ...f, numberClass: e.target.value }))}
+                      placeholder="分類（例: 400）"
                       className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                     <input
                       type="text"
                       value={form.numberHiragana}
                       onChange={(e) => setForm((f) => ({ ...f, numberHiragana: e.target.value }))}
-                      placeholder="ひらがな（例: と）"
+                      placeholder="かな（例: わ）"
                       maxLength={1}
                       className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
+                  </div>
+                  <label className="block text-xs text-slate-500 mb-1">一連番号（数字のみ・右詰め・4桁でハイフン）</label>
+                  <div
+                    className="inline-flex items-center gap-1 cursor-text"
+                    onClick={(e) => {
+                      (e.currentTarget.querySelector("input") as HTMLInputElement)?.focus();
+                    }}
+                  >
                     <input
                       type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
                       value={form.numberNumeric}
-                      onChange={(e) => setForm((f) => ({ ...f, numberNumeric: e.target.value }))}
-                      placeholder="数字（例: 00-00）"
-                      className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+                        setForm((f) => ({ ...f, numberNumeric: v }));
+                      }}
+                      onKeyDown={(e) => {
+                        if (
+                          !/^\d$/.test(e.key) &&
+                          !["Backspace", "Delete", "Tab", "ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key) &&
+                          !e.metaKey && !e.ctrlKey
+                        ) {
+                          e.preventDefault();
+                        }
+                      }}
+                      maxLength={4}
+                      className="sr-only"
                     />
+                    {(() => {
+                      const d = plateDigits(form.numberNumeric);
+                      const filled = form.numberNumeric.replace(/\D/g, "").length;
+                      return (
+                        <>
+                          {d.slice(0, 2).map((c, i) => (
+                            <div
+                              key={`d${i}`}
+                              className={`w-10 h-10 flex items-center justify-center rounded-lg border-2 text-base font-bold transition-colors ${c === "・"
+                                ? "border-slate-200 bg-slate-50 text-slate-300"
+                                : "border-slate-400 bg-white text-slate-900"
+                                }`}
+                            >
+                              {c}
+                            </div>
+                          ))}
+                          <span className="text-slate-400 font-bold text-lg w-4 text-center select-none">
+                            {filled === 4 ? "-" : ""}
+                          </span>
+                          {d.slice(2).map((c, i) => (
+                            <div
+                              key={`d${i + 2}`}
+                              className={`w-10 h-10 flex items-center justify-center rounded-lg border-2 text-base font-bold transition-colors ${c === "・"
+                                ? "border-slate-200 bg-slate-50 text-slate-300"
+                                : "border-slate-400 bg-white text-slate-900"
+                                }`}
+                            >
+                              {c}
+                            </div>
+                          ))}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -495,11 +641,10 @@ export default function VehiclesPage() {
                         key={d.id}
                         type="button"
                         onClick={() => toggleDriver(d.id)}
-                        className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
-                          form.driverIds.includes(d.id)
-                            ? "bg-slate-800 text-white border-slate-800"
-                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                        }`}
+                        className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${form.driverIds.includes(d.id)
+                          ? "bg-slate-800 text-white border-slate-800"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                          }`}
                       >
                         {getDisplayName(d)}
                       </button>
@@ -564,20 +709,37 @@ export default function VehiclesPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 mt-6">
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
-                >
-                  キャンセル
-                </button>
-                <button
-                  onClick={save}
-                  disabled={saving || !form.name}
-                  className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
-                >
-                  {saving ? "保存中..." : "保存"}
-                </button>
+              <div className="flex flex-col gap-3 mt-6">
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setShowModal(false)}
+                    className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    onClick={save}
+                    disabled={saving || !form.name}
+                    className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                  >
+                    {saving ? "保存中..." : "保存"}
+                  </button>
+                </div>
+                {editingVehicle && (
+                  <div className="pt-3 border-t border-slate-200">
+                    <button
+                      onClick={() => {
+                        if (confirm(`${editingVehicle.name}を削除しますか？`)) {
+                          deleteVehicle(editingVehicle.id, editingVehicle.name);
+                          setShowModal(false);
+                        }
+                      }}
+                      className="w-full px-4 py-2 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50 transition-colors"
+                    >
+                      削除
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

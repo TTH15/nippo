@@ -19,6 +19,7 @@ export async function PUT(
       manufacturer,
       brand,
       numberPrefix,
+      numberClass,
       numberHiragana,
       numberNumeric,
       currentMileage,
@@ -34,6 +35,7 @@ export async function PUT(
     if (manufacturer !== undefined) updates.manufacturer = manufacturer?.trim() || null;
     if (brand !== undefined) updates.brand = brand?.trim() || null;
     if (numberPrefix !== undefined) updates.number_prefix = numberPrefix || null;
+    if (numberClass !== undefined) updates.number_class = numberClass || null;
     if (numberHiragana !== undefined) updates.number_hiragana = numberHiragana || null;
     if (numberNumeric !== undefined) updates.number_numeric = numberNumeric || null;
     if (currentMileage !== undefined) updates.current_mileage = currentMileage;

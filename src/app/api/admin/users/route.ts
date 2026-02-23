@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
     .from("drivers")
     .select(`
       id, name, display_name, role, company_code, office_code, driver_code, created_at,
+      postal_code, address, phone, bank_name, bank_no, bank_holder,
       driver_courses (
         course_id,
         courses (id, name, color)
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
     const pinHash = await bcrypt.hash(pinPart, 10);
 
     // Insert driver
+    const { postalCode, address, phone, bankName, bankNo, bankHolder } = body;
     const { data: driver, error: dErr } = await supabase
       .from("drivers")
       .insert({ 
@@ -71,6 +73,12 @@ export async function POST(req: NextRequest) {
         company_code: companyCode || user.companyCode,
         office_code: officeCode,
         driver_code: driverCode.toUpperCase(),
+        postal_code: typeof postalCode === "string" ? postalCode.trim() || null : null,
+        address: typeof address === "string" ? address.trim() || null : null,
+        phone: typeof phone === "string" ? phone.trim() || null : null,
+        bank_name: typeof bankName === "string" ? bankName.trim() || null : null,
+        bank_no: typeof bankNo === "string" ? bankNo.trim() || null : null,
+        bank_holder: typeof bankHolder === "string" ? bankHolder.trim() || null : null,
       })
       .select()
       .single();
