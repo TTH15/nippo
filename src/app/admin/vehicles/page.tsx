@@ -72,11 +72,11 @@ export default function VehiclesPage() {
     numberClass: "",
     numberHiragana: "",
     numberNumeric: "",
-    currentMileage: 0,
-    lastOilChangeMileage: 0,
-    oilChangeInterval: 3000,
-    purchaseCost: 0,
-    monthlyInsurance: 0,
+    currentMileage: "",
+    lastOilChangeMileage: "",
+    oilChangeInterval: "3000",
+    purchaseCost: "",
+    monthlyInsurance: "",
     driverIds: [] as string[],
   });
   const [saving, setSaving] = useState(false);
@@ -110,11 +110,11 @@ export default function VehiclesPage() {
       numberClass: "",
       numberHiragana: "",
       numberNumeric: "",
-      currentMileage: 0,
-      lastOilChangeMileage: 0,
-      oilChangeInterval: 3000,
-      purchaseCost: 0,
-      monthlyInsurance: 0,
+      currentMileage: "",
+      lastOilChangeMileage: "",
+      oilChangeInterval: "3000",
+      purchaseCost: "",
+      monthlyInsurance: "",
       driverIds: [],
     });
     setShowModal(true);
@@ -129,11 +129,11 @@ export default function VehiclesPage() {
       numberClass: v.number_class || "",
       numberHiragana: v.number_hiragana || "",
       numberNumeric: v.number_numeric || "",
-      currentMileage: v.current_mileage,
-      lastOilChangeMileage: v.last_oil_change_mileage,
-      oilChangeInterval: v.oil_change_interval,
-      purchaseCost: v.purchase_cost || 0,
-      monthlyInsurance: v.monthly_insurance || 0,
+      currentMileage: v.current_mileage ? String(v.current_mileage) : "",
+      lastOilChangeMileage: v.last_oil_change_mileage ? String(v.last_oil_change_mileage) : "",
+      oilChangeInterval: v.oil_change_interval ? String(v.oil_change_interval) : "3000",
+      purchaseCost: v.purchase_cost ? String(v.purchase_cost) : "",
+      monthlyInsurance: v.monthly_insurance ? String(v.monthly_insurance) : "",
       driverIds: v.vehicle_drivers?.map((vd) => vd.driver_id) || [],
     });
     setShowModal(true);
@@ -639,7 +639,7 @@ export default function VehiclesPage() {
                     <input
                       type="number"
                       value={form.currentMileage}
-                      onChange={(e) => setForm((f) => ({ ...f, currentMileage: Number(e.target.value) }))}
+                      onChange={(e) => setForm((f) => ({ ...f, currentMileage: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
@@ -649,7 +649,7 @@ export default function VehiclesPage() {
                     <input
                       type="number"
                       value={form.lastOilChangeMileage}
-                      onChange={(e) => setForm((f) => ({ ...f, lastOilChangeMileage: Number(e.target.value) }))}
+                      onChange={(e) => setForm((f) => ({ ...f, lastOilChangeMileage: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
@@ -660,7 +660,7 @@ export default function VehiclesPage() {
                   <input
                     type="number"
                     value={form.oilChangeInterval}
-                    onChange={(e) => setForm((f) => ({ ...f, oilChangeInterval: Number(e.target.value) }))}
+                    onChange={(e) => setForm((f) => ({ ...f, oilChangeInterval: e.target.value }))}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
                   <p className="text-xs text-slate-500 mt-1">デフォルト: 3,000km</p>
@@ -672,7 +672,7 @@ export default function VehiclesPage() {
                     <input
                       type="number"
                       value={form.purchaseCost}
-                      onChange={(e) => setForm((f) => ({ ...f, purchaseCost: Number(e.target.value) }))}
+                      onChange={(e) => setForm((f) => ({ ...f, purchaseCost: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
@@ -682,7 +682,7 @@ export default function VehiclesPage() {
                     <input
                       type="number"
                       value={form.monthlyInsurance}
-                      onChange={(e) => setForm((f) => ({ ...f, monthlyInsurance: Number(e.target.value) }))}
+                      onChange={(e) => setForm((f) => ({ ...f, monthlyInsurance: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                     <p className="text-xs text-slate-500 mt-1">リース代35,000円から差し引きます</p>
