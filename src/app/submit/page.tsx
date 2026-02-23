@@ -8,7 +8,6 @@ import { JukenCertificate, type JukenNumbers } from "@/lib/components/JukenCerti
 
 type Vehicle = {
   id: string;
-  name: string;
   number_prefix?: string | null;
   number_class?: string | null;
   number_hiragana?: string | null;

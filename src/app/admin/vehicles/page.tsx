@@ -44,7 +44,6 @@ type VehicleDriver = {
 
 type Vehicle = {
   id: string;
-  name: string;
   manufacturer?: string | null;
   brand?: string | null;
   number_prefix?: string | null;
@@ -67,7 +66,6 @@ export default function VehiclesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [form, setForm] = useState({
-    name: "",
     manufacturer: "",
     brand: "",
     numberPrefix: "",
@@ -106,7 +104,6 @@ export default function VehiclesPage() {
   const openNew = () => {
     setEditingVehicle(null);
     setForm({
-      name: "",
       manufacturer: "",
       brand: "",
       numberPrefix: "",
@@ -126,7 +123,6 @@ export default function VehiclesPage() {
   const openEdit = (v: Vehicle) => {
     setEditingVehicle(v);
     setForm({
-      name: v.name,
       manufacturer: v.manufacturer || "",
       brand: v.brand || "",
       numberPrefix: v.number_prefix || "",
@@ -176,8 +172,7 @@ export default function VehiclesPage() {
     }
   };
 
-  const deleteVehicle = async (id: string, name: string) => {
-    if (!confirm(`${name}を削除しますか？`)) return;
+  const deleteVehicle = async (id: string, _label: string) => {
     try {
       await apiFetch(`/api/admin/vehicles/${id}`, { method: "DELETE" });
       load();
@@ -389,9 +384,6 @@ export default function VehiclesPage() {
                           )}
                         </div>
                       )}
-                      {!v.manufacturer && !v.brand && v.name && (
-                        <div className="text-sm text-slate-600">{v.name}</div>
-                      )}
                     </div>
 
                     {/* 右側: 次回車検・定期点検、オイル交換ゲージ、回収ROIゲージ */}
@@ -509,17 +501,6 @@ export default function VehiclesPage() {
               </h2>
 
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">車両名</label>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="例: 軽バン 1号"
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  />
-                </div>
-
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">メーカー名</label>
@@ -719,7 +700,7 @@ export default function VehiclesPage() {
                   </button>
                   <button
                     onClick={save}
-                    disabled={saving || !form.name}
+                    disabled={saving || !(form.manufacturer || form.brand)}
                     className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
                   >
                     {saving ? "保存中..." : "保存"}
@@ -729,8 +710,9 @@ export default function VehiclesPage() {
                   <div className="pt-3 border-t border-slate-200">
                     <button
                       onClick={() => {
-                        if (confirm(`${editingVehicle.name}を削除しますか？`)) {
-                          deleteVehicle(editingVehicle.id, editingVehicle.name);
+                        const label = [editingVehicle.manufacturer, editingVehicle.brand].filter(Boolean).join(" ") || "この車両";
+                        if (confirm(`${label}を削除しますか？`)) {
+                          deleteVehicle(editingVehicle.id, label);
                           setShowModal(false);
                         }
                       }}

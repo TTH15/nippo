@@ -56,6 +56,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // 新規コースにデフォルト単価を設定
+    await supabase.from("course_rates").upsert(
+      {
+        course_id: course.id,
+        takuhaibin_revenue: 160,
+        takuhaibin_profit: 10,
+        takuhaibin_driver_payout: 150,
+        nekopos_revenue: 40,
+        nekopos_profit: 10,
+        nekopos_driver_payout: 30,
+        fixed_revenue: 0,
+        fixed_profit: 0,
+      },
+      { onConflict: "course_id" }
+    );
+
     return NextResponse.json({ course });
   } catch (err) {
     console.error(err);

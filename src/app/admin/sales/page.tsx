@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { apiFetch } from "@/lib/api";
 import {
   ComposedChart,
   Bar,
@@ -14,22 +15,12 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-const deliveryData = [
-  { date: "2/6", yamato: 1200000, amazon: 800000, profit: 350000 },
-  { date: "2/7", yamato: 1350000, amazon: 900000, profit: 420000 },
-  { date: "2/8", yamato: 1100000, amazon: 750000, profit: 310000 },
-  { date: "2/9", yamato: 1450000, amazon: 950000, profit: 480000 },
-  { date: "2/10", yamato: 1600000, amazon: 1100000, profit: 550000 },
-  { date: "2/11", yamato: 1250000, amazon: 850000, profit: 390000 },
-  { date: "2/12", yamato: 1180000, amazon: 780000, profit: 360000 },
-  { date: "2/13", yamato: 1400000, amazon: 920000, profit: 450000 },
-  { date: "2/14", yamato: 1550000, amazon: 1050000, profit: 520000 },
-  { date: "2/15", yamato: 1320000, amazon: 880000, profit: 410000 },
-  { date: "2/16", yamato: 1280000, amazon: 860000, profit: 400000 },
-  { date: "2/17", yamato: 1500000, amazon: 1000000, profit: 490000 },
-  { date: "2/18", yamato: 1650000, amazon: 1150000, profit: 580000 },
-  { date: "2/19", yamato: 1420000, amazon: 950000, profit: 470000 },
-];
+type DataPoint = { date: string; yamato: number; amazon: number; profit: number };
+
+function currentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 
 type Period = "2weeks" | "month" | "quarter";
 
@@ -66,21 +57,38 @@ const CustomTooltip = ({
 
 export default function SalesPage() {
   const [period, setPeriod] = useState<Period>("2weeks");
+  const [month, setMonth] = useState(currentMonth());
+  const [deliveryData, setDeliveryData] = useState<DataPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    apiFetch<{ data: DataPoint[] }>(`/api/admin/sales?month=${month}`)
+      .then((res) => setDeliveryData(res.data ?? []))
+      .catch(() => setDeliveryData([]))
+      .finally(() => setLoading(false));
+  }, [month]);
+
+  const displayData = useMemo(() => {
+    if (period === "2weeks") return deliveryData.slice(-14);
+    if (period === "month") return deliveryData;
+    return deliveryData;
+  }, [deliveryData, period]);
 
   const totals = useMemo(() => {
-    const yamato = deliveryData.reduce((s, d) => s + d.yamato, 0);
-    const amazon = deliveryData.reduce((s, d) => s + d.amazon, 0);
-    const profit = deliveryData.reduce((s, d) => s + d.profit, 0);
+    const yamato = displayData.reduce((s, d) => s + d.yamato, 0);
+    const amazon = displayData.reduce((s, d) => s + d.amazon, 0);
+    const profit = displayData.reduce((s, d) => s + d.profit, 0);
     return { yamato, amazon, total: yamato + amazon, profit };
-  }, []);
+  }, [displayData]);
 
   const dailyAvg = useMemo(() => {
-    const len = deliveryData.length;
+    const len = displayData.length || 1;
     return {
       revenue: Math.round(totals.total / len),
       profit: Math.round(totals.profit / len),
     };
-  }, [totals]);
+  }, [totals, displayData.length]);
 
   return (
     <AdminLayout>
@@ -92,7 +100,14 @@ export default function SalesPage() {
               売上（積み上げ棒グラフ）と利益（折れ線）の推移
             </p>
           </div>
-          <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
+          <div className="flex items-center gap-1">
+            <input
+              type="month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg"
+            />
+            <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
             {(
               [
                 { key: "2weeks", label: "2週間" },
@@ -112,9 +127,16 @@ export default function SalesPage() {
                 {p.label}
               </button>
             ))}
+            </div>
           </div>
         </div>
 
+        {loading ? (
+          <p className="text-sm text-slate-500 py-8">読み込み中...</p>
+        ) : displayData.length === 0 ? (
+          <p className="text-sm text-slate-500 py-8">該当データがありません</p>
+        ) : (
+        <>
         {/* サマリーカード */}
         <div className="grid grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-lg border border-slate-200 p-4">
@@ -151,7 +173,7 @@ export default function SalesPage() {
         <div className="bg-white rounded-lg border border-slate-200 p-6">
           <ResponsiveContainer width="100%" height={420}>
             <ComposedChart
-              data={deliveryData}
+              data={displayData}
               margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
@@ -214,6 +236,8 @@ export default function SalesPage() {
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+        </>
+        )}
       </div>
     </AdminLayout>
   );

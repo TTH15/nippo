@@ -15,7 +15,6 @@ export async function PUT(
   try {
     const body = await req.json();
     const {
-      name,
       manufacturer,
       brand,
       numberPrefix,
@@ -31,7 +30,6 @@ export async function PUT(
     } = body;
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (name !== undefined) updates.name = name;
     if (manufacturer !== undefined) updates.manufacturer = manufacturer?.trim() || null;
     if (brand !== undefined) updates.brand = brand?.trim() || null;
     if (numberPrefix !== undefined) updates.number_prefix = numberPrefix || null;

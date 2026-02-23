@@ -18,7 +18,8 @@ export async function GET(req: NextRequest) {
         drivers (id, name, display_name)
       )
     `)
-    .order("name");
+    .order("manufacturer")
+    .order("brand");
 
   if (error) {
     console.error(error);
@@ -36,7 +37,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      name,
       manufacturer,
       brand,
       numberPrefix,
@@ -51,14 +51,14 @@ export async function POST(req: NextRequest) {
       driverIds = [],
     } = body;
 
-    if (!name || typeof name !== "string") {
-      return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    const hasIdentity = (manufacturer?.trim() || brand?.trim());
+    if (!hasIdentity) {
+      return NextResponse.json({ error: "メーカー名またはブランド名が必須です" }, { status: 400 });
     }
 
     const { data: vehicle, error } = await supabase
       .from("vehicles")
       .insert({
-        name: name.trim(),
         manufacturer: manufacturer?.trim() || null,
         brand: brand?.trim() || null,
         number_prefix: numberPrefix || null,

@@ -23,8 +23,9 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from("vehicles")
-    .select("id, name, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage")
-    .order("name");
+    .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage")
+    .order("manufacturer")
+    .order("brand");
 
   if (ids.length > 0) {
     query = query.in("id", ids);

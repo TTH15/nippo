@@ -22,7 +22,8 @@ export type VehiclePlateData = {
   number_class?: string | null;
   number_hiragana?: string | null;
   number_numeric?: string | null;
-  name?: string;
+  manufacturer?: string | null;
+  brand?: string | null;
 };
 
 export function VehiclePlate({
@@ -90,7 +91,7 @@ export function VehiclePlate({
         </div>
       ) : (
         <div className="bg-slate-100 aspect-[2/1] flex items-center justify-center text-slate-500 text-sm p-2">
-          {vehicle.name || "車両"}
+          {[vehicle.manufacturer, vehicle.brand].filter(Boolean).join(" ") || "車両"}
         </div>
       )}
     </button>
