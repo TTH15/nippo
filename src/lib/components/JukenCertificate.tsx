@@ -44,18 +44,18 @@ export type JukenOverlay = {
 
 // 位置調整用（親要素に対する相対位置 %）
 const POSITIONS: Record<keyof JukenNumbers, { top: string; left: string }> = {
-  takuhaibinMochidashi: { top: "44.5%", left: "54%" },
-  takuhaibinHaikan: { top: "44.5%", left: "78%" },
-  takuhaibinModori: { top: "44.5%", left: "84%" },
-  takuhaibinHaikanModori: { top: "44.5%", left: "91%" },
-  nekoposMochidashi: { top: "51%", left: "54%" },
-  nekoposHaikan: { top: "51%", left: "78%" },
-  nekoposModori: { top: "51%", left: "84%" },
-  nekoposHaikanModori: { top: "51%", left: "91%" },
-  totalMochidashi: { top: "77.5%", left: "54%" },
-  totalHaikan: { top: "77.5%", left: "78%" },
-  totalModori: { top: "77.5%", left: "84%" },
-  totalHaikanModori: { top: "77.5%", left: "91%" },
+  takuhaibinMochidashi: { top: "43.5%", left: "54%" },
+  takuhaibinHaikan: { top: "43.5%", left: "78%" },
+  takuhaibinModori: { top: "43.5%", left: "84%" },
+  takuhaibinHaikanModori: { top: "43.5%", left: "91%" },
+  nekoposMochidashi: { top: "50%", left: "54%" },
+  nekoposHaikan: { top: "50%", left: "78%" },
+  nekoposModori: { top: "50%", left: "84%" },
+  nekoposHaikanModori: { top: "50%", left: "91%" },
+  totalMochidashi: { top: "76.5%", left: "54%" },
+  totalHaikan: { top: "76.5%", left: "78%" },
+  totalModori: { top: "76.5%", left: "84%" },
+  totalHaikanModori: { top: "76.5%", left: "91%" },
 };
 
 export function JukenCertificate({
@@ -116,9 +116,9 @@ export function JukenCertificate({
         {/* 左上: 日付（西暦・月・日を相対位置で配置） */}
         {overlay && (() => {
           const pos = overlay.datePositions ?? {
-            year: { top: "23%", left: "26%" },
-            month: { top: "23%", left: "37%" },
-            day: { top: "23%", left: "42.5%" },
+            year: { top: "22%", left: "26%" },
+            month: { top: "22%", left: "37%" },
+            day: { top: "22%", left: "42.5%" },
           };
           const { year, month, day } = overlay.date;
           return (
@@ -148,7 +148,7 @@ export function JukenCertificate({
         {overlay && (
           <div
             className="absolute text-right text-sm font-bold text-slate-900 tabular-nums"
-            style={{ top: "11%", right: "18%", lineHeight: 1.7 }}
+            style={{ top: "10%", right: "18%", lineHeight: 1.6 }}
           >
             <div>{overlay.officeCode}</div>
             <div>{overlay.personalNumber}</div>
@@ -159,7 +159,7 @@ export function JukenCertificate({
         {(Object.keys(POSITIONS) as (keyof JukenNumbers)[]).map((key) => (
           <div
             key={key}
-            className="absolute text-l font-bold text-slate-900 tabular-nums"
+            className="absolute text-sm font-bold text-slate-900 tabular-nums"
             style={{
               top: POSITIONS[key].top,
               left: POSITIONS[key].left,
@@ -173,10 +173,10 @@ export function JukenCertificate({
       {!hideDownloadButton && (
         <button
           type="button"
-onClick={downloadImage}
-        className="mt-3 w-full py-2.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
-      >
-        PNGでダウンロード
+          onClick={downloadImage}
+          className="mt-3 w-full py-2.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+        >
+          PNGでダウンロード
         </button>
       )}
     </div>
