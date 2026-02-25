@@ -18,20 +18,37 @@ export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
 
-  const month = req.nextUrl.searchParams.get("month") || "";
-  const [year, mon] = month ? month.split("-").map(Number) : [new Date().getFullYear(), new Date().getMonth() + 1];
-  const startDate = `${year}-${String(mon).padStart(2, "0")}-01`;
-  const lastDay = new Date(year, mon, 0).getDate();
-  const endDate = `${year}-${String(mon).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  const url = req.nextUrl;
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
+
+  let startDate: string;
+  let endDate: string;
+
+  if (startParam && endParam) {
+    startDate = startParam;
+    endDate = endParam;
+  } else {
+    // 後方互換: start/end がない場合は従来どおり month から月初〜月末を計算
+    const month = url.searchParams.get("month") || "";
+    const [year, mon] = month
+      ? month.split("-").map(Number)
+      : [new Date().getFullYear(), new Date().getMonth() + 1];
+    startDate = `${year}-${String(mon).padStart(2, "0")}-01`;
+    const lastDay = new Date(year, mon, 0).getDate();
+    endDate = `${year}-${String(mon).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  }
 
   const { data: courseRates } = await supabase
     .from("course_rates")
-    .select("course_id, takuhaibin_revenue, takuhaibin_profit, nekopos_revenue, nekopos_profit, fixed_revenue, fixed_profit");
+    .select(
+      "course_id, takuhaibin_revenue, takuhaibin_profit, nekopos_revenue, nekopos_profit, fixed_revenue, fixed_profit",
+    );
 
   const { data: courses } = await supabase.from("courses").select("id, name");
   const courseNameMap = Object.fromEntries((courses ?? []).map((c) => [c.id, c.name]));
   const rateByCourse = Object.fromEntries(
-    (courseRates ?? []).map((r) => [r.course_id, r as CourseRate])
+    (courseRates ?? []).map((r) => [r.course_id, r as CourseRate]),
   );
 
   const { data: shifts } = await supabase
@@ -42,7 +59,9 @@ export async function GET(req: NextRequest) {
 
   const { data: reports } = await supabase
     .from("daily_reports")
-    .select("driver_id, report_date, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned")
+    .select(
+      "driver_id, report_date, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned",
+    )
     .gte("report_date", startDate)
     .lte("report_date", endDate);
 
@@ -71,10 +90,27 @@ export async function GET(req: NextRequest) {
     }
   });
 
+  // 選択期間内でデータが存在しない日も 0 として埋める
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && start <= end) {
+    const d = new Date(start);
+    while (d <= end) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const iso = `${y}-${m}-${day}`;
+      if (!dateMap.has(iso)) {
+        dateMap.set(iso, { yamato: 0, amazon: 0, profit: 0 });
+      }
+      d.setDate(d.getDate() + 1);
+    }
+  }
+
   const sortedDates = Array.from(dateMap.keys()).sort();
   const data = sortedDates.map((date) => {
     const d = dateMap.get(date)!;
-    const [y, m, day] = date.split("-");
+    const [, m, day] = date.split("-");
     return {
       date: `${Number(m)}/${Number(day)}`,
       yamato: d.yamato,
@@ -83,5 +119,5 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ month, data });
+  return NextResponse.json({ startDate, endDate, data });
 }

@@ -46,27 +46,54 @@ const VEHICLES = [
   { number_prefix: "京都", number_class: "400", number_hiragana: "わ", number_numeric: "22-33", current_mileage: 51200, manufacturer: "ダイハツ", brand: "ハイゼット" },
 ];
 
-// 2026年1月の営業日（月〜土、日祝除く簡易版）
-function getWorkDays2026Jan(): string[] {
+// 指定した期間（含む）の全日付を返す
+function getAllDaysInRange(startStr: string, endStr: string): string[] {
+  const start = new Date(startStr);
+  const end = new Date(endStr);
   const days: string[] = [];
-  for (let d = 1; d <= 31; d++) {
-    const date = new Date(2026, 0, d);
-    const day = date.getDay();
-    if (day >= 1 && day <= 6) days.push(`2026-01-${String(d).padStart(2, "0")}`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return days;
+  const d = new Date(start);
+  while (d <= end) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    days.push(`${y}-${m}-${day}`);
+    d.setDate(d.getDate() + 1);
   }
   return days;
 }
 
-// ランダムな宅急便・ネコポス実績（人によってばらつき）
-function randomReport(isHeavyDriver: boolean): { tkComp: number; tkRet: number; nkComp: number; nkRet: number } {
-  const tkBase = isHeavyDriver ? 180 + Math.floor(Math.random() * 80) : 60 + Math.floor(Math.random() * 50);
+// 繁忙期の係数（7月と 11月下旬〜12月は少し個数を増やす）
+function getBusyFactor(dateStr: string): number {
+  const [, mStr, dStr] = dateStr.split("-");
+  const m = Number(mStr);
+  const d = Number(dStr);
+  if (m === 7) return 1.2; // 7月はやや多め
+  if (m === 11 && d >= 20) return 1.25; // 11月下旬
+  if (m === 12) return 1.3; // 12月はさらに多め
+  return 1;
+}
+
+// ランダムな宅急便・ネコポス実績（人によってばらつき）＋繁忙期係数
+function randomReport(
+  isHeavyDriver: boolean,
+  busyFactor: number,
+): { tkComp: number; tkRet: number; nkComp: number; nkRet: number } {
+  const baseTk =
+    isHeavyDriver
+      ? 180 + Math.floor(Math.random() * 80)
+      : 60 + Math.floor(Math.random() * 50);
+  const tkBase = Math.round(baseTk * busyFactor);
   const tkRet = Math.floor(tkBase * (0.15 + Math.random() * 0.15));
-  const nkBase = 20 + Math.floor(Math.random() * 60);
+
+  const baseNk = 20 + Math.floor(Math.random() * 60);
+  const nkBase = Math.round(baseNk * busyFactor);
   const nkRet = Math.floor(Math.random() * 5);
+
   return {
-    tkComp: tkBase - tkRet,
+    tkComp: Math.max(0, tkBase - tkRet),
     tkRet,
-    nkComp: nkBase - nkRet,
+    nkComp: Math.max(0, nkBase - nkRet),
     nkRet,
   };
 }
@@ -215,37 +242,56 @@ async function main() {
   }
   console.log("✓ vehicle_drivers を設定");
 
-  // 8. 2026年1月シフト作成
-  const workDays = getWorkDays2026Jan();
+  // 8. シフト作成（2025-01-01 〜 2026-02-25 / ヤマトは各年 1/1〜1/4 休み）
+  const SHIFT_START = "2025-01-01";
+  const SHIFT_END = "2026-02-25";
+  const allDays = getAllDaysInRange(SHIFT_START, SHIFT_END);
   const yamatoCourses = [yamatoA, yamatoB, yamatoC];
   let shiftCount = 0;
 
-  for (const date of workDays) {
+  for (const date of allDays) {
+    const [, mStr, dStr] = date.split("-");
+    const m = Number(mStr);
+    const dNum = Number(dStr);
+    const isYamatoOff = m === 1 && dNum >= 1 && dNum <= 4; // ヤマト休業期間（毎年 1/1〜1/4）
+
     let driverIdx = 0;
-    for (const cid of yamatoCourses) {
-      const did = driverIdList[driverIdx % driverIdList.length];
-      await supabase.from("shifts").upsert(
-        { shift_date: date, course_id: cid, driver_id: did, updated_at: new Date().toISOString() },
-        { onConflict: "shift_date,course_id" }
-      );
-      shiftCount++;
-      driverIdx++;
+    if (!isYamatoOff) {
+      for (const cid of yamatoCourses) {
+        const did = driverIdList[driverIdx % driverIdList.length];
+        await supabase.from("shifts").upsert(
+          {
+            shift_date: date,
+            course_id: cid,
+            driver_id: did,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "shift_date,course_id" },
+        );
+        shiftCount++;
+        driverIdx++;
+      }
     }
     const amazonDid = driverIdList[(driverIdx + 2) % driverIdList.length];
     await supabase.from("shifts").upsert(
-      { shift_date: date, course_id: amazon, driver_id: amazonDid, updated_at: new Date().toISOString() },
-      { onConflict: "shift_date,course_id" }
+      {
+        shift_date: date,
+        course_id: amazon,
+        driver_id: amazonDid,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "shift_date,course_id" },
     );
     shiftCount++;
   }
-  console.log(`✓ 2026年1月シフト ${shiftCount} 件`);
+  console.log(`✓ シフト ${shiftCount} 件（${SHIFT_START}〜${SHIFT_END}）`);
 
   // 9. 日報作成（シフトに紐づくドライバーの実績）
   const { data: shifts } = await supabase
     .from("shifts")
     .select("shift_date, course_id, driver_id")
-    .gte("shift_date", "2026-01-01")
-    .lte("shift_date", "2026-01-31");
+    .gte("shift_date", SHIFT_START)
+    .lte("shift_date", SHIFT_END);
 
   const reportByDriverDate = new Map<string, { tkComp: number; tkRet: number; nkComp: number; nkRet: number }>();
 
@@ -254,11 +300,19 @@ async function main() {
     const key = `${s.driver_id}:${s.shift_date}`;
     const isAmazon = s.course_id === amazon;
     const isHeavy = Math.random() > 0.6;
+    const busyFactor = getBusyFactor(s.shift_date);
+
     if (isAmazon) {
-      reportByDriverDate.set(key, { tkComp: 0, tkRet: 0, nkComp: 0, nkRet: 0 });
+      // Amazonミッドナイトは実個数0（固定報酬）
+      reportByDriverDate.set(key, {
+        tkComp: 0,
+        tkRet: 0,
+        nkComp: 0,
+        nkRet: 0,
+      });
     } else {
       if (!reportByDriverDate.has(key)) {
-        reportByDriverDate.set(key, randomReport(isHeavy));
+        reportByDriverDate.set(key, randomReport(isHeavy, busyFactor));
       }
     }
   });
@@ -280,7 +334,7 @@ async function main() {
       { onConflict: "driver_id,report_date" }
     );
   }
-  console.log(`✓ 日報 ${reportByDriverDate.size} 件`);
+  console.log(`✓ 日報 ${reportByDriverDate.size} 件（${SHIFT_START}〜${SHIFT_END}）`);
 
   console.log("\n=== シード完了 ===");
   console.log("\n【ログイン】");
