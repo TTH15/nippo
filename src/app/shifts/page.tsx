@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { Nav } from "@/lib/components/Nav";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 
 type ShiftRequest = {
@@ -128,7 +129,18 @@ export default function ShiftsPage() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-slate-500">読み込み中...</p>
+          <div className="bg-white rounded border border-slate-200 p-3">
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {[...Array(7)].map((_, i) => (
+                <Skeleton key={i} className="h-6 w-full max-w-[2rem] mx-auto" />
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {[...Array(35)].map((_, i) => (
+                <Skeleton key={i} className="aspect-square w-full rounded" />
+              ))}
+            </div>
+          </div>
         ) : (
           <div className="bg-white rounded border border-slate-200 p-3">
             {/* Day names header */}

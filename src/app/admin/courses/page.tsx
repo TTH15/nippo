@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 
@@ -149,8 +152,9 @@ export default function CoursesPage() {
           <h1 className="text-xl font-bold text-slate-900">コース管理</h1>
           <button
             onClick={() => setShowModal(true)}
-            className="px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
           >
+            <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
             新規追加
           </button>
         </div>
@@ -208,7 +212,19 @@ export default function CoursesPage() {
         )}
 
         {loading ? (
-          <p className="text-sm text-slate-500">読み込み中...</p>
+          <div className="space-y-2">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="bg-white rounded border border-slate-200 p-4 border-l-4 border-l-slate-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Skeleton className="h-4 w-24 mb-1.5" />
+                    <Skeleton className="h-5 w-32" />
+                  </div>
+                  <Skeleton className="w-5 h-5 rounded-full shrink-0" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="space-y-2">
             {courses.map((course) => {

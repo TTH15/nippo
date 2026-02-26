@@ -23,6 +23,10 @@ export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
 
+  // DB から取得する生データの範囲（シード期間に合わせて十分広く取る）
+  const RAW_START = "2025-01-01";
+  const RAW_END = "2026-12-31";
+
   const url = req.nextUrl;
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
@@ -60,8 +64,8 @@ export async function GET(req: NextRequest) {
     .select(
       "driver_id, report_date, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned",
     )
-    .gte("report_date", startDate)
-    .lte("report_date", endDate);
+    .gte("report_date", RAW_START)
+    .lte("report_date", RAW_END);
 
   if (rErr) {
     console.error(rErr);
@@ -78,17 +82,24 @@ export async function GET(req: NextRequest) {
   const { data: shifts, error: sErr } = await supabase
     .from("shifts")
     .select("shift_date, driver_id, course_id")
-    .gte("shift_date", startDate)
-    .lte("shift_date", endDate);
+    .gte("shift_date", RAW_START)
+    .lte("shift_date", RAW_END);
 
   if (sErr) {
     console.error(sErr);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
+  // 指定範囲内のレコードだけに絞り込む
+  const filteredReports: ReportRow[] =
+    (reports ?? []).filter(
+      (r: any) => r.report_date >= startDate && r.report_date <= endDate,
+    ) as ReportRow[];
+
   const midnights: MidnightRow[] = [];
   (shifts ?? []).forEach((s: any) => {
     if (!s.driver_id || !s.course_id) return;
+    if (s.shift_date < startDate || s.shift_date > endDate) return;
     const name = courseNameMap.get(s.course_id);
     if (name === "Amazonミッドナイト") {
       midnights.push({ driver_id: s.driver_id, date: s.shift_date });
@@ -104,7 +115,7 @@ export async function GET(req: NextRequest) {
       name: d.name,
       display_name: d.display_name ?? null,
     })) as DriverRow[],
-    reports: (reports ?? []) as ReportRow[],
+    reports: filteredReports,
     midnights,
   });
 }

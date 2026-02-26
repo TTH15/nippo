@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { getStoredDriver } from "@/lib/api";
 
 export default function Home() {
@@ -19,8 +20,12 @@ export default function Home() {
   }, [router]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="animate-pulse text-brand-700 font-semibold">読み込み中...</div>
+    <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+      <div className="flex flex-col items-center gap-3 w-48">
+        <Skeleton className="h-8 w-24" />
+        <Skeleton className="h-4 w-full max-w-32" />
+        <Skeleton className="h-4 w-20" />
+      </div>
     </div>
   );
 }

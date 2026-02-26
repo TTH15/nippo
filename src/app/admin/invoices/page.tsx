@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 
 type SavedInvoice = {
@@ -41,8 +43,9 @@ export default function InvoicesPage() {
           </div>
           <a
             href="/admin/invoices/new"
-            className="px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
           >
+            <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
             新規作成
           </a>
         </div>

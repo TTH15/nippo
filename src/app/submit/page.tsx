@@ -3,8 +3,9 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import html2canvas from "html2canvas";
 import { Nav } from "@/lib/components/Nav";
-import { apiFetch, getStoredDriver } from "@/lib/api";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
+import { apiFetch, getStoredDriver } from "@/lib/api";
 import { JukenCertificate, type JukenNumbers, type JukenOverlay } from "@/lib/components/JukenCertificate";
 
 type Vehicle = {
@@ -273,7 +274,14 @@ export default function SubmitPage() {
 
         {/* 車両選択カルーセル */}
         {vehiclesLoading ? (
-          <p className="text-sm text-slate-500 mb-4">車両読み込み中...</p>
+          <div className="mb-6">
+            <Skeleton className="h-4 w-20 mb-2" />
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-24 w-32 flex-shrink-0 rounded-lg" />
+              ))}
+            </div>
+          </div>
         ) : vehicles.length > 0 ? (
           <div className="mb-6">
             <label className="block text-sm font-medium text-slate-700 mb-2">使用車両</label>

@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faArrowTrendUp, faArrowTrendDown } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import {
   ComposedChart,
@@ -31,13 +35,6 @@ type MidnightRow = {
   date: string;
 };
 
-type RangePreset = "current_month" | "six_months" | "one_year" | "custom";
-
-type DateRangeState = {
-  start: string;
-  end: string;
-};
-
 type Tab = "analytics" | "summary";
 
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
@@ -47,63 +44,6 @@ function toLocalYmd(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function getPresetRange(preset: RangePreset, baseEnd?: string): DateRangeState {
-  const today = baseEnd ? new Date(baseEnd) : new Date();
-  const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
-  const subMonths = (d: Date, n: number) =>
-    new Date(d.getFullYear(), d.getMonth() - n, 1);
-
-  let start: Date;
-  const end: Date = today;
-
-  switch (preset) {
-    case "six_months":
-      start = startOfMonth(subMonths(today, 5));
-      break;
-    case "one_year":
-      start = startOfMonth(subMonths(today, 11));
-      break;
-    case "current_month":
-    case "custom":
-    default:
-      start = startOfMonth(today);
-      break;
-  }
-
-  return { start: toLocalYmd(start), end: toLocalYmd(end) };
-}
-
-type DateRangeInputsProps = {
-  value: DateRangeState;
-  onChange: (next: Partial<DateRangeState>) => void;
-};
-
-function DateRangeInputs({ value, onChange }: DateRangeInputsProps) {
-  return (
-    <div className="flex gap-4 items-center flex-wrap">
-      <div>
-        <label className="text-xs text-slate-400 mb-1 block">開始日</label>
-        <input
-          type="date"
-          value={value.start}
-          onChange={(e) => onChange({ start: e.target.value })}
-          className="w-[180px] rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-900 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-        />
-      </div>
-      <div className="text-slate-400">〜</div>
-      <div>
-        <label className="text-xs text-slate-400 mb-1 block">終了日</label>
-        <input
-          type="date"
-          value={value.end}
-          onChange={(e) => onChange({ end: e.target.value })}
-          className="w-[180px] rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-900 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-        />
-      </div>
-    </div>
-  );
 }
 
 const CustomTooltip = ({
@@ -137,34 +77,81 @@ const CustomTooltip = ({
 
 export default function SalesPage() {
   const [tab, setTab] = useState<Tab>("analytics");
-  const [preset, setPreset] = useState<RangePreset>("current_month");
-  const [range, setRange] = useState<DateRangeState>(() => getPresetRange("current_month"));
+  const [range, setRange] = useState<DateRangeValue | undefined>();
   const [deliveryData, setDeliveryData] = useState<DataPoint[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [midnights, setMidnights] = useState<MidnightRow[]>([]);
+  const [prevTotals, setPrevTotals] = useState<{ total: number; profit: number } | null>(null);
+  const [loadingPrev, setLoadingPrev] = useState(false);
+
+  const startIso = useMemo(
+    () => (range?.startDate ? toLocalYmd(range.startDate) : ""),
+    [range?.startDate],
+  );
+  const endIso = useMemo(
+    () => (range?.endDate ? toLocalYmd(range.endDate) : ""),
+    [range?.endDate],
+  );
+
+  // 前期間（同じ日数分ひとつ前の区間）の売上・利益を取得
+  useEffect(() => {
+    if (!startIso || !endIso) return;
+    const start = new Date(startIso);
+    const end = new Date(endIso);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+      return;
+    }
+    const days =
+      Math.max(
+        1,
+        Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1,
+      ) || 1;
+
+    const prevEnd = new Date(start);
+    prevEnd.setDate(prevEnd.getDate() - 1);
+    const prevStart = new Date(prevEnd);
+    prevStart.setDate(prevStart.getDate() - (days - 1));
+
+    const prevStartIso = toLocalYmd(prevStart);
+    const prevEndIso = toLocalYmd(prevEnd);
+
+    setLoadingPrev(true);
+    apiFetch<{ data: DataPoint[] }>(
+      `/api/admin/sales?start=${prevStartIso}&end=${prevEndIso}`,
+    )
+      .then((res) => {
+        const data = res.data ?? [];
+        const yamato = data.reduce((s, d) => s + d.yamato, 0);
+        const amazon = data.reduce((s, d) => s + d.amazon, 0);
+        const profit = data.reduce((s, d) => s + d.profit, 0);
+        setPrevTotals({ total: yamato + amazon, profit });
+      })
+      .catch(() => setPrevTotals(null))
+      .finally(() => setLoadingPrev(false));
+  }, [startIso, endIso]);
 
   useEffect(() => {
-    if (!range.start || !range.end) return;
+    if (!startIso || !endIso) return;
     setLoadingAnalytics(true);
     apiFetch<{ data: DataPoint[] }>(
-      `/api/admin/sales?start=${range.start}&end=${range.end}`,
+      `/api/admin/sales?start=${startIso}&end=${endIso}`,
     )
       .then((res) => setDeliveryData(res.data ?? []))
       .catch(() => setDeliveryData([]))
       .finally(() => setLoadingAnalytics(false));
-  }, [range.start, range.end]);
+  }, [startIso, endIso]);
 
   useEffect(() => {
-    if (tab !== "summary" || !range.start || !range.end) return;
+    if (tab !== "summary" || !startIso || !endIso) return;
     setLoadingSummary(true);
     apiFetch<{
       drivers: DriverRow[];
       reports: ReportRow[];
       midnights: MidnightRow[];
-    }>(`/api/admin/sales/reports?start=${range.start}&end=${range.end}`)
+    }>(`/api/admin/sales/reports?start=${startIso}&end=${endIso}`)
       .then((res) => {
         setDrivers(res.drivers ?? []);
         setReports(res.reports ?? []);
@@ -176,14 +163,46 @@ export default function SalesPage() {
         setMidnights([]);
       })
       .finally(() => setLoadingSummary(false));
-  }, [range.start, range.end, tab]);
+  }, [startIso, endIso, tab]);
 
   const displayData = useMemo(() => deliveryData, [deliveryData]);
 
+  // 数値に応じた「きりの良い」上限（例: 15万→20万、23万→25万、38万→50万）
+  const niceCeil = (value: number): number => {
+    if (value <= 0) return 50000;
+    const mag = 10 ** Math.floor(Math.log10(value));
+    const n = value / mag;
+    if (n <= 1) return mag * 1;
+    if (n <= 2) return mag * 2;
+    if (n <= 2.5) return mag * 2.5;
+    if (n <= 5) return mag * 5;
+    return mag * 10;
+  };
+
+  // グラフ縦軸用: 売上・利益の最大値に合わせた動的domain（きりの良い上限）
+  const yAxisDomain = useMemo(() => {
+    if (!displayData.length) return { left: [0, 100000] as [number, number], right: [0, 100000] as [number, number] };
+    let maxRevenue = 0;
+    let maxProfit = 0;
+    for (const d of displayData) {
+      const rev = d.yamato + d.amazon;
+      if (rev > maxRevenue) maxRevenue = rev;
+      if (d.profit > maxProfit) maxProfit = d.profit;
+    }
+    return {
+      left: [0, niceCeil(Math.max(maxRevenue, 1))] as [number, number],
+      right: [0, niceCeil(Math.max(maxProfit, 1))] as [number, number],
+    };
+  }, [displayData]);
+
+  // 縦軸ラベル: 1万以上は「○万」、未満はそのまま（M表記は使わない）
+  const yAxisTickFormatter = (v: number) =>
+    v >= 10000 ? `${v / 10000}万` : v.toLocaleString("ja-JP");
+
   const daysInRange = useMemo(() => {
-    if (!range.start || !range.end) return [];
-    const start = new Date(range.start);
-    const end = new Date(range.end);
+    if (!startIso || !endIso) return [];
+    const start = new Date(startIso);
+    const end = new Date(endIso);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
       return [];
     }
@@ -196,7 +215,7 @@ export default function SalesPage() {
       d.setDate(d.getDate() + 1);
     }
     return list;
-  }, [range.start, range.end]);
+  }, [startIso, endIso]);
 
   const reportMap = useMemo(() => {
     const map = new Map<string, ReportRow>();
@@ -250,6 +269,39 @@ export default function SalesPage() {
     };
   }, [totals, displayData.length]);
 
+  const daysCount = daysInRange.length || 1;
+  const activeDays = useMemo(
+    () => displayData.filter((d) => d.yamato + d.amazon > 0).length,
+    [displayData],
+  );
+  const activeDriverCount = useMemo(() => {
+    let count = 0;
+    drivers.forEach((drv) => {
+      const t = driverTotals.get(drv.id);
+      const mid = midnightCounts.get(drv.id) ?? 0;
+      if ((t && t.total > 0) || mid > 0) count += 1;
+    });
+    return count || 1;
+  }, [drivers, driverTotals, midnightCounts]);
+
+  const margin = totals.total ? (totals.profit / totals.total) * 100 : null;
+  const prevMargin =
+    prevTotals && prevTotals.total
+      ? (prevTotals.profit / prevTotals.total) * 100
+      : null;
+
+  const revenuePerDay = totals.total / daysCount;
+  const revenuePerDriver = totals.total / activeDriverCount;
+  const utilization =
+    daysCount > 0 ? ((activeDays / daysCount) * 100) : 0;
+
+  const revenueChangePct =
+    prevTotals && prevTotals.total
+      ? ((totals.total - prevTotals.total) / prevTotals.total) * 100
+      : null;
+  const marginDiff =
+    margin != null && prevMargin != null ? margin - prevMargin : null;
+
   return (
     <AdminLayout>
       <div className="w-full">
@@ -263,7 +315,7 @@ export default function SalesPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5 w-fit mb-6">
+        <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5 w-fit mb-4">
           <button
             onClick={() => setTab("analytics")}
             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${tab === "analytics" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
@@ -280,185 +332,279 @@ export default function SalesPage() {
           </button>
         </div>
 
-        {tab === "analytics" && (
-          <>
-            {/* 期間プリセット + 範囲指定 (DateRangePicker / DateRangeDualPicker 風) */}
-            <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-4">
-              <div className="relative inline-flex gap-1 bg-slate-200/50 p-1 rounded-lg backdrop-blur-sm h-[58px] items-center">
-                {(
-                  [
-                    { key: "current_month", label: "今月" },
-                    { key: "six_months", label: "半年" },
-                    { key: "one_year", label: "1年" },
-                    { key: "custom", label: "カスタム" },
-                  ] as const
-                ).map((p) => (
-                  <button
-                    key={p.key}
-                    type="button"
-                    onClick={() => {
-                        setPreset(p.key);
-                        if (p.key !== "custom") {
-                          setRange((prev) => getPresetRange(p.key, prev.end));
-                        }
-                      }}
-                    className={`relative px-5 h-full text-sm rounded-md transition-colors z-10 whitespace-nowrap ${
-                      preset === p.key ? "text-white" : "text-slate-500 hover:text-slate-900"
-                    }`}
-                  >
-                    {preset === p.key && (
-                      <span
-                        className="absolute inset-0 bg-black rounded-md"
-                        style={{ zIndex: -1 }}
-                        aria-hidden
-                      />
-                    )}
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-              <DateRangeInputs
-                value={range}
-                onChange={(next) => {
-                  setRange((prev) => ({
-                    start: next.start ?? prev.start,
-                    end: next.end ?? prev.end,
-                  }));
-                  setPreset("custom");
-                }}
-              />
-            </div>
+        {/* 日付範囲選択（アナリティクス / 集計 共通） */}
+        <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-6">
+          <DateRangePicker value={range} onChange={setRange} />
+        </div>
 
+        <div className="flex flex-col lg:flex-row items-start gap-6">
+          <div className="flex-1 min-w-0">
+            {tab === "analytics" && (
+              <>
+                {loadingAnalytics ? (
+                  <div className="bg-white rounded-lg border border-slate-200 p-6">
+                    <Skeleton className="h-[420px] w-full" />
+                  </div>
+                ) : displayData.length === 0 ? (
+                  <p className="text-sm text-slate-500 py-8">該当データがありません</p>
+                ) : (
+                  <>
+                    {/* チャート: 縦軸はデータに合わせて動的、縦方向は画面いっぱい */}
+                    <div className="bg-white rounded-lg border border-slate-200 p-6 w-full" style={{ height: "clamp(420px, 65vh, 85vh)" }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart data={displayData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                            <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 12 }} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} />
+                            <YAxis yAxisId="left" domain={yAxisDomain.left} tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={yAxisTickFormatter} width={48} />
+                            <YAxis yAxisId="right" domain={yAxisDomain.right} orientation="right" tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={yAxisTickFormatter} width={48} />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Legend wrapperStyle={{ paddingTop: "16px", fontSize: "12px" }} iconType="square" iconSize={10} />
+                            <Bar yAxisId="left" dataKey="yamato" stackId="revenue" fill="#334155" name="ヤマト売上" radius={[0, 0, 0, 0]} />
+                            <Bar yAxisId="left" dataKey="amazon" stackId="revenue" fill="#94a3b8" name="Amazon売上" radius={[3, 3, 0, 0]} />
+                            <Line yAxisId="right" type="monotone" dataKey="profit" stroke="#059669" strokeWidth={2.5} name="利益" dot={{ fill: "#059669", r: 3, strokeWidth: 0 }} activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }} />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {tab === "summary" && (
+              <>
+                <div className="text-sm text-slate-600 mb-3">
+                  <span className="font-medium">daily_reports</span> の内容を月次で確認します（ヤマト個数: 宅急便/ネコポス）。
+                </div>
+
+                {loadingSummary ? (
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="overflow-auto">
+                      <table className="min-w-max text-xs w-full">
+                        <thead>
+                          <tr className="border-b border-slate-200 bg-slate-50">
+                            <th className="px-3 py-2 text-left w-24"><Skeleton className="h-4 w-20" /></th>
+                            <th className="px-2 py-2 w-8" />
+                            {[...Array(14)].map((_, i) => (
+                              <th key={i} className="px-2 py-2 min-w-[64px]"><Skeleton className="h-4 w-10 mx-auto" /></th>
+                            ))}
+                            <th className="px-3 py-2 text-right w-24"><Skeleton className="h-4 w-14 ml-auto" /></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...Array(10)].map((_, i) => (
+                            <tr key={i} className="border-t border-slate-100">
+                              <td className="px-3 py-2"><Skeleton className="h-4 w-16" /></td>
+                              <td className="px-2 py-2 w-8" />
+                              {[...Array(14)].map((_, j) => (
+                                <td key={j} className="px-2 py-2"><Skeleton className="h-5 w-8 mx-auto" /></td>
+                              ))}
+                              <td className="px-3 py-2 text-right"><Skeleton className="h-4 w-12 ml-auto" /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : drivers.length === 0 ? (
+                  <p className="text-sm text-slate-500 py-8">ドライバーがいません</p>
+                ) : (
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="overflow-auto">
+                      <table className="min-w-max text-xs">
+                        <thead className="bg-slate-50">
+                          <tr>
+                            <th className="sticky left-0 z-20 bg-slate-50 border-b border-slate-200 px-3 py-2 text-left min-w-[100px]">
+                              ドライバー
+                            </th>
+                            <th className="sticky left-[100px] z-10 bg-slate-50 border-b border-r border-slate-200 px-3 py-2 text-right min-w-[27px]"></th>
+                            {daysInRange.map((d) => (
+                              <th key={d.iso} className="border-b border-slate-200 px-2 py-2 text-center min-w-[64px]">
+                                {d.label}
+                              </th>
+                            ))}
+                            <th className="sticky right-0 z-20 bg-slate-50 border-b border-l border-slate-200 px-3 py-2 text-right min-w-[96px]">
+                              <div className="text-right">
+                                <div>月計</div>
+                                <div className="text-[10px] text-slate-400">ミッド</div>
+                              </div>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {drivers.map((drv) => {
+                            const t = driverTotals.get(drv.id) ?? { tk: 0, nk: 0, total: 0 };
+                            const midDays = midnightCounts.get(drv.id) ?? 0;
+                            return (
+                              <tr key={drv.id} className="border-t border-slate-100">
+                                <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-2 text-left">
+                                  <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>
+                                </td>
+                                <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-2 text-right">
+                                  <div className="text-[10px] text-slate-400">宅</div>
+                                  <div className="text-[10px] text-slate-400">ネ</div>
+                                </td>
+                                {daysInRange.map((d) => {
+                                  const key = `${drv.id}:${d.iso}`;
+                                  const isMidnight = midnightSet.has(key);
+                                  const r = reportMap.get(key);
+                                  const tk = r?.takuhaibin_completed ?? 0;
+                                  const nk = r?.nekopos_completed ?? 0;
+                                  const tkRet = r?.takuhaibin_returned ?? 0;
+                                  const nkRet = r?.nekopos_returned ?? 0;
+                                  const has = tk + nk > 0 || isMidnight;
+                                  return (
+                                    <td
+                                      key={d.iso}
+                                      className={`px-2 py-2 text-center ${has ? "text-slate-900" : "text-slate-300"}`}
+                                      title={
+                                        isMidnight
+                                          ? "Amazonミッドナイト"
+                                          : `宅急便 配完 ${tk} / 持戻 ${tkRet}\nネコポス 配完 ${nk} / 持戻 ${nkRet}`
+                                      }
+                                    >
+                                      {isMidnight ? (
+                                        <div className="text-[11px] font-semibold text-indigo-600">ミッド</div>
+                                      ) : (
+                                        <>
+                                          <div className="tabular-nums text-[11px] font-semibold">{tk || "·"}</div>
+                                          <div className="tabular-nums text-[11px] font-semibold">{nk || "·"}</div>
+                                        </>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                                <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-2 text-right">
+                                  <div className="flex items-center justify-end gap-3">
+                                    <div className="text-right">
+                                      <div className="tabular-nums font-semibold text-slate-900">
+                                        {t.tk}
+                                      </div>
+                                      <div className="tabular-nums font-semibold text-slate-900 mt-0.5">
+                                        {t.nk}
+                                      </div>
+                                    </div>
+                                    <div className="w-10 text-[10px] font-semibold text-slate-900 whitespace-nowrap">
+                                      {midDays}日
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* 右パネル: 分析サマリー */}
+          <div className="w-full lg:w-80 space-y-4">
             {loadingAnalytics ? (
-              <p className="text-sm text-slate-500 py-8">読み込み中...</p>
-            ) : displayData.length === 0 ? (
-              <p className="text-sm text-slate-500 py-8">該当データがありません</p>
+              <>
+                <div className="bg-white rounded-lg border border-slate-200 p-4">
+                  <Skeleton className="h-3 w-14 mb-2" />
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="flex justify-between gap-2">
+                        <Skeleton className="h-4 flex-1 max-w-[100px]" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg border border-slate-200 p-4">
+                  <Skeleton className="h-3 w-12 mb-2" />
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="flex justify-between gap-2">
+                        <Skeleton className="h-4 flex-1 max-w-[120px]" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg border border-slate-200 p-4">
+                  <Skeleton className="h-3 w-16 mb-2" />
+                  <div className="space-y-2">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="flex justify-between gap-2">
+                        <Skeleton className="h-4 flex-1 max-w-[100px]" />
+                        <Skeleton className="h-4 w-16" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
             ) : (
               <>
-                {/* サマリーカード */}
-                <div className="grid grid-cols-4 gap-4 mb-6">
-                  <div className="bg-white rounded-lg border border-slate-200 p-4">
-                    <div className="text-xs text-slate-500 mb-1">総売上</div>
-                    <div className="text-lg font-bold text-slate-900">{fmt(totals.total)}</div>
-                    <div className="text-[11px] text-slate-400 mt-1">日平均 {fmt(dailyAvg.revenue)}</div>
-                  </div>
-                  <div className="bg-white rounded-lg border border-slate-200 p-4">
-                    <div className="text-xs text-slate-500 mb-1">ヤマト売上</div>
-                    <div className="text-lg font-bold text-slate-700">{fmt(totals.yamato)}</div>
-                    <div className="text-[11px] text-slate-400 mt-1">構成比 {((totals.yamato / totals.total) * 100).toFixed(1)}%</div>
-                  </div>
-                  <div className="bg-white rounded-lg border border-slate-200 p-4">
-                    <div className="text-xs text-slate-500 mb-1">Amazon売上</div>
-                    <div className="text-lg font-bold text-slate-400">{fmt(totals.amazon)}</div>
-                    <div className="text-[11px] text-slate-400 mt-1">構成比 {((totals.amazon / totals.total) * 100).toFixed(1)}%</div>
-                  </div>
-                  <div className="bg-white rounded-lg border border-slate-200 p-4">
-                    <div className="text-xs text-slate-500 mb-1">総利益</div>
-                    <div className="text-lg font-bold text-emerald-600">{fmt(totals.profit)}</div>
-                    <div className="text-[11px] text-slate-400 mt-1">日平均 {fmt(dailyAvg.profit)}</div>
+                {/* 売上カード: 売上を大きく、前期間比は近くに小さく */}
+                <div className="bg-white rounded-lg border border-slate-200 p-4">
+                  <div className="text-xs font-semibold text-slate-500 mb-1">売上</div>
+                  <div className="text-2xl font-bold text-slate-900 tracking-tight">{fmt(totals.total)}</div>
+                  <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                    {loadingPrev && <span>前期間計算中...</span>}
+                    {!loadingPrev && revenueChangePct != null && (
+                      <>
+                        <FontAwesomeIcon icon={revenueChangePct >= 0 ? faArrowTrendUp : faArrowTrendDown} className={revenueChangePct >= 0 ? "text-emerald-600" : "text-red-600"} />
+                        <span className={revenueChangePct >= 0 ? "text-emerald-600" : "text-red-600"}>
+                          {revenueChangePct >= 0 ? "+" : ""}{revenueChangePct.toFixed(1)}%
+                        </span>
+                        <span className="text-slate-500">前期間比</span>
+                      </>
+                    )}
+                    {!loadingPrev && revenueChangePct == null && <span>– 前期間比</span>}
                   </div>
                 </div>
 
-                {/* チャート */}
-                <div className="bg-white rounded-lg border border-slate-200 p-6">
-                  <ResponsiveContainer width="100%" height={420}>
-                    <ComposedChart data={displayData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 12 }} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} />
-                      <YAxis yAxisId="left" tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} width={54} />
-                      <YAxis yAxisId="right" orientation="right" tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} width={54} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Legend wrapperStyle={{ paddingTop: "16px", fontSize: "12px" }} iconType="square" iconSize={10} />
-                      <Bar yAxisId="left" dataKey="yamato" stackId="revenue" fill="#334155" name="ヤマト売上" radius={[0, 0, 0, 0]} />
-                      <Bar yAxisId="left" dataKey="amazon" stackId="revenue" fill="#94a3b8" name="Amazon売上" radius={[3, 3, 0, 0]} />
-                      <Line yAxisId="right" type="monotone" dataKey="profit" stroke="#059669" strokeWidth={2.5} name="利益" dot={{ fill: "#059669", r: 3, strokeWidth: 0 }} activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
+                {/* 粗利カード: 粗利率は粗利の後ろにカッコ書き */}
+                <div className="bg-white rounded-lg border border-slate-200 p-4">
+                  <div className="text-xs font-semibold text-slate-500 mb-1">粗利</div>
+                  <div className="text-2xl font-bold text-slate-900 tracking-tight">
+                    {fmt(totals.profit)}
+                    {margin != null && <span className="text-lg font-semibold text-slate-600"> ({margin.toFixed(1)}%)</span>}
+                  </div>
+                  <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                    {marginDiff != null && (
+                      <>
+                        <FontAwesomeIcon icon={marginDiff >= 0 ? faArrowTrendUp : faArrowTrendDown} className={marginDiff >= 0 ? "text-emerald-600" : "text-red-600"} />
+                        <span className={marginDiff >= 0 ? "text-emerald-600" : "text-red-600"}>
+                          {marginDiff >= 0 ? "+" : ""}{marginDiff.toFixed(2)}pt
+                        </span>
+                        <span className="text-slate-500">粗利率変化</span>
+                      </>
+                    )}
+                    {marginDiff == null && <span>– 粗利率変化</span>}
+                  </div>
+                </div>
+
+                {/* その他指標: 1日平均・1人あたり・稼働率 */}
+                <div className="bg-white rounded-lg border border-slate-200 p-4">
+                  <div className="space-y-3 text-sm">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-500 mb-0.5">1日平均売上</div>
+                      <div className="font-semibold text-slate-900">{fmt(Math.round(revenuePerDay))}</div>
+                    </div>
+                    <hr className="border-slate-100" />
+                    <div>
+                      <div className="text-xs font-semibold text-slate-500 mb-0.5">1人あたり売上</div>
+                      <div className="font-semibold text-slate-900">{fmt(Math.round(revenuePerDriver))}</div>
+                    </div>
+                    <hr className="border-slate-100" />
+                    <div>
+                      <div className="text-xs font-semibold text-slate-500 mb-0.5">稼働率</div>
+                      <div className="font-semibold text-slate-900">
+                        {daysCount > 0 ? `${utilization.toFixed(1)}%` : "–"}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </>
             )}
-          </>
-        )}
-
-        {tab === "summary" && (
-          <>
-            <div className="text-sm text-slate-600 mb-3">
-              <span className="font-medium">daily_reports</span> の内容を月次で確認します（ヤマト個数: 宅急便/ネコポス）。
-            </div>
-
-            {loadingSummary ? (
-              <p className="text-sm text-slate-500 py-8">読み込み中...</p>
-            ) : drivers.length === 0 ? (
-              <p className="text-sm text-slate-500 py-8">ドライバーがいません</p>
-            ) : (
-              <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                <div className="overflow-auto">
-                  <table className="min-w-max text-xs">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="sticky left-0 z-20 bg-slate-50 border-b border-slate-200 px-3 py-2 text-left min-w-[100px]">
-                          ドライバー
-                        </th>
-                        <th className="sticky left-[100px] z-10 bg-slate-50 border-b border-r border-slate-200 px-3 py-2 text-right min-w-[27px]"></th>
-                        {daysInRange.map((d) => (
-                          <th key={d.iso} className="border-b border-slate-200 px-2 py-2 text-center min-w-[64px]">
-                            {d.label}
-                          </th>
-                        ))}
-                        <th className="sticky right-0 z-20 bg-slate-50 border-b border-l border-slate-200 px-3 py-2 text-right min-w-[96px]">
-                          月計
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {drivers.map((drv) => {
-                        const t = driverTotals.get(drv.id) ?? { tk: 0, nk: 0, total: 0 };
-                        const midDays = midnightCounts.get(drv.id) ?? 0;
-                        return (
-                          <tr key={drv.id} className="border-t border-slate-100">
-                            <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-2 text-left">
-                              <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>
-                            </td>
-                            <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-2 text-right">
-                              <div className="text-[10px] text-slate-400">宅</div>
-                              <div className="text-[10px] text-slate-400">ネ</div>
-                            </td>
-                            {daysInRange.map((d) => {
-                              const key = `${drv.id}:${d.iso}`;
-                              const isMidnight = midnightSet.has(key);
-                              const r = reportMap.get(key);
-                              const tk = r?.takuhaibin_completed ?? 0;
-                              const nk = r?.nekopos_completed ?? 0;
-                              const has = tk + nk > 0 || isMidnight;
-                              return (
-                                <td key={d.iso} className={`px-2 py-2 text-center ${has ? "text-slate-900" : "text-slate-300"}`}>
-                                  {isMidnight ? (
-                                    <div className="text-[11px] font-semibold text-indigo-600">ミッド</div>
-                                  ) : (
-                                    <>
-                                      <div className="tabular-nums text-[11px] font-semibold">{tk || "·"}</div>
-                                      <div className="tabular-nums text-[11px] font-semibold">{nk || "·"}</div>
-                                    </>
-                                  )}
-                                </td>
-                              );
-                            })}
-                            <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-2 text-right">
-                              <div className="tabular-nums font-semibold text-slate-900">{t.total}</div>
-                              <div className="text-[10px] text-slate-400">
-                                ヤマト / ミッド{midDays}日
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </>
-        )}
+          </div>
+        </div>
       </div>
     </AdminLayout>
   );

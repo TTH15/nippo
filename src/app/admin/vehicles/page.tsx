@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 
@@ -80,6 +83,7 @@ export default function VehiclesPage() {
     driverIds: [] as string[],
   });
   const [saving, setSaving] = useState(false);
+  const [openDriverPopoverVehicleId, setOpenDriverPopoverVehicleId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -219,14 +223,38 @@ export default function VehiclesPage() {
           <h1 className="text-xl font-bold text-slate-900">車両管理</h1>
           <button
             onClick={openNew}
-            className="px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
           >
+            <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
             新規追加
           </button>
         </div>
 
         {loading ? (
-          <p className="text-sm text-slate-500">読み込み中...</p>
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-white rounded-lg border border-slate-200 p-6">
+                <div className="flex gap-8">
+                  <div className="flex-shrink-0 w-64 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-6 w-20" />
+                      <Skeleton className="h-5 w-16" />
+                    </div>
+                    <Skeleton className="rounded-lg w-48 h-24" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                  <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    {[...Array(6)].map((_, j) => (
+                      <div key={j}>
+                        <Skeleton className="h-3 w-20 mb-1" />
+                        <Skeleton className="h-5 w-16" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : vehicles.length === 0 ? (
           <p className="text-sm text-slate-500">車両が登録されていません</p>
         ) : (
@@ -249,42 +277,103 @@ export default function VehiclesPage() {
               const vehicleNo = vehicleIndex >= 0 ? vehicleIndex + 1 : 1;
 
               return (
-                <div key={v.id} className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm relative">
-                  {/* 右上の編集アイコン */}
-                  <button
-                    onClick={() => openEdit(v)}
-                    className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors"
-                    title="編集"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
+                <div key={v.id} className="bg-white rounded-lg border border-slate-200 p-8 shadow-sm relative">
+                  {/* カード上部1行: No. / 車種 / ドライバー / 次回車検・定期点検 / 編集 */}
+                  <div className="flex flex-wrap items-center gap-4 mb-6">
+                    <span className="text-m text-slate-500 font-medium shrink-0">
+                      No.{String(vehicleNo).padStart(4, "0")}
+                    </span>
+                    {(v.manufacturer || v.brand) && (
+                      <span className="text-sm shrink-0 flex gap-1 items-center pl-3">
+                        {v.manufacturer && (
+                          <span className="text-slate-500">{v.manufacturer}</span>
+                        )}
+                        {v.manufacturer && v.brand && (
+                          <span className="text-slate-500 mx-0.1"> </span>
+                        )}
+                        {v.brand && (
+                          <span className="text-lg text-slate-900 font-semibold">{v.brand}</span>
+                        )}
+                      </span>
+                    )}
 
-                  <div className="flex gap-8">
-                    {/* 左側: No、ドライバーラベル、ナンバープレート、写真、車種 */}
-                    <div className="flex-shrink-0 w-64 space-y-4">
-                      {/* No + ドライバーラベル（横並び） */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xl font-bold text-slate-900">
-                          No.{String(vehicleNo).padStart(4, "0")}
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {vehicleDrivers.length > 0 ? (
-                            vehicleDrivers.map((vd) => (
+                    <div className="flex items-center gap-1.5 flex-nowrap min-w-0 h-6 pl-3">
+                      {vehicleDrivers.length > 0 ? (
+                        vehicleDrivers.length <= 2 ? (
+                          vehicleDrivers.map((vd) => (
+                            <span
+                              key={vd.driver_id}
+                              className="inline-flex items-center h-6 px-2 rounded text-xs font-medium bg-slate-800 text-white shrink-0"
+                            >
+                              {getDisplayName(vd.drivers)}
+                            </span>
+                          ))
+                        ) : (
+                          <>
+                            {vehicleDrivers.slice(0, 2).map((vd) => (
                               <span
                                 key={vd.driver_id}
-                                className="px-2.5 py-1 bg-slate-800 text-white text-xs rounded font-medium"
+                                className="inline-flex items-center h-6 px-2 rounded text-xs font-medium bg-slate-800 text-white shrink-0"
                               >
                                 {getDisplayName(vd.drivers)}
                               </span>
-                            ))
-                          ) : (
-                            <span className="px-2.5 py-1 bg-slate-50 text-slate-400 text-xs rounded">未設定</span>
-                          )}
-                        </div>
-                      </div>
+                            ))}
+                            <div className="relative shrink-0 h-6 flex items-center">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenDriverPopoverVehicleId((id) => (id === v.id ? null : v.id));
+                                }}
+                                title={vehicleDrivers.map((vd) => getDisplayName(vd.drivers)).join("、")}
+                                className="inline-flex items-center h-6 px-2 rounded text-xs font-medium bg-slate-700 text-white hover:bg-slate-600"
+                              >
+                                他{vehicleDrivers.length - 2}名
+                              </button>
+                              {openDriverPopoverVehicleId === v.id && (
+                                <>
+                                  <div
+                                    className="fixed inset-0 z-10"
+                                    aria-hidden
+                                    onClick={() => setOpenDriverPopoverVehicleId(null)}
+                                  />
+                                  <div className="absolute left-0 top-full mt-1 z-20 bg-slate-800 text-white text-xs rounded-lg shadow-lg py-2 px-3 w-48 max-h-[140px] overflow-y-auto">
+                                    <div className="font-medium text-slate-300 mb-1.5">利用ドライバー</div>
+                                    <ul className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                      {vehicleDrivers.map((vd) => (
+                                        <li key={vd.driver_id}>{getDisplayName(vd.drivers)}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </>
+                        )
+                      ) : (
+                        <span className="inline-flex items-center h-6 px-2 rounded text-xs font-medium bg-slate-50 text-slate-400 shrink-0">未設定</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-4 text-sm shrink-0 pl-3">
+                      <span className="text-slate-400">次回車検</span>
+                      <span className="font-semibold text-lg text-slate-900">2026年8月</span>
+                      <span className="text-slate-400 pl-3">次回定期点検</span>
+                      <span className="font-semibold text-lg text-slate-900">2026年2月</span>
+                    </div>
+                    <button
+                      onClick={() => openEdit(v)}
+                      className="ml-auto text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+                      title="編集"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                  </div>
 
+                  <div className="flex gap-8">
+                    {/* 左側: ナンバープレート、写真 */}
+                    <div className="flex-shrink-0 w-64 space-y-4">
                       {/* ナンバープレート */}
                       {(v.number_prefix || v.number_hiragana || v.number_numeric) && (
                         <div
@@ -371,54 +460,22 @@ export default function VehiclesPage() {
                       <div className="w-full aspect-video bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-sm overflow-hidden">
                         <span>車両画像</span>
                       </div>
-
-                      {/* 車種（メーカー名とブランド名を分けて表示） */}
-                      {(v.manufacturer || v.brand) && (
-                        <div>
-                          {v.manufacturer && (
-                            <span className="text-xs text-slate-500">{v.manufacturer}</span>
-                          )}
-                          {v.manufacturer && v.brand && <span className="text-xs text-slate-500 mx-1"> </span>}
-                          {v.brand && (
-                            <span className="text-lg font-semibold text-slate-900">{v.brand}</span>
-                          )}
-                        </div>
-                      )}
                     </div>
 
-                    {/* 右側: 次回車検・定期点検、オイル交換ゲージ、回収ROIゲージ */}
-                    <div className="flex-1 space-y-6">
-                      {/* 次回車検・定期点検（横並び） */}
-                      <div className="flex items-center gap-6 text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-600">次回車検</span>
-                          <span className="font-medium text-slate-900">2026年8月</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-600">次回定期点検</span>
-                          <span className="font-medium text-slate-900">2026年2月</span>
-                        </div>
-                      </div>
-
-                      {/* オイル交換ゲージ */}
-                      <div className="pt-2">
+                    {/* 右側: オイル交換ゲージ、初期費用回収ゲージ */}
+                    <div className="flex-1 space-y-4 p-2">
+                      {/* オイル交換ゲージ（全体をホバー領域にし、どこでも走行距離を表示） */}
+                      <div
+                        className="pt-4 pb-10 cursor-help"
+                        title={`現在走行距離 ${fmt(v.current_mileage)} km`}
+                      >
+                        <div className="text-sm font-semibold text-slate-700 leading-tight pb-4">メーター管理</div>
                         {/* ラベル行 */}
                         <div className="relative h-10 mb-1">
                           {/* 前回オイル交換（左端） */}
                           <div className="absolute left-0 top-0 text-left">
                             <div className="text-[10px] text-slate-500 leading-tight">前回オイル交換</div>
                             <div className="text-xs font-medium text-slate-800 leading-tight">{fmt(v.last_oil_change_mileage)} km</div>
-                          </div>
-                          {/* 現在走行距離（現在位置） */}
-                          <div
-                            className="absolute top-0 whitespace-nowrap"
-                            style={{
-                              left: `${oilProgress}%`,
-                              transform: `translateX(${oilProgress > 70 ? "-80%" : oilProgress < 30 ? "0%" : "-50%"})`,
-                            }}
-                          >
-                            <div className="text-[10px] text-slate-500 leading-tight">現在走行距離</div>
-                            <div className="text-xs font-bold text-slate-900 leading-tight">{fmt(v.current_mileage)} km</div>
                           </div>
                           {/* 次回オイル交換（右端） */}
                           <div className="absolute right-0 top-0 text-right">
@@ -428,13 +485,13 @@ export default function VehiclesPage() {
                         </div>
                         {/* ▼ マーカー行 */}
                         <div className="relative h-3">
-                          {/* 前回位置 ▼ */}
                           <div className="absolute left-0 top-0 -translate-x-[3px] text-slate-400 text-[10px] leading-none">▼</div>
-                          {/* 現在位置 ▼ */}
                           <div
                             className="absolute top-0 text-green-600 text-[10px] leading-none"
                             style={{ left: `${oilProgress}%`, transform: "translateX(-50%)" }}
-                          >▼</div>
+                          >
+                            ▼
+                          </div>
                         </div>
                         {/* ゲージバー */}
                         <div className="relative h-2.5 bg-slate-200 rounded-full overflow-hidden">
@@ -446,39 +503,25 @@ export default function VehiclesPage() {
                         </div>
                       </div>
 
-                      {/* 回収ROIゲージ */}
-                      <div className="flex gap-3 items-start">
-                        {/* 左側: ラベルと金額（縦並び、ゲージの位置に対応） */}
-                        <div className="flex flex-col text-xs text-slate-600 min-w-[110px]">
-                          <div className="mb-1">
-                            <div className="text-slate-500 text-[10px]">回収済み</div>
-                            <div className="font-medium text-xs">{fmt(recovered)}円</div>
-                          </div>
-                          <div className="flex-1 flex items-center">
-                            {remainingMonths !== null && remainingMonths > 0 && (
-                              <div>
-                                <div className="text-slate-500 text-[10px]">回収まで</div>
-                                <div className="font-medium text-xs text-blue-600">残り約{remainingMonths}ヶ月</div>
-                              </div>
-                            )}
-                            {purchaseCost > 0 && recovered >= purchaseCost && (
-                              <div className="font-medium text-xs text-green-600">✓ 回収完了</div>
-                            )}
-                          </div>
-                          <div className="mt-auto">
-                            <div className="text-slate-500 text-[10px]">購入費用</div>
-                            <div className="font-medium text-xs text-slate-900">{fmt(purchaseCost)}円</div>
-                          </div>
+                      {/* 初期費用回収ゲージ（オイルメーターに近く・細く・ラベルはゲージ上） */}
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-slate-700 leading-tight pb-4">初期費用回収</div>
+                        <div className="flex justify-between text-[10px] text-slate-500">
+                          <span>回収済み {fmt(recovered)}円</span>
+                          <span>購入費用 {fmt(purchaseCost)}円</span>
                         </div>
-                        {/* 右側: ゲージ */}
-                        <div className="flex-1 relative h-20 bg-blue-50 rounded border border-blue-200 overflow-hidden">
+                        <div className="relative h-6 bg-blue-50 rounded border border-blue-200 overflow-hidden">
                           <div
                             className="absolute top-0 left-0 h-full bg-blue-600 transition-all"
                             style={{ width: `${recoveryProgress}%` }}
                           />
-                          <div className="absolute inset-0 flex flex-col justify-between py-1 px-2">
-                            <div className="text-[10px] font-medium text-blue-900">{fmt(recovered)}</div>
-                            <div className="text-[10px] font-medium text-blue-900 text-right">{fmt(purchaseCost)}</div>
+                          <div className="absolute inset-0 flex items-center justify-end px-2">
+                            {remainingMonths !== null && remainingMonths > 0 && (
+                              <span className="text-[10px] font-medium text-blue-900">残り約{remainingMonths}ヶ月</span>
+                            )}
+                            {purchaseCost > 0 && recovered >= purchaseCost && (
+                              <span className="text-[10px] font-medium text-green-700">回収完了</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -488,7 +531,8 @@ export default function VehiclesPage() {
               );
             })}
           </div>
-        )}
+        )
+        }
       </div>
 
       {/* Modal */}

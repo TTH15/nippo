@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 
@@ -289,14 +292,40 @@ export default function UsersPage() {
           </div>
           <button
             onClick={openNew}
-            className="px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
           >
+            <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
             新規追加
           </button>
         </div>
 
         {loading ? (
-          <p className="text-sm text-slate-500">読み込み中...</p>
+          <div className="bg-white rounded border border-slate-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-12" /></th>
+                  <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-14" /></th>
+                  <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-20" /></th>
+                  <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-14" /></th>
+                  <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-20" /></th>
+                  <th className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-10 ml-auto" /></th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...Array(6)].map((_, i) => (
+                  <tr key={i} className="border-b border-slate-100">
+                    <td className="py-2.5 px-4"><Skeleton className="h-4 w-24" /></td>
+                    <td className="py-2.5 px-4"><Skeleton className="h-4 w-20" /></td>
+                    <td className="py-2.5 px-4"><Skeleton className="h-4 w-16" /></td>
+                    <td className="py-2.5 px-4"><Skeleton className="h-4 w-12" /></td>
+                    <td className="py-2.5 px-4"><Skeleton className="h-5 w-24" /></td>
+                    <td className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-14 ml-auto" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : drivers.length === 0 ? (
           <p className="text-sm text-slate-500">ドライバーが登録されていません</p>
         ) : (

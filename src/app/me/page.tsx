@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Nav } from "@/lib/components/Nav";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 
 type Report = {
@@ -32,7 +33,30 @@ export default function MePage() {
         <h1 className="text-lg font-bold text-brand-900 mb-6">提出履歴</h1>
 
         {loading ? (
-          <p className="text-sm text-slate-500">読み込み中...</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left">
+                  <th className="py-3 pr-3"><Skeleton className="h-4 w-12" /></th>
+                  <th className="py-3 px-2"><Skeleton className="h-4 w-12 ml-auto" /></th>
+                  <th className="py-3 px-2"><Skeleton className="h-4 w-12 ml-auto" /></th>
+                  <th className="py-3 px-2"><Skeleton className="h-4 w-12 ml-auto" /></th>
+                  <th className="py-3 pl-2"><Skeleton className="h-4 w-12 ml-auto" /></th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...Array(5)].map((_, i) => (
+                  <tr key={i} className="border-b border-slate-100">
+                    <td className="py-3 pr-3"><Skeleton className="h-4 w-20" /></td>
+                    <td className="py-3 px-2 text-right"><Skeleton className="h-4 w-8 ml-auto" /></td>
+                    <td className="py-3 px-2 text-right"><Skeleton className="h-4 w-8 ml-auto" /></td>
+                    <td className="py-3 px-2 text-right"><Skeleton className="h-4 w-8 ml-auto" /></td>
+                    <td className="py-3 pl-2 text-right"><Skeleton className="h-4 w-8 ml-auto" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : reports.length === 0 ? (
           <p className="text-sm text-slate-500">まだ提出がありません</p>
         ) : (

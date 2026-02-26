@@ -18,6 +18,10 @@ export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
 
+  // DB から取得する生データの範囲（シード期間に合わせて十分広く取る）
+  const RAW_START = "2025-01-01";
+  const RAW_END = "2026-12-31";
+
   const url = req.nextUrl;
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
@@ -54,16 +58,16 @@ export async function GET(req: NextRequest) {
   const { data: shifts } = await supabase
     .from("shifts")
     .select("shift_date, course_id, driver_id")
-    .gte("shift_date", startDate)
-    .lte("shift_date", endDate);
+    .gte("shift_date", RAW_START)
+    .lte("shift_date", RAW_END);
 
   const { data: reports } = await supabase
     .from("daily_reports")
     .select(
       "driver_id, report_date, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned",
     )
-    .gte("report_date", startDate)
-    .lte("report_date", endDate);
+    .gte("report_date", RAW_START)
+    .lte("report_date", RAW_END);
 
   type ReportRow = NonNullable<typeof reports>[number];
   const reportMap = new Map<string, ReportRow>();
@@ -73,6 +77,8 @@ export async function GET(req: NextRequest) {
 
   shifts?.forEach((s) => {
     const date = s.shift_date;
+    // ユーザーが指定した範囲外の日付は集計対象にしない
+    if (date < startDate || date > endDate) return;
     if (!dateMap.has(date)) dateMap.set(date, { yamato: 0, amazon: 0, profit: 0 });
     const entry = dateMap.get(date)!;
     const rate = rateByCourse[s.course_id];

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 
 type Address = {
@@ -142,7 +143,26 @@ export default function AddressBookPage() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-slate-500">読み込み中...</p>
+          <div className="space-y-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="bg-white rounded-lg border border-slate-200 p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <Skeleton className="h-4 w-40 mb-2" />
+                    <div className="space-y-1">
+                      <Skeleton className="h-3 w-24" />
+                      <Skeleton className="h-3 w-full max-w-xs" />
+                      <Skeleton className="h-3 w-28" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Skeleton className="h-4 w-10" />
+                    <Skeleton className="h-4 w-10" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : addresses.length === 0 ? (
           <div className="bg-white rounded-lg border border-slate-200 p-8 text-center">
             <p className="text-slate-500 mb-2">登録された法人アドレスはありません</p>

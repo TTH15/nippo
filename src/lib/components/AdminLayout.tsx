@@ -3,31 +3,47 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faChartLine,
+  faUsers,
+  faCar,
+  faRoute,
+  faFileInvoice,
+  faAddressBook,
+  faCalendar,
+  faClipboardList,
+  faFileLines,
+  faPlus,
+} from "@fortawesome/free-solid-svg-icons";
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver } from "@/lib/api";
 
-type NavChild = { href: string; label: string };
+type NavChild = { href: string; label: string; icon?: IconDefinition };
 type NavItem =
-  | { href: string; label: string; children?: undefined }
-  | { label: string; children: NavChild[]; href?: undefined };
+  | { href: string; label: string; icon?: IconDefinition; children?: undefined }
+  | { label: string; icon?: IconDefinition; children: NavChild[]; href?: undefined };
 
 const navItems: NavItem[] = [
-  { href: "/admin/sales", label: "売上" },
+  { href: "/admin/sales", label: "売上", icon: faChartLine },
   {
     label: "ドライバー",
+    icon: faUsers,
     children: [
-      { href: "/admin/users", label: "ドライバー管理" },
-      { href: "/admin/shifts", label: "シフト" },
-      { href: "/admin/daily", label: "日報提出状況確認" },
+      { href: "/admin/users", label: "ドライバー管理", icon: faUsers },
+      { href: "/admin/shifts", label: "シフト", icon: faCalendar },
+      { href: "/admin/daily", label: "日報提出状況確認", icon: faClipboardList },
     ],
   },
-  { href: "/admin/vehicles", label: "車両" },
-  { href: "/admin/courses", label: "コース" },
+  { href: "/admin/vehicles", label: "車両", icon: faCar },
+  { href: "/admin/courses", label: "コース", icon: faRoute },
   {
     label: "請求書",
+    icon: faFileInvoice,
     children: [
-      { href: "/admin/invoices", label: "登録済情報から作成" },
-      { href: "/admin/invoices/new", label: "新規作成" },
-      { href: "/admin/invoices/addressbook", label: "アドレス帳" },
+      { href: "/admin/invoices", label: "登録済情報から作成", icon: faFileLines },
+      { href: "/admin/invoices/new", label: "新規作成", icon: faPlus },
+      { href: "/admin/invoices/addressbook", label: "アドレス帳", icon: faAddressBook },
     ],
   },
 ];
@@ -122,7 +138,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                         : "text-slate-400 hover:bg-slate-800 hover:text-white"
                         }`}
                     >
-                      <span>{item.label}</span>
+                      <span className="flex items-center gap-2">
+                        {item.icon && <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />}
+                        {item.label}
+                      </span>
                       <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
                       </svg>
@@ -144,11 +163,12 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                 key={child.href}
                                 href={child.href}
                                 onClick={() => setOpenMenu(null)}
-                                className={`block px-4 py-2.5 text-[13px] font-bold transition-colors ${childActive
+                                className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-bold transition-colors ${childActive
                                   ? "bg-slate-700 text-white"
                                   : "text-slate-300 hover:bg-slate-700/60 hover:text-white"
                                   }`}
                               >
+                                {child.icon && <FontAwesomeIcon icon={child.icon} className="w-3.5 h-3.5 opacity-90" />}
                                 {child.label}
                               </Link>
                             );
@@ -165,11 +185,12 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    className={`block px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${active
+                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${active
                       ? "bg-slate-700/80 text-white"
                       : "text-slate-400 hover:bg-slate-800 hover:text-white"
                       }`}
                   >
+                    {item.icon && <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />}
                     {item.label}
                   </Link>
                 </li>

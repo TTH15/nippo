@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 
@@ -367,7 +368,36 @@ export default function ShiftsPage() {
         )}
 
         {loading ? (
-          <p className="text-sm text-slate-500">読み込み中...</p>
+          <div className="bg-white rounded border border-slate-200 overflow-x-auto">
+            <table className="w-full text-sm min-w-0">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="py-2 px-2 text-left w-28 sticky left-0 bg-slate-50 z-10">
+                    <Skeleton className="h-4 w-14" />
+                  </th>
+                  {[...Array(14)].map((_, i) => (
+                    <th key={i} className="py-2 px-0.5 min-w-[4rem]">
+                      <Skeleton className="h-4 w-8 mx-auto" />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...Array(6)].map((_, i) => (
+                  <tr key={i} className="border-b border-slate-100">
+                    <td className="py-1 px-2 sticky left-0 bg-white z-10">
+                      <Skeleton className="h-4 w-20" />
+                    </td>
+                    {[...Array(14)].map((_, j) => (
+                      <td key={j} className="py-1 px-0.5">
+                        <Skeleton className="h-6 w-full max-w-[3rem] mx-auto" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div className="bg-white rounded border border-slate-200 overflow-x-auto">
             <table className="w-full text-sm min-w-0">

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 
@@ -135,7 +136,40 @@ export default function AdminMonthlyPage() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-slate-500">読み込み中...</p>
+          <>
+            <div className="flex gap-3 mb-4">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-4 w-32" />
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="border-b border-slate-200 text-left">
+                    <th className="py-3 px-4"><Skeleton className="h-4 w-12" /></th>
+                    <th className="py-3 px-3"><Skeleton className="h-4 w-12 ml-auto" /></th>
+                    <th className="py-3 px-3"><Skeleton className="h-4 w-20 ml-auto" /></th>
+                    <th className="py-3 px-3"><Skeleton className="h-4 w-20 ml-auto" /></th>
+                    <th className="py-3 px-3"><Skeleton className="h-4 w-20 ml-auto" /></th>
+                    <th className="py-3 px-3"><Skeleton className="h-4 w-20 ml-auto" /></th>
+                    <th className="py-3 px-4"><Skeleton className="h-4 w-16 ml-auto" /></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...Array(8)].map((_, i) => (
+                    <tr key={i} className="border-b border-slate-100">
+                      <td className="py-3 px-4"><Skeleton className="h-4 w-20" /></td>
+                      <td className="py-3 px-3 text-right"><Skeleton className="h-4 w-8 ml-auto" /></td>
+                      <td className="py-3 px-3 text-right"><Skeleton className="h-4 w-12 ml-auto" /></td>
+                      <td className="py-3 px-3 text-right"><Skeleton className="h-4 w-8 ml-auto" /></td>
+                      <td className="py-3 px-3 text-right"><Skeleton className="h-4 w-12 ml-auto" /></td>
+                      <td className="py-3 px-3 text-right"><Skeleton className="h-4 w-12 ml-auto" /></td>
+                      <td className="py-3 px-4 text-right"><Skeleton className="h-4 w-16 ml-auto" /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : data ? (
           <>
             {/* Rate info */}
