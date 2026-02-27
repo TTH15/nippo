@@ -208,7 +208,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                       : "text-slate-400 hover:bg-slate-800 hover:text-white"
                       }`}
                   >
-                    {item.icon && <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />}
+                    {item.icon && <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-0" />}
                     {item.label}
                   </Link>
                 </li>
