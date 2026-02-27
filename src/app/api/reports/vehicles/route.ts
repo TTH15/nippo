@@ -21,17 +21,17 @@ export async function GET(req: NextRequest) {
 
   const ids = (assignedVehicleIds ?? []).map((r) => r.vehicle_id);
 
-  let query = supabase
-    .from("vehicles")
-    .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage")
-    .order("manufacturer")
-    .order("brand");
-
-  if (ids.length > 0) {
-    query = query.in("id", ids);
+  // 紐付け車両がない場合は空配列を返す（全車両は返さない）
+  if (ids.length === 0) {
+    return NextResponse.json({ vehicles: [] });
   }
 
-  const { data: vehicles, error } = await query;
+  const { data: vehicles, error } = await supabase
+    .from("vehicles")
+    .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage")
+    .in("id", ids)
+    .order("manufacturer")
+    .order("brand");
 
   if (error) {
     console.error(error);

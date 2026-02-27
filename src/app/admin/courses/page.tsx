@@ -6,6 +6,7 @@ import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
@@ -68,6 +69,11 @@ export default function CoursesPage() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+  const [errorState, setErrorState] = useState<{
+    title: string;
+    message: string;
+    detail?: string;
+  } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -106,7 +112,15 @@ export default function CoursesPage() {
       load();
     } catch (e) {
       console.error(e);
-      alert("追加に失敗しました");
+      const reason = e instanceof Error ? e.message : "";
+      setErrorState({
+        title: "コースの追加に失敗しました",
+        message:
+          "サーバーでエラーが発生したため、新しいコースを追加できませんでした。\n\n" +
+          "コース名が重複していないかなど入力内容を確認し、もう一度追加してください。\n" +
+          "同じエラーが続く場合は、システム管理者に連絡してください。",
+        detail: reason || undefined,
+      });
     } finally {
       setSaving(false);
     }
@@ -140,7 +154,15 @@ export default function CoursesPage() {
       load();
     } catch (e) {
       console.error(e);
-      alert("保存に失敗しました");
+      const reason = e instanceof Error ? e.message : "";
+      setErrorState({
+        title: "単価設定の保存に失敗しました",
+        message:
+          "サーバーでエラーが発生したため、単価設定を保存できませんでした。\n\n" +
+          "入力した金額に不正な値がないか確認し、もう一度保存してください。\n" +
+          "同じエラーが続く場合は、システム管理者に連絡してください。",
+        detail: reason || undefined,
+      });
     } finally {
       setSaving(false);
     }
@@ -165,7 +187,14 @@ export default function CoursesPage() {
           load();
         } catch (e) {
           console.error(e);
-          alert("削除に失敗しました");
+          const reason = e instanceof Error ? e.message : "";
+          setErrorState({
+            title: "コースの削除に失敗しました",
+            message:
+              "サーバーでエラーが発生したため、このコースを削除できませんでした。\n\n" +
+              "このコースに紐付いたシフトやドライバーが原因の可能性があります。時間をおいて再度お試しいただくか、システム管理者に連絡してください。",
+            detail: reason || undefined,
+          });
         } finally {
           setSaving(false);
         }
@@ -424,6 +453,13 @@ export default function CoursesPage() {
         onConfirm={confirmState?.onConfirm ?? (() => {})}
         onClose={() => setConfirmState(null)}
         confirmLabel="削除"
+      />
+      <ErrorDialog
+        open={!!errorState}
+        title={errorState?.title}
+        message={errorState?.message ?? ""}
+        detail={errorState?.detail}
+        onClose={() => setErrorState(null)}
       />
     </AdminLayout>
   );

@@ -6,6 +6,7 @@ import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
@@ -106,6 +107,11 @@ export default function UsersPage() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+  const [errorState, setErrorState] = useState<{
+    title: string;
+    message: string;
+    detail?: string;
+  } | null>(null);
 
   useEffect(() => {
     const stored = getStoredDriver();
@@ -191,7 +197,12 @@ export default function UsersPage() {
     const raw = zipOverride ?? form.postalCode;
     const zip = toHalfWidth(raw).replace(/-/g, "").replace(/\D/g, "");
     if (zip.length < 7) {
-      alert("郵便番号を7桁で入力してください");
+      setErrorState({
+        title: "郵便番号の桁数が足りません",
+        message:
+          "郵便番号が7桁未満のため、住所を検索できませんでした。\n\n" +
+          "「1234567」または「123-4567」の形式で7桁の郵便番号を入力してから、再度「住所検索」ボタンを押してください。",
+      });
       return;
     }
     setPostalLoading(true);
@@ -205,11 +216,23 @@ export default function UsersPage() {
         const addr = [r.address1, r.address2, r.address3].filter(Boolean).join("");
         setForm((f) => ({ ...f, address: addr }));
       } else {
-        alert("住所が見つかりませんでした");
+        setErrorState({
+          title: "住所が見つかりませんでした",
+          message:
+            "入力された郵便番号に該当する住所が見つかりませんでした。\n\n" +
+            "郵便番号に誤りがないか確認し、それでも見つからない場合は、住所欄に直接入力してください。",
+        });
       }
     } catch (e) {
       console.error(e);
-      alert("住所の取得に失敗しました");
+      const reason = e instanceof Error ? e.message : "";
+      setErrorState({
+        title: "住所の取得に失敗しました",
+        message:
+          "外部の住所検索サービスへのアクセス中にエラーが発生しました。\n\n" +
+          "一時的な通信エラーの可能性がありますので、時間をおいて再度お試しください。",
+        detail: reason || undefined,
+      });
     } finally {
       setPostalLoading(false);
     }
@@ -270,7 +293,15 @@ export default function UsersPage() {
       load();
     } catch (e) {
       console.error(e);
-      alert("保存に失敗しました");
+      const reason = e instanceof Error ? e.message : "";
+      setErrorState({
+        title: "ドライバー情報の保存に失敗しました",
+        message:
+          "サーバーでエラーが発生したため、ドライバー情報を保存できませんでした。\n\n" +
+          "入力内容（コードの重複や必須項目の抜けなど）を確認し、もう一度保存してください。\n" +
+          "同じエラーが続く場合は、システム管理者に連絡してください。",
+        detail: reason || undefined,
+      });
     } finally {
       setSaving(false);
     }
@@ -286,7 +317,14 @@ export default function UsersPage() {
           load();
         } catch (e) {
           console.error(e);
-          alert("削除に失敗しました");
+          const reason = e instanceof Error ? e.message : "";
+          setErrorState({
+            title: "ドライバーの削除に失敗しました",
+            message:
+              "サーバーでエラーが発生したため、このドライバーを削除できませんでした。\n\n" +
+              "このドライバーに紐付いたシフトや日報が原因の可能性があります。時間をおいて再度お試しいただくか、システム管理者に連絡してください。",
+            detail: reason || undefined,
+          });
         }
       },
     });
@@ -655,6 +693,13 @@ export default function UsersPage() {
         onConfirm={confirmState?.onConfirm ?? (() => {})}
         onClose={() => setConfirmState(null)}
         confirmLabel="削除"
+      />
+      <ErrorDialog
+        open={!!errorState}
+        title={errorState?.title}
+        message={errorState?.message ?? ""}
+        detail={errorState?.detail}
+        onClose={() => setErrorState(null)}
       />
     </AdminLayout>
   );

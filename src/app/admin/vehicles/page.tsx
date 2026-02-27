@@ -6,6 +6,7 @@ import { faPlus, faFileLines } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
@@ -98,6 +99,11 @@ export default function VehiclesPage() {
   const [confirmState, setConfirmState] = useState<{
     message: string;
     onConfirm: () => void;
+  } | null>(null);
+  const [errorState, setErrorState] = useState<{
+    title: string;
+    message: string;
+    detail?: string;
   } | null>(null);
   const [numberFocused, setNumberFocused] = useState(false);
 
@@ -205,7 +211,15 @@ export default function VehiclesPage() {
       load();
     } catch (e) {
       console.error(e);
-      alert("保存に失敗しました");
+      const reason = e instanceof Error ? e.message : "";
+      setErrorState({
+        title: "車両の保存に失敗しました",
+        message:
+          "サーバーでエラーが発生したため、車両情報を保存できませんでした。\n\n" +
+          "入力内容（メーカー名・ブランド名・メーター値など）に不足や不正な値がないか確認し、もう一度保存してください。\n" +
+          "同じエラーが続く場合は、システム管理者に連絡してください。",
+        detail: reason || undefined,
+      });
     } finally {
       setSaving(false);
     }
@@ -221,7 +235,14 @@ export default function VehiclesPage() {
           load();
         } catch (e) {
           console.error(e);
-          alert("削除に失敗しました");
+          const reason = e instanceof Error ? e.message : "";
+          setErrorState({
+            title: "車両の削除に失敗しました",
+            message:
+              "サーバーでエラーが発生したため、この車両を削除できませんでした。\n\n" +
+              "時間をおいて再度お試しください。それでも解決しない場合は、この車両に紐付くデータ（シフト・日報など）が原因の可能性があるため、システム管理者に連絡してください。",
+            detail: reason || undefined,
+          });
         }
       },
     });
@@ -1059,6 +1080,13 @@ export default function VehiclesPage() {
         onConfirm={confirmState?.onConfirm ?? (() => {})}
         onClose={() => setConfirmState(null)}
         confirmLabel="削除"
+      />
+      <ErrorDialog
+        open={!!errorState}
+        title={errorState?.title}
+        message={errorState?.message ?? ""}
+        detail={errorState?.detail}
+        onClose={() => setErrorState(null)}
       />
     </AdminLayout>
   );

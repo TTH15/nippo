@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Nav } from "@/lib/components/Nav";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
+import { ErrorDialog } from "@/lib/components/ErrorDialog";
 
 type ShiftRequest = {
   id: string;
@@ -32,6 +33,11 @@ export default function ShiftsPage() {
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<{
+    title: string;
+    message: string;
+    detail?: string;
+  } | null>(null);
 
   const days = useMemo(() => getDaysInMonth(viewDate.year, viewDate.month), [viewDate]);
   const monthStr = `${viewDate.year}-${String(viewDate.month + 1).padStart(2, "0")}`;
@@ -85,7 +91,15 @@ export default function ShiftsPage() {
       await load();
     } catch (e) {
       console.error(e);
-      alert("保存に失敗しました");
+      const reason = e instanceof Error ? e.message : "";
+      setErrorState({
+        title: "シフト希望の保存に失敗しました",
+        message:
+          "サーバーでエラーが発生したため、この日の希望休設定を保存できませんでした。\n\n" +
+          "通信状況を確認してから、もう一度タップして保存してください。\n" +
+          "同じエラーが続く場合は、管理者に連絡してください。",
+        detail: reason || undefined,
+      });
     } finally {
       setSaving(null);
     }
@@ -239,6 +253,13 @@ export default function ShiftsPage() {
           </div>
         )}
       </div>
+      <ErrorDialog
+        open={!!errorState}
+        title={errorState?.title}
+        message={errorState?.message ?? ""}
+        detail={errorState?.detail}
+        onClose={() => setErrorState(null)}
+      />
     </>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
@@ -80,6 +81,11 @@ export default function ShiftsPage() {
   const [confirmState, setConfirmState] = useState<{
     message: string;
     onConfirm: () => void;
+  } | null>(null);
+  const [errorState, setErrorState] = useState<{
+    title: string;
+    message: string;
+    detail?: string;
   } | null>(null);
 
   const displayDates = useMemo(
@@ -196,10 +202,21 @@ export default function ShiftsPage() {
             }
           );
           await load();
-          alert(`叩き台を生成しました（${res.applied}/${res.total} 件割当）`);
+          setErrorState({
+            title: "叩き台を生成しました",
+            message: `希望休と担当可能ルートに基づいて、シフトの叩き台を自動生成しました。\n\n` +
+              `この期間のシフト ${res.total} 件のうち、${res.applied} 件を自動割り当てしています。内容を確認し、必要に応じて手動で調整してください。`,
+          });
         } catch (e) {
           console.error(e);
-          alert("叩き台の生成に失敗しました");
+          const reason = e instanceof Error ? e.message : "";
+          setErrorState({
+            title: "叩き台の生成に失敗しました",
+            message:
+              "サーバーでエラーが発生したため、選択中の期間のシフト叩き台を生成できませんでした。\n\n" +
+              "通信状況を確認のうえ、もう一度実行してください。それでも解決しない場合は、管理者に連絡してください。",
+            detail: reason || undefined,
+          });
         } finally {
           setGenerating(false);
         }
@@ -303,7 +320,15 @@ export default function ShiftsPage() {
       await load();
     } catch (e) {
       console.error(e);
-      alert("保存に失敗しました");
+      const reason = e instanceof Error ? e.message : "";
+      setErrorState({
+        title: "シフトの保存に失敗しました",
+        message:
+          "サーバーでエラーが発生したため、編集したシフトを保存できませんでした。\n\n" +
+          "一度ページを再読み込みして最新の状態を確認し、再度編集・保存をお試しください。\n" +
+          "同じエラーが続く場合は、管理者に連絡してください。",
+        detail: reason || undefined,
+      });
     } finally {
       setSaving(false);
     }
@@ -617,6 +642,13 @@ export default function ShiftsPage() {
         onConfirm={confirmState?.onConfirm ?? (() => {})}
         onClose={() => setConfirmState(null)}
         confirmLabel="OK"
+      />
+      <ErrorDialog
+        open={!!errorState}
+        title={errorState?.title}
+        message={errorState?.message ?? ""}
+        detail={errorState?.detail}
+        onClose={() => setErrorState(null)}
       />
     </AdminLayout>
   );
