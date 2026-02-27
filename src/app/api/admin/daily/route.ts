@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   d.setUTCDate(d.getUTCDate() + 1);
   const endDate = d.toISOString().slice(0, 10); // YYYY-MM-DD
 
-   // 接続先Supabaseプロジェクト（project ref）をログに出す（キーやフルURLは出さない）
+  // 接続先Supabaseプロジェクト（project ref）をログに出す（キーやフルURLは出さない）
   let projectRef = "unknown";
   try {
     if (process.env.SUPABASE_URL) {
@@ -41,10 +41,11 @@ export async function GET(req: NextRequest) {
     console.log("[admin/daily] debug", { projectRef, date, reportCountExact });
   }
 
-  // 全ドライバー（role フィルタは一旦外す：ロール値の揺れに影響されないようにする）
+  // DRIVERロールのみ取得するようフィルタを追加
   const { data: drivers, error: dErr } = await supabase
     .from("drivers")
     .select("id, name, display_name")
+    .eq("role", "DRIVER")
     .order("name");
 
   if (dErr) throw dErr;

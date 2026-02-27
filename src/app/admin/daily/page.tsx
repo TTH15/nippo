@@ -9,6 +9,7 @@ import { getDisplayName } from "@/lib/displayName";
 type Entry = {
   driver: { id: string; name: string; display_name?: string | null };
   report: {
+    report_date: string;
     takuhaibin_completed: number;
     takuhaibin_returned: number;
     nekopos_completed: number;
@@ -22,40 +23,36 @@ type Entry = {
     amazon_pm_completed?: number;
     amazon_4_mochidashi?: number;
     amazon_4_completed?: number;
-  } | null;
+  };
 };
 
-function todayStr() {
-  return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
-}
+type Group = {
+  date: string;
+  entries: Entry[];
+};
 
 export default function AdminDailyPage() {
-  const [date, setDate] = useState(todayStr());
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    apiFetch<{ entries: Entry[] }>(`/api/admin/daily?date=${date}`)
-      .then((res) => setEntries(res.entries))
-      .catch(() => setEntries([]))
+    apiFetch<{ groups: Group[]; totalPending: number }>("/api/admin/daily/pending")
+      .then((res) => setGroups(res.groups))
+      .catch(() => setGroups([]))
       .finally(() => setLoading(false));
-  }, [date]);
+  }, []);
 
-  const submitted = entries.filter((e) => e.report);
-  const notSubmitted = entries.filter((e) => !e.report);
+  const totalPending = groups.reduce((sum, g) => sum + g.entries.length, 0);
 
   return (
     <AdminLayout>
       <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">日報集計</h1>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-          />
+          <p className="text-xs text-slate-500">
+            未承認の日報を日付ごとに表示しています
+          </p>
         </div>
 
         {loading ? (
@@ -99,110 +96,102 @@ export default function AdminDailyPage() {
           <>
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="bg-white rounded-lg border border-slate-200 p-4">
-                <div className="text-2xl font-bold text-slate-900">{entries.length}</div>
-                <div className="text-xs text-slate-500 mt-0.5">全ドライバー</div>
+                <div className="text-2xl font-bold text-slate-900">{totalPending}</div>
+                <div className="text-xs text-slate-500 mt-0.5">未承認の日報</div>
               </div>
               <div className="bg-white rounded-lg border border-slate-200 p-4">
-                <div className="text-2xl font-bold text-emerald-600">{submitted.length}</div>
-                <div className="text-xs text-slate-500 mt-0.5">提出済</div>
+                <div className="text-2xl font-bold text-slate-900">{groups.length}</div>
+                <div className="text-xs text-slate-500 mt-0.5">対象日数</div>
               </div>
               <div className="bg-white rounded-lg border border-slate-200 p-4">
-                <div className="text-2xl font-bold text-red-600">{notSubmitted.length}</div>
-                <div className="text-xs text-slate-500 mt-0.5">未提出</div>
+                <div className="text-2xl font-bold text-slate-900">
+                  {groups.length > 0 ? groups[0].date : "-"}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">最新の日付</div>
               </div>
             </div>
 
-            {notSubmitted.length > 0 && (
-              <div className="mb-6 bg-red-50 border border-red-100 rounded-lg px-4 py-3">
-                <h3 className="text-sm font-semibold text-red-700 mb-2">未提出</h3>
-                <div className="flex flex-wrap gap-2">
-                  {notSubmitted.map((e) => (
-                    <span
-                      key={e.driver.id}
-                      className="px-3 py-1 bg-red-100 text-red-700 text-sm rounded-full font-medium"
-                    >
-                      {getDisplayName(e.driver)}
-                    </span>
-                  ))}
-                </div>
+            {groups.length === 0 && (
+              <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
+                未承認の日報はありません。
               </div>
             )}
 
-            {submitted.length > 0 && (
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50">
-                    <tr className="border-b border-slate-200 text-left">
-                      <th className="py-3 px-4 font-semibold text-slate-600">名前</th>
-                      <th className="py-3 px-3 font-semibold text-slate-600 text-center">種別</th>
-                      <th className="py-3 px-3 font-semibold text-slate-600 text-right">宅急便完了</th>
-                      <th className="py-3 px-3 font-semibold text-slate-600 text-right">宅急便持戻</th>
-                      <th className="py-3 px-3 font-semibold text-slate-600 text-right">ネコポス完了</th>
-                      <th className="py-3 px-3 font-semibold text-slate-600 text-right">ネコポス持戻</th>
-                      <th className="py-3 px-3 font-semibold text-slate-600 text-left">Amazon（午前/午後/4便）</th>
-                      <th className="py-3 px-3 font-semibold text-slate-600 text-center">承認</th>
-                      <th className="py-3 px-4 font-semibold text-slate-600 text-right">送信時刻</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {submitted.map((e) => {
-                      const r = e.report!;
-                      const carrier = r.carrier || "YAMATO";
-                      const approved = !!r.approved_at;
-                      const amazonSummary =
-                        r.amazon_am_mochidashi ||
-                        r.amazon_am_completed ||
-                        r.amazon_pm_mochidashi ||
-                        r.amazon_pm_completed ||
-                        r.amazon_4_mochidashi ||
-                        r.amazon_4_completed
-                          ? `午前 持出${r.amazon_am_mochidashi ?? 0}/完了${r.amazon_am_completed ?? 0}  午後 持出${r.amazon_pm_mochidashi ?? 0}/完了${r.amazon_pm_completed ?? 0}  4便 持出${r.amazon_4_mochidashi ?? 0}/完了${r.amazon_4_completed ?? 0}`
-                          : "-";
+            {groups.map((group) => (
+              <div key={group.date} className="mb-8">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-sm font-semibold text-slate-800">
+                    {group.date} の日報（未承認 {group.entries.length} 件）
+                  </h2>
+                </div>
+                <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr className="border-b border-slate-200 text-left">
+                        <th className="py-3 px-4 font-semibold text-slate-600">名前</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-center">種別</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-right">宅急便完了</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-right">宅急便持戻</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-right">ネコポス完了</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-right">ネコポス持戻</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-left">Amazon（午前/午後/4便）</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-center">承認</th>
+                        <th className="py-3 px-4 font-semibold text-slate-600 text-right">送信時刻</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.entries.map((e) => {
+                        const r = e.report;
+                        const carrier = r.carrier || "YAMATO";
+                        const amazonSummary =
+                          r.amazon_am_mochidashi ||
+                          r.amazon_am_completed ||
+                          r.amazon_pm_mochidashi ||
+                          r.amazon_pm_completed ||
+                          r.amazon_4_mochidashi ||
+                          r.amazon_4_completed
+                            ? `午前 持出${r.amazon_am_mochidashi ?? 0}/完了${r.amazon_am_completed ?? 0}  午後 持出${r.amazon_pm_mochidashi ?? 0}/完了${r.amazon_pm_completed ?? 0}  4便 持出${r.amazon_4_mochidashi ?? 0}/完了${r.amazon_4_completed ?? 0}`
+                            : "-";
 
-                      const handleApprove = async () => {
-                        try {
-                          await apiFetch("/api/admin/daily/approve", {
-                            method: "POST",
-                            body: JSON.stringify({ driverId: e.driver.id, date }),
-                          });
-                          // 再取得
-                          setLoading(true);
-                          apiFetch<{ entries: Entry[] }>(`/api/admin/daily?date=${date}`)
-                            .then((res) => setEntries(res.entries))
-                            .catch(() => setEntries([]))
-                            .finally(() => setLoading(false));
-                        } catch {
-                          // noop（簡易実装）
-                        }
-                      };
+                        const handleApprove = async () => {
+                          try {
+                            await apiFetch("/api/admin/daily/approve", {
+                              method: "POST",
+                              body: JSON.stringify({ driverId: e.driver.id, date: group.date }),
+                            });
+                            // 再読み込み
+                            setLoading(true);
+                            apiFetch<{ groups: Group[]; totalPending: number }>("/api/admin/daily/pending")
+                              .then((res) => setGroups(res.groups))
+                              .catch(() => setGroups([]))
+                              .finally(() => setLoading(false));
+                          } catch {
+                            // noop
+                          }
+                        };
 
-                      return (
-                        <tr key={e.driver.id} className="border-b border-slate-100 hover:bg-slate-50">
-                          <td className="py-3 px-4 font-medium">{getDisplayName(e.driver)}</td>
-                          <td className="py-3 px-3 text-center">
-                            <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                                carrier === "AMAZON"
-                                  ? "bg-violet-100 text-violet-700"
-                                  : "bg-emerald-100 text-emerald-700"
-                              }`}
-                            >
-                              {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-right tabular-nums">{r.takuhaibin_completed}</td>
-                          <td className="py-3 px-3 text-right tabular-nums text-orange-600">{r.takuhaibin_returned}</td>
-                          <td className="py-3 px-3 text-right tabular-nums">{r.nekopos_completed}</td>
-                          <td className="py-3 px-3 text-right tabular-nums text-orange-600">{r.nekopos_returned}</td>
-                          <td className="py-3 px-3 text-left text-[11px] whitespace-pre-line text-slate-600">
-                            {amazonSummary}
-                          </td>
-                          <td className="py-3 px-3 text-center">
-                            {approved ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
-                                承認済
+                        return (
+                          <tr key={e.driver.id} className="border-b border-slate-100 hover:bg-slate-50">
+                            <td className="py-3 px-4 font-medium">{getDisplayName(e.driver)}</td>
+                            <td className="py-3 px-3 text-center">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                  carrier === "AMAZON"
+                                    ? "bg-violet-100 text-violet-700"
+                                    : "bg-emerald-100 text-emerald-700"
+                                }`}
+                              >
+                                {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
                               </span>
-                            ) : (
+                            </td>
+                            <td className="py-3 px-3 text-right tabular-nums">{r.takuhaibin_completed}</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-orange-600">{r.takuhaibin_returned}</td>
+                            <td className="py-3 px-3 text-right tabular-nums">{r.nekopos_completed}</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-orange-600">{r.nekopos_returned}</td>
+                            <td className="py-3 px-3 text-left text-[11px] whitespace-pre-line text-slate-600">
+                              {amazonSummary}
+                            </td>
+                            <td className="py-3 px-3 text-center">
                               <button
                                 type="button"
                                 onClick={handleApprove}
@@ -210,21 +199,21 @@ export default function AdminDailyPage() {
                               >
                                 承認する
                               </button>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-right text-xs text-slate-400">
-                            {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            </td>
+                            <td className="py-3 px-4 text-right text-xs text-slate-400">
+                              {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            )}
+            ))}
           </>
         )}
       </div>
