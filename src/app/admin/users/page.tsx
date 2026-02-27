@@ -8,6 +8,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
+import { canAdminWrite } from "@/lib/authz";
 
 type Course = { id: string; name: string; color: string };
 type Driver = {
@@ -75,6 +76,7 @@ function toHalfWidth(s: string): string {
 }
 
 export default function UsersPage() {
+  const [canWrite, setCanWrite] = useState(false);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +104,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     const stored = getStoredDriver();
+    setCanWrite(canAdminWrite(stored?.role));
     if (stored?.companyCode) {
       setCompanyCode(stored.companyCode);
     }
@@ -129,6 +132,7 @@ export default function UsersPage() {
   }, []);
 
   const openNew = () => {
+    if (!canWrite) return;
     setEditingDriver(null);
     setForm({
       name: "",
@@ -150,6 +154,7 @@ export default function UsersPage() {
   };
 
   const openEdit = (d: Driver) => {
+    if (!canWrite) return;
     setEditingDriver(d);
     const { institution, branch } = parseBankName(d.bank_name || "");
     const { type, number, typeOther } = parseBankNo(d.bank_no || "");
@@ -215,10 +220,11 @@ export default function UsersPage() {
   };
 
   const save = async () => {
+    if (!canWrite) return;
     setSaving(true);
     try {
       const driverCode = companyCode + form.driverNumber;
-      
+
       if (editingDriver) {
         await apiFetch(`/api/admin/users/${editingDriver.id}`, {
           method: "PUT",
@@ -266,6 +272,7 @@ export default function UsersPage() {
   };
 
   const deleteDriver = async (id: string, name: string) => {
+    if (!canWrite) return;
     if (!confirm(`${name}を削除しますか？`)) return;
     try {
       await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
@@ -276,10 +283,10 @@ export default function UsersPage() {
     }
   };
 
-  const isFormValid = form.name.trim() && 
-    form.officeCode.length === 6 && 
+  const isFormValid = form.name.trim() &&
+    form.officeCode.length === 6 &&
     /^\d{6}$/.test(form.officeCode) &&
-    form.driverNumber.length === 6 && 
+    form.driverNumber.length === 6 &&
     /^\d{6}$/.test(form.driverNumber);
 
   return (
@@ -290,13 +297,15 @@ export default function UsersPage() {
             <h1 className="text-xl font-bold text-slate-900">ドライバー管理</h1>
             <p className="text-sm text-slate-500 mt-0.5">会社コード: {companyCode}</p>
           </div>
-          <button
-            onClick={openNew}
-            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-          >
-            <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
-            新規追加
-          </button>
+          {canWrite && (
+            <button
+              onClick={openNew}
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+            >
+              <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
+              新規追加
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -365,18 +374,22 @@ export default function UsersPage() {
                       </div>
                     </td>
                     <td className="py-2.5 px-4 text-right">
-                      <button
-                        onClick={() => openEdit(d)}
-                        className="text-xs text-slate-500 hover:text-slate-800 mr-3 transition-colors"
-                      >
-                        編集
-                      </button>
-                      <button
-                        onClick={() => deleteDriver(d.id, d.name)}
-                        className="text-xs text-red-500 hover:text-red-700 transition-colors"
-                      >
-                        削除
-                      </button>
+                      {canWrite && (
+                        <>
+                          <button
+                            onClick={() => openEdit(d)}
+                            className="text-xs text-slate-500 hover:text-slate-800 mr-3 transition-colors"
+                          >
+                            編集
+                          </button>
+                          <button
+                            onClick={() => deleteDriver(d.id, d.name)}
+                            className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                          >
+                            削除
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -387,7 +400,7 @@ export default function UsersPage() {
       </div>
 
       {/* Modal */}
-      {showModal && (
+      {showModal && canWrite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-md max-h-[90vh] overflow-y-auto p-5">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
@@ -454,7 +467,7 @@ export default function UsersPage() {
                   />
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  この6桁がログイン時のPINになります
+                  この6桁が初回ログイン時のPINになります
                 </p>
               </div>
 
@@ -466,11 +479,10 @@ export default function UsersPage() {
                       key={c.id}
                       type="button"
                       onClick={() => toggleCourse(c.id)}
-                      className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
-                        form.courseIds.includes(c.id)
-                          ? "text-white border-transparent"
-                          : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
-                      }`}
+                      className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${form.courseIds.includes(c.id)
+                        ? "text-white border-transparent"
+                        : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
+                        }`}
                       style={form.courseIds.includes(c.id) ? { backgroundColor: c.color } : {}}
                     >
                       {c.name}
@@ -496,7 +508,7 @@ export default function UsersPage() {
                           setForm((f) => ({ ...f, postalCode: half }));
                           if (half.replace(/-/g, "").length === 7) fetchAddressFromPostalCode(half);
                         }}
-                        placeholder="1234567 または 123-4567（全角可・フォーカス外で半角に変換）"
+                        placeholder="1234567 または 123-4567"
                         maxLength={10}
                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
@@ -518,7 +530,7 @@ export default function UsersPage() {
                       type="text"
                       value={form.address}
                       onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                      placeholder="東京都○○区○○1-2-3（郵便番号から自動入力可）"
+                      placeholder="京都市○○区○○1-2-3"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
@@ -532,7 +544,7 @@ export default function UsersPage() {
                         const half = toHalfWidth((e.target as HTMLInputElement).value);
                         setForm((f) => ({ ...f, phone: half }));
                       }}
-                      placeholder="03-1234-5678（全角可・フォーカス外で半角に変換）"
+                      placeholder="03-1234-5678"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
@@ -566,11 +578,10 @@ export default function UsersPage() {
                           key={t.value}
                           type="button"
                           onClick={() => setForm((f) => ({ ...f, bankType: t.value, bankTypeOther: t.value === "その他" ? f.bankTypeOther : "" }))}
-                          className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
-                            form.bankType === t.value
-                              ? "bg-slate-800 text-white border-slate-800"
-                              : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
-                          }`}
+                          className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${form.bankType === t.value
+                            ? "bg-slate-800 text-white border-slate-800"
+                            : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
+                            }`}
                         >
                           {t.label}
                         </button>

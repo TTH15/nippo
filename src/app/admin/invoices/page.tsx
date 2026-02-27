@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { getStoredDriver } from "@/lib/api";
+import { canAdminWrite } from "@/lib/authz";
 
 type SavedInvoice = {
   id: string;
@@ -28,10 +30,15 @@ const mockInvoices: SavedInvoice[] = [
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 
 export default function InvoicesPage() {
+  const [canWrite, setCanWrite] = useState(false);
   const [invoices] = useState<SavedInvoice[]>(mockInvoices);
   const [filter, setFilter] = useState<"all" | SavedInvoice["status"]>("all");
 
   const filtered = filter === "all" ? invoices : invoices.filter((inv) => inv.status === filter);
+  
+  useEffect(() => {
+    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+  }, []);
 
   return (
     <AdminLayout>
@@ -41,13 +48,15 @@ export default function InvoicesPage() {
             <h1 className="text-xl font-bold text-slate-900">請求書一覧</h1>
             <p className="text-sm text-slate-500 mt-0.5">登録済みの請求データから請求書を作成・管理</p>
           </div>
-          <a
-            href="/admin/invoices/new"
-            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-          >
-            <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
-            新規作成
-          </a>
+          {canWrite && (
+            <a
+              href="/admin/invoices/new"
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+            >
+              <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
+              新規作成
+            </a>
+          )}
         </div>
 
         {/* フィルター */}
@@ -107,9 +116,11 @@ export default function InvoicesPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button className="text-xs text-slate-500 hover:text-slate-800 transition-colors">
-                          編集
-                        </button>
+                        {canWrite && (
+                          <button className="text-xs text-slate-500 hover:text-slate-800 transition-colors">
+                            編集
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

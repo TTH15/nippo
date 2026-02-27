@@ -5,8 +5,9 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
+import { canAdminWrite } from "@/lib/authz";
 
 type Course = { id: string; name: string; color: string; sort_order: number };
 type CourseRate = {
@@ -32,10 +33,8 @@ type Driver = {
 
 const INITIAL_RATE_FORM = {
   takuhaibin_revenue: 160,
-  takuhaibin_profit: 10,
   takuhaibin_driver_payout: 150,
   nekopos_revenue: 40,
-  nekopos_profit: 10,
   nekopos_driver_payout: 30,
   fixed_revenue: 0,
   fixed_profit: 0,
@@ -53,6 +52,7 @@ const COLORS = [
 ];
 
 export default function CoursesPage() {
+  const [canWrite, setCanWrite] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [rates, setRates] = useState<CourseRate[]>([]);
@@ -83,10 +83,12 @@ export default function CoursesPage() {
   };
 
   useEffect(() => {
+    setCanWrite(canAdminWrite(getStoredDriver()?.role));
     load();
   }, []);
 
   const addCourse = async () => {
+    if (!canWrite) return;
     if (!newCourse.name.trim()) return;
     setSaving(true);
     try {
@@ -106,13 +108,12 @@ export default function CoursesPage() {
   };
 
   const openRateModal = (r: CourseRate) => {
+    if (!canWrite) return;
     setEditingRate(r);
     setRateForm({
       takuhaibin_revenue: r.takuhaibin_revenue,
-      takuhaibin_profit: r.takuhaibin_profit,
       takuhaibin_driver_payout: r.takuhaibin_driver_payout,
       nekopos_revenue: r.nekopos_revenue,
-      nekopos_profit: r.nekopos_profit,
       nekopos_driver_payout: r.nekopos_driver_payout,
       fixed_revenue: r.fixed_revenue,
       fixed_profit: r.fixed_profit,
@@ -121,6 +122,7 @@ export default function CoursesPage() {
   };
 
   const saveRate = async () => {
+    if (!canWrite) return;
     if (!editingRate) return;
     setSaving(true);
     try {
@@ -145,18 +147,37 @@ export default function CoursesPage() {
     );
   };
 
+  const deleteCourse = async (courseId: string, name: string) => {
+    if (!canWrite) return;
+    if (!confirm(`${name} を削除しますか？\n関連するシフトや単価も削除されます。`)) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/api/admin/courses/${courseId}`, {
+        method: "DELETE",
+      });
+      load();
+    } catch (e) {
+      console.error(e);
+      alert("削除に失敗しました");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <AdminLayout>
       <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">コース管理</h1>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-          >
-            <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
-            新規追加
-          </button>
+          {canWrite && (
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+            >
+              <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
+              新規追加
+            </button>
+          )}
         </div>
 
         <p className="text-sm text-slate-500 mb-4">
@@ -201,7 +222,9 @@ export default function CoursesPage() {
                       <td className="px-3 py-2 text-right">{r.fixed_revenue > 0 ? `${r.fixed_revenue}円` : "-"}</td>
                       <td className="px-3 py-2 text-right">{r.fixed_profit > 0 ? `${r.fixed_profit}円` : "-"}</td>
                       <td className="px-3 py-2">
-                        <button onClick={() => openRateModal(r)} className="text-slate-600 hover:text-slate-900 text-xs">編集</button>
+                        {canWrite && (
+                          <button onClick={() => openRateModal(r)} className="text-slate-600 hover:text-slate-900 text-xs">編集</button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -253,10 +276,21 @@ export default function CoursesPage() {
                         )}
                       </div>
                     </div>
-                    <div
-                      className="w-5 h-5 rounded-full shrink-0"
-                      style={{ backgroundColor: course.color }}
-                    />
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-5 h-5 rounded-full shrink-0"
+                        style={{ backgroundColor: course.color }}
+                      />
+                      {canWrite && (
+                        <button
+                          type="button"
+                          onClick={() => deleteCourse(course.id, course.name)}
+                          className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                        >
+                          削除
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -266,7 +300,7 @@ export default function CoursesPage() {
       </div>
 
       {/* Modal */}
-      {showModal && (
+      {showModal && canWrite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-5">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">新規コース追加</h2>
@@ -320,7 +354,7 @@ export default function CoursesPage() {
       )}
 
       {/* 単価編集モーダル */}
-      {showRateModal && editingRate && (
+      {showRateModal && editingRate && canWrite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-5 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
@@ -334,24 +368,28 @@ export default function CoursesPage() {
                   <input type="number" value={rateForm.takuhaibin_revenue} onChange={(e) => setRateForm((f) => ({ ...f, takuhaibin_revenue: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
                 </div>
                 <div>
-                  <label className="block text-slate-600 mb-1">宅急便 利益(円)</label>
-                  <input type="number" value={rateForm.takuhaibin_profit} onChange={(e) => setRateForm((f) => ({ ...f, takuhaibin_profit: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
-                </div>
-                <div>
                   <label className="block text-slate-600 mb-1">宅急便 支払(円)</label>
                   <input type="number" value={rateForm.takuhaibin_driver_payout} onChange={(e) => setRateForm((f) => ({ ...f, takuhaibin_driver_payout: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
+                </div>
+                <div>
+                  <label className="block text-slate-600 mb-1">宅急便 利益(円)</label>
+                  <div className="w-full px-2 py-1.5 border rounded bg-slate-50 text-right">
+                    {rateForm.takuhaibin_revenue - rateForm.takuhaibin_driver_payout}円
+                  </div>
                 </div>
                 <div>
                   <label className="block text-slate-600 mb-1">ネコポス 売上(円)</label>
                   <input type="number" value={rateForm.nekopos_revenue} onChange={(e) => setRateForm((f) => ({ ...f, nekopos_revenue: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
                 </div>
                 <div>
-                  <label className="block text-slate-600 mb-1">ネコポス 利益(円)</label>
-                  <input type="number" value={rateForm.nekopos_profit} onChange={(e) => setRateForm((f) => ({ ...f, nekopos_profit: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
-                </div>
-                <div>
                   <label className="block text-slate-600 mb-1">ネコポス 支払(円)</label>
                   <input type="number" value={rateForm.nekopos_driver_payout} onChange={(e) => setRateForm((f) => ({ ...f, nekopos_driver_payout: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
+                </div>
+                <div>
+                  <label className="block text-slate-600 mb-1">ネコポス 利益(円)</label>
+                  <div className="w-full px-2 py-1.5 border rounded bg-slate-50 text-right">
+                    {rateForm.nekopos_revenue - rateForm.nekopos_driver_payout}円
+                  </div>
                 </div>
                 <div>
                   <label className="block text-slate-600 mb-1">固定 売上(円)</label>

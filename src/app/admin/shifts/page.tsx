@@ -3,8 +3,9 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
+import { canAdminWrite } from "@/lib/authz";
 
 type Course = { id: string; name: string; color: string; sort_order: number };
 type Driver = {
@@ -61,6 +62,7 @@ function formatDate(dateStr: string): string {
 type Period = "first" | "second";
 
 export default function ShiftsPage() {
+  const [canWrite, setCanWrite] = useState(false);
   const [yearMonth, setYearMonth] = useState(currentYearMonth());
   const [period, setPeriod] = useState<Period>("first");
   const [courses, setCourses] = useState<Course[]>([]);
@@ -109,6 +111,7 @@ export default function ShiftsPage() {
   }, [displayDates]);
 
   useEffect(() => {
+    setCanWrite(canAdminWrite(getStoredDriver()?.role));
     load();
   }, [load]);
 
@@ -134,6 +137,7 @@ export default function ShiftsPage() {
   };
 
   const generateDraft = async () => {
+    if (!canWrite) return;
     if (displayDates.length === 0) return;
     if (
       !confirm(
@@ -228,6 +232,7 @@ export default function ShiftsPage() {
 
   // ローカルでドライバーを割り当て
   const setLocalDriver = (date: string, courseId: string, driverId: string | null) => {
+    if (!canWrite) return;
     const key = getCellKey(date, courseId);
     setLocalShifts((prev) => {
       const next = new Map(prev);
@@ -239,6 +244,7 @@ export default function ShiftsPage() {
 
   // 一括保存
   const saveAll = async () => {
+    if (!canWrite) return;
     if (localShifts.size === 0) return;
     setSaving(true);
     try {
@@ -263,6 +269,7 @@ export default function ShiftsPage() {
   };
 
   const discardChanges = () => {
+    if (!canWrite) return;
     if (!confirm("変更を破棄しますか？")) return;
     setLocalShifts(new Map());
     setHasChanges(false);
@@ -335,7 +342,7 @@ export default function ShiftsPage() {
             <button
               type="button"
               onClick={generateDraft}
-              disabled={loading || generating || displayDates.length === 0}
+              disabled={!canWrite || loading || generating || displayDates.length === 0}
               className="px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {generating ? "生成中..." : "叩き台を生成"}
@@ -344,7 +351,7 @@ export default function ShiftsPage() {
         </div>
 
         {/* 保存バー */}
-        {hasChanges && (
+        {hasChanges && canWrite && (
           <div className="mb-4 p-3 bg-amber-50 border border-amber-300 rounded flex items-center justify-between">
             <span className="text-sm font-medium text-amber-800">
               {localShifts.size}件の未保存の変更
@@ -452,6 +459,7 @@ export default function ShiftsPage() {
                             onChange={(e) =>
                               setLocalDriver(date, course.id, e.target.value || null)
                             }
+                            disabled={!canWrite}
                             className={`w-full min-w-0 text-xs py-1 px-1.5 rounded border transition-colors cursor-pointer
                               appearance-none focus:outline-none focus:ring-1 focus:ring-slate-400
                               [&:not([value=""])]:font-medium

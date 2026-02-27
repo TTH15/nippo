@@ -5,8 +5,9 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faFileLines } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
+import { canAdminWrite } from "@/lib/authz";
 
 const LEASE_COST = 35000; // 月々リース代
 
@@ -63,6 +64,7 @@ type Vehicle = {
 };
 
 export default function VehiclesPage() {
+  const [canWrite, setCanWrite] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,10 +112,12 @@ export default function VehiclesPage() {
   };
 
   useEffect(() => {
+    setCanWrite(canAdminWrite(getStoredDriver()?.role));
     load();
   }, []);
 
   const openNew = () => {
+    if (!canWrite) return;
     setEditingVehicle(null);
     setForm({
       manufacturer: "",
@@ -133,6 +137,7 @@ export default function VehiclesPage() {
   };
 
   const openEdit = (v: Vehicle) => {
+    if (!canWrite) return;
     setEditingVehicle(v);
     setForm({
       manufacturer: v.manufacturer || "",
@@ -161,6 +166,7 @@ export default function VehiclesPage() {
   };
 
   const save = async () => {
+    if (!canWrite) return;
     setSaving(true);
     try {
       const toIntOrNull = (v: string) => (v !== "" ? Number(v) : null);
@@ -200,6 +206,7 @@ export default function VehiclesPage() {
   };
 
   const deleteVehicle = async (id: string, _label: string) => {
+    if (!canWrite) return;
     try {
       await apiFetch(`/api/admin/vehicles/${id}`, { method: "DELETE" });
       load();
@@ -260,13 +267,15 @@ export default function VehiclesPage() {
       <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">車両管理</h1>
-          <button
-            onClick={openNew}
-            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-          >
-            <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
-            新規追加
-          </button>
+          {canWrite && (
+            <button
+              onClick={openNew}
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+            >
+              <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
+              新規追加
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -399,15 +408,17 @@ export default function VehiclesPage() {
                       <span className="text-slate-400 pl-3">次回定期点検</span>
                       <span className="font-semibold text-lg text-slate-900">2026年2月</span>
                     </div>
-                    <button
-                      onClick={() => openEdit(v)}
-                      className="ml-auto text-slate-400 hover:text-slate-600 transition-colors shrink-0"
-                      title="編集"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
+                    {canWrite && (
+                      <button
+                        onClick={() => openEdit(v)}
+                        className="ml-auto text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+                        title="編集"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex gap-8">
@@ -620,7 +631,7 @@ export default function VehiclesPage() {
       </div>
 
       {/* 車両編集モーダル */}
-      {showModal && (
+      {showModal && canWrite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-6">

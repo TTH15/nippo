@@ -12,7 +12,7 @@ export default function Home() {
     const driver = getStoredDriver();
     if (!driver) {
       router.replace("/login");
-    } else if (driver.role === "ADMIN") {
+    } else if (driver.role === "ADMIN" || driver.role === "ADMIN_VIEWER") {
       router.replace("/admin");
     } else {
       router.replace("/submit");

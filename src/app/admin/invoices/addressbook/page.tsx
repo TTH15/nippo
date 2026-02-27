@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { canAdminWrite } from "@/lib/authz";
 
 type Address = {
   id: string;
@@ -18,6 +19,7 @@ type Address = {
 const COMPANY_CODE = "AAA";
 
 export default function AddressBookPage() {
+  const [canWrite, setCanWrite] = useState(false);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -34,6 +36,7 @@ export default function AddressBookPage() {
 
   useEffect(() => {
     const stored = getStoredDriver();
+    setCanWrite(canAdminWrite(stored?.role));
     if (stored?.companyCode) {
       setCompanyCode(stored.companyCode);
     }
@@ -56,12 +59,14 @@ export default function AddressBookPage() {
   }, []);
 
   const openNew = () => {
+    if (!canWrite) return;
     setEditingAddress(null);
     setForm({ name: "", postalCode: "", address: "", phone: "", invoiceNo: "" });
     setShowModal(true);
   };
 
   const openEdit = (a: Address) => {
+    if (!canWrite) return;
     setEditingAddress(a);
     setForm({
       name: a.name,
@@ -74,6 +79,7 @@ export default function AddressBookPage() {
   };
 
   const save = async () => {
+    if (!canWrite) return;
     if (!form.name.trim()) {
       alert("会社名を入力してください");
       return;
@@ -114,6 +120,7 @@ export default function AddressBookPage() {
   };
 
   const deleteAddress = async (id: string, name: string) => {
+    if (!canWrite) return;
     if (!confirm(`${name}を削除しますか？`)) return;
     try {
       await apiFetch(`/api/admin/invoice-addresses/${id}`, { method: "DELETE" });
@@ -134,12 +141,14 @@ export default function AddressBookPage() {
               請求書の請求先として使用する法人情報。会社コード: {companyCode}
             </p>
           </div>
-          <button
-            onClick={openNew}
-            className="px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-          >
-            法人を追加
-          </button>
+          {canWrite && (
+            <button
+              onClick={openNew}
+              className="px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+            >
+              法人を追加
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -169,12 +178,14 @@ export default function AddressBookPage() {
             <p className="text-xs text-slate-400 mb-4">
               請求書作成時に請求先として選択できます。個人（ドライバー）はドライバー管理で登録してください。
             </p>
-            <button
-              onClick={openNew}
-              className="px-4 py-2 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-            >
-              法人を追加
-            </button>
+            {canWrite && (
+              <button
+                onClick={openNew}
+                className="px-4 py-2 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+              >
+                法人を追加
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
@@ -194,18 +205,22 @@ export default function AddressBookPage() {
                     </div>
                   </div>
                   <div className="flex gap-2 shrink-0">
-                    <button
-                      onClick={() => openEdit(a)}
-                      className="text-xs text-slate-500 hover:text-slate-800 transition-colors"
-                    >
-                      編集
-                    </button>
-                    <button
-                      onClick={() => deleteAddress(a.id, a.name)}
-                      className="text-xs text-red-500 hover:text-red-700 transition-colors"
-                    >
-                      削除
-                    </button>
+                    {canWrite && (
+                      <>
+                        <button
+                          onClick={() => openEdit(a)}
+                          className="text-xs text-slate-500 hover:text-slate-800 transition-colors"
+                        >
+                          編集
+                        </button>
+                        <button
+                          onClick={() => deleteAddress(a.id, a.name)}
+                          className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                        >
+                          削除
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -214,7 +229,7 @@ export default function AddressBookPage() {
         )}
       </div>
 
-      {showModal && (
+      {showModal && canWrite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-5">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">

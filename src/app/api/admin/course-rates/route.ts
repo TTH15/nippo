@@ -40,10 +40,8 @@ export async function PATCH(req: NextRequest) {
     const {
       course_id,
       takuhaibin_revenue,
-      takuhaibin_profit,
       takuhaibin_driver_payout,
       nekopos_revenue,
-      nekopos_profit,
       nekopos_driver_payout,
       fixed_revenue,
       fixed_profit,
@@ -54,12 +52,27 @@ export async function PATCH(req: NextRequest) {
     }
 
     const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (typeof takuhaibin_revenue === "number") payload.takuhaibin_revenue = takuhaibin_revenue;
-    if (typeof takuhaibin_profit === "number") payload.takuhaibin_profit = takuhaibin_profit;
-    if (typeof takuhaibin_driver_payout === "number") payload.takuhaibin_driver_payout = takuhaibin_driver_payout;
-    if (typeof nekopos_revenue === "number") payload.nekopos_revenue = nekopos_revenue;
-    if (typeof nekopos_profit === "number") payload.nekopos_profit = nekopos_profit;
-    if (typeof nekopos_driver_payout === "number") payload.nekopos_driver_payout = nekopos_driver_payout;
+
+    if (typeof takuhaibin_revenue === "number") {
+      payload.takuhaibin_revenue = takuhaibin_revenue;
+    }
+    if (typeof takuhaibin_driver_payout === "number") {
+      payload.takuhaibin_driver_payout = takuhaibin_driver_payout;
+    }
+    if (typeof takuhaibin_revenue === "number" && typeof takuhaibin_driver_payout === "number") {
+      payload.takuhaibin_profit = takuhaibin_revenue - takuhaibin_driver_payout;
+    }
+
+    if (typeof nekopos_revenue === "number") {
+      payload.nekopos_revenue = nekopos_revenue;
+    }
+    if (typeof nekopos_driver_payout === "number") {
+      payload.nekopos_driver_payout = nekopos_driver_payout;
+    }
+    if (typeof nekopos_revenue === "number" && typeof nekopos_driver_payout === "number") {
+      payload.nekopos_profit = nekopos_revenue - nekopos_driver_payout;
+    }
+
     if (typeof fixed_revenue === "number") payload.fixed_revenue = fixed_revenue;
     if (typeof fixed_profit === "number") payload.fixed_profit = fixed_profit;
 

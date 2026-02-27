@@ -20,6 +20,7 @@ import {
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver } from "@/lib/api";
 import { getCompany } from "@/config/companies";
+import { canAdminWrite, isAdminViewerRole } from "@/lib/authz";
 
 type NavChild = { href: string; label: string; icon?: IconDefinition };
 type NavItem =
@@ -57,6 +58,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
+  const canWrite = canAdminWrite(driver?.role);
+  const isViewer = isAdminViewerRole(driver?.role);
 
   useEffect(() => {
     setDriver(getStoredDriver());
@@ -131,7 +134,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           <ul className="space-y-0.5 px-2" style={{ overflow: "visible" }}>
             {navItems.map((item) => {
               if (item.children) {
-                const hasActiveChild = item.children.some((c) => isActive(c.href));
+                const filteredChildren = canWrite
+                  ? item.children
+                  : item.children.filter((c) => c.href !== "/admin/invoices/new");
+                const hasActiveChild = filteredChildren.some((c) => isActive(c.href));
                 const isOpen = openMenu === item.label;
 
                 return (
@@ -168,7 +174,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                         onMouseLeave={handlePanelLeave}
                       >
                         <div className="bg-slate-800 rounded-lg shadow-2xl border border-slate-600/50 py-1.5 min-w-[200px]">
-                          {item.children.map((child) => {
+                          {filteredChildren.map((child) => {
                             const childActive = isActive(child.href);
                             return (
                               <Link
@@ -217,7 +223,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             <div>
               <p className="text-sm font-bold text-white">{driver?.name}</p>
               <p className="text-[11px] text-slate-400 font-medium">
-                {company.name}
+                {company.name}{isViewer ? "（閲覧）" : ""}
               </p>
             </div>
             <button
