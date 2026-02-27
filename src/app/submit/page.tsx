@@ -359,22 +359,20 @@ export default function SubmitPage() {
             <button
               type="button"
               onClick={() => setCarrier("YAMATO")}
-              className={`py-2.5 rounded-xl text-sm font-semibold border ${
-                carrier === "YAMATO"
+              className={`py-2.5 rounded-xl text-sm font-semibold border ${carrier === "YAMATO"
                   ? "bg-brand-800 text-white border-brand-800"
                   : "bg-white text-slate-700 border-slate-200"
-              }`}
+                }`}
             >
               ヤマト
             </button>
             <button
               type="button"
               onClick={() => setCarrier("AMAZON")}
-              className={`py-2.5 rounded-xl text-sm font-semibold border ${
-                carrier === "AMAZON"
+              className={`py-2.5 rounded-xl text-sm font-semibold border ${carrier === "AMAZON"
                   ? "bg-brand-800 text-white border-brand-800"
                   : "bg-white text-slate-700 border-slate-200"
-              }`}
+                }`}
             >
               Amazon
             </button>
@@ -411,7 +409,7 @@ export default function SubmitPage() {
         ) : (
           <div className="mb-4 text-xs text-slate-500">
             使用できる車両がまだ紐付けられていないため、車両選択とメーター入力欄は表示されません。
-            管理画面の「車両管理」で、このドライバーを利用ドライバーとして車両に登録してください。
+            管理者に連絡してください。
           </div>
         )}
 
