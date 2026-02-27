@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { getCompany } from "@/config/companies";
+
+const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
 export const metadata: Metadata = {
-  title: "日報集計",
-  description: "配送日報集計システム",
+  title: company.title,
+  description: company.description,
+  icons: {
+    icon: company.faviconPath,
+  },
 };
 
 export default function RootLayout({
@@ -25,3 +31,4 @@ export default function RootLayout({
     </html>
   );
 }
+

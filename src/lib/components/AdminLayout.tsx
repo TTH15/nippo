@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -18,6 +19,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver } from "@/lib/api";
+import { getCompany } from "@/config/companies";
 
 type NavChild = { href: string; label: string; icon?: IconDefinition };
 type NavItem =
@@ -54,6 +56,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [driver, setDriver] = useState<{ id: string; name: string; role: string } | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
   useEffect(() => {
     setDriver(getStoredDriver());
@@ -110,8 +113,17 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       {/* Sidebar（フライアウトが車両カード等の上に表示されるようz-indexを設定） */}
       <aside className="relative z-50 w-56 bg-slate-900 text-white flex flex-col shrink-0 h-screen sticky top-0" style={{ overflow: "visible" }}>
         {/* Logo */}
-        <div className="h-14 flex items-center px-5 border-b border-slate-700/60">
-          <span className="text-lg font-extrabold tracking-tight">日報集計</span>
+        <div className="h-20 flex items-center border-b border-slate-700/60 p-2">
+          <Link href="/admin" className="inline-flex items-center">
+            <Image
+              src={company.logoPath}
+              alt={company.name}
+              width={150}
+              height={50}
+              className="h-20 w-auto"
+              priority
+            />
+          </Link>
         </div>
 
         {/* Navigation */}
@@ -204,7 +216,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-bold text-white">{driver?.name}</p>
-              <p className="text-[11px] text-slate-500 font-medium">管理者</p>
+              <p className="text-[11px] text-slate-400 font-medium">
+                {company.name} / 管理者
+              </p>
             </div>
             <button
               onClick={logout}

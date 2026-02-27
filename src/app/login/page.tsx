@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, setAuth } from "@/lib/api";
+import { getCompany } from "@/config/companies";
 
 type LoginType = "driver" | "admin";
 
@@ -14,6 +15,7 @@ export default function LoginPage() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,7 +111,7 @@ export default function LoginPage() {
                 <input
                   type="text"
                   maxLength={9}
-                  placeholder="AAA111111"
+                  placeholder={`${company.code}111111`}
                   value={driverCode}
                   onChange={(e) => {
                     // アルファベットと数字のみ許可
@@ -120,7 +122,7 @@ export default function LoginPage() {
                   autoFocus
                 />
                 <p className="text-xs text-slate-500 mt-1.5">
-                  会社コード3文字（例: AAA）+ 個人番号6桁（例: 111111）
+                  会社コード3文字（例: {company.code}）+ 個人番号6桁（例: 111111）
                 </p>
                 {driverCode.length > 0 && driverCode.length < 9 && (
                   <p className="text-xs text-amber-600 mt-1">
@@ -137,7 +139,7 @@ export default function LoginPage() {
                   <input
                     type="text"
                     maxLength={3}
-                    placeholder="例: AAA"
+                    placeholder={`例: ${company.code}`}
                     value={companyCode}
                     onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
                     className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors uppercase"

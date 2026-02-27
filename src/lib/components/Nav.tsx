@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { getStoredDriver, clearAuth } from "@/lib/api";
 
@@ -26,7 +27,16 @@ export function Nav() {
     <nav className="bg-slate-900 text-white sticky top-0 z-50">
       <div className="max-w-3xl mx-auto flex items-center justify-between h-12 px-4">
         <div className="flex items-center gap-6">
-          <span className="font-semibold text-sm">日報集計</span>
+          <Link href={isAdmin ? "/admin" : "/submit"} className="flex items-center">
+            <Image
+              src="/logo/Niipo.svg"
+              alt="Niipo"
+              width={100}
+              height={20}
+              className="h-6 w-auto"
+              priority
+            />
+          </Link>
           {!isAdmin && (
             <div className="flex items-center gap-4">
               <Link href="/submit" className="text-sm text-slate-300 hover:text-white transition-colors">送信</Link>

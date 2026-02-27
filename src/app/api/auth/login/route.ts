@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { supabase } from "@/server/db/client";
 import { signToken } from "@/server/auth";
+import { getCompany } from "@/config/companies";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { loginType, companyCode, pin, driverCode } = body;
+    const envCompany = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
     // ドライバーログイン: ドライバーコード（9桁）でログイン
     if (loginType === "driver") {
@@ -76,7 +78,7 @@ export async function POST(req: NextRequest) {
       const token = await signToken({ 
         driverId: driver.id, 
         role: driver.role,
-        companyCode: driver.company_code || "AAA" 
+        companyCode: driver.company_code || envCompany.code, 
       });
 
       return NextResponse.json({
@@ -125,7 +127,7 @@ export async function POST(req: NextRequest) {
       const token = await signToken({ 
         driverId: admin.id, 
         role: admin.role,
-        companyCode: admin.company_code || "AAA" 
+        companyCode: admin.company_code || envCompany.code, 
       });
 
       return NextResponse.json({
