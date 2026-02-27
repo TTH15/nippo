@@ -123,7 +123,6 @@ export default function LoginPage() {
                   <input
                     type="text"
                     maxLength={9}
-                    placeholder={`${company.code}111111`}
                     value={driverCode}
                     onChange={(e) => {
                       // アルファベットと数字のみ許可
@@ -153,7 +152,6 @@ export default function LoginPage() {
                     type="password"
                     inputMode="numeric"
                     maxLength={6}
-                    placeholder="初期値: ドライバーコードの数字6桁"
                     value={driverPin}
                     onChange={(e) =>
                       setDriverPin(e.target.value.replace(/[^0-9]/g, ""))
@@ -174,7 +172,6 @@ export default function LoginPage() {
                   <input
                     type="text"
                     maxLength={11}
-                    placeholder={`${company.code}9999`}
                     value={adminCode}
                     onChange={(e) => {
                       const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -193,7 +190,6 @@ export default function LoginPage() {
                   </label>
                   <input
                     type="password"
-                    placeholder="管理者パスワード"
                     value={adminPassword}
                     onChange={(e) => setAdminPassword(e.target.value)}
                     className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors"

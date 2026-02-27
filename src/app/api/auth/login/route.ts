@@ -174,6 +174,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid login type" }, { status: 400 });
   } catch (err) {
     console.error("Login error:", err);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Missing JWT_SECRET")) {
+      return NextResponse.json(
+        { error: "JWT_SECRET が未設定です（Vercelの環境変数に設定してください）" },
+        { status: 500 },
+      );
+    }
+    if (msg.includes("Missing SUPABASE_URL") || msg.includes("SUPABASE_SERVICE_ROLE_KEY")) {
+      return NextResponse.json(
+        { error: "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercelの環境変数に設定してください）" },
+        { status: 500 },
+      );
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
