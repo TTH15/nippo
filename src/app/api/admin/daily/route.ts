@@ -11,6 +11,12 @@ export async function GET(req: NextRequest) {
 
   const date = req.nextUrl.searchParams.get("date") || todayJST();
 
+  // 日付範囲（[date, date+1)）を計算して、等価比較ではなく範囲指定で絞り込む
+  const startDate = date;
+  const d = new Date(date + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  const endDate = d.toISOString().slice(0, 10); // YYYY-MM-DD
+
    // 接続先Supabaseプロジェクト（project ref）をログに出す（キーやフルURLは出さない）
   let projectRef = "unknown";
   try {
@@ -26,7 +32,8 @@ export async function GET(req: NextRequest) {
   const { count: reportCountExact, error: countErr } = await supabase
     .from("daily_reports")
     .select("*", { count: "exact", head: true })
-    .eq("report_date", date);
+    .gte("report_date", startDate)
+    .lt("report_date", endDate);
 
   if (countErr) {
     console.error("[admin/daily] count error", { projectRef, date, error: countErr });
@@ -46,7 +53,8 @@ export async function GET(req: NextRequest) {
   const { data: reports, error: rErr } = await supabase
     .from("daily_reports")
     .select("*")
-    .eq("report_date", date);
+    .gte("report_date", startDate)
+    .lt("report_date", endDate);
 
   if (rErr) throw rErr;
 
