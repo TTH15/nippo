@@ -455,14 +455,13 @@ export default function VehiclesPage() {
 
                   <div className="flex gap-8">
                     {/* 左側: ナンバープレート、写真 */}
-                    <div className="flex-shrink-0 w-64 space-y-4">
+                    <div className="flex-shrink-0 w-full max-w-[240px] space-y-4">
                       {/* ナンバープレート */}
                       {(v.number_prefix || v.number_hiragana || v.number_numeric) && (
                         <div
                           className="relative w-full bg-black rounded-lg overflow-hidden"
                           style={{
                             aspectRatio: "2 / 1",
-                            maxWidth: "240px",
                             border: "2.5px solid #b8a038",
                             boxShadow: "inset 0 0 0 2px #1a1a1a, 0 2px 8px rgba(0,0,0,0.3)",
                           }}

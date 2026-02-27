@@ -4,7 +4,7 @@ import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
-// GET: ドライバーが選択可能な車両一覧（vehicle_driversで紐づいた車両、未紐づなら全車両）
+// GET: ドライバーが選択可能な車両一覧（vehicle_driversで紐づいた車両のみ）
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
   // 紐付け車両がない場合は空配列を返す（全車両は返さない）
   if (ids.length === 0) {
-    return NextResponse.json({ vehicles: [] });
+    return NextResponse.json({ vehicles: [], driverId: user.driverId, vehicleIds: [] });
   }
 
   const { data: vehicles, error } = await supabase
@@ -38,5 +38,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  return NextResponse.json({ vehicles: vehicles ?? [] });
+  return NextResponse.json({ vehicles: vehicles ?? [], driverId: user.driverId, vehicleIds: ids });
 }

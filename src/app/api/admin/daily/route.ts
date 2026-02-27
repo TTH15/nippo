@@ -11,11 +11,11 @@ export async function GET(req: NextRequest) {
 
   const date = req.nextUrl.searchParams.get("date") || todayJST();
 
-  // All drivers
+  // All drivers（role は "DRIVER" で始まるものを含める：手入力の余分な空白などにも対応）
   const { data: drivers, error: dErr } = await supabase
     .from("drivers")
     .select("id, name, display_name")
-    .eq("role", "DRIVER")
+    .ilike("role", "DRIVER%")
     .order("name");
 
   if (dErr) throw dErr;
