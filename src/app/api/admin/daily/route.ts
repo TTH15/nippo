@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers, error: dErr } = await supabase
     .from("drivers")
     .select("id, name, display_name")
-    .ilike("role", "DRIVER%")
+    .ilike("role", "DRIVER")
     .order("name");
 
   if (dErr) throw dErr;

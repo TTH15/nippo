@@ -250,14 +250,6 @@ export default function SubmitPage() {
     return () => clearTimeout(timer);
   }, [status]);
 
-  const downloadCertImage = () => {
-    if (!certImageDataUrl) return;
-    const a = document.createElement("a");
-    a.href = certImageDataUrl;
-    a.download = `配達受託者控_${new Date().toISOString().slice(0, 10)}.png`;
-    a.click();
-  };
-
   if (status === "success") {
     return (
       <>
@@ -290,7 +282,6 @@ export default function SubmitPage() {
           {/* 配達受託者控画像：長押しでカメラロールに保存（ヤマトのみ） */}
           {carrier === "YAMATO" && (
             <div className="mb-6">
-              <p className="text-sm font-medium text-slate-700 mb-2">配達受託者控</p>
               {certImageDataUrl ? (
                 <>
                   <img
@@ -299,16 +290,6 @@ export default function SubmitPage() {
                     className="w-full max-w-[600px] mx-auto rounded-lg border border-slate-200 block"
                     style={{ maxHeight: "70vh", objectFit: "contain" }}
                   />
-                  <p className="text-xs text-slate-500 mt-2">
-                    スマホでは画像を長押しでカメラロールに保存できます
-                  </p>
-                  <button
-                    type="button"
-                    onClick={downloadCertImage}
-                    className="mt-3 w-full py-2.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
-                  >
-                    PNGでダウンロード
-                  </button>
                 </>
               ) : (
                 <p className="text-sm text-slate-500 py-8">画像を生成しています...</p>
@@ -360,8 +341,8 @@ export default function SubmitPage() {
               type="button"
               onClick={() => setCarrier("YAMATO")}
               className={`py-2.5 rounded-xl text-sm font-semibold border ${carrier === "YAMATO"
-                  ? "bg-brand-800 text-white border-brand-800"
-                  : "bg-white text-slate-700 border-slate-200"
+                ? "bg-brand-800 text-white border-brand-800"
+                : "bg-white text-slate-700 border-slate-200"
                 }`}
             >
               ヤマト
@@ -370,8 +351,8 @@ export default function SubmitPage() {
               type="button"
               onClick={() => setCarrier("AMAZON")}
               className={`py-2.5 rounded-xl text-sm font-semibold border ${carrier === "AMAZON"
-                  ? "bg-brand-800 text-white border-brand-800"
-                  : "bg-white text-slate-700 border-slate-200"
+                ? "bg-brand-800 text-white border-brand-800"
+                : "bg-white text-slate-700 border-slate-200"
                 }`}
             >
               Amazon

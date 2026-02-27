@@ -16,6 +16,7 @@ import {
   faClipboardList,
   faFileLines,
   faPlus,
+  faRightFromBracket,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver } from "@/lib/api";
@@ -208,7 +209,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                       : "text-slate-400 hover:bg-slate-800 hover:text-white"
                       }`}
                   >
-                    {item.icon && <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-0" />}
+                    {item.icon && <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />}
                     {item.label}
                   </Link>
                 </li>
@@ -231,7 +232,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
               className="px-2.5 py-1 rounded-md font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
               title="ログアウト"
             >
-              <FontAwesomeIcon icon={["fas", "right-from-bracket"]} className="w-4 h-4" />
+              <FontAwesomeIcon icon={faRightFromBracket} className="w-4 h-4" />
             </button>
           </div>
         </div>

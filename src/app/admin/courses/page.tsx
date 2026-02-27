@@ -64,6 +64,9 @@ export default function CoursesPage() {
   const [editingRate, setEditingRate] = useState<CourseRate | null>(null);
   const [rateForm, setRateForm] = useState(INITIAL_RATE_FORM);
   const [newCourse, setNewCourse] = useState({ name: "", color: COLORS[0] });
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", color: COLORS[0] });
+  const [showEditModal, setShowEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmState, setConfirmState] = useState<{
     message: string;
@@ -118,6 +121,44 @@ export default function CoursesPage() {
         message:
           "サーバーでエラーが発生したため、新しいコースを追加できませんでした。\n\n" +
           "コース名が重複していないかなど入力内容を確認し、もう一度追加してください。\n" +
+          "同じエラーが続く場合は、システム管理者に連絡してください。",
+        detail: reason || undefined,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEditCourse = (course: Course) => {
+    if (!canWrite) return;
+    setEditingCourse(course);
+    setEditForm({ name: course.name, color: course.color || COLORS[0] });
+    setShowEditModal(true);
+  };
+
+  const saveCourseEdit = async () => {
+    if (!canWrite || !editingCourse) return;
+    if (!editForm.name.trim()) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/api/admin/courses/${editingCourse.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          color: editForm.color,
+        }),
+      });
+      setShowEditModal(false);
+      setEditingCourse(null);
+      load();
+    } catch (e) {
+      console.error(e);
+      const reason = e instanceof Error ? e.message : "";
+      setErrorState({
+        title: "コースの保存に失敗しました",
+        message:
+          "サーバーでエラーが発生したため、コース情報を保存できませんでした。\n\n" +
+          "入力内容（コース名の重複など）を確認し、もう一度保存してください。\n" +
           "同じエラーが続く場合は、システム管理者に連絡してください。",
         detail: reason || undefined,
       });
@@ -322,10 +363,10 @@ export default function CoursesPage() {
                       {canWrite && (
                         <button
                           type="button"
-                          onClick={() => deleteCourse(course.id, course.name)}
-                          className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                          onClick={() => openEditCourse(course)}
+                          className="text-xs text-slate-500 hover:text-slate-800 transition-colors"
                         >
-                          削除
+                          編集
                         </button>
                       )}
                     </div>
@@ -386,6 +427,78 @@ export default function CoursesPage() {
               >
                 {saving ? "追加中..." : "追加"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* コース編集モーダル */}
+      {showEditModal && editingCourse && canWrite && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-5">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">コース編集</h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">色</label>
+                <div className="flex gap-2">
+                  {COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setEditForm((f) => ({ ...f, color: c }))}
+                      className={`w-7 h-7 rounded-full border-2 transition-all ${
+                        editForm.color === c ? "border-slate-900 scale-110" : "border-transparent"
+                      }`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 mt-6">
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingCourse(null);
+                  }}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={saveCourseEdit}
+                  disabled={saving || !editForm.name.trim()}
+                  className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                >
+                  {saving ? "保存中..." : "保存"}
+                </button>
+              </div>
+
+              <div className="pt-3 border-t border-slate-200">
+                <button
+                  onClick={() => {
+                    deleteCourse(editingCourse.id, editingCourse.name);
+                    setShowEditModal(false);
+                    setEditingCourse(null);
+                  }}
+                  className="w-full px-4 py-2 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50 transition-colors"
+                >
+                  削除
+                </button>
+              </div>
             </div>
           </div>
         </div>
