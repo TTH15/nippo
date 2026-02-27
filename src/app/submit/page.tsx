@@ -214,6 +214,21 @@ export default function SubmitPage() {
     { key: "fourCompleted", label: "4便", sub: "完了" },
   ];
 
+  const amazonReturns = useMemo(() => {
+    const amMochi = Number(amazonForm.amMochidashi) || 0;
+    const amComp = Number(amazonForm.amCompleted) || 0;
+    const pmMochi = Number(amazonForm.pmMochidashi) || 0;
+    const pmComp = Number(amazonForm.pmCompleted) || 0;
+    const fourMochi = Number(amazonForm.fourMochidashi) || 0;
+    const fourComp = Number(amazonForm.fourCompleted) || 0;
+
+    return {
+      amReturn: Math.max(amMochi - amComp, 0),
+      pmReturn: Math.max(pmMochi - pmComp, 0),
+      fourReturn: Math.max(fourMochi - fourComp, 0),
+    };
+  }, [amazonForm]);
+
   // 提出完了時に証明書を画像化（長押し保存・ダウンロード用）※ヤマトのみ
   useEffect(() => {
     if (status !== "success" || carrier !== "YAMATO") return;
@@ -393,7 +408,12 @@ export default function SubmitPage() {
             </div>
             <p className="text-xs text-slate-500 mt-1">タップで選択（前回の選択が保存されます）</p>
           </div>
-        ) : null}
+        ) : (
+          <div className="mb-4 text-xs text-slate-500">
+            使用できる車両がまだ紐付けられていないため、車両選択とメーター入力欄は表示されません。
+            管理画面の「車両管理」で、このドライバーを利用ドライバーとして車両に登録してください。
+          </div>
+        )}
 
         {/* メーター入力 */}
         {vehicles.length > 0 && (
@@ -439,26 +459,123 @@ export default function SubmitPage() {
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {amazonFields.map((f) => (
-                <div key={f.key} className="bg-white rounded-xl border border-slate-200 p-4">
+            <div className="space-y-3">
+              {/* 1行目: 持出し（午前・午後・4便） */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-white rounded-xl border border-slate-200 p-4">
                   <label className="block text-xs font-semibold text-slate-500 mb-1">
-                    {f.label}
-                    <span className={f.sub === "完了" ? "text-blue-500 ml-1" : "text-slate-500 ml-1"}>
-                      {f.sub}
-                    </span>
+                    午前<span className="text-slate-500 ml-1">持出</span>
                   </label>
                   <input
                     type="number"
                     inputMode="numeric"
                     min="0"
                     placeholder="0"
-                    value={amazonForm[f.key]}
-                    onChange={(e) => setAmazon(f.key, e.target.value)}
+                    value={amazonForm.amMochidashi}
+                    onChange={(e) => setAmazon("amMochidashi", e.target.value)}
                     className="w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
                   />
                 </div>
-              ))}
+                <div className="bg-white rounded-xl border border-slate-200 p-4">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">
+                    午後<span className="text-slate-500 ml-1">持出</span>
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    placeholder="0"
+                    value={amazonForm.pmMochidashi}
+                    onChange={(e) => setAmazon("pmMochidashi", e.target.value)}
+                    className="w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
+                  />
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-4">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">
+                    4便<span className="text-slate-500 ml-1">持出</span>
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    placeholder="0"
+                    value={amazonForm.fourMochidashi}
+                    onChange={(e) => setAmazon("fourMochidashi", e.target.value)}
+                    className="w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
+                  />
+                </div>
+              </div>
+
+              {/* 2行目: 完了（午前・午後・4便） */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-white rounded-xl border border-slate-200 p-4">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">
+                    午前<span className="text-blue-500 ml-1">完了</span>
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    placeholder="0"
+                    value={amazonForm.amCompleted}
+                    onChange={(e) => setAmazon("amCompleted", e.target.value)}
+                    className="w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
+                  />
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-4">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">
+                    午後<span className="text-blue-500 ml-1">完了</span>
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    placeholder="0"
+                    value={amazonForm.pmCompleted}
+                    onChange={(e) => setAmazon("pmCompleted", e.target.value)}
+                    className="w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
+                  />
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-4">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">
+                    4便<span className="text-blue-500 ml-1">完了</span>
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    placeholder="0"
+                    value={amazonForm.fourCompleted}
+                    onChange={(e) => setAmazon("fourCompleted", e.target.value)}
+                    className="w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
+                  />
+                </div>
+              </div>
+
+              {/* 自動計算された持戻り */}
+              <div className="text-xs text-slate-500 space-y-0.5">
+                <p>
+                  午前 持戻{" "}
+                  <span className="font-semibold text-orange-600">
+                    {amazonReturns.amReturn}
+                  </span>
+                  個（持出 {amazonForm.amMochidashi || 0} − 完了 {amazonForm.amCompleted || 0}）
+                </p>
+                <p>
+                  午後 持戻{" "}
+                  <span className="font-semibold text-orange-600">
+                    {amazonReturns.pmReturn}
+                  </span>
+                  個（持出 {amazonForm.pmMochidashi || 0} − 完了 {amazonForm.pmCompleted || 0}）
+                </p>
+                <p>
+                  4便 持戻{" "}
+                  <span className="font-semibold text-orange-600">
+                    {amazonReturns.fourReturn}
+                  </span>
+                  個（持出 {amazonForm.fourMochidashi || 0} − 完了 {amazonForm.fourCompleted || 0}）
+                </p>
+              </div>
             </div>
           )}
 

@@ -228,9 +228,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             </div>
             <button
               onClick={logout}
-              className="text-[11px] px-2.5 py-1 rounded-md font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              className="px-2.5 py-1 rounded-md font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              title="ログアウト"
             >
-              ログアウト
+              <FontAwesomeIcon icon={["fas", "right-from-bracket"]} className="w-4 h-4" />
             </button>
           </div>
         </div>
