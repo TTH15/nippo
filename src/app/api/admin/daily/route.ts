@@ -11,11 +11,10 @@ export async function GET(req: NextRequest) {
 
   const date = req.nextUrl.searchParams.get("date") || todayJST();
 
-  // All drivers（role は "DRIVER" で始まるものを含める：手入力の余分な空白などにも対応）
+  // 全ドライバー（role フィルタは一旦外す：ロール値の揺れに影響されないようにする）
   const { data: drivers, error: dErr } = await supabase
     .from("drivers")
     .select("id, name, display_name")
-    .ilike("role", "DRIVER")
     .order("name");
 
   if (dErr) throw dErr;
@@ -35,5 +34,10 @@ export async function GET(req: NextRequest) {
     report: reportMap.get(d.id) ?? null,
   }));
 
-  return NextResponse.json({ date, entries: result });
+  return NextResponse.json({
+    date,
+    entries: result,
+    driverCount: drivers?.length ?? 0,
+    reportCount: reports?.length ?? 0,
+  });
 }
