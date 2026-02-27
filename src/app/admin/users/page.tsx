@@ -98,7 +98,7 @@ export default function UsersPage() {
   });
   const [postalLoading, setPostalLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [companyCode, setCompanyCode] = useState(COMPANY_CODE);
+  const [companyCode, setCompanyCode] = useState<string>(COMPANY_CODE);
 
   useEffect(() => {
     const stored = getStoredDriver();
