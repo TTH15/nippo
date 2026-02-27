@@ -12,16 +12,21 @@ export async function POST(req: NextRequest) {
     const { loginType, companyCode, pin, driverCode } = body;
     const envCompany = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
-    // ドライバーログイン: ドライバーコード（9桁）でログイン
+    // ドライバーログイン: ドライバーコード（9桁）+ PIN でログイン
     if (loginType === "driver") {
       if (!driverCode || typeof driverCode !== "string" || driverCode.length !== 9) {
         return NextResponse.json({ error: "ドライバーコードは9桁で入力してください" }, { status: 400 });
       }
+      if (!pin || typeof pin !== "string" || pin.length !== 6) {
+        return NextResponse.json(
+          { error: "PINは6桁の数字で入力してください" },
+          { status: 400 },
+        );
+      }
 
       const code = driverCode.toUpperCase();
-      const numericPart = code.slice(3); // 数字6桁部分
 
-      console.log("[Login] Driver code:", code, "Numeric part:", numericPart);
+      console.log("[Login] Driver code:", code);
 
       // ドライバーコードでドライバーを検索
       const { data: driver, error } = await supabase
@@ -66,12 +71,12 @@ export async function POST(req: NextRequest) {
         }, { status: 500 });
       }
 
-      // PINは数字6桁部分
-      const match = await bcrypt.compare(numericPart, driver.pin_hash);
-      console.log("[Login] PIN match:", match, "Comparing:", numericPart);
+      // PINは、初期値としてドライバーコードの数字6桁を設定し、その後変更可能
+      const match = await bcrypt.compare(pin, driver.pin_hash);
+      console.log("[Login] PIN match:", match);
       if (!match) {
         return NextResponse.json({ 
-          error: "PINが正しくありません。ドライバーコードの数字6桁部分を確認してください。" 
+          error: "PINが正しくありません。" 
         }, { status: 401 });
       }
 

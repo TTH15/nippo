@@ -23,9 +23,18 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const body = loginType === "driver"
-        ? { loginType: "driver", driverCode: driverCode.toUpperCase() }
-        : { loginType: "admin", companyCode: companyCode.toUpperCase(), pin };
+      const body =
+        loginType === "driver"
+          ? {
+              loginType: "driver",
+              driverCode: driverCode.toUpperCase(),
+              pin,
+            }
+          : {
+              loginType: "admin",
+              companyCode: companyCode.toUpperCase(),
+              pin,
+            };
 
       const res = await apiFetch<{
         token: string;
@@ -62,9 +71,10 @@ export default function LoginPage() {
     }
   };
 
-  const isValid = loginType === "driver" 
-    ? driverCode.length === 9 
-    : companyCode.length === 3 && pin.length >= 4;
+  const isValid =
+    loginType === "driver"
+      ? driverCode.length === 9 && pin.length === 6
+      : companyCode.length === 3 && pin.length >= 4;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
@@ -104,32 +114,56 @@ export default function LoginPage() {
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-5 space-y-4">
             {loginType === "driver" ? (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  ドライバーコード
-                </label>
-                <input
-                  type="text"
-                  maxLength={9}
-                  placeholder={`${company.code}111111`}
-                  value={driverCode}
-                  onChange={(e) => {
-                    // アルファベットと数字のみ許可
-                    const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                    setDriverCode(val);
-                  }}
-                  className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors uppercase"
-                  autoFocus
-                />
-                <p className="text-xs text-slate-500 mt-1.5">
-                  会社コード3文字（例: {company.code}）+ 個人番号6桁（例: 111111）
-                </p>
-                {driverCode.length > 0 && driverCode.length < 9 && (
-                  <p className="text-xs text-amber-600 mt-1">
-                    {9 - driverCode.length}文字不足しています
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    ドライバーコード
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={9}
+                    placeholder={`${company.code}111111`}
+                    value={driverCode}
+                    onChange={(e) => {
+                      // アルファベットと数字のみ許可
+                      const val = e.target.value
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]/g, "");
+                      setDriverCode(val);
+                    }}
+                    className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors uppercase"
+                    autoFocus
+                  />
+                  <p className="text-xs text-slate-500 mt-1.5">
+                    会社コード3文字（例: {company.code}）+ 個人番号6桁（例:
+                    111111）
                   </p>
-                )}
-              </div>
+                  {driverCode.length > 0 && driverCode.length < 9 && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      {9 - driverCode.length}文字不足しています
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    PIN
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="初期値: ドライバーコードの数字6桁"
+                    value={pin}
+                    onChange={(e) =>
+                      setPin(e.target.value.replace(/[^0-9]/g, ""))
+                    }
+                    className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1.5">
+                    初回はドライバーコードの数字6桁を入力してください
+                  </p>
+                </div>
+              </>
             ) : (
               <>
                 <div>
