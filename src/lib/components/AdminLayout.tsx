@@ -111,7 +111,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex bg-slate-50">
       {/* Sidebar（フライアウトが車両カード等の上に表示されるようz-indexを設定） */}
-      <aside className="relative z-50 w-56 bg-slate-900 text-white flex flex-col shrink-0 h-screen sticky top-0" style={{ overflow: "visible" }}>
+      <aside className="z-50 w-56 bg-slate-900 text-white flex flex-col shrink-0 h-screen sticky top-0" style={{ overflow: "visible" }}>
         {/* Logo */}
         <div className="h-20 flex items-center border-b border-slate-700/60 p-2">
           <Link href="/admin" className="inline-flex items-center">
