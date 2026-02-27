@@ -20,7 +20,9 @@ export function Nav() {
 
   const logout = () => {
     clearAuth();
-    router.push(isAdmin ? "/admin/login" : "/login");
+    router.push(
+      isAdmin ? "/admin/portal-3e71ac4/login" : "/login",
+    );
   };
 
   return (
