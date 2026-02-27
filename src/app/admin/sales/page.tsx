@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowTrendUp, faArrowTrendDown } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -36,6 +37,7 @@ type MidnightRow = {
 };
 
 type Tab = "analytics" | "summary";
+type CarrierFilter = "ALL" | "YAMATO" | "AMAZON";
 
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 
@@ -76,7 +78,11 @@ const CustomTooltip = ({
 };
 
 export default function SalesPage() {
-  const [tab, setTab] = useState<Tab>("analytics");
+  const searchParams = useSearchParams();
+  const initialTabParam = searchParams.get("tab");
+  const initialTab: Tab = initialTabParam === "summary" ? "summary" : "analytics";
+
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [range, setRange] = useState<DateRangeValue | undefined>();
   const [deliveryData, setDeliveryData] = useState<DataPoint[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
@@ -86,6 +92,7 @@ export default function SalesPage() {
   const [midnights, setMidnights] = useState<MidnightRow[]>([]);
   const [prevTotals, setPrevTotals] = useState<{ total: number; profit: number } | null>(null);
   const [loadingPrev, setLoadingPrev] = useState(false);
+  const [carrierFilter, setCarrierFilter] = useState<CarrierFilter>("ALL");
 
   const startIso = useMemo(
     () => (range?.startDate ? toLocalYmd(range.startDate) : ""),
@@ -165,7 +172,14 @@ export default function SalesPage() {
       .finally(() => setLoadingSummary(false));
   }, [startIso, endIso, tab]);
 
-  const displayData = useMemo(() => deliveryData, [deliveryData]);
+  const displayData = useMemo(() => {
+    if (carrierFilter === "ALL") return deliveryData;
+    return deliveryData.map((d) =>
+      carrierFilter === "YAMATO"
+        ? { ...d, amazon: 0 }
+        : { ...d, yamato: 0 },
+    );
+  }, [deliveryData, carrierFilter]);
 
   // 数値に応じた「きりの良い」上限（例: 15万→20万、23万→25万、38万→50万）
   const niceCeil = (value: number): number => {
@@ -332,9 +346,47 @@ export default function SalesPage() {
           </button>
         </div>
 
-        {/* 日付範囲選択（アナリティクス / 集計 共通） */}
+        {/* 日付範囲選択 + キャリアフィルタ（アナリティクス / 集計 共通） */}
         <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-6">
           <DateRangePicker value={range} onChange={setRange} />
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">対象キャリア</span>
+            <div className="inline-flex rounded-full bg-slate-100 p-0.5">
+              <button
+                type="button"
+                onClick={() => setCarrierFilter("ALL")}
+                className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+                  carrierFilter === "ALL"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                全体
+              </button>
+              <button
+                type="button"
+                onClick={() => setCarrierFilter("YAMATO")}
+                className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+                  carrierFilter === "YAMATO"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                ヤマト
+              </button>
+              <button
+                type="button"
+                onClick={() => setCarrierFilter("AMAZON")}
+                className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+                  carrierFilter === "AMAZON"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Amazon
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-col lg:flex-row items-start gap-6">

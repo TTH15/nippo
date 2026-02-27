@@ -29,7 +29,14 @@ type NavItem =
   | { label: string; icon?: IconDefinition; children: NavChild[]; href?: undefined };
 
 const navItems: NavItem[] = [
-  { href: "/admin/sales", label: "売上", icon: faChartLine },
+  {
+    label: "売上",
+    icon: faChartLine,
+    children: [
+      { href: "/admin/sales?tab=analytics", label: "アナリティクス", icon: faChartLine },
+      { href: "/admin/sales?tab=summary", label: "集計", icon: faFileLines },
+    ],
+  },
   { href: "/admin/daily", label: "日報集計", icon: faClipboardList },
   {
     label: "ドライバー",
