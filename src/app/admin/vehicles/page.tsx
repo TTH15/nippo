@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faFileLines } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
@@ -93,6 +94,10 @@ export default function VehiclesPage() {
   const [recoveryTable, setRecoveryTable] = useState<{
     vehicleId: string;
     rows: { month: number; lease: number; insurance: number }[];
+  } | null>(null);
+  const [confirmState, setConfirmState] = useState<{
+    message: string;
+    onConfirm: () => void;
   } | null>(null);
 
   const load = async () => {
@@ -207,13 +212,18 @@ export default function VehiclesPage() {
 
   const deleteVehicle = async (id: string, _label: string) => {
     if (!canWrite) return;
-    try {
-      await apiFetch(`/api/admin/vehicles/${id}`, { method: "DELETE" });
-      load();
-    } catch (e) {
-      console.error(e);
-      alert("削除に失敗しました");
-    }
+    setConfirmState({
+      message: "この車両を削除しますか？",
+      onConfirm: async () => {
+        try {
+          await apiFetch(`/api/admin/vehicles/${id}`, { method: "DELETE" });
+          load();
+        } catch (e) {
+          console.error(e);
+          alert("削除に失敗しました");
+        }
+      },
+    });
   };
 
   // オイル交換までの残りkm
@@ -850,10 +860,14 @@ export default function VehiclesPage() {
                     <button
                       onClick={() => {
                         const label = [editingVehicle.manufacturer, editingVehicle.brand].filter(Boolean).join(" ") || "この車両";
-                        if (confirm(`${label}を削除しますか？`)) {
-                          deleteVehicle(editingVehicle.id, label);
-                          setShowModal(false);
-                        }
+                        const message = `${label}を削除しますか？`;
+                        setConfirmState({
+                          message,
+                          onConfirm: async () => {
+                            await deleteVehicle(editingVehicle.id, label);
+                            setShowModal(false);
+                          },
+                        });
                       }}
                       className="w-full px-4 py-2 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50 transition-colors"
                     >
@@ -1035,6 +1049,13 @@ export default function VehiclesPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={!!confirmState}
+        message={confirmState?.message ?? ""}
+        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onClose={() => setConfirmState(null)}
+        confirmLabel="削除"
+      />
     </AdminLayout>
   );
 }

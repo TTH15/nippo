@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
@@ -63,6 +64,10 @@ export default function CoursesPage() {
   const [rateForm, setRateForm] = useState(INITIAL_RATE_FORM);
   const [newCourse, setNewCourse] = useState({ name: "", color: COLORS[0] });
   const [saving, setSaving] = useState(false);
+  const [confirmState, setConfirmState] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -149,19 +154,23 @@ export default function CoursesPage() {
 
   const deleteCourse = async (courseId: string, name: string) => {
     if (!canWrite) return;
-    if (!confirm(`${name} を削除しますか？\n関連するシフトや単価も削除されます。`)) return;
-    setSaving(true);
-    try {
-      await apiFetch(`/api/admin/courses/${courseId}`, {
-        method: "DELETE",
-      });
-      load();
-    } catch (e) {
-      console.error(e);
-      alert("削除に失敗しました");
-    } finally {
-      setSaving(false);
-    }
+    setConfirmState({
+      message: `${name} を削除しますか？\n関連するシフトや単価も削除されます。`,
+      onConfirm: async () => {
+        setSaving(true);
+        try {
+          await apiFetch(`/api/admin/courses/${courseId}`, {
+            method: "DELETE",
+          });
+          load();
+        } catch (e) {
+          console.error(e);
+          alert("削除に失敗しました");
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
   };
 
   return (
@@ -409,6 +418,13 @@ export default function CoursesPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={!!confirmState}
+        message={confirmState?.message ?? ""}
+        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onClose={() => setConfirmState(null)}
+        confirmLabel="削除"
+      />
     </AdminLayout>
   );
 }

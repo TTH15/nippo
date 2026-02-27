@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
@@ -76,6 +77,10 @@ export default function ShiftsPage() {
   // ローカルの変更を管理
   const [localShifts, setLocalShifts] = useState<Map<string, string | null>>(new Map());
   const [hasChanges, setHasChanges] = useState(false);
+  const [confirmState, setConfirmState] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const displayDates = useMemo(
     () =>
@@ -116,7 +121,20 @@ export default function ShiftsPage() {
   }, [load]);
 
   const prevMonth = () => {
-    if (hasChanges && !confirm("変更が保存されていません。破棄しますか？")) return;
+    if (hasChanges && canWrite) {
+      setConfirmState({
+        message: "変更が保存されていません。破棄しますか？",
+        onConfirm: () => {
+          setLocalShifts(new Map());
+          setHasChanges(false);
+          setYearMonth((prev) => {
+            if (prev.month === 1) return { year: prev.year - 1, month: 12 };
+            return { year: prev.year, month: prev.month - 1 };
+          });
+        },
+      });
+      return;
+    }
     setYearMonth((prev) => {
       if (prev.month === 1) return { year: prev.year - 1, month: 12 };
       return { year: prev.year, month: prev.month - 1 };
@@ -124,7 +142,20 @@ export default function ShiftsPage() {
   };
 
   const nextMonth = () => {
-    if (hasChanges && !confirm("変更が保存されていません。破棄しますか？")) return;
+    if (hasChanges && canWrite) {
+      setConfirmState({
+        message: "変更が保存されていません。破棄しますか？",
+        onConfirm: () => {
+          setLocalShifts(new Map());
+          setHasChanges(false);
+          setYearMonth((prev) => {
+            if (prev.month === 12) return { year: prev.year + 1, month: 1 };
+            return { year: prev.year, month: prev.month + 1 };
+          });
+        },
+      });
+      return;
+    }
     setYearMonth((prev) => {
       if (prev.month === 12) return { year: prev.year + 1, month: 1 };
       return { year: prev.year, month: prev.month + 1 };
@@ -132,38 +163,48 @@ export default function ShiftsPage() {
   };
 
   const switchPeriod = (p: Period) => {
-    if (hasChanges && !confirm("変更が保存されていません。破棄しますか？")) return;
+    if (hasChanges && canWrite) {
+      setConfirmState({
+        message: "変更が保存されていません。破棄しますか？",
+        onConfirm: () => {
+          setLocalShifts(new Map());
+          setHasChanges(false);
+          setPeriod(p);
+        },
+      });
+      return;
+    }
     setPeriod(p);
   };
 
   const generateDraft = async () => {
     if (!canWrite) return;
     if (displayDates.length === 0) return;
-    if (
-      !confirm(
-        "この期間のシフトを希望休・配送可能ルートに基づいて自動で叩き台生成します。既存の割り当ては上書きされます。実行しますか？"
-      )
-    )
-      return;
-    setGenerating(true);
-    try {
-      const start = displayDates[0];
-      const end = displayDates[displayDates.length - 1];
-      const res = await apiFetch<{ applied: number; total: number }>(
-        "/api/admin/shifts/generate-draft",
-        {
-          method: "POST",
-          body: JSON.stringify({ start, end }),
+    setConfirmState({
+      message:
+        "この期間のシフトを希望休・配送可能ルートに基づいて自動で叩き台生成します。既存の割り当ては上書きされます。実行しますか？",
+      onConfirm: async () => {
+        setGenerating(true);
+        try {
+          const start = displayDates[0];
+          const end = displayDates[displayDates.length - 1];
+          const res = await apiFetch<{ applied: number; total: number }>(
+            "/api/admin/shifts/generate-draft",
+            {
+              method: "POST",
+              body: JSON.stringify({ start, end }),
+            }
+          );
+          await load();
+          alert(`叩き台を生成しました（${res.applied}/${res.total} 件割当）`);
+        } catch (e) {
+          console.error(e);
+          alert("叩き台の生成に失敗しました");
+        } finally {
+          setGenerating(false);
         }
-      );
-      await load();
-      alert(`叩き台を生成しました（${res.applied}/${res.total} 件割当）`);
-    } catch (e) {
-      console.error(e);
-      alert("叩き台の生成に失敗しました");
-    } finally {
-      setGenerating(false);
-    }
+      },
+    });
   };
 
   const getCellKey = (date: string, courseId: string) => `${date}:${courseId}`;
@@ -270,9 +311,13 @@ export default function ShiftsPage() {
 
   const discardChanges = () => {
     if (!canWrite) return;
-    if (!confirm("変更を破棄しますか？")) return;
-    setLocalShifts(new Map());
-    setHasChanges(false);
+    setConfirmState({
+      message: "変更を破棄しますか？",
+      onConfirm: () => {
+        setLocalShifts(new Map());
+        setHasChanges(false);
+      },
+    });
   };
 
   const getDriverRequests = (driverId: string) => {
@@ -566,6 +611,13 @@ export default function ShiftsPage() {
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={!!confirmState}
+        message={confirmState?.message ?? ""}
+        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onClose={() => setConfirmState(null)}
+        confirmLabel="OK"
+      />
     </AdminLayout>
   );
 }

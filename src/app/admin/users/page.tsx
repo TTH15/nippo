@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
@@ -101,6 +102,10 @@ export default function UsersPage() {
   const [postalLoading, setPostalLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [companyCode, setCompanyCode] = useState<string>(COMPANY_CODE);
+  const [confirmState, setConfirmState] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   useEffect(() => {
     const stored = getStoredDriver();
@@ -273,14 +278,18 @@ export default function UsersPage() {
 
   const deleteDriver = async (id: string, name: string) => {
     if (!canWrite) return;
-    if (!confirm(`${name}を削除しますか？`)) return;
-    try {
-      await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
-      load();
-    } catch (e) {
-      console.error(e);
-      alert("削除に失敗しました");
-    }
+    setConfirmState({
+      message: `${name}を削除しますか？`,
+      onConfirm: async () => {
+        try {
+          await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
+          load();
+        } catch (e) {
+          console.error(e);
+          alert("削除に失敗しました");
+        }
+      },
+    });
   };
 
   const isFormValid = form.name.trim() &&
@@ -639,6 +648,14 @@ export default function UsersPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmState}
+        message={confirmState?.message ?? ""}
+        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onClose={() => setConfirmState(null)}
+        confirmLabel="削除"
+      />
     </AdminLayout>
   );
 }

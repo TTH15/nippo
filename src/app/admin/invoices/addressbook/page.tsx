@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
 
@@ -33,6 +34,10 @@ export default function AddressBookPage() {
   });
   const [saving, setSaving] = useState(false);
   const [companyCode, setCompanyCode] = useState(COMPANY_CODE);
+  const [confirmState, setConfirmState] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   useEffect(() => {
     const stored = getStoredDriver();
@@ -121,14 +126,18 @@ export default function AddressBookPage() {
 
   const deleteAddress = async (id: string, name: string) => {
     if (!canWrite) return;
-    if (!confirm(`${name}を削除しますか？`)) return;
-    try {
-      await apiFetch(`/api/admin/invoice-addresses/${id}`, { method: "DELETE" });
-      load();
-    } catch (e) {
-      console.error(e);
-      alert("削除に失敗しました");
-    }
+    setConfirmState({
+      message: `${name}を削除しますか？`,
+      onConfirm: async () => {
+        try {
+          await apiFetch(`/api/admin/invoice-addresses/${id}`, { method: "DELETE" });
+          load();
+        } catch (e) {
+          console.error(e);
+          alert("削除に失敗しました");
+        }
+      },
+    });
   };
 
   return (
@@ -308,6 +317,13 @@ export default function AddressBookPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={!!confirmState}
+        message={confirmState?.message ?? ""}
+        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onClose={() => setConfirmState(null)}
+        confirmLabel="削除"
+      />
     </AdminLayout>
   );
 }
