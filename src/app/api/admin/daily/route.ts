@@ -11,6 +11,29 @@ export async function GET(req: NextRequest) {
 
   const date = req.nextUrl.searchParams.get("date") || todayJST();
 
+   // 接続先Supabaseプロジェクト（project ref）をログに出す（キーやフルURLは出さない）
+  let projectRef = "unknown";
+  try {
+    if (process.env.SUPABASE_URL) {
+      const host = new URL(process.env.SUPABASE_URL).hostname;
+      projectRef = host.split(".")[0] ?? host;
+    }
+  } catch {
+    projectRef = "parse_error";
+  }
+
+  // この日付のレコード件数だけを取得してログ出力
+  const { count: reportCountExact, error: countErr } = await supabase
+    .from("daily_reports")
+    .select("*", { count: "exact", head: true })
+    .eq("report_date", date);
+
+  if (countErr) {
+    console.error("[admin/daily] count error", { projectRef, date, error: countErr });
+  } else {
+    console.log("[admin/daily] debug", { projectRef, date, reportCountExact });
+  }
+
   // 全ドライバー（role フィルタは一旦外す：ロール値の揺れに影響されないようにする）
   const { data: drivers, error: dErr } = await supabase
     .from("drivers")
@@ -39,5 +62,7 @@ export async function GET(req: NextRequest) {
     entries: result,
     driverCount: drivers?.length ?? 0,
     reportCount: reports?.length ?? 0,
+    reportCountExact: reportCountExact ?? null,
+    projectRef,
   });
 }
