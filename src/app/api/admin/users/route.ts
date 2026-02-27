@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // GET: 全ドライバー一覧（コース情報含む）
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   // 同じ会社コードのドライバーのみ取得

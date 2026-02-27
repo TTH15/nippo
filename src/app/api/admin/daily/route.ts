@@ -6,7 +6,7 @@ import { todayJST } from "@/lib/date";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   const date = req.nextUrl.searchParams.get("date") || todayJST();

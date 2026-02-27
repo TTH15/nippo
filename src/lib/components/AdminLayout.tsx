@@ -217,7 +217,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             <div>
               <p className="text-sm font-bold text-white">{driver?.name}</p>
               <p className="text-[11px] text-slate-400 font-medium">
-                {company.name} / 管理者
+                {company.name}
               </p>
             </div>
             <button

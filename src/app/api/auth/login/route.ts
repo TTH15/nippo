@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
         .select("id, name, role, company_code, driver_code, pin_hash")
         .eq("driver_code", full)
         .eq("company_code", code)
-        .eq("role", "ADMIN")
+        .in("role", ["ADMIN", "ADMIN_VIEWER"])
         .single();
 
       if (error || !admin) {

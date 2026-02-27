@@ -13,7 +13,7 @@ const secret = () => {
 
 export async function signToken(payload: {
   driverId: string;
-  role: "DRIVER" | "ADMIN";
+  role: "DRIVER" | "ADMIN" | "ADMIN_VIEWER";
   companyCode: string;
 }): Promise<string> {
   return new SignJWT({ 
@@ -43,7 +43,7 @@ export class SimpleJwtAuthProvider implements AuthProvider {
     const role = payload.role as string;
     const companyCode = payload.companyCode as string;
     
-    if (!driverId || !["DRIVER", "ADMIN"].includes(role)) {
+    if (!driverId || !["DRIVER", "ADMIN", "ADMIN_VIEWER"].includes(role)) {
       throw new Error("Invalid token payload");
     }
     return { 

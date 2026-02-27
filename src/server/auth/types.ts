@@ -1,6 +1,6 @@
 export type AuthUser = {
   driverId: string;
-  role: "DRIVER" | "ADMIN";
+  role: "DRIVER" | "ADMIN" | "ADMIN_VIEWER";
   companyCode: string;
 };
 

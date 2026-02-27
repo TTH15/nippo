@@ -15,7 +15,7 @@ type CourseRate = {
 };
 
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   // DB から取得する生データの範囲（シード期間に合わせて十分広く取る）

@@ -2,8 +2,12 @@
  * Create / update an ADMIN account in `drivers`.
  *
  * Usage:
+ *   # フル権限の管理者
  *   npx tsx src/scripts/create-admin.ts --company ACE --admin 8888 --password '(wsne=v4jiXw' --name '管理者'
  *   npx tsx src/scripts/create-admin.ts --adminCode ACE8888 --password '(wsne=v4jiXw' --name '管理者'
+ *
+ *   # 閲覧専用（ADMIN_VIEWER）
+ *   npx tsx src/scripts/create-admin.ts --adminCode ACE9999 --password 'viewer-pass-123' --name '閲覧専用' --readonly
  *
  * Requires:
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY in .env.local (or environment)
@@ -33,6 +37,7 @@ const adminNo = getArg("--admin") ?? "";
 const adminCode = (getArg("--adminCode") ?? "").toUpperCase();
 const password = getArg("--password") ?? "";
 const name = getArg("--name") ?? "管理者";
+const isReadonly = process.argv.includes("--readonly");
 
 const resolvedAdminCode =
   adminCode ||
@@ -70,7 +75,7 @@ async function main() {
 
   const payload = {
     name,
-    role: "ADMIN",
+    role: isReadonly ? "ADMIN_VIEWER" as const : "ADMIN" as const,
     company_code: resolvedCompany,
     office_code: "000000",
     driver_code: resolvedAdminCode,

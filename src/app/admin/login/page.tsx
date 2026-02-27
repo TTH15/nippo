@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { apiFetch, setAuth } from "@/lib/api";
 import { getCompany } from "@/config/companies";
 
-export default function LoginPage() {
+export default function AdminLoginPage() {
   const router = useRouter();
-  const [driverCode, setDriverCode] = useState("");
-  const [driverPin, setDriverPin] = useState("");
+  const [adminCode, setAdminCode] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
@@ -20,9 +20,9 @@ export default function LoginPage() {
 
     try {
       const body = {
-        loginType: "driver" as const,
-        driverCode: driverCode.toUpperCase(),
-        pin: driverPin,
+        loginType: "admin" as const,
+        adminCode: adminCode.toUpperCase(),
+        password: adminPassword,
       };
 
       const res = await apiFetch<{
@@ -34,75 +34,55 @@ export default function LoginPage() {
       });
 
       setAuth(res.token, res.driver);
-
-      if (res.driver.role === "ADMIN") {
-        router.push("/admin");
-      } else {
-        router.push("/submit");
-      }
+      router.push("/admin");
     } catch (err: unknown) {
       let errorMessage = "ログインに失敗しました";
       if (err instanceof Error) {
         errorMessage = err.message;
-        // より分かりやすいエラーメッセージに変換
-        if (errorMessage.includes("ドライバーコード")) {
-          errorMessage = errorMessage;
-        } else if (errorMessage.includes("無効な")) {
-          errorMessage = "ドライバーコードまたはPINが正しくありません";
-        } else if (errorMessage.includes("認証")) {
-          errorMessage = "認証に失敗しました。ドライバーコードの数字6桁部分を確認してください";
-        }
       }
       setError(errorMessage);
-      console.error("Login error:", err);
+      console.error("Admin login error:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  const isValid = driverCode.length === 9 && driverPin.length === 6;
+  const isValid = adminCode.length >= 7 && adminPassword.length >= 8;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
       <div className="w-full max-w-sm">
         <div className="bg-white rounded-lg shadow-sm border border-slate-200">
-          {/* Header */}
           <div className="p-5 border-b border-slate-200">
-            <h1 className="text-xl font-bold text-slate-900 text-center">日報集計</h1>
+            <h1 className="text-xl font-bold text-slate-900 text-center">日報集計（管理者）</h1>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="p-5 space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
-                ドライバーコード
+                管理者コード
               </label>
               <input
                 type="text"
-                maxLength={9}
-                value={driverCode}
+                maxLength={11}
+                value={adminCode}
                 onChange={(e) => {
-                  const val = e.target.value
-                    .toUpperCase()
-                    .replace(/[^A-Z0-9]/g, "");
-                  setDriverCode(val);
+                  const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+                  setAdminCode(v);
                 }}
                 className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors uppercase"
                 autoFocus
               />
             </div>
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
-                PIN
+                パスワード
               </label>
               <input
                 type="password"
-                inputMode="numeric"
-                maxLength={6}
-                value={driverPin}
-                onChange={(e) =>
-                  setDriverPin(e.target.value.replace(/[^0-9]/g, ""))
-                }
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
                 className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors"
               />
             </div>
@@ -124,3 +104,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

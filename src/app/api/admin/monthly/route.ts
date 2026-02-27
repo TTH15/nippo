@@ -26,7 +26,7 @@ async function getRates() {
 }
 
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   const month = req.nextUrl.searchParams.get("month") || currentMonthJST();
