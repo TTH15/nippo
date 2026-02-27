@@ -20,41 +20,56 @@ export async function GET(req: NextRequest) {
 
   try {
     // 直近N日などの制限は一旦付けず、未承認すべてを対象にする
-    const { data, error } = await supabase
+    const { data: reports, error: reportErr } = await supabase
       .from("daily_reports")
-      .select(
-        `
-        *,
-        drivers (
-          id,
-          name,
-          display_name
-        )
-      `,
-      )
+      .select("*")
       .is("approved_at", null)
       .order("report_date", { ascending: false })
       .order("submitted_at", { ascending: false });
 
-    if (error) {
-      console.error("[admin/daily/pending] DB error", error);
+    if (reportErr) {
+      console.error("[admin/daily/pending] reports error", reportErr);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    const rows = reports ?? [];
+    if (!rows.length) {
+      return NextResponse.json({ groups: [], totalPending: 0 });
+    }
+
+    // 関連するドライバー情報を一括取得
+    const driverIds = Array.from(new Set(rows.map((r: any) => r.driver_id).filter(Boolean)));
+    const { data: drivers, error: driverErr } = await supabase
+      .from("drivers")
+      .select("id, name, display_name")
+      .in("id", driverIds);
+
+    if (driverErr) {
+      console.error("[admin/daily/pending] drivers error", driverErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+
+    const driverMap = new Map<string, { id: string; name: string; display_name: string | null }>();
+    (drivers ?? []).forEach((d: any) => {
+      driverMap.set(d.id, {
+        id: d.id,
+        name: d.name,
+        display_name: d.display_name ?? null,
+      });
+    });
+
     const grouped = new Map<string, PendingEntry[]>();
 
-    (data ?? []).forEach((r: any) => {
+    rows.forEach((r: any) => {
       const date: string = r.report_date;
-      const driver = r.drivers;
+      const driver = driverMap.get(r.driver_id);
       if (!driver) return;
+
       const entry: PendingEntry = {
-        driver: {
-          id: driver.id,
-          name: driver.name,
-          display_name: driver.display_name ?? null,
-        },
+        driver,
         report: r,
       };
+
       if (!grouped.has(date)) grouped.set(date, []);
       grouped.get(date)!.push(entry);
     });

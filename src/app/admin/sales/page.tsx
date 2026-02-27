@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowTrendUp, faArrowTrendDown } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -78,11 +77,7 @@ const CustomTooltip = ({
 };
 
 export default function SalesPage() {
-  const searchParams = useSearchParams();
-  const initialTabParam = searchParams.get("tab");
-  const initialTab: Tab = initialTabParam === "summary" ? "summary" : "analytics";
-
-  const [tab, setTab] = useState<Tab>(initialTab);
+  const [tab, setTab] = useState<Tab>("analytics");
   const [range, setRange] = useState<DateRangeValue | undefined>();
   const [deliveryData, setDeliveryData] = useState<DataPoint[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
@@ -93,6 +88,16 @@ export default function SalesPage() {
   const [prevTotals, setPrevTotals] = useState<{ total: number; profit: number } | null>(null);
   const [loadingPrev, setLoadingPrev] = useState(false);
   const [carrierFilter, setCarrierFilter] = useState<CarrierFilter>("ALL");
+
+  // URL のクエリ (?tab=summary など) から初期タブを決定（クライアント側でのみ実行）
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("tab");
+    if (t === "summary") {
+      setTab("summary");
+    }
+  }, []);
 
   const startIso = useMemo(
     () => (range?.startDate ? toLocalYmd(range.startDate) : ""),
