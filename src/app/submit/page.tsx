@@ -20,11 +20,20 @@ type Vehicle = {
 };
 
 export default function SubmitPage() {
+  const [carrier, setCarrier] = useState<"YAMATO" | "AMAZON">("YAMATO");
   const [form, setForm] = useState({
     takuhaibinCompleted: "",
     takuhaibinReturned: "",
     nekoposCompleted: "",
     nekoposReturned: "",
+  });
+  const [amazonForm, setAmazonForm] = useState({
+    amMochidashi: "",
+    amCompleted: "",
+    pmMochidashi: "",
+    pmCompleted: "",
+    fourMochidashi: "",
+    fourCompleted: "",
   });
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
@@ -40,6 +49,11 @@ export default function SubmitPage() {
   const set = (key: keyof typeof form, value: string) => {
     if (value !== "" && !/^\d+$/.test(value)) return;
     setForm((f) => ({ ...f, [key]: value }));
+  };
+
+  const setAmazon = (key: keyof typeof amazonForm, value: string) => {
+    if (value !== "" && !/^\d+$/.test(value)) return;
+    setAmazonForm((f) => ({ ...f, [key]: value }));
   };
 
   useEffect(() => {
@@ -99,10 +113,17 @@ export default function SubmitPage() {
       await apiFetch("/api/reports", {
         method: "POST",
         body: JSON.stringify({
+          carrier,
           takuhaibinCompleted: Number(form.takuhaibinCompleted) || 0,
           takuhaibinReturned: Number(form.takuhaibinReturned) || 0,
           nekoposCompleted: Number(form.nekoposCompleted) || 0,
           nekoposReturned: Number(form.nekoposReturned) || 0,
+          amazonAmMochidashi: Number(amazonForm.amMochidashi) || 0,
+          amazonAmCompleted: Number(amazonForm.amCompleted) || 0,
+          amazonPmMochidashi: Number(amazonForm.pmMochidashi) || 0,
+          amazonPmCompleted: Number(amazonForm.pmCompleted) || 0,
+          amazon4Mochidashi: Number(amazonForm.fourMochidashi) || 0,
+          amazon4Completed: Number(amazonForm.fourCompleted) || 0,
           vehicleId: selectedVehicleId,
           meterValue: meterValue ? Number(meterValue) : null,
         }),
@@ -133,6 +154,22 @@ export default function SubmitPage() {
   }, [driverProfile]);
 
   const jukenNumbers: JukenNumbers = useMemo(() => {
+    if (carrier !== "YAMATO") {
+      return {
+        takuhaibinMochidashi: 0,
+        takuhaibinHaikan: 0,
+        takuhaibinModori: 0,
+        takuhaibinHaikanModori: 0,
+        nekoposMochidashi: 0,
+        nekoposHaikan: 0,
+        nekoposModori: 0,
+        nekoposHaikanModori: 0,
+        totalMochidashi: 0,
+        totalHaikan: 0,
+        totalModori: 0,
+        totalHaikanModori: 0,
+      };
+    }
     const tkComp = Number(form.takuhaibinCompleted) || 0;
     const tkRet = Number(form.takuhaibinReturned) || 0;
     const nkComp = Number(form.nekoposCompleted) || 0;
@@ -161,16 +198,25 @@ export default function SubmitPage() {
     };
   }, [form]);
 
-  const fields: { key: keyof typeof form; label: string; sub: string }[] = [
+  const yamatoFields: { key: keyof typeof form; label: string; sub: string }[] = [
     { key: "takuhaibinCompleted", label: "宅急便", sub: "完了" },
     { key: "takuhaibinReturned", label: "宅急便", sub: "持戻" },
     { key: "nekoposCompleted", label: "ネコポス", sub: "完了" },
     { key: "nekoposReturned", label: "ネコポス", sub: "持戻" },
   ];
 
-  // 提出完了時に証明書を画像化（長押し保存・ダウンロード用）
+  const amazonFields: { key: keyof typeof amazonForm; label: string; sub: string }[] = [
+    { key: "amMochidashi", label: "午前", sub: "持出" },
+    { key: "amCompleted", label: "午前", sub: "完了" },
+    { key: "pmMochidashi", label: "午後", sub: "持出" },
+    { key: "pmCompleted", label: "午後", sub: "完了" },
+    { key: "fourMochidashi", label: "4便", sub: "持出" },
+    { key: "fourCompleted", label: "4便", sub: "完了" },
+  ];
+
+  // 提出完了時に証明書を画像化（長押し保存・ダウンロード用）※ヤマトのみ
   useEffect(() => {
-    if (status !== "success") return;
+    if (status !== "success" || carrier !== "YAMATO") return;
     setCertImageDataUrl(null);
     const timer = setTimeout(async () => {
       if (!certRef.current) return;
@@ -202,15 +248,19 @@ export default function SubmitPage() {
       <>
         <Nav />
         <div className="max-w-sm mx-auto mt-12 px-4 pb-12">
-          {/* キャプチャ用（画面外に配置） */}
-          <div className="fixed left-[-9999px] top-0" aria-hidden>
-            <JukenCertificate
-              certificateRef={(el) => { certRef.current = el; }}
-              numbers={jukenNumbers}
-              overlay={jukenOverlay}
-              hideDownloadButton
-            />
-          </div>
+          {/* キャプチャ用（画面外に配置）：ヤマトのみ */}
+          {carrier === "YAMATO" && (
+            <div className="fixed left-[-9999px] top-0" aria-hidden>
+              <JukenCertificate
+                certificateRef={(el) => {
+                  certRef.current = el;
+                }}
+                numbers={jukenNumbers}
+                overlay={jukenOverlay}
+                hideDownloadButton
+              />
+            </div>
+          )}
 
           <div className="text-center mb-6">
             <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
@@ -222,38 +272,53 @@ export default function SubmitPage() {
             <p className="text-sm text-slate-500 mb-6">本日の日報を提出しました</p>
           </div>
 
-          {/* 配達受託者控画像：長押しでカメラロールに保存 */}
-          <div className="mb-6">
-            <p className="text-sm font-medium text-slate-700 mb-2">配達受託者控</p>
-            {certImageDataUrl ? (
-              <>
-                <img
-                  src={certImageDataUrl}
-                  alt="配達受託者控"
-                  className="w-full max-w-[600px] mx-auto rounded-lg border border-slate-200 block"
-                  style={{ maxHeight: "70vh", objectFit: "contain" }}
-                />
-                <p className="text-xs text-slate-500 mt-2">
-                  スマホでは画像を長押しでカメラロールに保存できます
-                </p>
-                <button
-                  type="button"
-                  onClick={downloadCertImage}
-                  className="mt-3 w-full py-2.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
-                >
-                  PNGでダウンロード
-                </button>
-              </>
-            ) : (
-              <p className="text-sm text-slate-500 py-8">画像を生成しています...</p>
-            )}
-          </div>
+          {/* 配達受託者控画像：長押しでカメラロールに保存（ヤマトのみ） */}
+          {carrier === "YAMATO" && (
+            <div className="mb-6">
+              <p className="text-sm font-medium text-slate-700 mb-2">配達受託者控</p>
+              {certImageDataUrl ? (
+                <>
+                  <img
+                    src={certImageDataUrl}
+                    alt="配達受託者控"
+                    className="w-full max-w-[600px] mx-auto rounded-lg border border-slate-200 block"
+                    style={{ maxHeight: "70vh", objectFit: "contain" }}
+                  />
+                  <p className="text-xs text-slate-500 mt-2">
+                    スマホでは画像を長押しでカメラロールに保存できます
+                  </p>
+                  <button
+                    type="button"
+                    onClick={downloadCertImage}
+                    className="mt-3 w-full py-2.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+                  >
+                    PNGでダウンロード
+                  </button>
+                </>
+              ) : (
+                <p className="text-sm text-slate-500 py-8">画像を生成しています...</p>
+              )}
+            </div>
+          )}
 
           <div className="text-center">
             <button
               onClick={() => {
                 setStatus("idle");
-                setForm({ takuhaibinCompleted: "", takuhaibinReturned: "", nekoposCompleted: "", nekoposReturned: "" });
+                setForm({
+                  takuhaibinCompleted: "",
+                  takuhaibinReturned: "",
+                  nekoposCompleted: "",
+                  nekoposReturned: "",
+                });
+                setAmazonForm({
+                  amMochidashi: "",
+                  amCompleted: "",
+                  pmMochidashi: "",
+                  pmCompleted: "",
+                  fourMochidashi: "",
+                  fourCompleted: "",
+                });
                 setCertImageDataUrl(null);
               }}
               className="text-sm text-brand-600 font-medium hover:underline"
@@ -271,6 +336,35 @@ export default function SubmitPage() {
       <Nav />
       <div className="max-w-sm mx-auto px-4 py-8">
         <h1 className="text-lg font-bold text-brand-900 mb-6">本日の日報</h1>
+
+        {/* 配送種別選択 */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-slate-700 mb-2">配送種別</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setCarrier("YAMATO")}
+              className={`py-2.5 rounded-xl text-sm font-semibold border ${
+                carrier === "YAMATO"
+                  ? "bg-brand-800 text-white border-brand-800"
+                  : "bg-white text-slate-700 border-slate-200"
+              }`}
+            >
+              ヤマト
+            </button>
+            <button
+              type="button"
+              onClick={() => setCarrier("AMAZON")}
+              className={`py-2.5 rounded-xl text-sm font-semibold border ${
+                carrier === "AMAZON"
+                  ? "bg-brand-800 text-white border-brand-800"
+                  : "bg-white text-slate-700 border-slate-200"
+              }`}
+            >
+              Amazon
+            </button>
+          </div>
+        </div>
 
         {/* 車両選択カルーセル */}
         {vehiclesLoading ? (
@@ -322,27 +416,51 @@ export default function SubmitPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            {fields.map((f) => (
-              <div key={f.key} className="bg-white rounded-xl border border-slate-200 p-4">
-                <label className="block text-xs font-semibold text-slate-500 mb-1">
-                  {f.label}
-                  <span className={f.sub === "持戻" ? "text-orange-500 ml-1" : "text-blue-500 ml-1"}>
-                    {f.sub}
-                  </span>
-                </label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  placeholder="0"
-                  value={form[f.key]}
-                  onChange={(e) => set(f.key, e.target.value)}
-                  className="w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
-                />
-              </div>
-            ))}
-          </div>
+          {carrier === "YAMATO" ? (
+            <div className="grid grid-cols-2 gap-3">
+              {yamatoFields.map((f) => (
+                <div key={f.key} className="bg-white rounded-xl border border-slate-200 p-4">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">
+                    {f.label}
+                    <span className={f.sub === "持戻" ? "text-orange-500 ml-1" : "text-blue-500 ml-1"}>
+                      {f.sub}
+                    </span>
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    placeholder="0"
+                    value={form[f.key]}
+                    onChange={(e) => set(f.key, e.target.value)}
+                    className="w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {amazonFields.map((f) => (
+                <div key={f.key} className="bg-white rounded-xl border border-slate-200 p-4">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">
+                    {f.label}
+                    <span className={f.sub === "完了" ? "text-blue-500 ml-1" : "text-slate-500 ml-1"}>
+                      {f.sub}
+                    </span>
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    placeholder="0"
+                    value={amazonForm[f.key]}
+                    onChange={(e) => setAmazon(f.key, e.target.value)}
+                    className="w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
 
           {status === "error" && (
             <p className="text-sm text-red-500 text-center">{errorMsg}</p>
@@ -358,7 +476,7 @@ export default function SubmitPage() {
         </form>
 
         <p className="text-xs text-slate-400 text-center mt-4">
-          同日の再送信は上書きされます
+          同日の再送信は上書きされます（ヤマト / Amazon 共通）
         </p>
       </div>
     </>

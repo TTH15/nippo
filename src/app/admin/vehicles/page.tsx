@@ -99,6 +99,7 @@ export default function VehiclesPage() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+  const [numberFocused, setNumberFocused] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -715,6 +716,8 @@ export default function VehiclesPage() {
                         const v = e.target.value.replace(/\D/g, "").slice(0, 4);
                         setForm((f) => ({ ...f, numberNumeric: v }));
                       }}
+                      onFocus={() => setNumberFocused(true)}
+                      onBlur={() => setNumberFocused(false)}
                       onKeyDown={(e) => {
                         if (
                           !/^\d$/.test(e.key) &&
@@ -749,10 +752,11 @@ export default function VehiclesPage() {
                           {d.slice(2).map((c, i) => (
                             <div
                               key={`d${i + 2}`}
-                              className={`w-10 h-10 flex items-center justify-center rounded-lg border-2 text-base font-bold transition-colors ${c === "・"
-                                ? "border-slate-200 bg-slate-50 text-slate-300"
-                                : "border-slate-400 bg-white text-slate-900"
-                                }`}
+                          className={`w-10 h-10 flex items-center justify-center rounded-lg border-2 text-base font-bold transition-colors ${
+                            c === "・"
+                              ? "border-slate-200 bg-slate-50 text-slate-300"
+                              : "border-slate-400 bg-white text-slate-900"
+                          } ${numberFocused && i === 1 ? "border-slate-500 ring-1 ring-slate-400" : ""}`}
                             >
                               {c}
                             </div>

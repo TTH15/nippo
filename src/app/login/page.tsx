@@ -19,9 +19,10 @@ export default function LoginPage() {
     setError("");
 
     try {
+      const normalizedCode = driverCode.toUpperCase().replace(/[^A-Z0-9]/g, "");
       const body = {
         loginType: "driver" as const,
-        driverCode: driverCode.toUpperCase(),
+        driverCode: normalizedCode,
         pin: driverPin,
       };
 
@@ -60,7 +61,8 @@ export default function LoginPage() {
     }
   };
 
-  const isValid = driverCode.length === 9 && driverPin.length === 6;
+  const cleanedCode = driverCode.replace(/[^A-Za-z0-9]/g, "");
+  const isValid = cleanedCode.length === 9 && driverPin.length === 6;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
@@ -82,11 +84,11 @@ export default function LoginPage() {
                 maxLength={9}
                 value={driverCode}
                 onChange={(e) => {
-                  const val = e.target.value
-                    .toUpperCase()
-                    .replace(/[^A-Z0-9]/g, "");
-                  setDriverCode(val);
+                  setDriverCode(e.target.value);
                 }}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                autoComplete="off"
                 className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors uppercase"
                 autoFocus
               />

@@ -14,6 +14,14 @@ type Entry = {
     nekopos_completed: number;
     nekopos_returned: number;
     submitted_at: string;
+    carrier?: "YAMATO" | "AMAZON";
+    approved_at?: string | null;
+    amazon_am_mochidashi?: number;
+    amazon_am_completed?: number;
+    amazon_pm_mochidashi?: number;
+    amazon_pm_completed?: number;
+    amazon_4_mochidashi?: number;
+    amazon_4_completed?: number;
   } | null;
 };
 
@@ -41,7 +49,7 @@ export default function AdminDailyPage() {
     <AdminLayout>
       <div className="w-full">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-xl font-bold text-slate-900">日報提出状況確認</h1>
+          <h1 className="text-xl font-bold text-slate-900">日報集計</h1>
           <input
             type="date"
             value={date}
@@ -126,29 +134,93 @@ export default function AdminDailyPage() {
                   <thead className="bg-slate-50">
                     <tr className="border-b border-slate-200 text-left">
                       <th className="py-3 px-4 font-semibold text-slate-600">名前</th>
+                      <th className="py-3 px-3 font-semibold text-slate-600 text-center">種別</th>
                       <th className="py-3 px-3 font-semibold text-slate-600 text-right">宅急便完了</th>
                       <th className="py-3 px-3 font-semibold text-slate-600 text-right">宅急便持戻</th>
                       <th className="py-3 px-3 font-semibold text-slate-600 text-right">ネコポス完了</th>
                       <th className="py-3 px-3 font-semibold text-slate-600 text-right">ネコポス持戻</th>
+                      <th className="py-3 px-3 font-semibold text-slate-600 text-left">Amazon（午前/午後/4便）</th>
+                      <th className="py-3 px-3 font-semibold text-slate-600 text-center">承認</th>
                       <th className="py-3 px-4 font-semibold text-slate-600 text-right">送信時刻</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {submitted.map((e) => (
-                      <tr key={e.driver.id} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="py-3 px-4 font-medium">{getDisplayName(e.driver)}</td>
-                        <td className="py-3 px-3 text-right tabular-nums">{e.report!.takuhaibin_completed}</td>
-                        <td className="py-3 px-3 text-right tabular-nums text-orange-600">{e.report!.takuhaibin_returned}</td>
-                        <td className="py-3 px-3 text-right tabular-nums">{e.report!.nekopos_completed}</td>
-                        <td className="py-3 px-3 text-right tabular-nums text-orange-600">{e.report!.nekopos_returned}</td>
-                        <td className="py-3 px-4 text-right text-xs text-slate-400">
-                          {new Date(e.report!.submitted_at).toLocaleTimeString("ja-JP", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </td>
-                      </tr>
-                    ))}
+                    {submitted.map((e) => {
+                      const r = e.report!;
+                      const carrier = r.carrier || "YAMATO";
+                      const approved = !!r.approved_at;
+                      const amazonSummary =
+                        r.amazon_am_mochidashi ||
+                        r.amazon_am_completed ||
+                        r.amazon_pm_mochidashi ||
+                        r.amazon_pm_completed ||
+                        r.amazon_4_mochidashi ||
+                        r.amazon_4_completed
+                          ? `午前 持出${r.amazon_am_mochidashi ?? 0}/完了${r.amazon_am_completed ?? 0}  午後 持出${r.amazon_pm_mochidashi ?? 0}/完了${r.amazon_pm_completed ?? 0}  4便 持出${r.amazon_4_mochidashi ?? 0}/完了${r.amazon_4_completed ?? 0}`
+                          : "-";
+
+                      const handleApprove = async () => {
+                        try {
+                          await apiFetch("/api/admin/daily/approve", {
+                            method: "POST",
+                            body: JSON.stringify({ driverId: e.driver.id, date }),
+                          });
+                          // 再取得
+                          setLoading(true);
+                          apiFetch<{ entries: Entry[] }>(`/api/admin/daily?date=${date}`)
+                            .then((res) => setEntries(res.entries))
+                            .catch(() => setEntries([]))
+                            .finally(() => setLoading(false));
+                        } catch {
+                          // noop（簡易実装）
+                        }
+                      };
+
+                      return (
+                        <tr key={e.driver.id} className="border-b border-slate-100 hover:bg-slate-50">
+                          <td className="py-3 px-4 font-medium">{getDisplayName(e.driver)}</td>
+                          <td className="py-3 px-3 text-center">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                carrier === "AMAZON"
+                                  ? "bg-violet-100 text-violet-700"
+                                  : "bg-emerald-100 text-emerald-700"
+                              }`}
+                            >
+                              {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right tabular-nums">{r.takuhaibin_completed}</td>
+                          <td className="py-3 px-3 text-right tabular-nums text-orange-600">{r.takuhaibin_returned}</td>
+                          <td className="py-3 px-3 text-right tabular-nums">{r.nekopos_completed}</td>
+                          <td className="py-3 px-3 text-right tabular-nums text-orange-600">{r.nekopos_returned}</td>
+                          <td className="py-3 px-3 text-left text-[11px] whitespace-pre-line text-slate-600">
+                            {amazonSummary}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            {approved ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+                                承認済
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={handleApprove}
+                                className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
+                              >
+                                承認する
+                              </button>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right text-xs text-slate-400">
+                            {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

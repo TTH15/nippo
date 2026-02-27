@@ -29,13 +29,13 @@ type NavItem =
 
 const navItems: NavItem[] = [
   { href: "/admin/sales", label: "売上", icon: faChartLine },
+  { href: "/admin/daily", label: "日報集計", icon: faClipboardList },
   {
     label: "ドライバー",
     icon: faUsers,
     children: [
       { href: "/admin/users", label: "ドライバー管理", icon: faUsers },
       { href: "/admin/shifts", label: "シフト", icon: faCalendar },
-      { href: "/admin/daily", label: "日報提出状況確認", icon: faClipboardList },
     ],
   },
   { href: "/admin/vehicles", label: "車両", icon: faCar },
