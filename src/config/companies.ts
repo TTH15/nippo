@@ -2,7 +2,7 @@ export type CompanyCode = "DEFAULT" | "ACE";
 
 export const companies = {
   DEFAULT: {
-    code: "DEFAULT",
+    code: "AAA",
     name: "Niipo",
     logoPath: "/logo/Niipo.svg",
     faviconPath: "/logo/favicon.svg",

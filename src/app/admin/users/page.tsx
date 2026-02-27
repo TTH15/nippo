@@ -7,6 +7,7 @@ import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
+import { getCompany } from "@/config/companies";
 
 type Course = { id: string; name: string; color: string };
 type Driver = {
@@ -27,8 +28,7 @@ type Driver = {
   driver_courses: { course_id: string; courses: Course }[];
 };
 
-// 開発中の会社コード
-const COMPANY_CODE = "AAA";
+const COMPANY_CODE = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE).code;
 
 // 口座種別の選択肢
 const BANK_TYPES = [

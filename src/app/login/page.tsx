@@ -11,8 +11,9 @@ export default function LoginPage() {
   const router = useRouter();
   const [loginType, setLoginType] = useState<LoginType>("driver");
   const [driverCode, setDriverCode] = useState("");
-  const [companyCode, setCompanyCode] = useState("");
-  const [pin, setPin] = useState("");
+  const [driverPin, setDriverPin] = useState("");
+  const [adminCode, setAdminCode] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
@@ -28,12 +29,12 @@ export default function LoginPage() {
           ? {
               loginType: "driver",
               driverCode: driverCode.toUpperCase(),
-              pin,
+              pin: driverPin,
             }
           : {
               loginType: "admin",
-              companyCode: companyCode.toUpperCase(),
-              pin,
+              adminCode: adminCode.toUpperCase(),
+              password: adminPassword,
             };
 
       const res = await apiFetch<{
@@ -73,8 +74,8 @@ export default function LoginPage() {
 
   const isValid =
     loginType === "driver"
-      ? driverCode.length === 9 && pin.length === 6
-      : companyCode.length === 3 && pin.length >= 4;
+      ? driverCode.length === 9 && driverPin.length === 6
+      : adminCode.length >= 7 && adminPassword.length >= 8;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
@@ -153,9 +154,9 @@ export default function LoginPage() {
                     inputMode="numeric"
                     maxLength={6}
                     placeholder="初期値: ドライバーコードの数字6桁"
-                    value={pin}
+                    value={driverPin}
                     onChange={(e) =>
-                      setPin(e.target.value.replace(/[^0-9]/g, ""))
+                      setDriverPin(e.target.value.replace(/[^0-9]/g, ""))
                     }
                     className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors"
                   />
@@ -168,29 +169,33 @@ export default function LoginPage() {
               <>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    会社コード
+                    管理者コード
                   </label>
                   <input
                     type="text"
-                    maxLength={3}
-                    placeholder={`例: ${company.code}`}
-                    value={companyCode}
-                    onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
+                    maxLength={11}
+                    placeholder={`${company.code}9999`}
+                    value={adminCode}
+                    onChange={(e) => {
+                      const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+                      setAdminCode(v);
+                    }}
                     className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors uppercase"
                     autoFocus
                   />
+                  <p className="text-xs text-slate-500 mt-1.5">
+                    会社コード3文字（例: {company.code}）+ 管理者番号（例: 9999）
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    PIN
+                    パスワード
                   </label>
                   <input
                     type="password"
-                    inputMode="numeric"
-                    maxLength={8}
-                    placeholder="管理者PIN"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
+                    placeholder="管理者パスワード"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
                     className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors"
                   />
                 </div>

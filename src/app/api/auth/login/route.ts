@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { loginType, companyCode, pin, driverCode } = body;
+    const { loginType, companyCode, pin, driverCode, adminCode, password } = body;
     const envCompany = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
     // ドライバーログイン: ドライバーコード（9桁）+ PIN でログイン
@@ -99,34 +99,59 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 管理者ログイン: 会社コード + PIN
+    // 管理者ログイン: 管理者コード（会社コード3文字+管理者番号） + パスワード
     if (loginType === "admin") {
-      if (!companyCode || typeof companyCode !== "string" || companyCode.length !== 3) {
-        return NextResponse.json({ error: "会社コードは3文字で入力してください" }, { status: 400 });
+      const rawAdminCode =
+        typeof adminCode === "string" && adminCode
+          ? adminCode
+          : typeof companyCode === "string" && companyCode
+            ? companyCode
+            : "";
+      const rawPassword =
+        typeof password === "string" && password
+          ? password
+          : typeof pin === "string" && pin
+            ? pin
+            : "";
+
+      if (!rawAdminCode || typeof rawAdminCode !== "string") {
+        return NextResponse.json({ error: "管理者コードを入力してください" }, { status: 400 });
       }
-      if (!pin || typeof pin !== "string") {
-        return NextResponse.json({ error: "PINを入力してください" }, { status: 400 });
+      if (!rawPassword) {
+        return NextResponse.json({ error: "パスワードを入力してください" }, { status: 400 });
       }
 
-      const code = companyCode.toUpperCase();
+      const full = rawAdminCode.toUpperCase();
+      if (!/^[A-Z]{3}\d{4,8}$/.test(full)) {
+        return NextResponse.json({ error: "管理者コードの形式が正しくありません" }, { status: 400 });
+      }
+      if (rawPassword.length < 8) {
+        return NextResponse.json({ error: "パスワードは8文字以上で入力してください" }, { status: 400 });
+      }
 
-      // 管理者アカウントを検索
+      const code = full.slice(0, 3);
+      if (envCompany.code && envCompany.code.length === 3 && code !== envCompany.code) {
+        return NextResponse.json({ error: "無効な管理者コードです" }, { status: 401 });
+      }
+
       const { data: admin, error } = await supabase
         .from("drivers")
-        .select("id, name, role, company_code, pin_hash")
+        .select("id, name, role, company_code, driver_code, pin_hash")
+        .eq("driver_code", full)
         .eq("company_code", code)
         .eq("role", "ADMIN")
-        .not("pin_hash", "is", null)
-        .limit(1)
         .single();
 
       if (error || !admin) {
-        return NextResponse.json({ error: "無効な会社コードです" }, { status: 401 });
+        return NextResponse.json({ error: "無効な管理者コードです" }, { status: 401 });
+      }
+      if (!admin.pin_hash) {
+        return NextResponse.json({ error: "管理者の設定が不完全です" }, { status: 500 });
       }
 
-      const match = await bcrypt.compare(pin, admin.pin_hash!);
+      const match = await bcrypt.compare(rawPassword, admin.pin_hash);
       if (!match) {
-        return NextResponse.json({ error: "PINが正しくありません" }, { status: 401 });
+        return NextResponse.json({ error: "パスワードが正しくありません" }, { status: 401 });
       }
 
       const token = await signToken({ 
