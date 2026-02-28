@@ -8,36 +8,13 @@ import { DatePicker } from "@/lib/components/DatePicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
+import { VehiclePlate, plateDigits } from "@/lib/components/VehiclePlate";
 import { format } from "date-fns";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 
 const LEASE_COST = 35000; // 月々リース代
-
-/**
- * 一連番号を4桁配列で返す。空き桁は "・"。
- * 右詰めで数字が入る（電卓方式）。
- */
-function plateDigits(raw: string): [string, string, string, string] {
-  const digits = raw.replace(/\D/g, "").slice(0, 4);
-  const arr: string[] = Array(4).fill("・");
-  for (let i = 0; i < digits.length; i++) {
-    arr[4 - digits.length + i] = digits[i];
-  }
-  return arr as [string, string, string, string];
-}
-
-/**
- * プレート表示用フォーマット。4桁のときのみハイフン、それ以外はスペース。
- * 例: "2123"→"21-23", "254"→"・2 54", "43"→"・・ 43"
- */
-function formatPlateNumeric(raw: string): string {
-  const d = plateDigits(raw);
-  const digits = raw.replace(/\D/g, "");
-  const sep = digits.length === 4 ? "-" : " ";
-  return `${d[0]}${d[1]}${sep}${d[2]}${d[3]}`;
-}
 
 type Driver = {
   id: string;
@@ -482,83 +459,7 @@ export default function VehiclesPage() {
                     <div className="flex-shrink-0 w-full max-w-[240px] space-y-4">
                       {/* ナンバープレート */}
                       {(v.number_prefix || v.number_hiragana || v.number_numeric) && (
-                        <div
-                          className="relative w-full bg-black rounded-lg overflow-hidden"
-                          style={{
-                            aspectRatio: "2 / 1",
-                            border: "2.5px solid #b8a038",
-                            boxShadow: "inset 0 0 0 2px #1a1a1a, 0 2px 8px rgba(0,0,0,0.3)",
-                          }}
-                        >
-                          {/* ボルト穴（左上） */}
-                          <div
-                            className="absolute flex items-center justify-center"
-                            style={{ top: "10%", left: "12%", width: "12px", height: "12px" }}
-                          >
-                            <div
-                              className="rounded-full"
-                              style={{
-                                width: "10px",
-                                height: "10px",
-                                // border: "1.5px solid #a09030",
-                                background: "radial-gradient(circle at 40% 40%, #555 0%, #222 60%, #111 100%)",
-                              }}
-                            />
-                          </div>
-                          {/* ボルト穴（右上） */}
-                          <div
-                            className="absolute flex items-center justify-center"
-                            style={{ top: "10%", right: "12%", width: "12px", height: "12px" }}
-                          >
-                            <div
-                              className="rounded-full"
-                              style={{
-                                width: "10px",
-                                height: "10px",
-                                // border: "1.5px solid #a09030",
-                                background: "radial-gradient(circle at 40% 40%, #555 0%, #222 60%, #111 100%)",
-                              }}
-                            />
-                          </div>
-                          {/* プレート内容 */}
-                          <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            {/* 上段: 地域名 + 分類番号 */}
-                            <div
-                              className="flex items-baseline gap-1.5 pt-3"
-                              style={{ color: "#e8d44d", marginBottom: "2px" }}
-                            >
-                              <span className="plate-font-kanji" style={{ fontSize: "1.9rem", letterSpacing: "0.08em" }}>
-                                {v.number_prefix || "京都"}
-                              </span>
-                              <span className="plate-font-numeric" style={{ fontSize: "1.75rem", letterSpacing: "0.06em" }}>
-                                {v.number_class || "400"}
-                              </span>
-                            </div>
-                            {/* 下段: ひらがな + 一連番号 */}
-                            <div
-                              className="flex items-center pb-3"
-                              style={{ color: "#e8d44d", gap: "0.35rem" }}
-                            >
-                              <span
-                                className="plate-font-hiragana font-bold flex items-center"
-                                style={{ fontSize: "2rem", lineHeight: 1, height: "100%" }}
-                              >
-                                {v.number_hiragana || "わ"}
-                              </span>
-                              <span
-                                className="plate-font-numeric font-black tracking-wider"
-                                style={{
-                                  fontSize: "4rem",
-                                  lineHeight: 1,
-                                  letterSpacing: "0.02em",
-                                  textShadow: "0 0 6px rgba(232,212,77,0.3)",
-                                }}
-                              >
-                                {formatPlateNumeric(v.number_numeric || "")}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
+                        <VehiclePlate vehicle={v} className="w-full max-w-[240px]" />
                       )}
 
                       {/* 車両画像プレースホルダー（16:9） */}
