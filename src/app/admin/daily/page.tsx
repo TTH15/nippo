@@ -434,13 +434,13 @@ export default function AdminDailyPage() {
                                 <button
                                   type="button"
                                   onClick={() => openEdit(e)}
-                                  className="text-xs text-slate-600 hover:text-slate-900 underline"
+                                  className="text-sm text-slate-600 hover:text-slate-900 underline"
                                 >
                                   <FontAwesomeIcon icon={faPenToSquare} />
                                 </button>
                               </td>
                             )}
-                            <td className="py-3 px-4 text-right text-xs text-slate-400 align-middle">
+                            <td className="py-3 px-6 text-right text-xs text-slate-400 align-middle">
                               <span className="text-slate-900 text-base tabular-nums">
                                 {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
                                   hour: "2-digit",
