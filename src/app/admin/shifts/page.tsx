@@ -359,8 +359,8 @@ export default function ShiftsPage() {
                 type="button"
                 onClick={() => switchPeriod("first")}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${period === "first"
-                    ? "bg-brand-600 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
+                  ? "bg-brand-600 text-white"
+                  : "text-slate-600 hover:bg-slate-50"
                   }`}
               >
                 前半（1〜15日）
@@ -369,8 +369,8 @@ export default function ShiftsPage() {
                 type="button"
                 onClick={() => switchPeriod("second")}
                 className={`px-4 py-2 text-sm font-medium transition-colors border-l border-slate-200 ${period === "second"
-                    ? "bg-brand-600 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
+                  ? "bg-brand-600 text-white"
+                  : "text-slate-600 hover:bg-slate-50"
                   }`}
               >
                 後半（16日〜）
@@ -420,7 +420,7 @@ export default function ShiftsPage() {
           <div className="bg-white rounded border border-slate-200 overflow-x-auto">
             <table className="w-full text-sm min-w-0">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
+                <tr className="border-b border-slate-100 bg-slate-50">
                   <th className="py-2 px-2 text-left w-28 sticky left-0 bg-slate-50 z-10">
                     <Skeleton className="h-4 w-14" />
                   </th>
@@ -433,13 +433,13 @@ export default function ShiftsPage() {
               </thead>
               <tbody>
                 {[...Array(6)].map((_, i) => (
-                  <tr key={i} className="border-b border-slate-100">
+                  <tr key={i} className="border-b border-slate-50">
                     <td className="py-1 px-2 sticky left-0 bg-white z-10">
                       <Skeleton className="h-4 w-20" />
                     </td>
                     {[...Array(14)].map((_, j) => (
-                      <td key={j} className="py-1 px-0.5">
-                        <Skeleton className="h-6 w-full max-w-[3rem] mx-auto" />
+                      <td key={j} className="py-1.5 px-1">
+                        <Skeleton className="h-8 w-full max-w-[3rem] mx-auto" />
                       </td>
                     ))}
                   </tr>
@@ -451,7 +451,7 @@ export default function ShiftsPage() {
           <div className="bg-white rounded border border-slate-200 overflow-x-auto">
             <table className="w-full text-sm min-w-0">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
+                <tr className="border-b border-slate-100 bg-slate-50">
                   <th className="py-2 px-2 text-left font-medium text-slate-600 w-28 sticky left-0 bg-slate-50 z-10">
                     コース
                   </th>
@@ -462,7 +462,7 @@ export default function ShiftsPage() {
                     return (
                       <th
                         key={date}
-                        className={`py-2 px-0.5 text-center font-medium min-w-[4rem] ${isWeekend ? "text-red-600 bg-red-50" : "text-slate-600"
+                        className={`py-2 px-1 text-center font-medium min-w-[4rem] ${isWeekend ? "text-red-600 bg-red-50" : "text-slate-600"
                           }`}
                       >
                         {formatDate(date)}
@@ -473,7 +473,7 @@ export default function ShiftsPage() {
               </thead>
               <tbody>
                 {courses.map((course) => (
-                  <tr key={course.id} className="border-b border-slate-100 last:border-b-0">
+                  <tr key={course.id} className="border-b border-slate-50 last:border-b-0">
                     <td
                       className="py-1 px-2 font-medium text-slate-800 sticky left-0 bg-white z-10 border-l-4"
                       style={{ borderLeftColor: course.color }}
@@ -488,9 +488,9 @@ export default function ShiftsPage() {
                       return (
                         <td
                           key={date}
-                          className={`py-1 px-0.5 align-top ${isWeekend ? "bg-red-50/30" : ""}`}
+                          className={`py-1.5 px-1 align-top ${isWeekend ? "bg-red-50/30" : ""}`}
                         >
-                          <div className="flex flex-col gap-0.5">
+                          <div className="flex flex-col gap-1">
                             {Array.from({ length: maxSlots }).map((_, idx) => {
                               const slot = idx + 1;
                               const key = getCellKey(date, course.id, slot);
@@ -507,16 +507,17 @@ export default function ShiftsPage() {
                                     setLocalDriver(date, course.id, slot, e.target.value || null)
                                   }
                                   disabled={!canWrite}
-                                  className={`w-full min-w-0 text-[11px] py-0.5 px-1.5 rounded border transition-colors cursor-pointer
-                                    appearance-none focus:outline-none focus:ring-1 focus:ring-slate-400
+                                  className={`w-full min-w-0 min-h-[2rem] text-xs py-1.5 px-2 rounded-md border transition-colors cursor-pointer text-center
+                                    appearance-none focus:outline-none focus:ring-2 focus:ring-slate-300/60 focus:ring-offset-0
+                                    disabled:cursor-not-allowed
                                     [&:not([value=\"\"])]:font-medium
                                     ${hasNoOptions
                                       ? "border-red-400 bg-red-50 text-red-700"
                                       : isModified
-                                        ? "border-amber-400 bg-amber-50 text-slate-800"
+                                        ? "border-amber-400 bg-amber-50 text-slate-800 enabled:hover:bg-amber-100/70"
                                         : currentDriverId
-                                          ? "border-slate-300 bg-slate-50 text-slate-800"
-                                          : "border-slate-200 bg-white text-slate-500"
+                                          ? "border-slate-300 bg-slate-50 text-slate-800 enabled:hover:bg-slate-100"
+                                          : "border-slate-200 bg-white text-slate-500 enabled:hover:border-slate-300 enabled:hover:bg-slate-50"
                                     }
                                   `}
                                   style={{ backgroundImage: "none" }}
@@ -537,7 +538,7 @@ export default function ShiftsPage() {
                   </tr>
                 ))}
                 {/* 休み：日付ごとにその日休みの人を表示 */}
-                <tr className="border-t-2 border-slate-200 bg-slate-50">
+                <tr className="border-t border-slate-100 bg-slate-50">
                   <td className="py-1 px-2 font-medium text-slate-700 sticky left-0 bg-slate-50 z-10">
                     休み
                   </td>
@@ -546,7 +547,7 @@ export default function ShiftsPage() {
                     return (
                       <td
                         key={date}
-                        className="py-1 px-0.5 text-xs text-slate-600 align-top min-w-[4rem]"
+                        className="py-1.5 px-1 text-xs text-slate-600 align-top min-w-[4rem]"
                       >
                         {names.length > 0 ? (
                           <div className="flex flex-wrap gap-0.5">
