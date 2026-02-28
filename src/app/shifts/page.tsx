@@ -234,8 +234,8 @@ export default function ShiftsPage() {
                       {date.getDate()}
                     </span>
                     {isOff && (
-                      <span className="text-red-500 text-sm font-bold absolute">
-                        <FontAwesomeIcon icon={faXmark} />
+                      <span className="text-red-500  font-bold absolute">
+                        <FontAwesomeIcon icon={faXmark} className="w-4 h-4" />
                       </span>
                     )}
                   </button>
