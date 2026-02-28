@@ -317,11 +317,11 @@ export default function AdminDailyPage() {
                         <th className="py-3 px-4 font-semibold text-slate-600 w-24">名前</th>
                         <th className="py-3 px-3 font-semibold text-slate-600 text-center w-20">種別</th>
                         <th className="py-3 px-3 font-semibold text-slate-600 text-left min-w-[200px]">内容</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-center w-18">承認</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-center w-16">承認</th>
                         {tab === "all" && canWrite && (
                           <th className="py-3 px-3 font-semibold text-slate-600 text-center w-16">操作</th>
                         )}
-                        <th className="py-3 px-4 font-semibold text-slate-600 text-right w-16">送信時刻</th>
+                        <th className="py-3 px-4 font-semibold text-slate-600 text-right w-18">送信時刻</th>
                       </tr>
                     </thead>
                     <tbody>
