@@ -510,7 +510,6 @@ export default function UsersPage() {
                       setForm((f) => ({ ...f, driverNumber: v }));
                     }}
                     placeholder="123456"
-                    disabled={!!editingDriver}
                     className="flex-1 px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                   />
                 </div>

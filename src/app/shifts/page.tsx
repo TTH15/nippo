@@ -5,6 +5,8 @@ import { Nav } from "@/lib/components/Nav";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faXmark } from "@fortawesome/free-solid-svg-icons";
 
 type ShiftRequest = {
   id: string;
@@ -32,7 +34,8 @@ export default function ShiftsPage() {
   const [viewDate, setViewDate] = useState(currentMonth);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [selectedOffDates, setSelectedOffDates] = useState<Set<string>>(new Set());
   const [errorState, setErrorState] = useState<{
     title: string;
     message: string;
@@ -47,6 +50,7 @@ export default function ShiftsPage() {
     try {
       const res = await apiFetch<{ requests: ShiftRequest[] }>(`/api/shifts/requests?month=${monthStr}`);
       setRequests(res.requests);
+      setSelectedOffDates(new Set((res.requests ?? []).map((r) => r.request_date)));
     } catch (e) {
       console.error(e);
     } finally {
@@ -56,7 +60,7 @@ export default function ShiftsPage() {
 
   useEffect(() => {
     load();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthStr]);
 
   const prevMonth = () => {
@@ -73,20 +77,46 @@ export default function ShiftsPage() {
     });
   };
 
-  const isOffDay = (date: Date) => {
-    const dateStr = date.toISOString().split("T")[0];
-    return requests.some((r) => r.request_date === dateStr);
+  const getDateStr = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   };
 
-  const toggleOffDay = async (date: Date) => {
-    const dateStr = date.toISOString().split("T")[0];
-    const isCurrentlyOff = isOffDay(date);
-    setSaving(dateStr);
+  const isOffDay = (date: Date) => {
+    return selectedOffDates.has(getDateStr(date));
+  };
 
+  const toggleOffDay = (date: Date) => {
+    const dateStr = getDateStr(date);
+    setSelectedOffDates((prev) => {
+      const next = new Set(prev);
+      if (next.has(dateStr)) next.delete(dateStr);
+      else next.add(dateStr);
+      return next;
+    });
+  };
+
+  const hasChanges = useMemo(() => {
+    const serverSet = new Set(requests.map((r) => r.request_date));
+    if (selectedOffDates.size !== serverSet.size) return true;
+    for (const d of selectedOffDates) {
+      if (!serverSet.has(d)) return true;
+    }
+    return false;
+  }, [requests, selectedOffDates]);
+
+  const submitOffDates = async () => {
+    if (!hasChanges) return;
+    setSaving(true);
     try {
+      const offDates = Array.from(selectedOffDates)
+        .filter((d) => d.startsWith(monthStr))
+        .sort();
       await apiFetch("/api/shifts/requests", {
         method: "POST",
-        body: JSON.stringify({ date: dateStr, isOff: !isCurrentlyOff }),
+        body: JSON.stringify({ month: monthStr, offDates }),
       });
       await load();
     } catch (e) {
@@ -95,13 +125,13 @@ export default function ShiftsPage() {
       setErrorState({
         title: "シフト希望の保存に失敗しました",
         message:
-          "サーバーでエラーが発生したため、この日の希望休設定を保存できませんでした。\n\n" +
-          "通信状況を確認してから、もう一度タップして保存してください。\n" +
+          "サーバーでエラーが発生したため、希望休を保存できませんでした。\n\n" +
+          "通信状況を確認してから、もう一度「希望休を提出する」を押してください。\n" +
           "同じエラーが続く場合は、管理者に連絡してください。",
         detail: reason || undefined,
       });
     } finally {
-      setSaving(null);
+      setSaving(false);
     }
   };
 
@@ -120,7 +150,7 @@ export default function ShiftsPage() {
       <div className="max-w-md mx-auto px-4 py-6">
         <h1 className="text-lg font-bold text-slate-900 mb-1">シフト希望</h1>
         <p className="text-sm text-slate-500 mb-5">
-          休みを希望する日をタップしてください
+          休みを希望する日をタップして選択し、「希望休を提出する」でまとめて送信します
         </p>
 
         {/* Month navigation */}
@@ -162,9 +192,8 @@ export default function ShiftsPage() {
               {dayNames.map((name, i) => (
                 <div
                   key={name}
-                  className={`text-center text-xs font-medium py-1.5 ${
-                    i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-slate-500"
-                  }`}
+                  className={`text-center text-xs font-medium py-1.5 ${i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-slate-500"
+                    }`}
                 >
                   {name}
                 </div>
@@ -180,15 +209,14 @@ export default function ShiftsPage() {
               {days.map((date) => {
                 const isPast = date < today;
                 const isOff = isOffDay(date);
-                const isSaving = saving === date.toISOString().split("T")[0];
                 const dayOfWeek = date.getDay();
                 const isToday = date.toDateString() === today.toDateString();
 
                 return (
                   <button
-                    key={date.toISOString()}
+                    key={getDateStr(date)}
                     onClick={() => !isPast && toggleOffDay(date)}
-                    disabled={isPast || isSaving}
+                    disabled={isPast}
                     className={`
                       aspect-square rounded flex flex-col items-center justify-center text-sm font-medium
                       transition-colors relative
@@ -201,11 +229,8 @@ export default function ShiftsPage() {
                       {date.getDate()}
                     </span>
                     {isOff && (
-                      <span className="text-red-500 text-xs font-bold absolute">×</span>
-                    )}
-                    {isSaving && (
-                      <span className="absolute inset-0 flex items-center justify-center bg-white/80 rounded">
-                        <span className="text-xs text-slate-400">...</span>
+                      <span className="text-red-500 text-xs font-bold absolute">
+                        <FontAwesomeIcon icon={faXmark} />
                       </span>
                     )}
                   </button>
@@ -223,29 +248,41 @@ export default function ShiftsPage() {
             </div>
             <span>希望休</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 bg-slate-50 rounded" />
-            <span>出勤可能</span>
-          </div>
         </div>
 
+        {/* 希望休を提出する */}
+        {!loading && hasChanges && (
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={submitOffDates}
+              disabled={saving}
+              className="w-full py-3 bg-brand-600 text-white font-semibold rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
+            >
+              {saving ? "送信中..." : "希望休を提出する"}
+            </button>
+          </div>
+        )}
+
         {/* Summary */}
-        {requests.length > 0 && (
+        {selectedOffDates.size > 0 && (
           <div className="mt-4 bg-slate-50 rounded border border-slate-200 p-3">
             <h3 className="text-sm font-medium text-slate-700 mb-2">
-              {monthNames[viewDate.month]}の希望休: {requests.length}日
+              {monthNames[viewDate.month]}の希望休: {selectedOffDates.size}日
             </h3>
             <div className="flex flex-wrap gap-1.5">
-              {requests
-                .sort((a, b) => a.request_date.localeCompare(b.request_date))
-                .map((r) => {
-                  const d = new Date(r.request_date);
+              {Array.from(selectedOffDates)
+                .filter((d) => d.startsWith(monthStr))
+                .sort()
+                .map((dateStr) => {
+                  const [y, m, d] = dateStr.split("-").map(Number);
+                  const localDate = new Date(y, m - 1, d);
                   return (
                     <span
-                      key={r.id}
+                      key={dateStr}
                       className="px-2 py-0.5 bg-white border border-slate-200 text-slate-600 text-xs rounded"
                     >
-                      {d.getMonth() + 1}/{d.getDate()}({dayNames[d.getDay()]})
+                      {localDate.getMonth() + 1}/{localDate.getDate()}({dayNames[localDate.getDay()]})
                     </span>
                   );
                 })}

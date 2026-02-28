@@ -10,6 +10,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { VehiclePlate, plateDigits } from "@/lib/components/VehiclePlate";
 import { format } from "date-fns";
+import { todayJST } from "@/lib/date";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
@@ -1011,7 +1012,7 @@ export default function VehiclesPage() {
                                         if (!canWrite) return;
                                         const nextCollected = !row.collected;
                                         const collectedAt = nextCollected
-                                          ? new Date().toISOString()
+                                          ? todayJST()  // 日本時間の日付（YYYY-MM-DD）
                                           : undefined;
                                         try {
                                             await apiFetch(
@@ -1074,7 +1075,7 @@ export default function VehiclesPage() {
                                     {row.month}ヶ月目
                                     {row.collected && row.collected_at && (
                                       <span className="text-[10px] text-slate-500">
-                                        ({format(new Date(row.collected_at), "yyyy/M/d")})
+                                        ({row.collected_at.split("-").map((x, i) => (i === 0 ? x : parseInt(x, 10))).join("/")})
                                       </span>
                                     )}
                                   </label>

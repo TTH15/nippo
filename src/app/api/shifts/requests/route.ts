@@ -36,21 +36,65 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ requests: data });
 }
 
-// POST: 希望休の登録/削除
+// POST: 希望休の登録/削除（単体）または一括登録（month + offDates）
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
 
   try {
     const body = await req.json();
-    const { date, isOff } = body;
+    const { date, isOff, month, offDates } = body;
 
+    // 一括提出: month + offDates で当月の希望休をまとめて更新
+    if (month && Array.isArray(offDates)) {
+      const [year, mon] = String(month).split("-").map(Number);
+      if (!year || !mon) {
+        return NextResponse.json({ error: "invalid month" }, { status: 400 });
+      }
+      const startDate = `${month}-01`;
+      const lastDay = new Date(year, mon, 0).getDate();
+      const endDate = `${month}-${String(lastDay).padStart(2, "0")}`;
+
+      // 当月分を削除
+      const { error: delErr } = await supabase
+        .from("shift_requests")
+        .delete()
+        .eq("driver_id", user.driverId)
+        .gte("request_date", startDate)
+        .lte("request_date", endDate);
+
+      if (delErr) throw delErr;
+
+      // 希望休日を登録
+      const validDates = offDates.filter(
+        (d: unknown) =>
+          typeof d === "string" &&
+          /^\d{4}-\d{2}-\d{2}$/.test(d) &&
+          d >= startDate &&
+          d <= endDate
+      );
+      if (validDates.length > 0) {
+        const rows = validDates.map((d: string) => ({
+          driver_id: user.driverId,
+          request_date: d,
+          request_type: "OFF",
+        }));
+        const { error: insErr } = await supabase
+          .from("shift_requests")
+          .insert(rows);
+
+        if (insErr) throw insErr;
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // 単体: date + isOff（後方互換）
     if (!date) {
-      return NextResponse.json({ error: "date is required" }, { status: 400 });
+      return NextResponse.json({ error: "date or (month+offDates) required" }, { status: 400 });
     }
 
     if (isOff) {
-      // 希望休を追加
       const { error } = await supabase
         .from("shift_requests")
         .upsert(
@@ -64,7 +108,6 @@ export async function POST(req: NextRequest) {
 
       if (error) throw error;
     } else {
-      // 希望休を削除
       const { error } = await supabase
         .from("shift_requests")
         .delete()

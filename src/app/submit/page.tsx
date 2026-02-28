@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCircleExclamation } from "@fortawesome/free-solid-svg-icons";
 import html2canvas from "html2canvas";
 import { Nav } from "@/lib/components/Nav";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -17,6 +19,8 @@ type Vehicle = {
   manufacturer?: string | null;
   brand?: string | null;
   current_mileage: number;
+  last_oil_change_mileage?: number;
+  oil_change_interval?: number;
 };
 
 export default function SubmitPage() {
@@ -44,6 +48,7 @@ export default function SubmitPage() {
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [driverProfile, setDriverProfile] = useState<{ name: string; officeCode: string; driverCode: string } | null>(null);
   const [certImageDataUrl, setCertImageDataUrl] = useState<string | null>(null);
+  const [oilReminderModal, setOilReminderModal] = useState<{ nextOilChangeKm: number } | null>(null);
   const certRef = useRef<HTMLDivElement | null>(null);
   const vehicleItemRefs = useRef<Array<HTMLDivElement | null>>([]);
 
@@ -412,24 +417,48 @@ export default function SubmitPage() {
         )}
 
         {/* メーター入力 */}
-        {vehicles.length > 0 && (
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-slate-700 mb-1">メーター数値（km）</label>
-            <input
-              type="number"
-              inputMode="numeric"
-              min="0"
-              placeholder="例: 14567"
-              value={meterValue}
-              onChange={(e) => {
-                const v = e.target.value.replace(/\D/g, "");
-                setMeterValue(v);
-              }}
-              className="w-full px-4 py-3 text-lg font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
-            <p className="text-xs text-slate-500 mt-1">車両のメーター数値として記録されます</p>
-          </div>
-        )}
+        {vehicles.length > 0 && (() => {
+          const sel = selectedVehicleId ? vehicles.find((v) => v.id === selectedVehicleId) : null;
+          const lastOil = sel?.last_oil_change_mileage ?? 0;
+          const interval = Math.max(1, sel?.oil_change_interval ?? 3000);
+          const currentKm = Number(meterValue) || sel?.current_mileage || 0;
+          const oilProgress = Math.max(0, Math.min(100, ((currentKm - lastOil) / interval) * 100));
+          const nextOilChangeKm = lastOil + interval;
+          const showReminder = oilProgress >= 70 && interval > 0;
+          const isRed = oilProgress >= 95;
+          const reminderColorClass = isRed ? "text-red-500" : "text-yellow-500";
+
+          return (
+            <div className="mb-6">
+              <div className="flex items-center gap-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">メーター数値（km）</label>
+                {showReminder && (
+                  <button
+                    type="button"
+                    onClick={() => setOilReminderModal({ nextOilChangeKm })}
+                    className={`inline-flex items-center gap-1 text-sm font-medium ${reminderColorClass} hover:opacity-80 transition-opacity`}
+                    title="オイル交換時期のリマインド"
+                  >
+                    <FontAwesomeIcon icon={faCircleExclamation} className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                placeholder="例: 14567"
+                value={meterValue}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/\D/g, "");
+                  setMeterValue(v);
+                }}
+                className="w-full px-4 py-3 text-lg font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <p className="text-xs text-slate-500 mt-1">車両のメーター数値として記録されます</p>
+            </div>
+          );
+        })()}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {carrier === "YAMATO" ? (
@@ -549,27 +578,27 @@ export default function SubmitPage() {
               </div>
 
               {/* 自動計算された持戻り */}
-              <div className="text-xs text-slate-500 space-y-0.5">
+              <div className="text-righttext-xs text-slate-500 space-y-0.5">
                 <p>
                   午前 持戻{" "}
                   <span className="font-semibold text-orange-600">
                     {amazonReturns.amReturn}
                   </span>
-                  個（持出 {amazonForm.amMochidashi || 0} − 完了 {amazonForm.amCompleted || 0}）
+                  個
                 </p>
                 <p>
                   午後 持戻{" "}
                   <span className="font-semibold text-orange-600">
                     {amazonReturns.pmReturn}
                   </span>
-                  個（持出 {amazonForm.pmMochidashi || 0} − 完了 {amazonForm.pmCompleted || 0}）
+                  個
                 </p>
                 <p>
                   4便 持戻{" "}
                   <span className="font-semibold text-orange-600">
                     {amazonReturns.fourReturn}
                   </span>
-                  個（持出 {amazonForm.fourMochidashi || 0} − 完了 {amazonForm.fourCompleted || 0}）
+                  個
                 </p>
               </div>
             </div>
@@ -592,6 +621,34 @@ export default function SubmitPage() {
           同日の再送信は上書きされます（ヤマト / Amazon 共通）
         </p>
       </div>
+
+      {/* オイル交換リマインドモーダル */}
+      {oilReminderModal && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => setOilReminderModal(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-base text-slate-800 text-center">
+              次回オイル交換次走行距離は
+              <span className="font-bold text-slate-900 mx-1">
+                {oilReminderModal.nextOilChangeKm.toLocaleString("ja-JP")} km
+              </span>
+              です
+            </p>
+            <button
+              type="button"
+              onClick={() => setOilReminderModal(null)}
+              className="mt-4 w-full py-2.5 bg-slate-800 text-white text-sm font-medium rounded-lg hover:bg-slate-700 transition-colors"
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

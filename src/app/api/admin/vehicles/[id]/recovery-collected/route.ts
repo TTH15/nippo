@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { todayJST } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +30,11 @@ export async function PUT(
     }
 
     if (collected) {
+      const collectedDate = todayJST(); // 日本時間の日付（YYYY-MM-DD）
       const { error } = await supabase
         .from("vehicle_recovery_collected")
         .upsert(
-          { vehicle_id: vehicleId, month, collected_at: new Date().toISOString() },
+          { vehicle_id: vehicleId, month, collected_at: collectedDate },
           { onConflict: "vehicle_id,month" }
         );
 

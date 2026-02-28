@@ -27,11 +27,29 @@ export async function PUT(
       updates.office_code = officeCode;
     }
     if (driverCode) {
-      updates.driver_code = driverCode.toUpperCase();
-      // ドライバーコードの数字部分をPINとして更新
-      const pinPart = driverCode.slice(3);
-      if (/^\d{6}$/.test(pinPart)) {
-        updates.pin_hash = await bcrypt.hash(pinPart, 10);
+      const newDriverCode = driverCode.toUpperCase();
+      const newPinPart = newDriverCode.slice(3);
+
+      if (/^\d{6}$/.test(newPinPart)) {
+        updates.driver_code = newDriverCode;
+
+        // ドライバーコード変更時: PINをまだ変更していない場合（旧コードの6桁がpin_hashと一致）のみ、初回ログイン用PINを更新
+        const { data: current } = await supabase
+          .from("drivers")
+          .select("driver_code, pin_hash")
+          .eq("id", driverId)
+          .single();
+
+        if (current?.driver_code && current?.pin_hash) {
+          const oldPinPart = current.driver_code.slice(3);
+          const stillUsingInitialPin = await bcrypt.compare(oldPinPart, current.pin_hash);
+          if (stillUsingInitialPin) {
+            updates.pin_hash = await bcrypt.hash(newPinPart, 10);
+          }
+        } else {
+          // 新規作成時など、pin_hashがない場合は新PINで設定
+          updates.pin_hash = await bcrypt.hash(newPinPart, 10);
+        }
       }
     }
     if (postalCode !== undefined) updates.postal_code = typeof postalCode === "string" ? postalCode.trim() || null : null;
