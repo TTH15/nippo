@@ -19,7 +19,8 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const normalizedCode = driverCode.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const digits6 = driverCode.replace(/\D/g, "").slice(0, 6);
+      const normalizedCode = `${company.code}${digits6}`.toUpperCase().replace(/[^A-Z0-9]/g, "");
       const body = {
         loginType: "driver" as const,
         driverCode: normalizedCode,
@@ -61,16 +62,15 @@ export default function LoginPage() {
     }
   };
 
-  const cleanedCode = driverCode.replace(/[^A-Za-z0-9]/g, "");
-  const isValid = cleanedCode.length === 9 && driverPin.length === 6;
+  const isValid = driverCode.length === 6 && driverPin.length === 6;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
       <div className="w-full max-w-sm">
         <div className="bg-white rounded-lg shadow-sm border border-slate-200">
           {/* Header */}
-          <div className="p-5 border-b border-slate-200">
-            <div className="flex flex-col items-center mb-2">
+          <div className="p-3 border-b border-slate-200">
+            <div className="flex flex-col items-center">
               <img
                 src="/logo/Niipo.svg"
                 alt="Nippo ロゴ"
@@ -92,7 +92,7 @@ export default function LoginPage() {
                   className="inline-flex items-center px-4 py-2.5 border border-r-0 border-slate-200 bg-slate-50 rounded-l-lg text-lg font-mono text-slate-600 select-none"
                   style={{ minWidth: 70 }}
                 >
-                  {process.env.NEXT_PUBLIC_COMPANY_CODE || "会社コード"}
+                  {company.code || "会社コード"}
                 </span>
                 <input
                   type="text"
