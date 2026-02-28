@@ -19,7 +19,11 @@ export async function PUT(
 
   try {
     const body = await req.json();
-    const { name, color } = body as { name?: string; color?: string };
+    const { name, color, max_drivers } = body as {
+      name?: string;
+      color?: string;
+      max_drivers?: number;
+    };
 
     const updates: Record<string, unknown> = {};
     if (typeof name === "string") {
@@ -31,6 +35,14 @@ export async function PUT(
     }
     if (typeof color === "string") {
       updates.color = color;
+    }
+
+    if (max_drivers !== undefined) {
+      const capacity =
+        typeof max_drivers === "number" && Number.isFinite(max_drivers) && max_drivers >= 1
+          ? Math.floor(max_drivers)
+          : 1;
+      updates.max_drivers = capacity;
     }
 
     if (Object.keys(updates).length === 0) {

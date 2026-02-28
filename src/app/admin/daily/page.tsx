@@ -311,17 +311,31 @@ export default function AdminDailyPage() {
                   })()}
                 </h2>
                 <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm table-fixed">
+                    <colgroup>
+                      {/* 名前 */}
+                      <col className="w-32" />
+                      {/* 種別 */}
+                      <col className="w-20" />
+                      {/* 内容（可変） */}
+                      <col className="w-auto" />
+                      {/* 承認 */}
+                      <col className="w-28" />
+                      {/* 操作（allタブのみ表示だが列幅は固定） */}
+                      {tab === "all" && canWrite && <col className="w-20" />}
+                      {/* 送信時刻 */}
+                      <col className="w-20" />
+                    </colgroup>
                     <thead className="bg-slate-50">
                       <tr className="border-b border-slate-200 text-left">
-                        <th className="py-3 px-4 font-semibold text-slate-600 w-24">名前</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-center w-20">種別</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-left min-w-[200px]">内容</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-center w-16">承認</th>
+                        <th className="py-3 px-4 font-semibold text-slate-600">名前</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-center">種別</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-left">内容</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-center">承認</th>
                         {tab === "all" && canWrite && (
-                          <th className="py-3 px-3 font-semibold text-slate-600 text-center w-16">操作</th>
+                          <th className="py-3 px-3 font-semibold text-slate-600 text-center">操作</th>
                         )}
-                        <th className="py-3 px-4 font-semibold text-slate-600 text-right w-18">送信時刻</th>
+                        <th className="py-3 px-4 font-semibold text-slate-600 text-right">送信時刻</th>
                       </tr>
                     </thead>
                     <tbody>

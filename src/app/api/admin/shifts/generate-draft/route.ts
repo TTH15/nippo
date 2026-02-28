@@ -10,6 +10,11 @@ type DriverRow = {
   driver_courses: { course_id: string }[];
 };
 
+type CourseRow = {
+  id: string;
+  max_drivers?: number | null;
+};
+
 /**
  * 希望休・配送可能ルートを踏まえてシフトの叩き台を生成し、DBに反映する。
  * 各 (日付, コース) に対して、そのコースを担当可能で希望休でないドライバーを1名割り当てる。
@@ -36,7 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     const [coursesRes, driversRes, requestsRes] = await Promise.all([
-      supabase.from("courses").select("id").order("sort_order"),
+      supabase.from("courses").select("id, max_drivers").order("sort_order"),
       supabase
         .from("drivers")
         .select("id, name, driver_courses(course_id)")
@@ -49,7 +54,7 @@ export async function POST(req: NextRequest) {
         .lte("request_date", endDate),
     ]);
 
-    const courses = coursesRes.data ?? [];
+    const courses = (coursesRes.data ?? []) as CourseRow[];
     const drivers = (driversRes.data ?? []) as DriverRow[];
     const requests = requestsRes.data ?? [];
 
@@ -67,8 +72,7 @@ export async function POST(req: NextRequest) {
       });
     });
 
-    const assignments: { shift_date: string; course_id: string; driver_id: string | null }[] = [];
-    const assignedByDate = new Map<string, Set<string>>();
+    const assignments: { shift_date: string; course_id: string; slot: number; driver_id: string | null }[] = [];
 
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().slice(0, 10);
@@ -77,31 +81,38 @@ export async function POST(req: NextRequest) {
 
       for (const course of courses) {
         const candidateIds = driverByCourse.get(course.id) ?? [];
-        const available = candidateIds.filter(
-          (id) => !offToday.has(id) && !assignedToday.has(id)
-        );
-        const chosen = available[0] ?? null;
-        if (chosen) {
-          assignedToday.add(chosen);
-          assignments.push({
-            shift_date: dateStr,
-            course_id: course.id,
-            driver_id: chosen,
-          });
-        } else {
-          assignments.push({
-            shift_date: dateStr,
-            course_id: course.id,
-            driver_id: null,
-          });
+        const maxSlots = Math.max(1, course.max_drivers ?? 1);
+
+        for (let slot = 1; slot <= maxSlots; slot++) {
+          const available = candidateIds.filter(
+            (id) => !offToday.has(id) && !assignedToday.has(id)
+          );
+          const chosen = available[0] ?? null;
+
+          if (chosen) {
+            assignedToday.add(chosen);
+            assignments.push({
+              shift_date: dateStr,
+              course_id: course.id,
+              slot,
+              driver_id: chosen,
+            });
+          } else {
+            assignments.push({
+              shift_date: dateStr,
+              course_id: course.id,
+              slot,
+              driver_id: null,
+            });
+          }
         }
       }
-      assignedByDate.set(dateStr, assignedToday);
     }
 
     const toUpsert = assignments.map((a) => ({
       shift_date: a.shift_date,
       course_id: a.course_id,
+      slot: a.slot,
       driver_id: a.driver_id ?? null,
       updated_at: new Date().toISOString(),
     }));
@@ -112,7 +123,7 @@ export async function POST(req: NextRequest) {
 
     const { error } = await supabase
       .from("shifts")
-      .upsert(toUpsert, { onConflict: "shift_date,course_id" });
+      .upsert(toUpsert, { onConflict: "shift_date,course_id,slot" });
 
     if (error) throw error;
 

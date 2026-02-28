@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   const { data: shifts } = await supabase
     .from("shifts")
     .select(`
-      id, shift_date, course_id, driver_id,
+      id, shift_date, course_id, slot, driver_id,
       drivers (id, name, display_name)
     `)
     .gte("shift_date", startDate)
@@ -64,11 +64,18 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { shiftDate, courseId, driverId } = body;
+    const { shiftDate, courseId, driverId, slot } = body as {
+      shiftDate?: string;
+      courseId?: string;
+      driverId?: string | null;
+      slot?: number;
+    };
 
     if (!shiftDate || !courseId) {
       return NextResponse.json({ error: "shiftDate and courseId are required" }, { status: 400 });
     }
+
+    const slotNumber = Number.isFinite(slot) && Number(slot) >= 1 ? Math.floor(Number(slot)) : 1;
 
     // Upsert
     const { data, error } = await supabase
@@ -77,10 +84,11 @@ export async function POST(req: NextRequest) {
         {
           shift_date: shiftDate,
           course_id: courseId,
+          slot: slotNumber,
           driver_id: driverId || null,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "shift_date,course_id" }
+        { onConflict: "shift_date,course_id,slot" }
       )
       .select()
       .single();

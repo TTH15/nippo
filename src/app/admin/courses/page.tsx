@@ -11,7 +11,7 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 
-type Course = { id: string; name: string; color: string; sort_order: number };
+type Course = { id: string; name: string; color: string; sort_order: number; max_drivers?: number | null };
 type CourseRate = {
   id: string;
   course_id: string;
@@ -63,9 +63,17 @@ export default function CoursesPage() {
   const [showRateModal, setShowRateModal] = useState(false);
   const [editingRate, setEditingRate] = useState<CourseRate | null>(null);
   const [rateForm, setRateForm] = useState(INITIAL_RATE_FORM);
-  const [newCourse, setNewCourse] = useState({ name: "", color: COLORS[0] });
+  const [newCourse, setNewCourse] = useState<{ name: string; color: string; max_drivers: number }>({
+    name: "",
+    color: COLORS[0],
+    max_drivers: 1,
+  });
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", color: COLORS[0] });
+  const [editForm, setEditForm] = useState<{ name: string; color: string; max_drivers: number }>({
+    name: "",
+    color: COLORS[0],
+    max_drivers: 1,
+  });
   const [showEditModal, setShowEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmState, setConfirmState] = useState<{
@@ -111,7 +119,7 @@ export default function CoursesPage() {
         body: JSON.stringify(newCourse),
       });
       setShowModal(false);
-      setNewCourse({ name: "", color: COLORS[0] });
+      setNewCourse({ name: "", color: COLORS[0], max_drivers: 1 });
       load();
     } catch (e) {
       console.error(e);
@@ -132,7 +140,11 @@ export default function CoursesPage() {
   const openEditCourse = (course: Course) => {
     if (!canWrite) return;
     setEditingCourse(course);
-    setEditForm({ name: course.name, color: course.color || COLORS[0] });
+    setEditForm({
+      name: course.name,
+      color: course.color || COLORS[0],
+      max_drivers: Math.max(1, course.max_drivers ?? 1),
+    });
     setShowEditModal(true);
   };
 
@@ -146,6 +158,7 @@ export default function CoursesPage() {
         body: JSON.stringify({
           name: editForm.name.trim(),
           color: editForm.color,
+          max_drivers: editForm.max_drivers,
         }),
       });
       setShowEditModal(false);
@@ -397,6 +410,22 @@ export default function CoursesPage() {
               </div>
 
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">1日あたりの最大人数</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={newCourse.max_drivers}
+                  onChange={(e) =>
+                    setNewCourse((f) => ({
+                      ...f,
+                      max_drivers: Math.max(1, Number(e.target.value) || 1),
+                    }))
+                  }
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">色</label>
                 <div className="flex gap-2">
                   {COLORS.map((c) => (
@@ -410,6 +439,22 @@ export default function CoursesPage() {
                     />
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">1日あたりの最大人数</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={editForm.max_drivers}
+                  onChange={(e) =>
+                    setEditForm((f) => ({
+                      ...f,
+                      max_drivers: Math.max(1, Number(e.target.value) || 1),
+                    }))
+                  }
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
               </div>
             </div>
 

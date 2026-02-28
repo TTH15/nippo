@@ -29,11 +29,20 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, color = "#3b82f6" } = body;
+    const { name, color = "#3b82f6", max_drivers } = body as {
+      name?: string;
+      color?: string;
+      max_drivers?: number;
+    };
 
     if (!name || typeof name !== "string") {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
+
+    const capacity =
+      typeof max_drivers === "number" && Number.isFinite(max_drivers) && max_drivers >= 1
+        ? Math.floor(max_drivers)
+        : 1;
 
     // Get max sort order
     const { data: maxData } = await supabase
@@ -47,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     const { data: course, error } = await supabase
       .from("courses")
-      .insert({ name: name.trim(), color, sort_order: sortOrder })
+      .insert({ name: name.trim(), color, sort_order: sortOrder, max_drivers: capacity })
       .select()
       .single();
 

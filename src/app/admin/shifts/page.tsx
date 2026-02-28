@@ -9,7 +9,7 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 
-type Course = { id: string; name: string; color: string; sort_order: number };
+type Course = { id: string; name: string; color: string; sort_order: number; max_drivers?: number | null };
 type Driver = {
   id: string;
   name: string;
@@ -20,6 +20,7 @@ type Shift = {
   id: string;
   shift_date: string;
   course_id: string;
+  slot: number;
   driver_id: string | null;
   drivers: { id: string; name: string; display_name?: string | null } | null;
 };
@@ -224,33 +225,41 @@ export default function ShiftsPage() {
     });
   };
 
-  const getCellKey = (date: string, courseId: string) => `${date}:${courseId}`;
+  const getCellKey = (date: string, courseId: string, slot: number) => `${date}:${courseId}:${slot}`;
 
   // 現在のドライバーIDを取得（ローカル変更 > サーバーデータ）
-  const getCurrentDriverId = (date: string, courseId: string): string | null => {
-    const key = getCellKey(date, courseId);
+  const getCurrentDriverId = (date: string, courseId: string, slot: number): string | null => {
+    const key = getCellKey(date, courseId, slot);
     if (localShifts.has(key)) {
       return localShifts.get(key) ?? null;
     }
-    const shift = shifts.find((s) => s.shift_date === date && s.course_id === courseId);
+    const shift = shifts.find((s) => s.shift_date === date && s.course_id === courseId && s.slot === slot);
     return shift?.driver_id ?? null;
   };
 
   // その日に既に割り当てられているドライバーIDを取得
-  const getAssignedDriversOnDate = (date: string, excludeCourseId?: string): Set<string> => {
+  const getAssignedDriversOnDate = (date: string, excludeCourseId?: string, excludeSlot?: number): Set<string> => {
     const assigned = new Set<string>();
     
     // サーバーのシフトデータ
     shifts.forEach((s) => {
-      if (s.shift_date === date && s.driver_id && s.course_id !== excludeCourseId) {
+      if (
+        s.shift_date === date &&
+        s.driver_id &&
+        (s.course_id !== excludeCourseId || (excludeSlot != null && s.slot !== excludeSlot))
+      ) {
         assigned.add(s.driver_id);
       }
     });
     
     // ローカルの変更を反映
     localShifts.forEach((driverId, key) => {
-      const [keyDate, keyCourseId] = key.split(":");
-      if (keyDate === date && keyCourseId !== excludeCourseId && driverId) {
+      const [keyDate, keyCourseId, keySlot] = key.split(":");
+      if (
+        keyDate === date &&
+        (keyCourseId !== excludeCourseId || (excludeSlot != null && Number(keySlot) !== excludeSlot)) &&
+        driverId
+      ) {
         assigned.add(driverId);
       }
     });
@@ -271,9 +280,9 @@ export default function ShiftsPage() {
   };
 
   // 特定のセルで選択可能なドライバーリストを取得
-  const getAvailableDrivers = (date: string, courseId: string) => {
-    const assignedOnDate = getAssignedDriversOnDate(date, courseId);
-    const currentDriverId = getCurrentDriverId(date, courseId);
+  const getAvailableDrivers = (date: string, courseId: string, slot: number) => {
+    const assignedOnDate = getAssignedDriversOnDate(date, courseId, slot);
+    const currentDriverId = getCurrentDriverId(date, courseId, slot);
     
     return drivers.filter((driver) => {
       // 現在割り当てられているドライバーは常に表示
@@ -289,9 +298,9 @@ export default function ShiftsPage() {
   };
 
   // ローカルでドライバーを割り当て
-  const setLocalDriver = (date: string, courseId: string, driverId: string | null) => {
+  const setLocalDriver = (date: string, courseId: string, slot: number, driverId: string | null) => {
     if (!canWrite) return;
-    const key = getCellKey(date, courseId);
+    const key = getCellKey(date, courseId, slot);
     setLocalShifts((prev) => {
       const next = new Map(prev);
       next.set(key, driverId);
@@ -308,11 +317,11 @@ export default function ShiftsPage() {
     try {
       const promises: Promise<unknown>[] = [];
       localShifts.forEach((driverId, key) => {
-        const [date, courseId] = key.split(":");
+        const [date, courseId, slot] = key.split(":");
         promises.push(
           apiFetch("/api/admin/shifts", {
             method: "POST",
-            body: JSON.stringify({ shiftDate: date, courseId, driverId }),
+            body: JSON.stringify({ shiftDate: date, courseId, slot: Number(slot) || 1, driverId }),
           })
         );
       });
@@ -353,8 +362,11 @@ export default function ShiftsPage() {
   const getOffDriverNamesOnDate = (date: string): string[] => {
     const assignedOnDate = new Set<string>();
     courses.forEach((course) => {
-      const driverId = getCurrentDriverId(date, course.id);
-      if (driverId) assignedOnDate.add(driverId);
+      const maxSlots = Math.max(1, course.max_drivers ?? 1);
+      for (let slot = 1; slot <= maxSlots; slot++) {
+        const driverId = getCurrentDriverId(date, course.id, slot);
+        if (driverId) assignedOnDate.add(driverId);
+      }
     });
     return drivers
       .filter((d) => !assignedOnDate.has(d.id))
@@ -510,47 +522,56 @@ export default function ShiftsPage() {
                       {course.name}
                     </td>
                     {displayDates.map((date) => {
-                      const currentDriverId = getCurrentDriverId(date, course.id);
                       const d = new Date(date);
                       const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                      const key = getCellKey(date, course.id);
-                      const isModified = localShifts.has(key);
-                      
-                      const availableDrivers = getAvailableDrivers(date, course.id);
-                      const hasNoOptions = !currentDriverId && availableDrivers.length === 0;
+                      const maxSlots = Math.max(1, course.max_drivers ?? 1);
 
                       return (
                         <td
                           key={date}
-                          className={`py-1 px-0.5 ${isWeekend ? "bg-red-50/30" : ""}`}
+                          className={`py-1 px-0.5 align-top ${isWeekend ? "bg-red-50/30" : ""}`}
                         >
-                          <select
-                            value={currentDriverId ?? ""}
-                            onChange={(e) =>
-                              setLocalDriver(date, course.id, e.target.value || null)
-                            }
-                            disabled={!canWrite}
-                            className={`w-full min-w-0 text-xs py-1 px-1.5 rounded border transition-colors cursor-pointer
-                              appearance-none focus:outline-none focus:ring-1 focus:ring-slate-400
-                              [&:not([value=""])]:font-medium
-                              ${hasNoOptions
-                                ? "border-red-400 bg-red-50 text-red-700"
-                                : isModified 
-                                  ? "border-amber-400 bg-amber-50 text-slate-800" 
-                                  : currentDriverId 
-                                    ? "border-slate-300 bg-slate-50 text-slate-800" 
-                                    : "border-slate-200 bg-white text-slate-500"
-                              }
-                            `}
-                            style={{ backgroundImage: "none" }}
-                          >
-                            <option value="">—</option>
-                            {availableDrivers.map((driver) => (
-                              <option key={driver.id} value={driver.id}>
-                                {getDisplayName(driver)}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="flex flex-col gap-0.5">
+                            {Array.from({ length: maxSlots }).map((_, idx) => {
+                              const slot = idx + 1;
+                              const key = getCellKey(date, course.id, slot);
+                              const currentDriverId = getCurrentDriverId(date, course.id, slot);
+                              const isModified = localShifts.has(key);
+                              const availableDrivers = getAvailableDrivers(date, course.id, slot);
+                              const hasNoOptions = !currentDriverId && availableDrivers.length === 0;
+
+                              return (
+                                <select
+                                  key={slot}
+                                  value={currentDriverId ?? ""}
+                                  onChange={(e) =>
+                                    setLocalDriver(date, course.id, slot, e.target.value || null)
+                                  }
+                                  disabled={!canWrite}
+                                  className={`w-full min-w-0 text-[11px] py-0.5 px-1.5 rounded border transition-colors cursor-pointer
+                                    appearance-none focus:outline-none focus:ring-1 focus:ring-slate-400
+                                    [&:not([value=\"\"])]:font-medium
+                                    ${hasNoOptions
+                                      ? "border-red-400 bg-red-50 text-red-700"
+                                      : isModified 
+                                        ? "border-amber-400 bg-amber-50 text-slate-800" 
+                                        : currentDriverId 
+                                          ? "border-slate-300 bg-slate-50 text-slate-800" 
+                                          : "border-slate-200 bg-white text-slate-500"
+                                    }
+                                  `}
+                                  style={{ backgroundImage: "none" }}
+                                >
+                                  <option value="">—</option>
+                                  {availableDrivers.map((driver) => (
+                                    <option key={driver.id} value={driver.id}>
+                                      {getDisplayName(driver)}
+                                    </option>
+                                  ))}
+                                </select>
+                              );
+                            })}
+                          </div>
                         </td>
                       );
                     })}
