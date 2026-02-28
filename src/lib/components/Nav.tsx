@@ -35,7 +35,22 @@ export function Nav() {
   return (
     <nav className="bg-slate-900 text-white sticky top-0 z-50">
       <div className="max-w-3xl mx-auto flex items-center justify-between h-12 px-4">
-        <div className="flex items-center gap-3">
+        {/* 左: ロゴ */}
+        <div className="flex items-center">
+          <Link href={isAdmin ? "/admin" : "/submit"} className="flex items-center" onClick={() => setMenuOpen(false)}>
+            <Image
+              src="/logo/Nippo.svg"
+              alt="Nippo"
+              width={100}
+              height={20}
+              className="h-6 w-auto"
+              priority
+            />
+          </Link>
+        </div>
+
+        {/* 右: ハンバーガー / プロフィール */}
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setMenuOpen((o) => !o)}
@@ -47,29 +62,17 @@ export function Nav() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <Link href={isAdmin ? "/admin" : "/submit"} className="flex items-center" onClick={() => setMenuOpen(false)}>
-            <Image
-              src="/logo/Niipo.svg"
-              alt="Niipo"
-              width={100}
-              height={20}
-              className="h-6 w-auto"
-              priority
-            />
+          <Link
+            href="/me"
+            className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors"
+            onClick={() => setMenuOpen(false)}
+          >
+            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+            {mounted && <span className="text-xs max-w-[120px] truncate">{driver?.name}</span>}
           </Link>
         </div>
-
-        <Link
-          href="/me"
-          className="flex items-center gap-2 text-sm text-slate-300 hover:text-white transition-colors"
-          onClick={() => setMenuOpen(false)}
-        >
-          {mounted && <span className="text-xs max-w-[120px] truncate">{driver?.name}</span>}
-          <span className="text-slate-500">プロフィール</span>
-          <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-        </Link>
       </div>
 
       {/* ハンバーガーメニュー オーバーレイ */}

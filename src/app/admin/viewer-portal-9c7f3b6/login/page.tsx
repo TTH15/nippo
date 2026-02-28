@@ -52,9 +52,7 @@ export default function AdminViewerLoginPage() {
       <div className="w-full max-w-sm">
         <div className="bg-white rounded-lg shadow-sm border border-slate-200">
           <div className="p-5 border-b border-slate-200">
-            <h1 className="text-xl font-bold text-slate-900 text-center">
-              日報集計（閲覧専用）
-            </h1>
+            <img src="/logo/Nippo.svg" alt="Nippo" className="w-full h-auto" />
           </div>
 
           <form onSubmit={handleSubmit} className="p-5 space-y-4">
