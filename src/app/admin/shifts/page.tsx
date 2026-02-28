@@ -359,7 +359,7 @@ export default function ShiftsPage() {
                 type="button"
                 onClick={() => switchPeriod("first")}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${period === "first"
-                  ? "bg-brand-600 text-white"
+                  ? "bg-slate-800 text-white"
                   : "text-slate-600 hover:bg-slate-50"
                   }`}
               >
@@ -369,7 +369,7 @@ export default function ShiftsPage() {
                 type="button"
                 onClick={() => switchPeriod("second")}
                 className={`px-4 py-2 text-sm font-medium transition-colors border-l border-slate-200 ${period === "second"
-                  ? "bg-brand-600 text-white"
+                  ? "bg-slate-800 text-white"
                   : "text-slate-600 hover:bg-slate-50"
                   }`}
               >
@@ -522,7 +522,7 @@ export default function ShiftsPage() {
                                   `}
                                   style={{ backgroundImage: "none" }}
                                 >
-                                  <option value="" className="text-slate-500">—</option>
+                                  <option value="" className="text-slate-300">—</option>
                                   {availableDrivers.map((driver) => (
                                     <option key={driver.id} value={driver.id}>
                                       {getDisplayName(driver)}
