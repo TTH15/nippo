@@ -44,6 +44,8 @@ type Vehicle = {
   next_periodic_inspection_date?: string | null;
   created_at: string;
   vehicle_drivers?: VehicleDriver[];
+  /** 回収済みマーク: month -> collected_at (ISO日付文字列) */
+  recovery_collected?: Record<number, string>;
 };
 
 export default function VehiclesPage() {
@@ -77,7 +79,7 @@ export default function VehiclesPage() {
   } | null>(null);
   const [recoveryTable, setRecoveryTable] = useState<{
     vehicleId: string;
-    rows: { month: number; lease: number; insurance: number; collected: boolean }[];
+    rows: { month: number; lease: number; insurance: number; collected: boolean; collected_at?: string }[];
   } | null>(null);
   const [confirmState, setConfirmState] = useState<{
     message: string;
@@ -250,12 +252,11 @@ export default function VehiclesPage() {
     return LEASE_COST - (v.monthly_insurance || 0);
   };
 
-  // 回収済み金額（経過月数 × 月々回収額）
+  // 回収済み金額（マークされた月数 × 月々回収額）
   const getRecoveredAmount = (v: Vehicle) => {
-    const monthsElapsed = Math.floor(
-      (new Date().getTime() - new Date(v.created_at).getTime()) / (1000 * 60 * 60 * 24 * 30)
-    );
-    return monthsElapsed * getMonthlyRecovery(v);
+    const collected = v.recovery_collected ?? {};
+    const monthsCollected = Object.keys(collected).filter((k) => collected[Number(k)]).length;
+    return monthsCollected * getMonthlyRecovery(v);
   };
 
   // 回収まで残り月数
@@ -286,12 +287,18 @@ export default function VehiclesPage() {
   const openRecoveryDetail = (v: Vehicle) => {
     const baseLease = LEASE_COST;
     const baseInsurance = v.monthly_insurance || 0;
-    const rows = Array.from({ length: 12 }, (_v, i) => ({
-      month: i + 1,
-      lease: baseLease,
-      insurance: baseInsurance,
-      collected: false,
-    }));
+    const collected = v.recovery_collected ?? {};
+    const rows = Array.from({ length: 12 }, (_v, i) => {
+      const month = i + 1;
+      const collectedAt = collected[month];
+      return {
+        month,
+        lease: baseLease,
+        insurance: baseInsurance,
+        collected: !!collectedAt,
+        collected_at: collectedAt,
+      };
+    });
     setRecoveryTable({ vehicleId: v.id, rows });
     setOpenDetail({ type: "recovery", vehicle: v });
   };
@@ -999,18 +1006,77 @@ export default function VehiclesPage() {
                                     <input
                                       type="checkbox"
                                       checked={row.collected}
-                                      onChange={() => {
+                                      disabled={!canWrite}
+                                      onChange={async () => {
+                                        if (!canWrite) return;
+                                        const nextCollected = !row.collected;
+                                        const collectedAt = nextCollected
+                                          ? new Date().toISOString()
+                                          : undefined;
+                                        try {
+                                            await apiFetch(
+                                              `/api/admin/vehicles/${openDetail.vehicle.id}/recovery-collected`,
+                                              {
+                                                method: "PUT",
+                                                body: JSON.stringify({
+                                                  month: row.month,
+                                                  collected: nextCollected,
+                                                }),
+                                              }
+                                            );
+                                        } catch (e) {
+                                          console.error(e);
+                                          return;
+                                        }
                                         setRecoveryTable((prev) => {
-                                          if (!prev || prev.vehicleId !== openDetail.vehicle.id) return prev;
+                                          if (!prev || prev.vehicleId !== openDetail.vehicle.id)
+                                            return prev;
                                           const rows = prev.rows.map((r, i) =>
-                                            i === idx ? { ...r, collected: !r.collected } : r
+                                            i === idx
+                                              ? {
+                                                  ...r,
+                                                  collected: nextCollected,
+                                                  collected_at: collectedAt,
+                                                }
+                                              : r
                                           );
                                           return { ...prev, rows };
                                         });
+                                        const newCollected: Record<number, string> = {
+                                          ...(openDetail.vehicle.recovery_collected ?? {}),
+                                        };
+                                        if (nextCollected) {
+                                          newCollected[row.month] = collectedAt!;
+                                        } else {
+                                          delete newCollected[row.month];
+                                        }
+                                        setVehicles((prev) =>
+                                          prev.map((veh) =>
+                                            veh.id !== openDetail.vehicle.id
+                                              ? veh
+                                              : { ...veh, recovery_collected: newCollected }
+                                          )
+                                        );
+                                        setOpenDetail((d) =>
+                                          d && d.vehicle.id === openDetail.vehicle.id
+                                            ? {
+                                                ...d,
+                                                vehicle: {
+                                                  ...d.vehicle,
+                                                  recovery_collected: newCollected,
+                                                },
+                                              }
+                                            : d
+                                        );
                                       }}
                                       className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
                                     />
                                     {row.month}ヶ月目
+                                    {row.collected && row.collected_at && (
+                                      <span className="text-[10px] text-slate-500">
+                                        ({format(new Date(row.collected_at), "yyyy/M/d")})
+                                      </span>
+                                    )}
                                   </label>
                                 </td>
                                 <td className="px-2 py-1.5 text-right align-middle">

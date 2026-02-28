@@ -4,7 +4,7 @@ import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
-// GET: 全車両一覧
+// GET: 全車両一覧（回収済みマーク含む）
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
@@ -26,7 +26,29 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  return NextResponse.json({ vehicles });
+  // 回収済みマークを取得
+  const vehicleIds = (vehicles ?? []).map((v: { id: string }) => v.id);
+  const { data: collectedRows } = vehicleIds.length > 0
+    ? await supabase
+        .from("vehicle_recovery_collected")
+        .select("vehicle_id, month, collected_at")
+        .in("vehicle_id", vehicleIds)
+    : { data: [] };
+
+  const collectedByVehicle = new Map<string, Record<number, string>>();
+  (collectedRows ?? []).forEach((r: { vehicle_id: string; month: number; collected_at: string }) => {
+    if (!collectedByVehicle.has(r.vehicle_id)) {
+      collectedByVehicle.set(r.vehicle_id, {});
+    }
+    collectedByVehicle.get(r.vehicle_id)![r.month] = r.collected_at;
+  });
+
+  const vehiclesWithRecovery = (vehicles ?? []).map((v: { id: string; [key: string]: unknown }) => ({
+    ...v,
+    recovery_collected: collectedByVehicle.get(v.id) ?? {},
+  }));
+
+  return NextResponse.json({ vehicles: vehiclesWithRecovery });
 }
 
 // POST: 車両追加
