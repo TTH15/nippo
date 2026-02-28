@@ -9,6 +9,7 @@ import { apiFetch } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
+import { faPencil } from "@fortawesome/free-solid-svg-icons";
 
 type ReportData = {
   id?: string;
@@ -324,7 +325,7 @@ export default function AdminDailyPage() {
                       {/* 操作（allタブのみ表示だが列幅は固定） */}
                       {tab === "all" && canWrite && <col className="w-20" />}
                       {/* 送信時刻 */}
-                      <col className="w-20" />
+                      <col className="w-24" />
                     </colgroup>
                     <thead className="bg-slate-50">
                       <tr className="border-b border-slate-200 text-left">
@@ -435,7 +436,7 @@ export default function AdminDailyPage() {
                                   onClick={() => openEdit(e)}
                                   className="text-xs text-slate-600 hover:text-slate-900 underline"
                                 >
-                                  編集
+                                  <FontAwesomeIcon icon={faPencil} className="mr-1" />
                                 </button>
                               </td>
                             )}
