@@ -19,11 +19,10 @@ export async function GET(req: NextRequest) {
   if (isAuthError(user)) return user;
 
   try {
-    // 直近N日などの制限は一旦付けず、未承認すべてを対象にする
-    const { data: reports, error: reportErr } = await supabase
+    // 全件取得してから未承認（approved_at が null）のみに絞る（DB の null 判定の差を避ける）
+    const { data: allReports, error: reportErr } = await supabase
       .from("daily_reports")
       .select("*")
-      .is("approved_at", null)
       .order("report_date", { ascending: false })
       .order("submitted_at", { ascending: false });
 
@@ -32,7 +31,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    const rows = reports ?? [];
+    const rows = (allReports ?? []).filter(
+      (r: { approved_at?: string | null }) => r.approved_at == null
+    );
     if (!rows.length) {
       return NextResponse.json({ groups: [], totalPending: 0 });
     }

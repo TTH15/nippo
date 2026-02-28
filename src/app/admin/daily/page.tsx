@@ -34,12 +34,20 @@ type Group = {
 export default function AdminDailyPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
-    apiFetch<{ groups: Group[]; totalPending: number }>("/api/admin/daily/pending")
-      .then((res) => setGroups(res.groups))
-      .catch(() => setGroups([]))
+    setFetchError(null);
+    apiFetch<{ groups: Group[]; totalPending: number }>("/api/admin/daily/pending", { cache: "no-store" })
+      .then((res) => {
+        setGroups(res.groups ?? []);
+      })
+      .catch((e) => {
+        console.error("[admin/daily] fetch error", e);
+        setFetchError(e instanceof Error ? e.message : "日報の取得に失敗しました");
+        setGroups([]);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -111,7 +119,13 @@ export default function AdminDailyPage() {
               </div>
             </div>
 
-            {groups.length === 0 && (
+            {fetchError && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 mb-4">
+                日報の取得に失敗しました: {fetchError}
+              </div>
+            )}
+
+            {!fetchError && groups.length === 0 && (
               <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
                 未承認の日報はありません。
               </div>
@@ -161,8 +175,8 @@ export default function AdminDailyPage() {
                             });
                             // 再読み込み
                             setLoading(true);
-                            apiFetch<{ groups: Group[]; totalPending: number }>("/api/admin/daily/pending")
-                              .then((res) => setGroups(res.groups))
+                            apiFetch<{ groups: Group[]; totalPending: number }>("/api/admin/daily/pending", { cache: "no-store" })
+                              .then((res) => setGroups(res.groups ?? []))
                               .catch(() => setGroups([]))
                               .finally(() => setLoading(false));
                           } catch {

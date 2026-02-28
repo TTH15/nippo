@@ -26,6 +26,8 @@ export async function PUT(
       oilChangeInterval,
       purchaseCost,
       monthlyInsurance,
+      nextShakenDate,
+      nextPeriodicInspectionDate,
       driverIds,
     } = body;
 
@@ -41,6 +43,8 @@ export async function PUT(
     if (oilChangeInterval !== undefined) updates.oil_change_interval = oilChangeInterval;
     if (purchaseCost !== undefined) updates.purchase_cost = purchaseCost;
     if (monthlyInsurance !== undefined) updates.monthly_insurance = monthlyInsurance;
+    if (nextShakenDate !== undefined) updates.next_shaken_date = nextShakenDate && String(nextShakenDate).trim() ? String(nextShakenDate).trim() : null;
+    if (nextPeriodicInspectionDate !== undefined) updates.next_periodic_inspection_date = nextPeriodicInspectionDate && String(nextPeriodicInspectionDate).trim() ? String(nextPeriodicInspectionDate).trim() : null;
 
     const { error } = await supabase
       .from("vehicles")

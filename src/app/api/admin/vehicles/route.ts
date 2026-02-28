@@ -48,6 +48,8 @@ export async function POST(req: NextRequest) {
       oilChangeInterval = 3000,
       purchaseCost = 0,
       monthlyInsurance = 0,
+      nextShakenDate,
+      nextPeriodicInspectionDate,
       driverIds = [],
     } = body;
 
@@ -70,6 +72,8 @@ export async function POST(req: NextRequest) {
         oil_change_interval: oilChangeInterval,
         purchase_cost: purchaseCost,
         monthly_insurance: monthlyInsurance,
+        next_shaken_date: nextShakenDate && String(nextShakenDate).trim() ? String(nextShakenDate).trim() : null,
+        next_periodic_inspection_date: nextPeriodicInspectionDate && String(nextPeriodicInspectionDate).trim() ? String(nextPeriodicInspectionDate).trim() : null,
       })
       .select()
       .single();

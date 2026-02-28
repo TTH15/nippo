@@ -61,6 +61,8 @@ type Vehicle = {
   oil_change_interval: number;
   purchase_cost: number;
   monthly_insurance: number;
+  next_shaken_date?: string | null;
+  next_periodic_inspection_date?: string | null;
   created_at: string;
   vehicle_drivers?: VehicleDriver[];
 };
@@ -84,6 +86,8 @@ export default function VehiclesPage() {
     oilChangeInterval: "3000",
     purchaseCost: "",
     monthlyInsurance: "",
+    nextShakenDate: "",
+    nextPeriodicInspectionDate: "",
     driverIds: [] as string[],
   });
   const [saving, setSaving] = useState(false);
@@ -143,6 +147,8 @@ export default function VehiclesPage() {
       oilChangeInterval: "3000",
       purchaseCost: "",
       monthlyInsurance: "",
+      nextShakenDate: "",
+      nextPeriodicInspectionDate: "",
       driverIds: [],
     });
     setShowModal(true);
@@ -151,6 +157,8 @@ export default function VehiclesPage() {
   const openEdit = (v: Vehicle) => {
     if (!canWrite) return;
     setEditingVehicle(v);
+    const shaken = v.next_shaken_date;
+    const periodic = v.next_periodic_inspection_date;
     setForm({
       manufacturer: v.manufacturer || "",
       brand: v.brand || "",
@@ -163,6 +171,8 @@ export default function VehiclesPage() {
       oilChangeInterval: v.oil_change_interval ? String(v.oil_change_interval) : "3000",
       purchaseCost: v.purchase_cost ? String(v.purchase_cost) : "",
       monthlyInsurance: v.monthly_insurance ? String(v.monthly_insurance) : "",
+      nextShakenDate: shaken && typeof shaken === "string" ? shaken.slice(0, 10) : "",
+      nextPeriodicInspectionDate: periodic && typeof periodic === "string" ? periodic.slice(0, 10) : "",
       driverIds: v.vehicle_drivers?.map((vd) => vd.driver_id) || [],
     });
     setShowModal(true);
@@ -194,6 +204,8 @@ export default function VehiclesPage() {
         oilChangeInterval: toIntOrNull(form.oilChangeInterval),
         purchaseCost: toIntOrNull(form.purchaseCost),
         monthlyInsurance: toIntOrNull(form.monthlyInsurance),
+        nextShakenDate: form.nextShakenDate.trim() || null,
+        nextPeriodicInspectionDate: form.nextPeriodicInspectionDate.trim() || null,
         driverIds: form.driverIds,
       };
       if (editingVehicle) {
@@ -277,6 +289,16 @@ export default function VehiclesPage() {
   };
 
   const fmt = (n: number) => n.toLocaleString("ja-JP");
+
+  // 日付文字列（YYYY-MM-DD）を「YYYY年M月」で表示。空なら「未設定」
+  const formatInspectionDate = (d: string | null | undefined): string => {
+    if (!d || typeof d !== "string") return "未設定";
+    const s = d.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "未設定";
+    const y = s.slice(0, 4);
+    const m = Number(s.slice(5, 7));
+    return `${y}年${m}月`;
+  };
 
   const openMeterDetail = (v: Vehicle) => {
     setOpenDetail({ type: "meter", vehicle: v });
@@ -436,9 +458,9 @@ export default function VehiclesPage() {
                     </div>
                     <div className="flex items-center gap-4 text-sm shrink-0 pl-3">
                       <span className="text-slate-400">次回車検</span>
-                      <span className="font-semibold text-lg text-slate-900">2026年8月</span>
+                      <span className="font-semibold text-lg text-slate-900">{formatInspectionDate(v.next_shaken_date)}</span>
                       <span className="text-slate-400 pl-3">次回定期点検</span>
-                      <span className="font-semibold text-lg text-slate-900">2026年2月</span>
+                      <span className="font-semibold text-lg text-slate-900">{formatInspectionDate(v.next_periodic_inspection_date)}</span>
                     </div>
                     {canWrite && (
                       <button
@@ -861,6 +883,27 @@ export default function VehiclesPage() {
                     <p className="text-xs text-slate-500 mt-1">リース代35,000円から差し引きます</p>
                   </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">次回車検予定日</label>
+                    <input
+                      type="date"
+                      value={form.nextShakenDate}
+                      onChange={(e) => setForm((f) => ({ ...f, nextShakenDate: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">次回定期点検予定日</label>
+                    <input
+                      type="date"
+                      value={form.nextPeriodicInspectionDate}
+                      onChange={(e) => setForm((f) => ({ ...f, nextPeriodicInspectionDate: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="flex flex-col gap-3 mt-6">
@@ -885,11 +928,26 @@ export default function VehiclesPage() {
                       onClick={() => {
                         const label = [editingVehicle.manufacturer, editingVehicle.brand].filter(Boolean).join(" ") || "この車両";
                         const message = `${label}を削除しますか？`;
+                        const vehicleId = editingVehicle.id;
                         setConfirmState({
                           message,
                           onConfirm: async () => {
-                            await deleteVehicle(editingVehicle.id, label);
-                            setShowModal(false);
+                            try {
+                              await apiFetch(`/api/admin/vehicles/${vehicleId}`, { method: "DELETE" });
+                              setShowModal(false);
+                              setEditingVehicle(null);
+                              load();
+                            } catch (e) {
+                              console.error(e);
+                              const reason = e instanceof Error ? e.message : "";
+                              setErrorState({
+                                title: "車両の削除に失敗しました",
+                                message:
+                                  "サーバーでエラーが発生したため、この車両を削除できませんでした。\n\n" +
+                                  "時間をおいて再度お試しください。それでも解決しない場合は、この車両に紐付くデータ（シフト・日報など）が原因の可能性があるため、システム管理者に連絡してください。",
+                                detail: reason || undefined,
+                              });
+                            }
                           },
                         });
                       }}

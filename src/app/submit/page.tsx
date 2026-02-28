@@ -61,7 +61,7 @@ export default function SubmitPage() {
       setVehiclesLoading(true);
       try {
         const [vehiclesRes, prefRes, profileRes] = await Promise.all([
-          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles"),
+          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }),
           apiFetch<{ vehicleId: string | null }>("/api/reports/vehicle-preference"),
           apiFetch<{ name: string; officeCode: string; driverCode: string }>("/api/reports/profile").catch(() => null),
         ]);
