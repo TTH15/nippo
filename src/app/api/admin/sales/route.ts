@@ -94,8 +94,11 @@ export async function GET(req: NextRequest) {
     const courseName = courseNameMap[s.course_id] ?? "";
 
     if (courseName === "Amazonミッドナイト" && rate) {
-      entry.amazon += rate.fixed_revenue;
-      entry.profit += rate.fixed_profit;
+      const rep = reportMap.get(`${s.driver_id}:${date}`);
+      if (rep) {
+        entry.amazon += rate.fixed_revenue;
+        entry.profit += rate.fixed_profit;
+      }
     } else if (rate && (rate.takuhaibin_revenue > 0 || rate.nekopos_revenue > 0)) {
       const rep = reportMap.get(`${s.driver_id}:${date}`);
       const tkComp = rep?.takuhaibin_completed ?? 0;
