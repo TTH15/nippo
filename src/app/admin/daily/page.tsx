@@ -348,8 +348,8 @@ export default function AdminDailyPage() {
 
                         return (
                           <tr key={`${e.driver.id}-${group.date}`} className="border-b border-slate-100 hover:bg-slate-50">
-                            <td className="py-3 px-4 font-medium align-top">{getDisplayName(e.driver)}</td>
-                            <td className="py-3 px-3 text-center align-top">
+                            <td className="py-3 px-4 font-medium align-middle">{getDisplayName(e.driver)}</td>
+                            <td className="py-3 px-3 text-center align-middle">
                               <span
                                 className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${carrier === "AMAZON"
                                   ? "bg-violet-100 text-violet-700"
@@ -361,7 +361,7 @@ export default function AdminDailyPage() {
                             </td>
                             <td className="py-3 px-3 text-left align-top">
                               {carrier === "YAMATO" ? (
-                                <div className="text-[13px] pl-2">
+                                <div className="text-[13px] pl-6">
                                   <span className="text-slate-500 text-xs">宅急便</span>{" "}
                                   <span className="font-semibold text-slate-900 text-base tabular-nums">{r.takuhaibin_completed}</span>
                                   <span className="text-slate-500 text-xs pr-3"> 個</span>
