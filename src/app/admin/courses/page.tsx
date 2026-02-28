@@ -63,16 +63,16 @@ export default function CoursesPage() {
   const [showRateModal, setShowRateModal] = useState(false);
   const [editingRate, setEditingRate] = useState<CourseRate | null>(null);
   const [rateForm, setRateForm] = useState(INITIAL_RATE_FORM);
-  const [newCourse, setNewCourse] = useState<{ name: string; color: string; max_drivers: number }>({
+  const [newCourse, setNewCourse] = useState<{ name: string; color: string; max_drivers: string }>({
     name: "",
     color: COLORS[0],
-    max_drivers: 1,
+    max_drivers: "1",
   });
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
-  const [editForm, setEditForm] = useState<{ name: string; color: string; max_drivers: number }>({
+  const [editForm, setEditForm] = useState<{ name: string; color: string; max_drivers: string }>({
     name: "",
     color: COLORS[0],
-    max_drivers: 1,
+    max_drivers: "1",
   });
   const [showEditModal, setShowEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -116,10 +116,13 @@ export default function CoursesPage() {
     try {
       await apiFetch("/api/admin/courses", {
         method: "POST",
-        body: JSON.stringify(newCourse),
+        body: JSON.stringify({
+          ...newCourse,
+          max_drivers: Math.max(1, parseInt(newCourse.max_drivers, 10) || 1),
+        }),
       });
       setShowModal(false);
-      setNewCourse({ name: "", color: COLORS[0], max_drivers: 1 });
+      setNewCourse({ name: "", color: COLORS[0], max_drivers: "1" });
       load();
     } catch (e) {
       console.error(e);
@@ -143,7 +146,7 @@ export default function CoursesPage() {
     setEditForm({
       name: course.name,
       color: course.color || COLORS[0],
-      max_drivers: Math.max(1, course.max_drivers ?? 1),
+      max_drivers: String(Math.max(1, course.max_drivers ?? 1)),
     });
     setShowEditModal(true);
   };
@@ -158,7 +161,7 @@ export default function CoursesPage() {
         body: JSON.stringify({
           name: editForm.name.trim(),
           color: editForm.color,
-          max_drivers: editForm.max_drivers,
+          max_drivers: Math.max(1, parseInt(editForm.max_drivers, 10) || 1),
         }),
       });
       setShowEditModal(false);
@@ -412,15 +415,15 @@ export default function CoursesPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">1日あたりの最大人数</label>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={newCourse.max_drivers}
-                  onChange={(e) =>
-                    setNewCourse((f) => ({
-                      ...f,
-                      max_drivers: Math.max(1, Number(e.target.value) || 1),
-                    }))
-                  }
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, "");
+                    setNewCourse((f) => ({ ...f, max_drivers: v }));
+                  }}
+                  placeholder="1"
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
               </div>
@@ -499,15 +502,15 @@ export default function CoursesPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">1日あたりの最大人数</label>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={editForm.max_drivers}
-                  onChange={(e) =>
-                    setEditForm((f) => ({
-                      ...f,
-                      max_drivers: Math.max(1, Number(e.target.value) || 1),
-                    }))
-                  }
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, "");
+                    setEditForm((f) => ({ ...f, max_drivers: v }));
+                  }}
+                  placeholder="1"
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
               </div>
