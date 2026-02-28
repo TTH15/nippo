@@ -342,9 +342,6 @@ export default function SalesPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-xl font-bold text-slate-900">売上</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              アナリティクス（グラフ）と集計（daily_reports表）
-            </p>
           </div>
         </div>
 
@@ -376,33 +373,30 @@ export default function SalesPage() {
                 <button
                   type="button"
                   onClick={() => setCarrierFilter("ALL")}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                    carrierFilter === "ALL"
-                      ? "bg-white text-slate-900 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${carrierFilter === "ALL"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                    }`}
                 >
                   全体
                 </button>
                 <button
                   type="button"
                   onClick={() => setCarrierFilter("YAMATO")}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                    carrierFilter === "YAMATO"
-                      ? "bg-white text-slate-900 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${carrierFilter === "YAMATO"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                    }`}
                 >
                   ヤマト
                 </button>
                 <button
                   type="button"
                   onClick={() => setCarrierFilter("AMAZON")}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                    carrierFilter === "AMAZON"
-                      ? "bg-white text-slate-900 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${carrierFilter === "AMAZON"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700"
+                    }`}
                 >
                   Amazon
                 </button>
@@ -417,7 +411,7 @@ export default function SalesPage() {
                   courses.map((c) => (
                     <label
                       key={c.id}
-                      className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700 hover:text-slate-900"
+                      className="align-middle inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700 hover:text-slate-900"
                     >
                       <input
                         type="checkbox"
@@ -430,7 +424,7 @@ export default function SalesPage() {
                             return next;
                           });
                         }}
-                        className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                        className="rounded align-middle border-slate-300 text-slate-900 focus:ring-slate-400"
                       />
                       {c.name}
                     </label>
@@ -441,7 +435,7 @@ export default function SalesPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedCourseIds(new Set())}
-                  className="text-xs text-slate-500 hover:text-slate-700 underline"
+                  className="align-middle pl-2 text-xs text-slate-500 hover:text-slate-700 underline"
                 >
                   クリア
                 </button>
@@ -465,18 +459,18 @@ export default function SalesPage() {
                     {/* チャート: 縦軸はデータに合わせて動的、縦方向は画面いっぱい */}
                     <div className="bg-white rounded-lg border border-slate-200 p-6 w-full" style={{ height: "clamp(420px, 65vh, 85vh)" }}>
                       <ResponsiveContainer width="100%" height="100%">
-                          <ComposedChart data={displayData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                            <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 12 }} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} />
-                            <YAxis yAxisId="left" domain={yAxisDomain.left} tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={yAxisTickFormatter} width={48} />
-                            <YAxis yAxisId="right" domain={yAxisDomain.right} orientation="right" tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={yAxisTickFormatter} width={48} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Legend wrapperStyle={{ paddingTop: "16px", fontSize: "12px" }} iconType="square" iconSize={10} />
-                            <Bar yAxisId="left" dataKey="yamato" stackId="revenue" fill="#334155" name="ヤマト売上" radius={[0, 0, 0, 0]} />
-                            <Bar yAxisId="left" dataKey="amazon" stackId="revenue" fill="#94a3b8" name="Amazon売上" radius={[3, 3, 0, 0]} />
-                            <Line yAxisId="right" type="monotone" dataKey="profit" stroke="#059669" strokeWidth={2.5} name="利益" dot={{ fill: "#059669", r: 3, strokeWidth: 0 }} activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }} />
-                          </ComposedChart>
-                        </ResponsiveContainer>
+                        <ComposedChart data={displayData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                          <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 12 }} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} />
+                          <YAxis yAxisId="left" domain={yAxisDomain.left} tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={yAxisTickFormatter} width={48} />
+                          <YAxis yAxisId="right" domain={yAxisDomain.right} orientation="right" tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={yAxisTickFormatter} width={48} />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Legend wrapperStyle={{ paddingTop: "16px", fontSize: "12px" }} iconType="square" iconSize={10} />
+                          <Bar yAxisId="left" dataKey="yamato" stackId="revenue" fill="#334155" name="ヤマト売上" radius={[0, 0, 0, 0]} />
+                          <Bar yAxisId="left" dataKey="amazon" stackId="revenue" fill="#94a3b8" name="Amazon売上" radius={[3, 3, 0, 0]} />
+                          <Line yAxisId="right" type="monotone" dataKey="profit" stroke="#059669" strokeWidth={2.5} name="利益" dot={{ fill: "#059669", r: 3, strokeWidth: 0 }} activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
                     </div>
                   </>
                 )}
