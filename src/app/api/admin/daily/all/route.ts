@@ -18,12 +18,22 @@ export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
+  const url = req.nextUrl;
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
+
   try {
-    const { data: allReports, error: reportErr } = await supabase
+    let query = supabase
       .from("daily_reports")
       .select("*")
       .order("report_date", { ascending: false })
       .order("submitted_at", { ascending: false });
+
+    if (startParam && endParam) {
+      query = query.gte("report_date", startParam).lte("report_date", endParam);
+    }
+
+    const { data: allReports, error: reportErr } = await query;
 
     if (reportErr) {
       console.error("[admin/daily/all] reports error", reportErr);

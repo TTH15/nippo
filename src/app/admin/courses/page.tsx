@@ -10,6 +10,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
+import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 
 type Course = { id: string; name: string; color: string; sort_order: number; max_drivers?: number | null };
 type CourseRate = {
@@ -318,7 +319,9 @@ export default function CoursesPage() {
                       <td className="px-3 py-2 text-right">{r.fixed_profit > 0 ? `${r.fixed_profit}円` : "-"}</td>
                       <td className="px-3 py-2">
                         {canWrite && (
-                          <button onClick={() => openRateModal(r)} className="text-slate-600 hover:text-slate-900 text-xs">編集</button>
+                          <button onClick={() => openRateModal(r)} className="text-slate-600 hover:text-slate-900 text-xs">
+                            <FontAwesomeIcon icon={faPenToSquare} />
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -382,7 +385,7 @@ export default function CoursesPage() {
                           onClick={() => openEditCourse(course)}
                           className="text-xs text-slate-500 hover:text-slate-800 transition-colors"
                         >
-                          編集
+                          <FontAwesomeIcon icon={faPenToSquare} />
                         </button>
                       )}
                     </div>
@@ -490,9 +493,8 @@ export default function CoursesPage() {
                       key={c}
                       type="button"
                       onClick={() => setEditForm((f) => ({ ...f, color: c }))}
-                      className={`w-7 h-7 rounded-full border-2 transition-all ${
-                        editForm.color === c ? "border-slate-900 scale-110" : "border-transparent"
-                      }`}
+                      className={`w-7 h-7 rounded-full border-2 transition-all ${editForm.color === c ? "border-slate-900 scale-110" : "border-transparent"
+                        }`}
                       style={{ backgroundColor: c }}
                     />
                   ))}
@@ -612,7 +614,7 @@ export default function CoursesPage() {
       <ConfirmDialog
         open={!!confirmState}
         message={confirmState?.message ?? ""}
-        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onConfirm={confirmState?.onConfirm ?? (() => { })}
         onClose={() => setConfirmState(null)}
         confirmLabel="削除"
       />

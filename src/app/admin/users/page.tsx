@@ -426,13 +426,13 @@ export default function UsersPage() {
                         <>
                           <button
                             onClick={() => openEdit(d)}
-                            className="text-xs text-slate-500 hover:text-slate-800 mr-3 transition-colors"
+                            className="text-sm text-slate-500 hover:text-slate-800 mr-3 transition-colors"
                           >
                             <FontAwesomeIcon icon={faPenToSquare} />
                           </button>
                           <button
                             onClick={() => deleteDriver(d.id, d.name)}
-                            className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                            className="pl-3 text-sm text-red-500 hover:text-red-700 transition-colors"
                           >
                             <FontAwesomeIcon icon={faTrash} />
                           </button>

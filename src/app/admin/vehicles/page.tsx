@@ -77,7 +77,7 @@ export default function VehiclesPage() {
   } | null>(null);
   const [recoveryTable, setRecoveryTable] = useState<{
     vehicleId: string;
-    rows: { month: number; lease: number; insurance: number }[];
+    rows: { month: number; lease: number; insurance: number; collected: boolean }[];
   } | null>(null);
   const [confirmState, setConfirmState] = useState<{
     message: string;
@@ -290,6 +290,7 @@ export default function VehiclesPage() {
       month: i + 1,
       lease: baseLease,
       insurance: baseInsurance,
+      collected: false,
     }));
     setRecoveryTable({ vehicleId: v.id, rows });
     setOpenDetail({ type: "recovery", vehicle: v });
@@ -989,9 +990,28 @@ export default function VehiclesPage() {
                             const monthlyRecovery = Math.max(row.lease - row.insurance, 0);
                             cumulative += monthlyRecovery;
                             return (
-                              <tr key={row.month} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                              <tr
+                                key={row.month}
+                                className={`${idx % 2 === 0 ? "bg-white" : "bg-slate-50"} ${row.collected ? "opacity-75" : ""}`}
+                              >
                                 <td className="px-2 py-1.5 text-left text-slate-700">
-                                  {row.month}ヶ月目
+                                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={row.collected}
+                                      onChange={() => {
+                                        setRecoveryTable((prev) => {
+                                          if (!prev || prev.vehicleId !== openDetail.vehicle.id) return prev;
+                                          const rows = prev.rows.map((r, i) =>
+                                            i === idx ? { ...r, collected: !r.collected } : r
+                                          );
+                                          return { ...prev, rows };
+                                        });
+                                      }}
+                                      className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                                    />
+                                    {row.month}ヶ月目
+                                  </label>
                                 </td>
                                 <td className="px-2 py-1.5 text-right align-middle">
                                   <input

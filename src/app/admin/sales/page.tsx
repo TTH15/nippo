@@ -21,6 +21,7 @@ import {
 
 type DataPoint = { date: string; yamato: number; amazon: number; profit: number };
 type DriverRow = { id: string; name: string; display_name?: string | null };
+type CourseRow = { id: string; name: string };
 type ReportRow = {
   driver_id: string;
   report_date: string;
@@ -88,6 +89,20 @@ export default function SalesPage() {
   const [prevTotals, setPrevTotals] = useState<{ total: number; profit: number } | null>(null);
   const [loadingPrev, setLoadingPrev] = useState(false);
   const [carrierFilter, setCarrierFilter] = useState<CarrierFilter>("ALL");
+  const [courses, setCourses] = useState<CourseRow[]>([]);
+  const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(new Set());
+
+  // コース一覧を取得
+  useEffect(() => {
+    apiFetch<{ courses: CourseRow[] }>("/api/admin/courses")
+      .then((res) => setCourses(res.courses ?? []))
+      .catch(() => setCourses([]));
+  }, []);
+
+  const courseIdsQuery =
+    selectedCourseIds.size > 0
+      ? `&course_ids=${Array.from(selectedCourseIds).join(",")}`
+      : "";
 
   // URL のクエリ (?tab=summary など) から初期タブを決定（クライアント側でのみ実行）
   useEffect(() => {
@@ -132,7 +147,7 @@ export default function SalesPage() {
 
     setLoadingPrev(true);
     apiFetch<{ data: DataPoint[] }>(
-      `/api/admin/sales?start=${prevStartIso}&end=${prevEndIso}`,
+      `/api/admin/sales?start=${prevStartIso}&end=${prevEndIso}${courseIdsQuery}`,
     )
       .then((res) => {
         const data = res.data ?? [];
@@ -143,18 +158,18 @@ export default function SalesPage() {
       })
       .catch(() => setPrevTotals(null))
       .finally(() => setLoadingPrev(false));
-  }, [startIso, endIso]);
+  }, [startIso, endIso, courseIdsQuery]);
 
   useEffect(() => {
     if (!startIso || !endIso) return;
     setLoadingAnalytics(true);
     apiFetch<{ data: DataPoint[] }>(
-      `/api/admin/sales?start=${startIso}&end=${endIso}`,
+      `/api/admin/sales?start=${startIso}&end=${endIso}${courseIdsQuery}`,
     )
       .then((res) => setDeliveryData(res.data ?? []))
       .catch(() => setDeliveryData([]))
       .finally(() => setLoadingAnalytics(false));
-  }, [startIso, endIso]);
+  }, [startIso, endIso, courseIdsQuery]);
 
   useEffect(() => {
     if (tab !== "summary" || !startIso || !endIso) return;
@@ -351,45 +366,86 @@ export default function SalesPage() {
           </button>
         </div>
 
-        {/* 日付範囲選択 + キャリアフィルタ（アナリティクス / 集計 共通） */}
-        <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-6">
+        {/* 日付範囲選択 + キャリア・コースフィルタ（アナリティクス / 集計 共通） */}
+        <div className="flex flex-col gap-4 mb-6">
           <DateRangePicker value={range} onChange={setRange} />
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">対象キャリア</span>
-            <div className="inline-flex rounded-full bg-slate-100 p-0.5">
-              <button
-                type="button"
-                onClick={() => setCarrierFilter("ALL")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                  carrierFilter === "ALL"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                全体
-              </button>
-              <button
-                type="button"
-                onClick={() => setCarrierFilter("YAMATO")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                  carrierFilter === "YAMATO"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                ヤマト
-              </button>
-              <button
-                type="button"
-                onClick={() => setCarrierFilter("AMAZON")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                  carrierFilter === "AMAZON"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                Amazon
-              </button>
+          <div className="flex flex-wrap items-start gap-6">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">対象キャリア</span>
+              <div className="inline-flex rounded-full bg-slate-100 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setCarrierFilter("ALL")}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+                    carrierFilter === "ALL"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  全体
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCarrierFilter("YAMATO")}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+                    carrierFilter === "YAMATO"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  ヤマト
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCarrierFilter("AMAZON")}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+                    carrierFilter === "AMAZON"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Amazon
+                </button>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-xs text-slate-500 shrink-0 pt-1.5">対象コース</span>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                {courses.length === 0 ? (
+                  <span className="text-xs text-slate-400">読み込み中...</span>
+                ) : (
+                  courses.map((c) => (
+                    <label
+                      key={c.id}
+                      className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700 hover:text-slate-900"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedCourseIds.has(c.id)}
+                        onChange={() => {
+                          setSelectedCourseIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(c.id)) next.delete(c.id);
+                            else next.add(c.id);
+                            return next;
+                          });
+                        }}
+                        className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                      />
+                      {c.name}
+                    </label>
+                  ))
+                )}
+              </div>
+              {courses.length > 0 && selectedCourseIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCourseIds(new Set())}
+                  className="text-xs text-slate-500 hover:text-slate-700 underline"
+                >
+                  クリア
+                </button>
+              )}
             </div>
           </div>
         </div>

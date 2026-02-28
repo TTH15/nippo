@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
@@ -50,17 +51,24 @@ export default function AdminDailyPage() {
   const [editingEntry, setEditingEntry] = useState<{ entry: Entry; groupDate: string } | null>(null);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [savingEdit, setSavingEdit] = useState(false);
+  const [allDateRange, setAllDateRange] = useState<DateRangeValue | undefined>(undefined);
 
   const canWrite = canAdminWrite(getStoredDriver()?.role);
   const totalEntries = groups.reduce((sum, g) => sum + g.entries.length, 0);
 
-  const load = (targetTab: Tab) => {
+  const toYmd = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const load = (targetTab: Tab, range?: DateRangeValue) => {
     setLoading(true);
     setFetchError(null);
-    const url = targetTab === "pending" ? "/api/admin/daily/pending" : "/api/admin/daily/all";
     const cacheOpt = { cache: "no-store" as RequestCache };
     if (targetTab === "pending") {
-      apiFetch<{ groups: Group[]; totalPending: number }>(url, cacheOpt)
+      apiFetch<{ groups: Group[]; totalPending: number }>("/api/admin/daily/pending", cacheOpt)
         .then((res) => setGroups(res.groups ?? []))
         .catch((e) => {
           console.error("[admin/daily] fetch error", e);
@@ -69,7 +77,11 @@ export default function AdminDailyPage() {
         })
         .finally(() => setLoading(false));
     } else {
-      apiFetch<{ groups: Group[] }>(url, cacheOpt)
+      const start = range?.startDate ? toYmd(range.startDate) : "";
+      const end = range?.endDate ? toYmd(range.endDate) : "";
+      const query =
+        start && end ? `?start=${start}&end=${end}` : "";
+      apiFetch<{ groups: Group[] }>(`/api/admin/daily/all${query}`, cacheOpt)
         .then((res) => setGroups(res.groups ?? []))
         .catch((e) => {
           console.error("[admin/daily] fetch error", e);
@@ -81,8 +93,12 @@ export default function AdminDailyPage() {
   };
 
   useEffect(() => {
-    load(tab);
-  }, [tab]);
+    if (tab === "pending") {
+      load("pending");
+    } else {
+      load("all", allDateRange);
+    }
+  }, [tab, allDateRange]);
 
   const handleApprove = async (e: Entry, groupDate: string) => {
     try {
@@ -146,7 +162,7 @@ export default function AdminDailyPage() {
         }),
       });
       setEditingEntry(null);
-      load(tab);
+      load(tab, tab === "all" ? allDateRange : undefined);
     } catch (err) {
       console.error(err);
     } finally {
@@ -175,7 +191,7 @@ export default function AdminDailyPage() {
             .filter((g) => g.entries.length > 0)
         );
       } else {
-        load(tab);
+        load(tab, tab === "all" ? allDateRange : undefined);
       }
     } catch {
       // noop
@@ -206,6 +222,15 @@ export default function AdminDailyPage() {
             </button>
           </div>
         </div>
+
+        {tab === "all" && (
+          <div className="mb-6">
+            <DateRangePicker
+              value={allDateRange}
+              onChange={setAllDateRange}
+            />
+          </div>
+        )}
 
         {loading ? (
           <>
