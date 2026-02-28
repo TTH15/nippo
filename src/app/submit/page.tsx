@@ -396,7 +396,8 @@ export default function SubmitPage() {
                     vehicle={v}
                     selected={selectedVehicleId === v.id}
                     onClick={() => handleVehicleSelect(v, i)}
-                    className="w-32 sm:w-40"
+                    compact
+                    className="w-28 sm:w-32"
                   />
                 </div>
               ))}
