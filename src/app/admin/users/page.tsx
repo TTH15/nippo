@@ -11,6 +11,7 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite } from "@/lib/authz";
+import { faPenToSquare, faTrash } from "@fortawesome/free-solid-svg-icons";
 
 type Course = { id: string; name: string; color: string };
 type Driver = {
@@ -427,13 +428,13 @@ export default function UsersPage() {
                             onClick={() => openEdit(d)}
                             className="text-xs text-slate-500 hover:text-slate-800 mr-3 transition-colors"
                           >
-                            編集
+                            <FontAwesomeIcon icon={faPenToSquare} />
                           </button>
                           <button
                             onClick={() => deleteDriver(d.id, d.name)}
                             className="text-xs text-red-500 hover:text-red-700 transition-colors"
                           >
-                            削除
+                            <FontAwesomeIcon icon={faTrash} />
                           </button>
                         </>
                       )}
@@ -602,7 +603,7 @@ export default function UsersPage() {
                         type="text"
                         value={form.bankInstitution}
                         onChange={(e) => setForm((f) => ({ ...f, bankInstitution: e.target.value }))}
-                        placeholder="京都信用金庫"
+                        placeholder="〇〇銀行"
                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     </div>
@@ -612,7 +613,7 @@ export default function UsersPage() {
                         type="text"
                         value={form.bankBranch}
                         onChange={(e) => setForm((f) => ({ ...f, bankBranch: e.target.value }))}
-                        placeholder="梅津支店"
+                        placeholder="〇〇支店"
                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     </div>
@@ -650,7 +651,7 @@ export default function UsersPage() {
                       type="text"
                       value={form.bankNumber}
                       onChange={(e) => setForm((f) => ({ ...f, bankNumber: e.target.value.replace(/\D/g, "") }))}
-                      placeholder="3058832"
+                      placeholder="1234567"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
@@ -690,7 +691,7 @@ export default function UsersPage() {
       <ConfirmDialog
         open={!!confirmState}
         message={confirmState?.message ?? ""}
-        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onConfirm={confirmState?.onConfirm ?? (() => { })}
         onClose={() => setConfirmState(null)}
         confirmLabel="削除"
       />
