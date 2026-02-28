@@ -259,7 +259,7 @@ export default function AdminDailyPage() {
                         <th className="py-3 px-4 font-semibold text-slate-600 w-24">名前</th>
                         <th className="py-3 px-3 font-semibold text-slate-600 text-center w-20">種別</th>
                         <th className="py-3 px-3 font-semibold text-slate-600 text-left min-w-[200px]">内容</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-center w-40">承認</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-center w-24">承認</th>
                         {tab === "all" && canWrite && (
                           <th className="py-3 px-3 font-semibold text-slate-600 text-center w-16">操作</th>
                         )}
@@ -351,7 +351,7 @@ export default function AdminDailyPage() {
                                 </button>
                               </td>
                             )}
-                            <td className="py-3 px-4 text-right text-xs text-slate-400 align-top">
+                            <td className="py-3 px-4 text-center text-xs text-slate-400 align-top">
                               {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
                                 hour: "2-digit",
                                 minute: "2-digit",
