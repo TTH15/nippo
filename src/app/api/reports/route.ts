@@ -80,6 +80,10 @@ export async function POST(req: NextRequest) {
           vehicle_id: vehicleId,
           meter_value: meterValue,
           submitted_at: new Date().toISOString(),
+          approved_at: null,
+          approved_by: null,
+          rejected_at: null,
+          rejected_by: null,
         },
         { onConflict: "driver_id,report_date" }
       )

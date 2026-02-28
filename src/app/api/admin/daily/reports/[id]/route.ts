@@ -20,7 +20,12 @@ export async function PUT(
     const body = await req.json();
     const toInt = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : Number(v) || 0);
 
-    const updates: Record<string, unknown> = {};
+    const updates: Record<string, unknown> = {
+      approved_at: null,
+      approved_by: null,
+      rejected_at: null,
+      rejected_by: null,
+    };
     if (body.takuhaibin_completed !== undefined) updates.takuhaibin_completed = toInt(body.takuhaibin_completed);
     if (body.takuhaibin_returned !== undefined) updates.takuhaibin_returned = toInt(body.takuhaibin_returned);
     if (body.nekopos_completed !== undefined) updates.nekopos_completed = toInt(body.nekopos_completed);

@@ -32,7 +32,8 @@ export async function GET(req: NextRequest) {
     }
 
     const rows = (allReports ?? []).filter(
-      (r: { approved_at?: string | null }) => r.approved_at == null
+      (r: { approved_at?: string | null; rejected_at?: string | null }) =>
+        r.approved_at == null && r.rejected_at == null
     );
     if (!rows.length) {
       return NextResponse.json({ groups: [], totalPending: 0 });

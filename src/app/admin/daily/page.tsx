@@ -20,6 +20,7 @@ type ReportData = {
   submitted_at: string;
   carrier?: "YAMATO" | "AMAZON";
   approved_at?: string | null;
+  rejected_at?: string | null;
   amazon_am_mochidashi?: number;
   amazon_am_completed?: number;
   amazon_pm_mochidashi?: number;
@@ -153,6 +154,32 @@ export default function AdminDailyPage() {
   };
 
   const isApproved = (r: ReportData) => r.approved_at != null && r.approved_at !== "";
+  const isRejected = (r: ReportData) => r.rejected_at != null && r.rejected_at !== "";
+
+  const handleReject = async (e: Entry, groupDate: string) => {
+    try {
+      await apiFetch("/api/admin/daily/reject", {
+        method: "POST",
+        body: JSON.stringify({ driverId: e.driver.id, date: groupDate }),
+      });
+      // 未承認タブでは却下した行も一覧から削除
+      if (tab === "pending") {
+        setGroups((prev) =>
+          prev
+            .map((g) =>
+              g.date !== groupDate
+                ? g
+                : { ...g, entries: g.entries.filter((ent) => ent.driver.id !== e.driver.id) }
+            )
+            .filter((g) => g.entries.length > 0)
+        );
+      } else {
+        load(tab);
+      }
+    } catch {
+      // noop
+    }
+  };
 
   return (
     <AdminLayout>
@@ -229,7 +256,7 @@ export default function AdminDailyPage() {
               </div>
               <div className="bg-white rounded-lg border border-slate-200 p-4">
                 <div className="text-2xl font-bold text-slate-900">
-                  {groups.length > 0 ? groups[0].date : "-"}
+                  {groups.length > 0 ? groups[0].date : "/"}
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5">最新の日付</div>
               </div>
@@ -250,7 +277,7 @@ export default function AdminDailyPage() {
             {groups.map((group) => (
               <div key={group.date} className="mb-8">
                 <h2 className="text-sm font-semibold text-slate-800 mb-2">
-                  {group.date} の日報（{group.entries.length} 件）
+                  {group.date === "/" ? "---" : `${group.date}  （${group.entries.length} 件）`}
                 </h2>
                 <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                   <table className="w-full text-sm">
@@ -263,7 +290,7 @@ export default function AdminDailyPage() {
                         {tab === "all" && canWrite && (
                           <th className="py-3 px-3 font-semibold text-slate-600 text-center w-16">操作</th>
                         )}
-                        <th className="py-3 px-4 font-semibold text-slate-600 text-right w-18">送信時刻</th>
+                        <th className="py-3 px-4 font-semibold text-slate-600 text-right w-14">送信時刻</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -271,6 +298,7 @@ export default function AdminDailyPage() {
                         const r = e.report;
                         const carrier = r.carrier || "YAMATO";
                         const approved = isApproved(r);
+                        const rejected = isRejected(r);
 
                         return (
                           <tr key={`${e.driver.id}-${group.date}`} className="border-b border-slate-100 hover:bg-slate-50">
@@ -290,7 +318,9 @@ export default function AdminDailyPage() {
                                 <div className="text-[13px]">
                                   <span className="text-slate-500 text-xs">宅急便</span>{" "}
                                   <span className="font-semibold text-slate-900 text-base tabular-nums">{r.takuhaibin_completed}</span>
-                                  <span className="text-slate-500 text-xs"> 個、ネコポス</span>{" "}
+                                  <span className="text-slate-500 text-xs"> 個</span>
+                                  <span className="text-slate-500 text-xs"> </span>
+                                  <span className="text-slate-500 text-xs">ネコポス</span>{" "}
                                   <span className="font-semibold text-slate-900 text-base tabular-nums">{r.nekopos_completed}</span>
                                   <span className="text-slate-500 text-xs"> 個</span>
                                 </div>
@@ -325,17 +355,31 @@ export default function AdminDailyPage() {
                             </td>
                             <td className="py-3 px-3 text-center align-top">
                               {approved ? (
-                                <span className="inline-flex items-center justify-center w-24 h-6 text-green-600" title="承認済み">
-                                  <FontAwesomeIcon icon={faCircleCheck} />
+                                <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700" title="承認済み">
+                                  <FontAwesomeIcon icon={faCircleCheck} className="mr-1" />
+                                  承認済み
+                                </span>
+                              ) : rejected ? (
+                                <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-700">
+                                  却下
                                 </span>
                               ) : tab === "pending" && canWrite ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleApprove(e, group.date)}
-                                  className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
-                                >
-                                  承認する
-                                </button>
+                                <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApprove(e, group.date)}
+                                    className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-800 text-white hover:bg-slate-700"
+                                  >
+                                    承認
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleReject(e, group.date)}
+                                    className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                  >
+                                    却下
+                                  </button>
+                                </div>
                               ) : (
                                 <span className="text-slate-400 text-xs">未承認</span>
                               )}
@@ -351,7 +395,7 @@ export default function AdminDailyPage() {
                                 </button>
                               </td>
                             )}
-                            <td className="py-3 px-4 text-center text-xs text-slate-400 align-top">
+                            <td className="py-3 px-4 text-right text-xs text-slate-400 align-top">
                               {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
                                 hour: "2-digit",
                                 minute: "2-digit",

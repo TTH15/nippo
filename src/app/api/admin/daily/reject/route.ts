@@ -20,10 +20,10 @@ export async function POST(req: NextRequest) {
     const { error } = await supabase
       .from("daily_reports")
       .update({
-        approved_at: new Date().toISOString(),
-        approved_by: user.driverId,
-        rejected_at: null,
-        rejected_by: null,
+        approved_at: null,
+        approved_by: null,
+        rejected_at: new Date().toISOString(),
+        rejected_by: user.driverId,
       })
       .eq("driver_id", driverId)
       .eq("report_date", date);
