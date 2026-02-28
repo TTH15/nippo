@@ -7,12 +7,15 @@ export const dynamic = "force-dynamic";
 // PUT: コース名・色の更新
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
 
-  const { id } = params;
+  const { id } = await params;
+  if (!id) {
+    return NextResponse.json({ error: "Invalid course id" }, { status: 400 });
+  }
 
   try {
     const body = await req.json();
@@ -51,12 +54,15 @@ export async function PUT(
 // DELETE: コース削除
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
 
-  const { id } = params;
+  const { id } = await params;
+  if (!id) {
+    return NextResponse.json({ error: "Invalid course id" }, { status: 400 });
+  }
 
   try {
     // 関連レコードを先に削除

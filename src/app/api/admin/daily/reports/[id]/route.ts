@@ -6,12 +6,12 @@ export const dynamic = "force-dynamic";
 
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
 
-  const reportId = params.id;
+  const { id: reportId } = await params;
   if (!reportId) {
     return NextResponse.json({ error: "Report ID required" }, { status: 400 });
   }

@@ -7,10 +7,15 @@ export const dynamic = "force-dynamic";
 // PUT: 車両情報更新
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+
+  const { id: vehicleId } = await params;
+  if (!vehicleId) {
+    return NextResponse.json({ error: "Invalid vehicle id" }, { status: 400 });
+  }
 
   try {
     const body = await req.json();
@@ -49,19 +54,19 @@ export async function PUT(
     const { error } = await supabase
       .from("vehicles")
       .update(updates)
-      .eq("id", params.id);
+      .eq("id", vehicleId);
 
     if (error) throw error;
 
     // ドライバーリレーションを更新
     if (Array.isArray(driverIds)) {
       // 既存のリレーションを削除
-      await supabase.from("vehicle_drivers").delete().eq("vehicle_id", params.id);
+      await supabase.from("vehicle_drivers").delete().eq("vehicle_id", vehicleId);
 
       // 新しいリレーションを追加
       if (driverIds.length > 0) {
         const vehicleDrivers = driverIds.map((driverId: string) => ({
-          vehicle_id: params.id,
+          vehicle_id: vehicleId,
           driver_id: driverId,
         }));
         await supabase.from("vehicle_drivers").insert(vehicleDrivers);
@@ -78,12 +83,17 @@ export async function PUT(
 // DELETE: 車両削除
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
 
-  const { error } = await supabase.from("vehicles").delete().eq("id", params.id);
+  const { id: vehicleId } = await params;
+  if (!vehicleId) {
+    return NextResponse.json({ error: "Invalid vehicle id" }, { status: 400 });
+  }
+
+  const { error } = await supabase.from("vehicles").delete().eq("id", vehicleId);
 
   if (error) {
     console.error(error);
