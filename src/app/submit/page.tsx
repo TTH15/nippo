@@ -45,6 +45,7 @@ export default function SubmitPage() {
   const [driverProfile, setDriverProfile] = useState<{ name: string; officeCode: string; driverCode: string } | null>(null);
   const [certImageDataUrl, setCertImageDataUrl] = useState<string | null>(null);
   const certRef = useRef<HTMLDivElement | null>(null);
+  const vehicleItemRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   const set = (key: keyof typeof form, value: string) => {
     if (value !== "" && !/^\d+$/.test(value)) return;
@@ -103,6 +104,15 @@ export default function SubmitPage() {
       setMeterValue(String(v.current_mileage));
     }
   };
+
+  useEffect(() => {
+    if (vehiclesLoading) return;
+    vehicleItemRefs.current[carouselIndex]?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }, [carouselIndex, vehiclesLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -375,7 +385,13 @@ export default function SubmitPage() {
             <label className="block text-sm font-medium text-slate-700 mb-2">使用車両</label>
             <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
               {vehicles.map((v, i) => (
-                <div key={v.id} className="flex-shrink-0">
+                <div
+                  key={v.id}
+                  ref={(el) => {
+                    vehicleItemRefs.current[i] = el;
+                  }}
+                  className="flex-shrink-0"
+                >
                   <VehiclePlate
                     vehicle={v}
                     selected={selectedVehicleId === v.id}

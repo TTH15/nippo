@@ -127,7 +127,12 @@ export function VehiclePlate({
   );
 
   return interactive ? (
-    <button type="button" onClick={onClick} className={wrapperClass}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={!!selected}
+      className={wrapperClass}
+    >
       {inner}
     </button>
   ) : (
