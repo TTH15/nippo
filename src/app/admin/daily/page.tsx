@@ -256,7 +256,19 @@ export default function AdminDailyPage() {
               </div>
               <div className="bg-white rounded-lg border border-slate-200 p-4">
                 <div className="text-2xl font-bold text-slate-900">
-                  {groups.length > 0 ? groups[0].date : "/"}
+                  {groups.length > 0 && groups[0].date && groups[0].date !== "/" ? (
+                    (() => {
+                      const [y, m, d] = groups[0].date.split("-");
+                      return `${y} 
+                      <span className="text-slate-500 text-xs">年</span> 
+                      ${parseInt(m, 10)} 
+                      <span className="text-slate-500 text-xs">月</span> 
+                      ${parseInt(d, 10)} 
+                      <span className="text-slate-500 text-xs">日</span>`;
+                    })()
+                  ) : (
+                    "/"
+                  )}
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5">最新の日付</div>
               </div>
@@ -277,7 +289,7 @@ export default function AdminDailyPage() {
             {groups.map((group) => (
               <div key={group.date} className="mb-8">
                 <h2 className="text-sm font-semibold text-slate-800 mb-2">
-                  {group.date === "/" ? "---" : `${group.date}  （${group.entries.length} 件）`}
+                  {group.date === "/" ? "---" : `${group.date}  (${group.entries.length} 件)`}
                 </h2>
                 <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                   <table className="w-full text-sm">
