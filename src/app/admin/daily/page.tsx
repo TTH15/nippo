@@ -287,7 +287,22 @@ export default function AdminDailyPage() {
             {groups.map((group) => (
               <div key={group.date} className="mb-8">
                 <h2 className="text-sm font-semibold text-slate-800 mb-2">
-                  {group.date === "/" ? "---" : `${group.date}  (${group.entries.length} 件)`}
+                  {group.date === "/" ? "---" : (() => {
+                    return (
+                      <>
+                        <span className="text-slate-900 text-xs">
+                          (${group.date.split("-")[0]}
+                          <span className="text-slate-500 text-xs">年</span>
+                          ${parseInt(group.date.split("-")[1], 10)}
+                          <span className="text-slate-500 text-xs">月</span>
+                          ${parseInt(group.date.split("-")[2], 10)}
+                          <span className="text-slate-500 text-xs">日</span>
+                          )
+                        </span>
+                        <span className="text-slate-500 text-xs"> (${group.entries.length} 件)</span>
+                      </>
+                    )
+                  })()}
                 </h2>
                 <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                   <table className="w-full text-sm">
