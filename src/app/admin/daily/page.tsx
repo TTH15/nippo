@@ -262,11 +262,11 @@ export default function AdminDailyPage() {
                       return (
                         <>
                           <span className="text-slate-900 text-base">{y}</span>
-                          <span className="text-slate-500 text-xs">年</span>
+                          <span className="text-slate-500 text-xs px-1">年</span>
                           <span className="text-slate-900 text-base">{parseInt(m, 10)}</span>
-                          <span className="text-slate-500 text-xs">月</span>
+                          <span className="text-slate-500 text-xs px-1">月</span>
                           <span className="text-slate-900 text-base">{parseInt(d, 10)}</span>
-                          <span className="text-slate-500 text-xs">日</span>
+                          <span className="text-slate-500 text-xs px-1">日</span>
                         </>)
                     })()
                   ) : (
@@ -296,12 +296,13 @@ export default function AdminDailyPage() {
                     return (
                       <>
                         <span className="text-slate-900 text-xs">
-                          (${group.date.split("-")[0]}
-                          <span className="text-slate-500 text-xs">年</span>
-                          ${parseInt(group.date.split("-")[1], 10)}
-                          <span className="text-slate-500 text-xs">月</span>
-                          ${parseInt(group.date.split("-")[2], 10)}
-                          <span className="text-slate-500 text-xs">日</span>
+                          (
+                          <span className="text-slate-900 text-base">{group.date.split("-")[0]}</span>
+                          <span className="text-slate-500 text-xs px-1">年</span>
+                          <span className="text-slate-900 text-base">{parseInt(group.date.split("-")[1], 10)}</span>
+                          <span className="text-slate-500 text-xs px-1">月</span>
+                          <span className="text-slate-900 text-base">{parseInt(group.date.split("-")[2], 10)}</span>
+                          <span className="text-slate-500 text-xs px-1">日</span>
                           )
                         </span>
                         <span className="text-slate-500 text-xs"> (${group.entries.length} 件)</span>
