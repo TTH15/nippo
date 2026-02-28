@@ -88,8 +88,11 @@ export default function LoginPage() {
                 会社コード + ドライバー番号
               </label>
               <div className="flex">
-                <span className="inline-flex items-center px-4 py-2.5 border border-r-0 border-slate-200 bg-slate-50 rounded-l-lg text-lg font-mono text-slate-600 select-none" style={{ minWidth: 70 }}>
-                  NPX
+                <span
+                  className="inline-flex items-center px-4 py-2.5 border border-r-0 border-slate-200 bg-slate-50 rounded-l-lg text-lg font-mono text-slate-600 select-none"
+                  style={{ minWidth: 70 }}
+                >
+                  {process.env.NEXT_PUBLIC_COMPANY_CODE || "会社コード"}
                 </span>
                 <input
                   type="text"
