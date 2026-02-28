@@ -507,7 +507,7 @@ export default function ShiftsPage() {
                                     setLocalDriver(date, course.id, slot, e.target.value || null)
                                   }
                                   disabled={!canWrite}
-                                  className={`w-full min-w-0 min-h-[2rem] text-xs py-1.5 px-2 rounded-md border transition-colors cursor-pointer text-center
+                                  className={`w-full min-w-0 min-h-[2rem] text-xs py-1.5 px-2 rounded-md border transition-colors cursor-pointer text-center text-slate-300
                                     appearance-none focus:outline-none focus:ring-2 focus:ring-slate-300/60 focus:ring-offset-0
                                     disabled:cursor-not-allowed
                                     [&:not([value=\"\"])]:font-medium
