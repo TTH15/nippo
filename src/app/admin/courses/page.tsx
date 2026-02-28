@@ -441,21 +441,6 @@ export default function CoursesPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">1日あたりの最大人数</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={editForm.max_drivers}
-                  onChange={(e) =>
-                    setEditForm((f) => ({
-                      ...f,
-                      max_drivers: Math.max(1, Number(e.target.value) || 1),
-                    }))
-                  }
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-              </div>
             </div>
 
             <div className="flex justify-end gap-2 mt-6">
@@ -509,6 +494,22 @@ export default function CoursesPage() {
                     />
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">1日あたりの最大人数</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={editForm.max_drivers}
+                  onChange={(e) =>
+                    setEditForm((f) => ({
+                      ...f,
+                      max_drivers: Math.max(1, Number(e.target.value) || 1),
+                    }))
+                  }
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
               </div>
             </div>
 
