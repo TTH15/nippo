@@ -215,11 +215,16 @@ export default function ShiftsPage() {
                 return (
                   <button
                     key={getDateStr(date)}
-                    onClick={() => !isPast && toggleOffDay(date)}
+                    onClick={(e) => {
+                      if (!isPast) {
+                        toggleOffDay(date);
+                        (e.currentTarget as HTMLElement).blur();
+                      }
+                    }}
                     disabled={isPast}
                     className={`
                       aspect-square rounded flex flex-col items-center justify-center text-sm font-medium
-                      transition-colors relative
+                      transition-colors relative outline-none focus:outline-none
                       ${isPast ? "opacity-30 cursor-not-allowed" : "cursor-pointer hover:bg-slate-100"}
                       ${isOff ? "bg-red-100 border border-red-300" : "bg-slate-50"}
                       ${isToday ? "ring-2 ring-slate-400" : ""}
@@ -229,7 +234,7 @@ export default function ShiftsPage() {
                       {date.getDate()}
                     </span>
                     {isOff && (
-                      <span className="text-red-500 text-xs font-bold absolute">
+                      <span className="text-red-500 text-sm font-bold absolute">
                         <FontAwesomeIcon icon={faXmark} />
                       </span>
                     )}

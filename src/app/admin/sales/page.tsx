@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowTrendUp, faArrowTrendDown } from "@fortawesome/free-solid-svg-icons";
+import { faArrowTrendUp, faArrowTrendDown, faAngleDown } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
+import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import {
@@ -91,6 +92,14 @@ export default function SalesPage() {
   const [carrierFilter, setCarrierFilter] = useState<CarrierFilter>("ALL");
   const [courses, setCourses] = useState<CourseRow[]>([]);
   const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(new Set());
+  const masterCheckboxRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (masterCheckboxRef.current && courses.length > 0) {
+      masterCheckboxRef.current.indeterminate =
+        selectedCourseIds.size > 0 && selectedCourseIds.size < courses.length;
+    }
+  }, [selectedCourseIds, courses.length]);
 
   // コース一覧を取得
   useEffect(() => {
@@ -366,7 +375,7 @@ export default function SalesPage() {
         {/* 日付範囲選択 + キャリア・コースフィルタ（アナリティクス / 集計 共通） */}
         <div className="flex flex-col gap-4 mb-6">
           <DateRangePicker value={range} onChange={setRange} />
-          <div className="flex flex-wrap items-start gap-6">
+          <div className="flex flex-wrap items-center gap-6">
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-500">対象キャリア</span>
               <div className="inline-flex rounded-full bg-slate-100 p-0.5">
@@ -402,45 +411,65 @@ export default function SalesPage() {
                 </button>
               </div>
             </div>
-            <div className="flex items-start gap-2">
-              <span className="text-xs text-slate-500 shrink-0 pt-1.5">対象コース</span>
-              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                {courses.length === 0 ? (
-                  <span className="text-xs text-slate-400">読み込み中...</span>
-                ) : (
-                  courses.map((c) => (
-                    <label
-                      key={c.id}
-                      className="align-middle inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700 hover:text-slate-900"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedCourseIds.has(c.id)}
-                        onChange={() => {
-                          setSelectedCourseIds((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(c.id)) next.delete(c.id);
-                            else next.add(c.id);
-                            return next;
-                          });
-                        }}
-                        className="rounded align-middle border-slate-300 text-slate-900 focus:ring-slate-400"
-                      />
-                      {c.name}
-                    </label>
-                  ))
-                )}
-              </div>
-              {courses.length > 0 && selectedCourseIds.size > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => setSelectedCourseIds(new Set())}
-                  className="align-middle pl-2 text-xs text-slate-500 hover:text-slate-700 underline"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                 >
-                  クリア
+                  <span>対象コース</span>
+                  <FontAwesomeIcon icon={faAngleDown} className="w-3.5 h-3.5" />
+                  {selectedCourseIds.size > 0 && (
+                    <span className="ml-0.5 text-slate-900">({selectedCourseIds.size})</span>
+                  )}
                 </button>
-              )}
-            </div>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-3" align="start">
+                {courses.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-2">読み込み中...</p>
+                ) : (
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700 py-1.5 border-b border-slate-100">
+                      <input
+                        ref={masterCheckboxRef}
+                        type="checkbox"
+                        checked={courses.length > 0 && selectedCourseIds.size === courses.length}
+                        onChange={() => {
+                          if (selectedCourseIds.size === courses.length) {
+                            setSelectedCourseIds(new Set());
+                          } else {
+                            setSelectedCourseIds(new Set(courses.map((c) => c.id)));
+                          }
+                        }}
+                        className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                      />
+                      すべて
+                    </label>
+                    {courses.map((c) => (
+                      <label
+                        key={c.id}
+                        className="flex items-center gap-2 cursor-pointer text-sm text-slate-700 hover:text-slate-900 py-1"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedCourseIds.has(c.id)}
+                          onChange={() => {
+                            setSelectedCourseIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(c.id)) next.delete(c.id);
+                              else next.add(c.id);
+                              return next;
+                            });
+                          }}
+                          className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                        />
+                        {c.name}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
 
