@@ -9,7 +9,7 @@ import { apiFetch } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
-import { faPencil } from "@fortawesome/free-solid-svg-icons";
+import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 
 type ReportData = {
   id?: string;
@@ -436,15 +436,17 @@ export default function AdminDailyPage() {
                                   onClick={() => openEdit(e)}
                                   className="text-xs text-slate-600 hover:text-slate-900 underline"
                                 >
-                                  <FontAwesomeIcon icon={faPencil} className="mr-1" />
+                                  <FontAwesomeIcon icon={faPenToSquare} />
                                 </button>
                               </td>
                             )}
-                            <td className="py-3 px-4 text-right text-xs text-slate-400 align-top">
-                              {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
+                            <td className="py-3 px-4 text-right text-xs text-slate-400 align-middle">
+                              <span className="text-slate-900 text-base tabular-nums">
+                                {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
                             </td>
                           </tr>
                         );
