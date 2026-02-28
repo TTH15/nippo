@@ -55,8 +55,8 @@ export function VehiclePlate({
   } ${
     interactive
       ? selected
-        ? "border-slate-800 ring-2 ring-slate-400"
-        : "border-slate-200 hover:border-slate-400"
+        ? "border-slate-900 ring-2 ring-slate-400 shadow-md"
+        : "border-slate-200 hover:border-slate-400 opacity-60"
       : ""
   } ${size} ${className ?? ""}`;
 
