@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faFileLines } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { DatePicker } from "@/lib/components/DatePicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
+import { format } from "date-fns";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
@@ -887,20 +889,34 @@ export default function VehiclesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">次回車検予定日</label>
-                    <input
-                      type="date"
-                      value={form.nextShakenDate}
-                      onChange={(e) => setForm((f) => ({ ...f, nextShakenDate: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    <DatePicker
+                      value={
+                        form.nextShakenDate && /^\d{4}-\d{2}-\d{2}$/.test(form.nextShakenDate)
+                          ? new Date(form.nextShakenDate + "T00:00:00")
+                          : undefined
+                      }
+                      onChange={(d) =>
+                        setForm((f) => ({ ...f, nextShakenDate: d ? format(d, "yyyy-MM-dd") : "" }))
+                      }
+                      placeholder="日付を選択"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">次回定期点検予定日</label>
-                    <input
-                      type="date"
-                      value={form.nextPeriodicInspectionDate}
-                      onChange={(e) => setForm((f) => ({ ...f, nextPeriodicInspectionDate: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    <DatePicker
+                      value={
+                        form.nextPeriodicInspectionDate &&
+                        /^\d{4}-\d{2}-\d{2}$/.test(form.nextPeriodicInspectionDate)
+                          ? new Date(form.nextPeriodicInspectionDate + "T00:00:00")
+                          : undefined
+                      }
+                      onChange={(d) =>
+                        setForm((f) => ({
+                          ...f,
+                          nextPeriodicInspectionDate: d ? format(d, "yyyy-MM-dd") : "",
+                        }))
+                      }
+                      placeholder="日付を選択"
                     />
                   </div>
                 </div>
