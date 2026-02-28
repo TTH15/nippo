@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
@@ -127,46 +128,19 @@ export default function ShiftsPage() {
     load();
   }, [load]);
 
-  const prevMonth = () => {
+  const handleYearMonthChange = (value: { year: number; month: number }) => {
     if (hasChanges && canWrite) {
       setConfirmState({
         message: "変更が保存されていません。破棄しますか？",
         onConfirm: () => {
           setLocalShifts(new Map());
           setHasChanges(false);
-          setYearMonth((prev) => {
-            if (prev.month === 1) return { year: prev.year - 1, month: 12 };
-            return { year: prev.year, month: prev.month - 1 };
-          });
+          setYearMonth(value);
         },
       });
       return;
     }
-    setYearMonth((prev) => {
-      if (prev.month === 1) return { year: prev.year - 1, month: 12 };
-      return { year: prev.year, month: prev.month - 1 };
-    });
-  };
-
-  const nextMonth = () => {
-    if (hasChanges && canWrite) {
-      setConfirmState({
-        message: "変更が保存されていません。破棄しますか？",
-        onConfirm: () => {
-          setLocalShifts(new Map());
-          setHasChanges(false);
-          setYearMonth((prev) => {
-            if (prev.month === 12) return { year: prev.year + 1, month: 1 };
-            return { year: prev.year, month: prev.month + 1 };
-          });
-        },
-      });
-      return;
-    }
-    setYearMonth((prev) => {
-      if (prev.month === 12) return { year: prev.year + 1, month: 1 };
-      return { year: prev.year, month: prev.month + 1 };
-    });
+    setYearMonth(value);
   };
 
   const switchPeriod = (p: Period) => {
@@ -240,7 +214,7 @@ export default function ShiftsPage() {
   // その日に既に割り当てられているドライバーIDを取得
   const getAssignedDriversOnDate = (date: string, excludeCourseId?: string, excludeSlot?: number): Set<string> => {
     const assigned = new Set<string>();
-    
+
     // サーバーのシフトデータ
     shifts.forEach((s) => {
       if (
@@ -251,7 +225,7 @@ export default function ShiftsPage() {
         assigned.add(s.driver_id);
       }
     });
-    
+
     // ローカルの変更を反映
     localShifts.forEach((driverId, key) => {
       const [keyDate, keyCourseId, keySlot] = key.split(":");
@@ -263,7 +237,7 @@ export default function ShiftsPage() {
         assigned.add(driverId);
       }
     });
-    
+
     return assigned;
   };
 
@@ -283,7 +257,7 @@ export default function ShiftsPage() {
   const getAvailableDrivers = (date: string, courseId: string, slot: number) => {
     const assignedOnDate = getAssignedDriversOnDate(date, courseId, slot);
     const currentDriverId = getCurrentDriverId(date, courseId, slot);
-    
+
     return drivers.filter((driver) => {
       // 現在割り当てられているドライバーは常に表示
       if (driver.id === currentDriverId) return true;
@@ -384,43 +358,29 @@ export default function ShiftsPage() {
               <button
                 type="button"
                 onClick={() => switchPeriod("first")}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  period === "first"
+                className={`px-4 py-2 text-sm font-medium transition-colors ${period === "first"
                     ? "bg-brand-600 text-white"
                     : "text-slate-600 hover:bg-slate-50"
-                }`}
+                  }`}
               >
                 前半（1〜15日）
               </button>
               <button
                 type="button"
                 onClick={() => switchPeriod("second")}
-                className={`px-4 py-2 text-sm font-medium transition-colors border-l border-slate-200 ${
-                  period === "second"
+                className={`px-4 py-2 text-sm font-medium transition-colors border-l border-slate-200 ${period === "second"
                     ? "bg-brand-600 text-white"
                     : "text-slate-600 hover:bg-slate-50"
-                }`}
+                  }`}
               >
                 後半（16日〜）
               </button>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={prevMonth}
-                className="px-3 py-1.5 text-sm text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50 transition-colors"
-              >
-                ← 前月
-              </button>
-              <span className="px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 rounded">
-                {yearMonth.year}年{yearMonth.month}月
-              </span>
-              <button
-                onClick={nextMonth}
-                className="px-3 py-1.5 text-sm text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50 transition-colors"
-              >
-                翌月 →
-              </button>
-            </div>
+            <MonthYearPicker
+              value={yearMonth}
+              onChange={handleYearMonthChange}
+              placeholder="年月を選択"
+            />
             <button
               type="button"
               onClick={generateDraft}
@@ -502,9 +462,8 @@ export default function ShiftsPage() {
                     return (
                       <th
                         key={date}
-                        className={`py-2 px-0.5 text-center font-medium min-w-[4rem] ${
-                          isWeekend ? "text-red-600 bg-red-50" : "text-slate-600"
-                        }`}
+                        className={`py-2 px-0.5 text-center font-medium min-w-[4rem] ${isWeekend ? "text-red-600 bg-red-50" : "text-slate-600"
+                          }`}
                       >
                         {formatDate(date)}
                       </th>
@@ -553,16 +512,16 @@ export default function ShiftsPage() {
                                     [&:not([value=\"\"])]:font-medium
                                     ${hasNoOptions
                                       ? "border-red-400 bg-red-50 text-red-700"
-                                      : isModified 
-                                        ? "border-amber-400 bg-amber-50 text-slate-800" 
-                                        : currentDriverId 
-                                          ? "border-slate-300 bg-slate-50 text-slate-800" 
+                                      : isModified
+                                        ? "border-amber-400 bg-amber-50 text-slate-800"
+                                        : currentDriverId
+                                          ? "border-slate-300 bg-slate-50 text-slate-800"
                                           : "border-slate-200 bg-white text-slate-500"
                                     }
                                   `}
                                   style={{ backgroundImage: "none" }}
                                 >
-                                  <option value="">—</option>
+                                  <option value="" className="text-slate-500">—</option>
                                   {availableDrivers.map((driver) => (
                                     <option key={driver.id} value={driver.id}>
                                       {getDisplayName(driver)}
@@ -660,7 +619,7 @@ export default function ShiftsPage() {
       <ConfirmDialog
         open={!!confirmState}
         message={confirmState?.message ?? ""}
-        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onConfirm={confirmState?.onConfirm ?? (() => { })}
         onClose={() => setConfirmState(null)}
         confirmLabel="OK"
       />
