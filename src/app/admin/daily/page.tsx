@@ -259,8 +259,10 @@ export default function AdminDailyPage() {
                   {groups.length > 0 && groups[0].date && groups[0].date !== "/" ? (
                     (() => {
                       const [y, m, d] = groups[0].date.split("-");
-                      return `
-                      <span className="text-slate-900 text-xs">${y}年${parseInt(m, 10)}月${parseInt(d, 10)}日</span>`
+                      return (
+                        <>
+                          <span className="text-slate-900 text-xs">{`${y}年${parseInt(m, 10)}月${parseInt(d, 10)}日`}</span>
+                        </>)
                     })()
                   ) : (
                     "/"
