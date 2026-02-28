@@ -127,8 +127,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         <div className="h-20 flex items-center border-b border-slate-700/60 p-2">
           <Link href="/admin" className="inline-flex items-center">
             <Image
-              src={company.logoPath}
-              alt={company.name}
+              src={"/logo/Nippo.svg"}
+              alt="Nippo"
               width={150}
               height={50}
               className="h-20 w-auto"

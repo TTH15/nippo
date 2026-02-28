@@ -72,7 +72,7 @@ export default function LoginPage() {
           <div className="p-3 border-b border-slate-200">
             <div className="flex flex-col items-center">
               <img
-                src="/logo/Niipo.svg"
+                src="/logo/Nippo.svg"
                 alt="Nippo ロゴ"
                 className="h-12 mb-2"
                 style={{ maxWidth: '60%', height: 'auto' }}
