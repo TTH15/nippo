@@ -259,11 +259,12 @@ export default function AdminDailyPage() {
                   {groups.length > 0 && groups[0].date && groups[0].date !== "/" ? (
                     (() => {
                       const [y, m, d] = groups[0].date.split("-");
-                      return `${y} 
-                      <span className="text-slate-500 text-xs">年</span> 
-                      ${parseInt(m, 10)} 
-                      <span className="text-slate-500 text-xs">月</span> 
-                      ${parseInt(d, 10)} 
+                      return `
+                      <p className="text-slate-900 text-xs">${y}</p> 
+                      <p className="text-slate-500 text-xs">年</p> 
+                      <p className="text-slate-900 text-xs">${parseInt(m, 10)}</p> 
+                      <p className="text-slate-500 text-xs">月</p> 
+                      <p className="text-slate-900 text-xs">${parseInt(d, 10)}</p> 
                       <span className="text-slate-500 text-xs">日</span>`;
                     })()
                   ) : (
