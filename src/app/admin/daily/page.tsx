@@ -256,17 +256,17 @@ export default function AdminDailyPage() {
               </div>
               <div className="bg-white rounded-lg border border-slate-200 p-4">
                 <div className="text-2xl font-bold text-slate-900">
-                  {groups.length > 0 && groups[0].date && groups[0].date !== "/" ? (
+                  {groups.length > 0 && groups[0].date && groups[0].date !== "-" ? (
                     (() => {
                       const [y, m, d] = groups[0].date.split("-");
                       return (
                         <>
                           <span className="text-slate-900 text-base">{y}</span>
-                          <span className="text-slate-500 text-xs pr-1">年</span>
+                          <span className="text-slate-500 text-xs pl-0.5 pr-1">年</span>
                           <span className="text-slate-900 text-base">{parseInt(m, 10)}</span>
-                          <span className="text-slate-500 text-xs pr-1">月</span>
+                          <span className="text-slate-500 text-xs pl-0.5 pr-1">月</span>
                           <span className="text-slate-900 text-base">{parseInt(d, 10)}</span>
-                          <span className="text-slate-500 text-xs pr-1">日</span>
+                          <span className="text-slate-500 text-xs pl-0.5 pr-1">日</span>
                         </>)
                     })()
                   ) : (
@@ -298,11 +298,11 @@ export default function AdminDailyPage() {
                         <span className="text-slate-900 text-xs">
                           <>
                             <span className="text-slate-900 text-base">{group.date.split("-")[0]}</span>
-                            <span className="text-slate-500 text-xs pr-1">年</span>
+                            <span className="text-slate-500 text-xs pl-0.5 pr-1">年</span>
                             <span className="text-slate-900 text-base">{parseInt(group.date.split("-")[1], 10)}</span>
-                            <span className="text-slate-500 text-xs pr-1">月</span>
+                            <span className="text-slate-500 text-xs pl-0.5 pr-1">月</span>
                             <span className="text-slate-900 text-base">{parseInt(group.date.split("-")[2], 10)}</span>
-                            <span className="text-slate-500 text-xs pr-1">日</span>
+                            <span className="text-slate-500 text-xs pl-0.5 pr-1">日</span>
                           </>
                         </span>
                         <span className="text-slate-500 text-xs"> ({group.entries.length} 件)</span>
@@ -349,8 +349,7 @@ export default function AdminDailyPage() {
                                 <div className="text-[13px]">
                                   <span className="text-slate-500 text-xs">宅急便</span>{" "}
                                   <span className="font-semibold text-slate-900 text-base tabular-nums">{r.takuhaibin_completed}</span>
-                                  <span className="text-slate-500 text-xs"> 個</span>
-                                  <span className="text-slate-500 text-xs"> </span>
+                                  <span className="text-slate-500 text-xs pr-3"> 個</span>
                                   <span className="text-slate-500 text-xs">ネコポス</span>{" "}
                                   <span className="font-semibold text-slate-900 text-base tabular-nums">{r.nekopos_completed}</span>
                                   <span className="text-slate-500 text-xs"> 個</span>
