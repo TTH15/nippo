@@ -163,18 +163,16 @@ export default function AdminDailyPage() {
             <button
               type="button"
               onClick={() => setTab("pending")}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                tab === "pending" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-800"
-              }`}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${tab === "pending" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-800"
+                }`}
             >
               未承認
             </button>
             <button
               type="button"
               onClick={() => setTab("all")}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                tab === "all" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-800"
-              }`}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${tab === "all" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-800"
+                }`}
             >
               すべて
             </button>
@@ -261,11 +259,11 @@ export default function AdminDailyPage() {
                         <th className="py-3 px-4 font-semibold text-slate-600 w-24">名前</th>
                         <th className="py-3 px-3 font-semibold text-slate-600 text-center w-20">種別</th>
                         <th className="py-3 px-3 font-semibold text-slate-600 text-left min-w-[200px]">内容</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-center w-20">承認</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-center w-40">承認</th>
                         {tab === "all" && canWrite && (
                           <th className="py-3 px-3 font-semibold text-slate-600 text-center w-16">操作</th>
                         )}
-                        <th className="py-3 px-4 font-semibold text-slate-600 text-right w-20">送信時刻</th>
+                        <th className="py-3 px-4 font-semibold text-slate-600 text-right w-30">送信時刻</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -279,11 +277,10 @@ export default function AdminDailyPage() {
                             <td className="py-3 px-4 font-medium align-top">{getDisplayName(e.driver)}</td>
                             <td className="py-3 px-3 text-center align-top">
                               <span
-                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                                  carrier === "AMAZON"
-                                    ? "bg-violet-100 text-violet-700"
-                                    : "bg-emerald-100 text-emerald-700"
-                                }`}
+                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${carrier === "AMAZON"
+                                  ? "bg-violet-100 text-violet-700"
+                                  : "bg-emerald-100 text-emerald-700"
+                                  }`}
                               >
                                 {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
                               </span>
@@ -328,7 +325,7 @@ export default function AdminDailyPage() {
                             </td>
                             <td className="py-3 px-3 text-center align-top">
                               {approved ? (
-                                <span className="inline-flex items-center justify-center w-8 h-6 text-green-600" title="承認済み">
+                                <span className="inline-flex items-center justify-center w-24 h-6 text-green-600" title="承認済み">
                                   <FontAwesomeIcon icon={faCircleCheck} />
                                 </span>
                               ) : tab === "pending" && canWrite ? (
