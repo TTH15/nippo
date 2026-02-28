@@ -262,11 +262,11 @@ export default function AdminDailyPage() {
                       return (
                         <>
                           <span className="text-slate-900 text-base">{y}</span>
-                          <span className="text-slate-500 text-xs px-1">年</span>
+                          <span className="text-slate-500 text-xs pr-1">年</span>
                           <span className="text-slate-900 text-base">{parseInt(m, 10)}</span>
-                          <span className="text-slate-500 text-xs px-1">月</span>
+                          <span className="text-slate-500 text-xs pr-1">月</span>
                           <span className="text-slate-900 text-base">{parseInt(d, 10)}</span>
-                          <span className="text-slate-500 text-xs px-1">日</span>
+                          <span className="text-slate-500 text-xs pr-1">日</span>
                         </>)
                     })()
                   ) : (
@@ -296,16 +296,16 @@ export default function AdminDailyPage() {
                     return (
                       <>
                         <span className="text-slate-900 text-xs">
-                          (
-                          <span className="text-slate-900 text-base">{group.date.split("-")[0]}</span>
-                          <span className="text-slate-500 text-xs px-1">年</span>
-                          <span className="text-slate-900 text-base">{parseInt(group.date.split("-")[1], 10)}</span>
-                          <span className="text-slate-500 text-xs px-1">月</span>
-                          <span className="text-slate-900 text-base">{parseInt(group.date.split("-")[2], 10)}</span>
-                          <span className="text-slate-500 text-xs px-1">日</span>
-                          )
+                          <>
+                            <span className="text-slate-900 text-base">{group.date.split("-")[0]}</span>
+                            <span className="text-slate-500 text-xs pr-1">年</span>
+                            <span className="text-slate-900 text-base">{parseInt(group.date.split("-")[1], 10)}</span>
+                            <span className="text-slate-500 text-xs pr-1">月</span>
+                            <span className="text-slate-900 text-base">{parseInt(group.date.split("-")[2], 10)}</span>
+                            <span className="text-slate-500 text-xs pr-1">日</span>
+                          </>
                         </span>
-                        <span className="text-slate-500 text-xs"> (${group.entries.length} 件)</span>
+                        <span className="text-slate-500 text-xs"> ({group.entries.length} 件)</span>
                       </>
                     )
                   })()}
@@ -388,7 +388,6 @@ export default function AdminDailyPage() {
                               {approved ? (
                                 <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700" title="承認済み">
                                   <FontAwesomeIcon icon={faCircleCheck} className="mr-1" />
-                                  承認済み
                                 </span>
                               ) : rejected ? (
                                 <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-700">
