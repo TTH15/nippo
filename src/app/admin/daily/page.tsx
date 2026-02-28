@@ -331,7 +331,7 @@ export default function AdminDailyPage() {
                       <tr className="border-b border-slate-200 text-left">
                         <th className="py-3 px-4 font-semibold text-slate-600">名前</th>
                         <th className="py-3 px-3 font-semibold text-slate-600 text-center">種別</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-left">内容</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-center">内容</th>
                         <th className="py-3 px-3 font-semibold text-slate-600 text-center">承認</th>
                         {tab === "all" && canWrite && (
                           <th className="py-3 px-3 font-semibold text-slate-600 text-center">操作</th>
@@ -361,7 +361,7 @@ export default function AdminDailyPage() {
                             </td>
                             <td className="py-3 px-3 text-left align-top">
                               {carrier === "YAMATO" ? (
-                                <div className="text-[13px]">
+                                <div className="text-[13px] pl-2">
                                   <span className="text-slate-500 text-xs">宅急便</span>{" "}
                                   <span className="font-semibold text-slate-900 text-base tabular-nums">{r.takuhaibin_completed}</span>
                                   <span className="text-slate-500 text-xs pr-3"> 個</span>
