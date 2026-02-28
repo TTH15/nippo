@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
@@ -86,19 +88,15 @@ export default function AdminDailyPage() {
         method: "POST",
         body: JSON.stringify({ driverId: e.driver.id, date: groupDate }),
       });
+      // 未承認タブでは承認した行を一覧から削除する（リロード時も同様にAPIが未承認のみ返す）
       setGroups((prev) =>
-        prev.map((g) =>
-          g.date !== groupDate
-            ? g
-            : {
-                ...g,
-                entries: g.entries.map((ent) =>
-                  ent.driver.id !== e.driver.id
-                    ? ent
-                    : { ...ent, report: { ...ent.report, approved_at: new Date().toISOString() } }
-                ),
-              }
-        )
+        prev
+          .map((g) =>
+            g.date !== groupDate
+              ? g
+              : { ...g, entries: g.entries.filter((ent) => ent.driver.id !== e.driver.id) }
+          )
+          .filter((g) => g.entries.length > 0)
       );
     } catch {
       // noop
@@ -260,39 +258,26 @@ export default function AdminDailyPage() {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr className="border-b border-slate-200 text-left">
-                        <th className="py-3 px-4 font-semibold text-slate-600">名前</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-center">種別</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-right">宅急便完了</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-right">宅急便持戻</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-right">ネコポス完了</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-right">ネコポス持戻</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-left">Amazon（午前/午後/4便）</th>
-                        <th className="py-3 px-3 font-semibold text-slate-600 text-center">承認</th>
+                        <th className="py-3 px-4 font-semibold text-slate-600 w-24">名前</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-center w-20">種別</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-left min-w-[200px]">内容</th>
+                        <th className="py-3 px-3 font-semibold text-slate-600 text-center w-20">承認</th>
                         {tab === "all" && canWrite && (
-                          <th className="py-3 px-3 font-semibold text-slate-600 text-center">操作</th>
+                          <th className="py-3 px-3 font-semibold text-slate-600 text-center w-16">操作</th>
                         )}
-                        <th className="py-3 px-4 font-semibold text-slate-600 text-right">送信時刻</th>
+                        <th className="py-3 px-4 font-semibold text-slate-600 text-right w-20">送信時刻</th>
                       </tr>
                     </thead>
                     <tbody>
                       {group.entries.map((e) => {
                         const r = e.report;
                         const carrier = r.carrier || "YAMATO";
-                        const amazonSummary =
-                          (r.amazon_am_mochidashi ?? 0) ||
-                          (r.amazon_am_completed ?? 0) ||
-                          (r.amazon_pm_mochidashi ?? 0) ||
-                          (r.amazon_pm_completed ?? 0) ||
-                          (r.amazon_4_mochidashi ?? 0) ||
-                          (r.amazon_4_completed ?? 0)
-                            ? `午前 持出${r.amazon_am_mochidashi ?? 0}/完了${r.amazon_am_completed ?? 0}  午後 持出${r.amazon_pm_mochidashi ?? 0}/完了${r.amazon_pm_completed ?? 0}  4便 持出${r.amazon_4_mochidashi ?? 0}/完了${r.amazon_4_completed ?? 0}`
-                            : "-";
                         const approved = isApproved(r);
 
                         return (
                           <tr key={`${e.driver.id}-${group.date}`} className="border-b border-slate-100 hover:bg-slate-50">
-                            <td className="py-3 px-4 font-medium">{getDisplayName(e.driver)}</td>
-                            <td className="py-3 px-3 text-center">
+                            <td className="py-3 px-4 font-medium align-top">{getDisplayName(e.driver)}</td>
+                            <td className="py-3 px-3 text-center align-top">
                               <span
                                 className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
                                   carrier === "AMAZON"
@@ -303,17 +288,48 @@ export default function AdminDailyPage() {
                                 {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
                               </span>
                             </td>
-                            <td className="py-3 px-3 text-right tabular-nums">{r.takuhaibin_completed}</td>
-                            <td className="py-3 px-3 text-right tabular-nums text-orange-600">{r.takuhaibin_returned}</td>
-                            <td className="py-3 px-3 text-right tabular-nums">{r.nekopos_completed}</td>
-                            <td className="py-3 px-3 text-right tabular-nums text-orange-600">{r.nekopos_returned}</td>
-                            <td className="py-3 px-3 text-left text-[11px] whitespace-pre-line text-slate-600">
-                              {amazonSummary}
+                            <td className="py-3 px-3 text-left align-top">
+                              {carrier === "YAMATO" ? (
+                                <div className="text-[13px]">
+                                  <span className="text-slate-500 text-xs">宅急便</span>{" "}
+                                  <span className="font-semibold text-slate-900 text-base tabular-nums">{r.takuhaibin_completed}</span>
+                                  <span className="text-slate-500 text-xs"> 個、ネコポス</span>{" "}
+                                  <span className="font-semibold text-slate-900 text-base tabular-nums">{r.nekopos_completed}</span>
+                                  <span className="text-slate-500 text-xs"> 個</span>
+                                </div>
+                              ) : (() => {
+                                const am = r.amazon_am_completed ?? 0;
+                                const pm = r.amazon_pm_completed ?? 0;
+                                const four = r.amazon_4_completed ?? 0;
+                                const fourOnly = am === 0 && pm === 0 && four > 0;
+                                return fourOnly ? (
+                                  <div className="text-[13px]">
+                                    <span className="text-slate-500 text-xs">4便</span>{" "}
+                                    <span className="font-semibold text-slate-900 text-base tabular-nums">{four}</span>
+                                    <span className="text-slate-500 text-xs"> 個</span>
+                                  </div>
+                                ) : (
+                                  <div className="text-[13px] space-y-0.5">
+                                    {am > 0 && (
+                                      <p><span className="text-slate-500 text-xs">午前</span>{" "}<span className="font-semibold text-slate-900 text-base tabular-nums">{am}</span><span className="text-slate-500 text-xs"> 個</span></p>
+                                    )}
+                                    {pm > 0 && (
+                                      <p><span className="text-slate-500 text-xs">午後</span>{" "}<span className="font-semibold text-slate-900 text-base tabular-nums">{pm}</span><span className="text-slate-500 text-xs"> 個</span></p>
+                                    )}
+                                    {four > 0 && (
+                                      <p><span className="text-slate-500 text-xs">4便</span>{" "}<span className="font-semibold text-slate-900 text-base tabular-nums">{four}</span><span className="text-slate-500 text-xs"> 個</span></p>
+                                    )}
+                                    {am === 0 && pm === 0 && four === 0 && (
+                                      <span className="text-slate-400 text-xs">—</span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </td>
-                            <td className="py-3 px-3 text-center">
+                            <td className="py-3 px-3 text-center align-top">
                               {approved ? (
                                 <span className="inline-flex items-center justify-center w-8 h-6 text-green-600" title="承認済み">
-                                  ✔
+                                  <FontAwesomeIcon icon={faCircleCheck} />
                                 </span>
                               ) : tab === "pending" && canWrite ? (
                                 <button
@@ -328,7 +344,7 @@ export default function AdminDailyPage() {
                               )}
                             </td>
                             {tab === "all" && canWrite && (
-                              <td className="py-3 px-3 text-center">
+                              <td className="py-3 px-3 text-center align-top">
                                 <button
                                   type="button"
                                   onClick={() => openEdit(e)}
@@ -338,7 +354,7 @@ export default function AdminDailyPage() {
                                 </button>
                               </td>
                             )}
-                            <td className="py-3 px-4 text-right text-xs text-slate-400">
+                            <td className="py-3 px-4 text-right text-xs text-slate-400 align-top">
                               {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
                                 hour: "2-digit",
                                 minute: "2-digit",

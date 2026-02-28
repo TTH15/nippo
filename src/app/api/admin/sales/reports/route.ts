@@ -59,13 +59,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
+  // 集計表には承認済みの日報のみを含める
   const { data: reports, error: rErr } = await supabase
     .from("daily_reports")
     .select(
       "driver_id, report_date, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned",
     )
     .gte("report_date", RAW_START)
-    .lte("report_date", RAW_END);
+    .lte("report_date", RAW_END)
+    .not("approved_at", "is", null);
 
   if (rErr) {
     console.error(rErr);

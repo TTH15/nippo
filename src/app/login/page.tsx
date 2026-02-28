@@ -70,28 +70,43 @@ export default function LoginPage() {
         <div className="bg-white rounded-lg shadow-sm border border-slate-200">
           {/* Header */}
           <div className="p-5 border-b border-slate-200">
-            <h1 className="text-xl font-bold text-slate-900 text-center">日報集計</h1>
+            <div className="flex flex-col items-center mb-2">
+              <img
+                src="/logo/Niipo.svg"
+                alt="Nippo ロゴ"
+                className="h-12 mb-2"
+                style={{ maxWidth: '60%', height: 'auto' }}
+              />
+              <h1 className="text-xl font-bold text-slate-900 text-center"></h1>
+            </div>
           </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-5 space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
-                ドライバーコード
+                会社コード + ドライバー番号
               </label>
-              <input
-                type="text"
-                maxLength={9}
-                value={driverCode}
-                onChange={(e) => {
-                  setDriverCode(e.target.value);
-                }}
-                autoCapitalize="characters"
-                autoCorrect="off"
-                autoComplete="off"
-                className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors uppercase"
-                autoFocus
-              />
+              <div className="flex">
+                <span className="inline-flex items-center px-4 py-2.5 border border-r-0 border-slate-200 bg-slate-50 rounded-l-lg text-lg font-mono text-slate-600 select-none" style={{ minWidth: 70 }}>
+                  NPX
+                </span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={driverCode}
+                  onChange={(e) => {
+                    // 入力は数字6桁のみ許可
+                    const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 6);
+                    setDriverCode(val);
+                  }}
+                  className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-r-lg focus:border-slate-400 focus:outline-none transition-colors"
+                  placeholder="123456"
+                  autoFocus
+                  autoComplete="off"
+                />
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">

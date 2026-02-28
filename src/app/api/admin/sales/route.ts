@@ -61,13 +61,15 @@ export async function GET(req: NextRequest) {
     .gte("shift_date", RAW_START)
     .lte("shift_date", RAW_END);
 
+  // 売上集計には承認済みの日報のみを含める
   const { data: reports } = await supabase
     .from("daily_reports")
     .select(
       "driver_id, report_date, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned",
     )
     .gte("report_date", RAW_START)
-    .lte("report_date", RAW_END);
+    .lte("report_date", RAW_END)
+    .not("approved_at", "is", null);
 
   type ReportRow = NonNullable<typeof reports>[number];
   const reportMap = new Map<string, ReportRow>();
