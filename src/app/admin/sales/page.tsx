@@ -607,39 +607,46 @@ function LogEntriesByDate({
       <div className="flex flex-wrap items-center gap-4 m-3">
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500">種別</span>
-          <select
+          <CustomSelect
+            size="sm"
+            options={[{ value: "", label: "すべて" }, ...logTypes.map((t) => ({ value: t.id, label: t.name }))]}
             value={filterTypeId}
-            onChange={(e) => setFilterTypeId(e.target.value)}
-            className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white min-w-[100px]"
-          >
-            <option value="">すべて</option>
-            {logTypes.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
+            onChange={setFilterTypeId}
+            placeholder="すべて"
+            clearable={false}
+            className="min-w-[100px]"
+          />
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500">帰属先</span>
-          <select
+          <CustomSelect
+            size="sm"
+            options={[
+              { value: "", label: "すべて" },
+              { value: "COMPANY", label: "会社" },
+              { value: "DRIVER", label: "ドライバー" },
+            ]}
             value={filterAttribution}
-            onChange={(e) => setFilterAttribution(e.target.value)}
-            className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white min-w-[90px]"
-          >
-            <option value="">すべて</option>
-            <option value="COMPANY">会社</option>
-            <option value="DRIVER">ドライバー</option>
-          </select>
+            onChange={setFilterAttribution}
+            placeholder="すべて"
+            clearable={false}
+            className="min-w-[90px]"
+          />
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500">並べ替え</span>
-          <select
+          <CustomSelect
+            size="sm"
+            options={[
+              { value: "desc", label: "日付 降順" },
+              { value: "asc", label: "日付 昇順" },
+            ]}
             value={sortDateOrder}
-            onChange={(e) => setSortDateOrder(e.target.value as "desc" | "asc")}
-            className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white min-w-[110px]"
-          >
-            <option value="desc">日付 新→古</option>
-            <option value="asc">日付 古→新</option>
-          </select>
+            onChange={(v) => setSortDateOrder(v as "desc" | "asc")}
+            placeholder="日付 降順"
+            clearable={false}
+            className="min-w-[110px]"
+          />
         </div>
       </div>
       <div className="overflow-x-auto">
