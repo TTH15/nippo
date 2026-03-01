@@ -62,20 +62,20 @@ export async function GET(req: NextRequest) {
       ? [vehicle.manufacturer, vehicle.brand, vehicle.number_numeric].filter(Boolean).join(" ") || null
       : null;
     return {
-      id: r.id,
-      log_date: r.log_date,
-      type_id: r.type_id,
+      id: String(r.id ?? ""),
+      log_date: String(r.log_date ?? ""),
+      type_id: String(r.type_id ?? ""),
       type_name: type?.name ?? "",
-      content: r.content,
+      content: String(r.content ?? ""),
       amount: Number(r.amount),
       attribution: (r.attribution as "COMPANY" | "DRIVER") || "COMPANY",
-      target_driver_id: r.target_driver_id as string | null,
+      target_driver_id: (r.target_driver_id as string) || null,
       target_driver_name: driver ? (driver.display_name || driver.name) : null,
-      vehicle_id: r.vehicle_id as string | null,
+      vehicle_id: (r.vehicle_id as string) || null,
       vehicle_label: vehicleLabel,
-      memo: r.memo as string | null,
-      created_at: r.created_at,
-      updated_at: r.updated_at,
+      memo: (r.memo as string) || null,
+      created_at: String(r.created_at ?? ""),
+      updated_at: String(r.updated_at ?? ""),
     };
   });
 
