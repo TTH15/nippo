@@ -606,7 +606,7 @@ function LogEntriesByDate({
     <div>
       <div className="flex flex-wrap items-center gap-4 m-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">種別</span>
+          <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">種別</span>
           <CustomSelect
             size="sm"
             options={[{ value: "", label: "すべて" }, ...logTypes.map((t) => ({ value: t.id, label: t.name }))]}
@@ -618,7 +618,7 @@ function LogEntriesByDate({
           />
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">帰属先</span>
+          <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">帰属先</span>
           <CustomSelect
             size="sm"
             options={[
@@ -634,7 +634,7 @@ function LogEntriesByDate({
           />
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">並べ替え</span>
+          <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">並べ替え</span>
           <CustomSelect
             size="sm"
             options={[
