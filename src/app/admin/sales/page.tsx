@@ -7,6 +7,8 @@ import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
+import { DatePicker } from "@/lib/components/DatePicker";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
@@ -104,24 +106,26 @@ const CustomTooltip = ({
   );
 };
 
-function LogEntryForm({
+function LogEntryModal({
+  open,
+  onClose,
   startIso,
-  endIso,
   logTypes,
   drivers,
   vehicles,
   onAdded,
   onTypeAdded,
 }: {
+  open: boolean;
+  onClose: () => void;
   startIso: string;
-  endIso: string;
   logTypes: SalesLogTypeRow[];
   drivers: DriverRow[];
   vehicles: VehicleRow[];
   onAdded: () => void;
   onTypeAdded: () => void;
 }) {
-  const [logDate, setLogDate] = useState(startIso || "");
+  const [logDate, setLogDate] = useState("");
   const [typeId, setTypeId] = useState("");
   const [content, setContent] = useState("");
   const [amount, setAmount] = useState<number>(0);
@@ -134,10 +138,20 @@ function LogEntryForm({
   const [addingType, setAddingType] = useState(false);
 
   useEffect(() => {
-    if (startIso && !logDate) setLogDate(startIso);
-  }, [startIso, logDate]);
+    if (open) {
+      setLogDate(startIso || "");
+      setTypeId("");
+      setContent("");
+      setAmount(0);
+      setAttribution("COMPANY");
+      setTargetDriverId("");
+      setVehicleId("");
+      setMemo("");
+    }
+  }, [open, startIso]);
 
   const vehicleLabel = (v: VehicleRow) => [v.manufacturer, v.brand, v.number_numeric].filter(Boolean).join(" ") || v.id;
+  const dateValue = logDate ? new Date(logDate + "T12:00:00") : undefined;
 
   const handleAdd = () => {
     if (!logDate || !typeId || content.trim() === "") return;
@@ -156,10 +170,8 @@ function LogEntryForm({
       }),
     })
       .then(() => {
-        setContent("");
-        setAmount(0);
-        setMemo("");
         onAdded();
+        onClose();
       })
       .catch(() => {})
       .finally(() => setSubmitting(false));
@@ -181,125 +193,145 @@ function LogEntryForm({
       .finally(() => setAddingType(false));
   };
 
+  if (!open) return null;
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 space-y-3">
-      <div className="text-xs font-semibold text-slate-600 mb-2">行を追加</div>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-slate-500">日付</span>
-          <input
-            type="date"
-            value={logDate}
-            onChange={(e) => setLogDate(e.target.value)}
-            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-[140px]"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-slate-500">種別</span>
-          <select
-            value={typeId}
-            onChange={(e) => setTypeId(e.target.value)}
-            className="px-2 py-1.5 border border-slate-200 rounded text-sm min-w-[100px]"
-          >
-            <option value="">選択</option>
-            {logTypes.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </label>
-        <span className="text-slate-400 text-xs">または</span>
-        <div className="flex items-center gap-1">
-          <input
-            type="text"
-            value={newTypeName}
-            onChange={(e) => setNewTypeName(e.target.value)}
-            placeholder="種別を追加"
-            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-28"
-          />
-          <button type="button" onClick={handleAddType} disabled={addingType || !newTypeName.trim()} className="px-2 py-1.5 bg-slate-200 rounded text-xs font-medium hover:bg-slate-300 disabled:opacity-50">追加</button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-4 flex items-center justify-between rounded-t-xl">
+          <h2 className="text-base font-semibold text-slate-900">ログを追加</h2>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1" aria-label="閉じる">×</button>
         </div>
-        <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
-          <span className="text-xs text-slate-500">内容</span>
-          <input
-            type="text"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="例: ヤマト宅急便 3/1分"
-            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-full"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-slate-500">金額（±）</span>
-          <input
-            type="number"
-            value={amount === 0 ? "" : amount}
-            onChange={(e) => setAmount(Number(e.target.value) || 0)}
-            placeholder="0"
-            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-24 text-right tabular-nums"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-slate-500">帰属先</span>
-          <select
-            value={attribution}
-            onChange={(e) => setAttribution(e.target.value as "COMPANY" | "DRIVER")}
-            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-[100px]"
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">日付</label>
+              <DatePicker
+                value={dateValue}
+                onChange={(d) => setLogDate(d ? toLocalYmd(d) : "")}
+                placeholder="日付を選択"
+                className="w-full min-w-[200px]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">種別</label>
+              <div className="flex gap-2 items-center">
+                <div className="flex-1 min-w-0">
+                  <CustomSelect
+                    options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
+                    value={typeId}
+                    onChange={setTypeId}
+                    placeholder="選択"
+                    clearable
+                  />
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <input
+                    type="text"
+                    value={newTypeName}
+                    onChange={(e) => setNewTypeName(e.target.value)}
+                    placeholder="種別を追加"
+                    className="w-28 px-2 py-2 border border-slate-200 rounded-md text-sm"
+                  />
+                  <button type="button" onClick={handleAddType} disabled={addingType || !newTypeName.trim()} className="px-3 py-2 bg-slate-100 rounded-md text-xs font-medium hover:bg-slate-200 disabled:opacity-50">追加</button>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">内容</label>
+              <input
+                type="text"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="例: ヤマト宅急便 3/1分"
+                className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">金額（±）</label>
+              <input
+                type="number"
+                value={amount === 0 ? "" : amount}
+                onChange={(e) => setAmount(Number(e.target.value) || 0)}
+                placeholder="0"
+                className="w-full max-w-[140px] px-3 py-2 border border-slate-200 rounded-md text-sm text-right tabular-nums"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">帰属先</label>
+                <CustomSelect
+                  options={[
+                    { value: "COMPANY", label: "会社" },
+                    { value: "DRIVER", label: "ドライバー" },
+                  ]}
+                  value={attribution}
+                  onChange={(v) => setAttribution(v as "COMPANY" | "DRIVER")}
+                  clearable={false}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">対象者</label>
+                <CustomSelect
+                  options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
+                  value={targetDriverId}
+                  onChange={setTargetDriverId}
+                  placeholder="—"
+                  clearable
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">車両</label>
+              <CustomSelect
+                options={[{ value: "", label: "—" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
+                value={vehicleId}
+                onChange={setVehicleId}
+                placeholder="—"
+                clearable
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">備考</label>
+              <input
+                type="text"
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="任意"
+                className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="sticky bottom-0 bg-white border-t border-slate-200 px-5 py-4 flex justify-end gap-2 rounded-b-xl">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={submitting || !logDate || !typeId || content.trim() === ""}
+            className="px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50"
           >
-            <option value="COMPANY">会社</option>
-            <option value="DRIVER">ドライバー</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-slate-500">対象者</span>
-          <select
-            value={targetDriverId}
-            onChange={(e) => setTargetDriverId(e.target.value)}
-            className="px-2 py-1.5 border border-slate-200 rounded text-sm min-w-[120px]"
-          >
-            <option value="">—</option>
-            {drivers.map((d) => (
-              <option key={d.id} value={d.id}>{d.display_name ?? d.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-slate-500">車両</span>
-          <select
-            value={vehicleId}
-            onChange={(e) => setVehicleId(e.target.value)}
-            className="px-2 py-1.5 border border-slate-200 rounded text-sm min-w-[100px]"
-          >
-            <option value="">—</option>
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>{vehicleLabel(v)}</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 min-w-[120px]">
-          <span className="text-xs text-slate-500">備考</span>
-          <input
-            type="text"
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-            placeholder="任意"
-            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-full"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={handleAdd}
-          disabled={submitting || !logDate || !typeId || content.trim() === ""}
-          className="px-4 py-1.5 bg-slate-900 text-white rounded text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
-        >
-          {submitting ? "追加中..." : "追加"}
-        </button>
+            {submitting ? "追加中..." : "登録"}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
+type LogRow =
+  | { kind: "calculated"; type_name: string; content: string; amount: number }
+  | { kind: "entry"; entry: SalesLogEntryRow };
+
 function LogEntriesByDate({
   entries,
+  displayData,
+  daysInRange,
   canWrite,
   logTypes,
   drivers,
@@ -311,6 +343,8 @@ function LogEntriesByDate({
   setSavingId,
 }: {
   entries: SalesLogEntryRow[];
+  displayData: DataPoint[];
+  daysInRange: { iso: string; label: string }[];
   canWrite: boolean;
   logTypes: SalesLogTypeRow[];
   drivers: DriverRow[];
@@ -326,15 +360,31 @@ function LogEntriesByDate({
 
   const vehicleLabel = (v: VehicleRow) => [v.manufacturer, v.brand, v.number_numeric].filter(Boolean).join(" ") || v.id;
 
-  const byDate = useMemo(() => {
+  const entriesByDate = useMemo(() => {
     const map = new Map<string, SalesLogEntryRow[]>();
     entries.forEach((e) => {
       const list = map.get(e.log_date) ?? [];
       list.push(e);
       map.set(e.log_date, list);
     });
-    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+    return map;
   }, [entries]);
+
+  const byDate = useMemo((): [string, LogRow[]][] => {
+    const out: [string, LogRow[]][] = [];
+    daysInRange.forEach((day, i) => {
+      const sales = displayData[i];
+      const yamato = sales?.yamato ?? 0;
+      const amazon = sales?.amazon ?? 0;
+      const dayEntries = entriesByDate.get(day.iso) ?? [];
+      const rows: LogRow[] = [];
+      if (yamato > 0) rows.push({ kind: "calculated", type_name: "売上", content: "ヤマト宅急便等", amount: yamato });
+      if (amazon > 0) rows.push({ kind: "calculated", type_name: "売上", content: "Amazon等", amount: amazon });
+      dayEntries.forEach((e) => rows.push({ kind: "entry", entry: e }));
+      if (rows.length > 0) out.push([day.iso, rows]);
+    });
+    return out.sort((a, b) => b[0].localeCompare(a[0]));
+  }, [daysInRange, displayData, entriesByDate]);
 
   const dateLabel = (iso: string) => {
     const [y, m, d] = iso.split("-").map(Number);
@@ -386,10 +436,10 @@ function LogEntriesByDate({
       .finally(() => setSavingId(null));
   };
 
-  if (entries.length === 0) {
+  if (byDate.length === 0) {
     return (
       <div className="p-8 text-center text-sm text-slate-500">
-        この期間にログがありません。上で日付・種別・内容・金額を入力して「追加」してください。
+        この期間にログがありません。右上の「新規追加」から登録するか、日付範囲を変更してください。
       </div>
     );
   }
@@ -415,23 +465,37 @@ function LogEntriesByDate({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
-                const isEditing = editingId === row.id;
-                const saving = savingId === row.id;
+              {rows.map((row, rowIdx) => {
+                if (row.kind === "calculated") {
+                  return (
+                    <tr key={`calc-${dateIso}-${rowIdx}`} className="border-t border-slate-100 bg-slate-50/30">
+                      <td className="px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
+                      <td className="px-3 py-2 text-slate-600">{row.content}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{fmtAmount(row.amount)}</td>
+                      <td className="px-3 py-2 text-slate-500">会社</td>
+                      <td className="px-3 py-2 text-slate-500">—</td>
+                      <td className="px-3 py-2 text-slate-500">—</td>
+                      <td className="px-3 py-2 text-slate-400 text-[11px]">—</td>
+                      {canWrite && <td className="px-3 py-2" />}
+                    </tr>
+                  );
+                }
+                const r = row.entry;
+                const isEditing = editingId === r.id;
+                const saving = savingId === r.id;
                 return (
-                  <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                  <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/50">
                     {isEditing ? (
                       <>
                         <td className="px-3 py-2">
-                          <select
+                          <CustomSelect
+                            size="sm"
+                            options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
                             value={editForm.type_id ?? ""}
-                            onChange={(e) => setEditForm((f) => ({ ...f, type_id: e.target.value }))}
-                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
-                          >
-                            {logTypes.map((t) => (
-                              <option key={t.id} value={t.id}>{t.name}</option>
-                            ))}
-                          </select>
+                            onChange={(v) => setEditForm((f) => ({ ...f, type_id: v }))}
+                            placeholder="選択"
+                            clearable
+                          />
                         </td>
                         <td className="px-3 py-2">
                           <input
@@ -450,38 +514,36 @@ function LogEntriesByDate({
                           />
                         </td>
                         <td className="px-3 py-2">
-                          <select
+                          <CustomSelect
+                            size="sm"
+                            options={[
+                              { value: "COMPANY", label: "会社" },
+                              { value: "DRIVER", label: "ドライバー" },
+                            ]}
                             value={editForm.attribution ?? "COMPANY"}
-                            onChange={(e) => setEditForm((f) => ({ ...f, attribution: e.target.value as "COMPANY" | "DRIVER" }))}
-                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
-                          >
-                            <option value="COMPANY">会社</option>
-                            <option value="DRIVER">ドライバー</option>
-                          </select>
+                            onChange={(v) => setEditForm((f) => ({ ...f, attribution: v as "COMPANY" | "DRIVER" }))}
+                            clearable={false}
+                          />
                         </td>
                         <td className="px-3 py-2">
-                          <select
+                          <CustomSelect
+                            size="sm"
+                            options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
                             value={editForm.target_driver_id ?? ""}
-                            onChange={(e) => setEditForm((f) => ({ ...f, target_driver_id: e.target.value || null }))}
-                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
-                          >
-                            <option value="">—</option>
-                            {drivers.map((d) => (
-                              <option key={d.id} value={d.id}>{d.display_name ?? d.name}</option>
-                            ))}
-                          </select>
+                            onChange={(v) => setEditForm((f) => ({ ...f, target_driver_id: v || null }))}
+                            placeholder="—"
+                            clearable
+                          />
                         </td>
                         <td className="px-3 py-2">
-                          <select
+                          <CustomSelect
+                            size="sm"
+                            options={[{ value: "", label: "—" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
                             value={editForm.vehicle_id ?? ""}
-                            onChange={(e) => setEditForm((f) => ({ ...f, vehicle_id: e.target.value || null }))}
-                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
-                          >
-                            <option value="">—</option>
-                            {vehicles.map((v) => (
-                              <option key={v.id} value={v.id}>{vehicleLabel(v)}</option>
-                            ))}
-                          </select>
+                            onChange={(v) => setEditForm((f) => ({ ...f, vehicle_id: v || null }))}
+                            placeholder="—"
+                            clearable
+                          />
                         </td>
                         <td className="px-3 py-2">
                           <input
@@ -502,23 +564,23 @@ function LogEntriesByDate({
                       </>
                     ) : (
                       <>
-                        <td className="px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
-                        <td className="px-3 py-2 text-slate-700">{row.content}</td>
-                        <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.amount >= 0 ? "text-slate-900" : "text-red-700"}`}>
-                          {fmtAmount(row.amount)}
+                        <td className="px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
+                        <td className="px-3 py-2 text-slate-700">{r.content}</td>
+                        <td className={`px-3 py-2 text-right tabular-nums font-medium ${r.amount >= 0 ? "text-slate-900" : "text-red-700"}`}>
+                          {fmtAmount(r.amount)}
                         </td>
-                        <td className="px-3 py-2 text-slate-600">{row.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
-                        <td className="px-3 py-2 text-slate-600">{row.target_driver_name ?? "—"}</td>
-                        <td className="px-3 py-2 text-slate-600">{row.vehicle_label ?? "—"}</td>
-                        <td className="px-3 py-2 text-slate-500 text-[11px]">{row.memo ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
                         {canWrite && (
                           <td className="px-3 py-2">
                             {saving ? (
                               <span className="text-slate-400 text-[10px]">保存中...</span>
                             ) : (
                               <span className="flex gap-1">
-                                <button type="button" onClick={() => startEdit(row)} className="text-slate-600 hover:text-slate-900 text-[10px]">編集</button>
-                                <button type="button" onClick={() => handleDelete(row.id)} className="text-red-600 hover:text-red-800 text-[10px]">削除</button>
+                                <button type="button" onClick={() => startEdit(r)} className="text-slate-600 hover:text-slate-900 text-[10px]">編集</button>
+                                <button type="button" onClick={() => handleDelete(r.id)} className="text-red-600 hover:text-red-800 text-[10px]">削除</button>
                               </span>
                             )}
                           </td>
@@ -557,6 +619,7 @@ export default function SalesPage() {
   const [logVehicles, setLogVehicles] = useState<VehicleRow[]>([]);
   const [loadingLog, setLoadingLog] = useState(false);
   const [logSavingId, setLogSavingId] = useState<string | null>(null);
+  const [logModalOpen, setLogModalOpen] = useState(false);
   const [canWrite, setCanWrite] = useState(false);
 
   useEffect(() => {
@@ -1140,30 +1203,40 @@ export default function SalesPage() {
 
             {tab === "log" && (
               <>
-                <div className="text-sm text-slate-600 mb-4">
-                  会計の仕分けのように、日付ごとに「種別・内容・金額・帰属先・対象者・車両・備考」を登録できます。対象者にドライバーを指定した外注費はドライバー報酬、帰属先をドライバーにした修理費等は後でドライバーに請求します。
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                  <p className="text-sm text-slate-600">
+                    会計の仕分けのように、日付ごとに「種別・内容・金額・帰属先・対象者・車両・備考」を登録できます。ヤマト・Amazonの売上は自動で表示されます。対象者にドライバーを指定した外注費はドライバー報酬、帰属先をドライバーにした修理費等は後でドライバーに請求します。
+                  </p>
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => setLogModalOpen(true)}
+                      className="shrink-0 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors"
+                    >
+                      新規追加
+                    </button>
+                  )}
                 </div>
-                {canWrite && (
-                  <LogEntryForm
-                    startIso={startIso}
-                    endIso={endIso}
-                    logTypes={logTypes}
-                    drivers={logDrivers}
-                    vehicles={logVehicles}
-                    onAdded={() => {
-                      if (startIso && endIso) {
-                        apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
-                          .then((res) => setLogEntries(res.entries ?? []))
-                          .catch(() => {});
-                      }
-                    }}
-                    onTypeAdded={() => {
-                      apiFetch<{ types: SalesLogTypeRow[] }>("/api/admin/sales/log/types")
-                        .then((res) => setLogTypes(res.types ?? []))
+                <LogEntryModal
+                  open={logModalOpen}
+                  onClose={() => setLogModalOpen(false)}
+                  startIso={startIso}
+                  logTypes={logTypes}
+                  drivers={logDrivers}
+                  vehicles={logVehicles}
+                  onAdded={() => {
+                    if (startIso && endIso) {
+                      apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
+                        .then((res) => setLogEntries(res.entries ?? []))
                         .catch(() => {});
-                    }}
-                  />
-                )}
+                    }
+                  }}
+                  onTypeAdded={() => {
+                    apiFetch<{ types: SalesLogTypeRow[] }>("/api/admin/sales/log/types")
+                      .then((res) => setLogTypes(res.types ?? []))
+                      .catch(() => {});
+                  }}
+                />
                 {loadingLog ? (
                   <div className="bg-white border border-slate-200 rounded-lg overflow-hidden p-6 mt-4">
                     <Skeleton className="h-8 w-full mb-4" />
@@ -1173,6 +1246,8 @@ export default function SalesPage() {
                   <div className="bg-white border border-slate-200 rounded-lg overflow-hidden mt-4">
                     <LogEntriesByDate
                       entries={logEntries}
+                      displayData={displayData}
+                      daysInRange={daysInRange}
                       canWrite={canWrite}
                       logTypes={logTypes}
                       drivers={logDrivers}
