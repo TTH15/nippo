@@ -128,7 +128,8 @@ function LogEntryModal({
   const [logDate, setLogDate] = useState("");
   const [typeId, setTypeId] = useState("");
   const [content, setContent] = useState("");
-  const [amount, setAmount] = useState<number>(0);
+  const [amountSign, setAmountSign] = useState<"+" | "-">("+");
+  const [amountValue, setAmountValue] = useState<string>("");
   const [attribution, setAttribution] = useState<"COMPANY" | "DRIVER">("COMPANY");
   const [targetDriverId, setTargetDriverId] = useState("");
   const [vehicleId, setVehicleId] = useState("");
@@ -142,7 +143,8 @@ function LogEntryModal({
       setLogDate(startIso || "");
       setTypeId("");
       setContent("");
-      setAmount(0);
+      setAmountSign("+");
+      setAmountValue("");
       setAttribution("COMPANY");
       setTargetDriverId("");
       setVehicleId("");
@@ -155,6 +157,8 @@ function LogEntryModal({
 
   const handleAdd = () => {
     if (!logDate || !typeId || content.trim() === "") return;
+    const absVal = Math.abs(Number(amountValue) || 0);
+    const amount = amountSign === "-" ? -absVal : absVal;
     setSubmitting(true);
     apiFetch("/api/admin/sales/log", {
       method: "POST",
@@ -162,7 +166,7 @@ function LogEntryModal({
         log_date: logDate,
         type_id: typeId,
         content: content.trim(),
-        amount: Number(amount) || 0,
+        amount,
         attribution,
         target_driver_id: targetDriverId || null,
         vehicle_id: vehicleId || null,
@@ -195,32 +199,35 @@ function LogEntryModal({
 
   if (!open) return null;
 
+  const inputClass = "h-12 px-3 border border-slate-200 rounded-xl text-sm w-full";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-4 flex items-center justify-between rounded-t-xl">
+        <div className="shrink-0 border-b border-slate-200 px-5 py-4 flex items-center justify-between rounded-t-xl">
           <h2 className="text-base font-semibold text-slate-900">ログを追加</h2>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1" aria-label="閉じる">×</button>
         </div>
-        <div className="p-5 space-y-4">
-          <div className="grid grid-cols-1 gap-4">
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1.5">日付</label>
               <DatePicker
                 value={dateValue}
                 onChange={(d) => setLogDate(d ? toLocalYmd(d) : "")}
                 placeholder="日付を選択"
-                className="w-full min-w-[200px]"
+                className="h-12 w-full"
               />
             </div>
-            <div>
+            <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1.5">種別</label>
-              <div className="flex gap-2 items-center">
+              <div className="flex gap-2 items-stretch">
                 <div className="flex-1 min-w-0">
                   <CustomSelect
+                    size="md"
                     options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
                     value={typeId}
                     onChange={setTypeId}
@@ -228,65 +235,82 @@ function LogEntryModal({
                     clearable
                   />
                 </div>
-                <div className="flex gap-1 shrink-0">
-                  <input
-                    type="text"
-                    value={newTypeName}
-                    onChange={(e) => setNewTypeName(e.target.value)}
-                    placeholder="種別を追加"
-                    className="w-28 px-2 py-2 border border-slate-200 rounded-md text-sm"
-                  />
-                  <button type="button" onClick={handleAddType} disabled={addingType || !newTypeName.trim()} className="px-3 py-2 bg-slate-100 rounded-md text-xs font-medium hover:bg-slate-200 disabled:opacity-50">追加</button>
-                </div>
+                <input
+                  type="text"
+                  value={newTypeName}
+                  onChange={(e) => setNewTypeName(e.target.value)}
+                  placeholder="種別を追加"
+                  className={`w-28 shrink-0 rounded-xl ${inputClass}`}
+                />
+                <button type="button" onClick={handleAddType} disabled={addingType || !newTypeName.trim()} className="h-12 px-3 shrink-0 bg-slate-100 rounded-xl text-sm font-medium hover:bg-slate-200 disabled:opacity-50">追加</button>
               </div>
             </div>
-            <div>
+            <div className="sm:col-span-2 lg:col-span-3">
               <label className="block text-xs font-medium text-slate-600 mb-1.5">内容</label>
               <input
                 type="text"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="例: ヤマト宅急便 3/1分"
-                className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm"
+                className={inputClass}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">金額（±）</label>
-              <input
-                type="number"
-                value={amount === 0 ? "" : amount}
-                onChange={(e) => setAmount(Number(e.target.value) || 0)}
-                placeholder="0"
-                className="w-full max-w-[140px] px-3 py-2 border border-slate-200 rounded-md text-sm text-right tabular-nums"
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">金額</label>
+              <div className="flex gap-2 items-stretch">
+                <div className="flex rounded-xl overflow-hidden border-2 border-slate-200 h-12 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setAmountSign("+")}
+                    className={`px-4 font-medium text-sm transition-colors ${amountSign === "+" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAmountSign("-")}
+                    className={`px-4 font-medium text-sm transition-colors ${amountSign === "-" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                  >
+                    −
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  value={amountValue}
+                  onChange={(e) => setAmountValue(e.target.value)}
+                  placeholder="0"
+                  className={`flex-1 min-w-0 text-right tabular-nums ${inputClass}`}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">帰属先</label>
+              <CustomSelect
+                size="md"
+                options={[
+                  { value: "COMPANY", label: "会社" },
+                  { value: "DRIVER", label: "ドライバー" },
+                ]}
+                value={attribution}
+                onChange={(v) => setAttribution(v as "COMPANY" | "DRIVER")}
+                clearable={false}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1.5">帰属先</label>
-                <CustomSelect
-                  options={[
-                    { value: "COMPANY", label: "会社" },
-                    { value: "DRIVER", label: "ドライバー" },
-                  ]}
-                  value={attribution}
-                  onChange={(v) => setAttribution(v as "COMPANY" | "DRIVER")}
-                  clearable={false}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1.5">対象者</label>
-                <CustomSelect
-                  options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
-                  value={targetDriverId}
-                  onChange={setTargetDriverId}
-                  placeholder="—"
-                  clearable
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">対象者</label>
+              <CustomSelect
+                size="md"
+                options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
+                value={targetDriverId}
+                onChange={setTargetDriverId}
+                placeholder="—"
+                clearable
+              />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1.5">車両</label>
               <CustomSelect
+                size="md"
                 options={[{ value: "", label: "—" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
                 value={vehicleId}
                 onChange={setVehicleId}
@@ -294,19 +318,19 @@ function LogEntryModal({
                 clearable
               />
             </div>
-            <div>
+            <div className="sm:col-span-2 lg:col-span-3">
               <label className="block text-xs font-medium text-slate-600 mb-1.5">備考</label>
               <input
                 type="text"
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
                 placeholder="任意"
-                className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm"
+                className={inputClass}
               />
             </div>
           </div>
         </div>
-        <div className="sticky bottom-0 bg-white border-t border-slate-200 px-5 py-4 flex justify-end gap-2 rounded-b-xl">
+        <div className="shrink-0 border-t border-slate-200 bg-white px-5 py-4 flex justify-end gap-2 rounded-b-xl">
           <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
             キャンセル
           </button>

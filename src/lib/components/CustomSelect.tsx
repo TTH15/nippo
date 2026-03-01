@@ -19,7 +19,7 @@ interface CustomSelectProps {
   clearable?: boolean;
   disabled?: boolean;
   /** トリガーの高さ・スタイルをコンパクトにする */
-  size?: "default" | "sm";
+  size?: "default" | "sm" | "md";
   className?: string;
 }
 
@@ -107,9 +107,10 @@ export function CustomSelect({
   };
 
   const isSm = size === "sm";
-  const triggerHeight = isSm ? "h-9" : "h-14";
-  const triggerPadding = isSm ? "px-3 py-2" : "px-4";
-  const optionPadding = isSm ? "py-2 px-3" : "py-3 px-4";
+  const isMd = size === "md";
+  const triggerHeight = isSm ? "h-9" : isMd ? "h-12" : "h-14";
+  const triggerPadding = isSm ? "px-3 py-2" : isMd ? "px-3 py-2" : "px-4";
+  const optionPadding = isSm ? "py-2 px-3" : isMd ? "py-2.5 px-3" : "py-3 px-4";
 
   return (
     <div ref={containerRef} className={`relative w-full ${className ?? ""}`} onKeyDown={handleKeyDown}>
@@ -132,7 +133,7 @@ export function CustomSelect({
           <div className="text-left flex-1 min-w-0">
             {selectedOption ? (
               <>
-                <div className={`font-medium text-slate-900 truncate ${isSm ? "text-sm" : ""}`}>
+                <div className={`font-medium text-slate-900 truncate ${isSm || isMd ? "text-sm" : ""}`}>
                   {selectedOption.label}
                 </div>
                 {selectedOption.description && !isSm && (
@@ -140,7 +141,7 @@ export function CustomSelect({
                 )}
               </>
             ) : (
-              <div className={`text-slate-400 ${isSm ? "text-sm" : ""}`}>{placeholder}</div>
+              <div className={`text-slate-400 ${isSm || isMd ? "text-sm" : ""}`}>{placeholder}</div>
             )}
           </div>
         </div>
@@ -158,7 +159,7 @@ export function CustomSelect({
             </motion.div>
           )}
           <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
-            <ChevronDown className={`text-slate-400 ${isSm ? "w-4 h-4" : "w-5 h-5"}`} />
+            <ChevronDown className={`text-slate-400 ${isSm ? "w-4 h-4" : isMd ? "w-4 h-4" : "w-5 h-5"}`} />
           </motion.div>
         </div>
       </button>
@@ -198,19 +199,19 @@ export function CustomSelect({
                       )}
                       <div className="flex-1 text-left min-w-0">
                         <div
-                          className={`truncate ${isSm ? "text-sm" : ""} ${
+                          className={`truncate ${isSm || isMd ? "text-sm" : ""} ${
                             isSelected ? "text-slate-700 font-medium" : "text-slate-900"
                           }`}
                         >
                           {option.label}
                         </div>
-                        {option.description && !isSm && (
+                        {option.description && !isSm && !isMd && (
                           <div className="text-sm text-slate-500 truncate">{option.description}</div>
                         )}
                       </div>
                       {isSelected && (
                         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="flex-shrink-0">
-                          <Check className={`text-slate-600 ${isSm ? "w-4 h-4" : "w-5 h-5"}`} />
+                          <Check className={`text-slate-600 ${isSm || isMd ? "w-4 h-4" : "w-5 h-5"}`} />
                         </motion.div>
                       )}
                     </motion.button>
