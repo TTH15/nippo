@@ -604,7 +604,7 @@ function LogEntriesByDate({
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-4 mb-3">
+      <div className="flex flex-wrap items-center gap-4 m-3">
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500">種別</span>
           <select
@@ -919,9 +919,10 @@ export default function SalesPage() {
       .finally(() => setLoadingAnalytics(false));
   }, [startIso, endIso, courseIdsQuery]);
 
+  // 右パネルの「1人あたり売上」用に、日付範囲が決まっているときはドライバー・日報・ミッドナイトを取得（集計タブでなくても取得）
   useEffect(() => {
-    if (tab !== "summary" || !startIso || !endIso) return;
-    setLoadingSummary(true);
+    if (!startIso || !endIso) return;
+    if (tab === "summary") setLoadingSummary(true);
     apiFetch<{
       drivers: DriverRow[];
       reports: ReportRow[];
@@ -937,7 +938,9 @@ export default function SalesPage() {
         setReports([]);
         setMidnights([]);
       })
-      .finally(() => setLoadingSummary(false));
+      .finally(() => {
+        if (tab === "summary") setLoadingSummary(false);
+      });
   }, [startIso, endIso, tab]);
 
   useEffect(() => {
