@@ -42,16 +42,31 @@ type MidnightRow = {
 type Tab = "analytics" | "summary" | "log";
 type CarrierFilter = "ALL" | "YAMATO" | "AMAZON";
 
-type SalesLogEntry = {
+type SalesLogTypeRow = { id: string; name: string; sort_order: number };
+type SalesLogEntryRow = {
+  id: string;
   log_date: string;
-  driver_payment: number;
-  vehicle_repair: number;
-  oil_change: number;
-  one_off_amount: number;
-  one_off_memo: string | null;
+  type_id: string;
+  type_name: string;
+  content: string;
+  amount: number;
+  attribution: "COMPANY" | "DRIVER";
+  target_driver_id: string | null;
+  target_driver_name: string | null;
+  vehicle_id: string | null;
+  vehicle_label: string | null;
+  memo: string | null;
+  created_at: string;
+  updated_at: string;
 };
+type VehicleRow = { id: string; manufacturer?: string | null; brand?: string | null; number_numeric?: string | null };
 
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
+const fmtAmount = (amount: number) => {
+  const n = Number(amount);
+  const sign = n >= 0 ? "+" : "−";
+  return `${sign} ${Math.abs(n).toLocaleString("ja-JP")}`;
+};
 
 function toLocalYmd(d: Date): string {
   const y = d.getFullYear();
@@ -89,6 +104,438 @@ const CustomTooltip = ({
   );
 };
 
+function LogEntryForm({
+  startIso,
+  endIso,
+  logTypes,
+  drivers,
+  vehicles,
+  onAdded,
+  onTypeAdded,
+}: {
+  startIso: string;
+  endIso: string;
+  logTypes: SalesLogTypeRow[];
+  drivers: DriverRow[];
+  vehicles: VehicleRow[];
+  onAdded: () => void;
+  onTypeAdded: () => void;
+}) {
+  const [logDate, setLogDate] = useState(startIso || "");
+  const [typeId, setTypeId] = useState("");
+  const [content, setContent] = useState("");
+  const [amount, setAmount] = useState<number>(0);
+  const [attribution, setAttribution] = useState<"COMPANY" | "DRIVER">("COMPANY");
+  const [targetDriverId, setTargetDriverId] = useState("");
+  const [vehicleId, setVehicleId] = useState("");
+  const [memo, setMemo] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [addingType, setAddingType] = useState(false);
+
+  useEffect(() => {
+    if (startIso && !logDate) setLogDate(startIso);
+  }, [startIso, logDate]);
+
+  const vehicleLabel = (v: VehicleRow) => [v.manufacturer, v.brand, v.number_numeric].filter(Boolean).join(" ") || v.id;
+
+  const handleAdd = () => {
+    if (!logDate || !typeId || content.trim() === "") return;
+    setSubmitting(true);
+    apiFetch("/api/admin/sales/log", {
+      method: "POST",
+      body: JSON.stringify({
+        log_date: logDate,
+        type_id: typeId,
+        content: content.trim(),
+        amount: Number(amount) || 0,
+        attribution,
+        target_driver_id: targetDriverId || null,
+        vehicle_id: vehicleId || null,
+        memo: memo.trim() || null,
+      }),
+    })
+      .then(() => {
+        setContent("");
+        setAmount(0);
+        setMemo("");
+        onAdded();
+      })
+      .catch(() => {})
+      .finally(() => setSubmitting(false));
+  };
+
+  const handleAddType = () => {
+    const name = newTypeName.trim();
+    if (!name) return;
+    setAddingType(true);
+    apiFetch("/api/admin/sales/log/types", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    })
+      .then(() => {
+        setNewTypeName("");
+        onTypeAdded();
+      })
+      .catch(() => {})
+      .finally(() => setAddingType(false));
+  };
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+      <div className="text-xs font-semibold text-slate-600 mb-2">行を追加</div>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-slate-500">日付</span>
+          <input
+            type="date"
+            value={logDate}
+            onChange={(e) => setLogDate(e.target.value)}
+            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-[140px]"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-slate-500">種別</span>
+          <select
+            value={typeId}
+            onChange={(e) => setTypeId(e.target.value)}
+            className="px-2 py-1.5 border border-slate-200 rounded text-sm min-w-[100px]"
+          >
+            <option value="">選択</option>
+            {logTypes.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </label>
+        <span className="text-slate-400 text-xs">または</span>
+        <div className="flex items-center gap-1">
+          <input
+            type="text"
+            value={newTypeName}
+            onChange={(e) => setNewTypeName(e.target.value)}
+            placeholder="種別を追加"
+            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-28"
+          />
+          <button type="button" onClick={handleAddType} disabled={addingType || !newTypeName.trim()} className="px-2 py-1.5 bg-slate-200 rounded text-xs font-medium hover:bg-slate-300 disabled:opacity-50">追加</button>
+        </div>
+        <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
+          <span className="text-xs text-slate-500">内容</span>
+          <input
+            type="text"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="例: ヤマト宅急便 3/1分"
+            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-full"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-slate-500">金額（±）</span>
+          <input
+            type="number"
+            value={amount === 0 ? "" : amount}
+            onChange={(e) => setAmount(Number(e.target.value) || 0)}
+            placeholder="0"
+            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-24 text-right tabular-nums"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-slate-500">帰属先</span>
+          <select
+            value={attribution}
+            onChange={(e) => setAttribution(e.target.value as "COMPANY" | "DRIVER")}
+            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-[100px]"
+          >
+            <option value="COMPANY">会社</option>
+            <option value="DRIVER">ドライバー</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-slate-500">対象者</span>
+          <select
+            value={targetDriverId}
+            onChange={(e) => setTargetDriverId(e.target.value)}
+            className="px-2 py-1.5 border border-slate-200 rounded text-sm min-w-[120px]"
+          >
+            <option value="">—</option>
+            {drivers.map((d) => (
+              <option key={d.id} value={d.id}>{d.display_name ?? d.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-slate-500">車両</span>
+          <select
+            value={vehicleId}
+            onChange={(e) => setVehicleId(e.target.value)}
+            className="px-2 py-1.5 border border-slate-200 rounded text-sm min-w-[100px]"
+          >
+            <option value="">—</option>
+            {vehicles.map((v) => (
+              <option key={v.id} value={v.id}>{vehicleLabel(v)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 min-w-[120px]">
+          <span className="text-xs text-slate-500">備考</span>
+          <input
+            type="text"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            placeholder="任意"
+            className="px-2 py-1.5 border border-slate-200 rounded text-sm w-full"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={submitting || !logDate || !typeId || content.trim() === ""}
+          className="px-4 py-1.5 bg-slate-900 text-white rounded text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
+        >
+          {submitting ? "追加中..." : "追加"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LogEntriesByDate({
+  entries,
+  canWrite,
+  logTypes,
+  drivers,
+  vehicles,
+  startIso,
+  endIso,
+  onUpdated,
+  savingId,
+  setSavingId,
+}: {
+  entries: SalesLogEntryRow[];
+  canWrite: boolean;
+  logTypes: SalesLogTypeRow[];
+  drivers: DriverRow[];
+  vehicles: VehicleRow[];
+  startIso: string;
+  endIso: string;
+  onUpdated: () => void;
+  savingId: string | null;
+  setSavingId: (id: string | null) => void;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<SalesLogEntryRow>>({});
+
+  const vehicleLabel = (v: VehicleRow) => [v.manufacturer, v.brand, v.number_numeric].filter(Boolean).join(" ") || v.id;
+
+  const byDate = useMemo(() => {
+    const map = new Map<string, SalesLogEntryRow[]>();
+    entries.forEach((e) => {
+      const list = map.get(e.log_date) ?? [];
+      list.push(e);
+      map.set(e.log_date, list);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [entries]);
+
+  const dateLabel = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return `${m}月${d}日`;
+  };
+
+  const handleDelete = (id: string) => {
+    if (!canWrite || !confirm("この行を削除しますか？")) return;
+    setSavingId(id);
+    apiFetch(`/api/admin/sales/log/${id}`, { method: "DELETE" })
+      .then(() => onUpdated())
+      .catch(() => {})
+      .finally(() => setSavingId(null));
+  };
+
+  const startEdit = (row: SalesLogEntryRow) => {
+    setEditingId(row.id);
+    setEditForm({
+      type_id: row.type_id,
+      content: row.content,
+      amount: row.amount,
+      attribution: row.attribution,
+      target_driver_id: row.target_driver_id,
+      vehicle_id: row.vehicle_id,
+      memo: row.memo ?? "",
+    });
+  };
+
+  const saveEdit = () => {
+    if (!editingId || !canWrite) return;
+    setSavingId(editingId);
+    apiFetch(`/api/admin/sales/log/${editingId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        type_id: editForm.type_id,
+        content: editForm.content,
+        amount: editForm.amount,
+        attribution: editForm.attribution,
+        target_driver_id: editForm.target_driver_id || null,
+        vehicle_id: editForm.vehicle_id || null,
+        memo: editForm.memo?.trim() || null,
+      }),
+    })
+      .then(() => {
+        setEditingId(null);
+        onUpdated();
+      })
+      .catch(() => {})
+      .finally(() => setSavingId(null));
+  };
+
+  if (entries.length === 0) {
+    return (
+      <div className="p-8 text-center text-sm text-slate-500">
+        この期間にログがありません。上で日付・種別・内容・金額を入力して「追加」してください。
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      {byDate.map(([dateIso, rows]) => (
+        <div key={dateIso} className="border-b border-slate-100 last:border-b-0">
+          <div className="px-3 py-2 bg-slate-50 font-semibold text-slate-800 text-sm">
+            {dateLabel(dateIso)}
+          </div>
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/80">
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[140px]">内容</th>
+                <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">金額</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">帰属先</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">対象者</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">車両</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[80px]">備考</th>
+                {canWrite && <th className="px-3 py-2 w-20" />}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const isEditing = editingId === row.id;
+                const saving = savingId === row.id;
+                return (
+                  <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                    {isEditing ? (
+                      <>
+                        <td className="px-3 py-2">
+                          <select
+                            value={editForm.type_id ?? ""}
+                            onChange={(e) => setEditForm((f) => ({ ...f, type_id: e.target.value }))}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                          >
+                            {logTypes.map((t) => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            value={editForm.content ?? ""}
+                            onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            value={editForm.amount ?? 0}
+                            onChange={(e) => setEditForm((f) => ({ ...f, amount: Number(e.target.value) || 0 }))}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            value={editForm.attribution ?? "COMPANY"}
+                            onChange={(e) => setEditForm((f) => ({ ...f, attribution: e.target.value as "COMPANY" | "DRIVER" }))}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                          >
+                            <option value="COMPANY">会社</option>
+                            <option value="DRIVER">ドライバー</option>
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            value={editForm.target_driver_id ?? ""}
+                            onChange={(e) => setEditForm((f) => ({ ...f, target_driver_id: e.target.value || null }))}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                          >
+                            <option value="">—</option>
+                            {drivers.map((d) => (
+                              <option key={d.id} value={d.id}>{d.display_name ?? d.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            value={editForm.vehicle_id ?? ""}
+                            onChange={(e) => setEditForm((f) => ({ ...f, vehicle_id: e.target.value || null }))}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                          >
+                            <option value="">—</option>
+                            {vehicles.map((v) => (
+                              <option key={v.id} value={v.id}>{vehicleLabel(v)}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            value={editForm.memo ?? ""}
+                            onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))}
+                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                          />
+                        </td>
+                        {canWrite && (
+                          <td className="px-3 py-2">
+                            <div className="flex gap-1">
+                              <button type="button" onClick={saveEdit} className="px-2 py-1 bg-slate-700 text-white rounded text-[10px]">保存</button>
+                              <button type="button" onClick={() => setEditingId(null)} className="px-2 py-1 bg-slate-200 rounded text-[10px]">取消</button>
+                            </div>
+                          </td>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
+                        <td className="px-3 py-2 text-slate-700">{row.content}</td>
+                        <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.amount >= 0 ? "text-slate-900" : "text-red-700"}`}>
+                          {fmtAmount(row.amount)}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600">{row.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
+                        <td className="px-3 py-2 text-slate-600">{row.target_driver_name ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-600">{row.vehicle_label ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-500 text-[11px]">{row.memo ?? "—"}</td>
+                        {canWrite && (
+                          <td className="px-3 py-2">
+                            {saving ? (
+                              <span className="text-slate-400 text-[10px]">保存中...</span>
+                            ) : (
+                              <span className="flex gap-1">
+                                <button type="button" onClick={() => startEdit(row)} className="text-slate-600 hover:text-slate-900 text-[10px]">編集</button>
+                                <button type="button" onClick={() => handleDelete(row.id)} className="text-red-600 hover:text-red-800 text-[10px]">削除</button>
+                              </span>
+                            )}
+                          </td>
+                        )}
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function SalesPage() {
   const [tab, setTab] = useState<Tab>("analytics");
   const [range, setRange] = useState<DateRangeValue | undefined>();
@@ -104,9 +551,12 @@ export default function SalesPage() {
   const [courses, setCourses] = useState<CourseRow[]>([]);
   const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(new Set());
   const masterCheckboxRef = useRef<HTMLInputElement | null>(null);
-  const [logEntries, setLogEntries] = useState<SalesLogEntry[]>([]);
+  const [logEntries, setLogEntries] = useState<SalesLogEntryRow[]>([]);
+  const [logTypes, setLogTypes] = useState<SalesLogTypeRow[]>([]);
+  const [logDrivers, setLogDrivers] = useState<DriverRow[]>([]);
+  const [logVehicles, setLogVehicles] = useState<VehicleRow[]>([]);
   const [loadingLog, setLoadingLog] = useState(false);
-  const [logSaving, setLogSaving] = useState<string | null>(null);
+  const [logSavingId, setLogSavingId] = useState<string | null>(null);
   const [canWrite, setCanWrite] = useState(false);
 
   useEffect(() => {
@@ -222,11 +672,30 @@ export default function SalesPage() {
   useEffect(() => {
     if (tab !== "log" || !startIso || !endIso) return;
     setLoadingLog(true);
-    apiFetch<{ entries: SalesLogEntry[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
+    apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
       .then((res) => setLogEntries(res.entries ?? []))
       .catch(() => setLogEntries([]))
       .finally(() => setLoadingLog(false));
   }, [tab, startIso, endIso]);
+
+  useEffect(() => {
+    if (tab !== "log") return;
+    apiFetch<{ types: SalesLogTypeRow[] }>("/api/admin/sales/log/types")
+      .then((res) => setLogTypes(res.types ?? []))
+      .catch(() => setLogTypes([]));
+  }, [tab]);
+  useEffect(() => {
+    if (tab !== "log") return;
+    apiFetch<{ drivers: DriverRow[] }>("/api/admin/users")
+      .then((res) => setLogDrivers(res.drivers ?? []))
+      .catch(() => setLogDrivers([]));
+  }, [tab]);
+  useEffect(() => {
+    if (tab !== "log") return;
+    apiFetch<{ vehicles: VehicleRow[] }>("/api/admin/vehicles")
+      .then((res) => setLogVehicles(res.vehicles ?? []))
+      .catch(() => setLogVehicles([]));
+  }, [tab]);
 
   const displayData = useMemo(() => {
     if (carrierFilter === "ALL") return deliveryData;
@@ -671,159 +1140,55 @@ export default function SalesPage() {
 
             {tab === "log" && (
               <>
-                <div className="text-sm text-slate-600 mb-3">
-                  日付ごとの売上（ヤマト・Amazon）と、ドライバー支払い・車両費・単発案件を記入できます。編集後はセルを離れると自動保存されます。
+                <div className="text-sm text-slate-600 mb-4">
+                  会計の仕分けのように、日付ごとに「種別・内容・金額・帰属先・対象者・車両・備考」を登録できます。対象者にドライバーを指定した外注費はドライバー報酬、帰属先をドライバーにした修理費等は後でドライバーに請求します。
                 </div>
+                {canWrite && (
+                  <LogEntryForm
+                    startIso={startIso}
+                    endIso={endIso}
+                    logTypes={logTypes}
+                    drivers={logDrivers}
+                    vehicles={logVehicles}
+                    onAdded={() => {
+                      if (startIso && endIso) {
+                        apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
+                          .then((res) => setLogEntries(res.entries ?? []))
+                          .catch(() => {});
+                      }
+                    }}
+                    onTypeAdded={() => {
+                      apiFetch<{ types: SalesLogTypeRow[] }>("/api/admin/sales/log/types")
+                        .then((res) => setLogTypes(res.types ?? []))
+                        .catch(() => {});
+                    }}
+                  />
+                )}
                 {loadingLog ? (
-                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden p-6">
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden p-6 mt-4">
                     <Skeleton className="h-8 w-full mb-4" />
                     <Skeleton className="h-64 w-full" />
                   </div>
                 ) : (
-                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="min-w-max text-xs w-full">
-                        <thead className="bg-slate-50 border-b border-slate-200">
-                          <tr>
-                            <th className="px-3 py-2 text-left font-semibold text-slate-700 whitespace-nowrap">日付</th>
-                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">ヤマト売上</th>
-                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">Amazon売上</th>
-                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">ドライバー支払い</th>
-                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">車両修理費</th>
-                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">オイル交換代</th>
-                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">単発案件(円)</th>
-                            <th className="px-3 py-2 text-left font-semibold text-slate-700 whitespace-nowrap min-w-[140px]">単発案件(メモ)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {daysInRange.map((day, i) => {
-                            const sales = displayData[i];
-                            const yamato = sales?.yamato ?? 0;
-                            const amazon = sales?.amazon ?? 0;
-                            const entry = logEntries.find((e) => e.log_date === day.iso) ?? {
-                              log_date: day.iso,
-                              driver_payment: 0,
-                              vehicle_repair: 0,
-                              oil_change: 0,
-                              one_off_amount: 0,
-                              one_off_memo: null,
-                            };
-                            const saving = logSaving === day.iso;
-                            const saveLog = (updates: Partial<SalesLogEntry>) => {
-                              if (!canWrite) return;
-                              setLogSaving(day.iso);
-                              const next = { ...entry, ...updates };
-                              apiFetch("/api/admin/sales/log", {
-                                method: "PATCH",
-                                body: JSON.stringify({ entries: [next] }),
-                              })
-                                .then(() => {
-                                  setLogEntries((prev) => {
-                                    const idx = prev.findIndex((e) => e.log_date === day.iso);
-                                    const nextEntry = { ...entry, ...updates };
-                                    if (idx >= 0) {
-                                      const p = [...prev];
-                                      p[idx] = nextEntry;
-                                      return p;
-                                    }
-                                    return [...prev, nextEntry].sort((a, b) => a.log_date.localeCompare(b.log_date));
-                                  });
-                                })
-                                .catch(() => {})
-                                .finally(() => setLogSaving(null));
-                            };
-                            return (
-                              <tr key={day.iso} className="border-t border-slate-100 hover:bg-slate-50/50">
-                                <td className="px-3 py-2 font-medium text-slate-900 whitespace-nowrap">{day.label}</td>
-                                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{fmt(yamato)}</td>
-                                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{fmt(amazon)}</td>
-                                <td className="px-3 py-2">
-                                  {canWrite ? (
-                                    <input
-                                      type="number"
-                                      defaultValue={entry.driver_payment}
-                                      onBlur={(e) => {
-                                        const v = Number(e.target.value) || 0;
-                                        if (v !== entry.driver_payment) saveLog({ driver_payment: v });
-                                      }}
-                                      className="w-full min-w-[72px] px-2 py-1 text-right border border-slate-200 rounded tabular-nums focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
-                                      placeholder="0"
-                                    />
-                                  ) : (
-                                    <span className="text-right tabular-nums text-slate-700 block">{fmt(entry.driver_payment)}</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {canWrite ? (
-                                    <input
-                                      type="number"
-                                      defaultValue={entry.vehicle_repair}
-                                      onBlur={(e) => {
-                                        const v = Number(e.target.value) || 0;
-                                        if (v !== entry.vehicle_repair) saveLog({ vehicle_repair: v });
-                                      }}
-                                      className="w-full min-w-[72px] px-2 py-1 text-right border border-slate-200 rounded tabular-nums focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
-                                      placeholder="0"
-                                    />
-                                  ) : (
-                                    <span className="text-right tabular-nums text-slate-700 block">{fmt(entry.vehicle_repair)}</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {canWrite ? (
-                                    <input
-                                      type="number"
-                                      defaultValue={entry.oil_change}
-                                      onBlur={(e) => {
-                                        const v = Number(e.target.value) || 0;
-                                        if (v !== entry.oil_change) saveLog({ oil_change: v });
-                                      }}
-                                      className="w-full min-w-[72px] px-2 py-1 text-right border border-slate-200 rounded tabular-nums focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
-                                      placeholder="0"
-                                    />
-                                  ) : (
-                                    <span className="text-right tabular-nums text-slate-700 block">{fmt(entry.oil_change)}</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {canWrite ? (
-                                    <input
-                                      type="number"
-                                      defaultValue={entry.one_off_amount || ""}
-                                      onBlur={(e) => {
-                                        const v = Number(e.target.value) || 0;
-                                        if (v !== entry.one_off_amount) saveLog({ one_off_amount: v });
-                                      }}
-                                      className="w-full min-w-[72px] px-2 py-1 text-right border border-slate-200 rounded tabular-nums focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
-                                      placeholder="0"
-                                    />
-                                  ) : (
-                                    <span className="text-right tabular-nums text-slate-700 block">{fmt(entry.one_off_amount)}</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {canWrite ? (
-                                    <input
-                                      type="text"
-                                      defaultValue={entry.one_off_memo ?? ""}
-                                      onBlur={(e) => {
-                                        const v = e.target.value.trim() || null;
-                                        if (v !== (entry.one_off_memo ?? "")) saveLog({ one_off_memo: v });
-                                      }}
-                                      className="w-full min-w-[120px] px-2 py-1 border border-slate-200 rounded focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
-                                      placeholder="メモ"
-                                    />
-                                  ) : (
-                                    <span className="text-slate-700 block">{entry.one_off_memo ?? "–"}</span>
-                                  )}
-                                  {saving && <span className="ml-1 text-slate-400 text-[10px]">保存中...</span>}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden mt-4">
+                    <LogEntriesByDate
+                      entries={logEntries}
+                      canWrite={canWrite}
+                      logTypes={logTypes}
+                      drivers={logDrivers}
+                      vehicles={logVehicles}
+                      startIso={startIso}
+                      endIso={endIso}
+                      onUpdated={() => {
+                        if (startIso && endIso) {
+                          apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
+                            .then((res) => setLogEntries(res.entries ?? []))
+                            .catch(() => {});
+                        }
+                      }}
+                      savingId={logSavingId}
+                      setSavingId={setLogSavingId}
+                    />
                   </div>
                 )}
               </>
