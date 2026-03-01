@@ -177,7 +177,7 @@ function LogEntryModal({
         onAdded();
         onClose();
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setSubmitting(false));
   };
 
@@ -193,7 +193,7 @@ function LogEntryModal({
         setNewTypeName("");
         onTypeAdded();
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setAddingType(false));
   };
 
@@ -240,7 +240,7 @@ function LogEntryModal({
                   value={newTypeName}
                   onChange={(e) => setNewTypeName(e.target.value)}
                   placeholder="種別を追加"
-                  className={`w-28 shrink-0 rounded-xl ${inputClass}`}
+                  className={`w-16 shrink-0 rounded-xl ${inputClass}`}
                 />
                 <button type="button" onClick={handleAddType} disabled={addingType || !newTypeName.trim()} className="h-12 px-3 shrink-0 bg-slate-100 rounded-xl text-sm font-medium hover:bg-slate-200 disabled:opacity-50">追加</button>
               </div>
@@ -262,14 +262,14 @@ function LogEntryModal({
                   <button
                     type="button"
                     onClick={() => setAmountSign("+")}
-                    className={`px-4 font-medium text-sm transition-colors ${amountSign === "+" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                    className={`px-4 font-medium text-sm transition-colors ${amountSign === "+" ? "bg-green-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
                   >
                     +
                   </button>
                   <button
                     type="button"
                     onClick={() => setAmountSign("-")}
-                    className={`px-4 font-medium text-sm transition-colors ${amountSign === "-" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                    className={`px-4 font-medium text-sm transition-colors ${amountSign === "-" ? "bg-red-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
                   >
                     −
                   </button>
@@ -422,7 +422,7 @@ function LogEntriesByDate({
     setSavingId(id);
     apiFetch(`/api/admin/sales/log/${id}`, { method: "DELETE" })
       .then(() => onUpdated())
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setSavingId(null));
   };
 
@@ -458,7 +458,7 @@ function LogEntriesByDate({
         setEditingId(null);
         onUpdated();
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setSavingId(null));
   };
 
@@ -1254,13 +1254,13 @@ export default function SalesPage() {
                     if (startIso && endIso) {
                       apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
                         .then((res) => setLogEntries(res.entries ?? []))
-                        .catch(() => {});
+                        .catch(() => { });
                     }
                   }}
                   onTypeAdded={() => {
                     apiFetch<{ types: SalesLogTypeRow[] }>("/api/admin/sales/log/types")
                       .then((res) => setLogTypes(res.types ?? []))
-                      .catch(() => {});
+                      .catch(() => { });
                   }}
                 />
                 {loadingLog ? (
@@ -1284,7 +1284,7 @@ export default function SalesPage() {
                         if (startIso && endIso) {
                           apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
                             .then((res) => setLogEntries(res.entries ?? []))
-                            .catch(() => {});
+                            .catch(() => { });
                         }
                       }}
                       savingId={logSavingId}
