@@ -368,7 +368,7 @@ function LogEntryModal({
                   value={newTypeName}
                   onChange={(e) => setNewTypeName(e.target.value)}
                   placeholder="種別を追加"
-                  className={`w-28 min-w-0 shrink-0 rounded-xl ${inputClass}`}
+                  className={`w-12 min-w-0 shrink-0 rounded-xl ${inputClass}`}
                 />
                 <button type="button" onClick={handleAddType} disabled={addingType || !newTypeName.trim()} className="h-12 px-3 shrink-0 bg-slate-100 rounded-xl text-sm font-medium hover:bg-slate-200 disabled:opacity-50 whitespace-nowrap">追加</button>
               </div>
@@ -649,175 +649,175 @@ function LogEntriesByDate({
             : "該当するログがありません。フィルターを変更するか、日付範囲を確認してください。"}
         </div>
       ) : (
-      <div className="overflow-x-auto">
-        {byDate.map(([dateIso, rows]) => (
-          <div key={dateIso} className="border-b border-slate-100 last:border-b-0">
-            <div className="px-3 py-2 bg-slate-50 font-semibold text-slate-800 text-sm">
-              {dateLabel(dateIso)}
-            </div>
-            <table className="min-w-full text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80">
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[140px]">内容</th>
-                  <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">金額</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">帰属先</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">対象者</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">車両</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[80px]">備考</th>
-                  {canWrite && <th className="px-3 py-2 w-20" />}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, rowIdx) => {
-                  if (row.kind === "calculated") {
+        <div className="overflow-x-auto">
+          {byDate.map(([dateIso, rows]) => (
+            <div key={dateIso} className="border-b border-slate-100 last:border-b-0">
+              <div className="px-3 py-2 bg-slate-50 font-semibold text-slate-800 text-sm">
+                {dateLabel(dateIso)}
+              </div>
+              <table className="min-w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/80">
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[140px]">内容</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">金額</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">帰属先</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">対象者</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">車両</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[80px]">備考</th>
+                    {canWrite && <th className="px-3 py-2 w-20" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, rowIdx) => {
+                    if (row.kind === "calculated") {
+                      return (
+                        <tr key={`calc-${dateIso}-${rowIdx}`} className="border-t border-slate-100 bg-slate-50/30">
+                          <td className="px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
+                          <td className="px-3 py-2 text-slate-600">{row.content}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-600">{fmtAmount(row.amount)}</td>
+                          <td className="px-3 py-2 text-slate-500">会社</td>
+                          <td className="px-3 py-2 text-slate-500">—</td>
+                          <td className="px-3 py-2 text-slate-500">—</td>
+                          <td className="px-3 py-2 text-slate-400 text-[11px]">—</td>
+                          {canWrite && <td className="px-3 py-2" />}
+                        </tr>
+                      );
+                    }
+                    const r = row.entry;
+                    const isEditing = editingId === r.id;
+                    const saving = savingId === r.id;
                     return (
-                      <tr key={`calc-${dateIso}-${rowIdx}`} className="border-t border-slate-100 bg-slate-50/30">
-                        <td className="px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
-                        <td className="px-3 py-2 text-slate-600">{row.content}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-600">{fmtAmount(row.amount)}</td>
-                        <td className="px-3 py-2 text-slate-500">会社</td>
-                        <td className="px-3 py-2 text-slate-500">—</td>
-                        <td className="px-3 py-2 text-slate-500">—</td>
-                        <td className="px-3 py-2 text-slate-400 text-[11px]">—</td>
-                        {canWrite && <td className="px-3 py-2" />}
+                      <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                        {isEditing ? (
+                          <>
+                            <td className="px-3 py-2">
+                              <CustomSelect
+                                size="sm"
+                                options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
+                                value={editForm.type_id ?? ""}
+                                onChange={(v) => setEditForm((f) => ({ ...f, type_id: v }))}
+                                placeholder="選択"
+                                clearable
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                value={editForm.content ?? ""}
+                                onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
+                                className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                value={editForm.amount ?? 0}
+                                onChange={(e) => setEditForm((f) => ({ ...f, amount: Number(e.target.value) || 0 }))}
+                                className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <CustomSelect
+                                size="sm"
+                                options={[
+                                  { value: "COMPANY", label: "会社" },
+                                  { value: "DRIVER", label: "ドライバー" },
+                                ]}
+                                value={editForm.attribution ?? "COMPANY"}
+                                onChange={(v) => setEditForm((f) => ({ ...f, attribution: v as "COMPANY" | "DRIVER" }))}
+                                clearable={false}
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <CustomSelect
+                                size="sm"
+                                options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
+                                value={editForm.target_driver_id ?? ""}
+                                onChange={(v) => setEditForm((f) => ({ ...f, target_driver_id: v || null }))}
+                                placeholder="—"
+                                clearable
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <CustomSelect
+                                size="sm"
+                                options={[{ value: "", label: "—" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
+                                value={editForm.vehicle_id ?? ""}
+                                onChange={(v) => setEditForm((f) => ({ ...f, vehicle_id: v || null }))}
+                                placeholder="—"
+                                clearable
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                value={editForm.memo ?? ""}
+                                onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))}
+                                className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                              />
+                            </td>
+                            {canWrite && (
+                              <td className="px-3 py-2">
+                                <div className="flex gap-1">
+                                  <button type="button" onClick={saveEdit} className="px-2 py-1 bg-slate-700 text-white rounded text-[10px]">保存</button>
+                                  <button type="button" onClick={() => setEditingId(null)} className="px-2 py-1 bg-slate-200 rounded text-[10px]">取消</button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!editingId) return;
+                                      if (!confirm("この行を削除しますか？")) return;
+                                      setSavingId(editingId);
+                                      apiFetch(`/api/admin/sales/log/${editingId}`, { method: "DELETE" })
+                                        .then(() => { setEditingId(null); onUpdated(); })
+                                        .catch(() => { })
+                                        .finally(() => setSavingId(null));
+                                    }}
+                                    className="px-2 py-1 bg-red-100 text-red-700 rounded text-[10px] hover:bg-red-200"
+                                  >
+                                    削除
+                                  </button>
+                                </div>
+                              </td>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
+                            <td className="px-3 py-2 text-slate-700">{r.content}</td>
+                            <td className={`px-3 py-2 text-right tabular-nums font-medium ${r.amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                              {fmtAmount(r.amount)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600">{r.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
+                            <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
+                            <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
+                            <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
+                            {canWrite && (
+                              <td className="px-3 py-2">
+                                {saving ? (
+                                  <span className="text-slate-400 text-[10px]">保存中...</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => startEdit(r)}
+                                    title="編集"
+                                    className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded"
+                                  >
+                                    <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </td>
+                            )}
+                          </>
+                        )}
                       </tr>
                     );
-                  }
-                  const r = row.entry;
-                  const isEditing = editingId === r.id;
-                  const saving = savingId === r.id;
-                  return (
-                    <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/50">
-                      {isEditing ? (
-                        <>
-                          <td className="px-3 py-2">
-                            <CustomSelect
-                              size="sm"
-                              options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
-                              value={editForm.type_id ?? ""}
-                              onChange={(v) => setEditForm((f) => ({ ...f, type_id: v }))}
-                              placeholder="選択"
-                              clearable
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <input
-                              type="text"
-                              value={editForm.content ?? ""}
-                              onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
-                              className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <input
-                              type="number"
-                              value={editForm.amount ?? 0}
-                              onChange={(e) => setEditForm((f) => ({ ...f, amount: Number(e.target.value) || 0 }))}
-                              className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <CustomSelect
-                              size="sm"
-                              options={[
-                                { value: "COMPANY", label: "会社" },
-                                { value: "DRIVER", label: "ドライバー" },
-                              ]}
-                              value={editForm.attribution ?? "COMPANY"}
-                              onChange={(v) => setEditForm((f) => ({ ...f, attribution: v as "COMPANY" | "DRIVER" }))}
-                              clearable={false}
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <CustomSelect
-                              size="sm"
-                              options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
-                              value={editForm.target_driver_id ?? ""}
-                              onChange={(v) => setEditForm((f) => ({ ...f, target_driver_id: v || null }))}
-                              placeholder="—"
-                              clearable
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <CustomSelect
-                              size="sm"
-                              options={[{ value: "", label: "—" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
-                              value={editForm.vehicle_id ?? ""}
-                              onChange={(v) => setEditForm((f) => ({ ...f, vehicle_id: v || null }))}
-                              placeholder="—"
-                              clearable
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <input
-                              type="text"
-                              value={editForm.memo ?? ""}
-                              onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))}
-                              className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
-                            />
-                          </td>
-                          {canWrite && (
-                            <td className="px-3 py-2">
-                              <div className="flex gap-1">
-                                <button type="button" onClick={saveEdit} className="px-2 py-1 bg-slate-700 text-white rounded text-[10px]">保存</button>
-                                <button type="button" onClick={() => setEditingId(null)} className="px-2 py-1 bg-slate-200 rounded text-[10px]">取消</button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (!editingId) return;
-                                    if (!confirm("この行を削除しますか？")) return;
-                                    setSavingId(editingId);
-                                    apiFetch(`/api/admin/sales/log/${editingId}`, { method: "DELETE" })
-                                      .then(() => { setEditingId(null); onUpdated(); })
-                                      .catch(() => { })
-                                      .finally(() => setSavingId(null));
-                                  }}
-                                  className="px-2 py-1 bg-red-100 text-red-700 rounded text-[10px] hover:bg-red-200"
-                                >
-                                  削除
-                                </button>
-                              </div>
-                            </td>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
-                          <td className="px-3 py-2 text-slate-700">{r.content}</td>
-                          <td className={`px-3 py-2 text-right tabular-nums font-medium ${r.amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                            {fmtAmount(r.amount)}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600">{r.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
-                          <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
-                          <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
-                          <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
-                          {canWrite && (
-                            <td className="px-3 py-2">
-                              {saving ? (
-                                <span className="text-slate-400 text-[10px]">保存中...</span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => startEdit(r)}
-                                  title="編集"
-                                  className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded"
-                                >
-                                  <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </td>
-                          )}
-                        </>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
