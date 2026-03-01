@@ -352,8 +352,8 @@ function LogEntryModal({
             </div>
             <div className="sm:col-span-2 min-w-0 overflow-hidden">
               <label className="block text-xs font-medium text-slate-600 mb-1.5">種別</label>
-              <div className="flex gap-2 items-stretch min-w-0">
-                <div className="flex-1 min-w-[200px]">
+              <div className="flex flex-wrap gap-2 items-stretch min-w-0">
+                <div className="flex-1 min-w-[120px] basis-40">
                   <CustomSelect
                     size="md"
                     options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
@@ -368,7 +368,7 @@ function LogEntryModal({
                   value={newTypeName}
                   onChange={(e) => setNewTypeName(e.target.value)}
                   placeholder="種別を追加"
-                  className={`w-12 min-w-0 shrink-0 rounded-xl ${inputClass}`}
+                  className={`flex-1 min-w-[80px] max-w-[140px] rounded-xl ${inputClass}`}
                 />
                 <button type="button" onClick={handleAddType} disabled={addingType || !newTypeName.trim()} className="h-12 px-3 shrink-0 bg-slate-100 rounded-xl text-sm font-medium hover:bg-slate-200 disabled:opacity-50 whitespace-nowrap">追加</button>
               </div>
