@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { Check, ChevronDown, X } from "lucide-react";
 
@@ -35,16 +36,26 @@ export function CustomSelect({
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
+  const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const selectedOption = options.find((opt) => opt.value === value);
 
+  useLayoutEffect(() => {
+    if (!isOpen || typeof document === "undefined") return;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setDropdownRect({ top: rect.bottom + 8, left: rect.left, width: rect.width });
+  }, [isOpen]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-        setFocusedIndex(-1);
-      }
+      const target = event.target as Node;
+      if (containerRef.current?.contains(target) || dropdownRef.current?.contains(target)) return;
+      setIsOpen(false);
+      setFocusedIndex(-1);
     };
 
     document.addEventListener("mousedown", handleClickOutside);
@@ -164,66 +175,76 @@ export function CustomSelect({
         </div>
       </button>
 
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-            className="absolute z-[9999] w-full mt-2 bg-white border-2 border-slate-200 rounded-xl shadow-xl overflow-hidden"
-          >
-            <div className="max-h-[280px] overflow-y-auto">
-              {options.length > 0 ? (
-                options.map((option, index) => {
-                  const isSelected = option.value === value;
-                  const isFocused = index === focusedIndex;
+      {typeof document !== "undefined" &&
+        isOpen &&
+        dropdownRect &&
+        createPortal(
+          <AnimatePresence>
+            <motion.div
+              ref={dropdownRef}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="fixed z-[9999] bg-white border-2 border-slate-200 rounded-xl shadow-xl overflow-hidden"
+              style={{
+                top: dropdownRect.top,
+                left: dropdownRect.left,
+                width: dropdownRect.width,
+              }}
+            >
+              <div className="max-h-[280px] overflow-y-auto">
+                {options.length > 0 ? (
+                  options.map((option, index) => {
+                    const isSelected = option.value === value;
+                    const isFocused = index === focusedIndex;
 
-                  return (
-                    <motion.button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleSelect(option.value)}
-                      onMouseEnter={() => setFocusedIndex(index)}
-                      className={`
-                        w-full ${optionPadding} flex items-center gap-2
-                        transition-colors duration-150
-                        ${isFocused ? "bg-slate-100" : "hover:bg-slate-50"}
-                        ${isSelected ? "bg-slate-50" : ""}
-                      `}
-                      whileHover={{ x: 4 }}
-                      transition={{ duration: 0.15 }}
-                    >
-                      {option.icon && (
-                        <div className="flex-shrink-0 text-slate-600">{option.icon}</div>
-                      )}
-                      <div className="flex-1 text-left min-w-0">
-                        <div
-                          className={`truncate ${isSm || isMd ? "text-sm" : ""} ${
-                            isSelected ? "text-slate-700 font-medium" : "text-slate-900"
-                          }`}
-                        >
-                          {option.label}
-                        </div>
-                        {option.description && !isSm && !isMd && (
-                          <div className="text-sm text-slate-500 truncate">{option.description}</div>
+                    return (
+                      <motion.button
+                        key={option.value}
+                        type="button"
+                        onClick={() => handleSelect(option.value)}
+                        onMouseEnter={() => setFocusedIndex(index)}
+                        className={`
+                          w-full ${optionPadding} flex items-center gap-2
+                          transition-colors duration-150
+                          ${isFocused ? "bg-slate-100" : "hover:bg-slate-50"}
+                          ${isSelected ? "bg-slate-50" : ""}
+                        `}
+                        whileHover={{ x: 4 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        {option.icon && (
+                          <div className="flex-shrink-0 text-slate-600">{option.icon}</div>
                         )}
-                      </div>
-                      {isSelected && (
-                        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="flex-shrink-0">
-                          <Check className={`text-slate-600 ${isSm || isMd ? "w-4 h-4" : "w-5 h-5"}`} />
-                        </motion.div>
-                      )}
-                    </motion.button>
-                  );
-                })
-              ) : (
-                <div className="px-4 py-6 text-center text-slate-400 text-sm">該当する項目がありません</div>
-              )}
-            </div>
-          </motion.div>
+                        <div className="flex-1 text-left min-w-0">
+                          <div
+                            className={`truncate ${isSm || isMd ? "text-sm" : ""} ${
+                              isSelected ? "text-slate-700 font-medium" : "text-slate-900"
+                            }`}
+                          >
+                            {option.label}
+                          </div>
+                          {option.description && !isSm && !isMd && (
+                            <div className="text-sm text-slate-500 truncate">{option.description}</div>
+                          )}
+                        </div>
+                        {isSelected && (
+                          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="flex-shrink-0">
+                            <Check className={`text-slate-600 ${isSm || isMd ? "w-4 h-4" : "w-5 h-5"}`} />
+                          </motion.div>
+                        )}
+                      </motion.button>
+                    );
+                  })
+                ) : (
+                  <div className="px-4 py-6 text-center text-slate-400 text-sm">該当する項目がありません</div>
+                )}
+              </div>
+            </motion.div>
+          </AnimatePresence>,
+          document.body
         )}
-      </AnimatePresence>
     </div>
   );
 }

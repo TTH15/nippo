@@ -594,16 +594,9 @@ function LogEntriesByDate({
       .finally(() => setSavingId(null));
   };
 
-  if (byDate.length === 0) {
-    return (
-      <div className="p-8 text-center text-sm text-slate-500">
-        この期間にログがありません。右上の「新規追加」から登録するか、日付範囲を変更してください。
-      </div>
-    );
-  }
-
   return (
     <div>
+      {/* フィルター・並べ替えは常時表示 */}
       <div className="flex flex-wrap items-center gap-4 m-3">
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">種別</span>
@@ -649,6 +642,13 @@ function LogEntriesByDate({
           />
         </div>
       </div>
+      {byDate.length === 0 ? (
+        <div className="p-8 text-center text-sm text-slate-500">
+          {entries.length === 0 && !filterTypeId && !filterAttribution
+            ? "この期間にログがありません。右上の「新規追加」から登録するか、日付範囲を変更してください。"
+            : "該当するログがありません。フィルターを変更するか、日付範囲を確認してください。"}
+        </div>
+      ) : (
       <div className="overflow-x-auto">
         {byDate.map(([dateIso, rows]) => (
           <div key={dateIso} className="border-b border-slate-100 last:border-b-0">
@@ -818,6 +818,7 @@ function LogEntriesByDate({
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
