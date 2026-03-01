@@ -12,7 +12,8 @@ import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 
-type Course = { id: string; name: string; color: string; sort_order: number; max_drivers?: number | null };
+type CourseCarrier = "YAMATO" | "AMAZON" | "OTHER";
+type Course = { id: string; name: string; color: string; sort_order: number; max_drivers?: number | null; carrier?: CourseCarrier | null };
 type CourseRate = {
   id: string;
   course_id: string;
@@ -64,16 +65,18 @@ export default function CoursesPage() {
   const [showRateModal, setShowRateModal] = useState(false);
   const [editingRate, setEditingRate] = useState<CourseRate | null>(null);
   const [rateForm, setRateForm] = useState(INITIAL_RATE_FORM);
-  const [newCourse, setNewCourse] = useState<{ name: string; color: string; max_drivers: string }>({
+  const [newCourse, setNewCourse] = useState<{ name: string; color: string; max_drivers: string; carrier: CourseCarrier }>({
     name: "",
     color: COLORS[0],
     max_drivers: "1",
+    carrier: "OTHER",
   });
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
-  const [editForm, setEditForm] = useState<{ name: string; color: string; max_drivers: string }>({
+  const [editForm, setEditForm] = useState<{ name: string; color: string; max_drivers: string; carrier: CourseCarrier }>({
     name: "",
     color: COLORS[0],
     max_drivers: "1",
+    carrier: "OTHER",
   });
   const [showEditModal, setShowEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -118,12 +121,14 @@ export default function CoursesPage() {
       await apiFetch("/api/admin/courses", {
         method: "POST",
         body: JSON.stringify({
-          ...newCourse,
+          name: newCourse.name.trim(),
+          color: newCourse.color,
           max_drivers: Math.max(1, parseInt(newCourse.max_drivers, 10) || 1),
+          carrier: newCourse.carrier,
         }),
       });
       setShowModal(false);
-      setNewCourse({ name: "", color: COLORS[0], max_drivers: "1" });
+      setNewCourse({ name: "", color: COLORS[0], max_drivers: "1", carrier: "OTHER" });
       load();
     } catch (e) {
       console.error(e);
@@ -148,6 +153,7 @@ export default function CoursesPage() {
       name: course.name,
       color: course.color || COLORS[0],
       max_drivers: String(Math.max(1, course.max_drivers ?? 1)),
+      carrier: course.carrier === "YAMATO" || course.carrier === "AMAZON" ? course.carrier : "OTHER",
     });
     setShowEditModal(true);
   };
@@ -163,6 +169,7 @@ export default function CoursesPage() {
           name: editForm.name.trim(),
           color: editForm.color,
           max_drivers: Math.max(1, parseInt(editForm.max_drivers, 10) || 1),
+          carrier: editForm.carrier,
         }),
       });
       setShowEditModal(false);
@@ -405,6 +412,18 @@ export default function CoursesPage() {
 
             <div className="space-y-4">
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">キャリア</label>
+                <select
+                  value={newCourse.carrier}
+                  onChange={(e) => setNewCourse((f) => ({ ...f, carrier: e.target.value as CourseCarrier }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                >
+                  <option value="YAMATO">ヤマト</option>
+                  <option value="AMAZON">Amazon</option>
+                  <option value="OTHER">その他</option>
+                </select>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
                 <input
                   type="text"
@@ -475,6 +494,18 @@ export default function CoursesPage() {
             <h2 className="text-lg font-semibold text-slate-900 mb-4">コース編集</h2>
 
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">キャリア</label>
+                <select
+                  value={editForm.carrier}
+                  onChange={(e) => setEditForm((f) => ({ ...f, carrier: e.target.value as CourseCarrier }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                >
+                  <option value="YAMATO">ヤマト</option>
+                  <option value="AMAZON">Amazon</option>
+                  <option value="OTHER">その他</option>
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
                 <input

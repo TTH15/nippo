@@ -19,10 +19,11 @@ export async function PUT(
 
   try {
     const body = await req.json();
-    const { name, color, max_drivers } = body as {
+    const { name, color, max_drivers, carrier: carrierRaw } = body as {
       name?: string;
       color?: string;
       max_drivers?: number;
+      carrier?: string;
     };
 
     const updates: Record<string, unknown> = {};
@@ -35,6 +36,9 @@ export async function PUT(
     }
     if (typeof color === "string") {
       updates.color = color;
+    }
+    if (carrierRaw === "YAMATO" || carrierRaw === "AMAZON" || carrierRaw === "OTHER") {
+      updates.carrier = carrierRaw;
     }
 
     if (max_drivers !== undefined) {

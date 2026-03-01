@@ -2,14 +2,15 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowTrendUp, faArrowTrendDown, faAngleDown } from "@fortawesome/free-solid-svg-icons";
+import { faArrowTrendUp, faArrowTrendDown, faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
-import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
+import { UnderlineTabs } from "@/lib/components/UnderlineTabs";
+import { ChevronDown, Check } from "lucide-react";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import {
@@ -26,7 +27,7 @@ import {
 
 type DataPoint = { date: string; yamato: number; amazon: number; profit: number };
 type DriverRow = { id: string; name: string; display_name?: string | null };
-type CourseRow = { id: string; name: string };
+type CourseRow = { id: string; name: string; carrier?: "YAMATO" | "AMAZON" | "OTHER" | null };
 type ReportRow = {
   driver_id: string;
   report_date: string;
@@ -42,7 +43,6 @@ type MidnightRow = {
 };
 
 type Tab = "analytics" | "summary" | "log";
-type CarrierFilter = "ALL" | "YAMATO" | "AMAZON";
 
 type SalesLogTypeRow = { id: string; name: string; sort_order: number };
 type SalesLogEntryRow = {
@@ -75,6 +75,134 @@ function toLocalYmd(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/** コースをキャリア別にグループ化: ヤマト / Amazon / その他（DBの carrier を優先、未設定時は名前で判定） */
+function groupCoursesByCarrier(courses: CourseRow[]): { label: string; courses: CourseRow[] }[] {
+  const byCarrier = (carrier: "YAMATO" | "AMAZON" | "OTHER") =>
+    courses.filter((c) => (c.carrier ?? (c.name.startsWith("ヤマト") ? "YAMATO" : c.name.startsWith("Amazon") || c.name.startsWith("アマゾン") ? "AMAZON" : "OTHER")) === carrier);
+  const yamato = byCarrier("YAMATO");
+  const amazon = byCarrier("AMAZON");
+  const other = byCarrier("OTHER");
+  const groups: { label: string; courses: CourseRow[] }[] = [];
+  if (yamato.length > 0) groups.push({ label: "ヤマト", courses: yamato });
+  if (amazon.length > 0) groups.push({ label: "Amazon", courses: amazon });
+  if (other.length > 0) groups.push({ label: "その他", courses: other });
+  return groups;
+}
+
+function CourseSelect({
+  courses,
+  value,
+  onChange,
+  disabled,
+}: {
+  courses: CourseRow[];
+  value: Set<string>;
+  onChange: (ids: Set<string>) => void;
+  disabled?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const groups = useMemo(() => groupCoursesByCarrier(courses), [courses]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setIsOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleCourse = (id: string) => {
+    const next = new Set(value);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange(next);
+  };
+
+  const selectAllInGroup = (groupCourses: CourseRow[], select: boolean) => {
+    const next = new Set(value);
+    groupCourses.forEach((c) => (select ? next.add(c.id) : next.delete(c.id)));
+    onChange(next);
+  };
+
+  const label =
+    value.size === 0
+      ? "対象コース"
+      : value.size === courses.length
+        ? "すべてのコース"
+        : `対象コース (${value.size})`;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => !disabled && setIsOpen((o) => !o)}
+        disabled={disabled}
+        className={`
+          inline-flex items-center justify-between gap-1.5 px-3 py-1.5 min-w-[140px] text-left
+          text-xs font-medium bg-white border-2 border-slate-200 rounded-xl
+          transition-all duration-200
+          ${disabled ? "opacity-50 cursor-not-allowed" : "hover:border-slate-300 focus:border-slate-500 focus:outline-none focus:ring-4 focus:ring-slate-100"}
+          ${isOpen ? "border-slate-500 ring-4 ring-slate-100" : ""}
+        `}
+      >
+        <span className={value.size === 0 ? "text-slate-500" : "text-slate-900"}>{label}</span>
+        <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      </button>
+      {isOpen && (
+        <div
+          className="absolute z-[9999] left-0 mt-2 w-64 bg-white border-2 border-slate-200 rounded-xl shadow-xl overflow-hidden"
+          role="listbox"
+        >
+          <div className="max-h-[320px] overflow-y-auto py-2">
+            {courses.length === 0 ? (
+              <div className="px-4 py-3 text-slate-400 text-sm">読み込み中...</div>
+            ) : (
+              groups.map((group) => {
+                const ids = group.courses.map((c) => c.id);
+                const selectedInGroup = ids.filter((id) => value.has(id)).length;
+                const allSelected = selectedInGroup === ids.length;
+                const someSelected = selectedInGroup > 0;
+                return (
+                  <div key={group.label} className="mb-2 last:mb-0">
+                    <label className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-50 border-b border-slate-100">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        ref={(el) => {
+                          if (el) (el as HTMLInputElement & { indeterminate: boolean }).indeterminate = someSelected && !allSelected;
+                        }}
+                        onChange={() => selectAllInGroup(group.courses, !allSelected)}
+                        className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                      />
+                      <span className="text-xs font-semibold text-slate-700">{group.label} をすべて</span>
+                    </label>
+                    {group.courses.map((c) => (
+                      <label
+                        key={c.id}
+                        className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-slate-50 text-sm text-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={value.has(c.id)}
+                          onChange={() => toggleCourse(c.id)}
+                          className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                        />
+                        <span className="flex-1 min-w-0 truncate">{c.name}</span>
+                        {value.has(c.id) && <Check className="w-4 h-4 text-slate-600 flex-shrink-0" />}
+                      </label>
+                    ))}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 const CustomTooltip = ({
@@ -222,10 +350,10 @@ function LogEntryModal({
                 className="h-12 w-full"
               />
             </div>
-            <div className="sm:col-span-2 min-w-0">
+            <div className="sm:col-span-2 min-w-0 overflow-hidden">
               <label className="block text-xs font-medium text-slate-600 mb-1.5">種別</label>
-              <div className="flex gap-2 items-stretch">
-                <div className="flex-1 min-w-[200px]">
+              <div className="flex gap-2 items-stretch min-w-0">
+                <div className="flex-1 min-w-0">
                   <CustomSelect
                     size="md"
                     options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
@@ -240,9 +368,9 @@ function LogEntryModal({
                   value={newTypeName}
                   onChange={(e) => setNewTypeName(e.target.value)}
                   placeholder="種別を追加"
-                  className={`w-16 shrink-0 rounded-xl ${inputClass}`}
+                  className={`w-24 min-w-0 shrink-0 rounded-xl ${inputClass}`}
                 />
-                <button type="button" onClick={handleAddType} disabled={addingType || !newTypeName.trim()} className="h-12 px-3 shrink-0 bg-slate-100 rounded-xl text-sm font-medium hover:bg-slate-200 disabled:opacity-50">追加</button>
+                <button type="button" onClick={handleAddType} disabled={addingType || !newTypeName.trim()} className="h-12 px-3 shrink-0 bg-slate-100 rounded-xl text-sm font-medium hover:bg-slate-200 disabled:opacity-50 whitespace-nowrap">追加</button>
               </div>
             </div>
             <div className="sm:col-span-2 lg:col-span-3">
@@ -333,9 +461,6 @@ function LogEntryModal({
           </div>
         </div>
         <div className="shrink-0 border-t border-slate-200 bg-white px-5 py-4 flex justify-end gap-2 rounded-b-xl">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
-            キャンセル
-          </button>
           <button
             type="button"
             onClick={handleAdd}
@@ -396,6 +521,10 @@ function LogEntriesByDate({
     return map;
   }, [entries]);
 
+  const [filterTypeId, setFilterTypeId] = useState("");
+  const [filterAttribution, setFilterAttribution] = useState("");
+  const [sortDateOrder, setSortDateOrder] = useState<"desc" | "asc">("desc");
+
   const byDate = useMemo((): [string, LogRow[]][] => {
     const out: [string, LogRow[]][] = [];
     daysInRange.forEach((day, i) => {
@@ -407,10 +536,13 @@ function LogEntriesByDate({
       if (yamato > 0) rows.push({ kind: "calculated", type_name: "売上", content: "ヤマト宅急便等", amount: yamato });
       if (amazon > 0) rows.push({ kind: "calculated", type_name: "売上", content: "Amazon等", amount: amazon });
       dayEntries.forEach((e) => rows.push({ kind: "entry", entry: e }));
-      if (rows.length > 0) out.push([day.iso, rows]);
+      let filtered = rows;
+      if (filterTypeId) filtered = filtered.filter((r) => r.kind === "calculated" || r.entry.type_id === filterTypeId);
+      if (filterAttribution) filtered = filtered.filter((r) => r.kind === "calculated" ? filterAttribution === "COMPANY" : r.entry.attribution === filterAttribution);
+      if (filtered.length > 0) out.push([day.iso, filtered]);
     });
-    return out.sort((a, b) => b[0].localeCompare(a[0]));
-  }, [daysInRange, displayData, entriesByDate]);
+    return out.sort((a, b) => (sortDateOrder === "desc" ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0])));
+  }, [daysInRange, displayData, entriesByDate, filterTypeId, filterAttribution, sortDateOrder]);
 
   const dateLabel = (iso: string) => {
     const [y, m, d] = iso.split("-").map(Number);
@@ -471,155 +603,214 @@ function LogEntriesByDate({
   }
 
   return (
-    <div className="overflow-x-auto">
-      {byDate.map(([dateIso, rows]) => (
-        <div key={dateIso} className="border-b border-slate-100 last:border-b-0">
-          <div className="px-3 py-2 bg-slate-50 font-semibold text-slate-800 text-sm">
-            {dateLabel(dateIso)}
-          </div>
-          <table className="min-w-full text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80">
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[140px]">内容</th>
-                <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">金額</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">帰属先</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">対象者</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">車両</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[80px]">備考</th>
-                {canWrite && <th className="px-3 py-2 w-20" />}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIdx) => {
-                if (row.kind === "calculated") {
+    <div>
+      <div className="flex flex-wrap items-center gap-4 mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">種別</span>
+          <select
+            value={filterTypeId}
+            onChange={(e) => setFilterTypeId(e.target.value)}
+            className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white min-w-[100px]"
+          >
+            <option value="">すべて</option>
+            {logTypes.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">帰属先</span>
+          <select
+            value={filterAttribution}
+            onChange={(e) => setFilterAttribution(e.target.value)}
+            className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white min-w-[90px]"
+          >
+            <option value="">すべて</option>
+            <option value="COMPANY">会社</option>
+            <option value="DRIVER">ドライバー</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">並べ替え</span>
+          <select
+            value={sortDateOrder}
+            onChange={(e) => setSortDateOrder(e.target.value as "desc" | "asc")}
+            className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white min-w-[110px]"
+          >
+            <option value="desc">日付 新→古</option>
+            <option value="asc">日付 古→新</option>
+          </select>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        {byDate.map(([dateIso, rows]) => (
+          <div key={dateIso} className="border-b border-slate-100 last:border-b-0">
+            <div className="px-3 py-2 bg-slate-50 font-semibold text-slate-800 text-sm">
+              {dateLabel(dateIso)}
+            </div>
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/80">
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[140px]">内容</th>
+                  <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">金額</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">帰属先</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">対象者</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">車両</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[80px]">備考</th>
+                  {canWrite && <th className="px-3 py-2 w-20" />}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, rowIdx) => {
+                  if (row.kind === "calculated") {
+                    return (
+                      <tr key={`calc-${dateIso}-${rowIdx}`} className="border-t border-slate-100 bg-slate-50/30">
+                        <td className="px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
+                        <td className="px-3 py-2 text-slate-600">{row.content}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-600">{fmtAmount(row.amount)}</td>
+                        <td className="px-3 py-2 text-slate-500">会社</td>
+                        <td className="px-3 py-2 text-slate-500">—</td>
+                        <td className="px-3 py-2 text-slate-500">—</td>
+                        <td className="px-3 py-2 text-slate-400 text-[11px]">—</td>
+                        {canWrite && <td className="px-3 py-2" />}
+                      </tr>
+                    );
+                  }
+                  const r = row.entry;
+                  const isEditing = editingId === r.id;
+                  const saving = savingId === r.id;
                   return (
-                    <tr key={`calc-${dateIso}-${rowIdx}`} className="border-t border-slate-100 bg-slate-50/30">
-                      <td className="px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
-                      <td className="px-3 py-2 text-slate-600">{row.content}</td>
-                      <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{fmtAmount(row.amount)}</td>
-                      <td className="px-3 py-2 text-slate-500">会社</td>
-                      <td className="px-3 py-2 text-slate-500">—</td>
-                      <td className="px-3 py-2 text-slate-500">—</td>
-                      <td className="px-3 py-2 text-slate-400 text-[11px]">—</td>
-                      {canWrite && <td className="px-3 py-2" />}
+                    <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                      {isEditing ? (
+                        <>
+                          <td className="px-3 py-2">
+                            <CustomSelect
+                              size="sm"
+                              options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
+                              value={editForm.type_id ?? ""}
+                              onChange={(v) => setEditForm((f) => ({ ...f, type_id: v }))}
+                              placeholder="選択"
+                              clearable
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={editForm.content ?? ""}
+                              onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
+                              className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              value={editForm.amount ?? 0}
+                              onChange={(e) => setEditForm((f) => ({ ...f, amount: Number(e.target.value) || 0 }))}
+                              className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <CustomSelect
+                              size="sm"
+                              options={[
+                                { value: "COMPANY", label: "会社" },
+                                { value: "DRIVER", label: "ドライバー" },
+                              ]}
+                              value={editForm.attribution ?? "COMPANY"}
+                              onChange={(v) => setEditForm((f) => ({ ...f, attribution: v as "COMPANY" | "DRIVER" }))}
+                              clearable={false}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <CustomSelect
+                              size="sm"
+                              options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
+                              value={editForm.target_driver_id ?? ""}
+                              onChange={(v) => setEditForm((f) => ({ ...f, target_driver_id: v || null }))}
+                              placeholder="—"
+                              clearable
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <CustomSelect
+                              size="sm"
+                              options={[{ value: "", label: "—" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
+                              value={editForm.vehicle_id ?? ""}
+                              onChange={(v) => setEditForm((f) => ({ ...f, vehicle_id: v || null }))}
+                              placeholder="—"
+                              clearable
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={editForm.memo ?? ""}
+                              onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))}
+                              className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                            />
+                          </td>
+                          {canWrite && (
+                            <td className="px-3 py-2">
+                              <div className="flex gap-1">
+                                <button type="button" onClick={saveEdit} className="px-2 py-1 bg-slate-700 text-white rounded text-[10px]">保存</button>
+                                <button type="button" onClick={() => setEditingId(null)} className="px-2 py-1 bg-slate-200 rounded text-[10px]">取消</button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!editingId) return;
+                                    if (!confirm("この行を削除しますか？")) return;
+                                    setSavingId(editingId);
+                                    apiFetch(`/api/admin/sales/log/${editingId}`, { method: "DELETE" })
+                                      .then(() => { setEditingId(null); onUpdated(); })
+                                      .catch(() => { })
+                                      .finally(() => setSavingId(null));
+                                  }}
+                                  className="px-2 py-1 bg-red-100 text-red-700 rounded text-[10px] hover:bg-red-200"
+                                >
+                                  削除
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
+                          <td className="px-3 py-2 text-slate-700">{r.content}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums font-medium ${r.amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {fmtAmount(r.amount)}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600">{r.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
+                          <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
+                          <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
+                          <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
+                          {canWrite && (
+                            <td className="px-3 py-2">
+                              {saving ? (
+                                <span className="text-slate-400 text-[10px]">保存中...</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => startEdit(r)}
+                                  title="編集"
+                                  className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded"
+                                >
+                                  <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </td>
+                          )}
+                        </>
+                      )}
                     </tr>
                   );
-                }
-                const r = row.entry;
-                const isEditing = editingId === r.id;
-                const saving = savingId === r.id;
-                return (
-                  <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/50">
-                    {isEditing ? (
-                      <>
-                        <td className="px-3 py-2">
-                          <CustomSelect
-                            size="sm"
-                            options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
-                            value={editForm.type_id ?? ""}
-                            onChange={(v) => setEditForm((f) => ({ ...f, type_id: v }))}
-                            placeholder="選択"
-                            clearable
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="text"
-                            value={editForm.content ?? ""}
-                            onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
-                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.amount ?? 0}
-                            onChange={(e) => setEditForm((f) => ({ ...f, amount: Number(e.target.value) || 0 }))}
-                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <CustomSelect
-                            size="sm"
-                            options={[
-                              { value: "COMPANY", label: "会社" },
-                              { value: "DRIVER", label: "ドライバー" },
-                            ]}
-                            value={editForm.attribution ?? "COMPANY"}
-                            onChange={(v) => setEditForm((f) => ({ ...f, attribution: v as "COMPANY" | "DRIVER" }))}
-                            clearable={false}
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <CustomSelect
-                            size="sm"
-                            options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
-                            value={editForm.target_driver_id ?? ""}
-                            onChange={(v) => setEditForm((f) => ({ ...f, target_driver_id: v || null }))}
-                            placeholder="—"
-                            clearable
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <CustomSelect
-                            size="sm"
-                            options={[{ value: "", label: "—" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
-                            value={editForm.vehicle_id ?? ""}
-                            onChange={(v) => setEditForm((f) => ({ ...f, vehicle_id: v || null }))}
-                            placeholder="—"
-                            clearable
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="text"
-                            value={editForm.memo ?? ""}
-                            onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))}
-                            className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
-                          />
-                        </td>
-                        {canWrite && (
-                          <td className="px-3 py-2">
-                            <div className="flex gap-1">
-                              <button type="button" onClick={saveEdit} className="px-2 py-1 bg-slate-700 text-white rounded text-[10px]">保存</button>
-                              <button type="button" onClick={() => setEditingId(null)} className="px-2 py-1 bg-slate-200 rounded text-[10px]">取消</button>
-                            </div>
-                          </td>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <td className="px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
-                        <td className="px-3 py-2 text-slate-700">{r.content}</td>
-                        <td className={`px-3 py-2 text-right tabular-nums font-medium ${r.amount >= 0 ? "text-slate-900" : "text-red-700"}`}>
-                          {fmtAmount(r.amount)}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600">{r.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
-                        <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
-                        <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
-                        <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
-                        {canWrite && (
-                          <td className="px-3 py-2">
-                            {saving ? (
-                              <span className="text-slate-400 text-[10px]">保存中...</span>
-                            ) : (
-                              <span className="flex gap-1">
-                                <button type="button" onClick={() => startEdit(r)} className="text-slate-600 hover:text-slate-900 text-[10px]">編集</button>
-                                <button type="button" onClick={() => handleDelete(r.id)} className="text-red-600 hover:text-red-800 text-[10px]">削除</button>
-                              </span>
-                            )}
-                          </td>
-                        )}
-                      </>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ))}
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -635,10 +826,8 @@ export default function SalesPage() {
   const [midnights, setMidnights] = useState<MidnightRow[]>([]);
   const [prevTotals, setPrevTotals] = useState<{ total: number; profit: number } | null>(null);
   const [loadingPrev, setLoadingPrev] = useState(false);
-  const [carrierFilter, setCarrierFilter] = useState<CarrierFilter>("ALL");
   const [courses, setCourses] = useState<CourseRow[]>([]);
   const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(new Set());
-  const masterCheckboxRef = useRef<HTMLInputElement | null>(null);
   const [logEntries, setLogEntries] = useState<SalesLogEntryRow[]>([]);
   const [logTypes, setLogTypes] = useState<SalesLogTypeRow[]>([]);
   const [logDrivers, setLogDrivers] = useState<DriverRow[]>([]);
@@ -651,13 +840,6 @@ export default function SalesPage() {
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
   }, []);
-
-  useEffect(() => {
-    if (masterCheckboxRef.current && courses.length > 0) {
-      masterCheckboxRef.current.indeterminate =
-        selectedCourseIds.size > 0 && selectedCourseIds.size < courses.length;
-    }
-  }, [selectedCourseIds, courses.length]);
 
   // コース一覧を取得
   useEffect(() => {
@@ -786,14 +968,7 @@ export default function SalesPage() {
       .catch(() => setLogVehicles([]));
   }, [tab]);
 
-  const displayData = useMemo(() => {
-    if (carrierFilter === "ALL") return deliveryData;
-    return deliveryData.map((d) =>
-      carrierFilter === "YAMATO"
-        ? { ...d, amazon: 0 }
-        : { ...d, yamato: 0 },
-    );
-  }, [deliveryData, carrierFilter]);
+  const displayData = deliveryData;
 
   // 数値に応じた「きりの良い」上限（例: 15万→20万、23万→25万、38万→50万）
   const niceCeil = (value: number): number => {
@@ -889,13 +1064,33 @@ export default function SalesPage() {
     return { yamato, amazon, total: yamato + amazon, profit };
   }, [displayData]);
 
+  // ログタブ時: 帰属先=会社のログを売上・粗利に加算（プラスは売上+利益、マイナスは委託費で粗利を確定）
+  const logCompanyTotals = useMemo(() => {
+    const revenue = logEntries
+      .filter((e) => e.attribution === "COMPANY" && e.amount > 0)
+      .reduce((s, e) => s + e.amount, 0);
+    const profit = logEntries
+      .filter((e) => e.attribution === "COMPANY")
+      .reduce((s, e) => s + e.amount, 0);
+    return { revenue, profit };
+  }, [logEntries]);
+
+  const displayTotals = useMemo(() => {
+    if (tab !== "log") return totals;
+    return {
+      ...totals,
+      total: totals.total + logCompanyTotals.revenue,
+      profit: totals.profit + logCompanyTotals.profit,
+    };
+  }, [tab, totals, logCompanyTotals]);
+
   const dailyAvg = useMemo(() => {
     const len = displayData.length || 1;
     return {
-      revenue: Math.round(totals.total / len),
-      profit: Math.round(totals.profit / len),
+      revenue: Math.round(displayTotals.total / len),
+      profit: Math.round(displayTotals.profit / len),
     };
-  }, [totals, displayData.length]);
+  }, [displayTotals, displayData.length]);
 
   const daysCount = daysInRange.length || 1;
   const activeDays = useMemo(
@@ -912,20 +1107,20 @@ export default function SalesPage() {
     return count || 1;
   }, [drivers, driverTotals, midnightCounts]);
 
-  const margin = totals.total ? (totals.profit / totals.total) * 100 : null;
+  const margin = displayTotals.total ? (displayTotals.profit / displayTotals.total) * 100 : null;
   const prevMargin =
     prevTotals && prevTotals.total
       ? (prevTotals.profit / prevTotals.total) * 100
       : null;
 
-  const revenuePerDay = totals.total / daysCount;
-  const revenuePerDriver = totals.total / activeDriverCount;
+  const revenuePerDay = displayTotals.total / daysCount;
+  const revenuePerDriver = displayTotals.total / activeDriverCount;
   const utilization =
     daysCount > 0 ? ((activeDays / daysCount) * 100) : 0;
 
   const revenueChangePct =
     prevTotals && prevTotals.total
-      ? ((totals.total - prevTotals.total) / prevTotals.total) * 100
+      ? ((displayTotals.total - prevTotals.total) / prevTotals.total) * 100
       : null;
   const marginDiff =
     margin != null && prevMargin != null ? margin - prevMargin : null;
@@ -940,128 +1135,27 @@ export default function SalesPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5 w-fit mb-4">
-          <button
-            onClick={() => setTab("analytics")}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${tab === "analytics" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              }`}
-          >
-            アナリティクス
-          </button>
-          <button
-            onClick={() => setTab("summary")}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${tab === "summary" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              }`}
-          >
-            集計
-          </button>
-          <button
-            onClick={() => setTab("log")}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${tab === "log" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              }`}
-          >
-            ログ
-          </button>
-        </div>
+        <UnderlineTabs
+          tabs={[
+            { value: "analytics", label: "アナリティクス" },
+            { value: "summary", label: "集計" },
+            { value: "log", label: "ログ" },
+          ]}
+          value={tab}
+          onChange={(v) => setTab(v as Tab)}
+          className="mb-4"
+        />
 
         {/* 日付範囲選択 + キャリア・コースフィルタ（アナリティクス / 集計 共通） */}
         <div className="flex flex-col gap-4 mb-6">
           <DateRangePicker value={range} onChange={setRange} />
-          <div className="flex flex-wrap items-center gap-6">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">対象キャリア</span>
-              <div className="inline-flex rounded-full bg-slate-100 p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setCarrierFilter("ALL")}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${carrierFilter === "ALL"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                    }`}
-                >
-                  全体
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCarrierFilter("YAMATO")}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${carrierFilter === "YAMATO"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                    }`}
-                >
-                  ヤマト
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCarrierFilter("AMAZON")}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${carrierFilter === "AMAZON"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                    }`}
-                >
-                  Amazon
-                </button>
-              </div>
-            </div>
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                >
-                  <span>対象コース</span>
-                  <FontAwesomeIcon icon={faAngleDown} className="w-3.5 h-3.5" />
-                  {selectedCourseIds.size > 0 && (
-                    <span className="ml-0.5 text-slate-900">({selectedCourseIds.size})</span>
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-64 p-3" align="start">
-                {courses.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-2">読み込み中...</p>
-                ) : (
-                  <div className="space-y-1">
-                    <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700 py-1.5 border-b border-slate-100">
-                      <input
-                        ref={masterCheckboxRef}
-                        type="checkbox"
-                        checked={courses.length > 0 && selectedCourseIds.size === courses.length}
-                        onChange={() => {
-                          if (selectedCourseIds.size === courses.length) {
-                            setSelectedCourseIds(new Set());
-                          } else {
-                            setSelectedCourseIds(new Set(courses.map((c) => c.id)));
-                          }
-                        }}
-                        className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
-                      />
-                      すべて
-                    </label>
-                    {courses.map((c) => (
-                      <label
-                        key={c.id}
-                        className="flex items-center gap-2 cursor-pointer text-sm text-slate-700 hover:text-slate-900 py-1"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedCourseIds.has(c.id)}
-                          onChange={() => {
-                            setSelectedCourseIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(c.id)) next.delete(c.id);
-                              else next.add(c.id);
-                              return next;
-                            });
-                          }}
-                          className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
-                        />
-                        {c.name}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </PopoverContent>
-            </Popover>
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="text-xs text-slate-500">対象コース</span>
+            <CourseSelect
+              courses={courses}
+              value={selectedCourseIds}
+              onChange={setSelectedCourseIds}
+            />
           </div>
         </div>
 
@@ -1230,9 +1324,6 @@ export default function SalesPage() {
             {tab === "log" && (
               <>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                  <p className="text-sm text-slate-600">
-                    会計の仕分けのように、日付ごとに「種別・内容・金額・帰属先・対象者・車両・備考」を登録できます。ヤマト・Amazonの売上は自動で表示されます。対象者にドライバーを指定した外注費はドライバー報酬、帰属先をドライバーにした修理費等は後でドライバーに請求します。
-                  </p>
                   {canWrite && (
                     <button
                       type="button"
@@ -1339,7 +1430,7 @@ export default function SalesPage() {
                 {/* 売上カード: 売上を大きく、前期間比は近くに小さく */}
                 <div className="bg-white rounded-lg border border-slate-200 p-4">
                   <div className="text-xs font-semibold text-slate-500 mb-1">売上</div>
-                  <div className="text-2xl font-bold text-slate-900 tracking-tight">{fmt(totals.total)}</div>
+                  <div className="text-2xl font-bold text-slate-900 tracking-tight">{fmt(displayTotals.total)}</div>
                   <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
                     {loadingPrev && <span>前期間計算中...</span>}
                     {!loadingPrev && revenueChangePct != null && (
@@ -1359,7 +1450,7 @@ export default function SalesPage() {
                 <div className="bg-white rounded-lg border border-slate-200 p-4">
                   <div className="text-xs font-semibold text-slate-500 mb-1">粗利</div>
                   <div className="text-2xl font-bold text-slate-900 tracking-tight">
-                    {fmt(totals.profit)}
+                    {fmt(displayTotals.profit)}
                     {margin != null && <span className="text-lg font-semibold text-slate-600"> ({margin.toFixed(1)}%)</span>}
                   </div>
                   <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">

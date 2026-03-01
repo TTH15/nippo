@@ -29,10 +29,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, color = "#3b82f6", max_drivers } = body as {
+    const { name, color = "#3b82f6", max_drivers, carrier: carrierRaw } = body as {
       name?: string;
       color?: string;
       max_drivers?: number;
+      carrier?: string;
     };
 
     if (!name || typeof name !== "string") {
@@ -43,6 +44,9 @@ export async function POST(req: NextRequest) {
       typeof max_drivers === "number" && Number.isFinite(max_drivers) && max_drivers >= 1
         ? Math.floor(max_drivers)
         : 1;
+
+    const carrier =
+      carrierRaw === "YAMATO" || carrierRaw === "AMAZON" ? carrierRaw : "OTHER";
 
     // Get max sort order
     const { data: maxData } = await supabase
@@ -56,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     const { data: course, error } = await supabase
       .from("courses")
-      .insert({ name: name.trim(), color, sort_order: sortOrder, max_drivers: capacity })
+      .insert({ name: name.trim(), color, sort_order: sortOrder, max_drivers: capacity, carrier })
       .select()
       .single();
 
