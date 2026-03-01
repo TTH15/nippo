@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { DateRangeDualPicker } from "@/lib/components/DateRangeDualPicker";
-import { startOfMonth, subMonths } from "date-fns";
+import { startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { motion } from "motion/react";
 
 type RangePreset = "current_month" | "six_months" | "one_year" | "custom";
@@ -19,20 +19,23 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [preset, setPreset] = useState<RangePreset>("current_month");
 
   useEffect(() => {
-    const today = value?.endDate ?? new Date();
+    const today = new Date();
     let startDate: Date;
-    let endDate: Date = today;
+    let endDate: Date;
 
     if (preset !== "custom") {
       switch (preset) {
         case "current_month":
           startDate = startOfMonth(today);
+          endDate = endOfMonth(today);
           break;
         case "six_months":
           startDate = startOfMonth(subMonths(today, 5));
+          endDate = endOfMonth(today);
           break;
         case "one_year":
           startDate = startOfMonth(subMonths(today, 11));
+          endDate = endOfMonth(today);
           break;
         default:
           return;
@@ -40,7 +43,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
       onChange?.({ startDate, endDate });
     }
-  }, [preset, onChange, value?.endDate]);
+  }, [preset, onChange]);
 
   const handlePresetChange = (next: RangePreset) => {
     setPreset(next);

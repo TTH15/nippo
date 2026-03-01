@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowTrendUp, faArrowTrendDown, faAngleDown } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { getStoredDriver } from "@/lib/api";
+import { canAdminWrite } from "@/lib/authz";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -37,8 +39,17 @@ type MidnightRow = {
   date: string;
 };
 
-type Tab = "analytics" | "summary";
+type Tab = "analytics" | "summary" | "log";
 type CarrierFilter = "ALL" | "YAMATO" | "AMAZON";
+
+type SalesLogEntry = {
+  log_date: string;
+  driver_payment: number;
+  vehicle_repair: number;
+  oil_change: number;
+  one_off_amount: number;
+  one_off_memo: string | null;
+};
 
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 
@@ -93,6 +104,14 @@ export default function SalesPage() {
   const [courses, setCourses] = useState<CourseRow[]>([]);
   const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(new Set());
   const masterCheckboxRef = useRef<HTMLInputElement | null>(null);
+  const [logEntries, setLogEntries] = useState<SalesLogEntry[]>([]);
+  const [loadingLog, setLoadingLog] = useState(false);
+  const [logSaving, setLogSaving] = useState<string | null>(null);
+  const [canWrite, setCanWrite] = useState(false);
+
+  useEffect(() => {
+    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+  }, []);
 
   useEffect(() => {
     if (masterCheckboxRef.current && courses.length > 0) {
@@ -118,9 +137,8 @@ export default function SalesPage() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const t = params.get("tab");
-    if (t === "summary") {
-      setTab("summary");
-    }
+    if (t === "summary") setTab("summary");
+    else if (t === "log") setTab("log");
   }, []);
 
   const startIso = useMemo(
@@ -200,6 +218,15 @@ export default function SalesPage() {
       })
       .finally(() => setLoadingSummary(false));
   }, [startIso, endIso, tab]);
+
+  useEffect(() => {
+    if (tab !== "log" || !startIso || !endIso) return;
+    setLoadingLog(true);
+    apiFetch<{ entries: SalesLogEntry[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
+      .then((res) => setLogEntries(res.entries ?? []))
+      .catch(() => setLogEntries([]))
+      .finally(() => setLoadingLog(false));
+  }, [tab, startIso, endIso]);
 
   const displayData = useMemo(() => {
     if (carrierFilter === "ALL") return deliveryData;
@@ -369,6 +396,13 @@ export default function SalesPage() {
               }`}
           >
             集計
+          </button>
+          <button
+            onClick={() => setTab("log")}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${tab === "log" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              }`}
+          >
+            ログ
           </button>
         </div>
 
@@ -623,6 +657,166 @@ export default function SalesPage() {
                                       {midDays}日
                                     </div>
                                   </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {tab === "log" && (
+              <>
+                <div className="text-sm text-slate-600 mb-3">
+                  日付ごとの売上（ヤマト・Amazon）と、ドライバー支払い・車両費・単発案件を記入できます。編集後はセルを離れると自動保存されます。
+                </div>
+                {loadingLog ? (
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden p-6">
+                    <Skeleton className="h-8 w-full mb-4" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                ) : (
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-max text-xs w-full">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold text-slate-700 whitespace-nowrap">日付</th>
+                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">ヤマト売上</th>
+                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">Amazon売上</th>
+                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">ドライバー支払い</th>
+                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">車両修理費</th>
+                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">オイル交換代</th>
+                            <th className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">単発案件(円)</th>
+                            <th className="px-3 py-2 text-left font-semibold text-slate-700 whitespace-nowrap min-w-[140px]">単発案件(メモ)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {daysInRange.map((day, i) => {
+                            const sales = displayData[i];
+                            const yamato = sales?.yamato ?? 0;
+                            const amazon = sales?.amazon ?? 0;
+                            const entry = logEntries.find((e) => e.log_date === day.iso) ?? {
+                              log_date: day.iso,
+                              driver_payment: 0,
+                              vehicle_repair: 0,
+                              oil_change: 0,
+                              one_off_amount: 0,
+                              one_off_memo: null,
+                            };
+                            const saving = logSaving === day.iso;
+                            const saveLog = (updates: Partial<SalesLogEntry>) => {
+                              if (!canWrite) return;
+                              setLogSaving(day.iso);
+                              const next = { ...entry, ...updates };
+                              apiFetch("/api/admin/sales/log", {
+                                method: "PATCH",
+                                body: JSON.stringify({ entries: [next] }),
+                              })
+                                .then(() => {
+                                  setLogEntries((prev) => {
+                                    const idx = prev.findIndex((e) => e.log_date === day.iso);
+                                    const nextEntry = { ...entry, ...updates };
+                                    if (idx >= 0) {
+                                      const p = [...prev];
+                                      p[idx] = nextEntry;
+                                      return p;
+                                    }
+                                    return [...prev, nextEntry].sort((a, b) => a.log_date.localeCompare(b.log_date));
+                                  });
+                                })
+                                .catch(() => {})
+                                .finally(() => setLogSaving(null));
+                            };
+                            return (
+                              <tr key={day.iso} className="border-t border-slate-100 hover:bg-slate-50/50">
+                                <td className="px-3 py-2 font-medium text-slate-900 whitespace-nowrap">{day.label}</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{fmt(yamato)}</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{fmt(amazon)}</td>
+                                <td className="px-3 py-2">
+                                  {canWrite ? (
+                                    <input
+                                      type="number"
+                                      defaultValue={entry.driver_payment}
+                                      onBlur={(e) => {
+                                        const v = Number(e.target.value) || 0;
+                                        if (v !== entry.driver_payment) saveLog({ driver_payment: v });
+                                      }}
+                                      className="w-full min-w-[72px] px-2 py-1 text-right border border-slate-200 rounded tabular-nums focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
+                                      placeholder="0"
+                                    />
+                                  ) : (
+                                    <span className="text-right tabular-nums text-slate-700 block">{fmt(entry.driver_payment)}</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {canWrite ? (
+                                    <input
+                                      type="number"
+                                      defaultValue={entry.vehicle_repair}
+                                      onBlur={(e) => {
+                                        const v = Number(e.target.value) || 0;
+                                        if (v !== entry.vehicle_repair) saveLog({ vehicle_repair: v });
+                                      }}
+                                      className="w-full min-w-[72px] px-2 py-1 text-right border border-slate-200 rounded tabular-nums focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
+                                      placeholder="0"
+                                    />
+                                  ) : (
+                                    <span className="text-right tabular-nums text-slate-700 block">{fmt(entry.vehicle_repair)}</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {canWrite ? (
+                                    <input
+                                      type="number"
+                                      defaultValue={entry.oil_change}
+                                      onBlur={(e) => {
+                                        const v = Number(e.target.value) || 0;
+                                        if (v !== entry.oil_change) saveLog({ oil_change: v });
+                                      }}
+                                      className="w-full min-w-[72px] px-2 py-1 text-right border border-slate-200 rounded tabular-nums focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
+                                      placeholder="0"
+                                    />
+                                  ) : (
+                                    <span className="text-right tabular-nums text-slate-700 block">{fmt(entry.oil_change)}</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {canWrite ? (
+                                    <input
+                                      type="number"
+                                      defaultValue={entry.one_off_amount || ""}
+                                      onBlur={(e) => {
+                                        const v = Number(e.target.value) || 0;
+                                        if (v !== entry.one_off_amount) saveLog({ one_off_amount: v });
+                                      }}
+                                      className="w-full min-w-[72px] px-2 py-1 text-right border border-slate-200 rounded tabular-nums focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
+                                      placeholder="0"
+                                    />
+                                  ) : (
+                                    <span className="text-right tabular-nums text-slate-700 block">{fmt(entry.one_off_amount)}</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {canWrite ? (
+                                    <input
+                                      type="text"
+                                      defaultValue={entry.one_off_memo ?? ""}
+                                      onBlur={(e) => {
+                                        const v = e.target.value.trim() || null;
+                                        if (v !== (entry.one_off_memo ?? "")) saveLog({ one_off_memo: v });
+                                      }}
+                                      className="w-full min-w-[120px] px-2 py-1 border border-slate-200 rounded focus:ring-2 focus:ring-slate-300 focus:border-slate-400"
+                                      placeholder="メモ"
+                                    />
+                                  ) : (
+                                    <span className="text-slate-700 block">{entry.one_off_memo ?? "–"}</span>
+                                  )}
+                                  {saving && <span className="ml-1 text-slate-400 text-[10px]">保存中...</span>}
                                 </td>
                               </tr>
                             );

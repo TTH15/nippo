@@ -15,6 +15,7 @@ import {
   faCalendar,
   faClipboardList,
   faFileLines,
+  faListUl,
   faPlus,
   faRightFromBracket,
 } from "@fortawesome/free-solid-svg-icons";
@@ -35,6 +36,7 @@ const navItems: NavItem[] = [
     children: [
       { href: "/admin/sales?tab=analytics", label: "アナリティクス", icon: faChartLine },
       { href: "/admin/sales?tab=summary", label: "集計", icon: faFileLines },
+      { href: "/admin/sales?tab=log", label: "ログ", icon: faListUl },
     ],
   },
   { href: "/admin/daily", label: "日報集計", icon: faClipboardList },
@@ -78,8 +80,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     router.push("/login");
   };
 
-  const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(href + "/");
+  const isActive = (href: string) => {
+    const path = href.split("?")[0];
+    return pathname === path || pathname.startsWith(path + "/");
+  };
 
   const clearHideTimer = () => {
     if (hideTimer.current) {
