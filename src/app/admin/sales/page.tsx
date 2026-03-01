@@ -204,14 +204,14 @@ function LogEntryModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+        className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col min-h-0"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="shrink-0 border-b border-slate-200 px-5 py-4 flex items-center justify-between rounded-t-xl">
           <h2 className="text-base font-semibold text-slate-900">ログを追加</h2>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1" aria-label="閉じる">×</button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1.5">日付</label>
@@ -222,10 +222,10 @@ function LogEntryModal({
                 className="h-12 w-full"
               />
             </div>
-            <div className="sm:col-span-2">
+            <div className="sm:col-span-2 min-w-0">
               <label className="block text-xs font-medium text-slate-600 mb-1.5">種別</label>
               <div className="flex gap-2 items-stretch">
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-[200px]">
                   <CustomSelect
                     size="md"
                     options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
@@ -296,27 +296,29 @@ function LogEntryModal({
                 clearable={false}
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">対象者</label>
-              <CustomSelect
-                size="md"
-                options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
-                value={targetDriverId}
-                onChange={setTargetDriverId}
-                placeholder="—"
-                clearable
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">車両</label>
-              <CustomSelect
-                size="md"
-                options={[{ value: "", label: "—" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
-                value={vehicleId}
-                onChange={setVehicleId}
-                placeholder="—"
-                clearable
-              />
+            <div className="sm:col-span-2 grid grid-cols-2 gap-4">
+              <div className="min-w-0">
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">対象者</label>
+                <CustomSelect
+                  size="md"
+                  options={[{ value: "", label: "（該当者なし）" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
+                  value={targetDriverId}
+                  onChange={setTargetDriverId}
+                  placeholder="（該当者なし）"
+                  clearable
+                />
+              </div>
+              <div className="min-w-0">
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">車両</label>
+                <CustomSelect
+                  size="md"
+                  options={[{ value: "", label: "（該当車両なし）" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
+                  value={vehicleId}
+                  onChange={setVehicleId}
+                  placeholder="（該当車両なし）"
+                  clearable
+                />
+              </div>
             </div>
             <div className="sm:col-span-2 lg:col-span-3">
               <label className="block text-xs font-medium text-slate-600 mb-1.5">備考</label>
