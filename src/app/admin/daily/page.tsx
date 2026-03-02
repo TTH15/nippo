@@ -346,7 +346,7 @@ export default function AdminDailyPage() {
                       {/* 内容（可変） */}
                       <col className="w-auto" />
                       {/* 承認 */}
-                      <col className="w-28" />
+                      <col className="w-36" />
                       {/* 操作（allタブのみ表示だが列幅は固定） */}
                       {tab === "all" && canWrite && <col className="w-20" />}
                       {/* 送信時刻 */}
