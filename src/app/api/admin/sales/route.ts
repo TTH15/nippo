@@ -14,6 +14,12 @@ type CourseRate = {
   fixed_profit: number;
 };
 
+type CourseRow = {
+  id: string;
+  name: string;
+  carrier?: "YAMATO" | "AMAZON" | "OTHER" | null;
+};
+
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
@@ -54,8 +60,13 @@ export async function GET(req: NextRequest) {
       "course_id, takuhaibin_revenue, takuhaibin_profit, nekopos_revenue, nekopos_profit, fixed_revenue, fixed_profit",
     );
 
-  const { data: courses } = await supabase.from("courses").select("id, name");
-  const courseNameMap = Object.fromEntries((courses ?? []).map((c) => [c.id, c.name]));
+  const { data: courses } = await supabase
+    .from("courses")
+    .select("id, name, carrier");
+  const courseMap = new Map<string, CourseRow>();
+  (courses ?? []).forEach((c) => {
+    courseMap.set(c.id, c as CourseRow);
+  });
   const rateByCourse = Object.fromEntries(
     (courseRates ?? []).map((r) => [r.course_id, r as CourseRate]),
   );
@@ -80,7 +91,10 @@ export async function GET(req: NextRequest) {
   const reportMap = new Map<string, ReportRow>();
   reports?.forEach((r) => reportMap.set(`${r.driver_id}:${r.report_date}`, r));
 
-  const dateMap = new Map<string, { yamato: number; amazon: number; profit: number }>();
+  const dateMap = new Map<
+    string,
+    { yamato: number; amazon: number; profit: number }
+  >();
 
   shifts?.forEach((s) => {
     const date = s.shift_date;
@@ -88,23 +102,53 @@ export async function GET(req: NextRequest) {
     if (courseIds.length > 0 && !courseIds.includes(s.course_id)) return;
     // ユーザーが指定した範囲外の日付は集計対象にしない
     if (date < startDate || date > endDate) return;
-    if (!dateMap.has(date)) dateMap.set(date, { yamato: 0, amazon: 0, profit: 0 });
+    if (!dateMap.has(date))
+      dateMap.set(date, { yamato: 0, amazon: 0, profit: 0 });
     const entry = dateMap.get(date)!;
     const rate = rateByCourse[s.course_id];
-    const courseName = courseNameMap[s.course_id] ?? "";
+    if (!rate) return;
 
-    if (courseName === "Amazonミッドナイト" && rate) {
-      const rep = reportMap.get(`${s.driver_id}:${date}`);
-      if (rep) {
+    const course = courseMap.get(s.course_id);
+    const courseName = course?.name ?? "";
+    const carrier: "YAMATO" | "AMAZON" | "OTHER" =
+      (course?.carrier as "YAMATO" | "AMAZON" | "OTHER" | null) ??
+      (courseName.startsWith("ヤマト")
+        ? "YAMATO"
+        : courseName.startsWith("Amazon") || courseName.startsWith("アマゾン")
+          ? "AMAZON"
+          : "OTHER");
+
+    // 売上計上はいずれも「承認済み日報があるシフト」のみ
+    const rep = reportMap.get(`${s.driver_id}:${date}`);
+    if (!rep) return;
+
+    // 1. 日当制コース（fixed_revenue > 0）: carrier に応じて Amazon or ヤマトに反映
+    if (rate.fixed_revenue > 0) {
+      if (carrier === "AMAZON") {
         entry.amazon += rate.fixed_revenue;
-        entry.profit += rate.fixed_profit;
+      } else {
+        // ヤマト or その他はヤマト枠に計上
+        entry.yamato += rate.fixed_revenue;
       }
-    } else if (rate && (rate.takuhaibin_revenue > 0 || rate.nekopos_revenue > 0)) {
-      const rep = reportMap.get(`${s.driver_id}:${date}`);
-      const tkComp = rep?.takuhaibin_completed ?? 0;
-      const nkComp = rep?.nekopos_completed ?? 0;
-      entry.yamato += tkComp * rate.takuhaibin_revenue + nkComp * rate.nekopos_revenue;
-      entry.profit += tkComp * rate.takuhaibin_profit + nkComp * rate.nekopos_profit;
+      entry.profit += rate.fixed_profit;
+      return;
+    }
+
+    // 2. 個数ベースのコース（宅急便 / ネコポス）
+    if (rate.takuhaibin_revenue > 0 || rate.nekopos_revenue > 0) {
+      const tkComp = rep.takuhaibin_completed ?? 0;
+      const nkComp = rep.nekopos_completed ?? 0;
+      const revenue =
+        tkComp * rate.takuhaibin_revenue + nkComp * rate.nekopos_revenue;
+      const profit =
+        tkComp * rate.takuhaibin_profit + nkComp * rate.nekopos_profit;
+
+      if (carrier === "AMAZON") {
+        entry.amazon += revenue;
+      } else {
+        entry.yamato += revenue;
+      }
+      entry.profit += profit;
     }
   });
 
