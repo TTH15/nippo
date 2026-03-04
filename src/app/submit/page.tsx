@@ -48,7 +48,13 @@ export default function SubmitPage() {
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [driverProfile, setDriverProfile] = useState<{ name: string; officeCode: string; driverCode: string } | null>(null);
   const [certImageDataUrl, setCertImageDataUrl] = useState<string | null>(null);
-  const [oilReminderModal, setOilReminderModal] = useState<{ nextOilChangeKm: number } | null>(null);
+  const [oilReminderModal, setOilReminderModal] = useState<{
+    nextOilChangeKm: number;
+    oilProgress: number;
+    lastOil: number;
+    interval: number;
+    currentKm: number;
+  } | null>(null);
   const certRef = useRef<HTMLDivElement | null>(null);
   const vehicleItemRefs = useRef<Array<HTMLDivElement | null>>([]);
 
@@ -431,12 +437,12 @@ export default function SubmitPage() {
           return (
             <div className="mb-6">
               <div className="flex items-center gap-2">
-                <label className="block text-sm font-medium text-slate-700 mb-1">メーター数値（km）</label>
+                <label className="block text-sm font-medium text-slate-700 leading-none">メーター数値（km）</label>
                 {showReminder && (
                   <button
                     type="button"
-                    onClick={() => setOilReminderModal({ nextOilChangeKm })}
-                    className={`inline-flex items-center gap-1 text-sm font-medium ${reminderColorClass} hover:opacity-80 transition-opacity`}
+                    onClick={() => setOilReminderModal({ nextOilChangeKm, oilProgress, lastOil, interval, currentKm })}
+                    className={`inline-flex items-center justify-center w-6 h-6 ${reminderColorClass} hover:opacity-80 transition-opacity`}
                     title="オイル交換時期のリマインド"
                   >
                     <FontAwesomeIcon icon={faCircleExclamation} className="w-4 h-4" />
@@ -639,6 +645,65 @@ export default function SubmitPage() {
               </span>
               です
             </p>
+
+            {/* 車両管理と同じゲージ（進捗 + マーカー） */}
+            <div className="mt-5">
+              <div className="flex items-start justify-between mb-2">
+                <div className="text-left">
+                  <div className="text-[10px] text-slate-500 leading-tight">前回オイル交換</div>
+                  <div className="text-xs font-medium text-slate-800 leading-tight">
+                    {oilReminderModal.lastOil.toLocaleString("ja-JP")} km
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] text-slate-500 leading-tight">次回オイル交換</div>
+                  <div className="text-xs font-medium text-slate-800 leading-tight">
+                    {oilReminderModal.nextOilChangeKm.toLocaleString("ja-JP")} km
+                  </div>
+                </div>
+              </div>
+              {/* ▼ マーカー行 */}
+              <div className="relative h-3">
+                {(() => {
+                  const percent = Math.min(Math.max(oilReminderModal.oilProgress, 0), 100);
+                  const colorClass =
+                    percent >= 95
+                      ? "text-red-500"
+                      : percent >= 70
+                        ? "text-yellow-400"
+                        : "text-green-600";
+                  return (
+                    <div
+                      className={`absolute top-0 z-10 text-[10px] leading-none ${colorClass}`}
+                      style={{ left: `${percent}%`, transform: "translateX(-50%)" }}
+                    >
+                      ▼
+                    </div>
+                  );
+                })()}
+              </div>
+              {/* ゲージバー */}
+              <div className="relative h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                {(() => {
+                  const percent = Math.min(Math.max(oilReminderModal.oilProgress, 0), 100);
+                  const colorClass =
+                    percent >= 95
+                      ? "bg-red-500"
+                      : percent >= 70
+                        ? "bg-yellow-400"
+                        : "bg-green-500";
+                  return (
+                    <div
+                      className={`absolute top-0 left-0 h-full rounded-full transition-all ${colorClass}`}
+                      style={{ width: `${percent}%` }}
+                    />
+                  );
+                })()}
+              </div>
+              <div className="mt-2 text-center text-[11px] text-slate-500">
+                現在走行距離 {oilReminderModal.currentKm.toLocaleString("ja-JP")} km（交換目安: {oilReminderModal.interval.toLocaleString("ja-JP")} km）
+              </div>
+            </div>
             <button
               type="button"
               onClick={() => setOilReminderModal(null)}

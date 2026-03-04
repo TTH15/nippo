@@ -171,17 +171,14 @@ export default function AddressBookPage() {
       <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">アドレス帳（法人）</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              請求書の請求先として使用する法人情報。会社コード: {companyCode}
-            </p>
+            <h1 className="text-xl font-bold text-slate-900">法人アドレス帳</h1>
           </div>
           {canWrite && (
             <button
               onClick={openNew}
               className="px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
             >
-              法人を追加
+              新規追加
             </button>
           )}
         </div>
@@ -346,7 +343,7 @@ export default function AddressBookPage() {
       <ConfirmDialog
         open={!!confirmState}
         message={confirmState?.message ?? ""}
-        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onConfirm={confirmState?.onConfirm ?? (() => { })}
         onClose={() => setConfirmState(null)}
         confirmLabel="削除"
       />

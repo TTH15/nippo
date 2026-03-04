@@ -400,13 +400,13 @@ export default function AdminDailyPage() {
                                 const four = r.amazon_4_completed ?? 0;
                                 const fourOnly = am === 0 && pm === 0 && four > 0;
                                 return fourOnly ? (
-                                  <div className="text-[13px]">
+                                  <div className="text-[13px] pl-6">
                                     <span className="text-slate-500 text-xs">4便</span>{" "}
                                     <span className="font-semibold text-slate-900 text-base tabular-nums">{four}</span>
                                     <span className="text-slate-500 text-xs"> 個</span>
                                   </div>
                                 ) : (
-                                  <div className="text-[13px] space-y-0.5">
+                                  <div className="text-[13px] space-y-0.5 pl-6">
                                     {am > 0 && (
                                       <p><span className="text-slate-500 text-xs">午前</span>{" "}<span className="font-semibold text-slate-900 text-base tabular-nums">{am}</span><span className="text-slate-500 text-xs"> 個</span></p>
                                     )}
