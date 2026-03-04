@@ -97,13 +97,19 @@ export function Nav() {
                     href="/me"
                     className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
                   >
-                    <span>履歴・プロフィール</span>
+                    <span>マイページ</span>
+                  </Link>
+                  <Link
+                    href="/me/rewards"
+                    className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                  >
+                    <span>報酬</span>
                   </Link>
                   <Link
                     href="/shifts"
                     className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
                   >
-                    <span>シフト</span>
+                    <span>シフト希望</span>
                   </Link>
                 </>
               )}
