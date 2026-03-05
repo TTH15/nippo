@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faRepeat, faPenToSquare } from "@fortawesome/free-solid-svg-icons";
+import { faRepeat, faPenToSquare, faSquarePlus, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -35,6 +35,13 @@ type AdHocExpense = {
   amount: number;
 };
 
+type DraftExpense = {
+  id: number;
+  name: string;
+  amount: string;
+  repeat: boolean;
+};
+
 function currentYearMonth(): { year: number; month: number } {
   const d = new Date();
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
@@ -54,10 +61,9 @@ export default function PaymentsPage() {
   const [fixedLoading, setFixedLoading] = useState(false);
   const [adHocExpenses, setAdHocExpenses] = useState<AdHocExpense[]>([]);
   const [adHocLoading, setAdHocLoading] = useState(false);
-  const [expenseName, setExpenseName] = useState("");
-  const [expenseAmount, setExpenseAmount] = useState("");
-  // デフォルトは継続OFF
-  const [expenseRepeat, setExpenseRepeat] = useState(false);
+  const [draftExpenses, setDraftExpenses] = useState<DraftExpense[]>([
+    { id: 1, name: "", amount: "", repeat: false },
+  ]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -94,9 +100,7 @@ export default function PaymentsPage() {
       .then((res) => setAdHocExpenses(res.expenses ?? []))
       .catch(() => setAdHocExpenses([]))
       .finally(() => setAdHocLoading(false));
-    setExpenseName("");
-    setExpenseAmount("");
-    setExpenseRepeat(false);
+    setDraftExpenses([{ id: 1, name: "", amount: "", repeat: false }]);
     setSaveError(null);
   }, [modalDriver, monthStr]);
 
@@ -111,41 +115,56 @@ export default function PaymentsPage() {
   const handleSave = async () => {
     if (!modalDriver || !canWrite) return;
     setSaveError(null);
-    if (!expenseName.trim()) {
-      setSaveError("経費名を入力してください");
+
+    const filled = draftExpenses.filter(
+      (d) => d.name.trim() !== "" || d.amount.trim() !== "",
+    );
+    if (filled.length === 0) {
+      setSaveError("経費を入力してください");
       return;
     }
-    const amountNum = Number(expenseAmount.replace(/\D/g, ""));
-    if (Number.isNaN(amountNum) || amountNum <= 0) {
-      setSaveError("月額は1円以上の数値で入力してください");
-      return;
+
+    for (const d of filled) {
+      if (!d.name.trim()) {
+        setSaveError("経費名を入力してください");
+        return;
+      }
+      const amountNum = Number(d.amount.replace(/\D/g, ""));
+      if (Number.isNaN(amountNum) || amountNum <= 0) {
+        setSaveError("月額は1円以上の数値で入力してください");
+        return;
+      }
     }
+
     setSaving(true);
     try {
-      if (expenseRepeat) {
-        await apiFetch("/api/admin/driver-expenses", {
-          method: "POST",
-          body: JSON.stringify({
-            driver_id: modalDriver.driverId,
-            name: expenseName.trim(),
-            amount: amountNum,
-            valid_from: monthStartDate,
-            valid_to: null,
-          }),
-        });
-      } else {
-        await apiFetch("/api/admin/driver-ad-hoc-expenses", {
-          method: "POST",
-          body: JSON.stringify({
-            driver_id: modalDriver.driverId,
-            month: monthStr,
-            name: expenseName.trim(),
-            amount: amountNum,
-          }),
-        });
-      }
-      setExpenseName("");
-      setExpenseAmount("");
+      await Promise.all(
+        filled.map((d) => {
+          const amountNum = Number(d.amount.replace(/\D/g, ""));
+          if (d.repeat) {
+            return apiFetch("/api/admin/driver-expenses", {
+              method: "POST",
+              body: JSON.stringify({
+                driver_id: modalDriver.driverId,
+                name: d.name.trim(),
+                amount: amountNum,
+                valid_from: monthStartDate,
+                valid_to: null,
+              }),
+            });
+          }
+          return apiFetch("/api/admin/driver-ad-hoc-expenses", {
+            method: "POST",
+            body: JSON.stringify({
+              driver_id: modalDriver.driverId,
+              month: monthStr,
+              name: d.name.trim(),
+              amount: amountNum,
+            }),
+          });
+        }),
+      );
+
       const [fixedRes, adHocRes] = await Promise.all([
         apiFetch<{ expenses: FixedExpense[] }>(`/api/admin/driver-expenses?driver_id=${modalDriver.driverId}`),
         apiFetch<{ expenses: AdHocExpense[] }>(
@@ -154,6 +173,7 @@ export default function PaymentsPage() {
       ]);
       setFixedExpenses(fixedRes.expenses ?? []);
       setAdHocExpenses(adHocRes.expenses ?? []);
+      setDraftExpenses([{ id: 1, name: "", amount: "", repeat: false }]);
       loadPayments();
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : "保存に失敗しました");
@@ -249,49 +269,58 @@ export default function PaymentsPage() {
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
                   <th className="py-2.5 px-4 text-left font-medium text-slate-600">名前</th>
-                  <th className="py-2.5 px-4 text-right font-medium text-slate-600">収入</th>
-                  <th className="py-2.5 px-4 text-right font-medium text-slate-600">変動控除</th>
-                  <th className="py-2.5 px-4 text-right font-medium text-slate-600">固定控除</th>
-                  <th className="py-2.5 px-4 text-right font-medium text-slate-600">臨時経費</th>
-                  <th className="py-2.5 px-4 text-right font-medium text-slate-600">暫定支払額</th>
+                  <th className="py-2.5 px-4 text-right font-medium text-slate-600">支払額</th>
+                  <th className="py-2.5 px-4 text-right font-medium text-slate-600">報酬</th>
+                  <th className="py-2.5 px-4 text-right text-xs font-medium text-slate-600">
+                    控除計
+                  </th>
+                  <th className="py-2.5 px-4 text-right text-xs font-medium text-slate-600">
+                    詳細
+                  </th>
                   <th className="py-2.5 px-4 text-right font-medium text-slate-600">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr
-                    key={row.driverId}
-                    className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
-                  >
-                    <td className="py-2.5 px-4 font-medium text-slate-800">
-                      {getDisplayName({ name: row.driverName, display_name: row.displayName })}
-                    </td>
-                    <td className="py-2.5 px-4 text-right tabular-nums text-slate-700">
-                      {formatYen(row.incomeLog)}
-                    </td>
-                    <td className="py-2.5 px-4 text-right tabular-nums text-orange-600">
-                      {formatYen(row.variableDeductions)}
-                    </td>
-                    <td className="py-2.5 px-4 text-right tabular-nums text-orange-600">
-                      {formatYen(-row.fixedDeductions)}
-                    </td>
-                    <td className="py-2.5 px-4 text-right tabular-nums text-orange-600">
-                      {formatYen(-row.adHocDeductions)}
-                    </td>
-                    <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-slate-900">
-                      {formatYen(row.net)}
-                    </td>
-                    <td className="py-2.5 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openModal(row)}
-                        className="text-slate-600 hover:text-slate-900 text-xs font-medium"
-                      >
-                        <FontAwesomeIcon icon={faPenToSquare} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((row) => {
+                  const totalDeductions =
+                    row.variableDeductions - row.fixedDeductions - row.adHocDeductions;
+                  return (
+                    <tr
+                      key={row.driverId}
+                      className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
+                    >
+                      <td className="py-2.5 px-4 font-medium text-slate-800 whitespace-nowrap">
+                        {getDisplayName({
+                          name: row.driverName,
+                          display_name: row.displayName,
+                        })}
+                      </td>
+                      <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-slate-900">
+                        {formatYen(row.net)}
+                      </td>
+                      <td className="py-2.5 px-4 text-right tabular-nums text-slate-700">
+                        {formatYen(row.incomeLog)}
+                      </td>
+                      <td className="py-2.5 px-4 text-right tabular-nums text-orange-600 text-xs">
+                        {formatYen(totalDeductions)}
+                      </td>
+                      <td className="py-2.5 px-4 text-right text-[11px] leading-snug text-slate-500">
+                        変動 {formatYen(row.variableDeductions)}／固定{" "}
+                        {formatYen(-row.fixedDeductions)}／臨時{" "}
+                        {formatYen(-row.adHocDeductions)}
+                      </td>
+                      <td className="py-2.5 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openModal(row)}
+                          className="text-slate-600 hover:text-slate-900 text-xs font-medium"
+                        >
+                          <FontAwesomeIcon icon={faPenToSquare} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -315,56 +344,115 @@ export default function PaymentsPage() {
                 {canWrite && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setExpenseName("");
-                      setExpenseAmount("");
-                      setExpenseRepeat(false);
-                      setSaveError(null);
-                    }}
+                    onClick={() =>
+                      setDraftExpenses((rows) => {
+                        const nextId = rows.length
+                          ? Math.max(...rows.map((r) => r.id)) + 1
+                          : 1;
+                        return [...rows, { id: nextId, name: "", amount: "", repeat: false }];
+                      })
+                    }
                     className="w-8 h-8 flex items-center justify-center text-sm font-medium text-slate-600 bg-slate-100 rounded hover:bg-slate-200"
                     title="行を追加"
                   >
-                    +
+                    <FontAwesomeIcon icon={faSquarePlus} className="w-4 h-4" />
                   </button>
                 )}
               </div>
               {canWrite && (
-                <div className="flex flex-wrap items-end gap-2 mb-3">
-                  <div className="flex-1 min-w-[100px]">
-                    <label className="block text-xs font-medium text-slate-600 mb-1">経費名</label>
-                    <input
-                      type="text"
-                      value={expenseName}
-                      onChange={(e) => setExpenseName(e.target.value)}
-                      placeholder="例: リース代・臨時研修費"
-                      className="w-full px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent"
-                    />
-                  </div>
-                  <div className="w-28">
-                    <label className="block text-xs font-medium text-slate-600 mb-1">月額（円）</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={expenseAmount}
-                      onChange={(e) => setExpenseAmount(e.target.value.replace(/[^0-9]/g, ""))}
-                      className="w-full px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent text-right"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={expenseRepeat}
-                      onClick={() => setExpenseRepeat((r) => !r)}
-                      title={expenseRepeat ? "翌月以降も継続（ON）" : "当月のみ（OFF）"}
-                      className={`flex items-center justify-center w-9 h-9 rounded border transition-colors ${expenseRepeat
-                        ? "bg-slate-800 text-white border-slate-800"
-                        : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
-                        }`}
+                <div className="space-y-2 mb-3">
+                  {draftExpenses.map((d, index) => (
+                    <div
+                      key={d.id}
+                      className="flex flex-wrap items-end gap-2"
                     >
-                      <FontAwesomeIcon icon={faRepeat} className="w-4 h-4" />
-                    </button>
-                  </div>
+                      <div className="flex-1 min-w-[100px]">
+                        {index === 0 && (
+                          <label className="block text-xs font-medium text-slate-600 mb-1">
+                            経費名
+                          </label>
+                        )}
+                        <input
+                          type="text"
+                          value={d.name}
+                          onChange={(e) =>
+                            setDraftExpenses((rows) =>
+                              rows.map((r) =>
+                                r.id === d.id ? { ...r, name: e.target.value } : r,
+                              ),
+                            )
+                          }
+                          placeholder="例: リース代・臨時研修費"
+                          className="w-full px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent"
+                        />
+                      </div>
+                      <div className="w-28">
+                        {index === 0 && (
+                          <label className="block text-xs font-medium text-slate-600 mb-1">
+                            月額（円）
+                          </label>
+                        )}
+                        <input
+                          type="number"
+                          min={1}
+                          value={d.amount}
+                          onChange={(e) =>
+                            setDraftExpenses((rows) =>
+                              rows.map((r) =>
+                                r.id === d.id
+                                  ? { ...r, amount: e.target.value.replace(/[^0-9]/g, "") }
+                                  : r,
+                              ),
+                            )
+                          }
+                          className="w-full px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent text-right"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {index === 0 && (
+                          <label className="block text-xs font-medium text-slate-600 mb-1">
+                            リピート
+                          </label>
+                        )}
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={d.repeat}
+                          onClick={() =>
+                            setDraftExpenses((rows) =>
+                              rows.map((r) =>
+                                r.id === d.id ? { ...r, repeat: !r.repeat } : r,
+                              ),
+                            )
+                          }
+                          title={d.repeat ? "翌月以降も継続（ON）" : "当月のみ（OFF）"}
+                          className={`flex items-center justify-center w-9 h-9 rounded border transition-colors ${
+                            d.repeat
+                              ? "bg-slate-800 text-white border-slate-800"
+                              : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          <FontAwesomeIcon icon={faRepeat} className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="flex items-center">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftExpenses((rows) =>
+                              rows.length === 1
+                                ? [{ id: rows[0].id, name: "", amount: "", repeat: false }]
+                                : rows.filter((r) => r.id !== d.id),
+                            )
+                          }
+                          className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-600"
+                          title="行を削除"
+                        >
+                          <FontAwesomeIcon icon={faTrash} className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
               {saveError && <p className="text-xs text-red-600 mb-2">{saveError}</p>}
