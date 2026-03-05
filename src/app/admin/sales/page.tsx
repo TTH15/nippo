@@ -27,7 +27,8 @@ import {
 
 type DataPoint = { date: string; yamato: number; amazon: number; profit: number };
 type DriverRow = { id: string; name: string; display_name?: string | null };
-type CourseRow = { id: string; name: string; carrier?: "YAMATO" | "AMAZON" | "OTHER" | null };
+type CourseRow = { id: string; name: string; carrier?: "YAMATO" | "AMAZON" | "OTHER" | null; summary_title?: string | null };
+type SummaryCourseRow = { id: string; name: string; summary_title: string };
 type ReportRow = {
   driver_id: string;
   report_date: string;
@@ -832,6 +833,8 @@ export default function SalesPage() {
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [midnights, setMidnights] = useState<MidnightRow[]>([]);
+  const [summaryCourses, setSummaryCourses] = useState<SummaryCourseRow[]>([]);
+  const [courseShifts, setCourseShifts] = useState<Record<string, { driver_id: string; date: string }[]>>({});
   const [prevTotals, setPrevTotals] = useState<{ total: number; profit: number } | null>(null);
   const [loadingPrev, setLoadingPrev] = useState(false);
   const [courses, setCourses] = useState<CourseRow[]>([]);
@@ -935,16 +938,22 @@ export default function SalesPage() {
       drivers: DriverRow[];
       reports: ReportRow[];
       midnights: MidnightRow[];
+      summaryCourses?: SummaryCourseRow[];
+      courseShifts?: Record<string, { driver_id: string; date: string }[]>;
     }>(`/api/admin/sales/reports?start=${startIso}&end=${endIso}`)
       .then((res) => {
         setDrivers(res.drivers ?? []);
         setReports(res.reports ?? []);
         setMidnights(res.midnights ?? []);
+        setSummaryCourses(res.summaryCourses ?? []);
+        setCourseShifts(res.courseShifts ?? {});
       })
       .catch(() => {
         setDrivers([]);
         setReports([]);
         setMidnights([]);
+        setSummaryCourses([]);
+        setCourseShifts({});
       })
       .finally(() => {
         if (tab === "summary") setLoadingSummary(false);
@@ -1067,6 +1076,30 @@ export default function SalesPage() {
     });
     return counts;
   }, [midnights]);
+
+  // 集計表示タイトル付きコースごとの (driver_id, date) セット
+  const courseShiftSets = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    Object.entries(courseShifts).forEach(([courseId, list]) => {
+      const s = new Set<string>();
+      list.forEach(({ driver_id, date }) => s.add(`${driver_id}:${date}`));
+      map.set(courseId, s);
+    });
+    return map;
+  }, [courseShifts]);
+
+  // 集計表示タイトル付きコースごとのドライバー別日数
+  const courseShiftCounts = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    Object.entries(courseShifts).forEach(([courseId, list]) => {
+      const byDriver = new Map<string, number>();
+      list.forEach(({ driver_id }) => {
+        byDriver.set(driver_id, (byDriver.get(driver_id) ?? 0) + 1);
+      });
+      map.set(courseId, byDriver);
+    });
+    return map;
+  }, [courseShifts]);
 
   const totals = useMemo(() => {
     const yamato = displayData.reduce((s, d) => s + d.yamato, 0);
@@ -1329,6 +1362,69 @@ export default function SalesPage() {
                     </div>
                   </div>
                 )}
+
+                {/* 集計表示タイトル付きコース（例: Amazon 昼）のセクション */}
+                {summaryCourses.length > 0 && summaryCourses.map((sc) => {
+                  const shiftSet = courseShiftSets.get(sc.id) ?? new Set<string>();
+                  const shiftCountByDriver = courseShiftCounts.get(sc.id) ?? new Map<string, number>();
+                  return (
+                    <div key={sc.id} className="mt-8">
+                      <h3 className="text-sm font-semibold text-slate-800 mb-2">{sc.summary_title}</h3>
+                      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                        <div className="overflow-auto">
+                          <table className="min-w-max text-xs">
+                            <thead className="bg-slate-50">
+                              <tr>
+                                <th className="sticky left-0 z-20 bg-slate-50 border-b border-slate-200 px-3 py-2 text-left min-w-[100px]">
+                                  ドライバー
+                                </th>
+                                {daysInRange.map((d) => (
+                                  <th key={d.iso} className="border-b border-slate-200 px-2 py-2 text-center min-w-[64px]">
+                                    {d.label}
+                                  </th>
+                                ))}
+                                <th className="sticky right-0 z-20 bg-slate-50 border-b border-l border-slate-200 px-3 py-2 text-right min-w-[64px]">
+                                  日数
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {drivers.map((drv) => {
+                                const days = shiftCountByDriver.get(drv.id) ?? 0;
+                                return (
+                                  <tr key={drv.id} className="border-t border-slate-100">
+                                    <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-2 text-left">
+                                      <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>
+                                    </td>
+                                    {daysInRange.map((d) => {
+                                      const key = `${drv.id}:${d.iso}`;
+                                      const hasShift = shiftSet.has(key);
+                                      return (
+                                        <td
+                                          key={d.iso}
+                                          className={`px-2 py-2 text-center ${hasShift ? "text-slate-900" : "text-slate-300"}`}
+                                        >
+                                          {hasShift ? (
+                                            <div className="text-[11px] font-semibold text-indigo-600">〇</div>
+                                          ) : (
+                                            <span className="text-slate-300">·</span>
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-2 text-right">
+                                      <div className="tabular-nums font-semibold text-slate-900">{days}日</div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </>
             )}
 

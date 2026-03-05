@@ -29,11 +29,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, color = "#3b82f6", max_drivers, carrier: carrierRaw } = body as {
+    const { name, color = "#3b82f6", max_drivers, carrier: carrierRaw, summary_title: summaryTitle } = body as {
       name?: string;
       color?: string;
       max_drivers?: number;
       carrier?: string;
+      summary_title?: string | null;
     };
 
     if (!name || typeof name !== "string") {
@@ -58,9 +59,19 @@ export async function POST(req: NextRequest) {
 
     const sortOrder = (maxData?.sort_order ?? 0) + 1;
 
+    const insertRow: Record<string, unknown> = {
+      name: name.trim(),
+      color,
+      sort_order: sortOrder,
+      max_drivers: capacity,
+      carrier,
+    };
+    if (summaryTitle !== undefined) {
+      insertRow.summary_title = typeof summaryTitle === "string" && summaryTitle.trim() !== "" ? summaryTitle.trim() : null;
+    }
     const { data: course, error } = await supabase
       .from("courses")
-      .insert({ name: name.trim(), color, sort_order: sortOrder, max_drivers: capacity, carrier })
+      .insert(insertRow)
       .select()
       .single();
 

@@ -19,11 +19,12 @@ export async function PUT(
 
   try {
     const body = await req.json();
-    const { name, color, max_drivers, carrier: carrierRaw } = body as {
+    const { name, color, max_drivers, carrier: carrierRaw, summary_title: summaryTitle } = body as {
       name?: string;
       color?: string;
       max_drivers?: number;
       carrier?: string;
+      summary_title?: string | null;
     };
 
     const updates: Record<string, unknown> = {};
@@ -39,6 +40,9 @@ export async function PUT(
     }
     if (carrierRaw === "YAMATO" || carrierRaw === "AMAZON" || carrierRaw === "OTHER") {
       updates.carrier = carrierRaw;
+    }
+    if (summaryTitle !== undefined) {
+      updates.summary_title = typeof summaryTitle === "string" && summaryTitle.trim() !== "" ? summaryTitle.trim() : null;
     }
 
     if (max_drivers !== undefined) {

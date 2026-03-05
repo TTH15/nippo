@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Amazonミッドナイト判定用にコースとシフトを取得
-  const { data: courses } = await supabase.from("courses").select("id, name");
+  const { data: courses } = await supabase.from("courses").select("id, name, carrier, summary_title");
   const courseNameMap = new Map<string, string>();
   (courses ?? []).forEach((c: any) => {
     if (c.id && c.name) courseNameMap.set(c.id, c.name);
@@ -99,6 +99,8 @@ export async function GET(req: NextRequest) {
     ) as ReportRow[];
 
   const midnights: MidnightRow[] = [];
+  const courseShifts: Record<string, { driver_id: string; date: string }[]> = {};
+
   (shifts ?? []).forEach((s: any) => {
     if (!s.driver_id || !s.course_id) return;
     if (s.shift_date < startDate || s.shift_date > endDate) return;
@@ -106,7 +108,19 @@ export async function GET(req: NextRequest) {
     if (name === "Amazonミッドナイト") {
       midnights.push({ driver_id: s.driver_id, date: s.shift_date });
     }
+    // 集計表示タイトルが設定されているコースのシフトを按コースで集約
+    const course = (courses ?? []).find((c: any) => c.id === s.course_id);
+    if (course?.carrier === "AMAZON" && course?.summary_title) {
+      const list = courseShifts[s.course_id] ?? [];
+      list.push({ driver_id: s.driver_id, date: s.shift_date });
+      courseShifts[s.course_id] = list;
+    }
   });
+
+  // 集計タブで表示するコース（キャリア=Amazon かつ summary_title 設定あり）
+  const summaryCourses = (courses ?? []).filter(
+    (c: any) => c.carrier === "AMAZON" && c.summary_title
+  ).map((c: any) => ({ id: c.id, name: c.name, summary_title: c.summary_title }));
 
   return NextResponse.json({
     month,
@@ -119,6 +133,8 @@ export async function GET(req: NextRequest) {
     })) as DriverRow[],
     reports: filteredReports,
     midnights,
+    summaryCourses,
+    courseShifts,
   });
 }
 
