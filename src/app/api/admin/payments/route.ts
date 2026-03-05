@@ -71,8 +71,9 @@ export async function GET(req: NextRequest) {
 
   const { data: logRows } = await supabase
     .from("sales_log_entries")
-    .select("target_driver_id, amount")
+    .select("target_driver_id, amount, attribution")
     .in("target_driver_id", driverIds)
+    .eq("attribution", "DRIVER")
     .gte("log_date", startDate)
     .lte("log_date", endDate);
 
