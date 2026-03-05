@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faRepeat, faPencil } from "@fortawesome/free-solid-svg-icons";
+import { faRepeat, faPencilSquare } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -286,7 +286,7 @@ export default function PaymentsPage() {
                         onClick={() => openModal(row)}
                         className="text-slate-600 hover:text-slate-900 text-xs font-medium"
                       >
-                        <FontAwesomeIcon icon={faPencil} />
+                        <FontAwesomeIcon icon={faPencilSquare} />
                       </button>
                     </td>
                   </tr>
