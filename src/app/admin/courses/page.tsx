@@ -45,14 +45,10 @@ const INITIAL_RATE_FORM = {
 };
 
 const COLORS = [
-  "#3b82f6",
-  "#22c55e",
-  "#f59e0b",
-  "#8b5cf6",
-  "#ef4444",
-  "#06b6d4",
-  "#ec4899",
-  "#64748b",
+  "#3b82f6", "#2563eb", "#0ea5e9", "#06b6d4", "#14b8a6",
+  "#22c55e", "#84cc16", "#eab308", "#f59e0b", "#f97316",
+  "#ef4444", "#dc2626", "#ec4899", "#d946ef", "#8b5cf6",
+  "#6366f1", "#4f46e5", "#64748b", "#475569", "#334155",
 ];
 
 export default function CoursesPage() {
@@ -470,7 +466,7 @@ export default function CoursesPage() {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">色</label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 mb-2">
                   {COLORS.map((c) => (
                     <button
                       key={c}
@@ -481,6 +477,17 @@ export default function CoursesPage() {
                       style={{ backgroundColor: c }}
                     />
                   ))}
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-xs text-slate-500">または</span>
+                  <input
+                    type="color"
+                    value={newCourse.color}
+                    onChange={(e) => setNewCourse((f) => ({ ...f, color: e.target.value }))}
+                    className="w-9 h-9 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
+                    title="好きな色を選択"
+                  />
+                  <span className="text-xs text-slate-500">好きな色を選択</span>
                 </div>
               </div>
 
@@ -549,7 +556,7 @@ export default function CoursesPage() {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">色</label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 mb-2">
                   {COLORS.map((c) => (
                     <button
                       key={c}
@@ -560,6 +567,17 @@ export default function CoursesPage() {
                       style={{ backgroundColor: c }}
                     />
                   ))}
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-xs text-slate-500">または</span>
+                  <input
+                    type="color"
+                    value={editForm.color}
+                    onChange={(e) => setEditForm((f) => ({ ...f, color: e.target.value }))}
+                    className="w-9 h-9 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
+                    title="好きな色を選択"
+                  />
+                  <span className="text-xs text-slate-500">好きな色を選択</span>
                 </div>
               </div>
 
