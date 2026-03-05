@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faRepeat } from "@fortawesome/free-solid-svg-icons";
+import { faRepeat, faPencil } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -286,7 +286,7 @@ export default function PaymentsPage() {
                         onClick={() => openModal(row)}
                         className="text-slate-600 hover:text-slate-900 text-xs font-medium"
                       >
-                        経費
+                        <FontAwesomeIcon icon={faPencil} />
                       </button>
                     </td>
                   </tr>
@@ -310,9 +310,6 @@ export default function PaymentsPage() {
 
             <div>
               <h3 className="text-sm font-semibold text-slate-700 mb-2">経費</h3>
-              <p className="text-xs text-slate-500 mb-3">
-                経費名・月額を入力し、リピートONで翌月以降も継続・OFFで当月のみ。保存で登録します。
-              </p>
               {canWrite && (
                 <div className="flex flex-wrap items-end gap-2 mb-3">
                   <div className="flex-1 min-w-[100px]">
@@ -342,17 +339,13 @@ export default function PaymentsPage() {
                       aria-checked={expenseRepeat}
                       onClick={() => setExpenseRepeat((r) => !r)}
                       title={expenseRepeat ? "翌月以降も継続（ON）" : "当月のみ（OFF）"}
-                      className={`flex items-center justify-center w-9 h-9 rounded border transition-colors ${
-                        expenseRepeat
-                          ? "bg-slate-800 text-white border-slate-800"
-                          : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
-                      }`}
+                      className={`flex items-center justify-center w-9 h-9 rounded border transition-colors ${expenseRepeat
+                        ? "bg-slate-800 text-white border-slate-800"
+                        : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                        }`}
                     >
                       <FontAwesomeIcon icon={faRepeat} className="w-4 h-4" />
                     </button>
-                    <span className="text-xs text-slate-500 whitespace-nowrap">
-                      {expenseRepeat ? "翌月以降も継続" : "当月のみ"}
-                    </span>
                   </div>
                 </div>
               )}
