@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Nav } from "@/lib/components/Nav";
@@ -66,7 +66,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "settings", label: "設定" },
 ];
 
-export default function MePage() {
+function MePageContent() {
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabId>("profile");
 
@@ -76,6 +76,7 @@ export default function MePage() {
     else if (tab === "shifts") setActiveTab("shifts");
     else if (tab === "profile") setActiveTab("profile");
   }, [searchParams]);
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [reports, setReports] = useState<Report[]>([]);
@@ -494,5 +495,35 @@ export default function MePage() {
         )}
       </div>
     </>
+  );
+}
+
+function MePageFallback() {
+  return (
+    <>
+      <Nav />
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        <div className="h-8 w-48 mb-4">
+          <Skeleton className="h-8 w-full" />
+        </div>
+        <div className="flex gap-2 border-b border-slate-200 pb-2">
+          {TABS.map((tab) => (
+            <Skeleton key={tab.id} className="h-9 w-24 rounded" />
+          ))}
+        </div>
+        <div className="mt-6 space-y-4">
+          <Skeleton className="h-32 w-full rounded-lg" />
+          <Skeleton className="h-24 w-full rounded-lg" />
+        </div>
+      </div>
+    </>
+  );
+}
+
+export default function MePage() {
+  return (
+    <Suspense fallback={<MePageFallback />}>
+      <MePageContent />
+    </Suspense>
   );
 }
