@@ -409,11 +409,6 @@ export default function PaymentsPage() {
                         />
                       </div>
                       <div className="flex items-center gap-2">
-                        {index === 0 && (
-                          <label className="block text-xs font-medium text-slate-600 mb-1">
-                            リピート
-                          </label>
-                        )}
                         <button
                           type="button"
                           role="switch"
@@ -426,11 +421,10 @@ export default function PaymentsPage() {
                             )
                           }
                           title={d.repeat ? "翌月以降も継続（ON）" : "当月のみ（OFF）"}
-                          className={`flex items-center justify-center w-9 h-9 rounded border transition-colors ${
-                            d.repeat
-                              ? "bg-slate-800 text-white border-slate-800"
-                              : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
-                          }`}
+                          className={`flex items-center justify-center w-9 h-9 rounded border transition-colors ${d.repeat
+                            ? "text-slate-800"
+                            : "text-slate-400"
+                            }`}
                         >
                           <FontAwesomeIcon icon={faRepeat} className="w-4 h-4" />
                         </button>
