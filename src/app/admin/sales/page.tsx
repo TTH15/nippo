@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowTrendUp, faArrowTrendDown, faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -1301,60 +1301,106 @@ export default function SalesPage() {
                             const t = driverTotals.get(drv.id) ?? { tk: 0, nk: 0, total: 0 };
                             const midDays = midnightCounts.get(drv.id) ?? 0;
                             return (
-                              <tr key={drv.id} className="border-t border-slate-100">
-                                <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-2 text-left">
-                                  <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>
-                                </td>
-                                <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-2 text-right">
-                                  <div className="text-[10px] text-slate-400">宅</div>
-                                  <div className="text-[10px] text-slate-400">ネ</div>
-                                </td>
-                                {daysInRange.map((d) => {
-                                  const key = `${drv.id}:${d.iso}`;
-                                  const isMidnight = midnightSet.has(key);
-                                  const r = reportMap.get(key);
-                                  const tk = r?.takuhaibin_completed ?? 0;
-                                  const nk = r?.nekopos_completed ?? 0;
-                                  const tkRet = r?.takuhaibin_returned ?? 0;
-                                  const nkRet = r?.nekopos_returned ?? 0;
-                                  const has = tk + nk > 0 || isMidnight;
-                                  return (
-                                    <td
-                                      key={d.iso}
-                                      className={`px-2 py-2 text-center ${has ? "text-slate-900" : "text-slate-300"}`}
-                                      title={
-                                        isMidnight
-                                          ? "Amazonミッドナイト"
-                                          : `宅急便 配完 ${tk} / 持戻 ${tkRet}\nネコポス 配完 ${nk} / 持戻 ${nkRet}`
-                                      }
-                                    >
-                                      {isMidnight ? (
-                                        <div className="text-[11px] font-semibold text-indigo-600">ミッド</div>
-                                      ) : (
-                                        <>
-                                          <div className="tabular-nums text-[11px] font-semibold">{tk || "·"}</div>
-                                          <div className="tabular-nums text-[11px] font-semibold">{nk || "·"}</div>
-                                        </>
-                                      )}
-                                    </td>
-                                  );
-                                })}
-                                <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-2 text-right">
-                                  <div className="flex items-center justify-end gap-3">
-                                    <div className="text-right">
-                                      <div className="tabular-nums font-semibold text-slate-900">
-                                        {t.tk}
+                              <Fragment key={drv.id}>
+                                <tr className="border-t border-slate-100">
+                                  <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-2 text-left">
+                                    <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>
+                                  </td>
+                                  <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-2 text-right">
+                                    <div className="text-[10px] text-slate-400">宅</div>
+                                    <div className="text-[10px] text-slate-400">ネ</div>
+                                  </td>
+                                  {daysInRange.map((d) => {
+                                    const key = `${drv.id}:${d.iso}`;
+                                    const isMidnight = midnightSet.has(key);
+                                    const r = reportMap.get(key);
+                                    const tk = r?.takuhaibin_completed ?? 0;
+                                    const nk = r?.nekopos_completed ?? 0;
+                                    const tkRet = r?.takuhaibin_returned ?? 0;
+                                    const nkRet = r?.nekopos_returned ?? 0;
+                                    const has = tk + nk > 0 || isMidnight;
+                                    return (
+                                      <td
+                                        key={d.iso}
+                                        className={`px-2 py-2 text-center ${has ? "text-slate-900" : "text-slate-300"}`}
+                                        title={
+                                          isMidnight
+                                            ? "Amazonミッドナイト"
+                                            : `宅急便 配完 ${tk} / 持戻 ${tkRet}\nネコポス 配完 ${nk} / 持戻 ${nkRet}`
+                                        }
+                                      >
+                                        {isMidnight ? (
+                                          <div className="text-[11px] font-semibold text-indigo-600">ミッド</div>
+                                        ) : (
+                                          <>
+                                            <div className="tabular-nums text-[11px] font-semibold">{tk || "·"}</div>
+                                            <div className="tabular-nums text-[11px] font-semibold">{nk || "·"}</div>
+                                          </>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                  <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-2 text-right">
+                                    <div className="flex items-center justify-end gap-3">
+                                      <div className="text-right">
+                                        <div className="tabular-nums font-semibold text-slate-900">
+                                          {t.tk}
+                                        </div>
+                                        <div className="tabular-nums font-semibold text-slate-900 mt-0.5">
+                                          {t.nk}
+                                        </div>
                                       </div>
-                                      <div className="tabular-nums font-semibold text-slate-900 mt-0.5">
-                                        {t.nk}
+                                      <div className="w-10 text-[10px] font-semibold text-slate-900 whitespace-nowrap">
+                                        {midDays}日
                                       </div>
                                     </div>
-                                    <div className="w-10 text-[10px] font-semibold text-slate-900 whitespace-nowrap">
-                                      {midDays}日
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
+                                  </td>
+                                </tr>
+                                {summaryCourses.length > 0 &&
+                                  summaryCourses.map((sc) => {
+                                    const shiftSet = courseShiftSets.get(sc.id) ?? new Set<string>();
+                                    const shiftCountByDriver = courseShiftCounts.get(sc.id) ?? new Map<string, number>();
+                                    const days = shiftCountByDriver.get(drv.id) ?? 0;
+                                    const hasAny = days > 0;
+                                    return (
+                                      <tr
+                                        key={`${drv.id}-${sc.id}`}
+                                        className="border-t border-slate-50 bg-slate-50/40"
+                                      >
+                                        <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-1.5 text-left">
+                                          <div className="text-[11px] text-slate-700">
+                                            <span className="mr-1 text-slate-500">↳</span>
+                                            {sc.summary_title}
+                                          </div>
+                                        </td>
+                                        <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-1.5 text-right">
+                                          <div className="text-[10px] text-slate-400">シフト</div>
+                                        </td>
+                                        {daysInRange.map((d) => {
+                                          const key = `${drv.id}:${d.iso}`;
+                                          const hasShift = shiftSet.has(key);
+                                          return (
+                                            <td
+                                              key={d.iso}
+                                              className={`px-2 py-1.5 text-center ${hasShift ? "text-slate-900" : "text-slate-300"}`}
+                                            >
+                                              {hasShift ? (
+                                                <div className="text-[11px] font-semibold text-indigo-600">〇</div>
+                                              ) : (
+                                                <span className="text-slate-300">·</span>
+                                              )}
+                                            </td>
+                                          );
+                                        })}
+                                        <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-1.5 text-right">
+                                          <div className="tabular-nums text-[11px] font-semibold text-slate-900">
+                                            {hasAny ? `${days}日` : "0日"}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                              </Fragment>
                             );
                           })}
                         </tbody>
@@ -1362,69 +1408,6 @@ export default function SalesPage() {
                     </div>
                   </div>
                 )}
-
-                {/* 集計表示タイトル付きコース（例: Amazon 昼）のセクション */}
-                {summaryCourses.length > 0 && summaryCourses.map((sc) => {
-                  const shiftSet = courseShiftSets.get(sc.id) ?? new Set<string>();
-                  const shiftCountByDriver = courseShiftCounts.get(sc.id) ?? new Map<string, number>();
-                  return (
-                    <div key={sc.id} className="mt-8">
-                      <h3 className="text-sm font-semibold text-slate-800 mb-2">{sc.summary_title}</h3>
-                      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                        <div className="overflow-auto">
-                          <table className="min-w-max text-xs">
-                            <thead className="bg-slate-50">
-                              <tr>
-                                <th className="sticky left-0 z-20 bg-slate-50 border-b border-slate-200 px-3 py-2 text-left min-w-[100px]">
-                                  ドライバー
-                                </th>
-                                {daysInRange.map((d) => (
-                                  <th key={d.iso} className="border-b border-slate-200 px-2 py-2 text-center min-w-[64px]">
-                                    {d.label}
-                                  </th>
-                                ))}
-                                <th className="sticky right-0 z-20 bg-slate-50 border-b border-l border-slate-200 px-3 py-2 text-right min-w-[64px]">
-                                  日数
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {drivers.map((drv) => {
-                                const days = shiftCountByDriver.get(drv.id) ?? 0;
-                                return (
-                                  <tr key={drv.id} className="border-t border-slate-100">
-                                    <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-2 text-left">
-                                      <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>
-                                    </td>
-                                    {daysInRange.map((d) => {
-                                      const key = `${drv.id}:${d.iso}`;
-                                      const hasShift = shiftSet.has(key);
-                                      return (
-                                        <td
-                                          key={d.iso}
-                                          className={`px-2 py-2 text-center ${hasShift ? "text-slate-900" : "text-slate-300"}`}
-                                        >
-                                          {hasShift ? (
-                                            <div className="text-[11px] font-semibold text-indigo-600">〇</div>
-                                          ) : (
-                                            <span className="text-slate-300">·</span>
-                                          )}
-                                        </td>
-                                      );
-                                    })}
-                                    <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-2 text-right">
-                                      <div className="tabular-nums font-semibold text-slate-900">{days}日</div>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
               </>
             )}
 
