@@ -421,8 +421,8 @@ export default function PaymentsPage() {
                             )
                           }
                           title={d.repeat ? "翌月以降も継続（ON）" : "当月のみ（OFF）"}
-                          className={`flex items-center justify-center w-9 h-9 transition-colors ${d.repeat
-                            ? "text-amber-700"
+                          className={`flex items-center font-bold justify-center w-9 h-9 transition-colors ${d.repeat
+                            ? "text-green-600"
                             : "text-slate-400"
                             }`}
                         >
