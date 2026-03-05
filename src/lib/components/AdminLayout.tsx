@@ -18,6 +18,7 @@ import {
   faListUl,
   faPlus,
   faRightFromBracket,
+  faMoneyBill1Wave,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver } from "@/lib/api";
@@ -46,6 +47,7 @@ const navItems: NavItem[] = [
     children: [
       { href: "/admin/users", label: "ドライバー管理", icon: faUsers },
       { href: "/admin/shifts", label: "シフト", icon: faCalendar },
+      { href: "/admin/payments", label: "ペイメント", icon: faMoneyBill1Wave },
     ],
   },
   { href: "/admin/vehicles", label: "車両", icon: faCar },
