@@ -17,6 +17,12 @@ type FixedExpenseDetail = {
   amount: number;
 };
 
+type OptionalExpenseDetail = {
+  id: string;
+  name: string;
+  amount: number;
+};
+
 function getMonthRange(monthParam?: string | null): {
   month: string;
   startDate: string;
@@ -131,7 +137,31 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  const net = incomeLog + variableDeductions - fixedDeductions;
+  // ドライバー入力の自由経費（管理者は参照不可・報酬計算用のみ）
+  const { data: optionalRows, error: optionalError } = await supabase
+    .from("driver_optional_expenses")
+    .select("id, name, amount")
+    .eq("driver_id", user.driverId)
+    .eq("month", month);
+
+  if (optionalError) {
+    console.error("[/api/me/rewards] driver_optional_expenses error", optionalError);
+    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  }
+
+  let optionalDeductions = 0;
+  const optionalDetails: OptionalExpenseDetail[] = (optionalRows ?? []).map((row: any) => {
+    const amount = Number(row.amount) || 0;
+    optionalDeductions += amount;
+    return {
+      id: String(row.id ?? ""),
+      name: String(row.name ?? ""),
+      amount,
+    };
+  });
+
+  const net =
+    incomeLog + variableDeductions - fixedDeductions - optionalDeductions;
 
   return NextResponse.json({
     month,
@@ -140,9 +170,11 @@ export async function GET(req: NextRequest) {
     incomeLog,
     variableDeductions,
     fixedDeductions,
+    optionalDeductions,
     net,
     logDetails,
     fixedDetails,
+    optionalDetails,
   });
 }
 

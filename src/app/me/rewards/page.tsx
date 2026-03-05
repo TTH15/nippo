@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Nav } from "@/lib/components/Nav";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -19,6 +19,12 @@ type FixedExpenseDetail = {
   amount: number;
 };
 
+type OptionalExpenseDetail = {
+  id: string;
+  name: string;
+  amount: number;
+};
+
 type RewardsSummary = {
   month: string;
   startDate: string;
@@ -26,9 +32,11 @@ type RewardsSummary = {
   incomeLog: number;
   variableDeductions: number;
   fixedDeductions: number;
+  optionalDeductions?: number;
   net: number;
   logDetails: RewardLogDetail[];
   fixedDetails: FixedExpenseDetail[];
+  optionalDetails?: OptionalExpenseDetail[];
 };
 
 function currentYearMonth(): { year: number; month: number } {
@@ -45,10 +53,14 @@ export default function MeRewardsPage() {
   const [rewards, setRewards] = useState<RewardsSummary | null>(null);
   const [rewardsLoading, setRewardsLoading] = useState(true);
   const [rewardsError, setRewardsError] = useState<string | null>(null);
+  const [optionalName, setOptionalName] = useState("");
+  const [optionalAmount, setOptionalAmount] = useState("");
+  const [optionalSubmitting, setOptionalSubmitting] = useState(false);
+  const [optionalError, setOptionalError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const { year, month } = rewardMonth;
-    const monthStr = `${year}-${String(month).padStart(2, "0")}`;
+  const monthStr = `${rewardMonth.year}-${String(rewardMonth.month).padStart(2, "0")}`;
+
+  const loadRewards = useCallback(() => {
     setRewardsLoading(true);
     setRewardsError(null);
     apiFetch<RewardsSummary>(`/api/me/rewards?month=${monthStr}`)
@@ -58,7 +70,48 @@ export default function MeRewardsPage() {
         setRewardsError("報酬サマリの取得に失敗しました");
       })
       .finally(() => setRewardsLoading(false));
-  }, [rewardMonth]);
+  }, [monthStr]);
+
+  useEffect(() => {
+    loadRewards();
+  }, [loadRewards]);
+
+  const handleAddOptional = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOptionalError(null);
+    if (!optionalName.trim()) {
+      setOptionalError("経費名を入力してください");
+      return;
+    }
+    const amountNum = Number(optionalAmount.replace(/\D/g, ""));
+    if (Number.isNaN(amountNum) || amountNum < 0) {
+      setOptionalError("金額を0以上の数値で入力してください");
+      return;
+    }
+    setOptionalSubmitting(true);
+    try {
+      await apiFetch("/api/me/optional-expenses", {
+        method: "POST",
+        body: JSON.stringify({ month: monthStr, name: optionalName.trim(), amount: amountNum }),
+      });
+      setOptionalName("");
+      setOptionalAmount("");
+      loadRewards();
+    } catch (err: unknown) {
+      setOptionalError(err instanceof Error ? err.message : "追加に失敗しました");
+    } finally {
+      setOptionalSubmitting(false);
+    }
+  };
+
+  const handleDeleteOptional = async (id: string) => {
+    try {
+      await apiFetch(`/api/me/optional-expenses/${id}`, { method: "DELETE" });
+      loadRewards();
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   return (
     <>
@@ -139,7 +192,7 @@ export default function MeRewardsPage() {
               <div className="mt-1 text-2xl font-bold text-slate-900">
                 {formatYen(rewards.net)}
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-3 text-xs">
+              <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
                 <div>
                   <div className="text-slate-500">収入</div>
                   <div className="mt-0.5 font-mono text-slate-900">
@@ -153,9 +206,15 @@ export default function MeRewardsPage() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-slate-500">固定控除</div>
+                  <div className="text-slate-500">固定控除（管理者設定）</div>
                   <div className="mt-0.5 font-mono text-orange-600">
                     {formatYen(-rewards.fixedDeductions)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500">自由経費（自分で入力）</div>
+                  <div className="mt-0.5 font-mono text-orange-600">
+                    {formatYen(-(rewards.optionalDeductions ?? 0))}
                   </div>
                 </div>
               </div>
@@ -206,7 +265,12 @@ export default function MeRewardsPage() {
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-slate-800 mb-2">固定経費</h3>
+                <h3 className="text-sm font-semibold text-slate-800 mb-2">
+                  固定経費（管理者設定）
+                </h3>
+                <p className="text-xs text-slate-500 mb-2">
+                  事務手数料・リース代などは管理者が登録しています。編集はできません。
+                </p>
                 {rewards.fixedDetails.length === 0 ? (
                   <p className="text-xs text-slate-500">この月に有効な固定経費はありません</p>
                 ) : (
@@ -216,6 +280,71 @@ export default function MeRewardsPage() {
                         <span>{f.name}</span>
                         <span className="font-mono text-orange-600">
                           {formatYen(-f.amount)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800 mb-2">自由経費</h3>
+                <p className="text-xs text-slate-500 mb-3">
+                  ガソリン代など、ご自身で計算に含めたい経費を追加できます。管理者には表示されません。
+                </p>
+                <form onSubmit={handleAddOptional} className="flex flex-wrap items-end gap-2 mb-3">
+                  <div className="flex-1 min-w-[120px]">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">経費名</label>
+                    <input
+                      type="text"
+                      value={optionalName}
+                      onChange={(e) => setOptionalName(e.target.value)}
+                      placeholder="例: ガソリン代"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <div className="w-28">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">金額（円）</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={optionalAmount}
+                      onChange={(e) => setOptionalAmount(e.target.value.replace(/[^0-9]/g, ""))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={optionalSubmitting}
+                    className="px-3 py-2 text-sm bg-slate-800 text-white rounded hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    {optionalSubmitting ? "追加中..." : "追加"}
+                  </button>
+                </form>
+                {optionalError && (
+                  <p className="text-xs text-red-600 mb-2">{optionalError}</p>
+                )}
+                {(rewards.optionalDetails ?? []).length === 0 ? (
+                  <p className="text-xs text-slate-500">登録された自由経費はありません</p>
+                ) : (
+                  <ul className="space-y-2 text-xs text-slate-700">
+                    {(rewards.optionalDetails ?? []).map((o) => (
+                      <li
+                        key={o.id}
+                        className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-b-0"
+                      >
+                        <span>{o.name}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="font-mono text-orange-600">
+                            {formatYen(-o.amount)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteOptional(o.id)}
+                            className="text-slate-400 hover:text-red-600 text-[11px]"
+                          >
+                            削除
+                          </button>
                         </span>
                       </li>
                     ))}

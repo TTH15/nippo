@@ -91,13 +91,18 @@ export function Nav() {
                     href="/submit"
                     className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
                   >
-                    <span>送信</span>
+                    <span>日報送信</span>
                   </Link>
                   <Link
-                    href="/me"
+                    href="/shifts"
                     className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
                   >
-                    <span>マイページ</span>
+                    <span className="flex flex-col items-start">
+                      <span>シフト</span>
+                      <span className="text-xs text-slate-400 font-normal mt-0.5">
+                        希望休提出・シフト表確認
+                      </span>
+                    </span>
                   </Link>
                   <Link
                     href="/me/rewards"
@@ -106,10 +111,16 @@ export function Nav() {
                     <span>報酬</span>
                   </Link>
                   <Link
-                    href="/shifts"
+                    href="/me"
                     className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
                   >
-                    <span>シフト希望</span>
+                    <span>プロフィール</span>
+                  </Link>
+                  <Link
+                    href="/me?tab=settings"
+                    className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                  >
+                    <span>設定</span>
                   </Link>
                 </>
               )}

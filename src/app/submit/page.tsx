@@ -87,6 +87,9 @@ export default function SubmitPage() {
           setSelectedVehicleId(vehiclesRes.vehicles[0].id);
           setCarouselIndex(0);
         }
+        if (vehiclesRes.vehicles.length === 1 && vehiclesRes.vehicles[0].current_mileage > 0) {
+          setMeterValue(String(vehiclesRes.vehicles[0].current_mileage));
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -436,31 +439,41 @@ export default function SubmitPage() {
 
           return (
             <div className="mb-6">
-              <div className="flex items-center gap-2">
-                <label className="block text-sm font-medium text-slate-700 leading-none">メーター数値（km）</label>
+              <label className="block text-sm font-medium text-slate-700 leading-none mb-1">
+                メーター数値（km）
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  placeholder="例: 14567"
+                  value={meterValue}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, "");
+                    setMeterValue(v);
+                  }}
+                  className={`w-full py-3 text-lg font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 ${showReminder ? "pl-4 pr-10" : "px-4"}`}
+                />
                 {showReminder && (
                   <button
                     type="button"
-                    onClick={() => setOilReminderModal({ nextOilChangeKm, oilProgress, lastOil, interval, currentKm })}
-                    className={`inline-flex items-center justify-center w-6 h-6 ${reminderColorClass} hover:opacity-80 transition-opacity`}
+                    onClick={() =>
+                      setOilReminderModal({
+                        nextOilChangeKm,
+                        oilProgress,
+                        lastOil,
+                        interval,
+                        currentKm,
+                      })
+                    }
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-8 h-8 rounded-lg ${reminderColorClass} hover:opacity-80 transition-opacity`}
                     title="オイル交換時期のリマインド"
                   >
-                    <FontAwesomeIcon icon={faCircleExclamation} className="w-4 h-4" />
+                    <FontAwesomeIcon icon={faCircleExclamation} className="w-5 h-5" />
                   </button>
                 )}
               </div>
-              <input
-                type="number"
-                inputMode="numeric"
-                min="0"
-                placeholder="例: 14567"
-                value={meterValue}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/\D/g, "");
-                  setMeterValue(v);
-                }}
-                className="w-full px-4 py-3 text-lg font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
               <p className="text-xs text-slate-500 mt-1">車両のメーター数値として記録されます</p>
             </div>
           );

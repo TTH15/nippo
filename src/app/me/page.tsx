@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Nav } from "@/lib/components/Nav";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
@@ -66,7 +67,15 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 export default function MePage() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabId>("profile");
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "settings") setActiveTab("settings");
+    else if (tab === "shifts") setActiveTab("shifts");
+    else if (tab === "profile") setActiveTab("profile");
+  }, [searchParams]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [reports, setReports] = useState<Report[]>([]);
