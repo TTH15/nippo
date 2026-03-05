@@ -383,7 +383,7 @@ export default function PaymentsPage() {
                             )
                           }
                           placeholder="例: リース代・臨時研修費"
-                          className="w-full px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent"
+                          className="w-full mr-2 px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent"
                         />
                       </div>
                       <div className="w-28">
@@ -405,7 +405,7 @@ export default function PaymentsPage() {
                               ),
                             )
                           }
-                          className="w-full px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent text-right"
+                          className="w-full px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent text-left"
                         />
                       </div>
                       <div className="flex items-center gap-2">
@@ -421,8 +421,8 @@ export default function PaymentsPage() {
                             )
                           }
                           title={d.repeat ? "翌月以降も継続（ON）" : "当月のみ（OFF）"}
-                          className={`flex items-center justify-center w-9 h-9 rounded border transition-colors ${d.repeat
-                            ? "text-slate-800"
+                          className={`flex items-center justify-center w-9 h-9 transition-colors ${d.repeat
+                            ? "text-amber-700"
                             : "text-slate-400"
                             }`}
                         >
