@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faRepeat, faPenToSquare, faSquarePlus, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { faRepeat, faPenToSquare, faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -355,7 +355,7 @@ export default function PaymentsPage() {
                     className="w-8 h-8 flex items-center justify-center text-sm font-medium text-slate-600 bg-slate-100 rounded hover:bg-slate-200"
                     title="行を追加"
                   >
-                    <FontAwesomeIcon icon={faSquarePlus} className="w-4 h-4" />
+                    <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
                   </button>
                 )}
               </div>
