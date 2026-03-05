@@ -15,7 +15,6 @@ type DriverPaymentRow = {
   driverName: string;
   displayName: string | null;
   incomeLog: number;
-  variableDeductions: number;
   fixedDeductions: number;
   adHocDeductions: number;
   net: number;
@@ -282,8 +281,7 @@ export default function PaymentsPage() {
               </thead>
               <tbody>
                 {rows.map((row) => {
-                  const totalDeductions =
-                    row.variableDeductions - row.fixedDeductions - row.adHocDeductions;
+                  const totalDeductions = row.fixedDeductions + row.adHocDeductions;
                   return (
                     <tr
                       key={row.driverId}
@@ -305,8 +303,7 @@ export default function PaymentsPage() {
                         {formatYen(totalDeductions)}
                       </td>
                       <td className="py-2.5 px-4 text-right text-[11px] leading-snug text-slate-500">
-                        変動 {formatYen(row.variableDeductions)}／固定{" "}
-                        {formatYen(-row.fixedDeductions)}／臨時{" "}
+                        固定 {formatYen(-row.fixedDeductions)}／臨時{" "}
                         {formatYen(-row.adHocDeductions)}
                       </td>
                       <td className="py-2.5 px-4 text-right">
@@ -334,13 +331,9 @@ export default function PaymentsPage() {
             <h2 className="text-lg font-semibold text-slate-900 mb-1">
               {getDisplayName({ name: modalDriver.driverName, display_name: modalDriver.displayName })} {yearMonth.year}年{yearMonth.month}月 経費
             </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              収入 {formatYen(modalDriver.incomeLog)} − 変動 {formatYen(modalDriver.variableDeductions)} − 固定 {formatYen(modalDriver.fixedDeductions)} − 臨時 {formatYen(modalDriver.adHocDeductions)} ＝ 暫定 {formatYen(modalDriver.net)}
-            </p>
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold text-slate-700">経費</h3>
                 {canWrite && (
                   <button
                     type="button"

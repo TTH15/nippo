@@ -33,12 +33,19 @@ function getMonthRange(monthParam: string | null): {
   };
 }
 
+type CourseRate = {
+  course_id: string;
+  takuhaibin_driver_payout: number;
+  nekopos_driver_payout: number;
+  fixed_revenue: number;
+  fixed_profit: number;
+};
+
 export type DriverPaymentRow = {
   driverId: string;
   driverName: string;
   displayName: string | null;
   incomeLog: number;
-  variableDeductions: number;
   fixedDeductions: number;
   adHocDeductions: number;
   net: number;
@@ -69,28 +76,80 @@ export async function GET(req: NextRequest) {
 
   const driverIds = drivers.map((d: { id: string }) => d.id);
 
-  const { data: logRows } = await supabase
-    .from("sales_log_entries")
-    .select("target_driver_id, amount, attribution")
-    .in("target_driver_id", driverIds)
-    .eq("attribution", "DRIVER")
-    .gte("log_date", startDate)
-    .lte("log_date", endDate);
+  // コース別単価（ドライバーへの支払額）
+  const { data: courseRates } = await supabase
+    .from("course_rates")
+    .select(
+      "course_id, takuhaibin_driver_payout, nekopos_driver_payout, fixed_revenue, fixed_profit",
+    );
+  const rateByCourse: Record<string, CourseRate> = {};
+  (courseRates ?? []).forEach((r) => {
+    rateByCourse[(r as any).course_id] = {
+      course_id: (r as any).course_id,
+      takuhaibin_driver_payout: Number((r as any).takuhaibin_driver_payout) || 0,
+      nekopos_driver_payout: Number((r as any).nekopos_driver_payout) || 0,
+      fixed_revenue: Number((r as any).fixed_revenue) || 0,
+      fixed_profit: Number((r as any).fixed_profit) || 0,
+    };
+  });
+
+  // 対象期間のシフト
+  const { data: shifts } = await supabase
+    .from("shifts")
+    .select("shift_date, course_id, driver_id")
+    .gte("shift_date", startDate)
+    .lte("shift_date", endDate);
+
+  // 承認済み日報
+  const { data: reports } = await supabase
+    .from("daily_reports")
+    .select(
+      "driver_id, report_date, takuhaibin_completed, nekopos_completed, approved_at",
+    )
+    .gte("report_date", startDate)
+    .lte("report_date", endDate)
+    .not("approved_at", "is", null);
+
+  type ReportRow = NonNullable<typeof reports>[number];
+  const reportMap = new Map<string, ReportRow>();
+  (reports ?? []).forEach((r) =>
+    reportMap.set(`${r.driver_id}:${r.report_date}`, r),
+  );
 
   const incomeByDriver: Record<string, number> = {};
-  const variableByDriver: Record<string, number> = {};
   driverIds.forEach((id: string) => {
     incomeByDriver[id] = 0;
-    variableByDriver[id] = 0;
-  });
-  (logRows ?? []).forEach((row: { target_driver_id: string | null; amount: number }) => {
-    const id = row.target_driver_id;
-    if (!id || !driverIds.includes(id)) return;
-    const amount = Number(row.amount) || 0;
-    if (amount > 0) incomeByDriver[id] = (incomeByDriver[id] ?? 0) + amount;
-    else if (amount < 0) variableByDriver[id] = (variableByDriver[id] ?? 0) + amount;
   });
 
+  (shifts ?? []).forEach((s: any) => {
+    const driverId = s.driver_id as string | null;
+    const date = s.shift_date as string;
+    const courseId = s.course_id as string;
+    if (!driverId || !driverIds.includes(driverId)) return;
+    const rate = rateByCourse[courseId];
+    if (!rate) return;
+    const rep = reportMap.get(`${driverId}:${date}`);
+    if (!rep) return;
+
+    let payout = 0;
+    if (rate.fixed_revenue > 0) {
+      const driverPayout = rate.fixed_revenue - rate.fixed_profit;
+      if (driverPayout > 0) payout = driverPayout;
+    } else {
+      const tkComp = (rep.takuhaibin_completed as number | null) ?? 0;
+      const nkComp = (rep.nekopos_completed as number | null) ?? 0;
+      payout =
+        tkComp * rate.takuhaibin_driver_payout +
+        nkComp * rate.nekopos_driver_payout;
+    }
+
+    if (payout > 0) {
+      incomeByDriver[driverId] =
+        (incomeByDriver[driverId] ?? 0) + payout;
+    }
+  });
+
+  // 固定経費
   const { data: fixedRows } = await supabase
     .from("driver_fixed_expenses")
     .select("driver_id, amount")
@@ -110,6 +169,7 @@ export async function GET(req: NextRequest) {
     }
   });
 
+  // 臨時経費
   const { data: adHocRows } = await supabase
     .from("driver_ad_hoc_expenses")
     .select("driver_id, amount")
@@ -127,23 +187,23 @@ export async function GET(req: NextRequest) {
     }
   });
 
-  const rows: DriverPaymentRow[] = drivers.map((d: { id: string; name: string; display_name: string | null }) => {
-    const incomeLog = incomeByDriver[d.id] ?? 0;
-    const variableDeductions = variableByDriver[d.id] ?? 0;
-    const fixedDeductions = fixedByDriver[d.id] ?? 0;
-    const adHocDeductions = adHocByDriver[d.id] ?? 0;
-    const net = incomeLog + variableDeductions - fixedDeductions - adHocDeductions;
-    return {
-      driverId: d.id,
-      driverName: d.name,
-      displayName: d.display_name ?? null,
-      incomeLog,
-      variableDeductions,
-      fixedDeductions,
-      adHocDeductions,
-      net,
-    };
-  });
+  const rows: DriverPaymentRow[] = drivers.map(
+    (d: { id: string; name: string; display_name: string | null }) => {
+      const incomeLog = incomeByDriver[d.id] ?? 0;
+      const fixedDeductions = fixedByDriver[d.id] ?? 0;
+      const adHocDeductions = adHocByDriver[d.id] ?? 0;
+      const net = incomeLog - fixedDeductions - adHocDeductions;
+      return {
+        driverId: d.id,
+        driverName: d.name,
+        displayName: d.display_name ?? null,
+        incomeLog,
+        fixedDeductions,
+        adHocDeductions,
+        net,
+      };
+    },
+  );
 
   return NextResponse.json({
     month,
