@@ -16,7 +16,7 @@ type DriverFixedExpense = {
 
 // GET: ドライバーごとの固定経費一覧
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   const driverId = req.nextUrl.searchParams.get("driver_id");

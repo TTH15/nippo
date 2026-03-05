@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faRepeat } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
@@ -56,8 +58,17 @@ export default function PaymentsPage() {
   const [adHocAmount, setAdHocAmount] = useState("");
   const [adHocSubmitting, setAdHocSubmitting] = useState(false);
   const [adHocError, setAdHocError] = useState<string | null>(null);
+  const [fixedName, setFixedName] = useState("");
+  const [fixedAmount, setFixedAmount] = useState("");
+  const [fixedRepeat, setFixedRepeat] = useState(true);
+  const [fixedSubmitting, setFixedSubmitting] = useState(false);
+  const [fixedError, setFixedError] = useState<string | null>(null);
 
   const monthStr = `${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}`;
+
+  const monthStartDate = `${monthStr}-01`;
+  const lastDayOfMonth = new Date(yearMonth.year, yearMonth.month, 0).getDate();
+  const monthEndDate = `${monthStr}-${String(lastDayOfMonth).padStart(2, "0")}`;
 
   const loadPayments = useCallback(() => {
     setLoading(true);
@@ -89,6 +100,10 @@ export default function PaymentsPage() {
     setAdHocName("");
     setAdHocAmount("");
     setAdHocError(null);
+    setFixedName("");
+    setFixedAmount("");
+    setFixedRepeat(true);
+    setFixedError(null);
   }, [modalDriver, monthStr]);
 
   const openModal = (row: DriverPaymentRow) => {
@@ -151,6 +166,59 @@ export default function PaymentsPage() {
     }
   };
 
+  const handleAddFixed = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalDriver || !canWrite) return;
+    setFixedError(null);
+    if (!fixedName.trim()) {
+      setFixedError("経費名を入力してください");
+      return;
+    }
+    const amountNum = Number(fixedAmount.replace(/\D/g, ""));
+    if (Number.isNaN(amountNum) || amountNum <= 0) {
+      setFixedError("月額は1円以上の数値で入力してください");
+      return;
+    }
+    setFixedSubmitting(true);
+    try {
+      await apiFetch("/api/admin/driver-expenses", {
+        method: "POST",
+        body: JSON.stringify({
+          driver_id: modalDriver.driverId,
+          name: fixedName.trim(),
+          amount: amountNum,
+          valid_from: monthStartDate,
+          valid_to: fixedRepeat ? null : monthEndDate,
+        }),
+      });
+      setFixedName("");
+      setFixedAmount("");
+      const res = await apiFetch<{ expenses: FixedExpense[] }>(
+        `/api/admin/driver-expenses?driver_id=${modalDriver.driverId}`
+      );
+      setFixedExpenses(res.expenses ?? []);
+      loadPayments();
+    } catch (err: unknown) {
+      setFixedError(err instanceof Error ? err.message : "追加に失敗しました");
+    } finally {
+      setFixedSubmitting(false);
+    }
+  };
+
+  const handleDeleteFixed = async (id: string) => {
+    if (!modalDriver || !canWrite) return;
+    try {
+      await apiFetch(`/api/admin/driver-expenses/${id}`, { method: "DELETE" });
+      const res = await apiFetch<{ expenses: FixedExpense[] }>(
+        `/api/admin/driver-expenses?driver_id=${modalDriver.driverId}`
+      );
+      setFixedExpenses(res.expenses ?? []);
+      loadPayments();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const isCurrentMonth =
     yearMonth.year === new Date().getFullYear() && yearMonth.month === new Date().getMonth() + 1;
 
@@ -159,40 +227,18 @@ export default function PaymentsPage() {
       <div className="w-full">
         <h1 className="text-xl font-bold text-slate-900">ペイメント</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          ドライバーごとの月別報酬（今月は暫定）。固定経費はドライバー管理で、臨時経費はここで登録できます。
+          ドライバーごとの月別報酬（今月は暫定）。固定経費・臨時経費はここから登録できます。
         </p>
 
-        <div className="flex items-center gap-4 mt-6 mb-4">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                setYearMonth((m) =>
-                  m.month === 1 ? { year: m.year - 1, month: 12 } : { ...m, month: m.month - 1 }
-                )
-              }
-              className="px-3 py-1.5 text-sm text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50"
-            >
-              ← 前月
-            </button>
-            <span className="text-sm font-medium text-slate-900 min-w-[100px]">
-              {yearMonth.year}年 {yearMonth.month}月
-              {isCurrentMonth && (
-                <span className="ml-1 text-xs font-normal text-amber-600">（暫定）</span>
-              )}
-            </span>
-            <button
-              type="button"
-              onClick={() =>
-                setYearMonth((m) =>
-                  m.month === 12 ? { year: m.year + 1, month: 1 } : { ...m, month: m.month + 1 }
-                )
-              }
-              className="px-3 py-1.5 text-sm text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50"
-            >
-              翌月 →
-            </button>
-          </div>
+        <div className="flex items-center gap-3 mt-6 mb-4">
+          <MonthYearPicker
+            value={yearMonth}
+            onChange={setYearMonth}
+            placeholder="年月を選択"
+          />
+          {isCurrentMonth && (
+            <span className="text-sm font-medium text-amber-600">（暫定）</span>
+          )}
         </div>
 
         {loading ? (
@@ -294,14 +340,63 @@ export default function PaymentsPage() {
 
             <div className="space-y-4">
               <div>
-                <h3 className="text-sm font-semibold text-slate-700 mb-2">固定経費（管理者設定）</h3>
-                <p className="text-xs text-slate-500 mb-2">
-                  リース代・事務手数料など。編集は
-                  <Link href="/admin/users" className="text-slate-700 underline ml-1">
-                    ドライバー管理
-                  </Link>
-                  の該当ドライバー編集から行ってください。
+                <h3 className="text-sm font-semibold text-slate-700 mb-2">固定経費</h3>
+                <p className="text-xs text-slate-500 mb-3">
+                  リース代・事務手数料などの月額経費。リピートONで翌月以降も継続して適用されます。
                 </p>
+                {canWrite && (
+                  <form onSubmit={handleAddFixed} className="space-y-2 mb-3">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="flex-1 min-w-[100px]">
+                        <label className="block text-xs font-medium text-slate-600 mb-1">経費名</label>
+                        <input
+                          type="text"
+                          value={fixedName}
+                          onChange={(e) => setFixedName(e.target.value)}
+                          placeholder="例: リース代"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        />
+                      </div>
+                      <div className="w-28">
+                        <label className="block text-xs font-medium text-slate-600 mb-1">月額（円）</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={fixedAmount}
+                          onChange={(e) => setFixedAmount(e.target.value.replace(/[^0-9]/g, ""))}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={fixedRepeat}
+                          onClick={() => setFixedRepeat((r) => !r)}
+                          title={fixedRepeat ? "翌月以降も継続（ON）" : "当月のみ（OFF）"}
+                          className={`flex items-center justify-center w-9 h-9 rounded border transition-colors ${
+                            fixedRepeat
+                              ? "bg-slate-800 text-white border-slate-800"
+                              : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          <FontAwesomeIcon icon={faRepeat} className="w-4 h-4" />
+                        </button>
+                        <span className="text-xs text-slate-500 whitespace-nowrap">
+                          {fixedRepeat ? "翌月以降も継続" : "当月のみ"}
+                        </span>
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={fixedSubmitting}
+                        className="px-3 py-2 text-sm bg-slate-800 text-white rounded hover:bg-slate-700 disabled:opacity-50"
+                      >
+                        {fixedSubmitting ? "追加中..." : "追加"}
+                      </button>
+                    </div>
+                    {fixedError && <p className="text-xs text-red-600">{fixedError}</p>}
+                  </form>
+                )}
                 {fixedLoading ? (
                   <div className="space-y-2">
                     <Skeleton className="h-4 w-full" />
@@ -310,14 +405,25 @@ export default function PaymentsPage() {
                 ) : fixedExpenses.length === 0 ? (
                   <p className="text-xs text-slate-500">登録されている固定経費はありません</p>
                 ) : (
-                  <ul className="bg-slate-50 border border-slate-200 rounded p-3 space-y-1 text-xs text-slate-700">
+                  <ul className="bg-slate-50 border border-slate-200 rounded p-3 space-y-2 text-xs text-slate-700">
                     {fixedExpenses.map((f) => {
                       const fromLabel = f.valid_from ? String(f.valid_from).slice(0, 7) : "-";
                       const toLabel = f.valid_to ? String(f.valid_to).slice(0, 7) : "継続";
                       return (
-                        <li key={f.id} className="flex justify-between">
+                        <li key={f.id} className="flex justify-between items-center">
                           <span>{f.name}（{fromLabel}〜{toLabel}）</span>
-                          <span className="font-mono text-orange-600">{formatYen(-f.amount)}</span>
+                          <span className="flex items-center gap-2">
+                            <span className="font-mono text-orange-600">{formatYen(-f.amount)}</span>
+                            {canWrite && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteFixed(f.id)}
+                                className="text-slate-400 hover:text-red-600 text-[11px]"
+                              >
+                                削除
+                              </button>
+                            )}
+                          </span>
                         </li>
                       );
                     })}
