@@ -54,15 +54,11 @@ export default function PaymentsPage() {
   const [fixedLoading, setFixedLoading] = useState(false);
   const [adHocExpenses, setAdHocExpenses] = useState<AdHocExpense[]>([]);
   const [adHocLoading, setAdHocLoading] = useState(false);
-  const [adHocName, setAdHocName] = useState("");
-  const [adHocAmount, setAdHocAmount] = useState("");
-  const [adHocSubmitting, setAdHocSubmitting] = useState(false);
-  const [adHocError, setAdHocError] = useState<string | null>(null);
-  const [fixedName, setFixedName] = useState("");
-  const [fixedAmount, setFixedAmount] = useState("");
-  const [fixedRepeat, setFixedRepeat] = useState(true);
-  const [fixedSubmitting, setFixedSubmitting] = useState(false);
-  const [fixedError, setFixedError] = useState<string | null>(null);
+  const [expenseName, setExpenseName] = useState("");
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseRepeat, setExpenseRepeat] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const monthStr = `${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}`;
 
@@ -97,13 +93,10 @@ export default function PaymentsPage() {
       .then((res) => setAdHocExpenses(res.expenses ?? []))
       .catch(() => setAdHocExpenses([]))
       .finally(() => setAdHocLoading(false));
-    setAdHocName("");
-    setAdHocAmount("");
-    setAdHocError(null);
-    setFixedName("");
-    setFixedAmount("");
-    setFixedRepeat(true);
-    setFixedError(null);
+    setExpenseName("");
+    setExpenseAmount("");
+    setExpenseRepeat(true);
+    setSaveError(null);
   }, [modalDriver, monthStr]);
 
   const openModal = (row: DriverPaymentRow) => {
@@ -114,41 +107,57 @@ export default function PaymentsPage() {
     setModalDriver(null);
   };
 
-  const handleAddAdHoc = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async () => {
     if (!modalDriver || !canWrite) return;
-    setAdHocError(null);
-    if (!adHocName.trim()) {
-      setAdHocError("経費名を入力してください");
+    setSaveError(null);
+    if (!expenseName.trim()) {
+      setSaveError("経費名を入力してください");
       return;
     }
-    const amountNum = Number(adHocAmount.replace(/\D/g, ""));
-    if (Number.isNaN(amountNum) || amountNum < 0) {
-      setAdHocError("金額を0以上の数値で入力してください");
+    const amountNum = Number(expenseAmount.replace(/\D/g, ""));
+    if (Number.isNaN(amountNum) || amountNum <= 0) {
+      setSaveError("月額は1円以上の数値で入力してください");
       return;
     }
-    setAdHocSubmitting(true);
+    setSaving(true);
     try {
-      await apiFetch("/api/admin/driver-ad-hoc-expenses", {
-        method: "POST",
-        body: JSON.stringify({
-          driver_id: modalDriver.driverId,
-          month: monthStr,
-          name: adHocName.trim(),
-          amount: amountNum,
-        }),
-      });
-      setAdHocName("");
-      setAdHocAmount("");
-      const res = await apiFetch<{ expenses: AdHocExpense[] }>(
-        `/api/admin/driver-ad-hoc-expenses?driver_id=${modalDriver.driverId}&month=${monthStr}`
-      );
-      setAdHocExpenses(res.expenses ?? []);
+      if (expenseRepeat) {
+        await apiFetch("/api/admin/driver-expenses", {
+          method: "POST",
+          body: JSON.stringify({
+            driver_id: modalDriver.driverId,
+            name: expenseName.trim(),
+            amount: amountNum,
+            valid_from: monthStartDate,
+            valid_to: null,
+          }),
+        });
+      } else {
+        await apiFetch("/api/admin/driver-ad-hoc-expenses", {
+          method: "POST",
+          body: JSON.stringify({
+            driver_id: modalDriver.driverId,
+            month: monthStr,
+            name: expenseName.trim(),
+            amount: amountNum,
+          }),
+        });
+      }
+      setExpenseName("");
+      setExpenseAmount("");
+      const [fixedRes, adHocRes] = await Promise.all([
+        apiFetch<{ expenses: FixedExpense[] }>(`/api/admin/driver-expenses?driver_id=${modalDriver.driverId}`),
+        apiFetch<{ expenses: AdHocExpense[] }>(
+          `/api/admin/driver-ad-hoc-expenses?driver_id=${modalDriver.driverId}&month=${monthStr}`
+        ),
+      ]);
+      setFixedExpenses(fixedRes.expenses ?? []);
+      setAdHocExpenses(adHocRes.expenses ?? []);
       loadPayments();
     } catch (err: unknown) {
-      setAdHocError(err instanceof Error ? err.message : "追加に失敗しました");
+      setSaveError(err instanceof Error ? err.message : "保存に失敗しました");
     } finally {
-      setAdHocSubmitting(false);
+      setSaving(false);
     }
   };
 
@@ -163,45 +172,6 @@ export default function PaymentsPage() {
       loadPayments();
     } catch (e) {
       console.error(e);
-    }
-  };
-
-  const handleAddFixed = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!modalDriver || !canWrite) return;
-    setFixedError(null);
-    if (!fixedName.trim()) {
-      setFixedError("経費名を入力してください");
-      return;
-    }
-    const amountNum = Number(fixedAmount.replace(/\D/g, ""));
-    if (Number.isNaN(amountNum) || amountNum <= 0) {
-      setFixedError("月額は1円以上の数値で入力してください");
-      return;
-    }
-    setFixedSubmitting(true);
-    try {
-      await apiFetch("/api/admin/driver-expenses", {
-        method: "POST",
-        body: JSON.stringify({
-          driver_id: modalDriver.driverId,
-          name: fixedName.trim(),
-          amount: amountNum,
-          valid_from: monthStartDate,
-          valid_to: fixedRepeat ? null : monthEndDate,
-        }),
-      });
-      setFixedName("");
-      setFixedAmount("");
-      const res = await apiFetch<{ expenses: FixedExpense[] }>(
-        `/api/admin/driver-expenses?driver_id=${modalDriver.driverId}`
-      );
-      setFixedExpenses(res.expenses ?? []);
-      loadPayments();
-    } catch (err: unknown) {
-      setFixedError(err instanceof Error ? err.message : "追加に失敗しました");
-    } finally {
-      setFixedSubmitting(false);
     }
   };
 
@@ -338,157 +308,76 @@ export default function PaymentsPage() {
               収入 {formatYen(modalDriver.incomeLog)} − 変動 {formatYen(modalDriver.variableDeductions)} − 固定 {formatYen(modalDriver.fixedDeductions)} − 臨時 {formatYen(modalDriver.adHocDeductions)} ＝ 暫定 {formatYen(modalDriver.net)}
             </p>
 
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-700 mb-2">固定経費</h3>
-                <p className="text-xs text-slate-500 mb-3">
-                  リース代・事務手数料などの月額経費。リピートONで翌月以降も継続して適用されます。
-                </p>
-                {canWrite && (
-                  <form onSubmit={handleAddFixed} className="space-y-2 mb-3">
-                    <div className="flex flex-wrap items-end gap-2">
-                      <div className="flex-1 min-w-[100px]">
-                        <label className="block text-xs font-medium text-slate-600 mb-1">経費名</label>
-                        <input
-                          type="text"
-                          value={fixedName}
-                          onChange={(e) => setFixedName(e.target.value)}
-                          placeholder="例: リース代"
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                        />
-                      </div>
-                      <div className="w-28">
-                        <label className="block text-xs font-medium text-slate-600 mb-1">月額（円）</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={fixedAmount}
-                          onChange={(e) => setFixedAmount(e.target.value.replace(/[^0-9]/g, ""))}
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-slate-400"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={fixedRepeat}
-                          onClick={() => setFixedRepeat((r) => !r)}
-                          title={fixedRepeat ? "翌月以降も継続（ON）" : "当月のみ（OFF）"}
-                          className={`flex items-center justify-center w-9 h-9 rounded border transition-colors ${
-                            fixedRepeat
-                              ? "bg-slate-800 text-white border-slate-800"
-                              : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          <FontAwesomeIcon icon={faRepeat} className="w-4 h-4" />
-                        </button>
-                        <span className="text-xs text-slate-500 whitespace-nowrap">
-                          {fixedRepeat ? "翌月以降も継続" : "当月のみ"}
-                        </span>
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={fixedSubmitting}
-                        className="px-3 py-2 text-sm bg-slate-800 text-white rounded hover:bg-slate-700 disabled:opacity-50"
-                      >
-                        {fixedSubmitting ? "追加中..." : "追加"}
-                      </button>
-                    </div>
-                    {fixedError && <p className="text-xs text-red-600">{fixedError}</p>}
-                  </form>
-                )}
-                {fixedLoading ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-full" />
-                    <Skeleton className="h-4 w-full" />
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700 mb-2">経費</h3>
+              <p className="text-xs text-slate-500 mb-3">
+                経費名・月額を入力し、リピートONで翌月以降も継続・OFFで当月のみ。保存で登録します。
+              </p>
+              {canWrite && (
+                <div className="flex flex-wrap items-end gap-2 mb-3">
+                  <div className="flex-1 min-w-[100px]">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">経費名</label>
+                    <input
+                      type="text"
+                      value={expenseName}
+                      onChange={(e) => setExpenseName(e.target.value)}
+                      placeholder="例: リース代・臨時研修費"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
                   </div>
-                ) : fixedExpenses.length === 0 ? (
-                  <p className="text-xs text-slate-500">登録されている固定経費はありません</p>
-                ) : (
-                  <ul className="bg-slate-50 border border-slate-200 rounded p-3 space-y-2 text-xs text-slate-700">
-                    {fixedExpenses.map((f) => {
-                      const fromLabel = f.valid_from ? String(f.valid_from).slice(0, 7) : "-";
-                      const toLabel = f.valid_to ? String(f.valid_to).slice(0, 7) : "継続";
-                      return (
-                        <li key={f.id} className="flex justify-between items-center">
-                          <span>{f.name}（{fromLabel}〜{toLabel}）</span>
-                          <span className="flex items-center gap-2">
-                            <span className="font-mono text-orange-600">{formatYen(-f.amount)}</span>
-                            {canWrite && (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteFixed(f.id)}
-                                className="text-slate-400 hover:text-red-600 text-[11px]"
-                              >
-                                削除
-                              </button>
-                            )}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-
-              <div>
-                <h3 className="text-sm font-semibold text-slate-700 mb-2">臨時経費</h3>
-                <p className="text-xs text-slate-500 mb-2">
-                  当月限りの経費を追加できます。
-                </p>
-                {canWrite && (
-                  <form onSubmit={handleAddAdHoc} className="flex flex-wrap items-end gap-2 mb-3">
-                    <div className="flex-1 min-w-[120px]">
-                      <label className="block text-xs font-medium text-slate-600 mb-1">経費名</label>
-                      <input
-                        type="text"
-                        value={adHocName}
-                        onChange={(e) => setAdHocName(e.target.value)}
-                        placeholder="例: 臨時研修費"
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      />
-                    </div>
-                    <div className="w-28">
-                      <label className="block text-xs font-medium text-slate-600 mb-1">金額（円）</label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={adHocAmount}
-                        onChange={(e) => setAdHocAmount(e.target.value.replace(/[^0-9]/g, ""))}
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      />
-                    </div>
+                  <div className="w-28">
+                    <label className="block text-xs font-medium text-slate-600 mb-1">月額（円）</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={expenseAmount}
+                      onChange={(e) => setExpenseAmount(e.target.value.replace(/[^0-9]/g, ""))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
                     <button
-                      type="submit"
-                      disabled={adHocSubmitting}
-                      className="px-3 py-2 text-sm bg-slate-800 text-white rounded hover:bg-slate-700 disabled:opacity-50"
+                      type="button"
+                      role="switch"
+                      aria-checked={expenseRepeat}
+                      onClick={() => setExpenseRepeat((r) => !r)}
+                      title={expenseRepeat ? "翌月以降も継続（ON）" : "当月のみ（OFF）"}
+                      className={`flex items-center justify-center w-9 h-9 rounded border transition-colors ${
+                        expenseRepeat
+                          ? "bg-slate-800 text-white border-slate-800"
+                          : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                      }`}
                     >
-                      {adHocSubmitting ? "追加中..." : "追加"}
+                      <FontAwesomeIcon icon={faRepeat} className="w-4 h-4" />
                     </button>
-                  </form>
-                )}
-                {adHocError && <p className="text-xs text-red-600 mb-2">{adHocError}</p>}
-                {adHocLoading ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-full" />
-                    <Skeleton className="h-4 w-full" />
+                    <span className="text-xs text-slate-500 whitespace-nowrap">
+                      {expenseRepeat ? "翌月以降も継続" : "当月のみ"}
+                    </span>
                   </div>
-                ) : adHocExpenses.length === 0 ? (
-                  <p className="text-xs text-slate-500">この月の臨時経費はありません</p>
-                ) : (
-                  <ul className="space-y-2 text-xs text-slate-700">
-                    {adHocExpenses.map((o) => (
-                      <li
-                        key={o.id}
-                        className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-b-0"
-                      >
-                        <span>{o.name}</span>
+                </div>
+              )}
+              {saveError && <p className="text-xs text-red-600 mb-2">{saveError}</p>}
+              {fixedLoading || adHocLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-full" />
+                </div>
+              ) : fixedExpenses.length === 0 && adHocExpenses.length === 0 ? (
+                <p className="text-xs text-slate-500">登録されている経費はありません</p>
+              ) : (
+                <ul className="bg-slate-50 border border-slate-200 rounded p-3 space-y-2 text-xs text-slate-700">
+                  {fixedExpenses.map((f) => {
+                    const fromLabel = f.valid_from ? String(f.valid_from).slice(0, 7) : "-";
+                    const toLabel = f.valid_to ? String(f.valid_to).slice(0, 7) : "継続";
+                    return (
+                      <li key={`fixed-${f.id}`} className="flex justify-between items-center">
+                        <span>{f.name}（{fromLabel}〜{toLabel}）</span>
                         <span className="flex items-center gap-2">
-                          <span className="font-mono text-orange-600">{formatYen(-o.amount)}</span>
+                          <span className="font-mono text-orange-600">{formatYen(-f.amount)}</span>
                           {canWrite && (
                             <button
                               type="button"
-                              onClick={() => handleDeleteAdHoc(o.id)}
+                              onClick={() => handleDeleteFixed(f.id)}
                               className="text-slate-400 hover:text-red-600 text-[11px]"
                             >
                               削除
@@ -496,13 +385,30 @@ export default function PaymentsPage() {
                           )}
                         </span>
                       </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+                    );
+                  })}
+                  {adHocExpenses.map((o) => (
+                    <li key={`adhoc-${o.id}`} className="flex justify-between items-center">
+                      <span>{o.name}（当月のみ）</span>
+                      <span className="flex items-center gap-2">
+                        <span className="font-mono text-orange-600">{formatYen(-o.amount)}</span>
+                        {canWrite && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAdHoc(o.id)}
+                            className="text-slate-400 hover:text-red-600 text-[11px]"
+                          >
+                            削除
+                          </button>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
-            <div className="mt-6 flex justify-end">
+            <div className="mt-6 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={closeModal}
@@ -510,6 +416,16 @@ export default function PaymentsPage() {
               >
                 閉じる
               </button>
+              {canWrite && (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="px-4 py-2 text-sm bg-slate-800 text-white rounded hover:bg-slate-700 disabled:opacity-50"
+                >
+                  {saving ? "保存中..." : "保存"}
+                </button>
+              )}
             </div>
           </div>
         </div>
