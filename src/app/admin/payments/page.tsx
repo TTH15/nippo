@@ -15,6 +15,9 @@ type DriverPaymentRow = {
   driverName: string;
   displayName: string | null;
   incomeLog: number;
+  yamatoIncome: number;
+  amazonIncome: number;
+  otherIncome: number;
   fixedDeductions: number;
   adHocDeductions: number;
   net: number;
@@ -303,7 +306,11 @@ export default function PaymentsPage() {
                         {formatYen(totalDeductions)}
                       </td>
                       <td className="py-2.5 px-4 text-right text-[11px] leading-snug text-slate-500">
-                        固定 {formatYen(-row.fixedDeductions)}／臨時{" "}
+                        報酬: ヤマト {formatYen(row.yamatoIncome)}／Amazon{" "}
+                        {formatYen(row.amazonIncome)}／その他{" "}
+                        {formatYen(row.otherIncome)}
+                        <br />
+                        控除: 固定 {formatYen(-row.fixedDeductions)}／臨時{" "}
                         {formatYen(-row.adHocDeductions)}
                       </td>
                       <td className="py-2.5 px-4 text-right">
@@ -331,6 +338,12 @@ export default function PaymentsPage() {
             <h2 className="text-lg font-semibold text-slate-900 mb-1">
               {getDisplayName({ name: modalDriver.driverName, display_name: modalDriver.displayName })} {yearMonth.year}年{yearMonth.month}月 経費
             </h2>
+            <p className="text-xs text-slate-500 mb-1">
+              収入 {formatYen(modalDriver.incomeLog)} − 固定 {formatYen(modalDriver.fixedDeductions)} − 臨時 {formatYen(modalDriver.adHocDeductions)} ＝ 暫定 {formatYen(modalDriver.net)}
+            </p>
+            <p className="text-xs text-slate-500 mb-4">
+              報酬内訳: ヤマト {formatYen(modalDriver.yamatoIncome)}／Amazon {formatYen(modalDriver.amazonIncome)}／その他 {formatYen(modalDriver.otherIncome)}
+            </p>
 
             <div>
               <div className="flex items-center justify-between mb-2">

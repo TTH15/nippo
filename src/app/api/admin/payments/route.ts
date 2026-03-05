@@ -46,6 +46,9 @@ export type DriverPaymentRow = {
   driverName: string;
   displayName: string | null;
   incomeLog: number;
+  yamatoIncome: number;
+  amazonIncome: number;
+  otherIncome: number;
   fixedDeductions: number;
   adHocDeductions: number;
   net: number;
@@ -75,6 +78,22 @@ export async function GET(req: NextRequest) {
   }
 
   const driverIds = drivers.map((d: { id: string }) => d.id);
+
+  // コース情報（キャリア判定用）
+  const { data: courses } = await supabase
+    .from("courses")
+    .select("id, name, carrier");
+  const courseMap = new Map<
+    string,
+    { id: string; name: string; carrier?: "YAMATO" | "AMAZON" | "OTHER" | null }
+  >();
+  (courses ?? []).forEach((c: any) => {
+    courseMap.set(c.id, {
+      id: c.id as string,
+      name: (c.name as string) ?? "",
+      carrier: (c.carrier as "YAMATO" | "AMAZON" | "OTHER" | null) ?? null,
+    });
+  });
 
   // コース別単価（ドライバーへの支払額）
   const { data: courseRates } = await supabase
@@ -117,8 +136,14 @@ export async function GET(req: NextRequest) {
   );
 
   const incomeByDriver: Record<string, number> = {};
+  const yamatoByDriver: Record<string, number> = {};
+  const amazonByDriver: Record<string, number> = {};
+  const otherByDriver: Record<string, number> = {};
   driverIds.forEach((id: string) => {
     incomeByDriver[id] = 0;
+    yamatoByDriver[id] = 0;
+    amazonByDriver[id] = 0;
+    otherByDriver[id] = 0;
   });
 
   (shifts ?? []).forEach((s: any) => {
@@ -146,6 +171,28 @@ export async function GET(req: NextRequest) {
     if (payout > 0) {
       incomeByDriver[driverId] =
         (incomeByDriver[driverId] ?? 0) + payout;
+
+      const course = courseMap.get(courseId);
+      const courseName = course?.name ?? "";
+      const carrier: "YAMATO" | "AMAZON" | "OTHER" =
+        (course?.carrier as "YAMATO" | "AMAZON" | "OTHER" | null) ??
+        (courseName.startsWith("ヤマト")
+          ? "YAMATO"
+          : courseName.startsWith("Amazon") ||
+            courseName.startsWith("アマゾン")
+          ? "AMAZON"
+          : "OTHER");
+
+      if (carrier === "AMAZON") {
+        amazonByDriver[driverId] =
+          (amazonByDriver[driverId] ?? 0) + payout;
+      } else if (carrier === "YAMATO") {
+        yamatoByDriver[driverId] =
+          (yamatoByDriver[driverId] ?? 0) + payout;
+      } else {
+        otherByDriver[driverId] =
+          (otherByDriver[driverId] ?? 0) + payout;
+      }
     }
   });
 
@@ -198,6 +245,9 @@ export async function GET(req: NextRequest) {
         driverName: d.name,
         displayName: d.display_name ?? null,
         incomeLog,
+        yamatoIncome: yamatoByDriver[d.id] ?? 0,
+        amazonIncome: amazonByDriver[d.id] ?? 0,
+        otherIncome: otherByDriver[d.id] ?? 0,
         fixedDeductions,
         adHocDeductions,
         net,
