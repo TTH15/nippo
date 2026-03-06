@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Nav } from "@/lib/components/Nav";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
@@ -146,7 +145,6 @@ export default function ShiftsPage() {
 
   return (
     <>
-      <Nav />
       <div className="max-w-md mx-auto px-4 py-6">
         <h1 className="text-lg font-bold text-slate-900 mb-1">シフト希望</h1>
         <p className="text-sm text-slate-500 mb-5">

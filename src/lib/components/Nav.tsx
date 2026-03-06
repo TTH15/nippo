@@ -6,7 +6,12 @@ import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { getStoredDriver, clearAuth } from "@/lib/api";
 
-export function Nav() {
+type NavProps = {
+  /** ユーザー画面用: ハンバーガー廃止、下部タブで遷移 */
+  variant?: "default" | "user";
+};
+
+export function Nav({ variant = "default" }: NavProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [driver, setDriver] = useState<{ id: string; name: string; role: string } | null>(null);
@@ -23,6 +28,7 @@ export function Nav() {
   }, [pathname]);
 
   const isAdmin = driver?.role === "ADMIN";
+  const isUserLayout = variant === "user";
 
   const logout = () => {
     setMenuOpen(false);
@@ -49,19 +55,30 @@ export function Nav() {
           </Link>
         </div>
 
-        {/* 右: ハンバーガー / プロフィール */}
+        {/* 右: ユーザーレイアウト時は名前＋ログアウト、それ以外はハンバーガー＋プロフィール */}
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setMenuOpen((o) => !o)}
-            className="p-2 -ml-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
-            aria-label="メニューを開く"
-            aria-expanded={menuOpen}
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
+          {!isUserLayout && (
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              className="p-2 -ml-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+              aria-label="メニューを開く"
+              aria-expanded={menuOpen}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          )}
+          {isUserLayout && (
+            <button
+              type="button"
+              onClick={logout}
+              className="text-xs text-slate-400 hover:text-white transition-colors"
+            >
+              ログアウト
+            </button>
+          )}
           <Link
             href="/me"
             className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors"
@@ -75,8 +92,8 @@ export function Nav() {
         </div>
       </div>
 
-      {/* ハンバーガーメニュー オーバーレイ */}
-      {menuOpen && (
+      {/* ハンバーガーメニュー オーバーレイ（ユーザーレイアウトでは非表示） */}
+      {!isUserLayout && menuOpen && (
         <>
           <div
             className="fixed inset-0 bg-black/50 z-40 top-12"
