@@ -66,7 +66,62 @@ export async function GET(req: NextRequest) {
   const monthParam = req.nextUrl.searchParams.get("month");
   const { month, startDate, endDate } = getMonthRange(monthParam);
 
-  // 売上ログ（ドライバー収入／変動控除）
+  const driverId = user.driverId as string;
+
+  // 日報・シフトから計算するドライバー売上（payments API と同じロジック）
+  const { data: courseRates } = await supabase
+    .from("course_rates")
+    .select("course_id, takuhaibin_driver_payout, nekopos_driver_payout, fixed_revenue, fixed_profit");
+  const rateByCourse: Record<string, { takuhaibin_driver_payout: number; nekopos_driver_payout: number; fixed_revenue: number; fixed_profit: number }> = {};
+  (courseRates ?? []).forEach((r: any) => {
+    rateByCourse[r.course_id] = {
+      takuhaibin_driver_payout: Number(r.takuhaibin_driver_payout) || 0,
+      nekopos_driver_payout: Number(r.nekopos_driver_payout) || 0,
+      fixed_revenue: Number(r.fixed_revenue) || 0,
+      fixed_profit: Number(r.fixed_profit) || 0,
+    };
+  });
+
+  const { data: shifts } = await supabase
+    .from("shifts")
+    .select("shift_date, course_id, driver_id")
+    .eq("driver_id", driverId)
+    .gte("shift_date", startDate)
+    .lte("shift_date", endDate);
+
+  const { data: reports } = await supabase
+    .from("daily_reports")
+    .select("driver_id, report_date, takuhaibin_completed, nekopos_completed")
+    .eq("driver_id", driverId)
+    .gte("report_date", startDate)
+    .lte("report_date", endDate)
+    .not("approved_at", "is", null);
+
+  const reportMap = new Map<string, any>();
+  (reports ?? []).forEach((r: any) => reportMap.set(`${r.driver_id}:${r.report_date}`, r));
+
+  let calculatedIncome = 0;
+  (shifts ?? []).forEach((s: any) => {
+    const date = s.shift_date;
+    const courseId = s.course_id;
+    const rate = rateByCourse[courseId];
+    if (!rate) return;
+    const rep = reportMap.get(`${driverId}:${date}`);
+    if (!rep) return;
+
+    let payout = 0;
+    if (rate.fixed_revenue > 0) {
+      const driverPayout = rate.fixed_revenue - rate.fixed_profit;
+      if (driverPayout > 0) payout = driverPayout;
+    } else {
+      const tkComp = Number(rep.takuhaibin_completed) ?? 0;
+      const nkComp = Number(rep.nekopos_completed) ?? 0;
+      payout = tkComp * rate.takuhaibin_driver_payout + nkComp * rate.nekopos_driver_payout;
+    }
+    calculatedIncome += payout;
+  });
+
+  // 売上ログ（ドライバー収入／変動控除）※ 計算売上とは別の手動登録分
   const { data: logRows, error: logError } = await supabase
     .from("sales_log_entries")
     .select(`
@@ -160,14 +215,18 @@ export async function GET(req: NextRequest) {
     };
   });
 
+  // 収入 = 日報・シフトから計算した売上 + ログのプラス分／変動控除 = ログのマイナス分
+  const totalIncome = calculatedIncome + incomeLog;
   const net =
-    incomeLog + variableDeductions - fixedDeductions - optionalDeductions;
+    totalIncome + variableDeductions - fixedDeductions - optionalDeductions;
 
   return NextResponse.json({
     month,
     startDate,
     endDate,
-    incomeLog,
+    incomeLog: totalIncome,
+    calculatedIncome,
+    logIncome: incomeLog,
     variableDeductions,
     fixedDeductions,
     optionalDeductions,

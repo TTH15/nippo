@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Nav } from "@/lib/components/Nav";
+import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 
@@ -124,34 +125,12 @@ export default function MeRewardsPage() {
         </div>
         <h1 className="text-lg font-bold text-slate-900 mb-4">報酬</h1>
 
-        <div className="flex items-center justify-between mb-3">
-          <button
-            type="button"
-            onClick={() =>
-              setRewardMonth((m) => {
-                if (m.month === 1) return { year: m.year - 1, month: 12 };
-                return { ...m, month: m.month - 1 };
-              })
-            }
-            className="px-3 py-1.5 text-sm text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50 transition-colors"
-          >
-            ← 前月
-          </button>
-          <div className="text-sm font-medium text-slate-900">
-            {rewardMonth.year}年 {rewardMonth.month}月
-          </div>
-          <button
-            type="button"
-            onClick={() =>
-              setRewardMonth((m) => {
-                if (m.month === 12) return { year: m.year + 1, month: 1 };
-                return { ...m, month: m.month + 1 };
-              })
-            }
-            className="px-3 py-1.5 text-sm text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50 transition-colors"
-          >
-            翌月 →
-          </button>
+        <div className="mb-3">
+          <MonthYearPicker
+            value={rewardMonth}
+            onChange={setRewardMonth}
+            placeholder="年月を選択"
+          />
         </div>
 
         {rewardsLoading ? (
