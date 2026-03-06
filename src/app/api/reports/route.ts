@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
-import { todayJST } from "@/lib/date";
+import { reportDateDefaultJST } from "@/lib/date";
 import { bus, DailyReportSubmittedPayload } from "@/server/events/bus";
 
 export const dynamic = "force-dynamic";
@@ -49,7 +49,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Meter value must be non-negative integer" }, { status: 400 });
     }
 
-    const reportDate = todayJST();
+    // クライアント指定がなければ日本時間 3:00 切り替えのデフォルト日付を使用
+    let reportDate: string;
+    const bodyReportDate = body.reportDate;
+    if (typeof bodyReportDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(bodyReportDate)) {
+      reportDate = bodyReportDate;
+    } else {
+      reportDate = reportDateDefaultJST();
+    }
 
     // 車両のメーター値を更新
     if (vehicleId && meterValue != null) {

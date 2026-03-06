@@ -6,7 +6,9 @@ import { faCircleExclamation } from "@fortawesome/free-solid-svg-icons";
 import html2canvas from "html2canvas";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
+import { DatePicker } from "@/lib/components/DatePicker";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 import { JukenCertificate, type JukenNumbers, type JukenOverlay } from "@/lib/components/JukenCertificate";
 
 type Vehicle = {
@@ -22,7 +24,12 @@ type Vehicle = {
   oil_change_interval?: number;
 };
 
+function getInitialReportDate(): Date {
+  return reportDateStrToDate(reportDateDefaultJST());
+}
+
 export default function SubmitPage() {
+  const [reportDate, setReportDate] = useState<Date>(getInitialReportDate);
   const [carrier, setCarrier] = useState<"YAMATO" | "AMAZON">("YAMATO");
   const [form, setForm] = useState({
     takuhaibinCompleted: "",
@@ -136,6 +143,7 @@ export default function SubmitPage() {
       await apiFetch("/api/reports", {
         method: "POST",
         body: JSON.stringify({
+          reportDate: dateToReportDateStr(reportDate),
           carrier,
           takuhaibinCompleted: Number(form.takuhaibinCompleted) || 0,
           takuhaibinReturned: Number(form.takuhaibinReturned) || 0,
@@ -163,18 +171,19 @@ export default function SubmitPage() {
     const driver = driverProfile ?? getStoredDriver();
     if (!driver?.name) return undefined;
     const digits6 = (driver.driverCode ?? "").replace(/\D/g, "").slice(-6);
-    const today = new Date();
+    const d = reportDate;
+    const ymd = dateToReportDateStr(d).split("-").map(Number);
     return {
       officeCode: driver.officeCode ?? "",
       personalNumber: digits6,
       name: driver.name,
       date: {
-        year: today.getFullYear(),
-        month: today.getMonth() + 1,
-        day: today.getDate(),
+        year: ymd[0],
+        month: ymd[1],
+        day: ymd[2],
       },
     };
-  }, [driverProfile]);
+  }, [driverProfile, reportDate]);
 
   const jukenNumbers: JukenNumbers = useMemo(() => {
     if (carrier !== "YAMATO") {
@@ -322,6 +331,7 @@ export default function SubmitPage() {
           <button
             onClick={() => {
               setStatus("idle");
+              setReportDate(getInitialReportDate());
               setForm({
                 takuhaibinCompleted: "",
                 takuhaibinReturned: "",
@@ -349,7 +359,19 @@ export default function SubmitPage() {
 
   return (
     <div className="max-w-sm mx-auto px-4 py-8">
-      <h1 className="text-lg font-bold text-brand-900 mb-6">本日の日報</h1>
+      <h1 className="text-lg font-bold text-brand-900 mb-6">日報送信</h1>
+
+      {/* 送信する日付（日本時間 3:00 でデフォルト日付が切り替わります） */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-slate-700 mb-2">送信する日付</label>
+        <DatePicker
+          value={reportDate}
+          onChange={(date) => date != null && setReportDate(date)}
+          placeholder="日付を選択"
+          className="w-full"
+        />
+        <p className="text-xs text-slate-500 mt-1">日本時間の午前3:00にデフォルトの日付が翌日に変わります</p>
+      </div>
 
       {/* 配送種別選択 */}
       <div className="mb-6">
