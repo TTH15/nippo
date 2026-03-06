@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faGripVertical } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -89,6 +91,8 @@ export default function ShiftsPage() {
     message: string;
     detail?: string;
   } | null>(null);
+  const [reordering, setReordering] = useState(false);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const displayDates = useMemo(
     () =>
@@ -122,6 +126,64 @@ export default function ShiftsPage() {
       setLoading(false);
     }
   }, [displayDates]);
+
+  const reorderCourses = useCallback(
+    async (newOrder: Course[]) => {
+      if (!canWrite) return;
+      setReordering(true);
+      try {
+        await apiFetch("/api/admin/courses", {
+          method: "PATCH",
+          body: JSON.stringify({ order: newOrder.map((c) => c.id) }),
+        });
+        setCourses(newOrder);
+        await load();
+      } catch (e) {
+        console.error(e);
+        const reason = e instanceof Error ? e.message : "";
+        setErrorState({
+          title: "並べ替えに失敗しました",
+          message: "コースの並べ替えを保存できませんでした。もう一度お試しください。",
+          detail: reason || undefined,
+        });
+      } finally {
+        setReordering(false);
+      }
+    },
+    [canWrite, load]
+  );
+
+  const handleCourseDragStart = (e: React.DragEvent, index: number) => {
+    if (!canWrite) return;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+  };
+
+  const handleCourseDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverIndex(index);
+  };
+
+  const handleCourseDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleCourseDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    setDragOverIndex(null);
+    if (!canWrite) return;
+    const srcIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
+    if (Number.isNaN(srcIndex) || srcIndex === targetIndex) return;
+    const newOrder = [...courses];
+    const [removed] = newOrder.splice(srcIndex, 1);
+    newOrder.splice(targetIndex, 0, removed);
+    reorderCourses(newOrder);
+  };
+
+  const handleCourseDragEnd = () => {
+    setDragOverIndex(null);
+  };
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
@@ -421,7 +483,8 @@ export default function ShiftsPage() {
             <table className="w-full text-sm min-w-0">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="py-2 px-2 text-left w-28 sticky left-0 bg-slate-50 z-10">
+                  <th className="py-2 px-1 text-left w-8 bg-slate-50" />
+                  <th className="py-2 px-2 text-left w-28 sticky left-8 bg-slate-50 z-10">
                     <Skeleton className="h-4 w-14" />
                   </th>
                   {[...Array(14)].map((_, i) => (
@@ -434,7 +497,8 @@ export default function ShiftsPage() {
               <tbody>
                 {[...Array(6)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-50">
-                    <td className="py-1 px-2 sticky left-0 bg-white z-10">
+                    <td className="py-1 px-1 w-8 bg-white" />
+                    <td className="py-1 px-2 sticky left-8 bg-white z-10">
                       <Skeleton className="h-4 w-20" />
                     </td>
                     {[...Array(14)].map((_, j) => (
@@ -452,7 +516,8 @@ export default function ShiftsPage() {
             <table className="w-full text-sm min-w-0">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="py-2 px-2 text-left font-medium text-slate-600 w-28 sticky left-0 bg-slate-50 z-10">
+                  <th className="py-2 px-1 text-left font-medium text-slate-600 w-8 sticky left-0 bg-slate-50 z-10" />
+                  <th className="py-2 px-2 text-left font-medium text-slate-600 w-28 sticky left-8 bg-slate-50 z-10">
                     コース
                   </th>
                   {displayDates.map((date) => {
@@ -472,10 +537,33 @@ export default function ShiftsPage() {
                 </tr>
               </thead>
               <tbody>
-                {courses.map((course) => (
-                  <tr key={course.id} className="border-b border-slate-50 last:border-b-0">
+                {courses.map((course, index) => {
+                  const isDragOver = dragOverIndex === index;
+                  return (
+                  <tr
+                    key={course.id}
+                    draggable={canWrite && !reordering}
+                    onDragStart={(e) => handleCourseDragStart(e, index)}
+                    onDragOver={(e) => handleCourseDragOver(e, index)}
+                    onDragLeave={handleCourseDragLeave}
+                    onDrop={(e) => handleCourseDrop(e, index)}
+                    onDragEnd={handleCourseDragEnd}
+                    className={`border-b border-slate-50 last:border-b-0 transition-colors ${
+                      canWrite && !reordering ? "cursor-grab active:cursor-grabbing" : ""
+                    } ${isDragOver ? "bg-slate-100" : ""}`}
+                  >
+                    {canWrite && !reordering ? (
+                      <td
+                        className="py-1 px-1 sticky left-0 bg-white z-10 text-slate-400 hover:text-slate-600 touch-none w-8"
+                        title="ドラッグして並べ替え"
+                      >
+                        <FontAwesomeIcon icon={faGripVertical} className="w-3.5 h-3.5" />
+                      </td>
+                    ) : (
+                      <td className="py-1 px-1 sticky left-0 bg-white z-10 w-8" />
+                    )}
                     <td
-                      className="py-1 px-2 font-medium text-slate-800 sticky left-0 bg-white z-10 border-l-4"
+                      className="py-1 px-2 font-medium text-slate-800 sticky left-8 bg-white z-10 border-l-4"
                       style={{ borderLeftColor: course.color }}
                     >
                       {course.name}
@@ -536,10 +624,12 @@ export default function ShiftsPage() {
                       );
                     })}
                   </tr>
-                ))}
+                  );
+                })}
                 {/* 休み：日付ごとにその日休みの人を表示 */}
                 <tr className="border-t border-slate-100 bg-slate-50">
-                  <td className="py-1 px-2 font-medium text-slate-700 sticky left-0 bg-slate-50 z-10">
+                  <td className="py-1 px-1 w-8 bg-slate-50" />
+                  <td className="py-1 px-2 font-medium text-slate-700 sticky left-8 bg-slate-50 z-10">
                     休み
                   </td>
                   {displayDates.map((date) => {

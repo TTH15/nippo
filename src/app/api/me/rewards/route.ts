@@ -215,10 +215,9 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // 収入 = 日報・シフトから計算した売上 + ログのプラス分／変動控除 = ログのマイナス分
+  // 収入 = 日報・シフトから計算した売上 + ログのプラス分（変動控除は net に含めない）
   const totalIncome = calculatedIncome + incomeLog;
-  const net =
-    totalIncome + variableDeductions - fixedDeductions - optionalDeductions;
+  const net = totalIncome - fixedDeductions - optionalDeductions;
 
   return NextResponse.json({
     month,

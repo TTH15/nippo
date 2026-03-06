@@ -102,3 +102,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+// PATCH: コース並べ替え
+export async function PATCH(req: NextRequest) {
+  const user = await requireAuth(req, "ADMIN");
+  if (isAuthError(user)) return user;
+
+  try {
+    const body = await req.json();
+    const { order: orderIds } = body as { order?: string[] };
+
+    if (!Array.isArray(orderIds) || orderIds.length === 0) {
+      return NextResponse.json({ error: "order array is required" }, { status: 400 });
+    }
+
+    for (let i = 0; i < orderIds.length; i++) {
+      const id = orderIds[i];
+      if (typeof id !== "string") continue;
+      const { error } = await supabase
+        .from("courses")
+        .update({ sort_order: i })
+        .eq("id", id);
+      if (error) {
+        console.error(error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

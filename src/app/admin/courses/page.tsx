@@ -10,7 +10,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
-import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
+import { faPenToSquare, faGripVertical } from "@fortawesome/free-solid-svg-icons";
 
 type CourseCarrier = "YAMATO" | "AMAZON" | "OTHER";
 type Course = { id: string; name: string; color: string; sort_order: number; max_drivers?: number | null; carrier?: CourseCarrier | null; summary_title?: string | null };
@@ -87,6 +87,64 @@ export default function CoursesPage() {
     message: string;
     detail?: string;
   } | null>(null);
+  const [reordering, setReordering] = useState(false);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const reorderCourses = async (newOrder: Course[]) => {
+    if (!canWrite) return;
+    setReordering(true);
+    try {
+      await apiFetch("/api/admin/courses", {
+        method: "PATCH",
+        body: JSON.stringify({ order: newOrder.map((c) => c.id) }),
+      });
+      setCourses(newOrder);
+      load(); // 単価テーブルの順序も同期
+    } catch (e) {
+      console.error(e);
+      const reason = e instanceof Error ? e.message : "";
+      setErrorState({
+        title: "並べ替えに失敗しました",
+        message: "コースの並べ替えを保存できませんでした。もう一度お試しください。",
+        detail: reason || undefined,
+      });
+    } finally {
+      setReordering(false);
+    }
+  };
+
+  const handleCourseDragStart = (e: React.DragEvent, index: number) => {
+    if (!canWrite) return;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+    e.dataTransfer.setData("application/json", JSON.stringify({ index }));
+  };
+
+  const handleCourseDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverIndex(index);
+  };
+
+  const handleCourseDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleCourseDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    setDragOverIndex(null);
+    if (!canWrite) return;
+    const srcIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
+    if (Number.isNaN(srcIndex) || srcIndex === targetIndex) return;
+    const newOrder = [...courses];
+    const [removed] = newOrder.splice(srcIndex, 1);
+    newOrder.splice(targetIndex, 0, removed);
+    reorderCourses(newOrder);
+  };
+
+  const handleCourseDragEnd = () => {
+    setDragOverIndex(null);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -356,16 +414,33 @@ export default function CoursesPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {courses.map((course) => {
+            {courses.map((course, index) => {
               const assignedDrivers = getDriversForCourse(course.id);
+              const isDragOver = dragOverIndex === index;
               return (
                 <div
                   key={course.id}
-                  className="bg-white rounded border border-slate-200 p-4 border-l-4"
+                  draggable={canWrite && !reordering}
+                  onDragStart={(e) => handleCourseDragStart(e, index)}
+                  onDragOver={(e) => handleCourseDragOver(e, index)}
+                  onDragLeave={handleCourseDragLeave}
+                  onDrop={(e) => handleCourseDrop(e, index)}
+                  onDragEnd={handleCourseDragEnd}
+                  className={`bg-white rounded border border-slate-200 p-4 border-l-4 transition-all ${
+                    canWrite && !reordering ? "cursor-grab active:cursor-grabbing" : ""
+                  } ${isDragOver ? "ring-2 ring-slate-400 ring-offset-2" : ""}`}
                   style={{ borderLeftColor: course.color }}
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex items-center justify-between gap-3">
+                    {canWrite && !reordering && (
+                      <div
+                        className="shrink-0 text-slate-400 hover:text-slate-600 touch-none"
+                        title="ドラッグして並べ替え"
+                      >
+                        <FontAwesomeIcon icon={faGripVertical} className="w-4 h-4" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
                       <h3 className="font-medium text-slate-900">{course.name}</h3>
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {assignedDrivers.length > 0 ? (
@@ -382,7 +457,7 @@ export default function CoursesPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 shrink-0">
                       <div
                         className="w-5 h-5 rounded-full shrink-0"
                         style={{ backgroundColor: course.color }}
