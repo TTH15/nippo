@@ -52,28 +52,28 @@ export function UserBottomNav() {
 
           if (isCenter) {
             return (
-              <div key={tab.href} className="flex-1 flex justify-center items-end min-w-0">
+              <div key={tab.href} className="flex-1 flex justify-center items-end min-w-0 pb-1">
                 <Link
                   href={tab.href}
                   prefetch
-                  className="flex flex-col items-center justify-end transition-colors -mb-0.5"
+                  className="flex flex-col items-center justify-end transition-opacity hover:opacity-90 active:opacity-95"
                   aria-current={active ? "page" : undefined}
                 >
-                  {/* 半円で囲んだ中央ボタン */}
-                  <div
-                    className={`flex flex-col items-center justify-center w-16 h-14 rounded-t-[2rem] border-x border-t border-slate-200 bg-white shadow-[0_-2px_8px_rgba(0,0,0,0.06)] ${
-                      active ? "bg-brand-50 border-brand-200 text-brand-800" : "text-slate-500 hover:bg-slate-50"
-                    }`}
-                  >
+                  {/* 中央の目立つ円形ボタン（PayPay風：色付き・浮き上がり） */}
+                  <div className="flex flex-col items-center justify-center flex-shrink-0 w-16 h-16 -mb-6 rounded-full bg-brand-800 text-white shadow-lg border-4 border-white">
                     <FontAwesomeIcon
                       icon={tab.icon}
-                      className={`w-7 h-7 flex-shrink-0 mb-0.5 ${active ? "text-brand-800" : "text-slate-500"}`}
+                      className="w-7 h-7 flex-shrink-0"
                       aria-hidden
                     />
-                    <span className={`text-[10px] leading-tight font-semibold truncate max-w-full px-1 ${active ? "text-brand-800" : "text-slate-600"}`}>
-                      {tab.label}
-                    </span>
                   </div>
+                  <span
+                    className={`text-[10px] leading-tight font-semibold truncate max-w-full px-0.5 mt-1 ${
+                      active ? "text-brand-800" : "text-slate-500"
+                    }`}
+                  >
+                    {tab.label}
+                  </span>
                 </Link>
               </div>
             );
