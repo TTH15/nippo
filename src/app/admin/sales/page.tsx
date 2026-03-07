@@ -1157,7 +1157,7 @@ export default function SalesPage() {
       ? (prevTotals.profit / prevTotals.total) * 100
       : null;
 
-  const revenuePerDay = displayTotals.total / daysCount;
+  const revenuePerDay = activeDays > 0 ? displayTotals.total / activeDays : 0;
   const revenuePerDriver = displayTotals.total / activeDriverCount;
   const utilization =
     daysCount > 0 ? ((activeDays / daysCount) * 100) : 0;

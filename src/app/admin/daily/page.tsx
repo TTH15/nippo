@@ -401,32 +401,32 @@ export default function AdminDailyPage() {
                                 const fourOnly = am === 0 && pm === 0 && four > 0;
                                 return fourOnly ? (
                                   <div className="text-[13px] pl-6">
-                                    <span className="text-slate-500 text-xs">4便</span>
+                                    <span className="text-slate-500 text-xs">4便</span>{" "}
                                     <span className="font-semibold text-slate-900 text-base tabular-nums">{four}</span>
                                     <span className="text-slate-500 text-xs"> 個</span>
                                   </div>
                                 ) : (
-                                  <div className="text-[13px] space-y-0.5 pl-6">
+                                  <div className="text-[13px] pl-6 flex flex-wrap items-baseline gap-x-3 gap-y-0">
                                     {am > 0 && (
-                                      <div>
-                                        <span className="text-slate-500 text-xs">午前</span>
+                                      <span>
+                                        <span className="text-slate-500 text-xs">午前</span>{" "}
                                         <span className="font-semibold text-slate-900 text-base tabular-nums">{am}</span>
                                         <span className="text-slate-500 text-xs"> 個</span>
-                                      </div>
+                                      </span>
                                     )}
                                     {pm > 0 && (
-                                      <div>
-                                        <span className="text-slate-500 text-xs">午後</span>
+                                      <span>
+                                        <span className="text-slate-500 text-xs">午後</span>{" "}
                                         <span className="font-semibold text-slate-900 text-base tabular-nums">{pm}</span>
                                         <span className="text-slate-500 text-xs"> 個</span>
-                                      </div>
+                                      </span>
                                     )}
                                     {four > 0 && (
-                                      <div>
-                                        <span className="text-slate-500 text-xs">4便</span>
+                                      <span>
+                                        <span className="text-slate-500 text-xs">4便</span>{" "}
                                         <span className="font-semibold text-slate-900 text-base tabular-nums">{four}</span>
                                         <span className="text-slate-500 text-xs"> 個</span>
-                                      </div>
+                                      </span>
                                     )}
                                     {am === 0 && pm === 0 && four === 0 && (
                                       <span className="text-slate-400 text-xs">—</span>
