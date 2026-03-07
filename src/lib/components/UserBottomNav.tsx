@@ -56,18 +56,21 @@ export function UserBottomNav() {
                 <Link
                   href={tab.href}
                   prefetch
-                  className="flex flex-col items-center justify-end active:bg-brand-900"
+                  className={`flex flex-col items-center justify-end ${active
+                    ? "text-brand-800 font-semibold"
+                    : "text-slate-500 hover:text-slate-700"
+                    }`}
                   aria-current={active ? "page" : undefined}
                 >
                   {/* 中央の目立つ円形ボタン（PayPay風：色付き・浮き上がり） */}
-                  <div className="flex flex-col items-center justify-center flex-shrink-0 w-16 h-16 mb-1 rounded-full bg-brand-800 text-white">
+                  <div className={`flex flex-col items-center justify-center flex-shrink-0 w-16 h-16 mb-1 rounded-full ${active ? "bg-brand-800" : "bg-slate-200"} text-white`}>
                     <FontAwesomeIcon
                       icon={tab.icon}
                       className="w-7 h-7 flex-shrink-0"
                       aria-hidden
                     />
                     <span
-                      className={`text-[10px] leading-tight font-semibold truncate max-w-full px-0.5 mt-1 text-white`}
+                      className={`text-[10px] leading-tight font-semibold truncate max-w-full px-0.5 mt-1 ${active ? "text-white" : "text-slate-500"}`}
                     >
                       {tab.label}
                     </span>
