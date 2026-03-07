@@ -60,7 +60,7 @@ export function UserBottomNav() {
                   aria-current={active ? "page" : undefined}
                 >
                   {/* 中央の目立つ円形ボタン（PayPay風：色付き・浮き上がり） */}
-                  <div className="flex flex-col items-center justify-center flex-shrink-0 w-16 h-16 -mb-6 rounded-full bg-brand-800 text-white shadow-lg border-4 border-white">
+                  <div className="flex flex-col items-center justify-center flex-shrink-0 w-16 h-16 -mb-4 rounded-full bg-brand-800 text-white">
                     <FontAwesomeIcon
                       icon={tab.icon}
                       className="w-7 h-7 flex-shrink-0"
@@ -68,9 +68,7 @@ export function UserBottomNav() {
                     />
                   </div>
                   <span
-                    className={`text-[10px] leading-tight font-semibold truncate max-w-full px-0.5 mt-1 ${
-                      active ? "text-brand-800" : "text-slate-500"
-                    }`}
+                    className={`text-[10px] leading-tight font-semibold truncate max-w-full px-0.5 mt-1 text-white`}
                   >
                     {tab.label}
                   </span>
@@ -84,11 +82,10 @@ export function UserBottomNav() {
               key={tab.href}
               href={tab.href}
               prefetch
-              className={`flex-1 flex flex-col items-center justify-center gap-0.5 min-w-0 pb-2 pt-2 transition-colors ${
-                active
-                  ? "text-brand-800 font-semibold"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 min-w-0 pb-2 pt-2 transition-colors ${active
+                ? "text-brand-800 font-semibold"
+                : "text-slate-500 hover:text-slate-700"
+                }`}
               aria-current={active ? "page" : undefined}
             >
               <FontAwesomeIcon
