@@ -17,6 +17,10 @@ export interface DatePickerProps {
   placeholder?: string;
   /** ボタン幅。デフォルトは w-full（親幅に合わせる） */
   className?: string;
+  /** 選択可能な最小日付（この日以降のみ選択可能） */
+  fromDate?: Date;
+  /** 選択可能な最大日付（この日まで選択可能） */
+  toDate?: Date;
 }
 
 export function DatePicker({
@@ -24,6 +28,8 @@ export function DatePicker({
   onChange,
   placeholder = "日付を選択",
   className,
+  fromDate,
+  toDate,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
 
@@ -46,6 +52,24 @@ export function DatePicker({
             onChange?.(date);
             setOpen(false);
           }}
+          fromDate={fromDate}
+          toDate={toDate}
+          disabled={
+            fromDate != null || toDate != null
+              ? (date) => {
+                  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+                  if (fromDate) {
+                    const f = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate()).getTime();
+                    if (d < f) return true;
+                  }
+                  if (toDate) {
+                    const t = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate()).getTime();
+                    if (d > t) return true;
+                  }
+                  return false;
+                }
+              : undefined
+          }
           initialFocus
         />
       </PopoverContent>

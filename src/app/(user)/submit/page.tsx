@@ -63,6 +63,26 @@ export default function SubmitPage() {
   } | null>(null);
   const certRef = useRef<HTMLDivElement | null>(null);
   const vehicleItemRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const defaultReportDateRef = useRef(reportDateDefaultJST());
+
+  // 日本時間 午前3:00 でデフォルト日付が切り替わるため、表示中の日付を同期
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const newDefault = reportDateDefaultJST();
+      const firstOfMonthStr = newDefault.slice(0, 7) + "-01";
+      const currentStr = dateToReportDateStr(reportDate);
+      if (currentStr < firstOfMonthStr || currentStr > newDefault) {
+        setReportDate(reportDateStrToDate(newDefault));
+        defaultReportDateRef.current = newDefault;
+      } else if (newDefault !== defaultReportDateRef.current) {
+        if (currentStr === defaultReportDateRef.current) {
+          setReportDate(reportDateStrToDate(newDefault));
+        }
+        defaultReportDateRef.current = newDefault;
+      }
+    }, 60 * 1000);
+    return () => clearInterval(interval);
+  }, [reportDate]);
 
   const set = (key: keyof typeof form, value: string) => {
     if (value !== "" && !/^\d+$/.test(value)) return;
@@ -369,8 +389,12 @@ export default function SubmitPage() {
           onChange={(date) => date != null && setReportDate(date)}
           placeholder="日付を選択"
           className="w-full"
+          fromDate={reportDateStrToDate(reportDateDefaultJST().slice(0, 7) + "-01")}
+          toDate={reportDateStrToDate(reportDateDefaultJST())}
         />
-        <p className="text-xs text-slate-500 mt-1">日本時間の午前3:00にデフォルトの日付が翌日に変わります</p>
+        <p className="text-xs text-slate-500 mt-1">
+          当月のみ送信できます。日本時間の午前3:00にデフォルトの日付が切り替わります。
+        </p>
       </div>
 
       {/* 配送種別選択 */}

@@ -66,12 +66,12 @@ export function UserBottomNav() {
                       className="w-7 h-7 flex-shrink-0"
                       aria-hidden
                     />
+                    <span
+                      className={`text-[10px] leading-tight font-semibold truncate max-w-full px-0.5 mt-1 text-white`}
+                    >
+                      {tab.label}
+                    </span>
                   </div>
-                  <span
-                    className={`text-[10px] leading-tight font-semibold truncate max-w-full px-0.5 mt-1 text-white`}
-                  >
-                    {tab.label}
-                  </span>
                 </Link>
               </div>
             );

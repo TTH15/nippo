@@ -46,7 +46,7 @@ function MePageContent() {
   useEffect(() => {
     apiFetch<Profile>("/api/reports/profile")
       .then(setProfile)
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setProfileLoading(false));
   }, []);
 
@@ -54,7 +54,7 @@ function MePageContent() {
     if (isSettings) {
       apiFetch<{ reports: Report[] }>("/api/reports/me")
         .then((d) => setReports(d.reports))
-        .catch(() => {})
+        .catch(() => { })
         .finally(() => setReportsLoading(false));
     }
   }, [isSettings]);
@@ -89,17 +89,17 @@ function MePageContent() {
 
   const profileEntries: { label: string; value: string }[] = profile
     ? [
-        { label: "名前", value: profile.name },
-        { label: "表示名", value: profile.displayName },
-        { label: "ドライバーコード", value: profile.driverCode },
-        { label: "営業所コード", value: profile.officeCode },
-        { label: "郵便番号", value: profile.postalCode },
-        { label: "住所", value: profile.address },
-        { label: "電話番号", value: profile.phone },
-        { label: "銀行名", value: profile.bankName },
-        { label: "口座番号", value: profile.bankNo },
-        { label: "口座名義", value: profile.bankHolder },
-      ].filter((e) => e.value !== undefined && e.value !== "")
+      { label: "名前", value: profile.name },
+      { label: "表示名", value: profile.displayName },
+      { label: "ドライバーコード", value: profile.driverCode },
+      { label: "営業所コード", value: profile.officeCode },
+      { label: "郵便番号", value: profile.postalCode },
+      { label: "住所", value: profile.address },
+      { label: "電話番号", value: profile.phone },
+      { label: "銀行名", value: profile.bankName },
+      { label: "口座番号", value: profile.bankNo },
+      { label: "口座名義", value: profile.bankHolder },
+    ].filter((e) => e.value !== undefined && e.value !== "")
     : [];
 
   // 設定タブ: PIN変更・提出履歴
@@ -146,9 +146,8 @@ function MePageContent() {
               </div>
               {pinMessage && (
                 <p
-                  className={`text-sm ${
-                    pinMessage.type === "ok" ? "text-green-600" : "text-red-600"
-                  }`}
+                  className={`text-sm ${pinMessage.type === "ok" ? "text-green-600" : "text-red-600"
+                    }`}
                 >
                   {pinMessage.text}
                 </p>
@@ -276,12 +275,6 @@ function MePageContent() {
     <div className="max-w-2xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-bold text-slate-900">マイページ</h1>
-        <Link
-          href="/me/rewards"
-          className="text-sm text-slate-600 hover:text-slate-900 font-medium"
-        >
-          報酬を見る →
-        </Link>
       </div>
 
       <section>

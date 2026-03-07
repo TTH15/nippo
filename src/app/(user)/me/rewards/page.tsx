@@ -109,11 +109,6 @@ export default function MeRewardsPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
-      <div className="mb-4">
-        <Link href="/me" className="text-sm text-slate-600 hover:text-slate-900">
-          ← マイページに戻る
-        </Link>
-      </div>
       <h1 className="text-lg font-bold text-slate-900 mb-4">報酬</h1>
 
       <div className="mb-3">
