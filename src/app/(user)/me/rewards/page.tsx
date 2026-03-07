@@ -38,6 +38,7 @@ type RewardsSummary = {
   optionalDeductions?: number;
   net: number;
   logDetails: RewardLogDetail[];
+  dailyIncomeDetails?: RewardLogDetail[];
   fixedDetails: FixedExpenseDetail[];
   optionalDetails?: OptionalExpenseDetail[];
 };
@@ -52,6 +53,13 @@ function formatLogLine(log: RewardLogDetail): string {
   const label = log.content || log.type_name || "—";
   const amount = log.amount >= 0 ? `${log.amount.toLocaleString("ja-JP")}円` : `-${Math.abs(log.amount).toLocaleString("ja-JP")}円`;
   return `${m}月${d}日 ${label} ${amount}`;
+}
+
+/** 日報ベースの日別報酬と手動ログを日付順にまとめた一覧 */
+function mergedDetails(rewards: RewardsSummary): RewardLogDetail[] {
+  const daily = rewards.dailyIncomeDetails ?? [];
+  const manual = rewards.logDetails ?? [];
+  return [...daily, ...manual].sort((a, b) => a.log_date.localeCompare(b.log_date));
 }
 
 export default function MeRewardsPage() {
@@ -166,19 +174,31 @@ export default function MeRewardsPage() {
               <span>詳細</span>
               <span className="text-slate-400">{detailsOpen ? "▲" : "▼"}</span>
             </button>
-            {detailsOpen && (
-              <div className="mt-3 pt-3 border-t border-slate-100 space-y-1.5 text-sm text-slate-700">
-                {rewards.logDetails.length === 0 ? (
-                  <p className="text-slate-500">この月のログ明細はありません</p>
+            {detailsOpen && (() => {
+              const details = mergedDetails(rewards);
+              return (
+              <div className="mt-3 pt-3 border-t border-slate-100 space-y-2 text-sm text-slate-700">
+                {details.length === 0 ? (
+                  <p className="text-slate-500">この月の明細はありません</p>
                 ) : (
-                  rewards.logDetails.map((l, idx) => (
-                    <div key={`${l.log_date}-${idx}`} className="tabular-nums">
-                      {formatLogLine(l)}
+                  details.map((l, idx) => (
+                    <div key={`${l.log_date}-${l.type_name}-${idx}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
+                      <span className="text-slate-600 font-medium">
+                        {(() => {
+                          const [y, m, d] = l.log_date.split("-").map(Number);
+                          return `${m}月${d}日`;
+                        })()}
+                      </span>
+                      <span className="text-slate-800">{l.content || l.type_name || "—"}</span>
+                      <span className="text-slate-900 font-semibold">
+                        {l.amount >= 0 ? `${l.amount.toLocaleString("ja-JP")}円` : `-${Math.abs(l.amount).toLocaleString("ja-JP")}円`}
+                      </span>
                     </div>
                   ))
                 )}
               </div>
-            )}
+              );
+            })()}
           </div>
 
           <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4">

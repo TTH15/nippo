@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
 
   const { data: reports } = await supabase
     .from("daily_reports")
-    .select("driver_id, report_date, takuhaibin_completed, nekopos_completed")
+    .select("driver_id, report_date, carrier, takuhaibin_completed, nekopos_completed, amazon_am_completed, amazon_pm_completed, amazon_4_completed")
     .eq("driver_id", driverId)
     .gte("report_date", startDate)
     .lte("report_date", endDate)
@@ -100,7 +100,26 @@ export async function GET(req: NextRequest) {
   const reportMap = new Map<string, any>();
   (reports ?? []).forEach((r: any) => reportMap.set(`${r.driver_id}:${r.report_date}`, r));
 
+  function reportContentString(rep: any): string {
+    const carrier = rep?.carrier === "AMAZON" ? "AMAZON" : "YAMATO";
+    if (carrier === "YAMATO") {
+      const tk = Number(rep?.takuhaibin_completed) ?? 0;
+      const nk = Number(rep?.nekopos_completed) ?? 0;
+      return `宅急便 ${tk} 個 ネコポス ${nk} 個`;
+    }
+    const am = Number(rep?.amazon_am_completed) ?? 0;
+    const pm = Number(rep?.amazon_pm_completed) ?? 0;
+    const four = Number(rep?.amazon_4_completed) ?? 0;
+    const parts: string[] = [];
+    if (am > 0) parts.push(`午前 ${am} 個`);
+    if (pm > 0) parts.push(`午後 ${pm} 個`);
+    if (four > 0) parts.push(`4便 ${four} 個`);
+    return parts.length > 0 ? parts.join(" ") : "—";
+  }
+
   let calculatedIncome = 0;
+  const dailyIncomeDetails: RewardLogDetail[] = [];
+
   (shifts ?? []).forEach((s: any) => {
     const date = s.shift_date;
     const courseId = s.course_id;
@@ -119,7 +138,15 @@ export async function GET(req: NextRequest) {
       payout = tkComp * rate.takuhaibin_driver_payout + nkComp * rate.nekopos_driver_payout;
     }
     calculatedIncome += payout;
+    dailyIncomeDetails.push({
+      log_date: date,
+      type_name: "日報",
+      content: reportContentString(rep),
+      amount: payout,
+    });
   });
+
+  dailyIncomeDetails.sort((a, b) => a.log_date.localeCompare(b.log_date));
 
   // 売上ログ（ドライバー収入／変動控除）※ 計算売上とは別の手動登録分
   const { data: logRows, error: logError } = await supabase
@@ -231,6 +258,7 @@ export async function GET(req: NextRequest) {
     optionalDeductions,
     net,
     logDetails,
+    dailyIncomeDetails,
     fixedDetails,
     optionalDetails,
   });

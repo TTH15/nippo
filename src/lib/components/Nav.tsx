@@ -134,10 +134,10 @@ export function Nav({ variant = "default" }: NavProps) {
                     <span>プロフィール</span>
                   </Link>
                   <Link
-                    href="/me?tab=settings"
+                    href="/me?tab=history"
                     className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
                   >
-                    <span>設定</span>
+                    <span>履歴</span>
                   </Link>
                 </>
               )}
