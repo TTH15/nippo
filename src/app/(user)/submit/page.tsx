@@ -388,7 +388,7 @@ export default function SubmitPage() {
           value={reportDate}
           onChange={(date) => date != null && setReportDate(date)}
           placeholder="日付を選択"
-          className="w-full"
+          className="w-auto"
           fromDate={reportDateStrToDate(reportDateDefaultJST().slice(0, 7) + "-01")}
           toDate={reportDateStrToDate(reportDateDefaultJST())}
         />
