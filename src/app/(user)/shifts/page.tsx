@@ -50,22 +50,15 @@ function getMonthDateRange(year: number, month: number): { start: string; end: s
   };
 }
 
-function formatDateWithWeekday(dateStr: string): string {
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return dateStr;
-  const days = ["日", "月", "火", "水", "木", "金", "土"];
-  return `${d.getMonth() + 1}/${d.getDate()}(${days[d.getDay()]})`;
-}
-
 type SubTabId = "request" | "view";
 
 const SUB_TABS: { id: SubTabId; label: string }[] = [
-  { id: "request", label: "希望休提出" },
   { id: "view", label: "シフト確認" },
+  { id: "request", label: "希望休提出" },
 ];
 
 export default function ShiftsPage() {
-  const [subTab, setSubTab] = useState<SubTabId>("request");
+  const [subTab, setSubTab] = useState<SubTabId>("view");
 
   const [viewDate, setViewDate] = useState(currentMonth);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
@@ -85,6 +78,22 @@ export default function ShiftsPage() {
 
   const days = useMemo(() => getDaysInMonth(viewDate.year, viewDate.month), [viewDate]);
   const monthStr = `${viewDate.year}-${String(viewDate.month + 1).padStart(2, "0")}`;
+
+  const shiftViewDays = useMemo(
+    () => getDaysInMonth(shiftMonth.year, shiftMonth.month - 1),
+    [shiftMonth]
+  );
+  const shiftViewFirstDow = new Date(shiftMonth.year, shiftMonth.month - 1, 1).getDay();
+  const shiftViewEmptyCells = Array(shiftViewFirstDow).fill(null);
+  const shiftsByDate = useMemo(() => {
+    const m = new Map<string, MeShift[]>();
+    shifts.forEach((s) => {
+      const list = m.get(s.shift_date) ?? [];
+      list.push(s);
+      m.set(s.shift_date, list);
+    });
+    return m;
+  }, [shifts]);
 
   const load = async () => {
     setLoading(true);
@@ -366,7 +375,7 @@ export default function ShiftsPage() {
           </>
         )}
 
-        {/* シフト確認 */}
+        {/* シフト確認（カレンダー） */}
         {subTab === "view" && (
           <section>
             <div className="flex items-center justify-between mb-3">
@@ -399,78 +408,71 @@ export default function ShiftsPage() {
               </button>
             </div>
             {shiftsLoading ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-left">
-                      <th className="py-3 pr-3">
-                        <Skeleton className="h-4 w-20" />
-                      </th>
-                      <th className="py-3 px-2">
-                        <Skeleton className="h-4 w-24" />
-                      </th>
-                      <th className="py-3 px-2">
-                        <Skeleton className="h-4 w-16" />
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...Array(5)].map((_, i) => (
-                      <tr key={i} className="border-b border-slate-100">
-                        <td className="py-3 pr-3">
-                          <Skeleton className="h-4 w-24" />
-                        </td>
-                        <td className="py-3 px-2">
-                          <Skeleton className="h-4 w-32" />
-                        </td>
-                        <td className="py-3 px-2 text-right">
-                          <Skeleton className="h-4 w-8 ml-auto" />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="bg-white rounded border border-slate-200 p-3">
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {dayNames.map((_, i) => (
+                    <Skeleton key={i} className="h-6 w-full max-w-[2rem] mx-auto" />
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {[...Array(35)].map((_, i) => (
+                    <Skeleton key={i} className="aspect-square w-full rounded min-h-[3.5rem]" />
+                  ))}
+                </div>
               </div>
             ) : shiftsError ? (
               <p className="text-sm text-red-600">{shiftsError}</p>
-            ) : shifts.length === 0 ? (
-              <p className="text-sm text-slate-500">この月のシフトは登録されていません</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-left">
-                      <th className="py-3 pr-3 font-semibold text-slate-600">日付</th>
-                      <th className="py-3 px-2 font-semibold text-slate-600">コース</th>
-                      <th className="py-3 px-2 font-semibold text-slate-600 text-right">スロット</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shifts.map((s, idx) => (
-                      <tr
-                        key={`${s.shift_date}-${s.course_name}-${s.slot}-${idx}`}
-                        className="border-b border-slate-100"
+              <div className="bg-white rounded border border-slate-200 p-3">
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {dayNames.map((name, i) => (
+                    <div
+                      key={name}
+                      className={`text-center text-xs font-medium py-1.5 ${i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-slate-500"}`}
+                    >
+                      {name}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {shiftViewEmptyCells.map((_, i) => (
+                    <div key={`empty-${i}`} className="aspect-square min-h-[3.5rem]" />
+                  ))}
+                  {shiftViewDays.map((date) => {
+                    const dateStr = getDateStr(date);
+                    const dayShifts = shiftsByDate.get(dateStr) ?? [];
+                    const dayOfWeek = date.getDay();
+                    const isToday = date.toDateString() === today.toDateString();
+                    return (
+                      <div
+                        key={dateStr}
+                        className={`aspect-square min-h-[3.5rem] rounded flex flex-col p-0.5 border border-transparent ${isToday ? "ring-2 ring-slate-400 ring-inset" : ""}`}
                       >
-                        <td className="py-2.5 pr-3 whitespace-nowrap">
-                          {formatDateWithWeekday(s.shift_date)}
-                        </td>
-                        <td className="py-2.5 px-2">
-                          <span
-                            className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-                            style={
-                              s.course_color
-                                ? { backgroundColor: s.course_color, color: "#ffffff" }
-                                : {}
-                            }
-                          >
-                            {s.course_name || "-"}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-2 text-right tabular-nums">{s.slot}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        <span
+                          className={`text-xs font-medium shrink-0 ${dayOfWeek === 0 ? "text-red-500" : dayOfWeek === 6 ? "text-blue-500" : "text-slate-700"}`}
+                        >
+                          {date.getDate()}
+                        </span>
+                        <div className="flex flex-wrap gap-0.5 overflow-hidden">
+                          {dayShifts.map((s, idx) => (
+                            <span
+                              key={`${s.shift_date}-${s.course_name}-${idx}`}
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium truncate max-w-full"
+                              style={
+                                s.course_color
+                                  ? { backgroundColor: s.course_color, color: "#ffffff" }
+                                  : { backgroundColor: "#e2e8f0", color: "#475569" }
+                              }
+                              title={s.course_name || ""}
+                            >
+                              {s.course_name || "-"}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </section>

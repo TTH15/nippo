@@ -382,8 +382,8 @@ export default function SubmitPage() {
       <h1 className="text-lg font-bold text-brand-900 mb-6">日報送信</h1>
 
       {/* 送信する日付（日本時間 3:00 でデフォルト日付が切り替わります） */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-slate-700 mb-2">送信する日付</label>
+      <div className="mb-6 flex items-center gap-2">
+        <label className="block text-sm font-medium text-slate-700 mb-2">日付</label>
         <DatePicker
           value={reportDate}
           onChange={(date) => date != null && setReportDate(date)}
@@ -392,9 +392,6 @@ export default function SubmitPage() {
           fromDate={reportDateStrToDate(reportDateDefaultJST().slice(0, 7) + "-01")}
           toDate={reportDateStrToDate(reportDateDefaultJST())}
         />
-        <p className="text-xs text-slate-500 mt-1">
-          当月のみ送信できます。日本時間の午前3:00にデフォルトの日付が切り替わります。
-        </p>
       </div>
 
       {/* 配送種別選択 */}
