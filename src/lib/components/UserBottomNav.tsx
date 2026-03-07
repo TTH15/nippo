@@ -56,11 +56,11 @@ export function UserBottomNav() {
                 <Link
                   href={tab.href}
                   prefetch
-                  className="flex flex-col items-center justify-end transition-opacity hover:opacity-90 active:opacity-95"
+                  className="flex flex-col items-center justify-end"
                   aria-current={active ? "page" : undefined}
                 >
                   {/* 中央の目立つ円形ボタン（PayPay風：色付き・浮き上がり） */}
-                  <div className="flex flex-col items-center justify-center flex-shrink-0 w-16 h-16 mb-1 rounded-full bg-brand-800 text-white">
+                  <div className="flex flex-col items-center justify-center flex-shrink-0 w-16 h-16 mb-1 rounded-full bg-brand-800 active:bg-brand-900 text-white">
                     <FontAwesomeIcon
                       icon={tab.icon}
                       className="w-7 h-7 flex-shrink-0"

@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
       shift_date,
       course_id,
       slot,
-      courses ( name, color )
+      courses ( name, color, summary_title )
     `)
     .eq("driver_id", user.driverId)
     .gte("shift_date", startParam)
@@ -46,10 +46,11 @@ export async function GET(req: NextRequest) {
   }
 
   const shifts: MeShift[] = (data ?? []).map((row: any) => {
-    const course = row.courses as { name: string; color?: string | null } | null;
+    const course = row.courses as { name: string; color?: string | null; summary_title?: string | null } | null;
+    const displayName = (course?.summary_title?.trim() || course?.name) ?? "";
     return {
       shift_date: String(row.shift_date ?? ""),
-      course_name: course?.name ?? "",
+      course_name: displayName,
       course_color: (course?.color as string | null) ?? null,
       slot: Number(row.slot) || 1,
     };

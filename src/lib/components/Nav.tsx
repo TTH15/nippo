@@ -47,9 +47,7 @@ export function Nav({ variant = "default" }: NavProps) {
             <Image
               src="/logo/Nippo.svg"
               alt="Nippo"
-              width={100}
-              height={20}
-              className="h-6 w-auto"
+              className="h-12 w-auto"
               priority
             />
           </Link>

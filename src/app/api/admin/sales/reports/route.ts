@@ -108,18 +108,18 @@ export async function GET(req: NextRequest) {
     if (name === "Amazonミッドナイト") {
       midnights.push({ driver_id: s.driver_id, date: s.shift_date });
     }
-    // 集計表示タイトルが設定されているコースのシフトを按コースで集約
+    // 略記（summary_title）が設定されているコースのシフトを按コースで集約
     const course = (courses ?? []).find((c: any) => c.id === s.course_id);
-    if (course?.carrier === "AMAZON" && course?.summary_title) {
+    if (course?.summary_title) {
       const list = courseShifts[s.course_id] ?? [];
       list.push({ driver_id: s.driver_id, date: s.shift_date });
       courseShifts[s.course_id] = list;
     }
   });
 
-  // 集計タブで表示するコース（キャリア=Amazon かつ summary_title 設定あり）
+  // 集計タブで表示するコース（略記が設定されているもの）
   const summaryCourses = (courses ?? []).filter(
-    (c: any) => c.carrier === "AMAZON" && c.summary_title
+    (c: any) => c.summary_title
   ).map((c: any) => ({ id: c.id, name: c.name, summary_title: c.summary_title }));
 
   return NextResponse.json({

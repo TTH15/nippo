@@ -181,7 +181,7 @@ export default function CoursesPage() {
           color: newCourse.color,
           max_drivers: Math.max(1, parseInt(newCourse.max_drivers, 10) || 1),
           carrier: newCourse.carrier,
-          summary_title: newCourse.carrier === "AMAZON" && newCourse.summary_title.trim() ? newCourse.summary_title.trim() : null,
+          summary_title: newCourse.summary_title.trim() ? newCourse.summary_title.trim() : null,
         }),
       });
       setShowModal(false);
@@ -228,7 +228,7 @@ export default function CoursesPage() {
           color: editForm.color,
           max_drivers: Math.max(1, parseInt(editForm.max_drivers, 10) || 1),
           carrier: editForm.carrier,
-          summary_title: editForm.carrier === "AMAZON" && editForm.summary_title.trim() ? editForm.summary_title.trim() : null,
+          summary_title: editForm.summary_title.trim() ? editForm.summary_title.trim() : null,
         }),
       });
       setShowEditModal(false);
@@ -499,19 +499,17 @@ export default function CoursesPage() {
                   <option value="OTHER">その他</option>
                 </select>
               </div>
-              {newCourse.carrier === "AMAZON" && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">集計での表示タイトル</label>
-                  <input
-                    type="text"
-                    value={newCourse.summary_title}
-                    onChange={(e) => setNewCourse((f) => ({ ...f, summary_title: e.target.value }))}
-                    placeholder="例: Amazon 昼"
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">売上集計タブにこのタイトルで表示されます</p>
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">略記（集計・シフト表示用）</label>
+                <input
+                  type="text"
+                  value={newCourse.summary_title}
+                  onChange={(e) => setNewCourse((f) => ({ ...f, summary_title: e.target.value }))}
+                  placeholder="例: 横大路、Amazon 昼"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
                 <input
@@ -606,19 +604,17 @@ export default function CoursesPage() {
                   <option value="OTHER">その他</option>
                 </select>
               </div>
-              {editForm.carrier === "AMAZON" && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">集計での表示タイトル</label>
-                  <input
-                    type="text"
-                    value={editForm.summary_title}
-                    onChange={(e) => setEditForm((f) => ({ ...f, summary_title: e.target.value }))}
-                    placeholder="例: Amazon 昼"
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">売上集計タブにこのタイトルで表示されます</p>
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">略記（集計・シフト表示用）</label>
+                <input
+                  type="text"
+                  value={editForm.summary_title}
+                  onChange={(e) => setEditForm((f) => ({ ...f, summary_title: e.target.value }))}
+                  placeholder="例: 横大路、Amazon 昼"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
                 <input

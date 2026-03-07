@@ -252,12 +252,6 @@ function MePageContent() {
     <div className="max-w-2xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-bold text-slate-900">マイページ</h1>
-        <Link
-          href="/me/rewards"
-          className="text-sm text-slate-600 hover:text-slate-900 font-medium"
-        >
-          報酬を見る →
-        </Link>
       </div>
 
       <section className="mb-10">
