@@ -46,6 +46,20 @@ export async function GET(req: NextRequest) {
       new Set((shiftRows ?? []).map((r: { driver_id: string }) => r.driver_id).filter(Boolean))
     );
 
+    // 未提出でも表示するため、ドライバーごとの予定車両（最終選択車両）を取得
+    const driverIds = (drivers ?? []).map((d: { id: string }) => d.id);
+    const { data: prefRows } = driverIds.length
+      ? await supabase
+          .from("driver_vehicle_preferences")
+          .select("driver_id, vehicles ( manufacturer, brand, number_numeric )")
+          .in("driver_id", driverIds)
+      : { data: [] };
+    const driverPreferredVehicle: Record<string, string> = {};
+    (prefRows ?? []).forEach((row: any) => {
+      const label = vehicleLabel(row.vehicles);
+      if (row.driver_id && label) driverPreferredVehicle[row.driver_id] = label;
+    });
+
     const { data: reportRows, error: reportsErr } = await supabase
       .from("daily_reports")
       .select(`
@@ -122,6 +136,7 @@ export async function GET(req: NextRequest) {
       drivers: drivers ?? [],
       shiftDriverIds,
       reportsByDriver,
+      driverPreferredVehicle,
     });
   } catch (err) {
     console.error("[admin/daily/day-summary] error", err);

@@ -72,6 +72,7 @@ type DaySummary = {
   drivers: { id: string; name: string; display_name: string | null }[];
   shiftDriverIds: string[];
   reportsByDriver: Record<string, DaySummaryReport>;
+  driverPreferredVehicle?: Record<string, string>;
 };
 
 function todayYmd(): string {
@@ -82,8 +83,8 @@ function todayYmd(): string {
   return `${y}-${m}-${day}`;
 }
 
-/** 選択日が「今日」(JST) かつ 3時以降なら、未提出・未承認のみ表示 */
-function isShowOnlyActionable(selectedDate: string): boolean {
+/** 選択日が「今日」(JST) かつ 午前3時以降なら true（日付切り替え後＝休み・承認済みを非表示にする） */
+function isAfter3AMJST(selectedDate: string): boolean {
   const now = new Date();
   const parts = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", hour12: false }).formatToParts(now);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "0";
@@ -337,7 +338,6 @@ export default function AdminDailyPage() {
             {tab === "pending" ? (
               (() => {
                 const summary = daySummary;
-                const showOnlyActionable = summary ? isShowOnlyActionable(summary.date) : false;
                 type Status = "off" | "unsubmitted" | "pending" | "approved";
                 const rows = summary
                   ? summary.drivers.map((driver) => {
@@ -352,8 +352,10 @@ export default function AdminDailyPage() {
                       return { driver, report: report ?? null, status };
                     })
                   : [];
-                const filteredRows = showOnlyActionable ? rows.filter((r) => r.status === "unsubmitted" || r.status === "pending") : rows;
                 const actionableCount = rows.filter((r) => r.status === "unsubmitted" || r.status === "pending").length;
+                // 日付切り替え後（選択日＝今日のJST かつ 3時以降）は休み・承認済みを非表示
+                const hideGrayedOut = summary ? isAfter3AMJST(summary.date) : false;
+                const displayRows = hideGrayedOut ? rows.filter((r) => r.status === "unsubmitted" || r.status === "pending") : rows;
 
                 return (
                   <>
@@ -376,12 +378,17 @@ export default function AdminDailyPage() {
                         <div className="text-xs text-slate-500 mt-0.5">対象日</div>
                       </div>
                     </div>
-                    {!fetchError && summary && filteredRows.length === 0 && (
+                    {!fetchError && summary && rows.length === 0 && (
                       <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
-                        {showOnlyActionable ? "未提出・未承認のドライバーはいません。" : "この日のドライバーはいません。"}
+                        ドライバーが登録されていません。
                       </div>
                     )}
-                    {!fetchError && summary && filteredRows.length > 0 && (
+                    {!fetchError && summary && rows.length > 0 && displayRows.length === 0 && (
+                      <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
+                        未提出・未承認のドライバーはいません。
+                      </div>
+                    )}
+                    {!fetchError && summary && displayRows.length > 0 && (
                       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                         <table className="w-full text-sm table-fixed">
                           <colgroup>
@@ -405,7 +412,7 @@ export default function AdminDailyPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {filteredRows.map(({ driver, report, status }) => {
+                            {displayRows.map(({ driver, report, status }) => {
                               const isGray = status === "off" || status === "approved";
                               const entry: Entry = {
                                 driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
@@ -413,10 +420,11 @@ export default function AdminDailyPage() {
                               };
                               if (report) (entry.report as ReportData).id = report.id;
                               const carrier = report?.carrier || "YAMATO";
+                              const vehicleLabel = report?.vehicle_label ?? summary?.driverPreferredVehicle?.[driver.id] ?? "—";
                               return (
                                 <tr key={driver.id} className={`border-b border-slate-100 ${isGray ? "bg-slate-100 text-slate-500" : "hover:bg-slate-50"}`}>
                                   <td className="py-3 px-3 font-medium">{getDisplayName(driver)}</td>
-                                  <td className="py-3 px-2 text-center text-xs tabular-nums">{report?.vehicle_label ?? "—"}</td>
+                                  <td className="py-3 px-2 text-center text-xs tabular-nums">{vehicleLabel}</td>
                                   <td className="py-3 px-2 text-center text-xs tabular-nums">{report?.meter_value != null ? report.meter_value.toLocaleString() : "—"}</td>
                                   <td className="py-3 px-2 text-left align-top">
                                     {status === "unsubmitted" && <span className="text-red-600 font-medium">日報が未提出です</span>}
