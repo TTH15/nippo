@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
@@ -489,15 +490,17 @@ export default function CoursesPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">キャリア</label>
-                <select
+                <CustomSelect
+                  options={[
+                    { value: "YAMATO", label: "ヤマト" },
+                    { value: "AMAZON", label: "Amazon" },
+                    { value: "OTHER", label: "その他" },
+                  ]}
                   value={newCourse.carrier}
-                  onChange={(e) => setNewCourse((f) => ({ ...f, carrier: e.target.value as CourseCarrier }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                >
-                  <option value="YAMATO">ヤマト</option>
-                  <option value="AMAZON">Amazon</option>
-                  <option value="OTHER">その他</option>
-                </select>
+                  onChange={(v) => setNewCourse((f) => ({ ...f, carrier: v as CourseCarrier }))}
+                  clearable={false}
+                  size="sm"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">略記（集計・シフト表示用）</label>
@@ -594,15 +597,17 @@ export default function CoursesPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">キャリア</label>
-                <select
+                <CustomSelect
+                  options={[
+                    { value: "YAMATO", label: "ヤマト" },
+                    { value: "AMAZON", label: "Amazon" },
+                    { value: "OTHER", label: "その他" },
+                  ]}
                   value={editForm.carrier}
-                  onChange={(e) => setEditForm((f) => ({ ...f, carrier: e.target.value as CourseCarrier }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                >
-                  <option value="YAMATO">ヤマト</option>
-                  <option value="AMAZON">Amazon</option>
-                  <option value="OTHER">その他</option>
-                </select>
+                  onChange={(v) => setEditForm((f) => ({ ...f, carrier: v as CourseCarrier }))}
+                  clearable={false}
+                  size="sm"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">略記（集計・シフト表示用）</label>

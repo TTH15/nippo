@@ -39,6 +39,9 @@ export async function PUT(
     if (body.carrier !== undefined && (body.carrier === "YAMATO" || body.carrier === "AMAZON")) {
       updates.carrier = body.carrier;
     }
+    if (body.report_date !== undefined && typeof body.report_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.report_date)) {
+      updates.report_date = body.report_date;
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });

@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -587,36 +588,31 @@ export default function ShiftsPage() {
                               const availableDrivers = getAvailableDrivers(date, course.id, slot);
                               const hasNoOptions = !currentDriverId && availableDrivers.length === 0;
 
+                              const driverOptions = [
+                                { value: "", label: "—" },
+                                ...availableDrivers.map((driver) => ({
+                                  value: driver.id,
+                                  label: getDisplayName(driver),
+                                })),
+                              ];
                               return (
-                                <select
+                                <CustomSelect
                                   key={slot}
+                                  options={driverOptions}
                                   value={currentDriverId ?? ""}
-                                  onChange={(e) =>
-                                    setLocalDriver(date, course.id, slot, e.target.value || null)
-                                  }
+                                  onChange={(v) => setLocalDriver(date, course.id, slot, v || null)}
+                                  placeholder="—"
+                                  clearable={true}
                                   disabled={!canWrite}
-                                  className={`w-full min-w-0 min-h-[2rem] text-xs py-1.5 px-2 rounded-md border transition-colors cursor-pointer text-center text-slate-300
-                                    appearance-none focus:outline-none focus:ring-2 focus:ring-slate-300/60 focus:ring-offset-0
-                                    disabled:cursor-not-allowed
-                                    [&:not([value=\"\"])]:font-medium
-                                    ${hasNoOptions
-                                      ? "border-red-400 bg-red-50 text-red-700"
+                                  size="sm"
+                                  className={
+                                    hasNoOptions
+                                      ? "[&_button]:border-red-400 [&_button]:bg-red-50 [&_button]:text-red-700"
                                       : isModified
-                                        ? "border-amber-400 bg-amber-50 text-slate-800 enabled:hover:bg-amber-100/70"
-                                        : currentDriverId
-                                          ? "border-slate-300 bg-slate-50 text-slate-800 enabled:hover:bg-slate-100"
-                                          : "border-slate-200 bg-white text-slate-500 enabled:hover:border-slate-300 enabled:hover:bg-slate-50"
-                                    }
-                                  `}
-                                  style={{ backgroundImage: "none" }}
-                                >
-                                  <option value="" className="text-slate-300">—</option>
-                                  {availableDrivers.map((driver) => (
-                                    <option key={driver.id} value={driver.id}>
-                                      {getDisplayName(driver)}
-                                    </option>
-                                  ))}
-                                </select>
+                                        ? "[&_button]:border-amber-400 [&_button]:bg-amber-50 [&_button]:text-slate-800"
+                                        : undefined
+                                  }
+                                />
                               );
                             })}
                           </div>

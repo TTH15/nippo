@@ -57,7 +57,7 @@ export function UserBottomNav() {
                   href={tab.href}
                   prefetch
                   className={`flex flex-col items-center justify-end ${active
-                    ? "text-brand-700 font-semibold"
+                    ? "text-brand-800 font-semibold"
                     : "text-slate-500 hover:text-slate-700"
                     }`}
                   aria-current={active ? "page" : undefined}

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
@@ -43,6 +44,54 @@ type Group = {
 
 type Tab = "pending" | "all";
 
+type DaySummaryReport = {
+  id: string;
+  driver_id: string;
+  report_date: string;
+  takuhaibin_completed: number;
+  takuhaibin_returned: number;
+  nekopos_completed: number;
+  nekopos_returned: number;
+  submitted_at: string;
+  carrier: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  vehicle_id: string | null;
+  meter_value: number | null;
+  vehicle_label: string | null;
+  amazon_am_mochidashi?: number;
+  amazon_am_completed?: number;
+  amazon_pm_mochidashi?: number;
+  amazon_pm_completed?: number;
+  amazon_4_mochidashi?: number;
+  amazon_4_completed?: number;
+};
+
+type DaySummary = {
+  date: string;
+  drivers: { id: string; name: string; display_name: string | null }[];
+  shiftDriverIds: string[];
+  reportsByDriver: Record<string, DaySummaryReport>;
+};
+
+function todayYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** 選択日が「今日」(JST) かつ 3時以降なら、未提出・未承認のみ表示 */
+function isShowOnlyActionable(selectedDate: string): boolean {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", hour12: false }).formatToParts(now);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "0";
+  const todayJst = `${get("year")}-${get("month").padStart(2, "0")}-${get("day").padStart(2, "0")}`;
+  if (selectedDate !== todayJst) return false;
+  return parseInt(get("hour"), 10) >= 3;
+}
+
 export default function AdminDailyPage() {
   const [tab, setTab] = useState<Tab>("pending");
   const [groups, setGroups] = useState<Group[]>([]);
@@ -52,6 +101,8 @@ export default function AdminDailyPage() {
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [savingEdit, setSavingEdit] = useState(false);
   const [allDateRange, setAllDateRange] = useState<DateRangeValue | undefined>(undefined);
+  const [pendingDate, setPendingDate] = useState<string>(() => todayYmd());
+  const [daySummary, setDaySummary] = useState<DaySummary | null>(null);
 
   const canWrite = canAdminWrite(getStoredDriver()?.role);
   const totalEntries = groups.reduce((sum, g) => sum + g.entries.length, 0);
@@ -63,17 +114,18 @@ export default function AdminDailyPage() {
     return `${y}-${m}-${day}`;
   };
 
-  const load = (targetTab: Tab, range?: DateRangeValue) => {
+  const load = (targetTab: Tab, range?: DateRangeValue, date?: string) => {
     setLoading(true);
     setFetchError(null);
     const cacheOpt = { cache: "no-store" as RequestCache };
     if (targetTab === "pending") {
-      apiFetch<{ groups: Group[]; totalPending: number }>("/api/admin/daily/pending", cacheOpt)
-        .then((res) => setGroups(res.groups ?? []))
+      const d = date ?? pendingDate;
+      apiFetch<DaySummary>(`/api/admin/daily/day-summary?date=${d}`, cacheOpt)
+        .then((res) => setDaySummary(res))
         .catch((e) => {
           console.error("[admin/daily] fetch error", e);
           setFetchError(e instanceof Error ? e.message : "日報の取得に失敗しました");
-          setGroups([]);
+          setDaySummary(null);
         })
         .finally(() => setLoading(false));
     } else {
@@ -94,11 +146,11 @@ export default function AdminDailyPage() {
 
   useEffect(() => {
     if (tab === "pending") {
-      load("pending");
+      load("pending", undefined, pendingDate);
     } else {
       load("all", allDateRange);
     }
-  }, [tab, allDateRange]);
+  }, [tab, allDateRange, pendingDate]);
 
   const handleApprove = async (e: Entry, groupDate: string) => {
     try {
@@ -106,16 +158,19 @@ export default function AdminDailyPage() {
         method: "POST",
         body: JSON.stringify({ driverId: e.driver.id, date: groupDate }),
       });
-      // 未承認タブでは承認した行を一覧から削除する（リロード時も同様にAPIが未承認のみ返す）
-      setGroups((prev) =>
-        prev
-          .map((g) =>
-            g.date !== groupDate
-              ? g
-              : { ...g, entries: g.entries.filter((ent) => ent.driver.id !== e.driver.id) }
-          )
-          .filter((g) => g.entries.length > 0)
-      );
+      if (tab === "pending" && daySummary) {
+        load("pending", undefined, pendingDate);
+      } else {
+        setGroups((prev) =>
+          prev
+            .map((g) =>
+              g.date !== groupDate
+                ? g
+                : { ...g, entries: g.entries.filter((ent) => ent.driver.id !== e.driver.id) }
+            )
+            .filter((g) => g.entries.length > 0)
+        );
+      }
     } catch {
       // noop
     }
@@ -125,6 +180,7 @@ export default function AdminDailyPage() {
     const r = entry.report;
     setEditingEntry({ entry, groupDate: r.report_date });
     setEditForm({
+      report_date: r.report_date ?? "",
       takuhaibin_completed: String(r.takuhaibin_completed ?? 0),
       takuhaibin_returned: String(r.takuhaibin_returned ?? 0),
       nekopos_completed: String(r.nekopos_completed ?? 0),
@@ -145,9 +201,11 @@ export default function AdminDailyPage() {
     try {
       const r = editingEntry.entry.report;
       const carrier = editForm.carrier === "AMAZON" ? "AMAZON" : "YAMATO";
+      const reportDate = (editForm.report_date ?? "").trim();
       await apiFetch(`/api/admin/daily/reports/${editingEntry.entry.report.id}`, {
         method: "PUT",
         body: JSON.stringify({
+          report_date: /^\d{4}-\d{2}-\d{2}$/.test(reportDate) ? reportDate : undefined,
           takuhaibin_completed: Number(editForm.takuhaibin_completed) || 0,
           takuhaibin_returned: Number(editForm.takuhaibin_returned) || 0,
           nekopos_completed: Number(editForm.nekopos_completed) || 0,
@@ -162,7 +220,7 @@ export default function AdminDailyPage() {
         }),
       });
       setEditingEntry(null);
-      load(tab, tab === "all" ? allDateRange : undefined);
+      load(tab, tab === "all" ? allDateRange : undefined, tab === "pending" ? pendingDate : undefined);
     } catch (err) {
       console.error(err);
     } finally {
@@ -179,17 +237,8 @@ export default function AdminDailyPage() {
         method: "POST",
         body: JSON.stringify({ driverId: e.driver.id, date: groupDate }),
       });
-      // 未承認タブでは却下した行も一覧から削除
       if (tab === "pending") {
-        setGroups((prev) =>
-          prev
-            .map((g) =>
-              g.date !== groupDate
-                ? g
-                : { ...g, entries: g.entries.filter((ent) => ent.driver.id !== e.driver.id) }
-            )
-            .filter((g) => g.entries.length > 0)
-        );
+        load("pending", undefined, pendingDate);
       } else {
         load(tab, tab === "all" ? allDateRange : undefined);
       }
@@ -222,6 +271,18 @@ export default function AdminDailyPage() {
             </button>
           </div>
         </div>
+
+        {tab === "pending" && (
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-slate-700 mb-1">対象日</label>
+            <input
+              type="date"
+              value={pendingDate}
+              onChange={(e) => setPendingDate(e.target.value)}
+              className="px-3 py-2 text-sm border border-slate-200 rounded"
+            />
+          </div>
+        )}
 
         {tab === "all" && (
           <div className="mb-6">
@@ -267,34 +328,186 @@ export default function AdminDailyPage() {
           </>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              <div className="bg-white rounded-lg border border-slate-200 p-4">
-                <div className="text-2xl font-bold text-slate-900">
-                  {tab === "pending" ? totalEntries : totalEntries}
-                </div>
-                <div className="text-xs text-slate-500 mt-0.5">
-                  {tab === "pending" ? "未承認の日報" : "全件数"}
-                </div>
+            {fetchError && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 mb-4">
+                日報の取得に失敗しました: {fetchError}
               </div>
-              <div className="bg-white rounded-lg border border-slate-200 p-4">
-                <div className="text-2xl font-bold text-slate-900">{groups.length}</div>
-                <div className="text-xs text-slate-500 mt-0.5">対象日数</div>
-              </div>
-              <div className="bg-white rounded-lg border border-slate-200 p-4">
-                <div className="text-2xl font-bold text-slate-900">
-                  {groups.length > 0 && groups[0].date && groups[0].date !== "-" ? (
-                    (() => {
-                      const [y, m, d] = groups[0].date.split("-");
-                      return (
-                        <>
-                          <span className="text-slate-900 text-base">{y}</span>
-                          <span className="text-slate-500 text-xs pl-0.5 pr-1">年</span>
-                          <span className="text-slate-900 text-base">{parseInt(m, 10)}</span>
-                          <span className="text-slate-500 text-xs pl-0.5 pr-1">月</span>
-                          <span className="text-slate-900 text-base">{parseInt(d, 10)}</span>
-                          <span className="text-slate-500 text-xs pl-0.5 pr-1">日</span>
-                        </>)
-                    })()
+            )}
+
+            {tab === "pending" ? (
+              (() => {
+                const summary = daySummary;
+                const showOnlyActionable = summary ? isShowOnlyActionable(summary.date) : false;
+                type Status = "off" | "unsubmitted" | "pending" | "approved";
+                const rows = summary
+                  ? summary.drivers.map((driver) => {
+                      const hasShift = summary.shiftDriverIds.includes(driver.id);
+                      const report = summary.reportsByDriver[driver.id];
+                      let status: Status = "off";
+                      if (!hasShift) status = "off";
+                      else if (!report) status = "unsubmitted";
+                      else if (report.approved_at) status = "approved";
+                      else if (report.rejected_at) status = "off";
+                      else status = "pending";
+                      return { driver, report: report ?? null, status };
+                    })
+                  : [];
+                const filteredRows = showOnlyActionable ? rows.filter((r) => r.status === "unsubmitted" || r.status === "pending") : rows;
+                const actionableCount = rows.filter((r) => r.status === "unsubmitted" || r.status === "pending").length;
+
+                return (
+                  <>
+                    <div className="grid grid-cols-3 gap-4 mb-6">
+                      <div className="bg-white rounded-lg border border-slate-200 p-4">
+                        <div className="text-2xl font-bold text-slate-900">{actionableCount}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">要対応（未提出・未承認）</div>
+                      </div>
+                      <div className="bg-white rounded-lg border border-slate-200 p-4">
+                        <div className="text-2xl font-bold text-slate-900">{summary?.drivers.length ?? 0}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">ドライバー数</div>
+                      </div>
+                      <div className="bg-white rounded-lg border border-slate-200 p-4">
+                        <div className="text-2xl font-bold text-slate-900">
+                          {summary?.date ? (() => {
+                            const [y, m, d] = summary.date.split("-");
+                            return <><span className="text-slate-900 text-base">{y}</span><span className="text-slate-500 text-xs pl-0.5 pr-1">年</span><span className="text-slate-900 text-base">{parseInt(m, 10)}</span><span className="text-slate-500 text-xs pl-0.5 pr-1">月</span><span className="text-slate-900 text-base">{parseInt(d, 10)}</span><span className="text-slate-500 text-xs pl-0.5 pr-1">日</span></>;
+                          })() : "/"}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">対象日</div>
+                      </div>
+                    </div>
+                    {!fetchError && summary && filteredRows.length === 0 && (
+                      <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
+                        {showOnlyActionable ? "未提出・未承認のドライバーはいません。" : "この日のドライバーはいません。"}
+                      </div>
+                    )}
+                    {!fetchError && summary && filteredRows.length > 0 && (
+                      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                        <table className="w-full text-sm table-fixed">
+                          <colgroup>
+                            <col className="w-28" />
+                            <col className="w-24" />
+                            <col className="w-20" />
+                            <col className="w-auto" />
+                            <col className="w-36" />
+                            {canWrite && <col className="w-20" />}
+                            <col className="w-24" />
+                          </colgroup>
+                          <thead className="bg-slate-50">
+                            <tr className="border-b border-slate-200 text-left">
+                              <th className="py-3 px-3 font-semibold text-slate-600">名前</th>
+                              <th className="py-3 px-2 font-semibold text-slate-600 text-center">車両</th>
+                              <th className="py-3 px-2 font-semibold text-slate-600 text-center">メーター</th>
+                              <th className="py-3 px-2 font-semibold text-slate-600 text-center">内容</th>
+                              <th className="py-3 px-2 font-semibold text-slate-600 text-center">承認</th>
+                              {canWrite && <th className="py-3 px-2 font-semibold text-slate-600 text-center">操作</th>}
+                              <th className="py-3 px-3 font-semibold text-slate-600 text-right">送信時刻</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredRows.map(({ driver, report, status }) => {
+                              const isGray = status === "off" || status === "approved";
+                              const entry: Entry = {
+                                driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
+                                report: report as ReportData ?? { report_date: pendingDate, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" },
+                              };
+                              if (report) (entry.report as ReportData).id = report.id;
+                              const carrier = report?.carrier || "YAMATO";
+                              return (
+                                <tr key={driver.id} className={`border-b border-slate-100 ${isGray ? "bg-slate-100 text-slate-500" : "hover:bg-slate-50"}`}>
+                                  <td className="py-3 px-3 font-medium">{getDisplayName(driver)}</td>
+                                  <td className="py-3 px-2 text-center text-xs tabular-nums">{report?.vehicle_label ?? "—"}</td>
+                                  <td className="py-3 px-2 text-center text-xs tabular-nums">{report?.meter_value != null ? report.meter_value.toLocaleString() : "—"}</td>
+                                  <td className="py-3 px-2 text-left align-top">
+                                    {status === "unsubmitted" && <span className="text-red-600 font-medium">日報が未提出です</span>}
+                                    {status === "off" && <span className="text-slate-500">休み</span>}
+                                    {status === "approved" && (report ? (carrier === "YAMATO" ? (
+                                      <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
+                                        <span><span className="text-slate-500 text-xs">宅急便</span> <span className="font-semibold tabular-nums">{report.takuhaibin_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
+                                        <span><span className="text-slate-500 text-xs">ネコポス</span> <span className="font-semibold tabular-nums">{report.nekopos_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
+                                      </div>
+                                    ) : (
+                                      <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
+                                        {report.amazon_am_completed ? <span><span className="text-slate-500 text-xs">午前</span> <span className="font-semibold tabular-nums">{report.amazon_am_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
+                                        {report.amazon_pm_completed ? <span><span className="text-slate-500 text-xs">午後</span> <span className="font-semibold tabular-nums">{report.amazon_pm_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
+                                        {report.amazon_4_completed ? <span><span className="text-slate-500 text-xs">4便</span> <span className="font-semibold tabular-nums">{report.amazon_4_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
+                                      </div>
+                                    )) : (<span>—</span>) )}
+                                    {status === "pending" && report && (carrier === "YAMATO" ? (
+                                      <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
+                                        <span><span className="text-slate-500 text-xs">宅急便</span> <span className="font-semibold tabular-nums">{report.takuhaibin_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
+                                        <span><span className="text-slate-500 text-xs">ネコポス</span> <span className="font-semibold tabular-nums">{report.nekopos_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
+                                      </div>
+                                    ) : (
+                                      <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
+                                        {report.amazon_am_completed ? <span><span className="text-slate-500 text-xs">午前</span> <span className="font-semibold tabular-nums">{report.amazon_am_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
+                                        {report.amazon_pm_completed ? <span><span className="text-slate-500 text-xs">午後</span> <span className="font-semibold tabular-nums">{report.amazon_pm_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
+                                        {report.amazon_4_completed ? <span><span className="text-slate-500 text-xs">4便</span> <span className="font-semibold tabular-nums">{report.amazon_4_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
+                                      </div>
+                                    ))}
+                                  </td>
+                                  <td className="py-3 px-2 text-center align-top">
+                                    {status === "approved" && <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700"><FontAwesomeIcon icon={faCircleCheck} className="mr-1" />承認済み</span>}
+                                    {status === "pending" && canWrite && (
+                                      <div className="flex items-center justify-center gap-2">
+                                        <button type="button" onClick={() => handleApprove(entry, summary!.date)} className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-800 text-white hover:bg-slate-700">承認</button>
+                                        <button type="button" onClick={() => handleReject(entry, summary!.date)} className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">却下</button>
+                                      </div>
+                                    )}
+                                    {status === "pending" && !canWrite && <span className="text-slate-400 text-xs">未承認</span>}
+                                    {status === "unsubmitted" && <span className="text-slate-400 text-xs">—</span>}
+                                    {status === "off" && <span className="text-slate-400 text-xs">—</span>}
+                                  </td>
+                                  {canWrite && (
+                                    <td className="py-3 px-2 text-center align-top">
+                                      {report && (status === "pending" || status === "approved") && (
+                                        <button type="button" onClick={() => openEdit(entry)} className="text-sm text-slate-600 hover:text-slate-900 underline">
+                                          <FontAwesomeIcon icon={faPenToSquare} />
+                                        </button>
+                                      )}
+                                    </td>
+                                  )}
+                                  <td className="py-3 px-3 text-right text-xs text-slate-400 align-middle">
+                                    {report?.submitted_at ? (
+                                      <span className="tabular-nums">{new Date(report.submitted_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}</span>
+                                    ) : "—"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                );
+              })()
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <div className="bg-white rounded-lg border border-slate-200 p-4">
+                    <div className="text-2xl font-bold text-slate-900">{totalEntries}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">全件数</div>
+                  </div>
+                  <div className="bg-white rounded-lg border border-slate-200 p-4">
+                    <div className="text-2xl font-bold text-slate-900">{groups.length}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">対象日数</div>
+                  </div>
+                  <div className="bg-white rounded-lg border border-slate-200 p-4">
+                    <div className="text-2xl font-bold text-slate-900">
+                      {groups.length > 0 && groups[0].date && groups[0].date !== "-" ? (
+                        (() => {
+                          const [y, m, d] = groups[0].date.split("-");
+                          return (
+                            <>
+                              <span className="text-slate-900 text-base">{y}</span>
+                              <span className="text-slate-500 text-xs pl-0.5 pr-1">年</span>
+                              <span className="text-slate-900 text-base">{parseInt(m, 10)}</span>
+                              <span className="text-slate-500 text-xs pl-0.5 pr-1">月</span>
+                              <span className="text-slate-900 text-base">{parseInt(d, 10)}</span>
+                              <span className="text-slate-500 text-xs pl-0.5 pr-1">日</span>
+                            </>)
+                      })()
                   ) : (
                     "/"
                   )}
@@ -303,17 +516,11 @@ export default function AdminDailyPage() {
               </div>
             </div>
 
-            {fetchError && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 mb-4">
-                日報の取得に失敗しました: {fetchError}
-              </div>
-            )}
-
-            {!fetchError && groups.length === 0 && (
-              <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
-                {tab === "pending" ? "未承認の日報はありません。" : "日報はありません。"}
-              </div>
-            )}
+                {!fetchError && groups.length === 0 && (
+                  <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
+                    日報はありません。
+                  </div>
+                )}
 
             {groups.map((group) => (
               <div key={group.date} className="mb-8">
@@ -445,7 +652,7 @@ export default function AdminDailyPage() {
                                 <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-700">
                                   却下
                                 </span>
-                              ) : tab === "pending" && canWrite ? (
+                              ) : canWrite ? (
                                 <div className="flex items-center justify-center gap-2">
                                   <button
                                     type="button"
@@ -493,6 +700,8 @@ export default function AdminDailyPage() {
                 </div>
               </div>
             ))}
+                </>
+              )}
           </>
         )}
       </div>
@@ -502,20 +711,34 @@ export default function AdminDailyPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">
-                日報の編集 — {getDisplayName(editingEntry.entry.driver)}（{editingEntry.groupDate}）
+              <h2 className="text-lg font-semibold text-slate-900 mb-1">
+                日報の編集 — {getDisplayName(editingEntry.entry.driver)}
               </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                承認済みの日報を編集すると、売上・報酬・集計にもその内容が反映されます。
+              </p>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">種別</label>
-                  <select
-                    value={editForm.carrier ?? "YAMATO"}
-                    onChange={(ev) => setEditForm((f) => ({ ...f, carrier: ev.target.value }))}
+                  <label className="block text-sm font-medium text-slate-700 mb-1">日付</label>
+                  <input
+                    type="date"
+                    value={editForm.report_date ?? ""}
+                    onChange={(e) => setEditForm((f) => ({ ...f, report_date: e.target.value }))}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded"
-                  >
-                    <option value="YAMATO">ヤマト</option>
-                    <option value="AMAZON">Amazon</option>
-                  </select>
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">種別</label>
+                  <CustomSelect
+                    options={[
+                      { value: "YAMATO", label: "ヤマト" },
+                      { value: "AMAZON", label: "Amazon" },
+                    ]}
+                    value={editForm.carrier ?? "YAMATO"}
+                    onChange={(v) => setEditForm((f) => ({ ...f, carrier: v }))}
+                    clearable={false}
+                    size="sm"
+                  />
                 </div>
                 {editForm.carrier === "YAMATO" ? (
                   <div className="grid grid-cols-2 gap-4">
