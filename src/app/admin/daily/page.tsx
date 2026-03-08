@@ -12,6 +12,7 @@ import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
 import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
+import { VehiclePlate } from "@/lib/components/VehiclePlate";
 
 type ReportData = {
   id?: string;
@@ -44,6 +45,16 @@ type Group = {
 
 type Tab = "pending" | "all";
 
+type VehiclePlatePayload = {
+  id: string;
+  number_prefix?: string | null;
+  number_class?: string | null;
+  number_hiragana?: string | null;
+  number_numeric?: string | null;
+  manufacturer?: string | null;
+  brand?: string | null;
+};
+
 type DaySummaryReport = {
   id: string;
   driver_id: string;
@@ -58,7 +69,7 @@ type DaySummaryReport = {
   rejected_at: string | null;
   vehicle_id: string | null;
   meter_value: number | null;
-  vehicle_label: string | null;
+  vehicle_plate: VehiclePlatePayload | null;
   amazon_am_mochidashi?: number;
   amazon_am_completed?: number;
   amazon_pm_mochidashi?: number;
@@ -72,7 +83,7 @@ type DaySummary = {
   drivers: { id: string; name: string; display_name: string | null }[];
   shiftDriverIds: string[];
   reportsByDriver: Record<string, DaySummaryReport>;
-  driverPreferredVehicle?: Record<string, string>;
+  driverPreferredVehicle?: Record<string, VehiclePlatePayload>;
 };
 
 function todayYmd(): string {
@@ -83,14 +94,20 @@ function todayYmd(): string {
   return `${y}-${m}-${day}`;
 }
 
-/** 選択日が「今日」(JST) かつ 午前3時以降なら true（日付切り替え後＝休み・承認済みを非表示にする） */
-function isAfter3AMJST(selectedDate: string): boolean {
+/** JST で午前3時以降か */
+function isAfter3AMJST(): boolean {
   const now = new Date();
-  const parts = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", hour12: false }).formatToParts(now);
+  const parts = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false }).formatToParts(now);
+  const hour = parts.find((p) => p.type === "hour")?.value ?? "0";
+  return parseInt(hour, 10) >= 3;
+}
+
+/** 選択日が「今日」(JST) の YYYY-MM-DD */
+function todayJstYmd(): string {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "0";
-  const todayJst = `${get("year")}-${get("month").padStart(2, "0")}-${get("day").padStart(2, "0")}`;
-  if (selectedDate !== todayJst) return false;
-  return parseInt(get("hour"), 10) >= 3;
+  return `${get("year")}-${get("month").padStart(2, "0")}-${get("day").padStart(2, "0")}`;
 }
 
 export default function AdminDailyPage() {
@@ -353,9 +370,8 @@ export default function AdminDailyPage() {
                     })
                   : [];
                 const actionableCount = rows.filter((r) => r.status === "unsubmitted" || r.status === "pending").length;
-                // 日付切り替え後（選択日＝今日のJST かつ 3時以降）は休み・承認済みを非表示
-                const hideGrayedOut = summary ? isAfter3AMJST(summary.date) : false;
-                const displayRows = hideGrayedOut ? rows.filter((r) => r.status === "unsubmitted" || r.status === "pending") : rows;
+                // 3時以降かつ対象日＝今日のときだけ休み・承認済みをグレーにしない。昨日以前 or 3時前はグレーアウト
+                const isTodayAfter3 = summary ? isAfter3AMJST() && summary.date === todayJstYmd() : false;
 
                 return (
                   <>
@@ -383,12 +399,7 @@ export default function AdminDailyPage() {
                         ドライバーが登録されていません。
                       </div>
                     )}
-                    {!fetchError && summary && rows.length > 0 && displayRows.length === 0 && (
-                      <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
-                        未提出・未承認のドライバーはいません。
-                      </div>
-                    )}
-                    {!fetchError && summary && displayRows.length > 0 && (
+                    {!fetchError && summary && rows.length > 0 && (
                       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                         <table className="w-full text-sm table-fixed">
                           <colgroup>
@@ -412,19 +423,26 @@ export default function AdminDailyPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {displayRows.map(({ driver, report, status }) => {
-                              const isGray = status === "off" || status === "approved";
+                            {rows.map(({ driver, report, status }) => {
+                              const grayed = status === "off" || status === "approved";
+                              const isGray = grayed && !isTodayAfter3;
                               const entry: Entry = {
                                 driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
                                 report: report as ReportData ?? { report_date: pendingDate, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" },
                               };
                               if (report) (entry.report as ReportData).id = report.id;
                               const carrier = report?.carrier || "YAMATO";
-                              const vehicleLabel = report?.vehicle_label ?? summary?.driverPreferredVehicle?.[driver.id] ?? "—";
+                              const vehiclePlate = report?.vehicle_plate ?? summary?.driverPreferredVehicle?.[driver.id] ?? null;
                               return (
                                 <tr key={driver.id} className={`border-b border-slate-100 ${isGray ? "bg-slate-100 text-slate-500" : "hover:bg-slate-50"}`}>
                                   <td className="py-3 px-3 font-medium">{getDisplayName(driver)}</td>
-                                  <td className="py-3 px-2 text-center text-xs tabular-nums">{vehicleLabel}</td>
+                                  <td className="py-2 px-2 align-middle">
+                                    {vehiclePlate && (vehiclePlate.number_prefix || vehiclePlate.number_hiragana || vehiclePlate.number_numeric) ? (
+                                      <VehiclePlate vehicle={vehiclePlate} compact className="max-w-[100px] mx-auto" />
+                                    ) : (
+                                      <span className="text-xs text-slate-400">—</span>
+                                    )}
+                                  </td>
                                   <td className="py-3 px-2 text-center text-xs tabular-nums">{report?.meter_value != null ? report.meter_value.toLocaleString() : "—"}</td>
                                   <td className="py-3 px-2 text-left align-top">
                                     {status === "unsubmitted" && <span className="text-red-600 font-medium">日報が未提出です</span>}

@@ -4,10 +4,27 @@ import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
-function vehicleLabel(v: { manufacturer?: string | null; brand?: string | null; number_numeric?: string | null } | null): string | null {
-  if (!v) return null;
-  const parts = [v.manufacturer, v.brand, v.number_numeric].filter(Boolean);
-  return parts.length > 0 ? parts.join(" ") : null;
+type VehiclePlatePayload = {
+  id: string;
+  number_prefix?: string | null;
+  number_class?: string | null;
+  number_hiragana?: string | null;
+  number_numeric?: string | null;
+  manufacturer?: string | null;
+  brand?: string | null;
+};
+
+function toPlatePayload(v: any): VehiclePlatePayload | null {
+  if (!v || !v.id) return null;
+  return {
+    id: v.id,
+    number_prefix: v.number_prefix ?? null,
+    number_class: v.number_class ?? null,
+    number_hiragana: v.number_hiragana ?? null,
+    number_numeric: v.number_numeric ?? null,
+    manufacturer: v.manufacturer ?? null,
+    brand: v.brand ?? null,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -46,18 +63,18 @@ export async function GET(req: NextRequest) {
       new Set((shiftRows ?? []).map((r: { driver_id: string }) => r.driver_id).filter(Boolean))
     );
 
-    // 未提出でも表示するため、ドライバーごとの予定車両（最終選択車両）を取得
+    // 未提出でも表示するため、ドライバーごとの予定車両（最終選択車両）を取得（ナンバープレート用）
     const driverIds = (drivers ?? []).map((d: { id: string }) => d.id);
     const { data: prefRows } = driverIds.length
       ? await supabase
           .from("driver_vehicle_preferences")
-          .select("driver_id, vehicles ( manufacturer, brand, number_numeric )")
+          .select("driver_id, vehicles ( id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand )")
           .in("driver_id", driverIds)
       : { data: [] };
-    const driverPreferredVehicle: Record<string, string> = {};
+    const driverPreferredVehicle: Record<string, VehiclePlatePayload> = {};
     (prefRows ?? []).forEach((row: any) => {
-      const label = vehicleLabel(row.vehicles);
-      if (row.driver_id && label) driverPreferredVehicle[row.driver_id] = label;
+      const plate = toPlatePayload(row.vehicles);
+      if (row.driver_id && plate) driverPreferredVehicle[row.driver_id] = plate;
     });
 
     const { data: reportRows, error: reportsErr } = await supabase
@@ -68,7 +85,7 @@ export async function GET(req: NextRequest) {
         vehicle_id, meter_value,
         amazon_am_mochidashi, amazon_am_completed, amazon_pm_mochidashi, amazon_pm_completed,
         amazon_4_mochidashi, amazon_4_completed,
-        vehicles ( manufacturer, brand, number_numeric )
+        vehicles ( id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand )
       `)
       .eq("report_date", dateParam);
 
@@ -93,7 +110,7 @@ export async function GET(req: NextRequest) {
         rejected_at: string | null;
         vehicle_id: string | null;
         meter_value: number | null;
-        vehicle_label: string | null;
+        vehicle_plate: VehiclePlatePayload | null;
         amazon_am_mochidashi?: number;
         amazon_am_completed?: number;
         amazon_pm_mochidashi?: number;
@@ -121,7 +138,7 @@ export async function GET(req: NextRequest) {
         rejected_at: r.rejected_at ?? null,
         vehicle_id: r.vehicle_id ?? null,
         meter_value: r.meter_value != null ? Number(r.meter_value) : null,
-        vehicle_label: vehicleLabel(veh),
+        vehicle_plate: toPlatePayload(veh),
         amazon_am_mochidashi: r.amazon_am_mochidashi != null ? Number(r.amazon_am_mochidashi) : 0,
         amazon_am_completed: r.amazon_am_completed != null ? Number(r.amazon_am_completed) : 0,
         amazon_pm_mochidashi: r.amazon_pm_mochidashi != null ? Number(r.amazon_pm_mochidashi) : 0,
