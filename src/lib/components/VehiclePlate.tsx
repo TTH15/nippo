@@ -42,8 +42,10 @@ export function VehiclePlate({
   const hasPlate =
     vehicle.number_prefix || vehicle.number_hiragana || vehicle.number_numeric;
   const size = compact ? "max-w-[100px] min-w-0" : "max-w-[200px]";
-  const boltOuter = compact ? 8 : 12;
-  const boltInner = compact ? 6 : 10;
+  const boltOuter = compact ? 5 : 12;
+  const boltInner = compact ? 3 : 10;
+  const borderWidth = compact ? 1.5 : 2.5;
+  const insetShadow = compact ? 1 : 2;
   const topKanjiSize = compact ? "0.65rem" : "1.9rem";
   const topNumericSize = compact ? "0.6rem" : "1.75rem";
   const bottomKanaSize = compact ? "0.7rem" : "2rem";
@@ -65,8 +67,8 @@ export function VehiclePlate({
       className="relative w-full bg-black rounded-lg overflow-hidden"
       style={{
         aspectRatio: "2 / 1",
-        border: "2.5px solid #b8a038",
-        boxShadow: "inset 0 0 0 2px #1a1a1a, 0 2px 8px rgba(0,0,0,0.3)",
+        border: `${borderWidth}px solid #b8a038`,
+        boxShadow: `inset 0 0 0 ${insetShadow}px #1a1a1a, 0 2px 8px rgba(0,0,0,0.3)`,
       }}
     >
       {/* ボルト穴（左上） */}
