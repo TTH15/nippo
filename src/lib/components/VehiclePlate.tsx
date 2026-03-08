@@ -41,13 +41,13 @@ export function VehiclePlate({
 }) {
   const hasPlate =
     vehicle.number_prefix || vehicle.number_hiragana || vehicle.number_numeric;
-  const size = compact ? "max-w-[140px]" : "max-w-[200px]";
-  const boltOuter = compact ? 10 : 12;
-  const boltInner = compact ? 8 : 10;
-  const topKanjiSize = compact ? "0.95rem" : "1.9rem";
-  const topNumericSize = compact ? "0.9rem" : "1.75rem";
-  const bottomKanaSize = compact ? "1.1rem" : "2rem";
-  const bottomNumericSize = compact ? "2.25rem" : "4rem";
+  const size = compact ? "max-w-[100px] min-w-0" : "max-w-[200px]";
+  const boltOuter = compact ? 8 : 12;
+  const boltInner = compact ? 6 : 10;
+  const topKanjiSize = compact ? "0.65rem" : "1.9rem";
+  const topNumericSize = compact ? "0.6rem" : "1.75rem";
+  const bottomKanaSize = compact ? "0.7rem" : "2rem";
+  const bottomNumericSize = compact ? "0.9rem" : "4rem";
 
   const interactive = typeof onClick === "function";
   const wrapperClass = `block text-left rounded-lg overflow-hidden ${
@@ -93,26 +93,27 @@ export function VehiclePlate({
       </div>
 
       {/* プレート内容 */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <div className="flex items-baseline gap-1.5" style={{ color: "#e8d44d", marginBottom: compact ? 0 : 2, paddingTop: compact ? 6 : 12 }}>
-          <span className="plate-font-kanji" style={{ fontSize: topKanjiSize, letterSpacing: "0.08em" }}>
+      <div className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden min-w-0">
+        <div className="flex items-baseline gap-0.5 shrink-0" style={{ color: "#e8d44d", marginBottom: compact ? 0 : 2, paddingTop: compact ? 4 : 12 }}>
+          <span className="plate-font-kanji shrink-0" style={{ fontSize: topKanjiSize, letterSpacing: "0.08em" }}>
             {vehicle.number_prefix || "京都"}
           </span>
-          <span className="plate-font-numeric" style={{ fontSize: topNumericSize, letterSpacing: "0.06em" }}>
+          <span className="plate-font-numeric shrink-0" style={{ fontSize: topNumericSize, letterSpacing: "0.06em" }}>
             {vehicle.number_class || "400"}
           </span>
         </div>
-        <div className="flex items-center" style={{ color: "#e8d44d", gap: compact ? "0.25rem" : "0.35rem", paddingBottom: compact ? 6 : 12 }}>
-          <span className="plate-font-hiragana font-bold flex items-center" style={{ fontSize: bottomKanaSize, lineHeight: 1, height: "100%" }}>
+        <div className="flex items-center justify-center min-w-0 w-full px-0.5" style={{ color: "#e8d44d", gap: compact ? "0.15rem" : "0.35rem", paddingBottom: compact ? 4 : 12 }}>
+          <span className="plate-font-hiragana font-bold flex-shrink-0" style={{ fontSize: bottomKanaSize, lineHeight: 1 }}>
             {vehicle.number_hiragana || "わ"}
           </span>
           <span
-            className="plate-font-numeric font-black tracking-wider"
+            className="plate-font-numeric font-black tracking-wider overflow-hidden max-w-full"
             style={{
               fontSize: bottomNumericSize,
               lineHeight: 1,
               letterSpacing: "0.02em",
               textShadow: "0 0 6px rgba(232,212,77,0.3)",
+              minWidth: 0,
             }}
           >
             {formatPlateNumeric(vehicle.number_numeric || "")}

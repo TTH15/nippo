@@ -404,6 +404,7 @@ export default function AdminDailyPage() {
                         <table className="w-full text-sm table-fixed">
                           <colgroup>
                             <col className="w-28" />
+                            <col className="w-16" />
                             <col className="w-24" />
                             <col className="w-20" />
                             <col className="w-auto" />
@@ -414,6 +415,7 @@ export default function AdminDailyPage() {
                           <thead className="bg-slate-50">
                             <tr className="border-b border-slate-200 text-left">
                               <th className="py-3 px-3 font-semibold text-slate-600">名前</th>
+                              <th className="py-3 px-2 font-semibold text-slate-600 text-center">種別</th>
                               <th className="py-3 px-2 font-semibold text-slate-600 text-center">車両</th>
                               <th className="py-3 px-2 font-semibold text-slate-600 text-center">メーター</th>
                               <th className="py-3 px-2 font-semibold text-slate-600 text-center">内容</th>
@@ -424,8 +426,7 @@ export default function AdminDailyPage() {
                           </thead>
                           <tbody>
                             {rows.map(({ driver, report, status }) => {
-                              const grayed = status === "off" || status === "approved";
-                              const isGray = grayed && !isTodayAfter3;
+                              const isGray = status === "off" || (status === "approved" && !isTodayAfter3);
                               const entry: Entry = {
                                 driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
                                 report: report as ReportData ?? { report_date: pendingDate, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" },
@@ -436,6 +437,23 @@ export default function AdminDailyPage() {
                               return (
                                 <tr key={driver.id} className={`border-b border-slate-100 ${isGray ? "bg-slate-100 text-slate-500" : "hover:bg-slate-50"}`}>
                                   <td className="py-3 px-3 font-medium">{getDisplayName(driver)}</td>
+                                  <td className="py-3 px-2 text-center align-middle">
+                                    {report ? (
+                                      <span
+                                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                          isGray
+                                            ? "bg-slate-200 text-slate-600"
+                                            : carrier === "AMAZON"
+                                              ? "bg-violet-100 text-violet-700"
+                                              : "bg-emerald-100 text-emerald-700"
+                                        }`}
+                                      >
+                                        {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400 text-xs">—</span>
+                                    )}
+                                  </td>
                                   <td className="py-2 px-2 align-middle">
                                     {vehiclePlate && (vehiclePlate.number_prefix || vehiclePlate.number_hiragana || vehiclePlate.number_numeric) ? (
                                       <VehiclePlate vehicle={vehiclePlate} compact className="max-w-[100px] mx-auto" />
