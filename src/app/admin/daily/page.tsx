@@ -13,6 +13,7 @@ import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
 import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
+import { reportDateDefaultJST } from "@/lib/date";
 
 type ReportData = {
   id?: string;
@@ -86,30 +87,6 @@ type DaySummary = {
   driverPreferredVehicle?: Record<string, VehiclePlatePayload>;
 };
 
-function todayYmd(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/** JST で午前3時以降か */
-function isAfter3AMJST(): boolean {
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false }).formatToParts(now);
-  const hour = parts.find((p) => p.type === "hour")?.value ?? "0";
-  return parseInt(hour, 10) >= 3;
-}
-
-/** 選択日が「今日」(JST) の YYYY-MM-DD */
-function todayJstYmd(): string {
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "0";
-  return `${get("year")}-${get("month").padStart(2, "0")}-${get("day").padStart(2, "0")}`;
-}
-
 export default function AdminDailyPage() {
   const [tab, setTab] = useState<Tab>("pending");
   const [groups, setGroups] = useState<Group[]>([]);
@@ -129,6 +106,7 @@ export default function AdminDailyPage() {
 
   const canWrite = canAdminWrite(getStoredDriver()?.role);
   const totalEntries = groups.reduce((sum, g) => sum + g.entries.length, 0);
+  const businessToday = reportDateDefaultJST();
 
   const toYmd = (d: Date) => {
     const y = d.getFullYear();
@@ -145,7 +123,9 @@ export default function AdminDailyPage() {
       const r = range ?? pendingDateRange;
       const start = r?.startDate ? toYmd(r.startDate) : "";
       const end = r?.endDate ? toYmd(r.endDate) : "";
-      const query = start && end ? `?start=${start}&end=${end}` : "";
+      // 未来日は取得しないようにクランプ
+      const clampedEnd = end && end > businessToday ? businessToday : end;
+      const query = start && clampedEnd ? `?start=${start}&end=${clampedEnd}` : "";
       apiFetch<{ days: DaySummary[] }>(`/api/admin/daily/day-summary-range${query}`, cacheOpt)
         .then((res) => setDaySummaries(res.days ?? []))
         .catch((e) => {
@@ -360,7 +340,11 @@ export default function AdminDailyPage() {
             {tab === "pending" ? (
               (() => {
                 type Status = "off" | "unsubmitted" | "pending" | "approved";
-                const totalActionable = daySummaries.reduce((acc, s) => {
+                const filteredSummaries = daySummaries
+                  .filter((s) => s.date <= businessToday)
+                  .sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0));
+
+                const totalActionable = filteredSummaries.reduce((acc, s) => {
                   const count = s.drivers.filter((d) => {
                     const hasShift = s.shiftDriverIds.includes(d.id);
                     const report = s.reportsByDriver[d.id];
@@ -369,10 +353,13 @@ export default function AdminDailyPage() {
                   }).length;
                   return acc + count;
                 }, 0);
-                const maxDrivers = daySummaries.length > 0 ? Math.max(...daySummaries.map((s) => s.drivers.length)) : 0;
+                const maxDrivers =
+                  filteredSummaries.length > 0
+                    ? Math.max(...filteredSummaries.map((s) => s.drivers.length))
+                    : 0;
 
                 const renderDayTable = (summary: DaySummary) => {
-                  const rows = summary.drivers.map((driver) => {
+                  const baseRows = summary.drivers.map((driver) => {
                     const hasShift = summary.shiftDriverIds.includes(driver.id);
                     const report = summary.reportsByDriver[driver.id];
                     let status: Status = "off";
@@ -383,7 +370,10 @@ export default function AdminDailyPage() {
                     else status = "pending";
                     return { driver, report: report ?? null, status };
                   });
-                  const isTodayAfter3 = isAfter3AMJST() && summary.date === todayJstYmd();
+                  const isToday = summary.date === businessToday;
+                  const rows = isToday
+                    ? baseRows
+                    : baseRows.filter((r) => r.status === "unsubmitted" || r.status === "pending");
                   return (
                     <div key={summary.date} className="mb-8">
                       <h2 className="text-sm font-semibold text-slate-800 mb-2">
@@ -397,7 +387,10 @@ export default function AdminDailyPage() {
                               <span className="text-slate-500 text-xs pl-0.5 pr-1">月</span>
                               <span className="text-slate-900 text-base">{parseInt(d, 10)}</span>
                               <span className="text-slate-500 text-xs pl-0.5 pr-1">日</span>
-                              <span className="text-slate-500 text-xs"> ({rows.filter((r) => r.status === "unsubmitted" || r.status === "pending").length} 件要対応)</span>
+                              <span className="text-slate-500 text-xs">
+                                {" "}
+                                ({baseRows.filter((r) => r.status === "unsubmitted" || r.status === "pending").length} 件要対応)
+                              </span>
                             </>
                           );
                         })()}
@@ -411,9 +404,9 @@ export default function AdminDailyPage() {
                           <table className="w-full text-sm table-fixed">
                             <colgroup>
                               <col className="w-28" />
-                              <col className="w-16" />
-                              <col className="w-24" />
                               <col className="w-20" />
+                              <col className="w-24" />
+                              <col className="w-24" />
                               <col className="w-auto" />
                               <col className="w-36" />
                               {canWrite && <col className="w-20" />}
@@ -433,7 +426,7 @@ export default function AdminDailyPage() {
                             </thead>
                             <tbody>
                               {rows.map(({ driver, report, status }) => {
-                                const isGray = status === "off" || (status === "approved" && !isTodayAfter3);
+                                const isGray = status === "off" || status === "approved";
                                 const entry: Entry = {
                                   driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
                                   report: report as ReportData ?? { report_date: summary.date, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" },
@@ -447,7 +440,7 @@ export default function AdminDailyPage() {
                                     <td className="py-3 px-2 text-center align-middle">
                                       {report ? (
                                         <span
-                                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${isGray
+                                          className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${isGray
                                             ? "bg-slate-200 text-slate-600"
                                             : carrier === "AMAZON"
                                               ? "bg-violet-100 text-violet-700"
@@ -457,17 +450,26 @@ export default function AdminDailyPage() {
                                           {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
                                         </span>
                                       ) : (
-                                        <span className="text-slate-400 text-xs">—</span>
+                                        <span className="inline-block w-full text-center text-slate-400 text-xs">—</span>
                                       )}
                                     </td>
-                                    <td className="py-2 px-2 align-middle">
+                                    <td className="py-2 px-2 align-middle text-center">
                                       {vehiclePlate && (vehiclePlate.number_prefix || vehiclePlate.number_hiragana || vehiclePlate.number_numeric) ? (
                                         <VehiclePlate vehicle={vehiclePlate} compact className="max-w-[100px] mx-auto" />
                                       ) : (
-                                        <span className="text-xs text-center text-slate-400">—</span>
+                                        <span className="inline-block w-full text-center text-xs text-slate-400">—</span>
                                       )}
                                     </td>
-                                    <td className="py-3 px-2 text-center text-xs tabular-nums">{report?.meter_value != null ? report.meter_value.toLocaleString() : <span className="text-slate-400 text-center text-xs">—</span>}</td>
+                                    <td className="py-3 px-2 text-center text-xs tabular-nums">
+                                      {report?.meter_value != null ? (
+                                        <span className="tabular-nums">
+                                          {report.meter_value.toLocaleString()}
+                                          <span className="text-[10px] text-slate-500 ml-1">km</span>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-block w-full text-center text-slate-400 text-xs">—</span>
+                                      )}
+                                    </td>
                                     <td className="py-3 px-2 text-left align-top">
                                       {status === "unsubmitted" && <span className="text-red-600 align-middle font-semibold">日報が未提出です</span>}
                                       {status === "off" && <span className="text-slate-500 align-middle">休み</span>}
@@ -549,12 +551,12 @@ export default function AdminDailyPage() {
                         <div className="text-xs text-slate-500 mt-0.5">対象日数</div>
                       </div>
                     </div>
-                    {!fetchError && daySummaries.length === 0 && (
+                    {!fetchError && filteredSummaries.length === 0 && (
                       <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
                         日報はありません。
                       </div>
                     )}
-                    {!fetchError && daySummaries.map((s) => renderDayTable(s))}
+                    {!fetchError && filteredSummaries.map((s) => renderDayTable(s))}
                   </>
                 );
               })()

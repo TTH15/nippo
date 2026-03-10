@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { reportDateDefaultJST } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -34,15 +35,20 @@ export async function GET(req: NextRequest) {
   const url = req.nextUrl;
   let startParam = url.searchParams.get("start");
   let endParam = url.searchParams.get("end");
+  const businessToday = reportDateDefaultJST();
 
   if (!startParam || !endParam) {
-    const now = new Date();
-    const end = new Date(now);
-    const start = new Date(now);
+    const end = businessToday;
+    const base = new Date(end + "T12:00:00+09:00");
+    const start = new Date(base);
     start.setDate(start.getDate() - 13);
-    startParam = start.toISOString().slice(0, 10);
-    endParam = end.toISOString().slice(0, 10);
+    startParam = start.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+    endParam = end;
   }
+
+  // 未来日は対象外にする（指定があっても businessToday までにクランプ）
+  if (startParam > businessToday) startParam = businessToday;
+  if (endParam > businessToday) endParam = businessToday;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startParam) || !/^\d{4}-\d{2}-\d{2}$/.test(endParam)) {
     return NextResponse.json({ error: "start and end (YYYY-MM-DD) required" }, { status: 400 });
   }

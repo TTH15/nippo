@@ -52,6 +52,7 @@ export default function SubmitPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const [showVehicleSelector, setShowVehicleSelector] = useState(false);
   const [driverProfile, setDriverProfile] = useState<{ name: string; officeCode: string; driverCode: string } | null>(null);
   const [certImageDataUrl, setCertImageDataUrl] = useState<string | null>(null);
   const [oilReminderModal, setOilReminderModal] = useState<{
@@ -147,12 +148,13 @@ export default function SubmitPage() {
 
   useEffect(() => {
     if (vehiclesLoading) return;
+    if (!showVehicleSelector) return;
     vehicleItemRefs.current[carouselIndex]?.scrollIntoView({
       behavior: "smooth",
       block: "nearest",
       inline: "center",
     });
-  }, [carouselIndex, vehiclesLoading]);
+  }, [carouselIndex, vehiclesLoading, showVehicleSelector]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -434,26 +436,55 @@ export default function SubmitPage() {
       ) : vehicles.length > 0 ? (
         <div className="mb-6">
           <label className="block text-sm font-medium text-slate-700 mb-2">使用車両</label>
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {vehicles.map((v, i) => (
-              <div
-                key={v.id}
-                ref={(el) => {
-                  vehicleItemRefs.current[i] = el;
-                }}
-                className="flex-shrink-0"
-              >
-                <VehiclePlate
-                  vehicle={v}
-                  selected={selectedVehicleId === v.id}
-                  onClick={() => handleVehicleSelect(v, i)}
-                  compact
-                  className="w-36 sm:w-32"
-                />
-              </div>
-            ))}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              {(() => {
+                const sel = selectedVehicleId ? vehicles.find((v) => v.id === selectedVehicleId) : vehicles[0];
+                if (!sel) return null;
+                // 管理画面と同じ VehiclePlate（通常）を等比縮小して表示
+                return (
+                  <div className="w-36 sm:w-32">
+                    <div className="w-[240px] origin-top-left" style={{ transform: "scale(0.55)" }}>
+                      <VehiclePlate vehicle={sel} selected className="w-full max-w-[240px]" />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowVehicleSelector((v) => !v)}
+              className="shrink-0 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+            >
+              他の車両を選択
+            </button>
           </div>
-          <p className="text-xs text-slate-500 mt-1">タップで選択（前回の選択が保存されます）</p>
+
+          {showVehicleSelector && (
+            <div className="mt-3">
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                {vehicles.map((v, i) => (
+                  <div
+                    key={v.id}
+                    ref={(el) => {
+                      vehicleItemRefs.current[i] = el;
+                    }}
+                    className="flex-shrink-0 w-36 sm:w-32"
+                  >
+                    <div className="w-[240px] origin-top-left" style={{ transform: "scale(0.55)" }}>
+                      <VehiclePlate
+                        vehicle={v}
+                        selected={selectedVehicleId === v.id}
+                        onClick={() => handleVehicleSelect(v, i)}
+                        className="w-full max-w-[240px]"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">タップで選択（前回の選択が保存されます）</p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="mb-4 text-xs text-slate-500">

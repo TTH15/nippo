@@ -58,14 +58,6 @@ export async function POST(req: NextRequest) {
       reportDate = reportDateDefaultJST();
     }
 
-    // 車両のメーター値を更新
-    if (vehicleId && meterValue != null) {
-      await supabase
-        .from("vehicles")
-        .update({ current_mileage: meterValue, updated_at: new Date().toISOString() })
-        .eq("id", vehicleId);
-    }
-
     // Upsert
     const { data, error } = await supabase
       .from("daily_reports")
