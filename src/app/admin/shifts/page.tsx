@@ -517,8 +517,8 @@ export default function ShiftsPage() {
             <table className="w-full text-sm min-w-0">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="py-2 px-1 text-left font-medium text-slate-600 w-8 sticky left-0 bg-slate-50 z-10" />
-                  <th className="py-2 px-2 text-left font-medium text-slate-600 w-28 sticky left-8 bg-slate-50 z-10">
+                  <th className="py-2 px-1 text-left font-medium text-slate-600 w-8 sticky left-0 bg-slate-50 z-30" />
+                  <th className="py-2 px-2 text-left font-medium text-slate-600 w-28 sticky left-8 bg-slate-50 z-30">
                     コース
                   </th>
                   {displayDates.map((date) => {
@@ -528,8 +528,9 @@ export default function ShiftsPage() {
                     return (
                       <th
                         key={date}
-                        className={`py-2 px-1 text-center font-medium min-w-[4rem] ${isWeekend ? "text-red-600 bg-red-50" : "text-slate-600"
-                          }`}
+                        className={`py-2 px-1 text-center font-medium min-w-[4rem] ${
+                          isWeekend ? "text-red-600 bg-red-50" : "text-slate-600"
+                        }`}
                       >
                         {formatDate(date)}
                       </th>
@@ -555,16 +556,16 @@ export default function ShiftsPage() {
                   >
                     {canWrite && !reordering ? (
                       <td
-                        className="py-1 px-1 sticky left-0 bg-white z-10 text-slate-400 hover:text-slate-600 touch-none w-8"
+                        className="py-1 px-1 sticky left-0 bg-white z-30 text-slate-400 hover:text-slate-600 touch-none w-8"
                         title="ドラッグして並べ替え"
                       >
                         <FontAwesomeIcon icon={faGripVertical} className="w-3.5 h-3.5" />
                       </td>
                     ) : (
-                      <td className="py-1 px-1 sticky left-0 bg-white z-10 w-8" />
+                      <td className="py-1 px-1 sticky left-0 bg-white z-30 w-8" />
                     )}
                     <td
-                      className="py-1 px-2 font-medium text-slate-800 sticky left-8 bg-white z-10 border-l-4"
+                      className="py-1 px-2 font-medium text-slate-800 sticky left-8 bg-white z-30 border-l-4"
                       style={{ borderLeftColor: course.color }}
                     >
                       {course.name}
@@ -602,7 +603,7 @@ export default function ShiftsPage() {
                                   value={currentDriverId ?? ""}
                                   onChange={(v) => setLocalDriver(date, course.id, slot, v || null)}
                                   placeholder="—"
-                                  clearable={true}
+                                  clearable={false}
                                   disabled={!canWrite}
                                   size="sm"
                                   className={
@@ -624,8 +625,8 @@ export default function ShiftsPage() {
                 })}
                 {/* 休み：日付ごとにその日休みの人を表示 */}
                 <tr className="border-t border-slate-100 bg-slate-50">
-                  <td className="py-1 px-1 w-8 bg-slate-50" />
-                  <td className="py-1 px-2 font-medium text-slate-700 sticky left-8 bg-slate-50 z-10">
+                  <td className="py-1 px-1 w-8 bg-slate-50 sticky left-0 z-20" />
+                  <td className="py-1 px-2 font-medium text-slate-700 sticky left-8 bg-slate-50 z-20">
                     休み
                   </td>
                   {displayDates.map((date) => {

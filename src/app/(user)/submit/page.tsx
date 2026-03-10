@@ -53,6 +53,9 @@ export default function SubmitPage() {
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [showVehicleSelector, setShowVehicleSelector] = useState(false);
+  const [unlinkedVehicles, setUnlinkedVehicles] = useState<Vehicle[]>([]);
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
+  const [confirmVehicle, setConfirmVehicle] = useState<Vehicle | null>(null);
   const [driverProfile, setDriverProfile] = useState<{ name: string; officeCode: string; driverCode: string } | null>(null);
   const [certImageDataUrl, setCertImageDataUrl] = useState<string | null>(null);
   const [oilReminderModal, setOilReminderModal] = useState<{
@@ -99,12 +102,16 @@ export default function SubmitPage() {
     const load = async () => {
       setVehiclesLoading(true);
       try {
-        const [vehiclesRes, prefRes, profileRes] = await Promise.all([
+        const [vehiclesRes, prefRes, profileRes, unlinkedRes] = await Promise.all([
           apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }),
           apiFetch<{ vehicleId: string | null }>("/api/reports/vehicle-preference"),
           apiFetch<{ name: string; officeCode: string; driverCode: string }>("/api/reports/profile").catch(() => null),
+          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }).catch(
+            () => ({ vehicles: [] as Vehicle[] }),
+          ),
         ]);
         setVehicles(vehiclesRes.vehicles);
+        setUnlinkedVehicles(unlinkedRes.vehicles ?? []);
         if (profileRes) setDriverProfile(profileRes);
         if (prefRes.vehicleId && vehiclesRes.vehicles.some((v) => v.id === prefRes.vehicleId)) {
           setSelectedVehicleId(prefRes.vehicleId);
@@ -155,6 +162,34 @@ export default function SubmitPage() {
       inline: "center",
     });
   }, [carouselIndex, vehiclesLoading, showVehicleSelector]);
+
+  const allKnownVehicles = [...vehicles, ...unlinkedVehicles];
+
+  const getSelectedVehicle = () => {
+    if (!selectedVehicleId) return null;
+    return (
+      allKnownVehicles.find((v) => v.id === selectedVehicleId) ??
+      null
+    );
+  };
+
+  const handleUnlinkedSelect = (v: Vehicle) => {
+    setConfirmVehicle(v);
+  };
+
+  const confirmUnlinkedSelection = () => {
+    if (!confirmVehicle) return;
+    setVehicles((prev) => {
+      if (prev.some((x) => x.id === confirmVehicle.id)) return prev;
+      return [...prev, confirmVehicle];
+    });
+    setSelectedVehicleId(confirmVehicle.id);
+    if (confirmVehicle.current_mileage > 0) {
+      setMeterValue(String(confirmVehicle.current_mileage));
+    }
+    setShowVehicleModal(false);
+    setConfirmVehicle(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -423,7 +458,7 @@ export default function SubmitPage() {
         </div>
       </div>
 
-      {/* 車両選択カルーセル */}
+      {/* 車両選択 */}
       {vehiclesLoading ? (
         <div className="mb-6">
           <Skeleton className="h-4 w-20 mb-2" />
@@ -433,14 +468,24 @@ export default function SubmitPage() {
             ))}
           </div>
         </div>
-      ) : vehicles.length > 0 ? (
+      ) : vehicles.length > 0 || unlinkedVehicles.length > 0 ? (
         <div className="mb-6">
           <label className="block text-sm font-medium text-slate-700 mb-2">使用車両</label>
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1 min-w-0">
               {(() => {
-                const sel = selectedVehicleId ? vehicles.find((v) => v.id === selectedVehicleId) : vehicles[0];
-                if (!sel) return null;
+                const sel =
+                  getSelectedVehicle() ??
+                  vehicles[0] ??
+                  unlinkedVehicles[0] ??
+                  null;
+                if (!sel) {
+                  return (
+                    <div className="h-16 flex items-center text-xs text-slate-400">
+                      車両が未選択です
+                    </div>
+                  );
+                }
                 // 管理画面と同じ VehiclePlate（通常）を等比縮小して表示
                 return (
                   <div className="w-36 sm:w-32">
@@ -453,38 +498,16 @@ export default function SubmitPage() {
             </div>
             <button
               type="button"
-              onClick={() => setShowVehicleSelector((v) => !v)}
-              className="shrink-0 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              onClick={() => {
+                setShowVehicleModal(true);
+                setShowVehicleSelector(true);
+                setConfirmVehicle(null);
+              }}
+              className="shrink-0 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
             >
               他の車両を選択
             </button>
           </div>
-
-          {showVehicleSelector && (
-            <div className="mt-3">
-              <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                {vehicles.map((v, i) => (
-                  <div
-                    key={v.id}
-                    ref={(el) => {
-                      vehicleItemRefs.current[i] = el;
-                    }}
-                    className="flex-shrink-0 w-36 sm:w-32"
-                  >
-                    <div className="w-[240px] origin-top-left" style={{ transform: "scale(0.55)" }}>
-                      <VehiclePlate
-                        vehicle={v}
-                        selected={selectedVehicleId === v.id}
-                        onClick={() => handleVehicleSelect(v, i)}
-                        className="w-full max-w-[240px]"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-slate-500 mt-1">タップで選択（前回の選択が保存されます）</p>
-            </div>
-          )}
         </div>
       ) : (
         <div className="mb-4 text-xs text-slate-500">
@@ -494,8 +517,8 @@ export default function SubmitPage() {
       )}
 
       {/* メーター入力 */}
-      {vehicles.length > 0 && (() => {
-        const sel = selectedVehicleId ? vehicles.find((v) => v.id === selectedVehicleId) : null;
+      {(vehicles.length > 0 || (selectedVehicleId && getSelectedVehicle())) && (() => {
+        const sel = getSelectedVehicle();
         const lastOil = sel?.last_oil_change_mileage ?? 0;
         const interval = Math.max(1, sel?.oil_change_interval ?? 3000);
         const currentKm = Number(meterValue) || sel?.current_mileage || 0;
@@ -707,6 +730,104 @@ export default function SubmitPage() {
       <p className="text-xs text-slate-400 text-center mt-4">
         同日の再送信は上書きされます（ヤマト / Amazon 共通）
       </p>
+
+      {/* 他の車両選択モーダル（紐付けられていない車両のみ） */}
+      {showVehicleModal && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => {
+            setShowVehicleModal(false);
+            setConfirmVehicle(null);
+          }}
+        >
+          <div
+            className="bg-white rounded-xl shadow-lg max-w-md w-full p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-sm font-semibold text-slate-900 mb-2">他の車両を選択</h2>
+            <p className="text-xs text-slate-500 mb-4">
+              まだドライバーに紐付けられていない車両の中から、今回使用した車両を選択してください。
+            </p>
+
+            {unlinkedVehicles.length === 0 ? (
+              <p className="text-xs text-slate-500 py-6 text-center">
+                紐付けられていない車両がありません。
+              </p>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide mb-3">
+                  {unlinkedVehicles.map((v, i) => (
+                    <div
+                      key={v.id}
+                      ref={(el) => {
+                        vehicleItemRefs.current[i] = el;
+                      }}
+                      className="flex-shrink-0 w-36 sm:w-32"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleUnlinkedSelect(v)}
+                        className={`w-full rounded-lg border ${
+                          confirmVehicle?.id === v.id
+                            ? "border-slate-900"
+                            : "border-slate-200 hover:border-slate-400"
+                        } bg-white px-1 pt-1 pb-2`}
+                      >
+                        <div className="w-[240px] origin-top-left mx-auto" style={{ transform: "scale(0.55)" }}>
+                          <VehiclePlate vehicle={v} className="w-full max-w-[240px]" />
+                        </div>
+                        {(v.manufacturer || v.brand) && (
+                          <div className="mt-1 text-[10px] text-slate-500 truncate text-center">
+                            {[v.manufacturer, v.brand].filter(Boolean).join(" ")}
+                          </div>
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {confirmVehicle && (
+                  <div className="mt-2 border-t border-slate-200 pt-3">
+                    <p className="text-xs text-slate-700 mb-2">
+                      この車両で正しいですか？ 日報のメーター数値はこの車両に紐づき、管理画面の未承認一覧にもこのナンバーが表示されます。
+                    </p>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmVehicle(null);
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800"
+                      >
+                        戻る
+                      </button>
+                      <button
+                        type="button"
+                        onClick={confirmUnlinkedSelection}
+                        className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 text-white hover:bg-slate-700"
+                      >
+                        この車両を使う
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowVehicleModal(false);
+                  setConfirmVehicle(null);
+                }}
+                className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* オイル交換リマインドモーダル */}
       {oilReminderModal && (
