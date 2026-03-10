@@ -96,12 +96,6 @@ export default function AdminDailyPage() {
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [savingEdit, setSavingEdit] = useState(false);
   const [allDateRange, setAllDateRange] = useState<DateRangeValue | undefined>(undefined);
-  const [pendingDateRange, setPendingDateRange] = useState<DateRangeValue | undefined>(() => {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - 13);
-    return { startDate: start, endDate: end };
-  });
   const [daySummaries, setDaySummaries] = useState<DaySummary[]>([]);
 
   const canWrite = canAdminWrite(getStoredDriver()?.role);
@@ -120,13 +114,8 @@ export default function AdminDailyPage() {
     setFetchError(null);
     const cacheOpt = { cache: "no-store" as RequestCache };
     if (targetTab === "pending") {
-      const r = range ?? pendingDateRange;
-      const start = r?.startDate ? toYmd(r.startDate) : "";
-      const end = r?.endDate ? toYmd(r.endDate) : "";
-      // 未来日は取得しないようにクランプ
-      const clampedEnd = end && end > businessToday ? businessToday : end;
-      const query = start && clampedEnd ? `?start=${start}&end=${clampedEnd}` : "";
-      apiFetch<{ days: DaySummary[] }>(`/api/admin/daily/day-summary-range${query}`, cacheOpt)
+      // 未承認タブは日付範囲指定なし。API 側のデフォルト（直近14日・未来除外）を使用
+      apiFetch<{ days: DaySummary[] }>(`/api/admin/daily/day-summary-range`, cacheOpt)
         .then((res) => setDaySummaries(res.days ?? []))
         .catch((e) => {
           console.error("[admin/daily] fetch error", e);
@@ -152,11 +141,11 @@ export default function AdminDailyPage() {
 
   useEffect(() => {
     if (tab === "pending") {
-      load("pending", pendingDateRange);
+      load("pending");
     } else {
       load("all", allDateRange);
     }
-  }, [tab, allDateRange, pendingDateRange]);
+  }, [tab, allDateRange]);
 
   const handleApprove = async (e: Entry, groupDate: string) => {
     try {
@@ -165,7 +154,7 @@ export default function AdminDailyPage() {
         body: JSON.stringify({ driverId: e.driver.id, date: groupDate }),
       });
       if (tab === "pending") {
-        load("pending", pendingDateRange);
+        load("pending");
       } else {
         setGroups((prev) =>
           prev
@@ -226,7 +215,7 @@ export default function AdminDailyPage() {
         }),
       });
       setEditingEntry(null);
-      load(tab, tab === "all" ? allDateRange : tab === "pending" ? pendingDateRange : undefined);
+      load(tab, tab === "all" ? allDateRange : undefined);
     } catch (err) {
       console.error(err);
     } finally {
@@ -244,7 +233,7 @@ export default function AdminDailyPage() {
         body: JSON.stringify({ driverId: e.driver.id, date: groupDate }),
       });
       if (tab === "pending") {
-        load("pending", pendingDateRange);
+        load("pending");
       } else {
         load(tab, tab === "all" ? allDateRange : undefined);
       }
@@ -277,15 +266,6 @@ export default function AdminDailyPage() {
             </button>
           </div>
         </div>
-
-        {tab === "pending" && (
-          <div className="mb-6">
-            <DateRangePicker
-              value={pendingDateRange}
-              onChange={setPendingDateRange}
-            />
-          </div>
-        )}
 
         {tab === "all" && (
           <div className="mb-6">
@@ -344,21 +324,24 @@ export default function AdminDailyPage() {
                   .filter((s) => s.date <= businessToday)
                   .sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0));
 
-                const totalActionable = filteredSummaries.reduce((acc, s) => {
-                  const count = s.drivers.filter((d) => {
+                const withActionable = filteredSummaries.map((s) => {
+                  const actionable = s.drivers.filter((d) => {
                     const hasShift = s.shiftDriverIds.includes(d.id);
                     const report = s.reportsByDriver[d.id];
                     if (!hasShift || report?.approved_at || report?.rejected_at) return false;
                     return true; // unsubmitted or pending
                   }).length;
-                  return acc + count;
-                }, 0);
+                  return { summary: s, actionable };
+                });
+
+                const actionableSummaries = withActionable.filter((x) => x.actionable > 0);
+                const totalActionable = actionableSummaries.reduce((acc, x) => acc + x.actionable, 0);
                 const maxDrivers =
-                  filteredSummaries.length > 0
-                    ? Math.max(...filteredSummaries.map((s) => s.drivers.length))
+                  actionableSummaries.length > 0
+                    ? Math.max(...actionableSummaries.map((x) => x.summary.drivers.length))
                     : 0;
 
-                const renderDayTable = (summary: DaySummary) => {
+                const renderDayTable = (summary: DaySummary, actionableCount: number) => {
                   const baseRows = summary.drivers.map((driver) => {
                     const hasShift = summary.shiftDriverIds.includes(driver.id);
                     const report = summary.reportsByDriver[driver.id];
@@ -387,19 +370,12 @@ export default function AdminDailyPage() {
                               <span className="text-slate-500 text-xs pl-0.5 pr-1">月</span>
                               <span className="text-slate-900 text-base">{parseInt(d, 10)}</span>
                               <span className="text-slate-500 text-xs pl-0.5 pr-1">日</span>
-                              <span className="text-slate-500 text-xs">
-                                {" "}
-                                ({baseRows.filter((r) => r.status === "unsubmitted" || r.status === "pending").length} 件要対応)
-                              </span>
+                              <span className="text-slate-500 text-xs"> ({actionableCount} 件要対応)</span>
                             </>
                           );
                         })()}
                       </h2>
-                      {rows.length === 0 ? (
-                        <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
-                          ドライバーが登録されていません。
-                        </div>
-                      ) : (
+                      {rows.length > 0 && (
                         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                           <table className="w-full text-sm table-fixed">
                             <colgroup>
@@ -547,16 +523,19 @@ export default function AdminDailyPage() {
                         <div className="text-xs text-slate-500 mt-0.5">ドライバー数（最大）</div>
                       </div>
                       <div className="bg-white rounded-lg border border-slate-200 p-4">
-                        <div className="text-2xl font-bold text-slate-900">{daySummaries.length}</div>
+                        <div className="text-2xl font-bold text-slate-900">{actionableSummaries.length}</div>
                         <div className="text-xs text-slate-500 mt-0.5">対象日数</div>
                       </div>
                     </div>
-                    {!fetchError && filteredSummaries.length === 0 && (
+                    {!fetchError && actionableSummaries.length === 0 && (
                       <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
-                        日報はありません。
+                        要対応の日報はありません。
                       </div>
                     )}
-                    {!fetchError && filteredSummaries.map((s) => renderDayTable(s))}
+                    {!fetchError &&
+                      actionableSummaries.map(({ summary, actionable }) =>
+                        renderDayTable(summary, actionable)
+                      )}
                   </>
                 );
               })()
