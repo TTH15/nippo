@@ -32,16 +32,6 @@ type Driver = {
   driver_courses: { course_id: string; courses: Course }[];
 };
 
-type DriverFixedExpense = {
-  id: string;
-  driver_id: string;
-  name: string;
-  amount: number;
-  cycle: "MONTHLY";
-  valid_from: string;
-  valid_to: string | null;
-};
-
 const COMPANY_CODE = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE).code;
 
 // 口座種別の選択肢
@@ -111,20 +101,6 @@ export default function UsersPage() {
     bankNumber: "",
     bankHolder: "",
   });
-  const [fixedExpenses, setFixedExpenses] = useState<DriverFixedExpense[]>([]);
-  const [fixedLoading, setFixedLoading] = useState(false);
-  const [fixedSaving, setFixedSaving] = useState(false);
-  const [fixedForm, setFixedForm] = useState<{
-    name: string;
-    amount: string;
-    validFromMonth: string;
-    validToMonth: string;
-  }>({
-    name: "",
-    amount: "",
-    validFromMonth: "",
-    validToMonth: "",
-  });
   const [postalLoading, setPostalLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [companyCode, setCompanyCode] = useState<string>(COMPANY_CODE);
@@ -186,13 +162,6 @@ export default function UsersPage() {
       bankNumber: "",
       bankHolder: "",
     });
-    setFixedExpenses([]);
-    setFixedForm({
-      name: "",
-      amount: "",
-      validFromMonth: "",
-      validToMonth: "",
-    });
     setShowModal(true);
   };
 
@@ -217,128 +186,7 @@ export default function UsersPage() {
       bankNumber: number,
       bankHolder: d.bank_holder || "",
     });
-    setFixedExpenses([]);
-    setFixedForm({
-      name: "",
-      amount: "",
-      validFromMonth: "",
-      validToMonth: "",
-    });
-    // 固定経費を読み込み
-    loadFixedExpenses(d.id);
     setShowModal(true);
-  };
-
-  const loadFixedExpenses = async (driverId: string) => {
-    setFixedLoading(true);
-    try {
-      const res = await apiFetch<{ expenses: DriverFixedExpense[] }>(
-        `/api/admin/driver-expenses?driver_id=${driverId}`,
-      );
-      setFixedExpenses(res.expenses ?? []);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setFixedLoading(false);
-    }
-  };
-
-  const monthToStartDate = (month: string): string | null => {
-    if (!month || !/^\d{4}-\d{2}$/.test(month)) return null;
-    return `${month}-01`;
-  };
-
-  const monthToEndDate = (month: string): string | null => {
-    if (!month || !/^\d{4}-\d{2}$/.test(month)) return null;
-    const [y, m] = month.split("-");
-    const year = Number(y);
-    const mon = Number(m);
-    if (!Number.isFinite(year) || !Number.isFinite(mon)) return null;
-    const lastDay = new Date(year, mon, 0).getDate();
-    return `${y}-${m}-${String(lastDay).padStart(2, "0")}`;
-  };
-
-  const handleAddFixedExpense = async () => {
-    if (!editingDriver) return;
-    if (!fixedForm.name.trim()) {
-      setErrorState({
-        title: "経費名を入力してください",
-        message: "固定経費の名前を入力してください。",
-      });
-      return;
-    }
-    const amountValue = Number(fixedForm.amount);
-    if (!fixedForm.amount || Number.isNaN(amountValue) || amountValue <= 0) {
-      setErrorState({
-        title: "月額の入力が不正です",
-        message: "月額は1円以上の数値で入力してください。",
-      });
-      return;
-    }
-
-    const validFrom =
-      monthToStartDate(fixedForm.validFromMonth) ?? undefined;
-    const validTo =
-      fixedForm.validToMonth && monthToEndDate(fixedForm.validToMonth)
-        ? monthToEndDate(fixedForm.validToMonth)
-        : null;
-
-    setFixedSaving(true);
-    try {
-      await apiFetch("/api/admin/driver-expenses", {
-        method: "POST",
-        body: JSON.stringify({
-          driver_id: editingDriver.id,
-          name: fixedForm.name.trim(),
-          amount: Math.floor(amountValue),
-          valid_from: validFrom,
-          valid_to: validTo,
-        }),
-      });
-      setFixedForm({
-        name: "",
-        amount: "",
-        validFromMonth: "",
-        validToMonth: "",
-      });
-      await loadFixedExpenses(editingDriver.id);
-    } catch (e) {
-      console.error(e);
-      const reason = e instanceof Error ? e.message : "";
-      setErrorState({
-        title: "固定経費の追加に失敗しました",
-        message:
-          "サーバーでエラーが発生したため、固定経費を追加できませんでした。\n\n" +
-          "入力内容を確認のうえ、もう一度お試しください。",
-        detail: reason || undefined,
-      });
-    } finally {
-      setFixedSaving(false);
-    }
-  };
-
-  const handleDeleteFixedExpense = async (expense: DriverFixedExpense) => {
-    if (!editingDriver) return;
-    setConfirmState({
-      message: `「${expense.name}」を削除しますか？`,
-      onConfirm: async () => {
-        try {
-          await apiFetch(`/api/admin/driver-expenses/${expense.id}`, {
-            method: "DELETE",
-          });
-          await loadFixedExpenses(editingDriver.id);
-        } catch (e) {
-          console.error(e);
-          const reason = e instanceof Error ? e.message : "";
-          setErrorState({
-            title: "固定経費の削除に失敗しました",
-            message:
-              "サーバーでエラーが発生したため、この固定経費を削除できませんでした。",
-            detail: reason || undefined,
-          });
-        }
-      },
-    });
   };
 
   const getBankTypeForSave = () => {
@@ -819,175 +667,6 @@ export default function UsersPage() {
                 </div>
               </div>
 
-              {editingDriver && (
-                <div className="pt-4 mt-4 border-t border-slate-200">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-2">
-                    固定経費
-                  </h3>
-                  <p className="text-xs text-slate-500 mb-3">
-                    ドライバーごとの月額固定経費（リース代・事務手数料など）を登録します。報酬サマリで固定控除として集計されます。
-                  </p>
-
-                  <div className="space-y-3 mb-4">
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <div className="flex-1">
-                        <label className="block text-xs font-medium text-slate-600 mb-1">
-                          経費名
-                        </label>
-                        <input
-                          type="text"
-                          value={fixedForm.name}
-                          onChange={(e) =>
-                            setFixedForm((f) => ({ ...f, name: e.target.value }))
-                          }
-                          placeholder="リース代 など"
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                        />
-                      </div>
-                      <div className="w-32">
-                        <label className="block text-xs font-medium text-slate-600 mb-1">
-                          月額（円）
-                        </label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={fixedForm.amount}
-                          onChange={(e) =>
-                            setFixedForm((f) => ({
-                              ...f,
-                              amount: e.target.value.replace(/[^0-9]/g, ""),
-                            }))
-                          }
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 text-right"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <div className="flex-1">
-                        <label className="block text-xs font-medium text-slate-600 mb-1">
-                          有効開始月
-                        </label>
-                        <input
-                          type="month"
-                          value={fixedForm.validFromMonth}
-                          onChange={(e) =>
-                            setFixedForm((f) => ({
-                              ...f,
-                              validFromMonth: e.target.value,
-                            }))
-                          }
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className="block text-xs font-medium text-slate-600 mb-1">
-                          有効終了月（任意）
-                        </label>
-                        <input
-                          type="month"
-                          value={fixedForm.validToMonth}
-                          onChange={(e) =>
-                            setFixedForm((f) => ({
-                              ...f,
-                              validToMonth: e.target.value,
-                            }))
-                          }
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={handleAddFixedExpense}
-                        disabled={fixedSaving}
-                        className="px-3 py-1.5 bg-slate-800 text-white text-xs font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
-                      >
-                        {fixedSaving ? "追加中..." : "固定経費を追加"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50 border border-slate-200 rounded">
-                    {fixedLoading ? (
-                      <div className="p-3 space-y-2">
-                        {[...Array(3)].map((_, i) => (
-                          <div
-                            key={i}
-                            className="flex items-center justify-between gap-2"
-                          >
-                            <Skeleton className="h-4 w-32" />
-                            <Skeleton className="h-4 w-24" />
-                            <Skeleton className="h-4 w-40" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : fixedExpenses.length === 0 ? (
-                      <p className="px-3 py-2 text-xs text-slate-500">
-                        登録されている固定経費はありません
-                      </p>
-                    ) : (
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b border-slate-200 bg-slate-100">
-                            <th className="py-1.5 px-3 text-left font-medium text-slate-600">
-                              経費名
-                            </th>
-                            <th className="py-1.5 px-3 text-right font-medium text-slate-600">
-                              月額（円）
-                            </th>
-                            <th className="py-1.5 px-3 text-left font-medium text-slate-600">
-                              有効期間
-                            </th>
-                            <th className="py-1.5 px-3 text-right font-medium text-slate-600">
-                              操作
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {fixedExpenses.map((exp) => {
-                            const fromLabel = exp.valid_from
-                              ? String(exp.valid_from).slice(0, 7)
-                              : "-";
-                            const toLabel = exp.valid_to
-                              ? String(exp.valid_to).slice(0, 7)
-                              : "継続";
-                            return (
-                              <tr
-                                key={exp.id}
-                                className="border-t border-slate-200 last:border-b-0"
-                              >
-                                <td className="py-1.5 px-3">
-                                  <span className="text-slate-800">
-                                    {exp.name}
-                                  </span>
-                                </td>
-                                <td className="py-1.5 px-3 text-right tabular-nums">
-                                  {exp.amount.toLocaleString()}
-                                </td>
-                                <td className="py-1.5 px-3 text-slate-600">
-                                  {fromLabel} 〜 {toLabel}
-                                </td>
-                                <td className="py-1.5 px-3 text-right">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleDeleteFixedExpense(exp)
-                                    }
-                                    className="text-[11px] text-red-500 hover:text-red-700"
-                                  >
-                                    削除
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
 
             <div className="flex justify-end gap-2 mt-6">

@@ -354,201 +354,298 @@ export default function PaymentsPage() {
             </p>
 
             <div>
-              <div className="flex items-center justify-between mb-2">
-                {canWrite && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDraftExpenses((rows) => {
-                        const nextId = rows.length
-                          ? Math.max(...rows.map((r) => r.id)) + 1
-                          : 1;
-                        return [...rows, { id: nextId, name: "", amount: "", sign: "-", repeat: false }];
-                      })
-                    }
-                    className="w-8 h-8 flex items-center justify-center text-sm font-medium text-slate-600 bg-slate-100 rounded hover:bg-slate-200"
-                    title="行を追加"
-                  >
-                    <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-              {canWrite && (
-                <div className="space-y-2 mb-3">
-                  {draftExpenses.map((d, index) => (
-                    <div
-                      key={d.id}
-                      className="flex flex-wrap items-end gap-2"
-                    >
-                      <div className="flex-1 min-w-[100px]">
-                        {index === 0 && (
-                          <label className="block text-xs font-medium text-slate-600 mb-1">
-                            経費名
-                          </label>
-                        )}
-                        <input
-                          type="text"
-                          value={d.name}
-                          onChange={(e) =>
-                            setDraftExpenses((rows) =>
-                              rows.map((r) =>
-                                r.id === d.id ? { ...r, name: e.target.value } : r,
-                              ),
-                            )
-                          }
-                          placeholder="例: リース代・臨時研修費"
-                          className="w-full mr-2 px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {index === 0 && (
-                          <label className="block text-xs font-medium text-slate-600 mb-1">
-                            符号
-                          </label>
-                        )}
-                        <div className="flex rounded-md overflow-hidden border border-slate-200 h-9">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDraftExpenses((rows) =>
-                                rows.map((r) =>
-                                  r.id === d.id ? { ...r, sign: "+" } : r,
-                                ),
-                              )
-                            }
-                            className={`px-3 text-sm font-semibold transition-colors ${d.sign === "+" ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
-                            title="手当（収入に加算）"
-                          >
-                            ＋
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDraftExpenses((rows) =>
-                                rows.map((r) =>
-                                  r.id === d.id ? { ...r, sign: "-" } : r,
-                                ),
-                              )
-                            }
-                            className={`px-3 text-sm font-semibold transition-colors ${d.sign === "-" ? "bg-orange-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
-                            title="控除"
-                          >
-                            −
-                          </button>
-                        </div>
-                      </div>
-                      <div className="w-28">
-                        {index === 0 && (
-                          <label className="block text-xs font-medium text-slate-600 mb-1">
-                            金額（円）
-                          </label>
-                        )}
-                        <input
-                          type="number"
-                          min={1}
-                          value={d.amount}
-                          onChange={(e) =>
-                            setDraftExpenses((rows) =>
-                              rows.map((r) =>
-                                r.id === d.id
-                                  ? { ...r, amount: e.target.value.replace(/[^0-9]/g, "") }
-                                  : r,
-                              ),
-                            )
-                          }
-                          className="w-full px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent text-left"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={d.repeat}
-                          onClick={() =>
-                            setDraftExpenses((rows) =>
-                              rows.map((r) =>
-                                r.id === d.id ? { ...r, repeat: !r.repeat } : r,
-                              ),
-                            )
-                          }
-                          title={d.repeat ? "翌月以降も継続（ON）" : "当月のみ（OFF）"}
-                          className={`flex items-center font-bold justify-center w-9 h-9 rounded border transition-colors ${d.repeat
-                            ? "text-white border-green-600 bg-green-600"
-                            : "text-slate-400 border-slate-400 bg-slate-50"
-                            }`}
-                        >
-                          <FontAwesomeIcon icon={faRepeat} className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <div className="flex items-center">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDraftExpenses((rows) =>
-                              rows.length === 1
-                                ? [{ id: rows[0].id, name: "", amount: "", sign: "-", repeat: false }]
-                                : rows.filter((r) => r.id !== d.id),
-                            )
-                          }
-                          className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-600"
-                          title="行を削除"
-                        >
-                          <FontAwesomeIcon icon={faTrash} className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
               {saveError && <p className="text-xs text-red-600 mb-2">{saveError}</p>}
               {fixedLoading || adHocLoading ? (
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-full" />
                   <Skeleton className="h-4 w-full" />
                 </div>
-              ) : fixedExpenses.length === 0 && adHocExpenses.length === 0 ? (
-                <p className="text-xs text-slate-500">登録されている経費はありません</p>
               ) : (
-                <ul className="bg-slate-50 border border-slate-200 rounded p-3 space-y-2 text-xs text-slate-700">
-                  {fixedExpenses.map((f) => {
-                    const fromLabel = f.valid_from ? String(f.valid_from).slice(0, 7) : "-";
-                    const toLabel = f.valid_to ? String(f.valid_to).slice(0, 7) : "継続";
-                    return (
-                      <li key={`fixed-${f.id}`} className="flex justify-between items-center">
-                        <span>{f.name}（{fromLabel}〜{toLabel}）</span>
-                        <span className="flex items-center gap-2">
-                          <span className={`font-mono ${f.amount >= 0 ? "text-orange-600" : "text-emerald-600"}`}>{fmtSignedYen(f.amount)}</span>
-                          {canWrite && (
+                <div className="bg-slate-50 border border-slate-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-xs sm:text-sm">
+                    <thead className="bg-slate-100">
+                      <tr className="border-b border-slate-200">
+                        <th className="py-2 px-3 text-left font-medium text-slate-600">
+                          種別
+                        </th>
+                        <th className="py-2 px-3 text-center font-medium text-slate-600">
+                          区分
+                        </th>
+                        <th className="py-2 px-3 text-left font-medium text-slate-600">
+                          内容
+                        </th>
+                        <th className="py-2 px-3 text-left font-medium text-slate-600">
+                          期間
+                        </th>
+                        <th className="py-2 px-3 text-right font-medium text-slate-600">
+                          金額
+                        </th>
+                        {canWrite && (
+                          <th className="py-2 px-3 text-center font-medium text-slate-600">
+                            操作
+                          </th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fixedExpenses.map((f) => {
+                        const fromLabel = f.valid_from ? String(f.valid_from).slice(0, 7) : "-";
+                        const toLabel = f.valid_to ? String(f.valid_to).slice(0, 7) : "継続";
+                        const isDeduction = f.amount >= 0;
+                        return (
+                          <tr key={`fixed-${f.id}`} className="border-t border-slate-200">
+                            <td className="py-2 px-3 text-slate-700 whitespace-nowrap">
+                              固定
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <span
+                                className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-semibold ${isDeduction
+                                  ? "bg-orange-50 text-orange-700"
+                                  : "bg-emerald-50 text-emerald-700"
+                                  }`}
+                              >
+                                {isDeduction ? "−" : "＋"}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-slate-800">
+                              {f.name}
+                            </td>
+                            <td className="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">
+                              {fromLabel}〜{toLabel}
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <span
+                                className={`font-mono tabular-nums ${isDeduction ? "text-orange-600" : "text-emerald-600"}`}
+                              >
+                                {fmtSignedYen(f.amount)}
+                              </span>
+                            </td>
+                            {canWrite && (
+                              <td className="py-2 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteFixed(f.id)}
+                                  className="text-[11px] text-slate-400 hover:text-red-600"
+                                >
+                                  削除
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                      {adHocExpenses.map((o) => {
+                        const isDeduction = o.amount >= 0;
+                        return (
+                          <tr key={`adhoc-${o.id}`} className="border-t border-slate-200">
+                            <td className="py-2 px-3 text-slate-700 whitespace-nowrap">
+                              臨時
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <span
+                                className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-semibold ${isDeduction
+                                  ? "bg-orange-50 text-orange-700"
+                                  : "bg-emerald-50 text-emerald-700"
+                                  }`}
+                              >
+                                {isDeduction ? "−" : "＋"}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-slate-800">
+                              {o.name}
+                            </td>
+                            <td className="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">
+                              当月のみ
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <span
+                                className={`font-mono tabular-nums ${isDeduction ? "text-orange-600" : "text-emerald-600"}`}
+                              >
+                                {fmtSignedYen(o.amount)}
+                              </span>
+                            </td>
+                            {canWrite && (
+                              <td className="py-2 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAdHoc(o.id)}
+                                  className="text-[11px] text-slate-400 hover:text-red-600"
+                                >
+                                  削除
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+
+                      {canWrite &&
+                        draftExpenses.map((d) => (
+                          <tr key={`draft-${d.id}`} className="border-t border-slate-200 bg-white">
+                            <td className="py-2 px-3 text-slate-700 whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDraftExpenses((rows) =>
+                                    rows.map((r) =>
+                                      r.id === d.id ? { ...r, repeat: !r.repeat } : r,
+                                    ),
+                                  )
+                                }
+                                className={`inline-flex items-center justify-center px-2 py-1 rounded-full text-[11px] font-semibold border ${d.repeat
+                                  ? "border-slate-800 text-slate-800"
+                                  : "border-slate-300 text-slate-500"
+                                  }`}
+                                title={d.repeat ? "翌月以降も継続（固定経費として登録）" : "当月のみ（臨時経費として登録）"}
+                              >
+                                {d.repeat ? "固定" : "臨時"}
+                              </button>
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <div className="inline-flex rounded-md overflow-hidden border border-slate-200 h-8">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDraftExpenses((rows) =>
+                                      rows.map((r) =>
+                                        r.id === d.id ? { ...r, sign: "+" } : r,
+                                      ),
+                                    )
+                                  }
+                                  className={`px-3 text-[13px] font-semibold transition-colors ${d.sign === "+" ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                                  title="手当（支払額に加算）"
+                                >
+                                  ＋
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDraftExpenses((rows) =>
+                                      rows.map((r) =>
+                                        r.id === d.id ? { ...r, sign: "-" } : r,
+                                      ),
+                                    )
+                                  }
+                                  className={`px-3 text-[13px] font-semibold transition-colors ${d.sign === "-" ? "bg-orange-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                                  title="控除（支払額から減算）"
+                                >
+                                  −
+                                </button>
+                              </div>
+                            </td>
+                            <td className="py-2 px-3">
+                              <input
+                                type="text"
+                                value={d.name}
+                                onChange={(e) =>
+                                  setDraftExpenses((rows) =>
+                                    rows.map((r) =>
+                                      r.id === d.id ? { ...r, name: e.target.value } : r,
+                                    ),
+                                  )
+                                }
+                                placeholder="例: リース代・特別手当"
+                                className="w-full px-2 py-1.5 text-xs sm:text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-400"
+                              />
+                            </td>
+                            <td className="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">
+                              {d.repeat ? "翌月以降も継続" : "当月のみ"}
+                            </td>
+                            <td className="py-2 px-3">
+                              <input
+                                type="number"
+                                min={1}
+                                value={d.amount}
+                                onChange={(e) =>
+                                  setDraftExpenses((rows) =>
+                                    rows.map((r) =>
+                                      r.id === d.id
+                                        ? {
+                                            ...r,
+                                            amount: e.target.value.replace(/[^0-9]/g, ""),
+                                          }
+                                        : r,
+                                    ),
+                                  )
+                                }
+                                className="w-full px-2 py-1.5 text-xs sm:text-sm border border-slate-200 rounded bg-white text-right focus:outline-none focus:ring-1 focus:ring-slate-400"
+                              />
+                            </td>
+                            {canWrite && (
+                              <td className="py-2 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDraftExpenses((rows) =>
+                                      rows.length === 1
+                                        ? [
+                                            {
+                                              id: rows[0].id,
+                                              name: "",
+                                              amount: "",
+                                              sign: "-",
+                                              repeat: false,
+                                            },
+                                          ]
+                                        : rows.filter((r) => r.id !== d.id),
+                                    )
+                                  }
+                                  className="w-8 h-8 inline-flex items-center justify-center text-slate-400 hover:text-red-600"
+                                  title="行を削除"
+                                >
+                                  <FontAwesomeIcon icon={faTrash} className="w-4 h-4" />
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+
+                      {fixedExpenses.length === 0 &&
+                        adHocExpenses.length === 0 &&
+                        (!canWrite || draftExpenses.length === 0 || (draftExpenses.length === 1 && !draftExpenses[0].name && !draftExpenses[0].amount)) && (
+                          <tr>
+                            <td
+                              className="py-3 px-3 text-center text-xs text-slate-500"
+                              colSpan={canWrite ? 6 : 5}
+                            >
+                              登録されている経費はありません
+                            </td>
+                          </tr>
+                        )}
+
+                      {canWrite && (
+                        <tr className="border-t border-slate-200 bg-slate-100/60">
+                          <td colSpan={canWrite ? 6 : 5} className="py-2 px-3">
                             <button
                               type="button"
-                              onClick={() => handleDeleteFixed(f.id)}
-                              className="text-slate-400 hover:text-red-600 text-[11px]"
+                              onClick={() =>
+                                setDraftExpenses((rows) => {
+                                  const nextId = rows.length
+                                    ? Math.max(...rows.map((r) => r.id)) + 1
+                                    : 1;
+                                  return [
+                                    ...rows,
+                                    {
+                                      id: nextId,
+                                      name: "",
+                                      amount: "",
+                                      sign: "-",
+                                      repeat: false,
+                                    },
+                                  ];
+                                })
+                              }
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-50"
                             >
-                              削除
+                              <FontAwesomeIcon icon={faPlus} className="w-3 h-3" />
+                              行を追加
                             </button>
-                          )}
-                        </span>
-                      </li>
-                    );
-                  })}
-                  {adHocExpenses.map((o) => (
-                    <li key={`adhoc-${o.id}`} className="flex justify-between items-center">
-                      <span>{o.name}（当月のみ）</span>
-                      <span className="flex items-center gap-2">
-                        <span className={`font-mono ${o.amount >= 0 ? "text-orange-600" : "text-emerald-600"}`}>{fmtSignedYen(o.amount)}</span>
-                        {canWrite && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteAdHoc(o.id)}
-                            className="text-slate-400 hover:text-red-600 text-[11px]"
-                          >
-                            削除
-                          </button>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
 
