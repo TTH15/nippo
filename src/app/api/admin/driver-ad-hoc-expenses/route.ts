@@ -73,8 +73,9 @@ export async function POST(req: NextRequest) {
   if (!name || typeof name !== "string" || !name.trim()) {
     return NextResponse.json({ error: "経費名を入力してください" }, { status: 400 });
   }
-  if (amount == null || Number.isNaN(Number(amount)) || Number(amount) < 0) {
-    return NextResponse.json({ error: "金額は0以上の数値で入力してください" }, { status: 400 });
+  // amount は符号付き（＋=控除、−=手当/加算）。0 は不可。
+  if (amount == null || Number.isNaN(Number(amount)) || Number(amount) === 0) {
+    return NextResponse.json({ error: "金額は0以外の数値で入力してください" }, { status: 400 });
   }
 
   const { data, error } = await supabase
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
       driver_id,
       month,
       name: name.trim(),
-      amount: Math.floor(Number(amount)),
+      amount: Math.trunc(Number(amount)),
       updated_at: new Date().toISOString(),
     })
     .select("id, driver_id, month, name, amount")

@@ -77,8 +77,9 @@ export async function POST(req: NextRequest) {
   if (!name || typeof name !== "string" || !name.trim()) {
     return NextResponse.json({ error: "経費名を入力してください" }, { status: 400 });
   }
-  if (amount == null || Number.isNaN(Number(amount)) || Number(amount) <= 0) {
-    return NextResponse.json({ error: "月額は1円以上の数値で入力してください" }, { status: 400 });
+  // amount は符号付き（＋=控除、−=手当/加算）。0 は不可。
+  if (amount == null || Number.isNaN(Number(amount)) || Number(amount) === 0) {
+    return NextResponse.json({ error: "月額は0以外の数値で入力してください" }, { status: 400 });
   }
 
   const cycleValue: "MONTHLY" = cycle === "MONTHLY" || cycle == null ? "MONTHLY" : "MONTHLY";
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
   const payload: Record<string, unknown> = {
     driver_id,
     name: name.trim(),
-    amount: Math.floor(Number(amount)),
+    amount: Math.trunc(Number(amount)),
     cycle: cycleValue,
   };
 

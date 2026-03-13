@@ -41,6 +41,7 @@ type DraftExpense = {
   id: number;
   name: string;
   amount: string;
+  sign: "+" | "-";
   repeat: boolean;
 };
 
@@ -64,7 +65,7 @@ export default function PaymentsPage() {
   const [adHocExpenses, setAdHocExpenses] = useState<AdHocExpense[]>([]);
   const [adHocLoading, setAdHocLoading] = useState(false);
   const [draftExpenses, setDraftExpenses] = useState<DraftExpense[]>([
-    { id: 1, name: "", amount: "", repeat: false },
+    { id: 1, name: "", amount: "", sign: "-", repeat: false },
   ]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -102,9 +103,15 @@ export default function PaymentsPage() {
       .then((res) => setAdHocExpenses(res.expenses ?? []))
       .catch(() => setAdHocExpenses([]))
       .finally(() => setAdHocLoading(false));
-    setDraftExpenses([{ id: 1, name: "", amount: "", repeat: false }]);
+    setDraftExpenses([{ id: 1, name: "", amount: "", sign: "-", repeat: false }]);
     setSaveError(null);
   }, [modalDriver, monthStr]);
+
+  const fmtSignedYen = (amount: number) => {
+    const n = Number(amount) || 0;
+    const sign = n >= 0 ? "−" : "+";
+    return `${sign}${Math.abs(n).toLocaleString("ja-JP")}円`;
+  };
 
   const openModal = (row: DriverPaymentRow) => {
     setModalDriver(row);
@@ -133,7 +140,7 @@ export default function PaymentsPage() {
       }
       const amountNum = Number(d.amount.replace(/\D/g, ""));
       if (Number.isNaN(amountNum) || amountNum <= 0) {
-        setSaveError("月額は1円以上の数値で入力してください");
+        setSaveError("金額は1円以上の数値で入力してください");
         return;
       }
     }
@@ -143,13 +150,14 @@ export default function PaymentsPage() {
       await Promise.all(
         filled.map((d) => {
           const amountNum = Number(d.amount.replace(/\D/g, ""));
+          const signedAmount = (d.sign === "+" ? -1 : 1) * amountNum;
           if (d.repeat) {
             return apiFetch("/api/admin/driver-expenses", {
               method: "POST",
               body: JSON.stringify({
                 driver_id: modalDriver.driverId,
                 name: d.name.trim(),
-                amount: amountNum,
+                amount: signedAmount,
                 valid_from: monthStartDate,
                 valid_to: null,
               }),
@@ -161,7 +169,7 @@ export default function PaymentsPage() {
               driver_id: modalDriver.driverId,
               month: monthStr,
               name: d.name.trim(),
-              amount: amountNum,
+              amount: signedAmount,
             }),
           });
         }),
@@ -175,7 +183,7 @@ export default function PaymentsPage() {
       ]);
       setFixedExpenses(fixedRes.expenses ?? []);
       setAdHocExpenses(adHocRes.expenses ?? []);
-      setDraftExpenses([{ id: 1, name: "", amount: "", repeat: false }]);
+      setDraftExpenses([{ id: 1, name: "", amount: "", sign: "-", repeat: false }]);
       loadPayments();
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : "保存に失敗しました");
@@ -355,7 +363,7 @@ export default function PaymentsPage() {
                         const nextId = rows.length
                           ? Math.max(...rows.map((r) => r.id)) + 1
                           : 1;
-                        return [...rows, { id: nextId, name: "", amount: "", repeat: false }];
+                        return [...rows, { id: nextId, name: "", amount: "", sign: "-", repeat: false }];
                       })
                     }
                     className="w-8 h-8 flex items-center justify-center text-sm font-medium text-slate-600 bg-slate-100 rounded hover:bg-slate-200"
@@ -392,10 +400,47 @@ export default function PaymentsPage() {
                           className="w-full mr-2 px-3 py-2 text-sm border-0 border-b border-transparent focus:border-slate-500 focus:outline-none bg-transparent"
                         />
                       </div>
+                      <div className="flex items-center gap-2">
+                        {index === 0 && (
+                          <label className="block text-xs font-medium text-slate-600 mb-1">
+                            符号
+                          </label>
+                        )}
+                        <div className="flex rounded-md overflow-hidden border border-slate-200 h-9">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraftExpenses((rows) =>
+                                rows.map((r) =>
+                                  r.id === d.id ? { ...r, sign: "+" } : r,
+                                ),
+                              )
+                            }
+                            className={`px-3 text-sm font-semibold transition-colors ${d.sign === "+" ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                            title="手当（収入に加算）"
+                          >
+                            ＋
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraftExpenses((rows) =>
+                                rows.map((r) =>
+                                  r.id === d.id ? { ...r, sign: "-" } : r,
+                                ),
+                              )
+                            }
+                            className={`px-3 text-sm font-semibold transition-colors ${d.sign === "-" ? "bg-orange-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                            title="控除"
+                          >
+                            −
+                          </button>
+                        </div>
+                      </div>
                       <div className="w-28">
                         {index === 0 && (
                           <label className="block text-xs font-medium text-slate-600 mb-1">
-                            月額（円）
+                            金額（円）
                           </label>
                         )}
                         <input
@@ -441,7 +486,7 @@ export default function PaymentsPage() {
                           onClick={() =>
                             setDraftExpenses((rows) =>
                               rows.length === 1
-                                ? [{ id: rows[0].id, name: "", amount: "", repeat: false }]
+                                ? [{ id: rows[0].id, name: "", amount: "", sign: "-", repeat: false }]
                                 : rows.filter((r) => r.id !== d.id),
                             )
                           }
@@ -472,7 +517,7 @@ export default function PaymentsPage() {
                       <li key={`fixed-${f.id}`} className="flex justify-between items-center">
                         <span>{f.name}（{fromLabel}〜{toLabel}）</span>
                         <span className="flex items-center gap-2">
-                          <span className="font-mono text-orange-600">{formatYen(-f.amount)}</span>
+                          <span className={`font-mono ${f.amount >= 0 ? "text-orange-600" : "text-emerald-600"}`}>{fmtSignedYen(f.amount)}</span>
                           {canWrite && (
                             <button
                               type="button"
@@ -490,7 +535,7 @@ export default function PaymentsPage() {
                     <li key={`adhoc-${o.id}`} className="flex justify-between items-center">
                       <span>{o.name}（当月のみ）</span>
                       <span className="flex items-center gap-2">
-                        <span className="font-mono text-orange-600">{formatYen(-o.amount)}</span>
+                        <span className={`font-mono ${o.amount >= 0 ? "text-orange-600" : "text-emerald-600"}`}>{fmtSignedYen(o.amount)}</span>
                         {canWrite && (
                           <button
                             type="button"
