@@ -10,6 +10,7 @@ import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRange
 import { DatePicker } from "@/lib/components/DatePicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { UnderlineTabs } from "@/lib/components/UnderlineTabs";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ChevronDown, Check } from "lucide-react";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
@@ -534,6 +535,7 @@ function LogEntriesByDate({
   endIso,
   onUpdated,
   onEdit,
+  onRequestDelete,
   savingId,
   setSavingId,
 }: {
@@ -548,6 +550,7 @@ function LogEntriesByDate({
   endIso: string;
   onUpdated: () => void;
   onEdit: (entry: SalesLogEntryRow) => void;
+  onRequestDelete: (entry: SalesLogEntryRow) => void;
   savingId: string | null;
   setSavingId: (id: string | null) => void;
 }) {
@@ -593,13 +596,9 @@ function LogEntriesByDate({
     return `${m}月${d}日`;
   };
 
-  const handleDelete = (id: string) => {
-    if (!canWrite || !confirm("この行を削除しますか？")) return;
-    setSavingId(id);
-    apiFetch(`/api/admin/sales/log/${id}`, { method: "DELETE" })
-      .then(() => onUpdated())
-      .catch(() => { })
-      .finally(() => setSavingId(null));
+  const handleDelete = (entry: SalesLogEntryRow) => {
+    if (!canWrite) return;
+    onRequestDelete(entry);
   };
 
   return (
@@ -730,7 +729,7 @@ function LogEntriesByDate({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleDelete(r.id)}
+                                  onClick={() => handleDelete(r)}
                                   className="text-slate-400 hover:text-red-600 text-[11px]"
                                   title="削除"
                                 >
@@ -777,6 +776,7 @@ export default function SalesPage() {
   const [logSavingId, setLogSavingId] = useState<string | null>(null);
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [logEditingEntry, setLogEditingEntry] = useState<SalesLogEntryRow | null>(null);
+  const [logDeleteTarget, setLogDeleteTarget] = useState<SalesLogEntryRow | null>(null);
   const [canWrite, setCanWrite] = useState(false);
 
   useEffect(() => {
@@ -1411,6 +1411,7 @@ export default function SalesPage() {
                         setLogEditingEntry(entry);
                         setLogModalOpen(true);
                       }}
+                      onRequestDelete={(entry) => setLogDeleteTarget(entry)}
                       savingId={logSavingId}
                       setSavingId={setLogSavingId}
                     />
@@ -1526,6 +1527,29 @@ export default function SalesPage() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!logDeleteTarget}
+        message="このログを削除しますか？"
+        confirmLabel="削除"
+        onClose={() => setLogDeleteTarget(null)}
+        onConfirm={() => {
+          const target = logDeleteTarget;
+          if (!target) return;
+          setLogDeleteTarget(null);
+          setLogSavingId(target.id);
+          apiFetch(`/api/admin/sales/log/${target.id}`, { method: "DELETE" })
+            .then(() => {
+              if (startIso && endIso) {
+                return apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
+                  .then((res) => setLogEntries(res.entries ?? []))
+                  .catch(() => { });
+              }
+            })
+            .catch(() => { })
+            .finally(() => setLogSavingId(null));
+        }}
+      />
     </AdminLayout>
   );
 }
