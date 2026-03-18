@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowTrendUp, faArrowTrendDown } from "@fortawesome/free-solid-svg-icons";
+import { faArrowTrendUp, faArrowTrendDown, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
@@ -709,7 +709,11 @@ function LogEntriesByDate({
                     const isEditing = editingId === r.id;
                     const saving = savingId === r.id;
                     return (
-                      <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                      <tr
+                        key={r.id}
+                        className="border-t border-slate-100 hover:bg-slate-50/50 cursor-pointer"
+                        onClick={!isEditing && canWrite ? () => startEdit(r) : undefined}
+                      >
                         {isEditing ? (
                           <>
                             <td className="sticky left-0 z-10 bg-white px-3 py-2">
@@ -813,7 +817,8 @@ function LogEntriesByDate({
                               <td className="px-3 py-2">
                                 <button
                                   type="button"
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     if (!editingId) return;
                                     if (!confirm("この行を削除しますか？")) return;
                                     setSavingId(editingId);
@@ -823,16 +828,17 @@ function LogEntriesByDate({
                                       .finally(() => setSavingId(null));
                                   }}
                                   className="text-slate-400 hover:text-red-600 text-[11px]"
+                                  title="削除"
                                 >
-                                  削除
+                                  <FontAwesomeIcon icon={faTrashCan} className="w-3.5 h-3.5" />
                                 </button>
                               </td>
                             )}
                           </>
                         ) : (
                           <>
-                            <td onClick={() => startEdit(r)} className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-slate-800 cursor-pointer">{r.type_name}</td>
-                            <td onClick={() => startEdit(r)} className="sticky left-[80px] z-10 bg-white px-3 py-2 text-slate-700 truncate cursor-pointer">{r.content}</td>
+                            <td className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
+                            <td className="sticky left-[80px] z-10 bg-white px-3 py-2 text-slate-700 truncate">{r.content}</td>
                             <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">
                               {fmt(r.revenue)}
                             </td>
@@ -843,7 +849,30 @@ function LogEntriesByDate({
                             <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
                             <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
                             <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
-                            {canWrite && <td className="px-3 py-2">{saving ? <span className="text-slate-400 text-[10px]">保存中...</span> : null}</td>}
+                            {canWrite && (
+                              <td className="px-3 py-2">
+                                {saving ? (
+                                  <span className="text-slate-400 text-[10px]">保存中...</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!confirm("この行を削除しますか？")) return;
+                                      setSavingId(r.id);
+                                      apiFetch(`/api/admin/sales/log/${r.id}`, { method: "DELETE" })
+                                        .then(() => onUpdated())
+                                        .catch(() => { })
+                                        .finally(() => setSavingId(null));
+                                    }}
+                                    className="text-slate-400 hover:text-red-600 text-[11px]"
+                                    title="削除"
+                                  >
+                                    <FontAwesomeIcon icon={faTrashCan} className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </td>
+                            )}
                           </>
                         )}
                       </tr>
