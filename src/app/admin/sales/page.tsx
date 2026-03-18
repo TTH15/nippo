@@ -713,18 +713,19 @@ function LogEntriesByDate({
                         {isEditing ? (
                           <>
                             <td className="sticky left-0 z-10 bg-white px-3 py-2">
-                              <CustomSelect
-                                size="sm"
-                                options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
+                              <select
                                 value={editForm.type_id ?? ""}
-                                onChange={(v) => {
-                                  const next = { ...(editForm as any), type_id: v };
+                                onChange={(e) => {
+                                  const next = { ...(editForm as any), type_id: e.target.value };
                                   setEditForm(next);
                                   saveEdit(next, true);
                                 }}
-                                placeholder="選択"
-                                clearable
-                              />
+                                className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
+                              >
+                                {logTypes.map((t) => (
+                                  <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                              </select>
                             </td>
                             <td className="sticky left-[80px] z-10 bg-white px-3 py-2">
                               <input
@@ -732,7 +733,7 @@ function LogEntriesByDate({
                                 value={editForm.content ?? ""}
                                 onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
                                 onBlur={() => saveEdit(undefined, true)}
-                                className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                                className="w-full px-0 py-0 border-0 bg-transparent text-xs focus:outline-none"
                               />
                             </td>
                             <td className="px-3 py-2">
@@ -741,7 +742,7 @@ function LogEntriesByDate({
                                 value={(editForm as any).revenue ?? 0}
                                 onChange={(e) => setEditForm((f) => ({ ...(f as any), revenue: Math.max(0, Number(e.target.value) || 0) }))}
                                 onBlur={() => saveEdit(undefined, true)}
-                                className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
+                                className="w-full px-0 py-0 border-0 bg-transparent text-xs text-right tabular-nums focus:outline-none"
                               />
                             </td>
                             <td className="px-3 py-2">
@@ -750,52 +751,54 @@ function LogEntriesByDate({
                                 value={(editForm as any).profit ?? 0}
                                 onChange={(e) => setEditForm((f) => ({ ...(f as any), profit: Number(e.target.value) || 0 }))}
                                 onBlur={() => saveEdit(undefined, true)}
-                                className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
+                                className="w-full px-0 py-0 border-0 bg-transparent text-xs text-right tabular-nums focus:outline-none"
                               />
                             </td>
                             <td className="px-3 py-2">
-                              <CustomSelect
-                                size="sm"
-                                options={[
-                                  { value: "COMPANY", label: "会社" },
-                                  { value: "DRIVER", label: "ドライバー" },
-                                ]}
+                              <select
                                 value={editForm.attribution ?? "COMPANY"}
-                                onChange={(v) => {
-                                  const next = { ...(editForm as any), attribution: v as "COMPANY" | "DRIVER" };
+                                onChange={(e) => {
+                                  const next = { ...(editForm as any), attribution: e.target.value as "COMPANY" | "DRIVER" };
                                   setEditForm(next);
                                   saveEdit(next, true);
                                 }}
-                                clearable={false}
-                              />
+                                className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
+                              >
+                                <option value="COMPANY">会社</option>
+                                <option value="DRIVER">ドライバー</option>
+                              </select>
                             </td>
                             <td className="px-3 py-2">
-                              <CustomSelect
-                                size="sm"
-                                options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
+                              <select
                                 value={editForm.target_driver_id ?? ""}
-                                onChange={(v) => {
-                                  const next = { ...(editForm as any), target_driver_id: v || null };
+                                onChange={(e) => {
+                                  const next = { ...(editForm as any), target_driver_id: e.target.value || null };
                                   setEditForm(next);
                                   saveEdit(next, true);
                                 }}
-                                placeholder="—"
-                                clearable
-                              />
+                                className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
+                              >
+                                <option value="">—</option>
+                                {drivers.map((d) => (
+                                  <option key={d.id} value={d.id}>{d.display_name ?? d.name}</option>
+                                ))}
+                              </select>
                             </td>
                             <td className="px-3 py-2">
-                              <CustomSelect
-                                size="sm"
-                                options={[{ value: "", label: "—" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
+                              <select
                                 value={editForm.vehicle_id ?? ""}
-                                onChange={(v) => {
-                                  const next = { ...(editForm as any), vehicle_id: v || null };
+                                onChange={(e) => {
+                                  const next = { ...(editForm as any), vehicle_id: e.target.value || null };
                                   setEditForm(next);
                                   saveEdit(next, true);
                                 }}
-                                placeholder="—"
-                                clearable
-                              />
+                                className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
+                              >
+                                <option value="">—</option>
+                                {vehicles.map((v) => (
+                                  <option key={v.id} value={v.id}>{vehicleLabel(v)}</option>
+                                ))}
+                              </select>
                             </td>
                             <td className="px-3 py-2">
                               <input
@@ -803,29 +806,26 @@ function LogEntriesByDate({
                                 value={editForm.memo ?? ""}
                                 onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))}
                                 onBlur={() => saveEdit(undefined, true)}
-                                className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
+                                className="w-full px-0 py-0 border-0 bg-transparent text-xs focus:outline-none"
                               />
                             </td>
                             {canWrite && (
                               <td className="px-3 py-2">
-                                <div className="flex gap-1">
-                                  <button type="button" onClick={() => setEditingId(null)} className="px-2 py-1 bg-slate-200 rounded text-[10px]">完了</button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (!editingId) return;
-                                      if (!confirm("この行を削除しますか？")) return;
-                                      setSavingId(editingId);
-                                      apiFetch(`/api/admin/sales/log/${editingId}`, { method: "DELETE" })
-                                        .then(() => { setEditingId(null); onUpdated(); })
-                                        .catch(() => { })
-                                        .finally(() => setSavingId(null));
-                                    }}
-                                    className="px-2 py-1 bg-red-100 text-red-700 rounded text-[10px] hover:bg-red-200"
-                                  >
-                                    削除
-                                  </button>
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!editingId) return;
+                                    if (!confirm("この行を削除しますか？")) return;
+                                    setSavingId(editingId);
+                                    apiFetch(`/api/admin/sales/log/${editingId}`, { method: "DELETE" })
+                                      .then(() => { setEditingId(null); onUpdated(); })
+                                      .catch(() => { })
+                                      .finally(() => setSavingId(null));
+                                  }}
+                                  className="text-slate-400 hover:text-red-600 text-[11px]"
+                                >
+                                  削除
+                                </button>
                               </td>
                             )}
                           </>
