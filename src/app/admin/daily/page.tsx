@@ -294,7 +294,8 @@ export default function AdminDailyPage() {
               ))}
             </div>
             <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto -mx-2 md:mx-0">
+                <table className="w-full text-sm min-w-[640px] md:min-w-0">
                 <thead className="bg-slate-50">
                   <tr className="border-b border-slate-200 text-left">
                     <th className="py-3 px-4"><Skeleton className="h-4 w-12" /></th>
@@ -313,7 +314,8 @@ export default function AdminDailyPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           </>
         ) : (
@@ -384,7 +386,8 @@ export default function AdminDailyPage() {
                       </h2>
                       {rows.length > 0 && (
                         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                          <table className="w-full text-sm table-fixed">
+                          <div className="overflow-x-auto -mx-2 md:mx-0">
+                            <table className="w-full text-sm table-fixed min-w-[800px] md:min-w-0">
                             <colgroup>
                               <col className="w-28" />
                               <col className="w-20" />
@@ -511,7 +514,8 @@ export default function AdminDailyPage() {
                                 );
                               })}
                             </tbody>
-                          </table>
+                            </table>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -608,7 +612,8 @@ export default function AdminDailyPage() {
                       })()}
                     </h2>
                     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                      <table className="w-full text-sm table-fixed">
+                      <div className="overflow-x-auto -mx-2 md:mx-0">
+                        <table className="w-full text-sm table-fixed min-w-[720px] md:min-w-0">
                         <colgroup>
                           {/* 名前 */}
                           <col className="w-32" />
@@ -760,7 +765,8 @@ export default function AdminDailyPage() {
                             );
                           })}
                         </tbody>
-                      </table>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 ))}

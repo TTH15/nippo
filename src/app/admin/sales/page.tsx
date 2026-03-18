@@ -674,7 +674,8 @@ function LogEntriesByDate({
               <div className="px-3 py-2 bg-slate-50 font-semibold text-slate-800 text-sm">
                 {dateLabel(dateIso)}
               </div>
-              <table className="w-full text-xs table-fixed">
+              <div className="overflow-x-auto -mx-2 md:mx-0">
+                <table className="w-full text-xs table-fixed min-w-[720px] md:min-w-0">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
                     <th className="sticky left-0 z-20 bg-slate-50/80 px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
@@ -879,7 +880,8 @@ function LogEntriesByDate({
                     );
                   })}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           ))}
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -94,6 +94,9 @@ export default function ShiftsPage() {
   } | null>(null);
   const [reordering, setReordering] = useState(false);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"png" | "pdf">("png");
+  const exportRef = useRef<HTMLDivElement | null>(null);
 
   const displayDates = useMemo(
     () =>
@@ -411,6 +414,48 @@ export default function ShiftsPage() {
       .sort();
   };
 
+  const handleExport = async () => {
+    if (exporting) return;
+    const root = exportRef.current;
+    if (!root) return;
+    try {
+      setExporting(true);
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(root, { scale: 2, useCORS: true });
+      const dataUrl = canvas.toDataURL("image/png");
+
+      if (exportFormat === "png") {
+        const a = document.createElement("a");
+        a.href = dataUrl;
+        a.download = `shifts_${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}_${period}.png`;
+        a.click();
+      } else {
+        // @ts-ignore jsPDF は型定義なしで動的 import する
+        const { jsPDF } = await import("jspdf");
+        const pdf = new jsPDF("landscape", "pt", "a4");
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const imgWidth = canvas.width;
+        const imgHeight = canvas.height;
+        const scale = Math.min(pageWidth / imgWidth, pageHeight / imgHeight);
+        const renderWidth = imgWidth * scale;
+        const renderHeight = imgHeight * scale;
+        const offsetX = (pageWidth - renderWidth) / 2;
+        const offsetY = (pageHeight - renderHeight) / 2;
+        pdf.addImage(dataUrl, "PNG", offsetX, offsetY, renderWidth, renderHeight);
+        pdf.save(`shifts_${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}_${period}.pdf`);
+      }
+    } catch (e) {
+      console.error(e);
+      setErrorState({
+        title: "エクスポートに失敗しました",
+        message: "シフト画面のエクスポート中にエラーが発生しました。もう一度お試しください。",
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <AdminLayout>
       <div className="max-w-full">
@@ -452,6 +497,24 @@ export default function ShiftsPage() {
             >
               {generating ? "生成中..." : "叩き台を生成"}
             </button>
+            <div className="flex items-center gap-2">
+              <select
+                value={exportFormat}
+                onChange={(e) => setExportFormat(e.target.value === "pdf" ? "pdf" : "png")}
+                className="h-9 px-2 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+              >
+                <option value="png">画像（PNG）</option>
+                <option value="pdf">PDF</option>
+              </select>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exporting || loading}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {exporting ? "エクスポート中..." : "エクスポート"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -513,7 +576,8 @@ export default function ShiftsPage() {
             </table>
           </div>
         ) : (
-          <div className="bg-white rounded border border-slate-200 overflow-x-auto">
+          <div ref={exportRef} className="space-y-4">
+            <div className="bg-white rounded border border-slate-200 overflow-x-auto">
             <table className="w-full text-sm min-w-0">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
@@ -656,11 +720,10 @@ export default function ShiftsPage() {
                 </tr>
               </tbody>
             </table>
-          </div>
-        )}
+            </div>
 
-        {/* 希望休 */}
-        <div className="mt-6 bg-white rounded border border-slate-200 p-4">
+            {/* 希望休 */}
+            <div className="bg-white rounded border border-slate-200 p-4">
           <h3 className="text-sm font-medium text-slate-700 mb-3">この期間の希望休</h3>
           <div className="flex flex-wrap gap-x-6 gap-y-2">
             {drivers.map((driver) => {
@@ -686,10 +749,10 @@ export default function ShiftsPage() {
               <p className="text-sm text-slate-400">この期間の希望休はありません</p>
             )}
           </div>
-        </div>
+            </div>
 
-        {/* 凡例 */}
-        <div className="mt-3 flex gap-6 text-xs text-slate-500">
+            {/* 凡例 */}
+            <div className="flex gap-6 text-xs text-slate-500">
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 border-2 border-red-400 bg-red-50 rounded"></div>
             <span>割当不可</span>
@@ -702,7 +765,9 @@ export default function ShiftsPage() {
             <div className="w-3 h-3 border border-slate-300 bg-slate-50 rounded"></div>
             <span>割当済</span>
           </div>
-        </div>
+            </div>
+          </div>
+        )}
       </div>
       <ConfirmDialog
         open={!!confirmState}
