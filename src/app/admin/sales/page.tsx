@@ -25,7 +25,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-type DataPoint = { date: string; yamato: number; amazon: number; profit: number };
+type DataPoint = { date: string; yamato: number; amazon: number; yamato_profit: number; amazon_profit: number; profit: number };
 type DriverRow = { id: string; name: string; display_name?: string | null };
 type CourseRow = { id: string; name: string; carrier?: "YAMATO" | "AMAZON" | "OTHER" | null; summary_title?: string | null };
 type SummaryCourseRow = { id: string; name: string; summary_title: string };
@@ -52,7 +52,8 @@ type SalesLogEntryRow = {
   type_id: string;
   type_name: string;
   content: string;
-  amount: number;
+  revenue: number;
+  profit: number;
   attribution: "COMPANY" | "DRIVER";
   target_driver_id: string | null;
   target_driver_name: string | null;
@@ -65,7 +66,7 @@ type SalesLogEntryRow = {
 type VehicleRow = { id: string; manufacturer?: string | null; brand?: string | null; number_numeric?: string | null };
 
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
-const fmtAmount = (amount: number) => {
+const fmtSigned = (amount: number) => {
   const n = Number(amount);
   const sign = n >= 0 ? "+" : "−";
   return `${sign} ${Math.abs(n).toLocaleString("ja-JP")}`;
@@ -257,13 +258,14 @@ function LogEntryModal({
   const [logDate, setLogDate] = useState("");
   const [typeId, setTypeId] = useState("");
   const [content, setContent] = useState("");
-  const [amountSign, setAmountSign] = useState<"+" | "-">("+");
-  const [amountValue, setAmountValue] = useState<string>("");
+  const [revenueValue, setRevenueValue] = useState<string>("");
+  const [profitValue, setProfitValue] = useState<string>("");
   const [attribution, setAttribution] = useState<"COMPANY" | "DRIVER">("COMPANY");
   const [targetDriverId, setTargetDriverId] = useState("");
   const [vehicleId, setVehicleId] = useState("");
   const [memo, setMemo] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [inputError, setInputError] = useState<string | null>(null);
   const [newTypeName, setNewTypeName] = useState("");
   const [addingType, setAddingType] = useState(false);
 
@@ -272,12 +274,13 @@ function LogEntryModal({
       setLogDate(startIso || "");
       setTypeId("");
       setContent("");
-      setAmountSign("+");
-      setAmountValue("");
+      setRevenueValue("");
+      setProfitValue("");
       setAttribution("COMPANY");
       setTargetDriverId("");
       setVehicleId("");
       setMemo("");
+      setInputError(null);
     }
   }, [open, startIso]);
 
@@ -286,8 +289,21 @@ function LogEntryModal({
 
   const handleAdd = () => {
     if (!logDate || !typeId || content.trim() === "") return;
-    const absVal = Math.abs(Number(amountValue) || 0);
-    const amount = amountSign === "-" ? -absVal : absVal;
+    setInputError(null);
+    const revenue = Math.max(0, Math.trunc(Number(revenueValue) || 0));
+    const profit = Math.trunc(Number(profitValue) || 0);
+    if (revenue === 0 && profit === 0) {
+      setInputError("売上または利益を入力してください");
+      return;
+    }
+    if (revenue < 0) {
+      setInputError("売上は0以上で入力してください");
+      return;
+    }
+    if (profit > revenue) {
+      setInputError("利益が売上を超えています。入力を確認してください");
+      return;
+    }
     setSubmitting(true);
     apiFetch("/api/admin/sales/log", {
       method: "POST",
@@ -295,7 +311,8 @@ function LogEntryModal({
         log_date: logDate,
         type_id: typeId,
         content: content.trim(),
-        amount,
+        revenue,
+        profit,
         attribution,
         target_driver_id: targetDriverId || null,
         vehicle_id: vehicleId || null,
@@ -385,32 +402,25 @@ function LogEntryModal({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">金額</label>
-              <div className="flex gap-2 items-stretch">
-                <div className="flex rounded-xl overflow-hidden border-2 border-slate-200 h-12 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setAmountSign("+")}
-                    className={`px-4 font-medium text-sm transition-colors ${amountSign === "+" ? "bg-green-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                  >
-                    +
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAmountSign("-")}
-                    className={`px-4 font-medium text-sm transition-colors ${amountSign === "-" ? "bg-red-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                  >
-                    −
-                  </button>
-                </div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">売上 / 利益</label>
+              <div className="grid grid-cols-2 gap-2">
                 <input
                   type="number"
-                  value={amountValue}
-                  onChange={(e) => setAmountValue(e.target.value)}
-                  placeholder="0"
-                  className={`flex-1 min-w-0 text-right tabular-nums ${inputClass}`}
+                  min={0}
+                  value={revenueValue}
+                  onChange={(e) => setRevenueValue(e.target.value)}
+                  placeholder="売上"
+                  className={`min-w-0 text-right tabular-nums ${inputClass}`}
+                />
+                <input
+                  type="number"
+                  value={profitValue}
+                  onChange={(e) => setProfitValue(e.target.value)}
+                  placeholder="利益（マイナス可）"
+                  className={`min-w-0 text-right tabular-nums ${inputClass}`}
                 />
               </div>
+              {inputError && <p className="mt-1 text-xs text-red-600">{inputError}</p>}
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1.5">帰属先</label>
@@ -477,7 +487,7 @@ function LogEntryModal({
 }
 
 type LogRow =
-  | { kind: "calculated"; type_name: string; content: string; amount: number }
+  | { kind: "calculated"; type_name: string; content: string; revenue: number; profit: number }
   | { kind: "entry"; entry: SalesLogEntryRow };
 
 function LogEntriesByDate({
@@ -532,10 +542,12 @@ function LogEntriesByDate({
       const sales = displayData[i];
       const yamato = sales?.yamato ?? 0;
       const amazon = sales?.amazon ?? 0;
+      const yamatoProfit = sales?.yamato_profit ?? 0;
+      const amazonProfit = sales?.amazon_profit ?? 0;
       const dayEntries = entriesByDate.get(day.iso) ?? [];
       const rows: LogRow[] = [];
-      if (yamato > 0) rows.push({ kind: "calculated", type_name: "売上", content: "ヤマト宅急便等", amount: yamato });
-      if (amazon > 0) rows.push({ kind: "calculated", type_name: "売上", content: "Amazon等", amount: amazon });
+      if (yamato > 0 || yamatoProfit !== 0) rows.push({ kind: "calculated", type_name: "ヤマト", content: "日報集計", revenue: yamato, profit: yamatoProfit });
+      if (amazon > 0 || amazonProfit !== 0) rows.push({ kind: "calculated", type_name: "Amazon", content: "日報集計", revenue: amazon, profit: amazonProfit });
       dayEntries.forEach((e) => rows.push({ kind: "entry", entry: e }));
       let filtered = rows;
       if (filterTypeId) filtered = filtered.filter((r) => r.kind === "calculated" || r.entry.type_id === filterTypeId);
@@ -564,7 +576,8 @@ function LogEntriesByDate({
     setEditForm({
       type_id: row.type_id,
       content: row.content,
-      amount: row.amount,
+      revenue: row.revenue,
+      profit: row.profit,
       attribution: row.attribution,
       target_driver_id: row.target_driver_id,
       vehicle_id: row.vehicle_id,
@@ -580,7 +593,8 @@ function LogEntriesByDate({
       body: JSON.stringify({
         type_id: editForm.type_id,
         content: editForm.content,
-        amount: editForm.amount,
+        revenue: (editForm as any).revenue,
+        profit: (editForm as any).profit,
         attribution: editForm.attribution,
         target_driver_id: editForm.target_driver_id || null,
         vehicle_id: editForm.vehicle_id || null,
@@ -661,7 +675,8 @@ function LogEntriesByDate({
                   <tr className="border-b border-slate-200 bg-slate-50/80">
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[140px]">内容</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">金額</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">売上</th>
+                    <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">利益</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">帰属先</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">対象者</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">車両</th>
@@ -676,7 +691,8 @@ function LogEntriesByDate({
                         <tr key={`calc-${dateIso}-${rowIdx}`} className="border-t border-slate-100 bg-slate-50/30">
                           <td className="px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
                           <td className="px-3 py-2 text-slate-600">{row.content}</td>
-                          <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-600">{fmtAmount(row.amount)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{fmt(row.revenue)}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmtSigned(row.profit)}</td>
                           <td className="px-3 py-2 text-slate-500">会社</td>
                           <td className="px-3 py-2 text-slate-500">—</td>
                           <td className="px-3 py-2 text-slate-500">—</td>
@@ -713,8 +729,16 @@ function LogEntriesByDate({
                             <td className="px-3 py-2">
                               <input
                                 type="number"
-                                value={editForm.amount ?? 0}
-                                onChange={(e) => setEditForm((f) => ({ ...f, amount: Number(e.target.value) || 0 }))}
+                                value={(editForm as any).revenue ?? 0}
+                                onChange={(e) => setEditForm((f) => ({ ...(f as any), revenue: Math.max(0, Number(e.target.value) || 0) }))}
+                                className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                value={(editForm as any).profit ?? 0}
+                                onChange={(e) => setEditForm((f) => ({ ...(f as any), profit: Number(e.target.value) || 0 }))}
                                 className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
                               />
                             </td>
@@ -786,8 +810,11 @@ function LogEntriesByDate({
                           <>
                             <td className="px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
                             <td className="px-3 py-2 text-slate-700">{r.content}</td>
-                            <td className={`px-3 py-2 text-right tabular-nums font-medium ${r.amount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                              {fmtAmount(r.amount)}
+                            <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">
+                              {fmt(r.revenue)}
+                            </td>
+                            <td className={`px-3 py-2 text-right tabular-nums font-medium ${r.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                              {fmtSigned(r.profit)}
                             </td>
                             <td className="px-3 py-2 text-slate-600">{r.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
                             <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
@@ -1108,14 +1135,14 @@ export default function SalesPage() {
     return { yamato, amazon, total: yamato + amazon, profit };
   }, [displayData]);
 
-  // ログタブ時: 帰属先=会社のログを売上・粗利に加算（プラスは売上+利益、マイナスは委託費で粗利を確定）
+  // ログタブ時: 帰属先=会社のログを売上・粗利に加算（revenue/profit をそのまま加算）
   const logCompanyTotals = useMemo(() => {
     const revenue = logEntries
-      .filter((e) => e.attribution === "COMPANY" && e.amount > 0)
-      .reduce((s, e) => s + e.amount, 0);
+      .filter((e) => e.attribution === "COMPANY")
+      .reduce((s, e) => s + (Number(e.revenue) || 0), 0);
     const profit = logEntries
       .filter((e) => e.attribution === "COMPANY")
-      .reduce((s, e) => s + e.amount, 0);
+      .reduce((s, e) => s + (Number(e.profit) || 0), 0);
     return { revenue, profit };
   }, [logEntries]);
 

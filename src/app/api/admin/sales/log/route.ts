@@ -10,7 +10,9 @@ export type SalesLogEntryRow = {
   type_id: string;
   type_name: string;
   content: string;
-  amount: number;
+  revenue: number;
+  profit: number;
+  amount: number; // 互換用（=profit）
   attribution: "COMPANY" | "DRIVER";
   target_driver_id: string | null;
   target_driver_name: string | null;
@@ -39,7 +41,7 @@ export async function GET(req: NextRequest) {
   const { data: rows, error } = await supabase
     .from("sales_log_entries")
     .select(`
-      id, log_date, type_id, content, amount, attribution,
+      id, log_date, type_id, content, revenue, profit, amount, attribution,
       target_driver_id, vehicle_id, memo, created_at, updated_at,
       sales_log_types ( name ),
       drivers ( id, name, display_name ),
@@ -67,7 +69,9 @@ export async function GET(req: NextRequest) {
       type_id: String(r.type_id ?? ""),
       type_name: type?.name ?? "",
       content: String(r.content ?? ""),
-      amount: Number(r.amount),
+      revenue: Number((r as any).revenue ?? 0) || 0,
+      profit: Number((r as any).profit ?? r.amount ?? 0) || 0,
+      amount: Number(r.amount), // 互換（profit）
       attribution: (r.attribution as "COMPANY" | "DRIVER") || "COMPANY",
       target_driver_id: (r.target_driver_id as string) || null,
       target_driver_name: driver ? (driver.display_name || driver.name) : null,
@@ -86,7 +90,9 @@ type CreateEntryBody = {
   log_date: string;
   type_id: string;
   content: string;
-  amount: number;
+  revenue?: number;
+  profit?: number;
+  amount?: number; // 互換
   attribution?: "COMPANY" | "DRIVER";
   target_driver_id?: string | null;
   vehicle_id?: string | null;
@@ -116,7 +122,9 @@ export async function POST(req: NextRequest) {
     log_date: body.log_date,
     type_id: body.type_id,
     content: String(body.content).trim() || "",
-    amount: Number(body.amount) || 0,
+    revenue: Math.trunc(Number(body.revenue) || 0),
+    profit: Math.trunc(Number(body.profit ?? body.amount) || 0),
+    amount: Math.trunc(Number(body.profit ?? body.amount) || 0), // 互換（profit）
     attribution: body.attribution === "DRIVER" ? "DRIVER" : "COMPANY",
     target_driver_id: body.target_driver_id || null,
     vehicle_id: body.vehicle_id || null,
@@ -124,10 +132,12 @@ export async function POST(req: NextRequest) {
     updated_at: new Date().toISOString(),
   };
 
+  if (payload.revenue < 0) payload.revenue = 0;
+
   const { data, error } = await supabase
     .from("sales_log_entries")
     .insert(payload)
-    .select("id, log_date, type_id, content, amount, attribution, target_driver_id, vehicle_id, memo, created_at, updated_at")
+    .select("id, log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo, created_at, updated_at")
     .single();
 
   if (error) {
