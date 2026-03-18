@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowTrendUp, faArrowTrendDown, faPenToSquare } from "@fortawesome/free-solid-svg-icons";
+import { faArrowTrendUp, faArrowTrendDown } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
@@ -585,24 +585,28 @@ function LogEntriesByDate({
     });
   };
 
-  const saveEdit = () => {
+  const saveEdit = (next?: Partial<SalesLogEntryRow>, keepEditing = false) => {
     if (!editingId || !canWrite) return;
+    const merged = { ...(editForm as Partial<SalesLogEntryRow>), ...(next ?? {}) };
+    const revenue = Math.max(0, Number((merged as any).revenue ?? 0));
+    const profit = Number((merged as any).profit ?? 0);
+    if (profit > revenue) return;
     setSavingId(editingId);
     apiFetch(`/api/admin/sales/log/${editingId}`, {
       method: "PATCH",
       body: JSON.stringify({
-        type_id: editForm.type_id,
-        content: editForm.content,
-        revenue: (editForm as any).revenue,
-        profit: (editForm as any).profit,
-        attribution: editForm.attribution,
-        target_driver_id: editForm.target_driver_id || null,
-        vehicle_id: editForm.vehicle_id || null,
-        memo: editForm.memo?.trim() || null,
+        type_id: merged.type_id,
+        content: merged.content,
+        revenue,
+        profit,
+        attribution: merged.attribution,
+        target_driver_id: merged.target_driver_id || null,
+        vehicle_id: merged.vehicle_id || null,
+        memo: merged.memo?.trim() || null,
       }),
     })
       .then(() => {
-        setEditingId(null);
+        if (!keepEditing) setEditingId(null);
         onUpdated();
       })
       .catch(() => { })
@@ -670,11 +674,11 @@ function LogEntriesByDate({
               <div className="px-3 py-2 bg-slate-50 font-semibold text-slate-800 text-sm">
                 {dateLabel(dateIso)}
               </div>
-              <table className="min-w-full text-xs">
+              <table className="min-w-[1100px] w-full text-xs table-fixed">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[140px]">内容</th>
+                    <th className="sticky left-0 z-20 bg-slate-50/80 px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
+                    <th className="sticky left-[80px] z-20 bg-slate-50/80 px-3 py-2 text-left font-medium text-slate-600 w-48">内容</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">売上</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">利益</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">帰属先</th>
@@ -689,8 +693,8 @@ function LogEntriesByDate({
                     if (row.kind === "calculated") {
                       return (
                         <tr key={`calc-${dateIso}-${rowIdx}`} className="border-t border-slate-100 bg-slate-50/30">
-                          <td className="px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
-                          <td className="px-3 py-2 text-slate-600">{row.content}</td>
+                          <td className="sticky left-0 z-10 bg-slate-50/30 px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
+                          <td className="sticky left-[80px] z-10 bg-slate-50/30 px-3 py-2 text-slate-600 truncate">{row.content}</td>
                           <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{fmt(row.revenue)}</td>
                           <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmtSigned(row.profit)}</td>
                           <td className="px-3 py-2 text-slate-500">会社</td>
@@ -708,21 +712,26 @@ function LogEntriesByDate({
                       <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/50">
                         {isEditing ? (
                           <>
-                            <td className="px-3 py-2">
+                            <td className="sticky left-0 z-10 bg-white px-3 py-2">
                               <CustomSelect
                                 size="sm"
                                 options={logTypes.map((t) => ({ value: t.id, label: t.name }))}
                                 value={editForm.type_id ?? ""}
-                                onChange={(v) => setEditForm((f) => ({ ...f, type_id: v }))}
+                                onChange={(v) => {
+                                  const next = { ...(editForm as any), type_id: v };
+                                  setEditForm(next);
+                                  saveEdit(next, true);
+                                }}
                                 placeholder="選択"
                                 clearable
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="sticky left-[80px] z-10 bg-white px-3 py-2">
                               <input
                                 type="text"
                                 value={editForm.content ?? ""}
                                 onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
+                                onBlur={() => saveEdit(undefined, true)}
                                 className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
                               />
                             </td>
@@ -731,6 +740,7 @@ function LogEntriesByDate({
                                 type="number"
                                 value={(editForm as any).revenue ?? 0}
                                 onChange={(e) => setEditForm((f) => ({ ...(f as any), revenue: Math.max(0, Number(e.target.value) || 0) }))}
+                                onBlur={() => saveEdit(undefined, true)}
                                 className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
                               />
                             </td>
@@ -739,6 +749,7 @@ function LogEntriesByDate({
                                 type="number"
                                 value={(editForm as any).profit ?? 0}
                                 onChange={(e) => setEditForm((f) => ({ ...(f as any), profit: Number(e.target.value) || 0 }))}
+                                onBlur={() => saveEdit(undefined, true)}
                                 className="w-full px-2 py-1 border border-slate-200 rounded text-xs text-right tabular-nums"
                               />
                             </td>
@@ -750,7 +761,11 @@ function LogEntriesByDate({
                                   { value: "DRIVER", label: "ドライバー" },
                                 ]}
                                 value={editForm.attribution ?? "COMPANY"}
-                                onChange={(v) => setEditForm((f) => ({ ...f, attribution: v as "COMPANY" | "DRIVER" }))}
+                                onChange={(v) => {
+                                  const next = { ...(editForm as any), attribution: v as "COMPANY" | "DRIVER" };
+                                  setEditForm(next);
+                                  saveEdit(next, true);
+                                }}
                                 clearable={false}
                               />
                             </td>
@@ -759,7 +774,11 @@ function LogEntriesByDate({
                                 size="sm"
                                 options={[{ value: "", label: "—" }, ...drivers.map((d) => ({ value: d.id, label: d.display_name ?? d.name }))]}
                                 value={editForm.target_driver_id ?? ""}
-                                onChange={(v) => setEditForm((f) => ({ ...f, target_driver_id: v || null }))}
+                                onChange={(v) => {
+                                  const next = { ...(editForm as any), target_driver_id: v || null };
+                                  setEditForm(next);
+                                  saveEdit(next, true);
+                                }}
                                 placeholder="—"
                                 clearable
                               />
@@ -769,7 +788,11 @@ function LogEntriesByDate({
                                 size="sm"
                                 options={[{ value: "", label: "—" }, ...vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }))]}
                                 value={editForm.vehicle_id ?? ""}
-                                onChange={(v) => setEditForm((f) => ({ ...f, vehicle_id: v || null }))}
+                                onChange={(v) => {
+                                  const next = { ...(editForm as any), vehicle_id: v || null };
+                                  setEditForm(next);
+                                  saveEdit(next, true);
+                                }}
                                 placeholder="—"
                                 clearable
                               />
@@ -779,14 +802,14 @@ function LogEntriesByDate({
                                 type="text"
                                 value={editForm.memo ?? ""}
                                 onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))}
+                                onBlur={() => saveEdit(undefined, true)}
                                 className="w-full px-2 py-1 border border-slate-200 rounded text-xs"
                               />
                             </td>
                             {canWrite && (
                               <td className="px-3 py-2">
                                 <div className="flex gap-1">
-                                  <button type="button" onClick={saveEdit} className="px-2 py-1 bg-slate-700 text-white rounded text-[10px]">保存</button>
-                                  <button type="button" onClick={() => setEditingId(null)} className="px-2 py-1 bg-slate-200 rounded text-[10px]">取消</button>
+                                  <button type="button" onClick={() => setEditingId(null)} className="px-2 py-1 bg-slate-200 rounded text-[10px]">完了</button>
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -808,8 +831,8 @@ function LogEntriesByDate({
                           </>
                         ) : (
                           <>
-                            <td className="px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
-                            <td className="px-3 py-2 text-slate-700">{r.content}</td>
+                            <td onClick={() => startEdit(r)} className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-slate-800 cursor-pointer">{r.type_name}</td>
+                            <td onClick={() => startEdit(r)} className="sticky left-[80px] z-10 bg-white px-3 py-2 text-slate-700 truncate cursor-pointer">{r.content}</td>
                             <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">
                               {fmt(r.revenue)}
                             </td>
@@ -820,22 +843,7 @@ function LogEntriesByDate({
                             <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
                             <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
                             <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
-                            {canWrite && (
-                              <td className="px-3 py-2">
-                                {saving ? (
-                                  <span className="text-slate-400 text-[10px]">保存中...</span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => startEdit(r)}
-                                    title="編集"
-                                    className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded"
-                                  >
-                                    <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </td>
-                            )}
+                            {canWrite && <td className="px-3 py-2">{saving ? <span className="text-slate-400 text-[10px]">保存中...</span> : null}</td>}
                           </>
                         )}
                       </tr>
