@@ -286,7 +286,7 @@ function LogEntryModal({
         setMemo(editingEntry.memo ?? "");
         setInputError(null);
       } else {
-        setLogDate(startIso || "");
+        setLogDate(toLocalYmd(new Date()));
         setTypeId("");
         setContent("");
         setRevenueValue("");
