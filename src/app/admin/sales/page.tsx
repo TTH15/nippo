@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowTrendUp, faArrowTrendDown, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
@@ -240,19 +240,21 @@ function LogEntryModal({
   open,
   onClose,
   startIso,
+  editingEntry,
   logTypes,
   drivers,
   vehicles,
-  onAdded,
+  onSaved,
   onTypeAdded,
 }: {
   open: boolean;
   onClose: () => void;
   startIso: string;
+  editingEntry: SalesLogEntryRow | null;
   logTypes: SalesLogTypeRow[];
   drivers: DriverRow[];
   vehicles: VehicleRow[];
-  onAdded: () => void;
+  onSaved: () => void;
   onTypeAdded: () => void;
 }) {
   const [logDate, setLogDate] = useState("");
@@ -271,23 +273,36 @@ function LogEntryModal({
 
   useEffect(() => {
     if (open) {
-      setLogDate(startIso || "");
-      setTypeId("");
-      setContent("");
-      setRevenueValue("");
-      setProfitValue("");
-      setAttribution("COMPANY");
-      setTargetDriverId("");
-      setVehicleId("");
-      setMemo("");
-      setInputError(null);
+      if (editingEntry) {
+        setLogDate(editingEntry.log_date || "");
+        setTypeId(editingEntry.type_id || "");
+        setContent(editingEntry.content || "");
+        setRevenueValue(String(editingEntry.revenue ?? ""));
+        setProfitValue(String(editingEntry.profit ?? ""));
+        setAttribution(editingEntry.attribution || "COMPANY");
+        setTargetDriverId(editingEntry.target_driver_id || "");
+        setVehicleId(editingEntry.vehicle_id || "");
+        setMemo(editingEntry.memo ?? "");
+        setInputError(null);
+      } else {
+        setLogDate(startIso || "");
+        setTypeId("");
+        setContent("");
+        setRevenueValue("");
+        setProfitValue("");
+        setAttribution("COMPANY");
+        setTargetDriverId("");
+        setVehicleId("");
+        setMemo("");
+        setInputError(null);
+      }
     }
-  }, [open, startIso]);
+  }, [open, startIso, editingEntry]);
 
   const vehicleLabel = (v: VehicleRow) => [v.manufacturer, v.brand, v.number_numeric].filter(Boolean).join(" ") || v.id;
   const dateValue = logDate ? new Date(logDate + "T12:00:00") : undefined;
 
-  const handleAdd = () => {
+  const handleSave = () => {
     if (!logDate || !typeId || content.trim() === "") return;
     setInputError(null);
     const revenue = Math.max(0, Math.trunc(Number(revenueValue) || 0));
@@ -305,22 +320,39 @@ function LogEntryModal({
       return;
     }
     setSubmitting(true);
-    apiFetch("/api/admin/sales/log", {
-      method: "POST",
-      body: JSON.stringify({
-        log_date: logDate,
-        type_id: typeId,
-        content: content.trim(),
-        revenue,
-        profit,
-        attribution,
-        target_driver_id: targetDriverId || null,
-        vehicle_id: vehicleId || null,
-        memo: memo.trim() || null,
-      }),
-    })
+    const req = editingEntry
+      ? apiFetch(`/api/admin/sales/log/${editingEntry.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            log_date: logDate,
+            type_id: typeId,
+            content: content.trim(),
+            revenue,
+            profit,
+            attribution,
+            target_driver_id: targetDriverId || null,
+            vehicle_id: vehicleId || null,
+            memo: memo.trim() || null,
+          }),
+        })
+      : apiFetch("/api/admin/sales/log", {
+          method: "POST",
+          body: JSON.stringify({
+            log_date: logDate,
+            type_id: typeId,
+            content: content.trim(),
+            revenue,
+            profit,
+            attribution,
+            target_driver_id: targetDriverId || null,
+            vehicle_id: vehicleId || null,
+            memo: memo.trim() || null,
+          }),
+        });
+
+    req
       .then(() => {
-        onAdded();
+        onSaved();
         onClose();
       })
       .catch(() => { })
@@ -354,7 +386,7 @@ function LogEntryModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="shrink-0 border-b border-slate-200 px-5 py-4 flex items-center justify-between rounded-t-xl">
-          <h2 className="text-base font-semibold text-slate-900">ログを追加</h2>
+          <h2 className="text-base font-semibold text-slate-900">{editingEntry ? "ログを編集" : "ログを追加"}</h2>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1" aria-label="閉じる">×</button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto p-5">
@@ -401,7 +433,7 @@ function LogEntryModal({
                 className={inputClass}
               />
             </div>
-            <div>
+            <div className="lg:col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1.5">売上 / 利益</label>
               <div className="grid grid-cols-2 gap-2">
                 <input
@@ -435,7 +467,7 @@ function LogEntryModal({
                 clearable={false}
               />
             </div>
-            <div className="sm:col-span-2 grid grid-cols-2 gap-4">
+            <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="min-w-0">
                 <label className="block text-xs font-medium text-slate-600 mb-1.5">対象者</label>
                 <CustomSelect
@@ -474,11 +506,11 @@ function LogEntryModal({
         <div className="shrink-0 border-t border-slate-200 bg-white px-5 py-4 flex justify-end gap-2 rounded-b-xl">
           <button
             type="button"
-            onClick={handleAdd}
+            onClick={handleSave}
             disabled={submitting || !logDate || !typeId || content.trim() === ""}
             className="px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50"
           >
-            {submitting ? "追加中..." : "登録"}
+            {submitting ? (editingEntry ? "更新中..." : "追加中...") : (editingEntry ? "更新" : "登録")}
           </button>
         </div>
       </div>
@@ -501,6 +533,7 @@ function LogEntriesByDate({
   startIso,
   endIso,
   onUpdated,
+  onEdit,
   savingId,
   setSavingId,
 }: {
@@ -514,12 +547,10 @@ function LogEntriesByDate({
   startIso: string;
   endIso: string;
   onUpdated: () => void;
+  onEdit: (entry: SalesLogEntryRow) => void;
   savingId: string | null;
   setSavingId: (id: string | null) => void;
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<SalesLogEntryRow>>({});
-
   const vehicleLabel = (v: VehicleRow) => [v.manufacturer, v.brand, v.number_numeric].filter(Boolean).join(" ") || v.id;
 
   const entriesByDate = useMemo(() => {
@@ -567,48 +598,6 @@ function LogEntriesByDate({
     setSavingId(id);
     apiFetch(`/api/admin/sales/log/${id}`, { method: "DELETE" })
       .then(() => onUpdated())
-      .catch(() => { })
-      .finally(() => setSavingId(null));
-  };
-
-  const startEdit = (row: SalesLogEntryRow) => {
-    setEditingId(row.id);
-    setEditForm({
-      type_id: row.type_id,
-      content: row.content,
-      revenue: row.revenue,
-      profit: row.profit,
-      attribution: row.attribution,
-      target_driver_id: row.target_driver_id,
-      vehicle_id: row.vehicle_id,
-      memo: row.memo ?? "",
-    });
-  };
-
-  const saveEdit = (next?: Partial<SalesLogEntryRow>) => {
-    if (!editingId || !canWrite) return;
-    const merged = { ...(editForm as Partial<SalesLogEntryRow>), ...(next ?? {}) };
-    const revenue = Math.max(0, Number((merged as any).revenue ?? 0));
-    const profit = Number((merged as any).profit ?? 0);
-    if (profit > revenue) return;
-    setSavingId(editingId);
-    apiFetch(`/api/admin/sales/log/${editingId}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        type_id: merged.type_id,
-        content: merged.content,
-        revenue,
-        profit,
-        attribution: merged.attribution,
-        target_driver_id: merged.target_driver_id || null,
-        vehicle_id: merged.vehicle_id || null,
-        memo: merged.memo?.trim() || null,
-      }),
-    })
-      .then(() => {
-        setEditingId(null);
-        onUpdated();
-      })
       .catch(() => { })
       .finally(() => setSavingId(null));
   };
@@ -707,174 +696,49 @@ function LogEntriesByDate({
                       );
                     }
                     const r = row.entry;
-                    const isEditing = editingId === r.id;
                     const saving = savingId === r.id;
                     return (
                       <tr
                         key={r.id}
-                        className="border-t border-slate-100 hover:bg-slate-50/50 cursor-pointer"
-                        onClick={!isEditing && canWrite ? () => startEdit(r) : undefined}
+                        className="border-t border-slate-100 hover:bg-slate-50/50"
                       >
-                        {isEditing ? (
-                          <>
-                            <td className="sticky left-0 z-10 bg-white px-3 py-2">
-                              <select
-                                value={editForm.type_id ?? ""}
-                                onChange={(e) => {
-                                  const next = { ...(editForm as any), type_id: e.target.value };
-                                  setEditForm(next);
-                                }}
-                                onBlur={() => saveEdit()}
-                                className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
-                              >
-                                {logTypes.map((t) => (
-                                  <option key={t.id} value={t.id}>{t.name}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="sticky left-[80px] z-10 bg-white px-3 py-2">
-                              <input
-                                type="text"
-                                value={editForm.content ?? ""}
-                                onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
-                                onBlur={() => saveEdit()}
-                                className="w-full px-0 py-0 border-0 bg-transparent text-xs focus:outline-none"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={(editForm as any).revenue ?? 0}
-                                onChange={(e) => setEditForm((f) => ({ ...(f as any), revenue: Math.max(0, Number(e.target.value) || 0) }))}
-                                onBlur={() => saveEdit()}
-                                className="w-full px-0 py-0 border-0 bg-transparent text-xs text-right tabular-nums focus:outline-none"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                value={(editForm as any).profit ?? 0}
-                                onChange={(e) => setEditForm((f) => ({ ...(f as any), profit: Number(e.target.value) || 0 }))}
-                                onBlur={() => saveEdit()}
-                                className="w-full px-0 py-0 border-0 bg-transparent text-xs text-right tabular-nums focus:outline-none"
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <select
-                                value={editForm.attribution ?? "COMPANY"}
-                                onChange={(e) => {
-                                  const next = { ...(editForm as any), attribution: e.target.value as "COMPANY" | "DRIVER" };
-                                  setEditForm(next);
-                                }}
-                                onBlur={() => saveEdit()}
-                                className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
-                              >
-                                <option value="COMPANY">会社</option>
-                                <option value="DRIVER">ドライバー</option>
-                              </select>
-                            </td>
-                            <td className="px-3 py-2">
-                              <select
-                                value={editForm.target_driver_id ?? ""}
-                                onChange={(e) => {
-                                  const next = { ...(editForm as any), target_driver_id: e.target.value || null };
-                                  setEditForm(next);
-                                }}
-                                onBlur={() => saveEdit()}
-                                className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
-                              >
-                                <option value="">—</option>
-                                {drivers.map((d) => (
-                                  <option key={d.id} value={d.id}>{d.display_name ?? d.name}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="px-3 py-2">
-                              <select
-                                value={editForm.vehicle_id ?? ""}
-                                onChange={(e) => {
-                                  const next = { ...(editForm as any), vehicle_id: e.target.value || null };
-                                  setEditForm(next);
-                                }}
-                                onBlur={() => saveEdit()}
-                                className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
-                              >
-                                <option value="">—</option>
-                                {vehicles.map((v) => (
-                                  <option key={v.id} value={v.id}>{vehicleLabel(v)}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="text"
-                                value={editForm.memo ?? ""}
-                                onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))}
-                                onBlur={() => saveEdit()}
-                                className="w-full px-0 py-0 border-0 bg-transparent text-xs focus:outline-none"
-                              />
-                            </td>
-                            {canWrite && (
-                              <td className="px-3 py-2">
+                        <td className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
+                        <td className="sticky left-[80px] z-10 bg-white px-3 py-2 text-slate-700 truncate">{r.content}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">
+                          {fmt(r.revenue)}
+                        </td>
+                        <td className={`px-3 py-2 text-right tabular-nums font-medium ${r.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                          {fmtSigned(r.profit)}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600">{r.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
+                        {canWrite && (
+                          <td className="px-3 py-2">
+                            {saving ? (
+                              <span className="text-slate-400 text-[10px]">保存中...</span>
+                            ) : (
+                              <div className="flex items-center justify-end gap-2">
                                 <button
                                   type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (!editingId) return;
-                                    if (!confirm("この行を削除しますか？")) return;
-                                    setSavingId(editingId);
-                                    apiFetch(`/api/admin/sales/log/${editingId}`, { method: "DELETE" })
-                                      .then(() => { setEditingId(null); onUpdated(); })
-                                      .catch(() => { })
-                                      .finally(() => setSavingId(null));
-                                  }}
+                                  onClick={() => onEdit(r)}
+                                  className="text-slate-400 hover:text-slate-800 text-[11px]"
+                                  title="編集"
+                                >
+                                  <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(r.id)}
                                   className="text-slate-400 hover:text-red-600 text-[11px]"
                                   title="削除"
                                 >
                                   <FontAwesomeIcon icon={faTrashCan} className="w-3.5 h-3.5" />
                                 </button>
-                              </td>
+                              </div>
                             )}
-                          </>
-                        ) : (
-                          <>
-                            <td className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
-                            <td className="sticky left-[80px] z-10 bg-white px-3 py-2 text-slate-700 truncate">{r.content}</td>
-                            <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">
-                              {fmt(r.revenue)}
-                            </td>
-                            <td className={`px-3 py-2 text-right tabular-nums font-medium ${r.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                              {fmtSigned(r.profit)}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600">{r.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
-                            <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
-                            <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
-                            <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
-                            {canWrite && (
-                              <td className="px-3 py-2">
-                                {saving ? (
-                                  <span className="text-slate-400 text-[10px]">保存中...</span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (!confirm("この行を削除しますか？")) return;
-                                      setSavingId(r.id);
-                                      apiFetch(`/api/admin/sales/log/${r.id}`, { method: "DELETE" })
-                                        .then(() => onUpdated())
-                                        .catch(() => { })
-                                        .finally(() => setSavingId(null));
-                                    }}
-                                    className="text-slate-400 hover:text-red-600 text-[11px]"
-                                    title="削除"
-                                  >
-                                    <FontAwesomeIcon icon={faTrashCan} className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </td>
-                            )}
-                          </>
+                          </td>
                         )}
                       </tr>
                     );
@@ -912,6 +776,7 @@ export default function SalesPage() {
   const [loadingLog, setLoadingLog] = useState(false);
   const [logSavingId, setLogSavingId] = useState<string | null>(null);
   const [logModalOpen, setLogModalOpen] = useState(false);
+  const [logEditingEntry, setLogEditingEntry] = useState<SalesLogEntryRow | null>(null);
   const [canWrite, setCanWrite] = useState(false);
 
   useEffect(() => {
@@ -1484,7 +1349,10 @@ export default function SalesPage() {
                   {canWrite && (
                     <button
                       type="button"
-                      onClick={() => setLogModalOpen(true)}
+                      onClick={() => {
+                        setLogEditingEntry(null);
+                        setLogModalOpen(true);
+                      }}
                       className="shrink-0 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors"
                     >
                       新規追加
@@ -1493,12 +1361,16 @@ export default function SalesPage() {
                 </div>
                 <LogEntryModal
                   open={logModalOpen}
-                  onClose={() => setLogModalOpen(false)}
+                  onClose={() => {
+                    setLogModalOpen(false);
+                    setLogEditingEntry(null);
+                  }}
                   startIso={startIso}
+                  editingEntry={logEditingEntry}
                   logTypes={logTypes}
                   drivers={logDrivers}
                   vehicles={logVehicles}
-                  onAdded={() => {
+                  onSaved={() => {
                     if (startIso && endIso) {
                       apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
                         .then((res) => setLogEntries(res.entries ?? []))
@@ -1534,6 +1406,10 @@ export default function SalesPage() {
                             .then((res) => setLogEntries(res.entries ?? []))
                             .catch(() => { });
                         }
+                      }}
+                      onEdit={(entry) => {
+                        setLogEditingEntry(entry);
+                        setLogModalOpen(true);
                       }}
                       savingId={logSavingId}
                       setSavingId={setLogSavingId}
