@@ -668,13 +668,13 @@ function LogEntriesByDate({
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
                     <th className="sticky left-0 z-20 bg-slate-50/80 px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
-                    <th className="sticky left-[80px] z-20 bg-slate-50/80 px-3 py-2 text-left font-medium text-slate-600 w-48">内容</th>
+                    <th className="sticky left-[80px] z-20 bg-slate-50/80 px-3 py-2 text-left font-medium text-slate-600 w-[12ch]">内容</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">売上</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">利益</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">帰属先</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">対象者</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">車両</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[80px]">備考</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[240px]">備考</th>
                     {canWrite && <th className="px-3 py-2 w-20" />}
                   </tr>
                 </thead>
@@ -703,7 +703,7 @@ function LogEntriesByDate({
                         className="border-t border-slate-100 hover:bg-slate-50/50"
                       >
                         <td className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
-                        <td className="sticky left-[80px] z-10 bg-white px-3 py-2 text-slate-700 truncate">{r.content}</td>
+                        <td className="sticky left-[80px] z-10 bg-white px-3 py-2 text-slate-700 truncate max-w-[12ch]">{r.content}</td>
                         <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">
                           {fmt(r.revenue)}
                         </td>
