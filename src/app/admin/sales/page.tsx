@@ -585,7 +585,7 @@ function LogEntriesByDate({
     });
   };
 
-  const saveEdit = (next?: Partial<SalesLogEntryRow>, keepEditing = false) => {
+  const saveEdit = (next?: Partial<SalesLogEntryRow>) => {
     if (!editingId || !canWrite) return;
     const merged = { ...(editForm as Partial<SalesLogEntryRow>), ...(next ?? {}) };
     const revenue = Math.max(0, Number((merged as any).revenue ?? 0));
@@ -606,7 +606,7 @@ function LogEntriesByDate({
       }),
     })
       .then(() => {
-        if (!keepEditing) setEditingId(null);
+        setEditingId(null);
         onUpdated();
       })
       .catch(() => { })
@@ -668,13 +668,13 @@ function LogEntriesByDate({
             : "該当するログがありません。フィルターを変更するか、日付範囲を確認してください。"}
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div>
           {byDate.map(([dateIso, rows]) => (
             <div key={dateIso} className="border-b border-slate-100 last:border-b-0">
               <div className="px-3 py-2 bg-slate-50 font-semibold text-slate-800 text-sm">
                 {dateLabel(dateIso)}
               </div>
-              <table className="min-w-[1100px] w-full text-xs table-fixed">
+              <table className="w-full text-xs table-fixed">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
                     <th className="sticky left-0 z-20 bg-slate-50/80 px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
@@ -718,8 +718,8 @@ function LogEntriesByDate({
                                 onChange={(e) => {
                                   const next = { ...(editForm as any), type_id: e.target.value };
                                   setEditForm(next);
-                                  saveEdit(next, true);
                                 }}
+                                onBlur={() => saveEdit()}
                                 className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
                               >
                                 {logTypes.map((t) => (
@@ -732,7 +732,7 @@ function LogEntriesByDate({
                                 type="text"
                                 value={editForm.content ?? ""}
                                 onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
-                                onBlur={() => saveEdit(undefined, true)}
+                                onBlur={() => saveEdit()}
                                 className="w-full px-0 py-0 border-0 bg-transparent text-xs focus:outline-none"
                               />
                             </td>
@@ -741,7 +741,7 @@ function LogEntriesByDate({
                                 type="number"
                                 value={(editForm as any).revenue ?? 0}
                                 onChange={(e) => setEditForm((f) => ({ ...(f as any), revenue: Math.max(0, Number(e.target.value) || 0) }))}
-                                onBlur={() => saveEdit(undefined, true)}
+                                onBlur={() => saveEdit()}
                                 className="w-full px-0 py-0 border-0 bg-transparent text-xs text-right tabular-nums focus:outline-none"
                               />
                             </td>
@@ -750,7 +750,7 @@ function LogEntriesByDate({
                                 type="number"
                                 value={(editForm as any).profit ?? 0}
                                 onChange={(e) => setEditForm((f) => ({ ...(f as any), profit: Number(e.target.value) || 0 }))}
-                                onBlur={() => saveEdit(undefined, true)}
+                                onBlur={() => saveEdit()}
                                 className="w-full px-0 py-0 border-0 bg-transparent text-xs text-right tabular-nums focus:outline-none"
                               />
                             </td>
@@ -760,8 +760,8 @@ function LogEntriesByDate({
                                 onChange={(e) => {
                                   const next = { ...(editForm as any), attribution: e.target.value as "COMPANY" | "DRIVER" };
                                   setEditForm(next);
-                                  saveEdit(next, true);
                                 }}
+                                onBlur={() => saveEdit()}
                                 className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
                               >
                                 <option value="COMPANY">会社</option>
@@ -774,8 +774,8 @@ function LogEntriesByDate({
                                 onChange={(e) => {
                                   const next = { ...(editForm as any), target_driver_id: e.target.value || null };
                                   setEditForm(next);
-                                  saveEdit(next, true);
                                 }}
+                                onBlur={() => saveEdit()}
                                 className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
                               >
                                 <option value="">—</option>
@@ -790,8 +790,8 @@ function LogEntriesByDate({
                                 onChange={(e) => {
                                   const next = { ...(editForm as any), vehicle_id: e.target.value || null };
                                   setEditForm(next);
-                                  saveEdit(next, true);
                                 }}
+                                onBlur={() => saveEdit()}
                                 className="w-full bg-transparent border-0 text-xs px-0 py-0 focus:outline-none"
                               >
                                 <option value="">—</option>
@@ -805,7 +805,7 @@ function LogEntriesByDate({
                                 type="text"
                                 value={editForm.memo ?? ""}
                                 onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))}
-                                onBlur={() => saveEdit(undefined, true)}
+                                onBlur={() => saveEdit()}
                                 className="w-full px-0 py-0 border-0 bg-transparent text-xs focus:outline-none"
                               />
                             </td>
