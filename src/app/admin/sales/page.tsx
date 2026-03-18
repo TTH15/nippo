@@ -25,7 +25,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-type DataPoint = { date: string; yamato: number; amazon: number; yamato_profit: number; amazon_profit: number; profit: number };
+type DataPoint = { date: string; yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number };
 type DriverRow = { id: string; name: string; display_name?: string | null };
 type CourseRow = { id: string; name: string; carrier?: "YAMATO" | "AMAZON" | "OTHER" | null; summary_title?: string | null };
 type SummaryCourseRow = { id: string; name: string; summary_title: string };
@@ -1072,7 +1072,7 @@ export default function SalesPage() {
     let maxRevenue = 0;
     let maxProfit = 0;
     for (const d of displayData) {
-      const rev = d.yamato + d.amazon;
+      const rev = d.yamato + d.amazon + (d.other ?? 0);
       if (rev > maxRevenue) maxRevenue = rev;
       if (d.profit > maxProfit) maxProfit = d.profit;
     }
@@ -1290,7 +1290,8 @@ export default function SalesPage() {
                           <Tooltip content={<CustomTooltip />} />
                           <Legend wrapperStyle={{ paddingTop: "16px", fontSize: "12px" }} iconType="square" iconSize={10} />
                           <Bar yAxisId="left" dataKey="yamato" stackId="revenue" fill="#334155" name="ヤマト売上" radius={[0, 0, 0, 0]} />
-                          <Bar yAxisId="left" dataKey="amazon" stackId="revenue" fill="#94a3b8" name="Amazon売上" radius={[3, 3, 0, 0]} />
+                          <Bar yAxisId="left" dataKey="amazon" stackId="revenue" fill="#64748b" name="Amazon売上" />
+                          <Bar yAxisId="left" dataKey="other" stackId="revenue" fill="#cbd5f5" name="その他売上" radius={[3, 3, 0, 0]} />
                           <Line yAxisId="right" type="monotone" dataKey="profit" stroke="#059669" strokeWidth={2.5} name="利益" dot={{ fill: "#059669", r: 3, strokeWidth: 0 }} activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }} />
                         </ComposedChart>
                       </ResponsiveContainer>

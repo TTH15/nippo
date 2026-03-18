@@ -93,7 +93,7 @@ export async function GET(req: NextRequest) {
 
   const dateMap = new Map<
     string,
-    { yamato: number; amazon: number; yamato_profit: number; amazon_profit: number; profit: number }
+    { yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number }
   >();
 
   shifts?.forEach((s) => {
@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
     // ユーザーが指定した範囲外の日付は集計対象にしない
     if (date < startDate || date > endDate) return;
     if (!dateMap.has(date))
-      dateMap.set(date, { yamato: 0, amazon: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
+      dateMap.set(date, { yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
     const entry = dateMap.get(date)!;
     const rate = rateByCourse[s.course_id];
     if (!rate) return;
@@ -167,11 +167,32 @@ export async function GET(req: NextRequest) {
       const day = String(d.getDate()).padStart(2, "0");
       const iso = `${y}-${m}-${day}`;
       if (!dateMap.has(iso)) {
-        dateMap.set(iso, { yamato: 0, amazon: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
+        dateMap.set(iso, { yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
       }
       d.setDate(d.getDate() + 1);
     }
   }
+
+  // 3. 売上ログ（sales_log_entries）のうち、会社としての売上を「その他売上」として加算
+  const { data: logRows } = await supabase
+    .from("sales_log_entries")
+    .select("log_date, revenue, profit, attribution")
+    .gte("log_date", startDate)
+    .lte("log_date", endDate)
+    .eq("attribution", "COMPANY");
+
+  (logRows ?? []).forEach((row: any) => {
+    const date = row.log_date as string;
+    if (!date || date < startDate || date > endDate) return;
+    const revenue = Number(row.revenue) || 0;
+    const profit = Number(row.profit) || 0;
+    if (!dateMap.has(date)) {
+      dateMap.set(date, { yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
+    }
+    const entry = dateMap.get(date)!;
+    if (revenue > 0) entry.other += revenue;
+    entry.profit += profit;
+  });
 
   const sortedDates = Array.from(dateMap.keys()).sort();
   const data = sortedDates.map((date) => {
@@ -181,6 +202,7 @@ export async function GET(req: NextRequest) {
       date: `${Number(m)}/${Number(day)}`,
       yamato: d.yamato,
       amazon: d.amazon,
+      other: d.other,
       yamato_profit: d.yamato_profit,
       amazon_profit: d.amazon_profit,
       profit: d.profit,
