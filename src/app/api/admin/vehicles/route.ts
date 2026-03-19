@@ -69,9 +69,11 @@ export async function POST(req: NextRequest) {
       lastOilChangeMileage = 0,
       oilChangeInterval = 3000,
       purchaseCost = 0,
+      leaseCost = 35000,
       monthlyInsurance = 0,
+      imageUrl = null,
       nextShakenDate,
-      nextPeriodicInspectionDate,
+      jibaisekiRenewalMonth = null,
       driverIds = [],
     } = body;
 
@@ -93,9 +95,14 @@ export async function POST(req: NextRequest) {
         last_oil_change_mileage: lastOilChangeMileage,
         oil_change_interval: oilChangeInterval,
         purchase_cost: purchaseCost,
+        lease_cost: leaseCost,
         monthly_insurance: monthlyInsurance,
+        image_url: imageUrl && String(imageUrl).trim() ? String(imageUrl).trim() : null,
         next_shaken_date: nextShakenDate && String(nextShakenDate).trim() ? String(nextShakenDate).trim() : null,
-        next_periodic_inspection_date: nextPeriodicInspectionDate && String(nextPeriodicInspectionDate).trim() ? String(nextPeriodicInspectionDate).trim() : null,
+        jibaiseki_renewal_month:
+          jibaisekiRenewalMonth && /^\d{4}-\d{2}$/.test(String(jibaisekiRenewalMonth))
+            ? String(jibaisekiRenewalMonth)
+            : null,
       })
       .select()
       .single();

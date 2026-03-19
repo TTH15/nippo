@@ -15,7 +15,7 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 
-const LEASE_COST = 35000; // 月々リース代
+const DEFAULT_LEASE_COST = 35000; // 月々リース代（デフォルト）
 
 type Driver = {
   id: string;
@@ -40,9 +40,11 @@ type Vehicle = {
   last_oil_change_mileage: number;
   oil_change_interval: number;
   purchase_cost: number;
+  lease_cost?: number | null;
   monthly_insurance: number;
+  image_url?: string | null;
   next_shaken_date?: string | null;
-  next_periodic_inspection_date?: string | null;
+  jibaiseki_renewal_month?: string | null; // YYYY-MM
   created_at: string;
   vehicle_drivers?: VehicleDriver[];
   /** 回収済みマーク: month -> collected_at (ISO日付文字列) */
@@ -73,9 +75,11 @@ export default function VehiclesPage() {
     lastOilChangeMileage: "",
     oilChangeInterval: "3000",
     purchaseCost: "",
+    leaseCost: String(DEFAULT_LEASE_COST),
     monthlyInsurance: "",
+    imageUrl: "",
     nextShakenDate: "",
-    nextPeriodicInspectionDate: "",
+    jibaisekiRenewalMonth: "",
     driverIds: [] as string[],
   });
   const [saving, setSaving] = useState(false);
@@ -180,9 +184,11 @@ export default function VehiclesPage() {
       lastOilChangeMileage: "",
       oilChangeInterval: "3000",
       purchaseCost: "",
+      leaseCost: String(DEFAULT_LEASE_COST),
       monthlyInsurance: "",
+      imageUrl: "",
       nextShakenDate: "",
-      nextPeriodicInspectionDate: "",
+      jibaisekiRenewalMonth: "",
       driverIds: [],
     });
     setShowModal(true);
@@ -192,7 +198,6 @@ export default function VehiclesPage() {
     if (!canWrite) return;
     setEditingVehicle(v);
     const shaken = v.next_shaken_date;
-    const periodic = v.next_periodic_inspection_date;
     setForm({
       manufacturer: v.manufacturer || "",
       brand: v.brand || "",
@@ -204,9 +209,17 @@ export default function VehiclesPage() {
       lastOilChangeMileage: v.last_oil_change_mileage ? String(v.last_oil_change_mileage) : "",
       oilChangeInterval: v.oil_change_interval ? String(v.oil_change_interval) : "3000",
       purchaseCost: v.purchase_cost ? String(v.purchase_cost) : "",
+      leaseCost:
+        v.lease_cost != null && Number.isFinite(Number(v.lease_cost))
+          ? String(v.lease_cost)
+          : String(DEFAULT_LEASE_COST),
       monthlyInsurance: v.monthly_insurance ? String(v.monthly_insurance) : "",
+      imageUrl: v.image_url || "",
       nextShakenDate: shaken && typeof shaken === "string" ? shaken.slice(0, 10) : "",
-      nextPeriodicInspectionDate: periodic && typeof periodic === "string" ? periodic.slice(0, 10) : "",
+      jibaisekiRenewalMonth:
+        v.jibaiseki_renewal_month && /^\d{4}-\d{2}$/.test(v.jibaiseki_renewal_month)
+          ? v.jibaiseki_renewal_month
+          : "",
       driverIds: v.vehicle_drivers?.map((vd) => vd.driver_id) || [],
     });
     setShowModal(true);
@@ -237,9 +250,11 @@ export default function VehiclesPage() {
         lastOilChangeMileage: toIntOrNull(form.lastOilChangeMileage),
         oilChangeInterval: toIntOrNull(form.oilChangeInterval),
         purchaseCost: toIntOrNull(form.purchaseCost),
+        leaseCost: toIntOrNull(form.leaseCost) ?? DEFAULT_LEASE_COST,
         monthlyInsurance: toIntOrNull(form.monthlyInsurance),
+        imageUrl: form.imageUrl.trim() || null,
         nextShakenDate: form.nextShakenDate.trim() || null,
-        nextPeriodicInspectionDate: form.nextPeriodicInspectionDate.trim() || null,
+        jibaisekiRenewalMonth: form.jibaisekiRenewalMonth.trim() || null,
         driverIds: form.driverIds,
       };
       if (editingVehicle) {
@@ -302,7 +317,8 @@ export default function VehiclesPage() {
 
   // 月々回収額（リース代 - 保険料）
   const getMonthlyRecovery = (v: Vehicle) => {
-    return LEASE_COST - (v.monthly_insurance || 0);
+    const lease = v.lease_cost ?? DEFAULT_LEASE_COST;
+    return lease - (v.monthly_insurance || 0);
   };
 
   // 回収済み金額（マークされた月数 × 月々回収額）
@@ -351,12 +367,21 @@ export default function VehiclesPage() {
     return `${y}年${m}月`;
   };
 
+  // 月（YYYY-MM）を「YYYY年M月」で表示。空なら「未設定」
+  const formatMonth = (m: string | null | undefined): string => {
+    if (!m || typeof m !== "string") return "未設定";
+    if (!/^\d{4}-\d{2}$/.test(m)) return "未設定";
+    const y = m.slice(0, 4);
+    const mm = Number(m.slice(5, 7));
+    return `${y}年${mm}月`;
+  };
+
   const openMeterDetail = (v: Vehicle) => {
     setOpenDetail({ type: "meter", vehicle: v });
   };
 
   const openRecoveryDetail = (v: Vehicle) => {
-    const baseLease = LEASE_COST;
+    const baseLease = v.lease_cost ?? DEFAULT_LEASE_COST;
     const baseInsurance = v.monthly_insurance || 0;
     const collected = v.recovery_collected ?? {};
     const rows = Array.from({ length: 12 }, (_v, i) => {
@@ -438,7 +463,7 @@ export default function VehiclesPage() {
 
               return (
                 <div key={v.id} className="bg-white rounded-lg border border-slate-200 p-8 shadow-sm relative">
-                  {/* カード上部1行: No. / 車種 / ドライバー / 次回車検・定期点検 / 編集 */}
+                  {/* カード上部1行: No. / 車種 / ドライバー / 次回車検・自賠責 / 編集 */}
                   <div className="flex flex-wrap items-center gap-4 mb-6">
                     <span className="text-m text-slate-500 font-medium shrink-0">
                       No.{String(vehicleNo).padStart(4, "0")}
@@ -517,8 +542,8 @@ export default function VehiclesPage() {
                     <div className="flex items-center gap-4 text-sm shrink-0 pl-3">
                       <span className="text-slate-400">次回車検</span>
                       <span className="font-semibold text-lg text-slate-900">{formatInspectionDate(v.next_shaken_date)}</span>
-                      <span className="text-slate-400 pl-3">次回定期点検</span>
-                      <span className="font-semibold text-lg text-slate-900">{formatInspectionDate(v.next_periodic_inspection_date)}</span>
+                      <span className="text-slate-400 pl-3">自賠責更新</span>
+                      <span className="font-semibold text-lg text-slate-900">{formatMonth(v.jibaiseki_renewal_month)}</span>
                     </div>
                     {canWrite && (
                       <button
@@ -542,8 +567,22 @@ export default function VehiclesPage() {
                       )}
 
                       {/* 車両画像プレースホルダー（16:9） */}
-                      <div className="w-full aspect-video bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-sm overflow-hidden">
-                        <span>車両画像</span>
+                      <div className="w-full aspect-video bg-slate-100 rounded-lg overflow-hidden">
+                        {v.image_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={v.image_url}
+                            alt="車両画像"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">
+                            <span>車両画像</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -868,6 +907,60 @@ export default function VehiclesPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">月々リース代 (円)</label>
+                    <input
+                      type="number"
+                      value={form.leaseCost}
+                      onChange={(e) => setForm((f) => ({ ...f, leaseCost: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">デフォルト: {fmt(DEFAULT_LEASE_COST)}円</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">車両画像</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={form.imageUrl}
+                        onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
+                        placeholder="画像URL（または下のファイルで設定）"
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, imageUrl: "" }))}
+                        className="px-3 py-2 text-sm border border-slate-200 rounded text-slate-600 hover:bg-slate-50"
+                        title="画像をクリア"
+                      >
+                        クリア
+                      </button>
+                    </div>
+                    <div className="mt-2">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const url = typeof reader.result === "string" ? reader.result : "";
+                            if (url) setForm((f) => ({ ...f, imageUrl: url }));
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                        className="block w-full text-xs text-slate-600"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        URL入力か、画像ファイル選択で設定できます（MVPとしてデータURL保存）。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">次回車検予定日</label>
                     <DatePicker
                       value={
@@ -882,22 +975,14 @@ export default function VehiclesPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">次回定期点検予定日</label>
-                    <DatePicker
-                      value={
-                        form.nextPeriodicInspectionDate &&
-                        /^\d{4}-\d{2}-\d{2}$/.test(form.nextPeriodicInspectionDate)
-                          ? new Date(form.nextPeriodicInspectionDate + "T00:00:00")
-                          : undefined
-                      }
-                      onChange={(d) =>
-                        setForm((f) => ({
-                          ...f,
-                          nextPeriodicInspectionDate: d ? format(d, "yyyy-MM-dd") : "",
-                        }))
-                      }
-                      placeholder="日付を選択"
+                    <label className="block text-sm font-medium text-slate-700 mb-1">自賠責の更新月</label>
+                    <input
+                      type="month"
+                      value={form.jibaisekiRenewalMonth}
+                      onChange={(e) => setForm((f) => ({ ...f, jibaisekiRenewalMonth: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
+                    <p className="text-xs text-slate-500 mt-1">例: 2026-04</p>
                   </div>
                 </div>
               </div>

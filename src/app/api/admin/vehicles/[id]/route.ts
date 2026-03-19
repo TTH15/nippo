@@ -30,9 +30,11 @@ export async function PUT(
       lastOilChangeMileage,
       oilChangeInterval,
       purchaseCost,
+      leaseCost,
       monthlyInsurance,
+      imageUrl,
       nextShakenDate,
-      nextPeriodicInspectionDate,
+      jibaisekiRenewalMonth,
       driverIds,
     } = body;
 
@@ -47,9 +49,16 @@ export async function PUT(
     if (lastOilChangeMileage !== undefined) updates.last_oil_change_mileage = lastOilChangeMileage;
     if (oilChangeInterval !== undefined) updates.oil_change_interval = oilChangeInterval;
     if (purchaseCost !== undefined) updates.purchase_cost = purchaseCost;
+    if (leaseCost !== undefined) updates.lease_cost = leaseCost;
     if (monthlyInsurance !== undefined) updates.monthly_insurance = monthlyInsurance;
+    if (imageUrl !== undefined) updates.image_url = imageUrl && String(imageUrl).trim() ? String(imageUrl).trim() : null;
     if (nextShakenDate !== undefined) updates.next_shaken_date = nextShakenDate && String(nextShakenDate).trim() ? String(nextShakenDate).trim() : null;
-    if (nextPeriodicInspectionDate !== undefined) updates.next_periodic_inspection_date = nextPeriodicInspectionDate && String(nextPeriodicInspectionDate).trim() ? String(nextPeriodicInspectionDate).trim() : null;
+    if (jibaisekiRenewalMonth !== undefined) {
+      updates.jibaiseki_renewal_month =
+        jibaisekiRenewalMonth && /^\d{4}-\d{2}$/.test(String(jibaisekiRenewalMonth))
+          ? String(jibaisekiRenewalMonth)
+          : null;
+    }
 
     const { error } = await supabase
       .from("vehicles")
