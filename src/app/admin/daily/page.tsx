@@ -173,8 +173,9 @@ export default function AdminDailyPage() {
             .filter((g) => g.entries.length > 0)
         );
       }
-    } catch {
-      // noop
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "承認に失敗しました";
+      setFetchError(msg);
     }
   };
 

@@ -11,6 +11,7 @@ import { DatePicker } from "@/lib/components/DatePicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { UnderlineTabs } from "@/lib/components/UnderlineTabs";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { reportDateDefaultJST } from "@/lib/date";
 import { ChevronDown, Check } from "lucide-react";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
@@ -218,19 +219,33 @@ const CustomTooltip = ({
   label?: string;
 }) => {
   if (!active || !payload?.length) return null;
+  const isProfit = (name: string) => name.includes("利益");
+  const revenueItems = payload.filter((p) => !isProfit(p.name));
+  const profitItems = payload.filter((p) => isProfit(p.name));
+  const totalRevenue = revenueItems.reduce((s, p) => s + (Number(p.value) || 0), 0);
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-4 py-3 text-sm">
       <p className="font-medium text-slate-900 mb-1.5">{label}</p>
-      {payload.map((entry, i) => (
-        <div key={i} className="flex items-center gap-2 py-0.5">
-          <span
-            className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
-            style={{ backgroundColor: entry.color }}
-          />
+      {revenueItems.map((entry, i) => (
+        <div key={`rev-${i}`} className="flex items-center gap-2 py-0.5">
+          <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: entry.color }} />
           <span className="text-slate-600">{entry.name}</span>
-          <span className="ml-auto font-medium text-slate-900 pl-4">
-            {fmt(entry.value)}
-          </span>
+          <span className="ml-auto font-medium text-slate-900 pl-4">{fmt(entry.value)}</span>
+        </div>
+      ))}
+      {revenueItems.length > 0 && (
+        <div className="flex items-center gap-2 pt-1.5 mt-1 border-t border-slate-100">
+          <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0 bg-slate-200" />
+          <span className="text-slate-600 font-medium">売上合計</span>
+          <span className="ml-auto font-semibold text-slate-900 pl-4">{fmt(totalRevenue)}</span>
+        </div>
+      )}
+      {profitItems.length > 0 && <div className="my-2 border-t border-slate-200" />}
+      {profitItems.map((entry, i) => (
+        <div key={`profit-${i}`} className="flex items-center gap-2 py-0.5">
+          <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: entry.color }} />
+          <span className="text-slate-600">{entry.name}</span>
+          <span className="ml-auto font-medium text-slate-900 pl-4">{fmt(entry.value)}</span>
         </div>
       ))}
     </div>
@@ -816,8 +831,14 @@ export default function SalesPage() {
 
   useEffect(() => {
     if (!startIso || !endIso) return;
-    // 範囲が変わったら、選択日は末日に追従（未選択時も同様）
-    setSelectedDayIso((prev) => prev || endIso);
+    const businessToday = reportDateDefaultJST();
+    // 初期値は常に「業務日(TODAY)」にする（JST 3:00切り替え）。
+    // ただし期間外なら、期間内にクランプする。
+    setSelectedDayIso((prev) => {
+      if (prev) return prev;
+      if (businessToday >= startIso && businessToday <= endIso) return businessToday;
+      return endIso; // 期間外なら末日に寄せる
+    });
   }, [startIso, endIso]);
 
   // 前期間（同じ日数分ひとつ前の区間）の売上・利益を取得

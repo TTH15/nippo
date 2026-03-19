@@ -17,6 +17,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "driverId and date are required" }, { status: 400 });
     }
 
+    // シフト未登録の場合は承認不可（売上・報酬計算がシフト基準のため）
+    const { data: shiftRow, error: shiftErr } = await supabase
+      .from("shifts")
+      .select("id")
+      .eq("driver_id", driverId)
+      .eq("shift_date", date)
+      .limit(1)
+      .maybeSingle();
+
+    if (shiftErr) {
+      console.error(shiftErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    if (!shiftRow) {
+      return NextResponse.json(
+        { error: "シフト未登録のため承認できません。先にシフト登録をしてください。" },
+        { status: 400 },
+      );
+    }
+
     // 承認時に「その日報に紐づくメーター値」を車両へ反映する（提出時点では反映しない）
     const { data: report, error: reportErr } = await supabase
       .from("daily_reports")

@@ -49,6 +49,12 @@ type Vehicle = {
   recovery_collected?: Record<number, string>;
 };
 
+type MeterLog = {
+  report_date: string; // YYYY-MM-DD
+  meter_value: number;
+  driver: Driver;
+};
+
 export default function VehiclesPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -82,6 +88,12 @@ export default function VehiclesPage() {
     vehicleId: string;
     rows: { month: number; lease: number; insurance: number; collected: boolean; collected_at?: string }[];
   } | null>(null);
+  const [meterTab, setMeterTab] = useState<"table" | "graph">("table");
+  const [meterRange, setMeterRange] = useState<{ start: string; end: string } | null>(null);
+  const [meterLogs, setMeterLogs] = useState<MeterLog[]>([]);
+  const [meterLoading, setMeterLoading] = useState(false);
+  const [meterError, setMeterError] = useState<string | null>(null);
+  const [meterSelectedIdx, setMeterSelectedIdx] = useState<number | null>(null);
   const [confirmState, setConfirmState] = useState<{
     message: string;
     onConfirm: () => void;
@@ -113,6 +125,46 @@ export default function VehiclesPage() {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
     load();
   }, []);
+
+  const defaultRangeLast30Days = () => {
+    const end = todayJST();
+    const base = new Date(end + "T12:00:00+09:00");
+    const start = new Date(base);
+    start.setDate(start.getDate() - 29);
+    const startStr = start.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+    return { start: startStr, end };
+  };
+
+  const fetchMeterLogs = async (vehicleId: string, range: { start: string; end: string }) => {
+    setMeterLoading(true);
+    setMeterError(null);
+    try {
+      const res = await apiFetch<{ logs: MeterLog[] }>(
+        `/api/admin/vehicles/${vehicleId}/meter-logs?start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}`
+      );
+      const logs = (res.logs ?? []).filter((l) => l && typeof l.meter_value === "number");
+      setMeterLogs(logs);
+      setMeterSelectedIdx(logs.length ? logs.length - 1 : null);
+    } catch (e) {
+      console.error(e);
+      setMeterError(e instanceof Error ? e.message : "取得に失敗しました");
+      setMeterLogs([]);
+      setMeterSelectedIdx(null);
+    } finally {
+      setMeterLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!openDetail || openDetail.type !== "meter") return;
+    setMeterTab("table");
+    const range = defaultRangeLast30Days();
+    setMeterRange(range);
+    setMeterLogs([]);
+    setMeterSelectedIdx(null);
+    fetchMeterLogs(openDetail.vehicle.id, range);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openDetail?.type, openDetail?.vehicle?.id]);
 
   const openNew = () => {
     if (!canWrite) return;
@@ -270,6 +322,24 @@ export default function VehiclesPage() {
   };
 
   const fmt = (n: number) => n.toLocaleString("ja-JP");
+
+  const fmtSigned = (n: number) => (n > 0 ? `+${fmt(n)}` : n < 0 ? `-${fmt(Math.abs(n))}` : "0");
+
+  const toDateObj = (iso: string) => {
+    if (!iso || typeof iso !== "string") return undefined;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return undefined;
+    return new Date(iso + "T00:00:00+09:00");
+  };
+
+  const meterRows = (() => {
+    // logs are already ascending by date
+    const rows = meterLogs.map((l, idx) => {
+      const prev = idx > 0 ? meterLogs[idx - 1] : null;
+      const delta = prev ? l.meter_value - prev.meter_value : null;
+      return { ...l, delta };
+    });
+    return rows;
+  })();
 
   // 日付文字列（YYYY-MM-DD）を「YYYY年M月」で表示。空なら「未設定」
   const formatInspectionDate = (d: string | null | undefined): string => {
@@ -951,6 +1021,280 @@ export default function VehiclesPage() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* 期間指定 & タブ */}
+                  <div className="mb-3 space-y-3">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="min-w-[180px]">
+                        <div className="text-xs text-slate-500 mb-1">開始日</div>
+                        <DatePicker
+                          value={meterRange?.start ? toDateObj(meterRange.start) : undefined}
+                          onChange={(d) => {
+                            const next = d ? format(d, "yyyy-MM-dd") : "";
+                            setMeterRange((r) => ({ start: next, end: r?.end ?? todayJST() }));
+                          }}
+                          placeholder="開始日"
+                        />
+                      </div>
+                      <div className="min-w-[180px]">
+                        <div className="text-xs text-slate-500 mb-1">終了日</div>
+                        <DatePicker
+                          value={meterRange?.end ? toDateObj(meterRange.end) : undefined}
+                          onChange={(d) => {
+                            const next = d ? format(d, "yyyy-MM-dd") : "";
+                            setMeterRange((r) => ({ start: r?.start ?? todayJST(), end: next }));
+                          }}
+                          placeholder="終了日"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={meterLoading || !meterRange?.start || !meterRange?.end}
+                        onClick={() => {
+                          if (!meterRange?.start || !meterRange?.end) return;
+                          fetchMeterLogs(openDetail.vehicle.id, meterRange);
+                        }}
+                        className="h-10 px-3 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 text-sm"
+                      >
+                        {meterLoading ? "更新中..." : "更新"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={meterLoading}
+                        onClick={() => {
+                          const r = defaultRangeLast30Days();
+                          setMeterRange(r);
+                          fetchMeterLogs(openDetail.vehicle.id, r);
+                        }}
+                        className="h-10 px-3 rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 text-sm"
+                        title="過去30日に戻す"
+                      >
+                        30日
+                      </button>
+                    </div>
+
+                    <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setMeterTab("table")}
+                        className={`px-3 py-1.5 text-sm ${meterTab === "table"
+                          ? "bg-slate-800 text-white"
+                          : "bg-white text-slate-700 hover:bg-slate-50"
+                          }`}
+                      >
+                        テーブル
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMeterTab("graph")}
+                        className={`px-3 py-1.5 text-sm ${meterTab === "graph"
+                          ? "bg-slate-800 text-white"
+                          : "bg-white text-slate-700 hover:bg-slate-50"
+                          }`}
+                      >
+                        グラフ
+                      </button>
+                    </div>
+                  </div>
+
+                  {meterError && (
+                    <div className="mb-3 text-xs text-red-600 border border-red-200 bg-red-50 rounded-md p-2">
+                      取得に失敗しました: {meterError}
+                    </div>
+                  )}
+
+                  {/* テーブル */}
+                  {meterTab === "table" && (
+                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50">
+                          <tr>
+                            <th className="px-2 py-2 text-left text-slate-600">日付</th>
+                            <th className="px-2 py-2 text-left text-slate-600">利用者</th>
+                            <th className="px-2 py-2 text-right text-slate-600">メーター</th>
+                            <th className="px-2 py-2 text-right text-slate-600">前日比</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {meterLoading ? (
+                            <tr>
+                              <td className="px-2 py-3 text-center text-slate-500" colSpan={4}>
+                                読み込み中...
+                              </td>
+                            </tr>
+                          ) : meterRows.length === 0 ? (
+                            <tr>
+                              <td className="px-2 py-3 text-center text-slate-500" colSpan={4}>
+                                この期間のメーターログがありません
+                              </td>
+                            </tr>
+                          ) : (
+                            [...meterRows].reverse().map((r, idx) => (
+                              <tr key={`${r.report_date}-${idx}`} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                                <td className="px-2 py-2 text-slate-700">
+                                  {r.report_date.split("-").map((x, i) => (i === 0 ? x : parseInt(x, 10))).join("/")}
+                                </td>
+                                <td className="px-2 py-2 text-slate-700">{getDisplayName(r.driver)}</td>
+                                <td className="px-2 py-2 text-right font-medium text-slate-900">{fmt(r.meter_value)} km</td>
+                                <td className="px-2 py-2 text-right text-slate-700">
+                                  {r.delta == null ? (
+                                    <span className="text-slate-400">-</span>
+                                  ) : (
+                                    <span className={r.delta >= 0 ? "text-green-700 font-medium" : "text-red-700 font-medium"}>
+                                      {fmtSigned(r.delta)} km
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* グラフ */}
+                  {meterTab === "graph" && (
+                    <div className="space-y-3">
+                      <div className="border border-slate-200 rounded-lg p-3">
+                        {meterLoading ? (
+                          <div className="text-xs text-slate-500 text-center py-8">読み込み中...</div>
+                        ) : meterRows.length < 2 ? (
+                          <div className="text-xs text-slate-500 text-center py-8">
+                            グラフ表示には2件以上のログが必要です
+                          </div>
+                        ) : (
+                          (() => {
+                            const oilPrev = openDetail.vehicle.last_oil_change_mileage;
+                            const oilNext = openDetail.vehicle.last_oil_change_mileage + openDetail.vehicle.oil_change_interval;
+
+                            const ys = [
+                              ...meterRows.map((r) => r.meter_value),
+                              oilPrev,
+                              oilNext,
+                            ];
+                            const minY = Math.min(...ys);
+                            const maxY = Math.max(...ys);
+                            const padY = Math.max(50, Math.round((maxY - minY) * 0.08));
+                            const y0 = minY - padY;
+                            const y1 = maxY + padY;
+
+                            const w = 520;
+                            const h = 220;
+                            const padL = 44;
+                            const padR = 16;
+                            const padT = 12;
+                            const padB = 34;
+                            const innerW = w - padL - padR;
+                            const innerH = h - padT - padB;
+                            const n = meterRows.length;
+                            const xAt = (i: number) => padL + (innerW * i) / (n - 1);
+                            const yAt = (v: number) => {
+                              if (y1 === y0) return padT + innerH / 2;
+                              const t = (v - y0) / (y1 - y0);
+                              return padT + innerH * (1 - t);
+                            };
+                            const points = meterRows.map((r, i) => ({ x: xAt(i), y: yAt(r.meter_value), r, i }));
+                            const linePts = points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+
+                            const selected = (meterSelectedIdx != null ? meterRows[meterSelectedIdx] : null) ?? meterRows[meterRows.length - 1];
+                            const selectedIdx = meterSelectedIdx != null ? meterSelectedIdx : meterRows.length - 1;
+                            const selectedPrev = selectedIdx > 0 ? meterRows[selectedIdx - 1] : null;
+                            const selectedDelta = selectedPrev ? selected.meter_value - selectedPrev.meter_value : null;
+
+                            return (
+                              <div className="space-y-3">
+                                <div className="w-full overflow-x-auto">
+                                  <svg viewBox={`0 0 ${w} ${h}`} className="w-full min-w-[520px]">
+                                    {/* grid */}
+                                    {[0, 1, 2, 3].map((k) => {
+                                      const yy = padT + (innerH * k) / 3;
+                                      const val = y0 + ((y1 - y0) * (3 - k)) / 3;
+                                      return (
+                                        <g key={k}>
+                                          <line x1={padL} x2={w - padR} y1={yy} y2={yy} stroke="#e2e8f0" strokeWidth="1" />
+                                          <text x={padL - 6} y={yy + 4} textAnchor="end" fontSize="10" fill="#64748b">
+                                            {fmt(Math.round(val))}
+                                          </text>
+                                        </g>
+                                      );
+                                    })}
+
+                                    {/* oil prev/next lines */}
+                                    <line x1={padL} x2={w - padR} y1={yAt(oilPrev)} y2={yAt(oilPrev)} stroke="#0f172a" strokeWidth="1" strokeDasharray="4 3" />
+                                    <text x={w - padR} y={yAt(oilPrev) - 4} textAnchor="end" fontSize="10" fill="#0f172a">
+                                      前回 {fmt(oilPrev)}
+                                    </text>
+                                    <line x1={padL} x2={w - padR} y1={yAt(oilNext)} y2={yAt(oilNext)} stroke="#ef4444" strokeWidth="1" strokeDasharray="4 3" />
+                                    <text x={w - padR} y={yAt(oilNext) - 4} textAnchor="end" fontSize="10" fill="#ef4444">
+                                      次回 {fmt(oilNext)}
+                                    </text>
+
+                                    {/* line */}
+                                    <polyline fill="none" stroke="#2563eb" strokeWidth="2.5" points={linePts} />
+
+                                    {/* points */}
+                                    {points.map((p) => {
+                                      const isSel = p.i === selectedIdx;
+                                      return (
+                                        <g
+                                          key={p.i}
+                                          onClick={() => setMeterSelectedIdx(p.i)}
+                                          style={{ cursor: "pointer" }}
+                                        >
+                                          <circle cx={p.x} cy={p.y} r={isSel ? 5 : 4} fill={isSel ? "#0f172a" : "#2563eb"} />
+                                        </g>
+                                      );
+                                    })}
+
+                                    {/* x labels (start/end) */}
+                                    <text x={padL} y={h - 10} textAnchor="start" fontSize="10" fill="#64748b">
+                                      {meterRows[0].report_date.slice(5).replace("-", "/")}
+                                    </text>
+                                    <text x={w - padR} y={h - 10} textAnchor="end" fontSize="10" fill="#64748b">
+                                      {meterRows[meterRows.length - 1].report_date.slice(5).replace("-", "/")}
+                                    </text>
+                                  </svg>
+                                </div>
+
+                                <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                                    <div>
+                                      <span className="text-slate-500">日付:</span>{" "}
+                                      <span className="font-medium">
+                                        {selected.report_date.split("-").map((x, i) => (i === 0 ? x : parseInt(x, 10))).join("/")}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="text-slate-500">利用者:</span>{" "}
+                                      <span className="font-medium">{getDisplayName(selected.driver)}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-slate-500">メーター:</span>{" "}
+                                      <span className="font-medium text-slate-900">{fmt(selected.meter_value)} km</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-slate-500">前日比:</span>{" "}
+                                      {selectedDelta == null ? (
+                                        <span className="text-slate-400">-</span>
+                                      ) : (
+                                        <span className={selectedDelta >= 0 ? "text-green-700 font-medium" : "text-red-700 font-medium"}>
+                                          {fmtSigned(selectedDelta)} km
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 text-[11px] text-slate-500">
+                                    点をクリックすると、その日の詳細（前日比含む）を表示します。
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
 

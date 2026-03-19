@@ -738,7 +738,33 @@ export default function ShiftsPage() {
                         key={r.id}
                         className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs"
                       >
-                        {formatDate(r.request_date)}
+                        <span className="mr-1">{formatDate(r.request_date)}</span>
+                        {canWrite && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setConfirmState({
+                                message: `${getDisplayName(driver)} の希望休（${formatDate(r.request_date)}）を解除しますか？`,
+                                onConfirm: async () => {
+                                  try {
+                                    await apiFetch(`/api/admin/shifts/requests/${r.id}`, { method: "DELETE" });
+                                    setRequests((prev) => prev.filter((x) => x.id !== r.id));
+                                  } catch (e) {
+                                    console.error(e);
+                                    setErrorState({
+                                      title: "希望休の解除に失敗しました",
+                                      message: "サーバーでエラーが発生したため、希望休を解除できませんでした。もう一度お試しください。",
+                                    });
+                                  }
+                                },
+                              });
+                            }}
+                            className="ml-1 text-[11px] text-slate-400 hover:text-slate-800"
+                            title="希望休を解除"
+                          >
+                            ×
+                          </button>
+                        )}
                       </span>
                     ))}
                   </div>
