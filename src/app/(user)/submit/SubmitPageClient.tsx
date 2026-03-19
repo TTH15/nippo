@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -110,15 +110,28 @@ export default function SubmitPageClient() {
             () => ({ vehicles: [] as Vehicle[] }),
           ),
         ]);
-        setVehicles(vehiclesRes.vehicles);
-        setUnlinkedVehicles(unlinkedRes.vehicles ?? []);
+        const linkedVehicles = vehiclesRes.vehicles;
+        const otherVehicles = unlinkedRes.vehicles ?? [];
+
+        setVehicles(linkedVehicles);
+        setUnlinkedVehicles(otherVehicles);
         if (profileRes) setDriverProfile(profileRes);
-        if (prefRes.vehicleId && vehiclesRes.vehicles.some((v) => v.id === prefRes.vehicleId)) {
-          setSelectedVehicleId(prefRes.vehicleId);
-          const idx = vehiclesRes.vehicles.findIndex((v) => v.id === prefRes.vehicleId);
-          if (idx >= 0) setCarouselIndex(idx);
-        } else if (vehiclesRes.vehicles.length > 0) {
-          setSelectedVehicleId(vehiclesRes.vehicles[0].id);
+
+        // 前回選択が「ドライバーに紐付いていない車両」の場合は、通常表示から外す
+        // （「他の車両を選択」モーダル側で選び直せるようにする）
+        const preferredId = prefRes.vehicleId;
+        const preferredInLinked = preferredId ? linkedVehicles.some((v) => v.id === preferredId) : false;
+
+        if (preferredInLinked && preferredId) {
+          const idx = linkedVehicles.findIndex((v) => v.id === preferredId);
+          setSelectedVehicleId(preferredId);
+          setCarouselIndex(idx >= 0 ? idx : 0);
+        } else if (linkedVehicles.length > 0) {
+          setSelectedVehicleId(linkedVehicles[0].id);
+          setCarouselIndex(0);
+        } else {
+          // 紐付け車両が無い場合は、まずは選択しない（モーダルで選択）
+          setSelectedVehicleId(null);
           setCarouselIndex(0);
         }
       } catch (e) {
@@ -145,6 +158,7 @@ export default function SubmitPageClient() {
     setSelectedVehicleId(v.id);
     setCarouselIndex(index);
     saveVehiclePreference(v.id);
+    setMeterValue("");
     setMeterError("");
   };
 
@@ -158,7 +172,9 @@ export default function SubmitPageClient() {
     });
   }, [carouselIndex, vehiclesLoading, showVehicleSelector]);
 
-  const allKnownVehicles = [...vehicles, ...unlinkedVehicles];
+  const allKnownVehicles = Array.from(
+    new Map([...vehicles, ...unlinkedVehicles].map((v) => [v.id, v] as const)).values(),
+  );
 
   const getSelectedVehicle = () => {
     if (!selectedVehicleId) return null;
@@ -167,6 +183,10 @@ export default function SubmitPageClient() {
       null
     );
   };
+
+  const vehicleCandidates = allKnownVehicles.filter((v) =>
+    selectedVehicleId ? v.id !== selectedVehicleId : true,
+  );
 
   const handleUnlinkedSelect = (v: Vehicle) => {
     setConfirmVehicle(v);
@@ -179,6 +199,7 @@ export default function SubmitPageClient() {
       return [...prev, confirmVehicle];
     });
     setSelectedVehicleId(confirmVehicle.id);
+    setMeterValue("");
     setMeterError("");
     setShowVehicleModal(false);
     setConfirmVehicle(null);
@@ -468,7 +489,7 @@ export default function SubmitPageClient() {
         </div>
       </div>
 
-      {/* 車両選択 */}
+      {/* 車両選択（通常表示は「紐付けられた車両」すべて） */}
       {vehiclesLoading ? (
         <div className="mb-6">
           <Skeleton className="h-4 w-20 mb-2" />
@@ -478,39 +499,39 @@ export default function SubmitPageClient() {
             ))}
           </div>
         </div>
-      ) : vehicles.length > 0 || unlinkedVehicles.length > 0 ? (
+      ) : vehicles.length > 0 ? (
         <div className="mb-6">
           <label className="block text-sm font-medium text-slate-700 mb-2">使用車両</label>
-          <div className="flex items-center justify-between gap-3">
+
+          <div className="flex items-center gap-3">
             <div className="flex-1 min-w-0">
-              {(() => {
-                const sel =
-                  getSelectedVehicle() ??
-                  vehicles[0] ??
-                  unlinkedVehicles[0] ??
-                  null;
-                if (!sel) {
-                  return (
-                    <div className="h-16 flex items-center text-xs text-slate-400">
-                      車両が未選択です
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                {vehicles.map((v, i) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => handleVehicleSelect(v, i)}
+                    className={`flex-shrink-0 w-36 sm:w-32 rounded-lg border ${
+                      selectedVehicleId === v.id
+                        ? "border-slate-900"
+                        : "border-slate-200 hover:border-slate-400"
+                    } bg-white px-1 pt-1 pb-2`}
+                  >
+                    <div className="w-[240px] origin-top-left mx-auto" style={{ transform: "scale(0.55)" }}>
+                      <VehiclePlate vehicle={v} selected={selectedVehicleId === v.id} className="w-full max-w-[240px]" />
                     </div>
-                  );
-                }
-                // 管理画面と同じ VehiclePlate（通常）を等比縮小して表示
-                return (
-                  <div className="w-36 sm:w-32">
-                    <div className="w-[240px] origin-top-left" style={{ transform: "scale(0.55)" }}>
-                      <VehiclePlate vehicle={sel} selected className="w-full max-w-[240px]" />
-                    </div>
-                  </div>
-                );
-              })()}
+                  </button>
+                ))}
+              </div>
             </div>
+
             <button
               type="button"
               onClick={() => {
                 setShowVehicleModal(true);
                 setShowVehicleSelector(true);
+                // モーダル内の候補は「選択中以外」なので、先頭に寄せる
+                setCarouselIndex(0);
                 setConfirmVehicle(null);
               }}
               className="shrink-0 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
@@ -520,9 +541,27 @@ export default function SubmitPageClient() {
           </div>
         </div>
       ) : (
-        <div className="mb-4 text-xs text-slate-500">
-          使用できる車両がまだ紐付けられていないため、車両選択とメーター入力欄は表示されません。
-          管理者に連絡してください。
+        <div className="mb-6">
+          <div className="mb-2 text-xs text-slate-500">
+            {unlinkedVehicles.length > 0
+              ? "紐付けられた車両がありません。必要に応じて「他の車両を選択」から選べます。"
+              : "使用できる車両がまだ紐付けられていないため、メーター入力欄は表示されません。管理者に連絡してください。"}
+          </div>
+
+          {unlinkedVehicles.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowVehicleModal(true);
+                setShowVehicleSelector(true);
+                setCarouselIndex(0);
+                setConfirmVehicle(null);
+              }}
+              className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+            >
+              他の車両を選択
+            </button>
+          )}
         </div>
       )}
 
@@ -570,9 +609,8 @@ export default function SubmitPageClient() {
                     setMeterError("");
                   }
                 }}
-                className={`w-full py-3 text-lg font-mono border rounded-xl focus:outline-none focus:ring-2 ${
-                  isMeterInvalid ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-brand-500"
-                } ${showReminder ? "pl-4 pr-10" : "px-4"}`}
+                className={`w-full py-3 text-lg font-mono border rounded-xl focus:outline-none focus:ring-2 ${isMeterInvalid ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-brand-500"
+                  } ${showReminder ? "pl-4 pr-10" : "px-4"}`}
               />
               {showReminder && (
                 <button
@@ -763,7 +801,7 @@ export default function SubmitPageClient() {
         同日の再送信は上書きされます（ヤマト / Amazon 共通）
       </p>
 
-      {/* 他の車両選択モーダル（紐付けられていない車両のみ） */}
+      {/* 他の車両選択モーダル（選択中以外の車両） */}
       {showVehicleModal && (
         <div
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
@@ -778,17 +816,17 @@ export default function SubmitPageClient() {
           >
             <h2 className="text-sm font-semibold text-slate-900 mb-2">他の車両を選択</h2>
             <p className="text-xs text-slate-500 mb-4">
-              まだドライバーに紐付けられていない車両の中から、今回使用した車両を選択してください。
+              使用した車両を選択してください。
             </p>
 
-            {unlinkedVehicles.length === 0 ? (
+            {vehicleCandidates.length === 0 ? (
               <p className="text-xs text-slate-500 py-6 text-center">
-                紐付けられていない車両がありません。
+                選択できる車両がありません。
               </p>
             ) : (
               <>
                 <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide mb-3">
-                  {unlinkedVehicles.map((v, i) => (
+                  {vehicleCandidates.map((v, i) => (
                     <div
                       key={v.id}
                       ref={(el) => {
@@ -799,11 +837,10 @@ export default function SubmitPageClient() {
                       <button
                         type="button"
                         onClick={() => handleUnlinkedSelect(v)}
-                        className={`w-full rounded-lg border ${
-                          confirmVehicle?.id === v.id
+                        className={`w-full rounded-lg border ${confirmVehicle?.id === v.id
                             ? "border-slate-900"
                             : "border-slate-200 hover:border-slate-400"
-                        } bg-white px-1 pt-1 pb-2`}
+                          } bg-white px-1 pt-1 pb-2`}
                       >
                         <div className="w-[240px] origin-top-left mx-auto" style={{ transform: "scale(0.55)" }}>
                           <VehiclePlate vehicle={v} className="w-full max-w-[240px]" />
@@ -820,7 +857,7 @@ export default function SubmitPageClient() {
                 {confirmVehicle && (
                   <div className="mt-2 border-t border-slate-200 pt-3">
                     <p className="text-xs text-slate-700 mb-2">
-                      この車両で正しいですか？ 日報のメーター数値はこの車両に紐づき、管理画面の未承認一覧にもこのナンバーが表示されます。
+                      この車両で正しいですか？
                     </p>
                     <div className="flex justify-end gap-2">
                       <button

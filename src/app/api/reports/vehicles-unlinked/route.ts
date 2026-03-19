@@ -4,15 +4,17 @@ import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
-// GET: まだどのドライバーにも紐付けられていない車両一覧
+// GET: 現在のドライバーに紐付けられていない車両一覧（他ドライバーに紐付いている可能性あり）
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
 
   try {
+    // このドライバーに紐付く車両を除外する
     const { data: links, error: linksError } = await supabase
       .from("vehicle_drivers")
-      .select("vehicle_id");
+      .select("vehicle_id")
+      .eq("driver_id", user.driverId);
 
     if (linksError) {
       console.error(linksError);
@@ -38,10 +40,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    const unlinked =
+    const others =
       vehicles?.filter((v: { id: string }) => !linkedIds.has(v.id)) ?? [];
 
-    return NextResponse.json({ vehicles: unlinked });
+    return NextResponse.json({ vehicles: others });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
