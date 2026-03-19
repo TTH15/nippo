@@ -48,14 +48,7 @@ export async function GET(
   try {
     const { data: rows, error } = await supabase
       .from("daily_reports")
-      .select(
-        `
-        report_date,
-        meter_value,
-        driver_id,
-        drivers ( id, name, display_name )
-      `
-      )
+      .select("report_date, meter_value, driver_id, submitted_at")
       .eq("vehicle_id", vehicleId)
       .gte("report_date", startParam)
       .lte("report_date", endParam)
@@ -69,18 +62,35 @@ export async function GET(
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    const driverIds = Array.from(
+      new Set((rows ?? []).map((r: any) => r?.driver_id).filter(Boolean))
+    ) as string[];
+    const { data: drivers, error: driverErr } = driverIds.length
+      ? await supabase.from("drivers").select("id, name, display_name").in("id", driverIds)
+      : { data: [], error: null };
+    if (driverErr) {
+      console.error("[admin/vehicles/:id/meter-logs] drivers error", driverErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    const driverMap = new Map<string, { id: string; name: string; display_name: string | null }>();
+    (drivers ?? []).forEach((d: any) => {
+      if (!d?.id) return;
+      driverMap.set(String(d.id), {
+        id: String(d.id),
+        name: String(d.name ?? ""),
+        display_name: d.display_name ?? null,
+      });
+    });
+
     const logs: MeterLog[] = (rows ?? [])
       .map((r: any) => {
-        const drv = r.drivers;
-        if (!r.report_date || r.meter_value == null || !drv?.id) return null;
+        if (!r?.report_date || r.meter_value == null || !r.driver_id) return null;
+        const drv = driverMap.get(String(r.driver_id));
+        if (!drv) return null;
         return {
           report_date: String(r.report_date),
           meter_value: Number(r.meter_value),
-          driver: {
-            id: String(drv.id),
-            name: String(drv.name ?? ""),
-            display_name: drv.display_name ?? null,
-          },
+          driver: drv,
         } satisfies MeterLog;
       })
       .filter(Boolean) as MeterLog[];

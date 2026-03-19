@@ -1061,51 +1061,6 @@ export default function VehiclesPage() {
                       閉じる
                     </button>
                   </div>
-                  <div className="text-sm text-slate-700 mb-4">
-                    <div className="font-medium mb-1">
-                      {openDetail.vehicle.manufacturer} {openDetail.vehicle.brand}
-                    </div>
-                    <table className="w-full text-xs border border-slate-200 rounded-lg overflow-hidden">
-                      <tbody>
-                        <tr className="bg-slate-50">
-                          <th className="w-1/2 px-3 py-2 text-left font-medium text-slate-600">
-                            前回オイル交換時メーター
-                          </th>
-                          <td className="px-3 py-2 text-right font-semibold text-slate-900">
-                            {fmt(openDetail.vehicle.last_oil_change_mileage)} km
-                          </td>
-                        </tr>
-                        <tr>
-                          <th className="px-3 py-2 text-left font-medium text-slate-600">
-                            オイル交換間隔
-                          </th>
-                          <td className="px-3 py-2 text-right font-semibold text-slate-900">
-                            {fmt(openDetail.vehicle.oil_change_interval)} km
-                          </td>
-                        </tr>
-                        <tr className="bg-slate-50">
-                          <th className="px-3 py-2 text-left font-medium text-slate-600">
-                            次回オイル交換目安メーター
-                          </th>
-                          <td className="px-3 py-2 text-right font-semibold text-slate-900">
-                            {fmt(
-                              openDetail.vehicle.last_oil_change_mileage +
-                                openDetail.vehicle.oil_change_interval
-                            )}{" "}
-                            km
-                          </td>
-                        </tr>
-                        <tr>
-                          <th className="px-3 py-2 text-left font-medium text-slate-600">
-                            現在走行距離
-                          </th>
-                          <td className="px-3 py-2 text-right font-semibold text-slate-900">
-                            {fmt(openDetail.vehicle.current_mileage)} km
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
 
                   {/* 期間指定 & タブ */}
                   <div className="mb-3 space-y-3">
