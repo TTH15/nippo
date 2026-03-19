@@ -778,6 +778,7 @@ export default function SalesPage() {
   const [logEditingEntry, setLogEditingEntry] = useState<SalesLogEntryRow | null>(null);
   const [logDeleteTarget, setLogDeleteTarget] = useState<SalesLogEntryRow | null>(null);
   const [canWrite, setCanWrite] = useState(false);
+  const [selectedDayIso, setSelectedDayIso] = useState<string>("");
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
@@ -812,6 +813,12 @@ export default function SalesPage() {
     () => (range?.endDate ? toLocalYmd(range.endDate) : ""),
     [range?.endDate],
   );
+
+  useEffect(() => {
+    if (!startIso || !endIso) return;
+    // 範囲が変わったら、選択日は末日に追従（未選択時も同様）
+    setSelectedDayIso((prev) => prev || endIso);
+  }, [startIso, endIso]);
 
   // 前期間（同じ日数分ひとつ前の区間）の売上・利益を取得
   useEffect(() => {
@@ -892,12 +899,15 @@ export default function SalesPage() {
   }, [startIso, endIso, tab]);
 
   useEffect(() => {
-    if (tab !== "log" || !startIso || !endIso) return;
-    setLoadingLog(true);
+    if (!startIso || !endIso) return;
+    // 会社帰属ログの合計を全タブで使うため、日付範囲が決まったら常に取得する
+    if (tab === "log") setLoadingLog(true);
     apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
       .then((res) => setLogEntries(res.entries ?? []))
       .catch(() => setLogEntries([]))
-      .finally(() => setLoadingLog(false));
+      .finally(() => {
+        if (tab === "log") setLoadingLog(false);
+      });
   }, [tab, startIso, endIso]);
 
   useEffect(() => {
@@ -919,7 +929,30 @@ export default function SalesPage() {
       .catch(() => setLogVehicles([]));
   }, [tab]);
 
-  const displayData = deliveryData;
+  const logCompanyByDate = useMemo(() => {
+    const rev = new Map<string, number>();
+    const prof = new Map<string, number>();
+    (logEntries ?? [])
+      .filter((e) => e.attribution === "COMPANY")
+      .forEach((e) => {
+        const d = e.log_date;
+        if (!d) return;
+        rev.set(d, (rev.get(d) ?? 0) + (Number(e.revenue) || 0));
+        prof.set(d, (prof.get(d) ?? 0) + (Number(e.profit) || 0));
+      });
+    return { rev, prof };
+  }, [logEntries]);
+
+  // 日報集計データ + 会社帰属ログ（手動追加）を日付ごとに合算して表示
+  const displayData = useMemo(() => {
+    if (!deliveryData.length) return deliveryData;
+    const { rev, prof } = logCompanyByDate;
+    return deliveryData.map((d) => ({
+      ...d,
+      other: (d.other ?? 0) + (rev.get(d.date) ?? 0),
+      profit: (d.profit ?? 0) + (prof.get(d.date) ?? 0),
+    }));
+  }, [deliveryData, logCompanyByDate]);
 
   // 数値に応じた「きりの良い」上限（例: 15万→20万、23万→25万、38万→50万）
   const niceCeil = (value: number): number => {
@@ -1036,28 +1069,23 @@ export default function SalesPage() {
     const yamato = displayData.reduce((s, d) => s + d.yamato, 0);
     const amazon = displayData.reduce((s, d) => s + d.amazon, 0);
     const profit = displayData.reduce((s, d) => s + d.profit, 0);
-    return { yamato, amazon, total: yamato + amazon, profit };
+    const other = displayData.reduce((s, d) => s + (d.other ?? 0), 0);
+    return { yamato, amazon, total: yamato + amazon + other, profit };
   }, [displayData]);
 
-  // ログタブ時: 帰属先=会社のログを売上・粗利に加算（revenue/profit をそのまま加算）
+  // 会社帰属ログ（手動追加）の合計
   const logCompanyTotals = useMemo(() => {
-    const revenue = logEntries
-      .filter((e) => e.attribution === "COMPANY")
-      .reduce((s, e) => s + (Number(e.revenue) || 0), 0);
-    const profit = logEntries
-      .filter((e) => e.attribution === "COMPANY")
-      .reduce((s, e) => s + (Number(e.profit) || 0), 0);
+    let revenue = 0;
+    let profit = 0;
+    logCompanyByDate.rev.forEach((v) => { revenue += v; });
+    logCompanyByDate.prof.forEach((v) => { profit += v; });
     return { revenue, profit };
-  }, [logEntries]);
+  }, [logCompanyByDate]);
 
   const displayTotals = useMemo(() => {
-    if (tab !== "log") return totals;
-    return {
-      ...totals,
-      total: totals.total + logCompanyTotals.revenue,
-      profit: totals.profit + logCompanyTotals.profit,
-    };
-  }, [tab, totals, logCompanyTotals]);
+    // 全タブで「日報集計 + 会社帰属ログ」を同じ合計として扱う
+    return totals;
+  }, [totals]);
 
   const dailyAvg = useMemo(() => {
     const len = displayData.length || 1;
@@ -1123,7 +1151,7 @@ export default function SalesPage() {
 
         {/* 日付範囲選択 + キャリア・コースフィルタ（アナリティクス / 集計 共通） */}
         <div className="flex flex-col gap-4 mb-6">
-          <DateRangePicker value={range} onChange={setRange} />
+          <DateRangePicker value={range} onChange={setRange} hideSixMonths />
           <div className="flex flex-wrap items-center gap-4">
             <span className="text-xs text-slate-500">対象コース</span>
             <CourseSelect
@@ -1461,6 +1489,45 @@ export default function SalesPage() {
               </>
             ) : (
               <>
+                {/* 1日の売上（選択日） */}
+                <div className="bg-white rounded-lg border border-slate-200 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-500 mb-1">1日の売上</div>
+                      {(() => {
+                        const day = selectedDayIso;
+                        const point = day ? displayData.find((d) => d.date === day) : undefined;
+                        const dayRevenue = point ? (point.yamato + point.amazon + (point.other ?? 0)) : 0;
+                        const dayProfit = point ? (point.profit ?? 0) : 0;
+                        return (
+                          <>
+                            <div className="text-xl font-bold text-slate-900 tracking-tight">{fmt(dayRevenue)}</div>
+                            <div className="text-xs text-slate-500 mt-1">
+                              利益{" "}
+                              <span className={dayProfit >= 0 ? "text-emerald-600 font-semibold tabular-nums" : "text-red-600 font-semibold tabular-nums"}>
+                                {fmtSigned(dayProfit)}
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div className="w-[150px]">
+                      <DatePicker
+                        value={selectedDayIso ? new Date(selectedDayIso + "T12:00:00") : undefined}
+                        onChange={(d) => setSelectedDayIso(d ? toLocalYmd(d) : "")}
+                        placeholder="日付"
+                        className="h-10 w-full"
+                      />
+                    </div>
+                  </div>
+                  {startIso && endIso && selectedDayIso && (selectedDayIso < startIso || selectedDayIso > endIso) && (
+                    <p className="mt-2 text-[11px] text-amber-700">
+                      選択日が期間外です（現在の期間: {startIso}〜{endIso}）
+                    </p>
+                  )}
+                </div>
+
                 {/* 売上カード: 売上を大きく、前期間比は近くに小さく */}
                 <div className="bg-white rounded-lg border border-slate-200 p-4">
                   <div className="text-xs font-semibold text-slate-500 mb-1">売上</div>

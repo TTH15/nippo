@@ -13,9 +13,10 @@ export type DateRangeValue = {
 interface DateRangePickerProps {
   value?: DateRangeValue;
   onChange?: (range: DateRangeValue) => void;
+  hideSixMonths?: boolean;
 }
 
-export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
+export function DateRangePicker({ value, onChange, hideSixMonths }: DateRangePickerProps) {
   const [preset, setPreset] = useState<RangePreset>("current_month");
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   const presets = [
     { value: "current_month", label: "今月" },
-    { value: "six_months", label: "半年" },
+    ...(hideSixMonths ? [] : [{ value: "six_months" as const, label: "半年" as const }]),
     { value: "one_year", label: "1年" },
     { value: "custom", label: "カスタム" },
   ] as const;
