@@ -41,10 +41,10 @@ export function VehiclePlate({
 }) {
   const hasPlate =
     vehicle.number_prefix || vehicle.number_hiragana || vehicle.number_numeric;
-  const size = compact ? "max-w-[100px] min-w-0" : "max-w-[200px]";
+  const size = compact ? "max-w-[100px] min-w-0" : "max-w-[240px]";
   // plate の見た目は「外側の幅」に比例させる（デバイス依存を減らす）
   // cqw: コンテナ幅の 1% なので、100cqw がコンテナ幅になる
-  const refW = compact ? 100 : 200;
+  const refW = compact ? 100 : 240;
   const scaleExpr = `(100cqw / ${refW})`;
   const scaleLenPx = (v: number) => `calc(${v}px * ${scaleExpr})`;
 

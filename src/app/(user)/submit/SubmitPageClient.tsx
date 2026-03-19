@@ -511,16 +511,16 @@ export default function SubmitPageClient() {
                     key={v.id}
                     type="button"
                     onClick={() => handleVehicleSelect(v, i)}
-                    className={`flex-shrink-0 w-36 sm:w-32 rounded-lg border ${selectedVehicleId === v.id
+                    className={`flex-shrink-0 w-40 sm:w-40 rounded-lg border ${selectedVehicleId === v.id
                       ? "border-slate-900"
                       : "border-slate-200 hover:border-slate-400"
                       } bg-white px-1 pt-1 pb-2`}
                   >
-                    <div className="w-[140px] mx-auto">
+                    <div className="w-[150px] mx-auto">
                       <VehiclePlate
                         vehicle={v}
                         selected={selectedVehicleId === v.id}
-                        className="w-full max-w-[140px]"
+                        className="w-full max-w-[150px]"
                       />
                     </div>
                   </button>
@@ -835,7 +835,7 @@ export default function SubmitPageClient() {
                       ref={(el) => {
                         vehicleItemRefs.current[i] = el;
                       }}
-                      className="flex-shrink-0 w-36 sm:w-32"
+                      className="flex-shrink-0 w-40 sm:w-40"
                     >
                       <button
                         type="button"
@@ -845,8 +845,8 @@ export default function SubmitPageClient() {
                           : "border-slate-200 hover:border-slate-400"
                           } bg-white px-1 pt-1 pb-2`}
                       >
-                        <div className="w-[140px] mx-auto">
-                          <VehiclePlate vehicle={v} className="w-full max-w-[140px]" />
+                        <div className="w-[150px] mx-auto">
+                          <VehiclePlate vehicle={v} className="w-full max-w-[150px]" />
                         </div>
                         {(v.manufacturer || v.brand) && (
                           <div className="text-[10px] text-slate-500 truncate text-center">
