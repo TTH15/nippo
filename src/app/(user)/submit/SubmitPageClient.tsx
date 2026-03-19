@@ -516,11 +516,11 @@ export default function SubmitPageClient() {
                       : "border-slate-200 hover:border-slate-400"
                       } bg-white px-1 pt-1 pb-2`}
                   >
-                    <div className="w-[150px] mx-auto">
+                    <div className="w-[140px] mx-auto">
                       <VehiclePlate
                         vehicle={v}
                         selected={selectedVehicleId === v.id}
-                        className="w-full max-w-[150px]"
+                        className="w-full max-w-[140px]"
                       />
                     </div>
                   </button>
@@ -845,8 +845,8 @@ export default function SubmitPageClient() {
                           : "border-slate-200 hover:border-slate-400"
                           } bg-white px-1 pt-1 pb-2`}
                       >
-                        <div className="w-[150px] mx-auto">
-                          <VehiclePlate vehicle={v} className="w-full max-w-[150px]" />
+                        <div className="w-[140px] mx-auto">
+                          <VehiclePlate vehicle={v} className="w-full max-w-[140px]" />
                         </div>
                         {(v.manufacturer || v.brand) && (
                           <div className="text-[10px] text-slate-500 truncate text-center">

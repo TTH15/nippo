@@ -42,14 +42,22 @@ export function VehiclePlate({
   const hasPlate =
     vehicle.number_prefix || vehicle.number_hiragana || vehicle.number_numeric;
   const size = compact ? "max-w-[100px] min-w-0" : "max-w-[200px]";
-  const boltOuter = compact ? 5 : 12;
-  const boltInner = compact ? 3 : 10;
-  const borderWidth = compact ? 1.5 : 2.5;
-  const insetShadow = compact ? 1 : 2;
-  const topKanjiSize = compact ? "0.65rem" : "1.9rem";
-  const topNumericSize = compact ? "0.6rem" : "1.75rem";
-  const bottomKanaSize = compact ? "0.7rem" : "2rem";
-  const bottomNumericSize = compact ? "0.9rem" : "4rem";
+  // plate の見た目は「外側の幅」に比例させる（デバイス依存を減らす）
+  // cqw: コンテナ幅の 1% なので、100cqw がコンテナ幅になる
+  const refW = compact ? 100 : 200;
+  const scaleExpr = `(100cqw / ${refW})`;
+  const scaleLenPx = (v: number) => `calc(${v}px * ${scaleExpr})`;
+
+  const boltOuterPx = compact ? 5 : 12;
+  const boltInnerPx = compact ? 3 : 10;
+  const borderWidthPx = compact ? 1.5 : 2.5;
+  const insetShadowPx = compact ? 1 : 2;
+
+  // rem -> px 換算（UI が崩れないように厳密に寄せるため、px を base にスケールする）
+  const topKanjiSizePx = compact ? 0.65 * 16 : 1.9 * 16;
+  const topNumericSizePx = compact ? 0.6 * 16 : 1.75 * 16;
+  const bottomKanaSizePx = compact ? 0.7 * 16 : 2.0 * 16;
+  const bottomNumericSizePx = compact ? 0.9 * 16 : 4.0 * 16;
 
   const interactive = typeof onClick === "function";
   const wrapperClass = `block text-left rounded-lg overflow-hidden ${
@@ -62,33 +70,52 @@ export function VehiclePlate({
       : ""
   } ${size} ${className ?? ""}`;
 
+  // wrapper に container-type を設定し、内部の cqw を有効にする
+  const wrapperStyle: React.CSSProperties = { containerType: "inline-size" } as React.CSSProperties;
+
   const inner = hasPlate ? (
     <div
       className="relative w-full bg-black rounded-lg overflow-hidden"
       style={{
         aspectRatio: "2 / 1",
-        border: `${borderWidth}px solid #b8a038`,
-        boxShadow: `inset 0 0 0 ${insetShadow}px #1a1a1a, 0 2px 8px rgba(0,0,0,0.3)`,
+        border: `${scaleLenPx(borderWidthPx)} solid #b8a038`,
+        boxShadow: `inset 0 0 0 ${scaleLenPx(insetShadowPx)} #1a1a1a, 0 2px 8px rgba(0,0,0,0.3)`,
       }}
     >
       {/* ボルト穴（左上） */}
-      <div className="absolute flex items-center justify-center" style={{ top: "10%", left: "12%", width: boltOuter, height: boltOuter }}>
+      <div
+        className="absolute flex items-center justify-center"
+        style={{
+          top: "10%",
+          left: "12%",
+          width: scaleLenPx(boltOuterPx),
+          height: scaleLenPx(boltOuterPx),
+        }}
+      >
         <div
           className="rounded-full"
           style={{
-            width: boltInner,
-            height: boltInner,
+            width: scaleLenPx(boltInnerPx),
+            height: scaleLenPx(boltInnerPx),
             background: "radial-gradient(circle at 40% 40%, #555 0%, #222 60%, #111 100%)",
           }}
         />
       </div>
       {/* ボルト穴（右上） */}
-      <div className="absolute flex items-center justify-center" style={{ top: "10%", right: "12%", width: boltOuter, height: boltOuter }}>
+      <div
+        className="absolute flex items-center justify-center"
+        style={{
+          top: "10%",
+          right: "12%",
+          width: scaleLenPx(boltOuterPx),
+          height: scaleLenPx(boltOuterPx),
+        }}
+      >
         <div
           className="rounded-full"
           style={{
-            width: boltInner,
-            height: boltInner,
+            width: scaleLenPx(boltInnerPx),
+            height: scaleLenPx(boltInnerPx),
             background: "radial-gradient(circle at 40% 40%, #555 0%, #222 60%, #111 100%)",
           }}
         />
@@ -96,22 +123,39 @@ export function VehiclePlate({
 
       {/* プレート内容 */}
       <div className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden min-w-0">
-        <div className="flex items-baseline gap-0.5 shrink-0" style={{ color: "#e8d44d", marginBottom: compact ? 0 : 2, paddingTop: compact ? 4 : 12 }}>
-          <span className="plate-font-kanji shrink-0" style={{ fontSize: topKanjiSize, letterSpacing: "0.08em" }}>
+        <div
+          className="flex items-baseline gap-0.5 shrink-0"
+          style={{
+            color: "#e8d44d",
+            marginBottom: compact ? 0 : scaleLenPx(2),
+            paddingTop: scaleLenPx(compact ? 4 : 12),
+          }}
+        >
+          <span className="plate-font-kanji shrink-0" style={{ fontSize: scaleLenPx(topKanjiSizePx), letterSpacing: "0.08em" }}>
             {vehicle.number_prefix || "京都"}
           </span>
-          <span className="plate-font-numeric shrink-0" style={{ fontSize: topNumericSize, letterSpacing: "0.06em" }}>
+          <span
+            className="plate-font-numeric shrink-0"
+            style={{ fontSize: scaleLenPx(topNumericSizePx), letterSpacing: "0.06em" }}
+          >
             {vehicle.number_class || "400"}
           </span>
         </div>
-        <div className="flex items-center justify-center min-w-0 w-full px-0.5" style={{ color: "#e8d44d", gap: compact ? "0.15rem" : "0.35rem", paddingBottom: compact ? 4 : 12 }}>
-          <span className="plate-font-hiragana font-bold flex-shrink-0" style={{ fontSize: bottomKanaSize, lineHeight: 1 }}>
+        <div
+          className="flex items-center justify-center min-w-0 w-full px-0.5"
+          style={{
+            color: "#e8d44d",
+            gap: scaleLenPx(compact ? 0.15 * 16 : 0.35 * 16),
+            paddingBottom: scaleLenPx(compact ? 4 : 12),
+          }}
+        >
+          <span className="plate-font-hiragana font-bold flex-shrink-0" style={{ fontSize: scaleLenPx(bottomKanaSizePx), lineHeight: 1 }}>
             {vehicle.number_hiragana || "わ"}
           </span>
           <span
             className="plate-font-numeric font-black tracking-wider overflow-hidden max-w-full"
             style={{
-              fontSize: bottomNumericSize,
+              fontSize: scaleLenPx(bottomNumericSizePx),
               lineHeight: 1,
               letterSpacing: "0.02em",
               textShadow: "0 0 6px rgba(232,212,77,0.3)",
@@ -135,10 +179,13 @@ export function VehiclePlate({
       onClick={onClick}
       aria-pressed={!!selected}
       className={wrapperClass}
+      style={wrapperStyle}
     >
       {inner}
     </button>
   ) : (
-    <div className={wrapperClass}>{inner}</div>
+    <div className={wrapperClass} style={wrapperStyle}>
+      {inner}
+    </div>
   );
 }
