@@ -31,12 +31,14 @@ export function VehiclePlate({
   selected,
   onClick,
   compact = false,
+  glow = true,
   className,
 }: {
   vehicle: VehiclePlateData;
   selected?: boolean;
   onClick?: () => void;
   compact?: boolean;
+  glow?: boolean;
   className?: string;
 }) {
   const hasPlate =
@@ -159,7 +161,7 @@ export function VehiclePlate({
               fontSize: scaleLenPx(bottomNumericSizePx),
               lineHeight: 1,
               letterSpacing: "0.02em",
-              textShadow: "0 0 6px rgba(232,212,77,0.3)",
+              textShadow: glow ? "0 0 6px rgba(232,212,77,0.3)" : "none",
               minWidth: 0,
             }}
           >

@@ -520,6 +520,7 @@ export default function SubmitPageClient() {
                       <VehiclePlate
                         vehicle={v}
                         selected={selectedVehicleId === v.id}
+                        glow={false}
                         className="w-full max-w-[200px]"
                       />
                     </div>
@@ -846,7 +847,7 @@ export default function SubmitPageClient() {
                           } bg-white px-1 pt-1 pb-2`}
                       >
                         <div className="w-[200px] mx-auto">
-                          <VehiclePlate vehicle={v} className="w-full max-w-[200px]" />
+                          <VehiclePlate vehicle={v} glow={false} className="w-full max-w-[200px]" />
                         </div>
                         {(v.manufacturer || v.brand) && (
                           <div className="text-[10px] text-slate-500 truncate text-center">
