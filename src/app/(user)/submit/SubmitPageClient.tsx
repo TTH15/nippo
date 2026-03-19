@@ -505,17 +505,16 @@ export default function SubmitPageClient() {
 
           <div className="flex items-center gap-3">
             <div className="flex-1 min-w-0">
-              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              <div className="flex gap-2 overflow-x-auto scrollbar-hide">
                 {vehicles.map((v, i) => (
                   <button
                     key={v.id}
                     type="button"
                     onClick={() => handleVehicleSelect(v, i)}
-                    className={`flex-shrink-0 w-36 sm:w-32 rounded-lg border ${
-                      selectedVehicleId === v.id
-                        ? "border-slate-900"
-                        : "border-slate-200 hover:border-slate-400"
-                    } bg-white px-1 pt-1 pb-2`}
+                    className={`flex-shrink-0 w-36 sm:w-32 rounded-lg border ${selectedVehicleId === v.id
+                      ? "border-slate-900"
+                      : "border-slate-200 hover:border-slate-400"
+                      } bg-white px-1 pt-1 pb-2`}
                   >
                     <div className="w-[240px] origin-top-left mx-auto" style={{ transform: "scale(0.55)" }}>
                       <VehiclePlate vehicle={v} selected={selectedVehicleId === v.id} className="w-full max-w-[240px]" />
@@ -825,7 +824,7 @@ export default function SubmitPageClient() {
               </p>
             ) : (
               <>
-                <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide mb-3">
+                <div className="flex items-center overflow-x-auto pb-2 scrollbar-hide mb-3">
                   {vehicleCandidates.map((v, i) => (
                     <div
                       key={v.id}
@@ -838,15 +837,15 @@ export default function SubmitPageClient() {
                         type="button"
                         onClick={() => handleUnlinkedSelect(v)}
                         className={`w-full rounded-lg border ${confirmVehicle?.id === v.id
-                            ? "border-slate-900"
-                            : "border-slate-200 hover:border-slate-400"
+                          ? "border-slate-900"
+                          : "border-slate-200 hover:border-slate-400"
                           } bg-white px-1 pt-1 pb-2`}
                       >
                         <div className="w-[240px] origin-top-left mx-auto" style={{ transform: "scale(0.55)" }}>
                           <VehiclePlate vehicle={v} className="w-full max-w-[240px]" />
                         </div>
                         {(v.manufacturer || v.brand) && (
-                          <div className="mt-1 text-[10px] text-slate-500 truncate text-center">
+                          <div className="text-[10px] text-slate-500 truncate text-center">
                             {[v.manufacturer, v.brand].filter(Boolean).join(" ")}
                           </div>
                         )}
