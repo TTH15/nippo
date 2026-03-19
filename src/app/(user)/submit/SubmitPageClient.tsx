@@ -47,6 +47,7 @@ export default function SubmitPageClient() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [meterValue, setMeterValue] = useState("");
+  const [meterError, setMeterError] = useState<string>("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
@@ -120,9 +121,6 @@ export default function SubmitPageClient() {
           setSelectedVehicleId(vehiclesRes.vehicles[0].id);
           setCarouselIndex(0);
         }
-        if (vehiclesRes.vehicles.length === 1 && vehiclesRes.vehicles[0].current_mileage > 0) {
-          setMeterValue(String(vehiclesRes.vehicles[0].current_mileage));
-        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -147,9 +145,7 @@ export default function SubmitPageClient() {
     setSelectedVehicleId(v.id);
     setCarouselIndex(index);
     saveVehiclePreference(v.id);
-    if (v.current_mileage > 0) {
-      setMeterValue(String(v.current_mileage));
-    }
+    setMeterError("");
   };
 
   useEffect(() => {
@@ -183,17 +179,26 @@ export default function SubmitPageClient() {
       return [...prev, confirmVehicle];
     });
     setSelectedVehicleId(confirmVehicle.id);
-    if (confirmVehicle.current_mileage > 0) {
-      setMeterValue(String(confirmVehicle.current_mileage));
-    }
+    setMeterError("");
     setShowVehicleModal(false);
     setConfirmVehicle(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus("loading");
     setErrorMsg("");
+
+    const sel = getSelectedVehicle();
+    const prevKm = sel?.current_mileage ?? 0;
+    const nextKm = meterValue ? Number(meterValue) : null;
+    if (nextKm != null && prevKm > 0 && nextKm <= prevKm) {
+      setMeterError(`前回のメーター数値（${prevKm.toLocaleString("ja-JP")} km）より大きい値を入力してください`);
+      setStatus("idle");
+      return;
+    }
+
+    setStatus("loading");
+    setMeterError("");
 
     try {
       await apiFetch("/api/reports", {
@@ -212,7 +217,7 @@ export default function SubmitPageClient() {
           amazon4Mochidashi: Number(amazonForm.fourMochidashi) || 0,
           amazon4Completed: Number(amazonForm.fourCompleted) || 0,
           vehicleId: selectedVehicleId,
-          meterValue: meterValue ? Number(meterValue) : null,
+          meterValue: nextKm,
         }),
       });
       if (selectedVehicleId) saveVehiclePreference(selectedVehicleId);
@@ -532,6 +537,10 @@ export default function SubmitPageClient() {
         const showReminder = oilProgress >= 70 && interval > 0;
         const isRed = oilProgress >= 95;
         const reminderColorClass = isRed ? "text-red-500" : "text-yellow-500";
+        const prevKm = sel?.current_mileage ?? 0;
+        const isMeterInvalid = meterValue !== "" && prevKm > 0 && Number(meterValue) <= prevKm;
+        const placeholder =
+          prevKm > 0 ? `前回: ${prevKm.toLocaleString("ja-JP")} km` : "例: 14567";
 
         return (
           <div className="mb-6">
@@ -543,13 +552,27 @@ export default function SubmitPageClient() {
                 type="number"
                 inputMode="numeric"
                 min="0"
-                placeholder="例: 14567"
+                placeholder={placeholder}
                 value={meterValue}
                 onChange={(e) => {
                   const v = e.target.value.replace(/\D/g, "");
                   setMeterValue(v);
+                  if (v === "") {
+                    setMeterError("");
+                    return;
+                  }
+                  const nextKm = Number(v);
+                  if (prevKm > 0 && nextKm <= prevKm) {
+                    setMeterError(
+                      `前回のメーター数値（${prevKm.toLocaleString("ja-JP")} km）より大きい値を入力してください`,
+                    );
+                  } else {
+                    setMeterError("");
+                  }
                 }}
-                className={`w-full py-3 text-lg font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 ${showReminder ? "pl-4 pr-10" : "px-4"}`}
+                className={`w-full py-3 text-lg font-mono border rounded-xl focus:outline-none focus:ring-2 ${
+                  isMeterInvalid ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-brand-500"
+                } ${showReminder ? "pl-4 pr-10" : "px-4"}`}
               />
               {showReminder && (
                 <button
@@ -570,7 +593,11 @@ export default function SubmitPageClient() {
                 </button>
               )}
             </div>
-            <p className="text-xs text-slate-500 mt-1">車両のメーター数値として記録されます</p>
+            {meterError ? (
+              <p className="text-xs text-red-600 mt-1">{meterError}</p>
+            ) : (
+              <p className="text-xs text-slate-500 mt-1">車両のメーター数値として記録されます</p>
+            )}
           </div>
         );
       })()}
