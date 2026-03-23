@@ -199,6 +199,7 @@ export async function GET(req: NextRequest) {
     const d = dateMap.get(date)!;
     const [, m, day] = date.split("-");
     return {
+      iso: date,
       date: `${Number(m)}/${Number(day)}`,
       yamato: d.yamato,
       amazon: d.amazon,

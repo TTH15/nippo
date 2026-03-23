@@ -27,7 +27,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-type DataPoint = { date: string; yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number };
+type DataPoint = { iso: string; date: string; yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number };
 type DriverRow = { id: string; name: string; display_name?: string | null };
 type CourseRow = { id: string; name: string; carrier?: "YAMATO" | "AMAZON" | "OTHER" | null; summary_title?: string | null };
 type SummaryCourseRow = { id: string; name: string; summary_title: string };
@@ -832,10 +832,9 @@ export default function SalesPage() {
   useEffect(() => {
     if (!startIso || !endIso) return;
     const businessToday = reportDateDefaultJST();
-    // 初期値は常に「業務日(TODAY)」にする（JST 3:00切り替え）。
-    // ただし期間外なら、期間内にクランプする。
+    // 期間変更時は「現在選択日が期間内なら維持、期間外なら業務日/末日にクランプ」
     setSelectedDayIso((prev) => {
-      if (prev) return prev;
+      if (prev && prev >= startIso && prev <= endIso) return prev;
       if (businessToday >= startIso && businessToday <= endIso) return businessToday;
       return endIso; // 期間外なら末日に寄せる
     });
@@ -1517,7 +1516,7 @@ export default function SalesPage() {
                       <div className="text-xs font-semibold text-slate-500 mb-1">1日の売上</div>
                       {(() => {
                         const day = selectedDayIso;
-                        const point = day ? displayData.find((d) => d.date === day) : undefined;
+                        const point = day ? displayData.find((d) => d.iso === day) : undefined;
                         const dayRevenue = point ? (point.yamato + point.amazon + (point.other ?? 0)) : 0;
                         const dayProfit = point ? (point.profit ?? 0) : 0;
                         return (
