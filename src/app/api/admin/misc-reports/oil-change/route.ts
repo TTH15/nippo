@@ -45,13 +45,12 @@ export async function GET(req: NextRequest) {
       driverMap.set(d.id, { id: d.id, name: d.name, display_name: d.display_name ?? null });
     });
 
-    const entries: Entry[] = rows
-      .map((r: Record<string, unknown> & { driver_id: string }) => {
-        const driver = driverMap.get(r.driver_id);
-        if (!driver) return null;
-        return { driver, report: r };
-      })
-      .filter((v): v is Entry => v != null);
+    const entries: Entry[] = [];
+    rows.forEach((r: Record<string, unknown> & { driver_id: string }) => {
+      const driver = driverMap.get(r.driver_id);
+      if (!driver) return;
+      entries.push({ driver, report: r });
+    });
 
     return NextResponse.json({ entries });
   } catch (err) {
