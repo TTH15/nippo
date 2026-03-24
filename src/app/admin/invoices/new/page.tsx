@@ -1,12 +1,12 @@
 "use client";
 
 import { AdminLayout } from "@/lib/components/AdminLayout";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
 import { useSearchParams } from "next/navigation";
 
-export default function InvoiceNewPage() {
+function InvoiceNewPageContent() {
   const [canWrite, setCanWrite] = useState(false);
   const searchParams = useSearchParams();
 
@@ -49,5 +49,13 @@ export default function InvoiceNewPage() {
         />
       </div>
     </AdminLayout>
+  );
+}
+
+export default function InvoiceNewPage() {
+  return (
+    <Suspense fallback={null}>
+      <InvoiceNewPageContent />
+    </Suspense>
   );
 }
