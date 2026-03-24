@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
+import { VehiclePlate } from "@/lib/components/VehiclePlate";
 
 type OilChangeReport = {
   id: string;
@@ -17,6 +18,15 @@ type OilChangeReport = {
   submitted_at: string;
   approved_at: string | null;
   rejected_at: string | null;
+  vehicles?: {
+    id: string;
+    number_prefix?: string | null;
+    number_class?: string | null;
+    number_hiragana?: string | null;
+    number_numeric?: string | null;
+    manufacturer?: string | null;
+    brand?: string | null;
+  } | null;
 };
 
 type Entry = {
@@ -85,6 +95,7 @@ export default function AdminOtherReportsPage() {
                   <tr className="border-b border-slate-200 text-left">
                     <th className="py-3 px-4 font-semibold text-slate-600">ドライバー</th>
                     <th className="py-3 px-3 font-semibold text-slate-600">日時</th>
+                    <th className="py-3 px-3 font-semibold text-slate-600 text-center">車両</th>
                     <th className="py-3 px-3 font-semibold text-slate-600">場所</th>
                     <th className="py-3 px-3 font-semibold text-slate-600 text-right">交換時走行距離</th>
                     <th className="py-3 px-3 font-semibold text-slate-600 text-center">承認</th>
@@ -96,6 +107,13 @@ export default function AdminOtherReportsPage() {
                     <tr key={report.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="py-3 px-4 font-medium">{getDisplayName(driver)}</td>
                       <td className="py-3 px-3 tabular-nums">{report.report_date} {report.report_time}</td>
+                      <td className="py-3 px-3 text-center">
+                        {report.vehicles ? (
+                          <VehiclePlate vehicle={report.vehicles} compact className="max-w-[100px] mx-auto" />
+                        ) : (
+                          <span className="text-slate-400 text-xs">—</span>
+                        )}
+                      </td>
                       <td className="py-3 px-3">{report.location}</td>
                       <td className="py-3 px-3 text-right tabular-nums">{report.odometer_km.toLocaleString()} km</td>
                       <td className="py-3 px-3 text-center">

@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
     const reportTime = String(body.reportTime ?? "");
     const location = String(body.location ?? "").trim();
     const odometerKm = Number(body.odometerKm);
+    const vehicleId = String(body.vehicleId ?? "");
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
       return NextResponse.json({ error: "reportDate is invalid" }, { status: 400 });
@@ -26,6 +27,9 @@ export async function POST(req: NextRequest) {
     }
     if (!Number.isInteger(odometerKm) || odometerKm < 0) {
       return NextResponse.json({ error: "odometerKm must be non-negative integer" }, { status: 400 });
+    }
+    if (!vehicleId) {
+      return NextResponse.json({ error: "vehicleId is required" }, { status: 400 });
     }
 
     const occurredAt = new Date(`${reportDate}T${reportTime}:00+09:00`);
@@ -42,6 +46,7 @@ export async function POST(req: NextRequest) {
         occurred_at: occurredAt.toISOString(),
         location,
         odometer_km: odometerKm,
+        vehicle_id: vehicleId,
         submitted_at: new Date().toISOString(),
       })
       .select("*")

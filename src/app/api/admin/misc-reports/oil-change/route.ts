@@ -16,7 +16,10 @@ export async function GET(req: NextRequest) {
   try {
     const { data: reports, error: reportErr } = await supabase
       .from("oil_change_reports")
-      .select("*")
+      .select(`
+        *,
+        vehicles ( id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand )
+      `)
       .is("approved_at", null)
       .is("rejected_at", null)
       .order("submitted_at", { ascending: false });

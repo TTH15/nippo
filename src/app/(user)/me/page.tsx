@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Skeleton } from "@/lib/components/Skeleton";
+import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { apiFetch } from "@/lib/api";
 
 type Profile = {
@@ -16,6 +17,16 @@ type Profile = {
   bankName: string;
   bankNo: string;
   bankHolder: string;
+};
+
+type Vehicle = {
+  id: string;
+  number_prefix?: string | null;
+  number_class?: string | null;
+  number_hiragana?: string | null;
+  number_numeric?: string | null;
+  manufacturer?: string | null;
+  brand?: string | null;
 };
 
 function MePageContent() {
@@ -34,6 +45,12 @@ function MePageContent() {
   const [odometerKm, setOdometerKm] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportMessage, setReportMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [unlinkedVehicles, setUnlinkedVehicles] = useState<Vehicle[]>([]);
+  const [vehiclesLoading, setVehiclesLoading] = useState(false);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
+  const [confirmVehicle, setConfirmVehicle] = useState<Vehicle | null>(null);
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [pinSubmitting, setPinSubmitting] = useState(false);
@@ -45,6 +62,64 @@ function MePageContent() {
       .catch(() => { })
       .finally(() => setProfileLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!isReport) return;
+    const loadVehicles = async () => {
+      setVehiclesLoading(true);
+      try {
+        const [vehiclesRes, prefRes, unlinkedRes] = await Promise.all([
+          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }),
+          apiFetch<{ vehicleId: string | null }>("/api/reports/vehicle-preference"),
+          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }).catch(
+            () => ({ vehicles: [] as Vehicle[] }),
+          ),
+        ]);
+        const linkedVehicles = vehiclesRes.vehicles ?? [];
+        const otherVehicles = unlinkedRes.vehicles ?? [];
+        setVehicles(linkedVehicles);
+        setUnlinkedVehicles(otherVehicles);
+
+        const preferredId = prefRes.vehicleId;
+        const preferredInLinked = preferredId ? linkedVehicles.some((v) => v.id === preferredId) : false;
+        if (preferredInLinked && preferredId) {
+          setSelectedVehicleId(preferredId);
+        } else if (linkedVehicles.length > 0) {
+          setSelectedVehicleId(linkedVehicles[0].id);
+        } else {
+          setSelectedVehicleId(null);
+        }
+      } catch {
+        setVehicles([]);
+        setUnlinkedVehicles([]);
+        setSelectedVehicleId(null);
+      } finally {
+        setVehiclesLoading(false);
+      }
+    };
+    loadVehicles();
+  }, [isReport]);
+
+  const allKnownVehicles = useMemo(
+    () => Array.from(new Map([...vehicles, ...unlinkedVehicles].map((v) => [v.id, v] as const)).values()),
+    [vehicles, unlinkedVehicles],
+  );
+
+  const vehicleCandidates = useMemo(
+    () => allKnownVehicles.filter((v) => (selectedVehicleId ? v.id !== selectedVehicleId : true)),
+    [allKnownVehicles, selectedVehicleId],
+  );
+
+  const saveVehiclePreference = async (vehicleId: string) => {
+    try {
+      await apiFetch("/api/reports/vehicle-preference", {
+        method: "PUT",
+        body: JSON.stringify({ vehicleId }),
+      });
+    } catch {
+      // noop
+    }
+  };
 
   const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,6 +166,10 @@ function MePageContent() {
       setReportMessage({ type: "error", text: "日付・時間の形式が不正です" });
       return;
     }
+    if (!selectedVehicleId) {
+      setReportMessage({ type: "error", text: "車両を選択してください" });
+      return;
+    }
     setReportSubmitting(true);
     try {
       await apiFetch("/api/reports/oil-change", {
@@ -100,8 +179,10 @@ function MePageContent() {
           reportTime,
           location,
           odometerKm: kilometer,
+          vehicleId: selectedVehicleId,
         }),
       });
+      await saveVehiclePreference(selectedVehicleId);
       setReportMessage({ type: "ok", text: "オイル交換報告を送信しました" });
       setReportLocation("");
       setOdometerKm("");
@@ -138,6 +219,66 @@ function MePageContent() {
             onSubmit={handleOilReportSubmit}
             className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-lg"
           >
+            {vehiclesLoading ? (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">実施車両</label>
+                <div className="flex gap-2 overflow-x-auto pb-2">
+                  {[1, 2].map((i) => (
+                    <Skeleton key={i} className="h-24 w-40 flex-shrink-0 rounded-lg" />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">実施車両</label>
+                {vehicles.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2 overflow-x-auto">
+                      {vehicles.map((v) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedVehicleId(v.id);
+                            saveVehiclePreference(v.id);
+                          }}
+                          className={`flex-shrink-0 w-52 rounded-lg border px-1 pt-1 pb-2 ${
+                            selectedVehicleId === v.id
+                              ? "border-slate-900"
+                              : "border-slate-200 hover:border-slate-400"
+                          }`}
+                        >
+                          <div className="w-[200px] mx-auto">
+                            <VehiclePlate
+                              vehicle={v}
+                              selected={selectedVehicleId === v.id}
+                              glow={false}
+                              className="w-full max-w-[200px]"
+                            />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    {vehicleCandidates.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowVehicleModal(true);
+                          setConfirmVehicle(null);
+                        }}
+                        className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                      >
+                        他の車両を選択
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-500">
+                    選択可能な車両がありません。管理者に連絡してください。
+                  </div>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">日付</label>
@@ -194,6 +335,84 @@ function MePageContent() {
               {reportSubmitting ? "送信中..." : "報告を送信する"}
             </button>
           </form>
+          {showVehicleModal && (
+            <div
+              className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+              onClick={() => {
+                setShowVehicleModal(false);
+                setConfirmVehicle(null);
+              }}
+            >
+              <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-5" onClick={(e) => e.stopPropagation()}>
+                <h2 className="text-sm font-semibold text-slate-900 mb-2">他の車両を選択</h2>
+                <p className="text-xs text-slate-500 mb-4">オイル交換を実施した車両を選択してください。</p>
+                {vehicleCandidates.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-6 text-center">選択できる車両がありません。</p>
+                ) : (
+                  <>
+                    <div className="flex items-center overflow-x-auto pb-2 gap-2">
+                      {vehicleCandidates.map((v) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => setConfirmVehicle(v)}
+                          className={`flex-shrink-0 w-52 rounded-lg border px-1 pt-1 pb-2 ${
+                            confirmVehicle?.id === v.id
+                              ? "border-slate-900"
+                              : "border-slate-200 hover:border-slate-400"
+                          }`}
+                        >
+                          <div className="w-[200px] mx-auto">
+                            <VehiclePlate vehicle={v} glow={false} className="w-full max-w-[200px]" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    {confirmVehicle && (
+                      <div className="mt-2 border-t border-slate-200 pt-3">
+                        <p className="text-xs text-slate-700 mb-2">この車両で正しいですか？</p>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmVehicle(null)}
+                            className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800"
+                          >
+                            戻る
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!confirmVehicle) return;
+                              setVehicles((prev) => (prev.some((x) => x.id === confirmVehicle.id) ? prev : [...prev, confirmVehicle]));
+                              setSelectedVehicleId(confirmVehicle.id);
+                              saveVehiclePreference(confirmVehicle.id);
+                              setShowVehicleModal(false);
+                              setConfirmVehicle(null);
+                            }}
+                            className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 text-white hover:bg-slate-700"
+                          >
+                            この車両を使う
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowVehicleModal(false);
+                      setConfirmVehicle(null);
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800"
+                  >
+                    閉じる
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       </div>
     );

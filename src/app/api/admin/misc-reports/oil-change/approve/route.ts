@@ -15,6 +15,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
+    const { data: report, error: reportErr } = await supabase
+      .from("oil_change_reports")
+      .select("vehicle_id, odometer_km")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (reportErr) {
+      console.error("[admin/misc-reports/oil-change/approve] report error", reportErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+
     const { error } = await supabase
       .from("oil_change_reports")
       .update({
@@ -28,6 +39,20 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error("[admin/misc-reports/oil-change/approve] error", error);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+
+    if (report?.vehicle_id && report.odometer_km != null) {
+      const { error: vehicleErr } = await supabase
+        .from("vehicles")
+        .update({
+          last_oil_change_mileage: Number(report.odometer_km),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", report.vehicle_id);
+      if (vehicleErr) {
+        console.error("[admin/misc-reports/oil-change/approve] vehicle update error", vehicleErr);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ ok: true });
