@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -14,7 +14,19 @@ import { canAdminWrite } from "@/lib/authz";
 import { faPenToSquare, faGripVertical } from "@fortawesome/free-solid-svg-icons";
 
 type CourseCarrier = "YAMATO" | "AMAZON" | "OTHER";
-type Course = { id: string; name: string; color: string; sort_order: number; max_drivers?: number | null; carrier?: CourseCarrier | null; summary_title?: string | null };
+type Course = {
+  id: string;
+  name: string;
+  color: string;
+  sort_order: number;
+  max_drivers?: number | null;
+  carrier?: CourseCarrier | null;
+  summary_title?: string | null;
+  principal_invoice_address_id?: string | null;
+  counterparty_invoice_address_id?: string | null;
+};
+
+type InvoiceAddress = { id: string; name: string };
 type CourseRate = {
   id: string;
   course_id: string;
@@ -57,26 +69,51 @@ export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [rates, setRates] = useState<CourseRate[]>([]);
+  const [invoiceAddresses, setInvoiceAddresses] = useState<InvoiceAddress[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showRateModal, setShowRateModal] = useState(false);
   const [editingRate, setEditingRate] = useState<CourseRate | null>(null);
   const [rateForm, setRateForm] = useState(INITIAL_RATE_FORM);
-  const [newCourse, setNewCourse] = useState<{ name: string; color: string; max_drivers: string; carrier: CourseCarrier; summary_title: string }>({
+  const [newCourse, setNewCourse] = useState<{
+    name: string;
+    color: string;
+    max_drivers: string;
+    carrier: CourseCarrier;
+    summary_title: string;
+    principal_invoice_address_id: string;
+    counterparty_invoice_address_id: string;
+  }>({
     name: "",
     color: COLORS[0],
     max_drivers: "1",
     carrier: "OTHER",
     summary_title: "",
+    principal_invoice_address_id: "",
+    counterparty_invoice_address_id: "",
   });
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
-  const [editForm, setEditForm] = useState<{ name: string; color: string; max_drivers: string; carrier: CourseCarrier; summary_title: string }>({
+  const [editForm, setEditForm] = useState<{
+    name: string;
+    color: string;
+    max_drivers: string;
+    carrier: CourseCarrier;
+    summary_title: string;
+    principal_invoice_address_id: string;
+    counterparty_invoice_address_id: string;
+  }>({
     name: "",
     color: COLORS[0],
     max_drivers: "1",
     carrier: "OTHER",
     summary_title: "",
+    principal_invoice_address_id: "",
+    counterparty_invoice_address_id: "",
   });
+
+  const principalNameById = useMemo(() => {
+    return new Map(invoiceAddresses.map((a) => [a.id, a.name]));
+  }, [invoiceAddresses]);
   const [showEditModal, setShowEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmState, setConfirmState] = useState<{
@@ -150,14 +187,16 @@ export default function CoursesPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [coursesRes, usersRes, ratesRes] = await Promise.all([
+      const [coursesRes, usersRes, ratesRes, invoiceAddressesRes] = await Promise.all([
         apiFetch<{ courses: Course[] }>("/api/admin/courses"),
         apiFetch<{ drivers: Driver[] }>("/api/admin/users"),
         apiFetch<{ rates: CourseRate[] }>("/api/admin/course-rates"),
+        apiFetch<{ addresses: InvoiceAddress[] }>("/api/admin/invoice-addresses"),
       ]);
       setCourses(coursesRes.courses);
       setDrivers(usersRes.drivers.filter((d) => d.role === "DRIVER"));
       setRates(ratesRes.rates ?? []);
+      setInvoiceAddresses(invoiceAddressesRes.addresses ?? []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -183,10 +222,20 @@ export default function CoursesPage() {
           max_drivers: Math.max(1, parseInt(newCourse.max_drivers, 10) || 1),
           carrier: newCourse.carrier,
           summary_title: newCourse.summary_title.trim() ? newCourse.summary_title.trim() : null,
+          principal_invoice_address_id: newCourse.principal_invoice_address_id || null,
+          counterparty_invoice_address_id: newCourse.counterparty_invoice_address_id || null,
         }),
       });
       setShowModal(false);
-      setNewCourse({ name: "", color: COLORS[0], max_drivers: "1", carrier: "OTHER", summary_title: "" });
+      setNewCourse({
+        name: "",
+        color: COLORS[0],
+        max_drivers: "1",
+        carrier: "OTHER",
+        summary_title: "",
+        principal_invoice_address_id: "",
+        counterparty_invoice_address_id: "",
+      });
       load();
     } catch (e) {
       console.error(e);
@@ -213,6 +262,8 @@ export default function CoursesPage() {
       max_drivers: String(Math.max(1, course.max_drivers ?? 1)),
       carrier: course.carrier === "YAMATO" || course.carrier === "AMAZON" ? course.carrier : "OTHER",
       summary_title: course.summary_title ?? "",
+        principal_invoice_address_id: course.principal_invoice_address_id ?? "",
+        counterparty_invoice_address_id: course.counterparty_invoice_address_id ?? "",
     });
     setShowEditModal(true);
   };
@@ -230,6 +281,8 @@ export default function CoursesPage() {
           max_drivers: Math.max(1, parseInt(editForm.max_drivers, 10) || 1),
           carrier: editForm.carrier,
           summary_title: editForm.summary_title.trim() ? editForm.summary_title.trim() : null,
+          principal_invoice_address_id: editForm.principal_invoice_address_id || null,
+          counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
         }),
       });
       setShowEditModal(false);
@@ -456,6 +509,12 @@ export default function CoursesPage() {
                         ) : (
                           <span className="text-xs text-slate-400">担当ドライバー未設定</span>
                         )}
+                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[11px] rounded">
+                          元請:{" "}
+                          {course.principal_invoice_address_id
+                            ? principalNameById.get(course.principal_invoice_address_id) ?? "未設定"
+                            : "未設定"}
+                        </span>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
@@ -512,6 +571,37 @@ export default function CoursesPage() {
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
                 <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">元請け（請求元）</label>
+                <CustomSelect
+                  options={[
+                    { value: "", label: "未設定" },
+                    ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
+                  ]}
+                  value={newCourse.principal_invoice_address_id}
+                  onChange={(v) => setNewCourse((f) => ({ ...f, principal_invoice_address_id: v }))}
+                  clearable={false}
+                  size="sm"
+                  disabled={invoiceAddresses.length === 0}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  請求書作成システムで「請求元」として利用します（アドレス帳に登録済みの法人から選択）。
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">取引先（請求先）</label>
+                <CustomSelect
+                  options={[
+                    { value: "", label: "未設定" },
+                    ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
+                  ]}
+                  value={newCourse.counterparty_invoice_address_id}
+                  onChange={(v) => setNewCourse((f) => ({ ...f, counterparty_invoice_address_id: v }))}
+                  clearable={false}
+                  size="sm"
+                  disabled={invoiceAddresses.length === 0}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
@@ -619,6 +709,37 @@ export default function CoursesPage() {
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
                 <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">元請け（請求元）</label>
+                <CustomSelect
+                  options={[
+                    { value: "", label: "未設定" },
+                    ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
+                  ]}
+                  value={editForm.principal_invoice_address_id}
+                  onChange={(v) => setEditForm((f) => ({ ...f, principal_invoice_address_id: v }))}
+                  clearable={false}
+                  size="sm"
+                  disabled={invoiceAddresses.length === 0}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  請求書作成システムで「請求元」として利用します（アドレス帳に登録済みの法人から選択）。
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">取引先（請求先）</label>
+                <CustomSelect
+                  options={[
+                    { value: "", label: "未設定" },
+                    ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
+                  ]}
+                  value={editForm.counterparty_invoice_address_id}
+                  onChange={(v) => setEditForm((f) => ({ ...f, counterparty_invoice_address_id: v }))}
+                  clearable={false}
+                  size="sm"
+                  disabled={invoiceAddresses.length === 0}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>

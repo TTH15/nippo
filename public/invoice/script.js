@@ -613,7 +613,7 @@ function syncPartiesToInvoice() {
                 toRegElem.textContent = ACE_CREATION.regNo;
                 toRegContainer.style.display = 'block';
             }
-        } else if (toData && toData.address) {
+        } else if (toData && (toData.address || toData.postalCode)) {
             // アドレス帳からの住所
             let addressHtml = '';
             if (toData.postalCode) {
@@ -690,7 +690,7 @@ function syncPartiesToInvoice() {
             // ACE CREATIONの印鑑を表示
             const aceStamp = q('#aceStamp');
             if (aceStamp) aceStamp.style.display = 'block';
-        } else if (fromData && fromData.address) {
+        } else if (fromData && (fromData.address || fromData.postalCode)) {
             // アドレス帳からの情報
             let addressHtml = '';
             if (fromData.postalCode) {
@@ -1074,10 +1074,11 @@ function updatePartySelects() {
     const corporateAddresses = addressBook.getCorporateAddresses();
     const individualAddresses = addressBook.getIndividualAddresses();
 
-    // 請求元のオプションを更新（個人のみ + ACE CREATION）
+    // 請求元のオプションを更新（ACE CREATION + 法人 + 個人 + new）
     const fromCurrentValue = fromSelect.value;
     fromSelect.innerHTML = `
         <option value="ace_creation">株式会社ACE CREATION</option>
+        ${corporateAddresses.map(addr => `<option value="${addr.id}">${addr.name}（法人）</option>`).join('')}
         ${individualAddresses.map(addr => `<option value="${addr.id}">${addr.name}（個人）</option>`).join('')}
         <option value="new">新規のアドレスを入力</option>
     `;
@@ -1094,6 +1095,154 @@ function updatePartySelects() {
     `;
     if (toCurrentValue && toSelect.querySelector(`option[value="${toCurrentValue}"]`)) {
         toSelect.value = toCurrentValue;
+    }
+}
+
+function mapSectionToCarrier(section) {
+    if (section === 'Amazon') return 'AMAZON';
+    if (section === 'ヤマト運輸') return 'YAMATO';
+    if (section === '郵便局') return 'OTHER';
+    return null;
+}
+
+async function applyPrincipalFromQuery() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const month = params.get('month'); // YYYY-MM
+        const carrier = params.get('carrier'); // YAMATO | AMAZON | OTHER
+        const section = params.get('section'); // Amazon | ヤマト運輸 | 郵便局
+
+        const carrierMapped = carrier || mapSectionToCarrier(section);
+        if (!month || !carrierMapped) return;
+
+        const res = await apiFetch(`/api/admin/invoice-principal?month=${encodeURIComponent(month)}&carrier=${encodeURIComponent(carrierMapped)}`);
+        const principalId = res?.principal_invoice_address_id;
+        if (!principalId) return;
+
+        const fromSelect = q('#fromPartySelect');
+        if (!fromSelect) return;
+
+        // invoice_address 側は uuid だが、addressBook は corporate の id を 'corp-' で prefix して保持している
+        const optionValue = `corp-${principalId}`;
+        if (fromSelect.querySelector(`option[value="${optionValue}"]`)) {
+            fromSelect.value = optionValue;
+            syncPartiesToInvoice();
+            saveData();
+        }
+    } catch (e) {
+        // 認証失敗や API エラーでも、手動編集に支障が出ないように握りつぶす
+        console.warn('元請け（請求元）の自動反映に失敗しました:', e);
+    }
+}
+
+function applyRecipientFromSection() {
+    const toSelect = q('#toPartySelect');
+    if (!toSelect) return;
+
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const section = params.get('section'); // Amazon | ヤマト運輸 | 郵便局
+        if (!section) return;
+
+        const corp = addressBook.getCorporateAddresses();
+        const keywordsBySection = {
+            'Amazon': ['Amazon'],
+            'ヤマト運輸': ['ヤマト'],
+            '郵便局': ['郵便'],
+        };
+
+        const keywords = keywordsBySection[section] ?? [];
+        const match = corp.find((a) => keywords.some((k) => a.name.includes(k)));
+        toSelect.value = match ? match.id : 'ace_creation';
+    } catch (e) {
+        console.warn('請求先（to）の自動選択に失敗しました:', e);
+    }
+}
+
+async function loadInvoiceDraftFromApi() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const month = params.get('month'); // YYYY-MM
+        const section = params.get('section'); // Amazon | ヤマト運輸 | 郵便局
+        if (!month || !section) return false;
+
+        const res = await apiFetch(`/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(section)}`);
+        const tableData = res?.tableData;
+        if (!tableData) return false;
+
+        // 件名
+        if (res?.section && q('#p_subject')) {
+            q('#p_subject').textContent = `${res.issueDate?.slice(0, 4) ?? ''}年${Number(res.issueDate?.slice(5, 7) ?? 0)}月稼働分`;
+        }
+
+        // 発行日 / 請求書番号
+        const issueDateISO = res?.issueDate;
+        if (issueDateISO && q('#p_issueDate')) {
+            const y = issueDateISO.slice(0, 4);
+            const m = Number(issueDateISO.slice(5, 7));
+            const d = Number(issueDateISO.slice(8, 10));
+            q('#p_issueDate').textContent = `${y}年${m}月${d}日`;
+        }
+        if (issueDateISO && q('#p_dueDate')) {
+            const y = issueDateISO.slice(0, 4);
+            const m = Number(issueDateISO.slice(5, 7));
+            const d = Number(issueDateISO.slice(8, 10));
+            q('#p_dueDate').textContent = `${y}年${m}月${d}日`;
+        }
+        if (res?.invoiceNo && q('#p_invoiceNo')) {
+            q('#p_invoiceNo').textContent = res.invoiceNo;
+        }
+
+        // 取引先ID（請求先）を直接反映
+        if (res?.counterparty_invoice_address_id) {
+            const toSelect = q('#toPartySelect');
+            if (toSelect) {
+                const optionValue = `corp-${res.counterparty_invoice_address_id}`;
+                if (toSelect.querySelector(`option[value="${optionValue}"]`)) {
+                    toSelect.value = optionValue;
+                }
+            }
+        }
+
+        setDataToTables(tableData);
+        saveData();
+        return true;
+    } catch (e) {
+        console.warn('請求書明細の読み込みに失敗しました:', e);
+        return false;
+    }
+}
+
+function applySectionAndSubjectFromQuery() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const month = params.get('month'); // YYYY-MM
+        const section = params.get('section'); // Amazon | ヤマト運輸 | 郵便局
+        let changed = false;
+
+        if (month) {
+            const m = month.match(/^(\d{4})-(\d{2})$/);
+            if (m) {
+                const year = m[1];
+                const mm = String(Number(m[2]));
+                const subjectEl = q('#p_subject');
+                if (subjectEl) subjectEl.textContent = `${year}年${mm}月稼働分`;
+                changed = true;
+            }
+        }
+
+        // セクション（Amazon/ヤマト運輸/郵便局）の表示をクエリに合わせる
+        if (section) {
+            const mainSelect = document.querySelector('.section-select[data-section="main"]');
+            if (mainSelect && mainSelect.value !== section) {
+                mainSelect.value = section;
+                changed = true;
+            }
+        }
+
+        if (changed) saveData();
+    } catch (e) {
+        console.warn('セクション/件名の自動反映に失敗しました:', e);
     }
 }
 
@@ -1161,6 +1310,7 @@ async function initializeApp() {
     setupPartiesListeners();
     setupAddressFormListeners();
     setupTaxControls();
+    applySectionAndSubjectFromQuery();
 
     // 日付同期リスナー（請求日を変更したら振込期日も同時に更新）
     if (issueDateEl && dueDateEl) {
@@ -1179,13 +1329,17 @@ async function initializeApp() {
         console.warn('アドレス帳の読み込みに失敗しました（未ログインの可能性）:', e);
     }
     updatePartySelects();
+    applyRecipientFromSection();
+    const prefilled = await loadInvoiceDraftFromApi();
+    await applyPrincipalFromQuery();
     syncPartiesToInvoice();
 
-    // 初期テーブル行を追加
-    addTableRow('main');
-    addTableRow('deduct');
-
-    calculateTotals();
+    // 初期テーブル行を追加（明細をDBから読み込めた場合は不要）
+    if (!prefilled) {
+        addTableRow('main');
+        addTableRow('deduct');
+        calculateTotals();
+    }
 }
 
 // 編集要素にイベントリスナーを設定

@@ -4,13 +4,21 @@ import { AdminLayout } from "@/lib/components/AdminLayout";
 import { useEffect, useState } from "react";
 import { getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
+import { useSearchParams } from "next/navigation";
 
 export default function InvoiceNewPage() {
   const [canWrite, setCanWrite] = useState(false);
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
   }, []);
+
+  const iframeSrc = (() => {
+    const qs = searchParams?.toString();
+    if (!qs) return "/invoice/index.html";
+    return `/invoice/index.html?${qs}`;
+  })();
 
   if (!canWrite) {
     return (
@@ -34,7 +42,7 @@ export default function InvoiceNewPage() {
     <AdminLayout>
       <div className="-m-6">
         <iframe
-          src="/invoice/index.html"
+          src={iframeSrc}
           className="w-full border-0"
           style={{ height: "calc(100vh - 0px)" }}
           title="請求書作成"

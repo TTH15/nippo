@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
-import { getStoredDriver } from "@/lib/api";
+import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
 
 type SavedInvoice = {
@@ -13,6 +13,8 @@ type SavedInvoice = {
   issueDate: string;
   amount: number;
   status: "draft" | "sent" | "paid";
+  month?: string;
+  section?: "Amazon" | "ヤマト運輸" | "郵便局";
 };
 
 const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }> = {
@@ -21,17 +23,32 @@ const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }>
   paid: { text: "入金済", cls: "bg-emerald-50 text-emerald-700" },
 };
 
-const mockInvoices: SavedInvoice[] = [
-  { id: "INV-2026-001", clientName: "ヤマト運輸株式会社", issueDate: "2026-02-01", amount: 1850000, status: "paid" },
-  { id: "INV-2026-002", clientName: "Amazon配送サービス", issueDate: "2026-02-01", amount: 1230000, status: "sent" },
-  { id: "INV-2026-003", clientName: "佐川急便株式会社", issueDate: "2026-02-15", amount: 920000, status: "draft" },
-];
-
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
+
+function getMonthFromIssueDate(issueDate: string) {
+  // "YYYY-MM-DD" を想定
+  if (!issueDate) return null;
+  const m = issueDate.slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(m) ? m : null;
+}
+
+function getSectionFromClientName(clientName: string) {
+  if (!clientName) return "郵便局";
+  if (clientName.includes("Amazon")) return "Amazon";
+  if (clientName.includes("ヤマト")) return "ヤマト運輸";
+  return "郵便局";
+}
 
 export default function InvoicesPage() {
   const [canWrite, setCanWrite] = useState(false);
-  const [invoices] = useState<SavedInvoice[]>(mockInvoices);
+  const [invoices, setInvoices] = useState<SavedInvoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    return `${yyyy}-${mm}`;
+  });
   const [filter, setFilter] = useState<"all" | SavedInvoice["status"]>("all");
 
   const filtered = filter === "all" ? invoices : invoices.filter((inv) => inv.status === filter);
@@ -39,6 +56,23 @@ export default function InvoicesPage() {
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
   }, []);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await apiFetch<{ month: string; invoices: SavedInvoice[] }>(
+          `/api/admin/invoices?month=${encodeURIComponent(selectedMonth)}`,
+        );
+        setInvoices(res.invoices ?? []);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (selectedMonth) load();
+  }, [selectedMonth]);
 
   return (
     <AdminLayout>
@@ -95,7 +129,13 @@ export default function InvoicesPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    読み込み中...
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
                     該当する請求書はありません
@@ -116,11 +156,18 @@ export default function InvoicesPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {canWrite && (
-                          <button className="text-xs text-slate-500 hover:text-slate-800 transition-colors">
-                            編集
-                          </button>
-                        )}
+                        {canWrite ? (
+                          (() => {
+                            const month = inv.month ?? getMonthFromIssueDate(inv.issueDate) ?? "";
+                            const section = inv.section ?? getSectionFromClientName(inv.clientName);
+                            const href = `/admin/invoices/new?month=${encodeURIComponent(month)}&section=${encodeURIComponent(section)}`;
+                            return (
+                              <a href={href} className="text-xs text-slate-500 hover:text-slate-800 transition-colors">
+                                編集
+                              </a>
+                            );
+                          })()
+                        ) : null}
                       </td>
                     </tr>
                   );

@@ -29,12 +29,22 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, color = "#3b82f6", max_drivers, carrier: carrierRaw, summary_title: summaryTitle } = body as {
+    const {
+      name,
+      color = "#3b82f6",
+      max_drivers,
+      carrier: carrierRaw,
+      summary_title: summaryTitle,
+      principal_invoice_address_id: principalInvoiceAddressIdRaw,
+      counterparty_invoice_address_id: counterpartyInvoiceAddressIdRaw,
+    } = body as {
       name?: string;
       color?: string;
       max_drivers?: number;
       carrier?: string;
       summary_title?: string | null;
+      principal_invoice_address_id?: string | null;
+      counterparty_invoice_address_id?: string | null;
     };
 
     if (!name || typeof name !== "string") {
@@ -48,6 +58,44 @@ export async function POST(req: NextRequest) {
 
     const carrier =
       carrierRaw === "YAMATO" || carrierRaw === "AMAZON" ? carrierRaw : "OTHER";
+
+    const principalInvoiceAddressId =
+      typeof principalInvoiceAddressIdRaw === "string"
+        ? principalInvoiceAddressIdRaw.trim() || null
+        : principalInvoiceAddressIdRaw === null
+          ? null
+          : null;
+    const counterpartyInvoiceAddressId =
+      typeof counterpartyInvoiceAddressIdRaw === "string"
+        ? counterpartyInvoiceAddressIdRaw.trim() || null
+        : counterpartyInvoiceAddressIdRaw === null
+          ? null
+          : null;
+
+    if (principalInvoiceAddressId) {
+      const { data: addr, error: addrErr } = await supabase
+        .from("invoice_addresses")
+        .select("id")
+        .eq("id", principalInvoiceAddressId)
+        .eq("company_code", user.companyCode)
+        .maybeSingle();
+
+      if (addrErr || !addr) {
+        return NextResponse.json({ error: "指定された元請け（請求元）が存在しません" }, { status: 400 });
+      }
+    }
+    if (counterpartyInvoiceAddressId) {
+      const { data: addr, error: addrErr } = await supabase
+        .from("invoice_addresses")
+        .select("id")
+        .eq("id", counterpartyInvoiceAddressId)
+        .eq("company_code", user.companyCode)
+        .maybeSingle();
+
+      if (addrErr || !addr) {
+        return NextResponse.json({ error: "指定された取引先（請求先）が存在しません" }, { status: 400 });
+      }
+    }
 
     // Get max sort order
     const { data: maxData } = await supabase
@@ -65,6 +113,8 @@ export async function POST(req: NextRequest) {
       sort_order: sortOrder,
       max_drivers: capacity,
       carrier,
+      principal_invoice_address_id: principalInvoiceAddressId,
+      counterparty_invoice_address_id: counterpartyInvoiceAddressId,
     };
     if (summaryTitle !== undefined) {
       insertRow.summary_title = typeof summaryTitle === "string" && summaryTitle.trim() !== "" ? summaryTitle.trim() : null;
