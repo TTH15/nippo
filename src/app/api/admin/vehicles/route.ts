@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
+      isDisposed = false,
       manufacturer,
       brand,
       numberPrefix,
@@ -87,10 +88,11 @@ export async function POST(req: NextRequest) {
       .insert({
         manufacturer: manufacturer?.trim() || null,
         brand: brand?.trim() || null,
+        is_disposed: !!isDisposed,
         number_prefix: numberPrefix || null,
         number_class: numberClass || null,
         number_hiragana: numberHiragana || null,
-        number_numeric: numberNumeric || null,
+        number_numeric: isDisposed ? "0000" : (numberNumeric || null),
         current_mileage: currentMileage,
         last_oil_change_mileage: lastOilChangeMileage,
         oil_change_interval: oilChangeInterval,

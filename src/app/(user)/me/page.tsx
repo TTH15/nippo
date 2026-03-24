@@ -1,27 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import Link from "next/link";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
-
-type Report = {
-  id: string;
-  report_date: string;
-  takuhaibin_completed: number;
-  takuhaibin_returned: number;
-  nekopos_completed: number;
-  nekopos_returned: number;
-  submitted_at: string;
-  carrier?: "YAMATO" | "AMAZON";
-  amazon_am_mochidashi?: number;
-  amazon_am_completed?: number;
-  amazon_pm_mochidashi?: number;
-  amazon_pm_completed?: number;
-  amazon_4_mochidashi?: number;
-  amazon_4_completed?: number;
-};
 
 type Profile = {
   name: string;
@@ -36,72 +18,22 @@ type Profile = {
   bankHolder: string;
 };
 
-function ReportContentCell({ r }: { r: Report }) {
-  const carrier = r.carrier || "YAMATO";
-  if (carrier === "YAMATO") {
-    return (
-      <div className="text-[13px] pl-2">
-        <span className="text-slate-500 text-xs">宅急便</span>{" "}
-        <span className="font-semibold text-slate-900 text-base tabular-nums">{r.takuhaibin_completed}</span>
-        <span className="text-slate-500 text-xs pr-3"> 個</span>
-        <span className="text-slate-500 text-xs">ネコポス</span>{" "}
-        <span className="font-semibold text-slate-900 text-base tabular-nums">{r.nekopos_completed}</span>
-        <span className="text-slate-500 text-xs"> 個</span>
-      </div>
-    );
-  }
-  const am = r.amazon_am_completed ?? 0;
-  const pm = r.amazon_pm_completed ?? 0;
-  const four = r.amazon_4_completed ?? 0;
-  const fourOnly = am === 0 && pm === 0 && four > 0;
-  if (fourOnly) {
-    return (
-      <div className="text-[13px] pl-2">
-        <span className="text-slate-500 text-xs">4便</span>
-        <span className="font-semibold text-slate-900 text-base tabular-nums">{four}</span>
-        <span className="text-slate-500 text-xs"> 個</span>
-      </div>
-    );
-  }
-  return (
-    <div className="text-[13px] space-y-0.5 pl-2">
-      {am > 0 && (
-        <div>
-          <span className="text-slate-500 text-xs">午前</span>
-          <span className="font-semibold text-slate-900 text-base tabular-nums">{am}</span>
-          <span className="text-slate-500 text-xs"> 個</span>
-        </div>
-      )}
-      {pm > 0 && (
-        <div>
-          <span className="text-slate-500 text-xs">午後</span>
-          <span className="font-semibold text-slate-900 text-base tabular-nums">{pm}</span>
-          <span className="text-slate-500 text-xs"> 個</span>
-        </div>
-      )}
-      {four > 0 && (
-        <div>
-          <span className="text-slate-500 text-xs">4便</span>
-          <span className="font-semibold text-slate-900 text-base tabular-nums">{four}</span>
-          <span className="text-slate-500 text-xs"> 個</span>
-        </div>
-      )}
-      {am === 0 && pm === 0 && four === 0 && (
-        <span className="text-slate-400 text-xs">—</span>
-      )}
-    </div>
-  );
-}
-
 function MePageContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get("tab");
-  const isHistory = tabParam === "history";
+  const isReport = tabParam === "report";
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
-  const [reports, setReports] = useState<Report[]>([]);
-  const [reportsLoading, setReportsLoading] = useState(true);
+  const now = useMemo(() => new Date(), []);
+  const defaultDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const defaultTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const [reportDate, setReportDate] = useState(defaultDate);
+  const [reportTime, setReportTime] = useState(defaultTime);
+  const [reportLocation, setReportLocation] = useState("");
+  const [odometerKm, setOdometerKm] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportMessage, setReportMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [pinSubmitting, setPinSubmitting] = useState(false);
@@ -113,16 +45,6 @@ function MePageContent() {
       .catch(() => { })
       .finally(() => setProfileLoading(false));
   }, []);
-
-  useEffect(() => {
-    if (isHistory) {
-      setReportsLoading(true);
-      apiFetch<{ reports: Report[] }>("/api/reports/me")
-        .then((d) => setReports(d.reports ?? []))
-        .catch(() => { })
-        .finally(() => setReportsLoading(false));
-    }
-  }, [isHistory]);
 
   const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,6 +74,45 @@ function MePageContent() {
     }
   };
 
+  const handleOilReportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setReportMessage(null);
+    const location = reportLocation.trim();
+    const kilometer = Number(odometerKm);
+    if (!location) {
+      setReportMessage({ type: "error", text: "場所を入力してください" });
+      return;
+    }
+    if (!Number.isInteger(kilometer) || kilometer < 0) {
+      setReportMessage({ type: "error", text: "交換時走行距離は0以上の整数で入力してください" });
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || !/^\d{2}:\d{2}$/.test(reportTime)) {
+      setReportMessage({ type: "error", text: "日付・時間の形式が不正です" });
+      return;
+    }
+    setReportSubmitting(true);
+    try {
+      await apiFetch("/api/reports/oil-change", {
+        method: "POST",
+        body: JSON.stringify({
+          reportDate,
+          reportTime,
+          location,
+          odometerKm: kilometer,
+        }),
+      });
+      setReportMessage({ type: "ok", text: "オイル交換報告を送信しました" });
+      setReportLocation("");
+      setOdometerKm("");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "報告の送信に失敗しました";
+      setReportMessage({ type: "error", text: msg });
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
+
   const profileEntries: { label: string; value: string }[] = profile
     ? [
       { label: "名前", value: profile.name },
@@ -167,81 +128,72 @@ function MePageContent() {
     ].filter((e) => e.value !== undefined && e.value !== "")
     : [];
 
-  // 履歴タブ: 提出履歴のみ（admin/daily と同様の表形式）
-  if (isHistory) {
+  if (isReport) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <h1 className="text-lg font-bold text-slate-900 mb-6">履歴</h1>
+        <h1 className="text-lg font-bold text-slate-900 mb-6">報告</h1>
         <section>
-          <h2 className="text-base font-bold text-slate-900 mb-4">提出履歴</h2>
-          {reportsLoading ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left">
-                    <th className="py-3 pr-3"><Skeleton className="h-4 w-12" /></th>
-                    <th className="py-3 px-3"><Skeleton className="h-4 w-16" /></th>
-                    <th className="py-3 px-3"><Skeleton className="h-4 w-24" /></th>
-                    <th className="py-3 pl-3"><Skeleton className="h-4 w-16" /></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...Array(5)].map((_, i) => (
-                    <tr key={i} className="border-b border-slate-100">
-                      <td className="py-3 pr-3"><Skeleton className="h-4 w-20" /></td>
-                      <td className="py-3 px-3"><Skeleton className="h-4 w-14" /></td>
-                      <td className="py-3 px-3"><Skeleton className="h-4 w-28" /></td>
-                      <td className="py-3 pl-3"><Skeleton className="h-4 w-12" /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <h2 className="text-base font-bold text-slate-900 mb-4">オイル交換の実施報告</h2>
+          <form
+            onSubmit={handleOilReportSubmit}
+            className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-lg"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">日付</label>
+                <input
+                  type="date"
+                  value={reportDate}
+                  onChange={(e) => setReportDate(e.target.value)}
+                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">時間</label>
+                <input
+                  type="time"
+                  value={reportTime}
+                  onChange={(e) => setReportTime(e.target.value)}
+                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
+                />
+              </div>
             </div>
-          ) : reports.length === 0 ? (
-            <p className="text-sm text-slate-500">まだ提出がありません</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr className="border-b border-slate-200 text-left">
-                    <th className="py-3 px-4 font-semibold text-slate-600">日付</th>
-                    <th className="py-3 px-3 font-semibold text-slate-600 text-center">種別</th>
-                    <th className="py-3 px-3 font-semibold text-slate-600 text-center">内容</th>
-                    <th className="py-3 px-4 font-semibold text-slate-600 text-right">送信時刻</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reports.map((r) => {
-                    const carrier = r.carrier || "YAMATO";
-                    return (
-                      <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="py-3 px-4 font-medium align-middle">{r.report_date}</td>
-                        <td className="py-3 px-3 text-center align-middle">
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${carrier === "AMAZON"
-                              ? "bg-violet-100 text-violet-700"
-                              : "bg-emerald-100 text-emerald-700"
-                              }`}
-                          >
-                            {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-left align-top">
-                          <ReportContentCell r={r} />
-                        </td>
-                        <td className="py-3 px-4 text-right text-slate-600 align-middle tabular-nums">
-                          {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">場所</label>
+              <input
+                type="text"
+                value={reportLocation}
+                onChange={(e) => setReportLocation(e.target.value)}
+                className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
+                placeholder="例: ○○サービスエリア"
+              />
             </div>
-          )}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">交換時走行距離 (km)</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={odometerKm}
+                onChange={(e) => setOdometerKm(e.target.value)}
+                className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
+                placeholder="例: 123456"
+              />
+            </div>
+            {reportMessage && (
+              <p className={`text-sm ${reportMessage.type === "ok" ? "text-green-600" : "text-red-600"}`}>
+                {reportMessage.text}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={reportSubmitting}
+              className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {reportSubmitting ? "送信中..." : "報告を送信する"}
+            </button>
+          </form>
         </section>
       </div>
     );

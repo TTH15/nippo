@@ -30,6 +30,7 @@ type VehicleDriver = {
 
 type Vehicle = {
   id: string;
+  is_disposed?: boolean | null;
   manufacturer?: string | null;
   brand?: string | null;
   number_prefix?: string | null;
@@ -65,6 +66,7 @@ export default function VehiclesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [form, setForm] = useState({
+    isDisposed: false,
     manufacturer: "",
     brand: "",
     numberPrefix: "",
@@ -174,6 +176,7 @@ export default function VehiclesPage() {
     if (!canWrite) return;
     setEditingVehicle(null);
     setForm({
+      isDisposed: false,
       manufacturer: "",
       brand: "",
       numberPrefix: "",
@@ -199,6 +202,7 @@ export default function VehiclesPage() {
     setEditingVehicle(v);
     const shaken = v.next_shaken_date;
     setForm({
+      isDisposed: !!v.is_disposed,
       manufacturer: v.manufacturer || "",
       brand: v.brand || "",
       numberPrefix: v.number_prefix || "",
@@ -240,6 +244,7 @@ export default function VehiclesPage() {
     try {
       const toIntOrNull = (v: string) => (v !== "" ? Number(v) : null);
       const payload = {
+        isDisposed: form.isDisposed,
         manufacturer: form.manufacturer || null,
         brand: form.brand || null,
         numberPrefix: form.numberPrefix || null,
@@ -257,6 +262,12 @@ export default function VehiclesPage() {
         jibaisekiRenewalMonth: form.jibaisekiRenewalMonth.trim() || null,
         driverIds: form.driverIds,
       };
+      if (form.isDisposed) {
+        payload.numberPrefix = null;
+        payload.numberClass = null;
+        payload.numberHiragana = null;
+        payload.numberNumeric = "0000";
+      }
       if (editingVehicle) {
         await apiFetch(`/api/admin/vehicles/${editingVehicle.id}`, {
           method: "PUT",
@@ -399,6 +410,13 @@ export default function VehiclesPage() {
     setOpenDetail({ type: "recovery", vehicle: v });
   };
 
+  const orderedVehicles = [...vehicles].sort((a, b) => {
+    const aDisposed = !!a.is_disposed;
+    const bDisposed = !!b.is_disposed;
+    if (aDisposed !== bDisposed) return aDisposed ? -1 : 1;
+    return 0;
+  });
+
   return (
     <AdminLayout>
       <div className="w-full">
@@ -444,7 +462,7 @@ export default function VehiclesPage() {
           <p className="text-sm text-slate-500">車両が登録されていません</p>
         ) : (
           <div className="space-y-4">
-            {vehicles.map((v) => {
+            {orderedVehicles.map((v, idx) => {
               const oilRemaining = getOilRemainingKm(v);
               const nextOilChangeKm = v.last_oil_change_mileage + v.oil_change_interval;
               const oilProgress = Math.max(
@@ -457,17 +475,27 @@ export default function VehiclesPage() {
               const remainingMonths = getRemainingMonths(v);
               const vehicleDrivers = v.vehicle_drivers || [];
 
-              // 登録順のNoを計算（配列のインデックス+1）
-              const vehicleIndex = vehicles.findIndex((veh) => veh.id === v.id);
-              const vehicleNo = vehicleIndex >= 0 ? vehicleIndex + 1 : 1;
+              const vehicleNo = v.is_disposed ? 0 : idx + 1;
 
               return (
-                <div key={v.id} className="bg-white rounded-lg border border-slate-200 p-8 shadow-sm relative">
+                <div
+                  key={v.id}
+                  className={`rounded-lg border p-8 shadow-sm relative ${
+                    v.is_disposed
+                      ? "bg-red-50 border-red-200"
+                      : "bg-white border-slate-200"
+                  }`}
+                >
                   {/* カード上部1行: No. / 車種 / ドライバー / 次回車検・自賠責 / 編集 */}
                   <div className="flex flex-wrap items-center gap-4 mb-6">
-                    <span className="text-m text-slate-500 font-medium shrink-0">
+                    <span className={`text-m font-medium shrink-0 ${v.is_disposed ? "text-red-700" : "text-slate-500"}`}>
                       No.{String(vehicleNo).padStart(4, "0")}
                     </span>
+                    {v.is_disposed && (
+                      <span className="inline-flex items-center h-6 px-2 rounded text-xs font-semibold bg-red-600 text-white shrink-0">
+                        廃車
+                      </span>
+                    )}
                     {(v.manufacturer || v.brand) && (
                       <span className="text-sm shrink-0 flex gap-1 items-center pl-3">
                         {v.manufacturer && (
@@ -715,6 +743,44 @@ export default function VehiclesPage() {
 
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="flex items-center justify-between px-3 py-2 rounded border border-slate-200 bg-slate-50">
+                      <span className="text-sm font-medium text-slate-700">廃車にする</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={form.isDisposed}
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            isDisposed: !f.isDisposed,
+                            ...(f.isDisposed
+                              ? {}
+                              : {
+                                  numberPrefix: "",
+                                  numberClass: "",
+                                  numberHiragana: "",
+                                  numberNumeric: "0000",
+                                }),
+                          }))
+                        }
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          form.isDisposed ? "bg-red-600" : "bg-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                            form.isDisposed ? "translate-x-5" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </label>
+                    {form.isDisposed && (
+                      <p className="text-xs text-red-600 mt-1">
+                        廃車にすると車両ナンバーは保存時に 0000 として登録されます。
+                      </p>
+                    )}
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">メーカー名</label>
                     <input
@@ -744,23 +810,26 @@ export default function VehiclesPage() {
                       type="text"
                       value={form.numberPrefix}
                       onChange={(e) => setForm((f) => ({ ...f, numberPrefix: e.target.value }))}
+                      disabled={form.isDisposed}
                       placeholder="地域名（例: 京都）"
-                      className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-100 disabled:text-slate-400"
                     />
                     <input
                       type="text"
                       value={form.numberClass}
                       onChange={(e) => setForm((f) => ({ ...f, numberClass: e.target.value }))}
+                      disabled={form.isDisposed}
                       placeholder="分類（例: 400）"
-                      className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-100 disabled:text-slate-400"
                     />
                     <input
                       type="text"
                       value={form.numberHiragana}
                       onChange={(e) => setForm((f) => ({ ...f, numberHiragana: e.target.value }))}
+                      disabled={form.isDisposed}
                       placeholder="かな（例: わ）"
                       maxLength={1}
-                      className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-100 disabled:text-slate-400"
                     />
                   </div>
                   <label className="block text-xs text-slate-500 mb-1">一連番号（数字のみ・右詰め・4桁でハイフン）</label>
@@ -775,6 +844,7 @@ export default function VehiclesPage() {
                       inputMode="numeric"
                       autoComplete="off"
                       value={form.numberNumeric}
+                      disabled={form.isDisposed}
                       onChange={(e) => {
                         const v = e.target.value.replace(/\D/g, "").slice(0, 4);
                         setForm((f) => ({ ...f, numberNumeric: v }));

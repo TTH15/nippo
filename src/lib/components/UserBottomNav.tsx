@@ -8,7 +8,7 @@ import {
   faCalendarDays,
   faPaperPlane,
   faGift,
-  faClockRotateLeft,
+  faFileCirclePlus,
 } from "@fortawesome/free-solid-svg-icons";
 
 const TABS = [
@@ -16,7 +16,7 @@ const TABS = [
   { href: "/shifts", label: "シフト", icon: faCalendarDays },
   { href: "/submit", label: "日報送信", icon: faPaperPlane },
   { href: "/me/rewards", label: "報酬", icon: faGift },
-  { href: "/me?tab=history", label: "履歴", icon: faClockRotateLeft },
+  { href: "/me?tab=report", label: "報告", icon: faFileCirclePlus },
 ] as const;
 
 export function UserBottomNav() {
@@ -25,11 +25,11 @@ export function UserBottomNav() {
   const tabParam = searchParams?.get("tab");
 
   const checkActive = (href: string) => {
-    if (href === "/me?tab=history") {
-      return pathname === "/me" && tabParam === "history";
+    if (href === "/me?tab=report") {
+      return pathname === "/me" && tabParam === "report";
     }
     if (href === "/me") {
-      return pathname === "/me" && tabParam !== "history";
+      return pathname === "/me" && tabParam !== "report";
     }
     if (href === "/me/rewards") {
       return pathname === "/me/rewards";

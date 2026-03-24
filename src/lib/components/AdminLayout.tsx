@@ -13,7 +13,7 @@ import {
   faFileInvoice,
   faAddressBook,
   faCalendar,
-  faClipboardList,
+  faFolderTree,
   faFileLines,
   faListUl,
   faPlus,
@@ -21,7 +21,7 @@ import {
   faMoneyBill1Wave,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import { clearAuth, getStoredDriver } from "@/lib/api";
+import { apiFetch, clearAuth, getStoredDriver } from "@/lib/api";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite, isAdminViewerRole } from "@/lib/authz";
 
@@ -40,7 +40,14 @@ const navItems: NavItem[] = [
       { href: "/admin/sales?tab=log", label: "ログ", icon: faListUl },
     ],
   },
-  { href: "/admin/daily", label: "日報集計", icon: faClipboardList },
+  {
+    label: "諸報告",
+    icon: faFolderTree,
+    children: [
+      { href: "/admin/daily", label: "日報報告", icon: faCalendar },
+      { href: "/admin/misc-reports/others", label: "その他の報告", icon: faFileLines },
+    ],
+  },
   {
     label: "ドライバー",
     icon: faUsers,
@@ -69,6 +76,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [driver, setDriver] = useState<{ id: string; name: string; role: string } | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [dailyUnreadCount, setDailyUnreadCount] = useState(0);
+  const [otherUnreadCount, setOtherUnreadCount] = useState(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
   const canWrite = canAdminWrite(driver?.role);
@@ -77,6 +86,34 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setDriver(getStoredDriver());
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadUnreadCounts = async () => {
+      try {
+        const [dailyRes, otherRes] = await Promise.all([
+          apiFetch<{ unreadCount: number }>("/api/admin/daily/unread-count", { cache: "no-store" }),
+          apiFetch<{ unreadCount: number }>("/api/admin/misc-reports/oil-change/unread-count", { cache: "no-store" }),
+        ]);
+        if (!mounted) return;
+        setDailyUnreadCount(Number(dailyRes.unreadCount) || 0);
+        setOtherUnreadCount(Number(otherRes.unreadCount) || 0);
+      } catch {
+        if (!mounted) return;
+        setDailyUnreadCount(0);
+        setOtherUnreadCount(0);
+      }
+    };
+
+    void loadUnreadCounts();
+    const timer = setInterval(() => {
+      void loadUnreadCounts();
+    }, 60000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [pathname]);
 
   const logout = () => {
     clearAuth();
@@ -120,6 +157,19 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const handleParentClick = (item: Extract<NavItem, { children: NavChild[] }>) => {
     router.push(item.children[0].href);
     setOpenMenu(null);
+  };
+
+  const totalMiscUnreadCount = dailyUnreadCount + otherUnreadCount;
+
+  const getChildUnreadCount = (href: string) => {
+    if (href === "/admin/daily") return dailyUnreadCount;
+    if (href === "/admin/misc-reports/others") return otherUnreadCount;
+    return 0;
+  };
+
+  const getParentUnreadCount = (item: Extract<NavItem, { children: NavChild[] }>) => {
+    if (item.label === "諸報告") return totalMiscUnreadCount;
+    return 0;
   };
 
   useEffect(() => {
@@ -213,6 +263,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                             <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />
                           )}
                           {item.label}
+                          {getParentUnreadCount(item) > 0 && (
+                            <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
+                              {getParentUnreadCount(item)}
+                            </span>
+                          )}
                         </span>
                         <svg
                           className="w-3 h-3 opacity-50"
@@ -258,6 +313,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                     />
                                   )}
                                   {child.label}
+                                  {getChildUnreadCount(child.href) > 0 && (
+                                    <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
+                                      {getChildUnreadCount(child.href)}
+                                    </span>
+                                  )}
                                 </Link>
                               );
                             })}
@@ -355,7 +415,14 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                       return (
                         <li key={item.label}>
                           <p className="px-3 py-2.5 text-[12px] font-bold text-slate-400 uppercase tracking-wide">
-                            {item.label}
+                            <span className="inline-flex items-center gap-2">
+                              {item.label}
+                              {getParentUnreadCount(item) > 0 && (
+                                <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums normal-case">
+                                  {getParentUnreadCount(item)}
+                                </span>
+                              )}
+                            </span>
                           </p>
                           <ul className="mb-1">
                             {filteredChildren.map((child) => {
@@ -378,6 +445,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                       />
                                     )}
                                     {child.label}
+                                    {getChildUnreadCount(child.href) > 0 && (
+                                      <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
+                                        {getChildUnreadCount(child.href)}
+                                      </span>
+                                    )}
                                   </Link>
                                 </li>
                               );

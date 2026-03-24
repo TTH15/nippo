@@ -254,7 +254,7 @@ export default function AdminDailyPage() {
     <AdminLayout>
       <div className="w-full">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <h1 className="text-xl font-bold text-slate-900">日報集計</h1>
+          <h1 className="text-xl font-bold text-slate-900">日報報告</h1>
           <div className="flex rounded-lg bg-slate-100 p-0.5">
             <button
               type="button"
@@ -420,7 +420,7 @@ export default function AdminDailyPage() {
                                 };
                                 if (report) (entry.report as ReportData).id = report.id;
                                 const carrier = report?.carrier || "YAMATO";
-                                const vehiclePlate = report?.vehicle_plate ?? summary?.driverPreferredVehicle?.[driver.id] ?? null;
+                                const vehiclePlate = report?.vehicle_plate ?? null;
                                 return (
                                   <tr key={`${driver.id}-${summary.date}`} className={`border-b border-slate-100 ${isGray ? "bg-slate-100 text-slate-500" : "hover:bg-slate-50"}`}>
                                     <td className="py-3 px-3 font-medium">{getDisplayName(driver)}</td>

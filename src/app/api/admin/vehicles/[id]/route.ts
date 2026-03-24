@@ -20,6 +20,7 @@ export async function PUT(
   try {
     const body = await req.json();
     const {
+      isDisposed,
       manufacturer,
       brand,
       numberPrefix,
@@ -41,10 +42,17 @@ export async function PUT(
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (manufacturer !== undefined) updates.manufacturer = manufacturer?.trim() || null;
     if (brand !== undefined) updates.brand = brand?.trim() || null;
+    if (isDisposed !== undefined) updates.is_disposed = !!isDisposed;
     if (numberPrefix !== undefined) updates.number_prefix = numberPrefix || null;
     if (numberClass !== undefined) updates.number_class = numberClass || null;
     if (numberHiragana !== undefined) updates.number_hiragana = numberHiragana || null;
     if (numberNumeric !== undefined) updates.number_numeric = numberNumeric || null;
+    if (isDisposed === true) {
+      updates.number_prefix = null;
+      updates.number_class = null;
+      updates.number_hiragana = null;
+      updates.number_numeric = "0000";
+    }
     if (currentMileage !== undefined) updates.current_mileage = currentMileage;
     if (lastOilChangeMileage !== undefined) updates.last_oil_change_mileage = lastOilChangeMileage;
     if (oilChangeInterval !== undefined) updates.oil_change_interval = oilChangeInterval;
