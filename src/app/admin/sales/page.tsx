@@ -494,6 +494,9 @@ function LogEntryModal({
                   placeholder="（該当者なし）"
                   clearable
                 />
+                <p className="mt-1 text-[11px] text-slate-500 leading-snug">
+                  ドライバーを選び、売上・利益を入力すると、差額（売上−利益）がその月のペイメントの臨時経費「＋」（手当）として反映されます。
+                </p>
               </div>
               <div className="min-w-0">
                 <label className="block text-xs font-medium text-slate-600 mb-1.5">車両</label>

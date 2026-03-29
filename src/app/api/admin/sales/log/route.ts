@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { syncSalesLogDriverReward } from "@/server/salesLogDriverReward";
 
 export const dynamic = "force-dynamic";
 
@@ -142,6 +143,24 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  try {
+    await syncSalesLogDriverReward(supabase, user.companyCode, {
+      id: data.id,
+      log_date: String(data.log_date ?? ""),
+      revenue: Number((data as { revenue?: number }).revenue) || 0,
+      profit: Number((data as { profit?: number; amount?: number }).profit ?? (data as { amount?: number }).amount) || 0,
+      target_driver_id: (data.target_driver_id as string | null) ?? null,
+      content: String(data.content ?? ""),
+    });
+  } catch (syncErr) {
+    console.error("[sales/log POST] syncSalesLogDriverReward", syncErr);
+    await supabase.from("sales_log_entries").delete().eq("id", data.id);
+    return NextResponse.json(
+      { error: "ドライバー報酬の同期に失敗しました。もう一度お試しください。" },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ entry: data });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { syncSalesLogDriverReward } from "@/server/salesLogDriverReward";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,18 @@ export async function PATCH(
   if (body.vehicle_id !== undefined) updates.vehicle_id = body.vehicle_id || null;
   if (body.memo !== undefined) updates.memo = body.memo?.trim() || null;
 
+  const { data: before, error: beforeErr } = await supabase
+    .from("sales_log_entries")
+    .select(
+      "log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo",
+    )
+    .eq("id", id)
+    .single();
+
+  if (beforeErr || !before) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
   const { data, error } = await supabase
     .from("sales_log_entries")
     .update(updates)
@@ -66,6 +79,40 @@ export async function PATCH(
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  try {
+    await syncSalesLogDriverReward(supabase, user.companyCode, {
+      id: data.id,
+      log_date: String(data.log_date ?? ""),
+      revenue: Number((data as { revenue?: number }).revenue) || 0,
+      profit: Number((data as { profit?: number; amount?: number }).profit ?? (data as { amount?: number }).amount) || 0,
+      target_driver_id: (data.target_driver_id as string | null) ?? null,
+      content: String(data.content ?? ""),
+    });
+  } catch (syncErr) {
+    console.error("[sales/log PATCH] syncSalesLogDriverReward", syncErr);
+    const b = before as Record<string, unknown>;
+    await supabase
+      .from("sales_log_entries")
+      .update({
+        log_date: b.log_date,
+        type_id: b.type_id,
+        content: b.content,
+        revenue: b.revenue,
+        profit: b.profit,
+        amount: b.amount,
+        attribution: b.attribution,
+        target_driver_id: b.target_driver_id,
+        vehicle_id: b.vehicle_id,
+        memo: b.memo,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    return NextResponse.json(
+      { error: "ドライバー報酬の同期に失敗しました。もう一度お試しください。" },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ entry: data });
