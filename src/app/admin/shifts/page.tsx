@@ -18,8 +18,24 @@ type Driver = {
   id: string;
   name: string;
   display_name?: string | null;
-  driver_courses: { course_id: string }[];
+  driver_identities?: { driver_courses: { course_id: string }[] }[];
+  driver_courses?: { course_id: string }[];
 };
+
+function getDriverCourseIds(d: Driver): string[] {
+  const ids = new Set<string>();
+  if (d.driver_identities?.length) {
+    for (const idn of d.driver_identities) {
+      for (const dc of idn.driver_courses ?? []) {
+        ids.add(dc.course_id);
+      }
+    }
+  }
+  for (const dc of d.driver_courses ?? []) {
+    ids.add(dc.course_id);
+  }
+  return Array.from(ids);
+}
 type Shift = {
   id: string;
   shift_date: string;
@@ -64,6 +80,22 @@ function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
   const days = ["日", "月", "火", "水", "木", "金", "土"];
   return `${d.getMonth() + 1}/${d.getDate()}(${days[d.getDay()]})`;
+}
+
+function stringToHue(input: string): number {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 31 + input.charCodeAt(i)) % 360;
+  }
+  return hash;
+}
+
+function driverChipColor(input: string): { bg: string; text: string } {
+  const hue = stringToHue(input);
+  return {
+    bg: `hsl(${hue} 80% 92%)`,
+    text: `hsl(${hue} 55% 28%)`,
+  };
 }
 
 type Period = "first" | "second";
@@ -316,7 +348,7 @@ export default function ShiftsPage() {
   const canDriverHandleCourse = (driverId: string, courseId: string) => {
     const driver = drivers.find((d) => d.id === driverId);
     if (!driver) return false;
-    return driver.driver_courses.some((dc) => dc.course_id === courseId);
+    return getDriverCourseIds(driver).includes(courseId);
   };
 
   // 特定のセルで選択可能なドライバーリストを取得
@@ -421,8 +453,29 @@ export default function ShiftsPage() {
     try {
       setExporting(true);
       const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(root, { scale: 2, useCORS: true });
-      const dataUrl = canvas.toDataURL("image/png");
+      const canvas = await html2canvas(root, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+      });
+
+      // 期間全体を必ず1ページ相当に収めるため、固定キャンバスへレターボックス描画
+      const targetWidth = 2400;
+      const targetHeight = 1400;
+      const fitted = document.createElement("canvas");
+      fitted.width = targetWidth;
+      fitted.height = targetHeight;
+      const ctx = fitted.getContext("2d");
+      if (!ctx) throw new Error("Canvas context unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+      const scale = Math.min(targetWidth / canvas.width, targetHeight / canvas.height);
+      const renderWidth = canvas.width * scale;
+      const renderHeight = canvas.height * scale;
+      const offsetX = (targetWidth - renderWidth) / 2;
+      const offsetY = (targetHeight - renderHeight) / 2;
+      ctx.drawImage(canvas, offsetX, offsetY, renderWidth, renderHeight);
+      const dataUrl = fitted.toDataURL("image/png");
 
       if (exportFormat === "png") {
         const a = document.createElement("a");
@@ -430,19 +483,16 @@ export default function ShiftsPage() {
         a.download = `shifts_${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}_${period}.png`;
         a.click();
       } else {
-        // @ts-ignore jsPDF は型定義なしで動的 import する
         const { jsPDF } = await import("jspdf");
         const pdf = new jsPDF("landscape", "pt", "a4");
         const pageWidth = pdf.internal.pageSize.getWidth();
         const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgWidth = canvas.width;
-        const imgHeight = canvas.height;
-        const scale = Math.min(pageWidth / imgWidth, pageHeight / imgHeight);
-        const renderWidth = imgWidth * scale;
-        const renderHeight = imgHeight * scale;
-        const offsetX = (pageWidth - renderWidth) / 2;
-        const offsetY = (pageHeight - renderHeight) / 2;
-        pdf.addImage(dataUrl, "PNG", offsetX, offsetY, renderWidth, renderHeight);
+        const pdfScale = Math.min(pageWidth / targetWidth, pageHeight / targetHeight);
+        const pdfWidth = targetWidth * pdfScale;
+        const pdfHeight = targetHeight * pdfScale;
+        const pdfX = (pageWidth - pdfWidth) / 2;
+        const pdfY = (pageHeight - pdfHeight) / 2;
+        pdf.addImage(dataUrl, "PNG", pdfX, pdfY, pdfWidth, pdfHeight);
         pdf.save(`shifts_${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}_${period}.pdf`);
       }
     } catch (e) {
@@ -576,7 +626,7 @@ export default function ShiftsPage() {
             </table>
           </div>
         ) : (
-          <div ref={exportRef} className="space-y-4">
+          <div className="space-y-4">
             <div className="bg-white rounded border border-slate-200 overflow-x-auto">
             <table className="w-full text-sm min-w-0">
               <thead>
@@ -794,6 +844,141 @@ export default function ShiftsPage() {
             </div>
           </div>
         )}
+        {/* エクスポート専用ビュー（罫線なし・色分け強調） */}
+        <div className="fixed -left-[99999px] top-0 pointer-events-none">
+          <div
+            ref={exportRef}
+            style={{
+              width: "2200px",
+              background: "#ffffff",
+              color: "#111827",
+              padding: "24px",
+              fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
+              <h2 style={{ fontSize: "28px", fontWeight: 700, margin: 0 }}>
+                シフト表（{yearMonth.year}年{yearMonth.month}月 {period === "first" ? "前半" : "後半"}）
+              </h2>
+              <div style={{ fontSize: "18px", color: "#6b7280", alignSelf: "flex-end" }}>
+                期間: {displayDates[0]} 〜 {displayDates[displayDates.length - 1]}
+              </div>
+            </div>
+            <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "separate", borderSpacing: "0 4px", fontSize: "13px" }}>
+              <thead>
+                <tr>
+                  <th style={{ width: "180px", textAlign: "left", color: "#6b7280", padding: "4px 8px" }}>コース</th>
+                  {displayDates.map((date) => {
+                    const d = new Date(date);
+                    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                    return (
+                      <th key={`export-head-${date}`} style={{ textAlign: "center", color: isWeekend ? "#dc2626" : "#6b7280", padding: "4px 4px" }}>
+                        {formatDate(date)}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {courses.map((course) => {
+                  const maxSlots = Math.max(1, course.max_drivers ?? 1);
+                  return (
+                    <tr key={`export-row-${course.id}`}>
+                      <td style={{ padding: "4px 8px", fontWeight: 700, color: "#111827", borderLeft: `4px solid ${course.color}` }}>
+                        {course.name}
+                      </td>
+                      {displayDates.map((date) => {
+                        const names: string[] = [];
+                        for (let slot = 1; slot <= maxSlots; slot++) {
+                          const driverId = getCurrentDriverId(date, course.id, slot);
+                          if (!driverId) continue;
+                          const drv = drivers.find((d) => d.id === driverId);
+                          if (!drv) continue;
+                          names.push(getDisplayName(drv));
+                        }
+                        return (
+                          <td key={`export-cell-${course.id}-${date}`} style={{ padding: "2px 3px", verticalAlign: "top" }}>
+                            {names.length === 0 ? (
+                              <div style={{ color: "#d1d5db", textAlign: "center", fontSize: "11px" }}>—</div>
+                            ) : (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "stretch" }}>
+                                {names.map((name) => {
+                                  const color = driverChipColor(name);
+                                  return (
+                                    <div
+                                      key={`${course.id}-${date}-${name}`}
+                                      style={{
+                                        background: color.bg,
+                                        color: color.text,
+                                        borderRadius: "999px",
+                                        padding: "2px 6px",
+                                        fontSize: "11px",
+                                        fontWeight: 700,
+                                        whiteSpace: "nowrap",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        textAlign: "center",
+                                      }}
+                                    >
+                                      {name}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+                <tr>
+                  <td style={{ padding: "4px 8px", fontWeight: 700, color: "#4b5563" }}>休み</td>
+                  {displayDates.map((date) => {
+                    const names = getOffDriverNamesOnDate(date);
+                    return (
+                      <td key={`export-off-${date}`} style={{ padding: "2px 3px", verticalAlign: "top" }}>
+                        {names.length === 0 ? (
+                          <div style={{ color: "#d1d5db", textAlign: "center", fontSize: "11px" }}>—</div>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            {names.slice(0, 4).map((name) => {
+                              const color = driverChipColor(name + "-off");
+                              return (
+                                <div
+                                  key={`off-${date}-${name}`}
+                                  style={{
+                                    background: color.bg,
+                                    color: color.text,
+                                    borderRadius: "999px",
+                                    padding: "2px 6px",
+                                    fontSize: "10px",
+                                    fontWeight: 600,
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    textAlign: "center",
+                                  }}
+                                >
+                                  {name}
+                                </div>
+                              );
+                            })}
+                            {names.length > 4 && (
+                              <div style={{ color: "#6b7280", textAlign: "center", fontSize: "10px" }}>
+                                +{names.length - 4}名
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
       <ConfirmDialog
         open={!!confirmState}

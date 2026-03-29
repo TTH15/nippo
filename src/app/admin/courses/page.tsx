@@ -45,8 +45,20 @@ type Driver = {
   name: string;
   display_name?: string | null;
   role: string;
-  driver_courses: { course_id: string; courses: { id: string; name: string; color: string } }[];
+  driver_identities?: {
+    driver_courses: { course_id: string; courses: { id: string; name: string; color: string } }[];
+  }[];
+  driver_courses?: { course_id: string; courses: { id: string; name: string; color: string } }[];
 };
+
+function driverHasCourse(d: Driver, courseId: string): boolean {
+  if (d.driver_identities?.length) {
+    return d.driver_identities.some((idn) =>
+      (idn.driver_courses ?? []).some((dc) => dc.course_id === courseId),
+    );
+  }
+  return (d.driver_courses ?? []).some((dc) => dc.course_id === courseId);
+}
 
 const INITIAL_RATE_FORM = {
   takuhaibin_revenue: 160,
@@ -347,9 +359,7 @@ export default function CoursesPage() {
   };
 
   const getDriversForCourse = (courseId: string) => {
-    return drivers.filter((d) =>
-      d.driver_courses.some((dc) => dc.course_id === courseId)
-    );
+    return drivers.filter((d) => driverHasCourse(d, courseId));
   };
 
   const deleteCourse = async (courseId: string, name: string) => {

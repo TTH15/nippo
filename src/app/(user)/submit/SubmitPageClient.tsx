@@ -23,6 +23,14 @@ type Vehicle = {
   oil_change_interval?: number;
 };
 
+type DriverIdentity = {
+  id: string;
+  slot: number;
+  driverCode: string;
+  officeCode: string;
+  label?: string;
+};
+
 function getInitialReportDate(): Date {
   return reportDateStrToDate(reportDateDefaultJST());
 }
@@ -56,7 +64,15 @@ export default function SubmitPageClient() {
   const [unlinkedVehicles, setUnlinkedVehicles] = useState<Vehicle[]>([]);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [confirmVehicle, setConfirmVehicle] = useState<Vehicle | null>(null);
-  const [driverProfile, setDriverProfile] = useState<{ name: string; officeCode: string; driverCode: string } | null>(null);
+  const [driverProfile, setDriverProfile] = useState<{
+    name: string;
+    officeCode: string;
+    driverCode: string;
+    identities?: DriverIdentity[];
+  } | null>(null);
+  const [identities, setIdentities] = useState<DriverIdentity[]>([]);
+  const [selectedIdentityId, setSelectedIdentityId] = useState<string | null>(null);
+  const [shiftsToday, setShiftsToday] = useState<{ course_id: string; name: string; color: string }[]>([]);
   const [certImageDataUrl, setCertImageDataUrl] = useState<string | null>(null);
   const [oilReminderModal, setOilReminderModal] = useState<{
     nextOilChangeKm: number;
@@ -105,7 +121,12 @@ export default function SubmitPageClient() {
         const [vehiclesRes, prefRes, profileRes, unlinkedRes] = await Promise.all([
           apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }),
           apiFetch<{ vehicleId: string | null }>("/api/reports/vehicle-preference"),
-          apiFetch<{ name: string; officeCode: string; driverCode: string }>("/api/reports/profile").catch(() => null),
+          apiFetch<{
+            name: string;
+            officeCode: string;
+            driverCode: string;
+            identities?: DriverIdentity[];
+          }>("/api/reports/profile").catch(() => null),
           apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }).catch(
             () => ({ vehicles: [] as Vehicle[] }),
           ),
@@ -115,7 +136,19 @@ export default function SubmitPageClient() {
 
         setVehicles(linkedVehicles);
         setUnlinkedVehicles(otherVehicles);
-        if (profileRes) setDriverProfile(profileRes);
+        if (profileRes) {
+          setDriverProfile(profileRes);
+          const list = profileRes.identities ?? [];
+          setIdentities(list);
+          if (list.length > 0) {
+            const stored =
+              typeof window !== "undefined" ? localStorage.getItem("nippo_driver_identity_id") : null;
+            const next = list.find((i) => i.id === stored) ?? list[0];
+            setSelectedIdentityId(next.id);
+          } else {
+            setSelectedIdentityId(null);
+          }
+        }
 
         // 前回選択が「ドライバーに紐付いていない車両」の場合は、通常表示から外す
         // （「他の車両を選択」モーダル側で選び直せるようにする）
@@ -142,6 +175,79 @@ export default function SubmitPageClient() {
     };
     load();
   }, []);
+
+  useEffect(() => {
+    if (!selectedIdentityId) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const dateStr = dateToReportDateStr(reportDate);
+        const res = await apiFetch<{
+          report: Record<string, unknown> | null;
+          shiftsToday: { course_id: string; name: string; color: string }[];
+        }>(
+          `/api/reports/day?reportDate=${encodeURIComponent(dateStr)}&driverIdentityId=${encodeURIComponent(selectedIdentityId)}`,
+          { cache: "no-store" },
+        );
+        if (cancelled) return;
+        setShiftsToday(res.shiftsToday ?? []);
+        const r = res.report;
+        if (r) {
+          const car = r.carrier === "AMAZON" ? "AMAZON" : "YAMATO";
+          setCarrier(car);
+          if (car === "YAMATO") {
+            setForm({
+              takuhaibinCompleted: String(r.takuhaibin_completed ?? ""),
+              takuhaibinReturned: String(r.takuhaibin_returned ?? ""),
+              nekoposCompleted: String(r.nekopos_completed ?? ""),
+              nekoposReturned: String(r.nekopos_returned ?? ""),
+            });
+          } else {
+            setAmazonForm({
+              amMochidashi: String(r.amazon_am_mochidashi ?? ""),
+              amCompleted: String(r.amazon_am_completed ?? ""),
+              pmMochidashi: String(r.amazon_pm_mochidashi ?? ""),
+              pmCompleted: String(r.amazon_pm_completed ?? ""),
+              fourMochidashi: String(r.amazon_4_mochidashi ?? ""),
+              fourCompleted: String(r.amazon_4_completed ?? ""),
+            });
+          }
+          const vid = r.vehicle_id as string | null | undefined;
+          if (vid) {
+            setSelectedVehicleId(vid);
+            const all = [...vehicles, ...unlinkedVehicles];
+            const idx = all.findIndex((v) => v.id === vid);
+            if (idx >= 0) setCarouselIndex(idx);
+          }
+          if (r.meter_value != null) setMeterValue(String(r.meter_value));
+          else setMeterValue("");
+        } else {
+          setCarrier("YAMATO");
+          setForm({
+            takuhaibinCompleted: "",
+            takuhaibinReturned: "",
+            nekoposCompleted: "",
+            nekoposReturned: "",
+          });
+          setAmazonForm({
+            amMochidashi: "",
+            amCompleted: "",
+            pmMochidashi: "",
+            pmCompleted: "",
+            fourMochidashi: "",
+            fourCompleted: "",
+          });
+          setMeterValue("");
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [reportDate, selectedIdentityId, vehicles, unlinkedVehicles]);
 
   const saveVehiclePreference = async (vehicleId: string) => {
     try {
@@ -221,10 +327,17 @@ export default function SubmitPageClient() {
     setStatus("loading");
     setMeterError("");
 
+    if (!selectedIdentityId) {
+      setStatus("error");
+      setErrorMsg("勤務区分が読み込めていません。ページを再読み込みしてください。");
+      return;
+    }
+
     try {
       await apiFetch("/api/reports", {
         method: "POST",
         body: JSON.stringify({
+          driverIdentityId: selectedIdentityId,
           reportDate: dateToReportDateStr(reportDate),
           carrier,
           takuhaibinCompleted: Number(form.takuhaibinCompleted) || 0,
@@ -249,14 +362,21 @@ export default function SubmitPageClient() {
     }
   };
 
+  const activeIdentity = useMemo(
+    () => identities.find((i) => i.id === selectedIdentityId),
+    [identities, selectedIdentityId],
+  );
+
   const jukenOverlay: JukenOverlay | undefined = useMemo(() => {
     const driver = driverProfile ?? getStoredDriver();
     if (!driver?.name) return undefined;
-    const digits6 = (driver.driverCode ?? "").replace(/\D/g, "").slice(-6);
+    const codeForCert = activeIdentity?.driverCode ?? driver.driverCode ?? "";
+    const officeForCert = activeIdentity?.officeCode ?? driver.officeCode ?? "";
+    const digits6 = codeForCert.replace(/\D/g, "").slice(-6);
     const d = reportDate;
     const ymd = dateToReportDateStr(d).split("-").map(Number);
     return {
-      officeCode: driver.officeCode ?? "",
+      officeCode: officeForCert,
       personalNumber: digits6,
       name: driver.name,
       date: {
@@ -265,7 +385,7 @@ export default function SubmitPageClient() {
         day: ymd[2],
       },
     };
-  }, [driverProfile, reportDate]);
+  }, [driverProfile, reportDate, activeIdentity]);
 
   const jukenNumbers: JukenNumbers = useMemo(() => {
     if (carrier !== "YAMATO") {
@@ -447,7 +567,48 @@ export default function SubmitPageClient() {
 
   return (
     <div className="max-w-sm mx-auto px-4 py-8">
-      <h1 className="text-lg font-bold text-brand-900 mb-6">日報送信</h1>
+      <h1 className="text-lg font-bold text-brand-900 mb-4">日報送信</h1>
+
+      {identities.length > 1 && (
+        <div className="mb-4 flex gap-2 flex-wrap">
+          {identities.map((idn) => (
+            <button
+              key={idn.id}
+              type="button"
+              onClick={() => {
+                setSelectedIdentityId(idn.id);
+                if (typeof window !== "undefined") {
+                  localStorage.setItem("nippo_driver_identity_id", idn.id);
+                }
+              }}
+              className={`px-3 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                selectedIdentityId === idn.id
+                  ? "bg-brand-800 text-white border-brand-800"
+                  : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              区分{idn.slot}（{idn.driverCode}）
+            </button>
+          ))}
+        </div>
+      )}
+
+      {shiftsToday.length > 0 && (
+        <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+          <p className="text-xs font-medium text-slate-600 mb-1.5">この日の担当コース（シフト）</p>
+          <div className="flex flex-wrap gap-1.5">
+            {shiftsToday.map((s) => (
+              <span
+                key={s.course_id}
+                className="px-2 py-0.5 rounded text-xs text-white"
+                style={{ backgroundColor: s.color }}
+              >
+                {s.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 送信する日付（日本時間 3:00 でデフォルト日付が切り替わります） */}
       <div className="mb-6 flex items-center gap-2">
@@ -802,7 +963,7 @@ export default function SubmitPageClient() {
       </form>
 
       <p className="text-xs text-slate-400 text-center mt-4">
-        同日の再送信は上書きされます（ヤマト / Amazon 共通）
+        同日・同一勤務区分の再送信は上書きされます（ヤマト / Amazon 共通）
       </p>
 
       {/* 他の車両選択モーダル（選択中以外の車両） */}

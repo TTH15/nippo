@@ -14,6 +14,15 @@ import { canAdminWrite } from "@/lib/authz";
 import { faPenToSquare, faTrash } from "@fortawesome/free-solid-svg-icons";
 
 type Course = { id: string; name: string; color: string };
+type DriverIdentity = {
+  id: string;
+  slot: number;
+  driver_code: string;
+  office_code: string;
+  label?: string | null;
+  driver_courses: { course_id: string; courses: Course }[];
+};
+/** DB主キー（UUID）。ドライバーコード・事業所コードが変わっても不変。APIでの特定に使用する */
 type Driver = {
   id: string;
   name: string;
@@ -29,7 +38,7 @@ type Driver = {
   bank_name?: string | null;
   bank_no?: string | null;
   bank_holder?: string | null;
-  driver_courses: { course_id: string; courses: Course }[];
+  driver_identities?: DriverIdentity[];
 };
 
 const COMPANY_CODE = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE).code;
@@ -78,6 +87,20 @@ function toHalfWidth(s: string): string {
     .replace(/　/g, " ");
 }
 
+/** 一覧用: 全勤務区分のコース（重複除去） */
+function allIdentityCourses(d: Driver): { course_id: string; courses: Course }[] {
+  const seen = new Set<string>();
+  const out: { course_id: string; courses: Course }[] = [];
+  for (const idn of d.driver_identities ?? []) {
+    for (const dc of idn.driver_courses ?? []) {
+      if (seen.has(dc.course_id)) continue;
+      seen.add(dc.course_id);
+      out.push(dc);
+    }
+  }
+  return out;
+}
+
 export default function UsersPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -89,8 +112,11 @@ export default function UsersPage() {
     name: "",
     displayName: "",
     officeCode: "",
-    driverNumber: "", // 6桁の数字部分
+    driverNumber: "", // 6桁の数字部分（勤務区分1）
     courseIds: [] as string[],
+    officeCode2: "",
+    driverNumber2: "",
+    courseIds2: [] as string[],
     postalCode: "",
     address: "",
     phone: "",
@@ -152,6 +178,9 @@ export default function UsersPage() {
       officeCode: "",
       driverNumber: "",
       courseIds: [],
+      officeCode2: "",
+      driverNumber2: "",
+      courseIds2: [],
       postalCode: "",
       address: "",
       phone: "",
@@ -170,12 +199,17 @@ export default function UsersPage() {
     setEditingDriver(d);
     const { institution, branch } = parseBankName(d.bank_name || "");
     const { type, number, typeOther } = parseBankNo(d.bank_no || "");
+    const id1 = d.driver_identities?.find((x) => x.slot === 1);
+    const id2 = d.driver_identities?.find((x) => x.slot === 2);
     setForm({
       name: d.name,
       displayName: d.display_name?.trim() ?? getDisplayName(d),
-      officeCode: d.office_code || "",
-      driverNumber: d.driver_code?.slice(3) || "",
-      courseIds: d.driver_courses.map((dc) => dc.course_id),
+      officeCode: id1?.office_code ?? d.office_code ?? "",
+      driverNumber: (id1?.driver_code ?? d.driver_code)?.slice(3) || "",
+      courseIds: (id1?.driver_courses ?? []).map((dc) => dc.course_id),
+      officeCode2: id2?.office_code ?? "",
+      driverNumber2: id2?.driver_code?.slice(3) ?? "",
+      courseIds2: (id2?.driver_courses ?? []).map((dc) => dc.course_id),
       postalCode: d.postal_code || "",
       address: d.address || "",
       phone: d.phone || "",
@@ -248,6 +282,15 @@ export default function UsersPage() {
     }));
   };
 
+  const toggleCourse2 = (cid: string) => {
+    setForm((f) => ({
+      ...f,
+      courseIds2: f.courseIds2.includes(cid)
+        ? f.courseIds2.filter((id) => id !== cid)
+        : [...f.courseIds2, cid],
+    }));
+  };
+
   const save = async () => {
     if (!canWrite) return;
     setSaving(true);
@@ -260,9 +303,20 @@ export default function UsersPage() {
           body: JSON.stringify({
             name: form.name,
             displayName: form.displayName.trim() || null,
-            officeCode: form.officeCode,
-            driverCode,
-            courseIds: form.courseIds,
+            identities: [
+              {
+                slot: 1,
+                officeCode: form.officeCode,
+                driverNumber: form.driverNumber,
+                courseIds: form.courseIds,
+              },
+              {
+                slot: 2,
+                officeCode: form.officeCode2,
+                driverNumber: form.driverNumber2,
+                courseIds: form.courseIds2,
+              },
+            ],
             postalCode: form.postalCode.trim() || null,
             address: form.address.trim() || null,
             phone: form.phone.trim() || null,
@@ -281,6 +335,9 @@ export default function UsersPage() {
             driverCode,
             companyCode,
             courseIds: form.courseIds,
+            officeCode2: slot2Started ? form.officeCode2 : undefined,
+            driverNumber2: slot2Started ? form.driverNumber2 : undefined,
+            courseIds2: slot2Started ? form.courseIds2 : undefined,
             postalCode: form.postalCode.trim() || null,
             address: form.address.trim() || null,
             phone: form.phone.trim() || null,
@@ -331,11 +388,24 @@ export default function UsersPage() {
     });
   };
 
-  const isFormValid = form.name.trim() &&
+  const slot2Started =
+    form.officeCode2.trim().length > 0 ||
+    form.driverNumber2.trim().length > 0 ||
+    form.courseIds2.length > 0;
+  const slot2Valid =
+    !slot2Started ||
+    (form.officeCode2.length === 6 &&
+      /^\d{6}$/.test(form.officeCode2) &&
+      form.driverNumber2.length === 6 &&
+      /^\d{6}$/.test(form.driverNumber2));
+
+  const isFormValid =
+    !!form.name.trim() &&
     form.officeCode.length === 6 &&
     /^\d{6}$/.test(form.officeCode) &&
     form.driverNumber.length === 6 &&
-    /^\d{6}$/.test(form.driverNumber);
+    /^\d{6}$/.test(form.driverNumber) &&
+    slot2Valid;
 
   return (
     <AdminLayout>
@@ -343,7 +413,10 @@ export default function UsersPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-xl font-bold text-slate-900">ドライバー管理</h1>
-            <p className="text-sm text-slate-500 mt-0.5">会社コード: {companyCode}</p>
+            <p className="text-sm text-slate-500 mt-0.5">
+              会社コード: {companyCode}
+              <span className="text-slate-400"> · 並び順: 名前（昇順）、同名はID順</span>
+            </p>
           </div>
           {canWrite && (
             <button
@@ -361,6 +434,7 @@ export default function UsersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="py-2.5 px-3 text-right w-14"><Skeleton className="h-4 w-6 ml-auto" /></th>
                   <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-12" /></th>
                   <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-14" /></th>
                   <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-20" /></th>
@@ -372,6 +446,7 @@ export default function UsersPage() {
               <tbody>
                 {[...Array(6)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-100">
+                    <td className="py-2.5 px-3 text-right"><Skeleton className="h-4 w-5 ml-auto" /></td>
                     <td className="py-2.5 px-4"><Skeleton className="h-4 w-24" /></td>
                     <td className="py-2.5 px-4"><Skeleton className="h-4 w-20" /></td>
                     <td className="py-2.5 px-4"><Skeleton className="h-4 w-16" /></td>
@@ -390,6 +465,7 @@ export default function UsersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="py-2.5 px-3 text-right font-medium text-slate-600 w-14 tabular-nums">No.</th>
                   <th className="py-2.5 px-4 text-left font-medium text-slate-600">名前</th>
                   <th className="py-2.5 px-4 text-left font-medium text-slate-600">表示名</th>
                   <th className="py-2.5 px-4 text-left font-medium text-slate-600">ドライバーコード</th>
@@ -399,15 +475,34 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {drivers.map((d) => (
+                {drivers.map((d, index) => (
                   <tr key={d.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+                    <td className="py-2.5 px-3 text-right text-slate-500 tabular-nums text-xs w-14">
+                      {index + 1}
+                    </td>
                     <td className="py-2.5 px-4 font-medium text-slate-800">{d.name}</td>
                     <td className="py-2.5 px-4 text-slate-600">{getDisplayName(d)}</td>
-                    <td className="py-2.5 px-4 font-mono text-slate-600">{d.driver_code || "-"}</td>
-                    <td className="py-2.5 px-4 text-slate-600">{d.office_code || "-"}</td>
+                    <td className="py-2.5 px-4 font-mono text-slate-600 whitespace-pre-line leading-snug">
+                      {(() => {
+                        const id1 = d.driver_identities?.find((x) => x.slot === 1);
+                        const id2 = d.driver_identities?.find((x) => x.slot === 2);
+                        const c1 = id1?.driver_code ?? d.driver_code ?? "-";
+                        if (id2?.driver_code) return `${c1}\n${id2.driver_code}`;
+                        return c1;
+                      })()}
+                    </td>
+                    <td className="py-2.5 px-4 text-slate-600 whitespace-pre-line leading-snug">
+                      {(() => {
+                        const id1 = d.driver_identities?.find((x) => x.slot === 1);
+                        const id2 = d.driver_identities?.find((x) => x.slot === 2);
+                        const o1 = id1?.office_code ?? d.office_code ?? "-";
+                        if (id2?.office_code) return `${o1}\n${id2.office_code}`;
+                        return o1;
+                      })()}
+                    </td>
                     <td className="py-2.5 px-4">
                       <div className="flex flex-wrap gap-1">
-                        {d.driver_courses.map((dc) => (
+                        {allIdentityCourses(d).map((dc) => (
                           <span
                             key={dc.course_id}
                             className="px-1.5 py-0.5 rounded text-xs text-white"
@@ -416,7 +511,7 @@ export default function UsersPage() {
                             {dc.courses.name}
                           </span>
                         ))}
-                        {d.driver_courses.length === 0 && (
+                        {allIdentityCourses(d).length === 0 && (
                           <span className="text-xs text-slate-400">未設定</span>
                         )}
                       </div>
@@ -450,7 +545,7 @@ export default function UsersPage() {
       {/* Modal */}
       {showModal && canWrite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md max-h-[90vh] overflow-y-auto p-5">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto p-5">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
               {editingDriver ? "ドライバー編集" : "新規ドライバー追加"}
             </h2>
@@ -478,6 +573,7 @@ export default function UsersPage() {
                 <p className="text-xs text-slate-500 mt-1">シフト・日報などで表示します。空欄の場合は苗字のみ表示されます。</p>
               </div>
 
+              <p className="text-xs font-semibold text-slate-600 pt-1">勤務区分1</p>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">事業所コード（6桁）</label>
                 <input
@@ -519,7 +615,7 @@ export default function UsersPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">担当可能コース</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">担当可能コース（区分1）</label>
                 <div className="flex flex-wrap gap-2">
                   {courses.map((c) => (
                     <button
@@ -535,6 +631,67 @@ export default function UsersPage() {
                       {c.name}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              <div className="pt-4 mt-4 border-t border-slate-200">
+                <p className="text-xs font-semibold text-slate-600 mb-2">勤務区分2（任意）</p>
+                <p className="text-xs text-slate-500 mb-3">
+                  別コード・別事業所で日報を分ける場合。未入力のままなら区分2は無効です。
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">事業所コード（6桁）</label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={form.officeCode2}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/\D/g, "");
+                        setForm((f) => ({ ...f, officeCode2: v }));
+                      }}
+                      placeholder="000000"
+                      className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">ドライバーコード</label>
+                    <div className="flex items-center gap-1">
+                      <span className="px-3 py-2 bg-slate-100 border border-slate-200 rounded text-sm font-mono text-slate-600">
+                        {companyCode}
+                      </span>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={form.driverNumber2}
+                        onChange={(e) => {
+                          const v = e.target.value.replace(/\D/g, "");
+                          setForm((f) => ({ ...f, driverNumber2: v }));
+                        }}
+                        placeholder="123456"
+                        className="flex-1 px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">担当可能コース（区分2）</label>
+                    <div className="flex flex-wrap gap-2">
+                      {courses.map((c) => (
+                        <button
+                          key={`s2-${c.id}`}
+                          type="button"
+                          onClick={() => toggleCourse2(c.id)}
+                          className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${form.courseIds2.includes(c.id)
+                            ? "text-white border-transparent"
+                            : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
+                            }`}
+                          style={form.courseIds2.includes(c.id) ? { backgroundColor: c.color } : {}}
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 

@@ -28,39 +28,64 @@ export async function POST(req: NextRequest) {
 
       console.log("[Login] Driver code:", code);
 
-      // ドライバーコードでドライバーを検索
-      const { data: driver, error } = await supabase
+      // ドライバーコードでドライバーを検索（従来: drivers.driver_code / 追加: driver_identities）
+      let driver: {
+        id: string;
+        name: string;
+        role: string;
+        company_code: string | null;
+        office_code: string | null;
+        driver_code: string | null;
+        pin_hash: string | null;
+      } | null = null;
+
+      const { data: byDriverRow, error: err1 } = await supabase
         .from("drivers")
         .select("id, name, role, company_code, office_code, driver_code, pin_hash")
         .eq("driver_code", code)
         .eq("role", "DRIVER")
-        .single();
+        .maybeSingle();
 
-      console.log("[Login] Driver query result:", { driver, error, code });
-
-      if (error) {
-        console.error("[Login] Database error:", error);
-        // カラムが存在しない場合のエラーを確認
-        if (error.message?.includes("column") || error.code === "42703") {
-          return NextResponse.json({ 
-            error: "データベースの設定が完了していません。マイグレーションを実行してください。" 
+      if (err1 && err1.code !== "PGRST116") {
+        console.error("[Login] Database error:", err1);
+        if (err1.message?.includes("column") || err1.code === "42703") {
+          return NextResponse.json({
+            error: "データベースの設定が完了していません。マイグレーションを実行してください。",
           }, { status: 500 });
         }
-        // PGRST116: No rows returned (single() が失敗)
-        if (error.code === "PGRST116") {
-          return NextResponse.json({ 
-            error: `ドライバーコード "${code}" が見つかりませんでした。正しいコードを入力してください。` 
-          }, { status: 401 });
-        }
-        return NextResponse.json({ 
-          error: `データベースエラー: ${error.message}` 
-        }, { status: 500 });
+        return NextResponse.json({ error: `データベースエラー: ${err1.message}` }, { status: 500 });
       }
 
+      if (byDriverRow) {
+        driver = byDriverRow;
+      } else {
+        const { data: idRow, error: err2 } = await supabase
+          .from("driver_identities")
+          .select("driver_id")
+          .eq("driver_code", code)
+          .maybeSingle();
+
+        if (err2 && err2.code !== "PGRST116") {
+          console.error("[Login] driver_identities error:", err2);
+          return NextResponse.json({ error: `データベースエラー: ${err2.message}` }, { status: 500 });
+        }
+
+        if (idRow?.driver_id) {
+          const { data: d2, error: err3 } = await supabase
+            .from("drivers")
+            .select("id, name, role, company_code, office_code, driver_code, pin_hash")
+            .eq("id", idRow.driver_id)
+            .eq("role", "DRIVER")
+            .single();
+          if (!err3 && d2) driver = d2;
+        }
+      }
+
+      console.log("[Login] Driver query result:", { driver, code });
+
       if (!driver) {
-        console.log("[Login] No driver found with code:", code);
-        return NextResponse.json({ 
-          error: `ドライバーコード "${code}" が見つかりませんでした。` 
+        return NextResponse.json({
+          error: `ドライバーコード "${code}" が見つかりませんでした。正しいコードを入力してください。`,
         }, { status: 401 });
       }
 
@@ -82,9 +107,15 @@ export async function POST(req: NextRequest) {
 
       const token = await signToken({ 
         driverId: driver.id, 
-        role: driver.role,
+        role: driver.role as "DRIVER",
         companyCode: driver.company_code || envCompany.code, 
       });
+
+      const { data: loginIdentity } = await supabase
+        .from("driver_identities")
+        .select("driver_code, office_code")
+        .eq("driver_code", code)
+        .maybeSingle();
 
       return NextResponse.json({
         token,
@@ -93,8 +124,8 @@ export async function POST(req: NextRequest) {
           name: driver.name, 
           role: driver.role,
           companyCode: driver.company_code,
-          officeCode: driver.office_code ?? "",
-          driverCode: driver.driver_code ?? "",
+          officeCode: loginIdentity?.office_code ?? driver.office_code ?? "",
+          driverCode: loginIdentity?.driver_code ?? driver.driver_code ?? "",
         },
       });
     }

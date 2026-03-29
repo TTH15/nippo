@@ -184,13 +184,20 @@ async function main() {
   const driversForShift = DRIVERS.filter((d) => d.role === "DRIVER");
   const driverIdList = driverIds.slice(1); // admin除く
 
-  // 5. driver_courses（全ドライバーに全コース紐付け）
+  // 5. driver_courses（全ドライバーに全コース紐付け）※勤務区分1（driver_identities.slot=1）に紐付け
   for (let i = 0; i < driverIdList.length; i++) {
     const did = driverIdList[i];
+    const { data: ident } = await supabase
+      .from("driver_identities")
+      .select("id")
+      .eq("driver_id", did)
+      .eq("slot", 1)
+      .maybeSingle();
+    if (!ident?.id) continue;
     for (const cid of [yamatoA, yamatoB, yamatoC, amazon]) {
       await supabase.from("driver_courses").upsert(
-        { driver_id: did, course_id: cid },
-        { onConflict: "driver_id,course_id" }
+        { driver_id: did, driver_identity_id: ident.id, course_id: cid },
+        { onConflict: "driver_identity_id,course_id" }
       );
     }
   }
@@ -321,9 +328,17 @@ async function main() {
     const [driverId, reportDate] = key.split(":");
     const shift = shifts?.find((s) => s.driver_id === driverId && s.shift_date === reportDate);
     const isAmazon = shift?.course_id === amazon;
+    const { data: ident } = await supabase
+      .from("driver_identities")
+      .select("id")
+      .eq("driver_id", driverId)
+      .eq("slot", 1)
+      .maybeSingle();
+    if (!ident?.id) continue;
     await supabase.from("daily_reports").upsert(
       {
         driver_id: driverId,
+        driver_identity_id: ident.id,
         report_date: reportDate,
         takuhaibin_completed: isAmazon ? 0 : report.tkComp,
         takuhaibin_returned: isAmazon ? 0 : report.tkRet,
@@ -331,7 +346,7 @@ async function main() {
         nekopos_returned: isAmazon ? 0 : report.nkRet,
         submitted_at: new Date().toISOString(),
       },
-      { onConflict: "driver_id,report_date" }
+      { onConflict: "driver_identity_id,report_date" }
     );
   }
   console.log(`✓ 日報 ${reportByDriverDate.size} 件（${SHIFT_START}〜${SHIFT_END}）`);

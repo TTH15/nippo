@@ -16,13 +16,17 @@ export async function GET(req: NextRequest) {
     .select(`
       id, name, display_name, role, company_code, office_code, driver_code, created_at,
       postal_code, address, phone, bank_name, bank_no, bank_holder,
-      driver_courses (
-        course_id,
-        courses (id, name, color)
+      driver_identities (
+        id, slot, driver_code, office_code, label,
+        driver_courses (
+          course_id,
+          courses (id, name, color)
+        )
       )
     `)
     .eq("company_code", user.companyCode)
-    .order("name");
+    .order("name", { ascending: true })
+    .order("id", { ascending: true });
 
   if (error) {
     console.error(error);
@@ -39,7 +43,33 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, officeCode, driverCode, companyCode, courseIds = [], displayName } = body;
+    const {
+      name,
+      officeCode,
+      driverCode,
+      companyCode,
+      courseIds = [],
+      displayName,
+      officeCode2,
+      driverNumber2,
+      courseIds2 = [],
+    } = body as {
+      name?: string;
+      officeCode?: string;
+      driverCode?: string;
+      companyCode?: string;
+      courseIds?: string[];
+      displayName?: string;
+      postalCode?: string;
+      address?: string;
+      phone?: string;
+      bankName?: string;
+      bankNo?: string;
+      bankHolder?: string;
+      officeCode2?: string;
+      driverNumber2?: string;
+      courseIds2?: string[];
+    };
 
     if (!name || typeof name !== "string" || !name.trim()) {
       return NextResponse.json({ error: "名前を入力してください" }, { status: 400 });
@@ -51,9 +81,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "ドライバーコードの形式が正しくありません" }, { status: 400 });
     }
 
+    const resolvedCompany = (companyCode || user.companyCode) as string;
+
     // ドライバーコードの会社部分が管理者の会社と一致するか確認
     const codeCompany = driverCode.slice(0, 3);
-    if (codeCompany !== user.companyCode) {
+    if (codeCompany !== resolvedCompany) {
       return NextResponse.json({ error: "会社コードが一致しません" }, { status: 400 });
     }
 
@@ -70,7 +102,7 @@ export async function POST(req: NextRequest) {
         display_name: typeof displayName === "string" && displayName.trim() ? displayName.trim() : null,
         role: "DRIVER", 
         pin_hash: pinHash,
-        company_code: companyCode || user.companyCode,
+        company_code: resolvedCompany,
         office_code: officeCode,
         driver_code: driverCode.toUpperCase(),
         postal_code: typeof postalCode === "string" ? postalCode.trim() || null : null,
@@ -91,13 +123,56 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: dErr.message }, { status: 500 });
     }
 
-    // Insert course associations
+    const { data: ident1, error: iErr } = await supabase
+      .from("driver_identities")
+      .insert({
+        driver_id: driver.id,
+        slot: 1,
+        driver_code: driverCode.toUpperCase(),
+        office_code: officeCode,
+      })
+      .select("id")
+      .single();
+
+    if (iErr || !ident1) {
+      console.error(iErr);
+      return NextResponse.json({ error: "勤務区分の作成に失敗しました" }, { status: 500 });
+    }
+
     if (courseIds.length > 0) {
       const courseLinks = courseIds.map((cid: string) => ({
         driver_id: driver.id,
+        driver_identity_id: ident1.id,
         course_id: cid,
       }));
       await supabase.from("driver_courses").insert(courseLinks);
+    }
+
+    const oc2 = typeof officeCode2 === "string" ? officeCode2.replace(/\D/g, "") : "";
+    const num2 = typeof driverNumber2 === "string" ? driverNumber2.replace(/\D/g, "") : "";
+    if (oc2.length === 6 && num2.length === 6 && /^\d{6}$/.test(oc2) && /^\d{6}$/.test(num2)) {
+      const full2 = `${resolvedCompany}${num2}`.toUpperCase();
+      if (full2.slice(0, 3) === resolvedCompany) {
+        const { data: ident2, error: e2 } = await supabase
+          .from("driver_identities")
+          .insert({
+            driver_id: driver.id,
+            slot: 2,
+            driver_code: full2,
+            office_code: oc2,
+          })
+          .select("id")
+          .single();
+        if (!e2 && ident2 && Array.isArray(courseIds2) && courseIds2.length > 0) {
+          await supabase.from("driver_courses").insert(
+            courseIds2.map((cid: string) => ({
+              driver_id: driver.id,
+              driver_identity_id: ident2.id,
+              course_id: cid,
+            })),
+          );
+        }
+      }
     }
 
     return NextResponse.json({ driver });

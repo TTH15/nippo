@@ -23,10 +23,32 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Driver not found" }, { status: 404 });
   }
 
+  const { data: identityRows } = await supabase
+    .from("driver_identities")
+    .select("id, slot, driver_code, office_code, label")
+    .eq("driver_id", user.driverId)
+    .order("slot", { ascending: true });
+
+  const identities = (identityRows ?? []).map((row: {
+    id: string;
+    slot: number;
+    driver_code: string;
+    office_code: string;
+    label: string | null;
+  }) => ({
+    id: row.id,
+    slot: row.slot,
+    driverCode: row.driver_code,
+    officeCode: row.office_code ?? "",
+    label: row.label ?? "",
+  }));
+
+  const primary = identities[0];
+
   return NextResponse.json({
     name: driver.name ?? "",
-    officeCode: driver.office_code ?? "",
-    driverCode: driver.driver_code ?? "",
+    officeCode: primary?.officeCode ?? driver.office_code ?? "",
+    driverCode: primary?.driverCode ?? driver.driver_code ?? "",
     displayName: driver.display_name ?? "",
     postalCode: driver.postal_code ?? "",
     address: driver.address ?? "",
@@ -34,6 +56,7 @@ export async function GET(req: NextRequest) {
     bankName: driver.bank_name ?? "",
     bankNo: driver.bank_no ?? "",
     bankHolder: driver.bank_holder ?? "",
+    identities,
   });
 }
 

@@ -37,7 +37,9 @@ export async function GET(req: NextRequest) {
     .from("drivers")
     .select(`
       id, name, display_name, role,
-      driver_courses (course_id)
+      driver_identities (
+        driver_courses (course_id)
+      )
     `)
     .eq("role", "DRIVER")
     .order("name");

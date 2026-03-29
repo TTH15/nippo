@@ -27,6 +27,25 @@ export async function POST(req: NextRequest) {
     const amazon4Completed = Number(body.amazon4Completed) || 0;
     const vehicleId = body.vehicleId ?? null;
     const meterValue = body.meterValue != null ? Number(body.meterValue) : null;
+    const driverIdentityId =
+      typeof body.driverIdentityId === "string" && body.driverIdentityId.trim() !== ""
+        ? body.driverIdentityId.trim()
+        : null;
+
+    if (!driverIdentityId) {
+      return NextResponse.json({ error: "勤務区分（driverIdentityId）が必要です" }, { status: 400 });
+    }
+
+    const { data: identity, error: idErr } = await supabase
+      .from("driver_identities")
+      .select("id, driver_id")
+      .eq("id", driverIdentityId)
+      .eq("driver_id", user.driverId)
+      .single();
+
+    if (idErr || !identity) {
+      return NextResponse.json({ error: "無効な勤務区分です" }, { status: 403 });
+    }
 
     // Validate non-negative integers
     const yamatoValues = [takuhaibinCompleted, takuhaibinReturned, nekoposCompleted, nekoposReturned];
@@ -64,6 +83,7 @@ export async function POST(req: NextRequest) {
       .upsert(
         {
           driver_id: user.driverId,
+          driver_identity_id: driverIdentityId,
           report_date: reportDate,
           carrier,
           takuhaibin_completed: carrier === "YAMATO" ? takuhaibinCompleted : 0,
@@ -84,7 +104,7 @@ export async function POST(req: NextRequest) {
           rejected_at: null,
           rejected_by: null,
         },
-        { onConflict: "driver_id,report_date" }
+        { onConflict: "driver_identity_id,report_date" }
       )
       .select()
       .single();

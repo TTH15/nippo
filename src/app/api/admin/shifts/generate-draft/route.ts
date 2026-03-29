@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 type DriverRow = {
   id: string;
   name: string;
-  driver_courses: { course_id: string }[];
+  driver_identities?: { driver_courses: { course_id: string }[] }[];
+  driver_courses?: { course_id: string }[];
 };
 
 type CourseRow = {
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
       supabase.from("courses").select("id, max_drivers").order("sort_order"),
       supabase
         .from("drivers")
-        .select("id, name, driver_courses(course_id)")
+        .select("id, name, driver_identities(driver_courses(course_id))")
         .eq("role", "DRIVER")
         .order("name"),
       supabase
@@ -66,7 +67,9 @@ export async function POST(req: NextRequest) {
 
     const driverByCourse = new Map<string, string[]>();
     drivers.forEach((d) => {
-      (d.driver_courses ?? []).forEach((dc: { course_id: string }) => {
+      const rows =
+        d.driver_identities?.flatMap((idn) => idn.driver_courses ?? []) ?? d.driver_courses ?? [];
+      rows.forEach((dc: { course_id: string }) => {
         if (!driverByCourse.has(dc.course_id)) driverByCourse.set(dc.course_id, []);
         driverByCourse.get(dc.course_id)!.push(d.id);
       });
