@@ -31,6 +31,8 @@ type Driver = {
   company_code: string;
   office_code: string;
   driver_code: string;
+  /** 会社内ドライバー一覧の通し番号（永続） */
+  list_no?: number | null;
   created_at: string;
   postal_code?: string | null;
   address?: string | null;
@@ -415,7 +417,7 @@ export default function UsersPage() {
             <h1 className="text-xl font-bold text-slate-900">ドライバー管理</h1>
             <p className="text-sm text-slate-500 mt-0.5">
               会社コード: {companyCode}
-              <span className="text-slate-400"> · 並び順: 名前（昇順）、同名はID順</span>
+              <span className="text-slate-400"> · 並び順: No.（昇順）、同値時は名前順</span>
             </p>
           </div>
           {canWrite && (
@@ -478,7 +480,7 @@ export default function UsersPage() {
                 {drivers.map((d, index) => (
                   <tr key={d.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
                     <td className="py-2.5 px-3 text-right text-slate-500 tabular-nums text-xs w-14">
-                      {index + 1}
+                      {d.list_no ?? index + 1}
                     </td>
                     <td className="py-2.5 px-4 font-medium text-slate-800">{d.name}</td>
                     <td className="py-2.5 px-4 text-slate-600">{getDisplayName(d)}</td>

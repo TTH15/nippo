@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers, error } = await supabase
     .from("drivers")
     .select(`
-      id, name, display_name, role, company_code, office_code, driver_code, created_at,
+      id, name, display_name, role, company_code, office_code, driver_code, list_no, created_at,
       postal_code, address, phone, bank_name, bank_no, bank_holder,
       driver_identities (
         id, slot, driver_code, office_code, label,
@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
       )
     `)
     .eq("company_code", user.companyCode)
+    .order("list_no", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true })
     .order("id", { ascending: true });
 
@@ -93,6 +94,20 @@ export async function POST(req: NextRequest) {
     const pinPart = driverCode.slice(3);
     const pinHash = await bcrypt.hash(pinPart, 10);
 
+    const { data: listRows } = await supabase
+      .from("drivers")
+      .select("list_no")
+      .eq("company_code", resolvedCompany)
+      .eq("role", "DRIVER");
+
+    const maxNo = Math.max(
+      0,
+      ...((listRows ?? []) as { list_no: number | null }[]).map((r) =>
+        typeof r.list_no === "number" ? r.list_no : 0,
+      ),
+    );
+    const nextListNo = maxNo + 1;
+
     // Insert driver
     const { postalCode, address, phone, bankName, bankNo, bankHolder } = body;
     const { data: driver, error: dErr } = await supabase
@@ -105,6 +120,7 @@ export async function POST(req: NextRequest) {
         company_code: resolvedCompany,
         office_code: officeCode,
         driver_code: driverCode.toUpperCase(),
+        list_no: nextListNo,
         postal_code: typeof postalCode === "string" ? postalCode.trim() || null : null,
         address: typeof address === "string" ? address.trim() || null : null,
         phone: typeof phone === "string" ? phone.trim() || null : null,
