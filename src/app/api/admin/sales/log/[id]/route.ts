@@ -12,7 +12,6 @@ type UpdateEntryBody = {
   revenue?: number;
   profit?: number;
   amount?: number; // 互換（=profit）
-  attribution?: "COMPANY" | "DRIVER";
   target_driver_id?: string | null;
   vehicle_id?: string | null;
   memo?: string | null;
@@ -53,7 +52,6 @@ export async function PATCH(
     updates.profit = p;
     updates.amount = p;
   }
-  if (body.attribution != null) updates.attribution = body.attribution === "DRIVER" ? "DRIVER" : "COMPANY";
   if (body.target_driver_id !== undefined) updates.target_driver_id = body.target_driver_id || null;
   if (body.vehicle_id !== undefined) updates.vehicle_id = body.vehicle_id || null;
   if (body.memo !== undefined) updates.memo = body.memo?.trim() || null;

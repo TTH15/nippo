@@ -94,7 +94,6 @@ type CreateEntryBody = {
   revenue?: number;
   profit?: number;
   amount?: number; // 互換
-  attribution?: "COMPANY" | "DRIVER";
   target_driver_id?: string | null;
   vehicle_id?: string | null;
   memo?: string | null;
@@ -126,7 +125,8 @@ export async function POST(req: NextRequest) {
     revenue: Math.trunc(Number(body.revenue) || 0),
     profit: Math.trunc(Number(body.profit ?? body.amount) || 0),
     amount: Math.trunc(Number(body.profit ?? body.amount) || 0), // 互換（profit）
-    attribution: body.attribution === "DRIVER" ? "DRIVER" : "COMPANY",
+    // 帰属先は内部的には COMPANY 固定（会社視点の損益）。ドライバー報酬は別途 driver_ad_hoc_expenses で管理する。
+    attribution: "COMPANY" as const,
     target_driver_id: body.target_driver_id || null,
     vehicle_id: body.vehicle_id || null,
     memo: body.memo?.trim() || null,

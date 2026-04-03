@@ -278,7 +278,6 @@ function LogEntryModal({
   const [content, setContent] = useState("");
   const [revenueValue, setRevenueValue] = useState<string>("");
   const [profitValue, setProfitValue] = useState<string>("");
-  const [attribution, setAttribution] = useState<"COMPANY" | "DRIVER">("COMPANY");
   const [targetDriverId, setTargetDriverId] = useState("");
   const [vehicleId, setVehicleId] = useState("");
   const [memo, setMemo] = useState("");
@@ -295,7 +294,6 @@ function LogEntryModal({
         setContent(editingEntry.content || "");
         setRevenueValue(String(editingEntry.revenue ?? ""));
         setProfitValue(String(editingEntry.profit ?? ""));
-        setAttribution(editingEntry.attribution || "COMPANY");
         setTargetDriverId(editingEntry.target_driver_id || "");
         setVehicleId(editingEntry.vehicle_id || "");
         setMemo(editingEntry.memo ?? "");
@@ -306,7 +304,6 @@ function LogEntryModal({
         setContent("");
         setRevenueValue("");
         setProfitValue("");
-        setAttribution("COMPANY");
         setTargetDriverId("");
         setVehicleId("");
         setMemo("");
@@ -345,7 +342,6 @@ function LogEntryModal({
             content: content.trim(),
             revenue,
             profit,
-            attribution,
             target_driver_id: targetDriverId || null,
             vehicle_id: vehicleId || null,
             memo: memo.trim() || null,
@@ -359,7 +355,6 @@ function LogEntryModal({
             content: content.trim(),
             revenue,
             profit,
-            attribution,
             target_driver_id: targetDriverId || null,
             vehicle_id: vehicleId || null,
             memo: memo.trim() || null,
@@ -469,19 +464,6 @@ function LogEntryModal({
                 />
               </div>
               {inputError && <p className="mt-1 text-xs text-red-600">{inputError}</p>}
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">帰属先</label>
-              <CustomSelect
-                size="md"
-                options={[
-                  { value: "COMPANY", label: "会社" },
-                  { value: "DRIVER", label: "ドライバー" },
-                ]}
-                value={attribution}
-                onChange={(v) => setAttribution(v as "COMPANY" | "DRIVER")}
-                clearable={false}
-              />
             </div>
             <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="min-w-0">
