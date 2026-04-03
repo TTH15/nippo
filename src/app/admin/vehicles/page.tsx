@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faFileLines } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faFileLines, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -16,6 +16,22 @@ import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 
 const DEFAULT_LEASE_COST = 35000; // 月々リース代（デフォルト）
+const MAX_RECOVERY_MONTHS = 24;
+
+type RecoveryTableRow = {
+  /** API vehicle_recovery_collected.month（1〜24） */
+  month: number;
+  leaseStr: string;
+  insuranceStr: string;
+  collected: boolean;
+  collected_at?: string;
+};
+
+function parseMoneyInput(s: string): number {
+  const t = s.replace(/[^\d]/g, "");
+  if (t === "") return 0;
+  return Math.max(0, parseInt(t, 10));
+}
 
 type Driver = {
   id: string;
@@ -92,7 +108,7 @@ export default function VehiclesPage() {
   } | null>(null);
   const [recoveryTable, setRecoveryTable] = useState<{
     vehicleId: string;
-    rows: { month: number; lease: number; insurance: number; collected: boolean; collected_at?: string }[];
+    rows: RecoveryTableRow[];
   } | null>(null);
   const [meterTab, setMeterTab] = useState<"table" | "graph">("table");
   const [meterRange, setMeterRange] = useState<{ start: string; end: string } | null>(null);
@@ -392,22 +408,96 @@ export default function VehiclesPage() {
   };
 
   const openRecoveryDetail = (v: Vehicle) => {
-    const baseLease = v.lease_cost ?? DEFAULT_LEASE_COST;
-    const baseInsurance = v.monthly_insurance || 0;
-    const collected = v.recovery_collected ?? {};
-    const rows = Array.from({ length: 12 }, (_v, i) => {
-      const month = i + 1;
-      const collectedAt = collected[month];
+    setOpenDetail({ type: "recovery", vehicle: v });
+    setRecoveryTable((prev) => {
+      if (prev?.vehicleId === v.id) {
+        const coll = v.recovery_collected ?? {};
+        return {
+          vehicleId: v.id,
+          rows: prev.rows.map((r) => ({
+            ...r,
+            collected: !!coll[r.month],
+            collected_at: coll[r.month],
+          })),
+        };
+      }
+      const baseLease = v.lease_cost ?? DEFAULT_LEASE_COST;
+      const baseInsurance = v.monthly_insurance || 0;
+      const collected = v.recovery_collected ?? {};
+      const rows: RecoveryTableRow[] = Array.from({ length: 12 }, (_x, i) => {
+        const month = i + 1;
+        const collectedAt = collected[month];
+        return {
+          month,
+          leaseStr: String(baseLease),
+          insuranceStr: String(baseInsurance),
+          collected: !!collectedAt,
+          collected_at: collectedAt,
+        };
+      });
+      return { vehicleId: v.id, rows };
+    });
+  };
+
+  const addRecoveryRow = () => {
+    if (!openDetail || openDetail.type !== "recovery") return;
+    const v = openDetail.vehicle;
+    setRecoveryTable((prev) => {
+      if (!prev || prev.vehicleId !== v.id) return prev;
+      if (prev.rows.length >= MAX_RECOVERY_MONTHS) return prev;
+      const nextMonth = Math.max(...prev.rows.map((r) => r.month), 0) + 1;
+      if (nextMonth > MAX_RECOVERY_MONTHS) return prev;
+      const baseLease = v.lease_cost ?? DEFAULT_LEASE_COST;
+      const baseInsurance = v.monthly_insurance || 0;
       return {
-        month,
-        lease: baseLease,
-        insurance: baseInsurance,
-        collected: !!collectedAt,
-        collected_at: collectedAt,
+        ...prev,
+        rows: [
+          ...prev.rows,
+          {
+            month: nextMonth,
+            leaseStr: String(baseLease),
+            insuranceStr: String(baseInsurance),
+            collected: false,
+          },
+        ],
       };
     });
-    setRecoveryTable({ vehicleId: v.id, rows });
-    setOpenDetail({ type: "recovery", vehicle: v });
+  };
+
+  const removeRecoveryRow = async (idx: number) => {
+    if (!openDetail || openDetail.type !== "recovery" || !recoveryTable) return;
+    const v = openDetail.vehicle;
+    if (recoveryTable.vehicleId !== v.id) return;
+    if (recoveryTable.rows.length <= 1) return;
+    const row = recoveryTable.rows[idx];
+    if (row.collected && canWrite) {
+      try {
+        await apiFetch(`/api/admin/vehicles/${v.id}/recovery-collected`, {
+          method: "PUT",
+          body: JSON.stringify({ month: row.month, collected: false }),
+        });
+        const newCollected = { ...(v.recovery_collected ?? {}) };
+        delete newCollected[row.month];
+        setVehicles((prev) =>
+          prev.map((veh) =>
+            veh.id === v.id ? { ...veh, recovery_collected: newCollected } : veh,
+          ),
+        );
+        setOpenDetail((d) =>
+          d && d.type === "recovery" && d.vehicle.id === v.id
+            ? { ...d, vehicle: { ...d.vehicle, recovery_collected: newCollected } }
+            : d,
+        );
+      } catch (e) {
+        console.error(e);
+        return;
+      }
+    }
+    setRecoveryTable((prev) => {
+      if (!prev || prev.vehicleId !== v.id) return prev;
+      const rows = prev.rows.filter((_, i) => i !== idx);
+      return { ...prev, rows };
+    });
   };
 
   const orderedVehicles = [...vehicles].sort((a, b) => {
@@ -1426,8 +1516,26 @@ export default function VehiclesPage() {
                     </div>
                     <p className="text-xs text-slate-500">
                       リース代と保険料を月ごとに調整して、回収ペースをシミュレーションできます
-                      （この表の数値は車両情報には保存されません）。
+                      （この表の数値は車両情報には保存されません）。行の追加・削除で期間を変えられます。
                     </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={addRecoveryRow}
+                      disabled={
+                        !recoveryTable ||
+                        recoveryTable.vehicleId !== openDetail.vehicle.id ||
+                        recoveryTable.rows.length >= MAX_RECOVERY_MONTHS
+                      }
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <FontAwesomeIcon icon={faPlus} className="w-3 h-3" />
+                      行を追加
+                    </button>
+                    <span className="text-[11px] text-slate-400">
+                      最大{MAX_RECOVERY_MONTHS}行 · 回収チェックは「月次」番号で保存されます
+                    </span>
                   </div>
                   <div className="border border-slate-200 rounded-lg overflow-hidden">
                     <table className="w-full text-xs">
@@ -1438,6 +1546,7 @@ export default function VehiclesPage() {
                           <th className="px-2 py-2 text-right text-slate-600">保険料</th>
                           <th className="px-2 py-2 text-right text-slate-600">月回収額</th>
                           <th className="px-2 py-2 text-right text-slate-600">累計回収額</th>
+                          <th className="px-2 py-2 w-10 text-center text-slate-600"> </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1449,11 +1558,13 @@ export default function VehiclesPage() {
                           if (!table) return null;
                           let cumulative = 0;
                           return table.rows.map((row, idx) => {
-                            const monthlyRecovery = Math.max(row.lease - row.insurance, 0);
+                            const leaseNum = parseMoneyInput(row.leaseStr);
+                            const insNum = parseMoneyInput(row.insuranceStr);
+                            const monthlyRecovery = Math.max(leaseNum - insNum, 0);
                             cumulative += monthlyRecovery;
                             return (
                               <tr
-                                key={row.month}
+                                key={`${row.month}-${idx}`}
                                 className={`${idx % 2 === 0 ? "bg-white" : "bg-slate-50"} ${row.collected ? "opacity-75" : ""}`}
                               >
                                 <td className="px-2 py-1.5 text-left text-slate-700">
@@ -1536,16 +1647,16 @@ export default function VehiclesPage() {
                                 </td>
                                 <td className="px-2 py-1.5 text-right align-middle">
                                   <input
-                                    type="number"
-                                    className="w-20 px-1 py-0.5 text-right border border-slate-200 rounded text-xs"
-                                    value={row.lease}
+                                    type="text"
+                                    inputMode="numeric"
+                                    className="w-24 px-1.5 py-0.5 text-right border border-slate-200 rounded text-xs tabular-nums"
+                                    value={row.leaseStr}
                                     onChange={(e) => {
-                                      const val = e.target.value;
-                                      const num = val === "" ? 0 : Number(val);
+                                      const leaseStr = e.target.value;
                                       setRecoveryTable((prev) => {
                                         if (!prev || prev.vehicleId !== openDetail.vehicle.id) return prev;
                                         const rows = prev.rows.map((r, i) =>
-                                          i === idx ? { ...r, lease: num } : r
+                                          i === idx ? { ...r, leaseStr } : r
                                         );
                                         return { ...prev, rows };
                                       });
@@ -1554,16 +1665,16 @@ export default function VehiclesPage() {
                                 </td>
                                 <td className="px-2 py-1.5 text-right align-middle">
                                   <input
-                                    type="number"
-                                    className="w-20 px-1 py-0.5 text-right border border-slate-200 rounded text-xs"
-                                    value={row.insurance}
+                                    type="text"
+                                    inputMode="numeric"
+                                    className="w-24 px-1.5 py-0.5 text-right border border-slate-200 rounded text-xs tabular-nums"
+                                    value={row.insuranceStr}
                                     onChange={(e) => {
-                                      const val = e.target.value;
-                                      const num = val === "" ? 0 : Number(val);
+                                      const insuranceStr = e.target.value;
                                       setRecoveryTable((prev) => {
                                         if (!prev || prev.vehicleId !== openDetail.vehicle.id) return prev;
                                         const rows = prev.rows.map((r, i) =>
-                                          i === idx ? { ...r, insurance: num } : r
+                                          i === idx ? { ...r, insuranceStr } : r
                                         );
                                         return { ...prev, rows };
                                       });
@@ -1575,6 +1686,17 @@ export default function VehiclesPage() {
                                 </td>
                                 <td className="px-2 py-1.5 text-right text-slate-800">
                                   {fmt(cumulative)}円
+                                </td>
+                                <td className="px-1 py-1.5 text-center align-middle">
+                                  <button
+                                    type="button"
+                                    title="この行を削除"
+                                    disabled={table.rows.length <= 1}
+                                    onClick={() => void removeRecoveryRow(idx)}
+                                    className="inline-flex items-center justify-center w-8 h-8 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:text-slate-400 disabled:hover:bg-transparent"
+                                  >
+                                    <FontAwesomeIcon icon={faTrash} className="w-3.5 h-3.5" />
+                                  </button>
                                 </td>
                               </tr>
                             );
