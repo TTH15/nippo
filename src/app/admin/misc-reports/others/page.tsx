@@ -8,13 +8,15 @@ import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 
-type OilChangeReport = {
+type MiscReport = {
   id: string;
   driver_id: string;
   report_date: string;
   report_time: string;
   location: string;
-  odometer_km: number;
+  report_kind?: string;
+  description?: string | null;
+  odometer_km: number | null;
   submitted_at: string;
   approved_at: string | null;
   rejected_at: string | null;
@@ -31,8 +33,22 @@ type OilChangeReport = {
 
 type Entry = {
   driver: { id: string; name: string; display_name: string | null };
-  report: OilChangeReport;
+  report: MiscReport;
 };
+
+function reportKindLabel(kind: string | undefined): string {
+  switch (kind) {
+    case "repair":
+      return "修理";
+    case "one_off":
+      return "単発案件";
+    case "other":
+      return "その他";
+    case "oil_change":
+    default:
+      return "オイル交換";
+  }
+}
 
 export default function AdminOtherReportsPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -94,10 +110,12 @@ export default function AdminOtherReportsPage() {
                 <thead className="bg-slate-50">
                   <tr className="border-b border-slate-200 text-left">
                     <th className="py-3 px-4 font-semibold text-slate-600">ドライバー</th>
+                    <th className="py-3 px-3 font-semibold text-slate-600">種別</th>
                     <th className="py-3 px-3 font-semibold text-slate-600">日時</th>
                     <th className="py-3 px-3 font-semibold text-slate-600 text-center">車両</th>
                     <th className="py-3 px-3 font-semibold text-slate-600">場所</th>
-                    <th className="py-3 px-3 font-semibold text-slate-600 text-right">交換時走行距離</th>
+                    <th className="py-3 px-3 font-semibold text-slate-600">内容</th>
+                    <th className="py-3 px-3 font-semibold text-slate-600 text-right">走行距離</th>
                     <th className="py-3 px-3 font-semibold text-slate-600 text-center">承認</th>
                     <th className="py-3 px-4 font-semibold text-slate-600 text-right">送信時刻</th>
                   </tr>
@@ -106,6 +124,7 @@ export default function AdminOtherReportsPage() {
                   {entries.map(({ driver, report }) => (
                     <tr key={report.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="py-3 px-4 font-medium">{getDisplayName(driver)}</td>
+                      <td className="py-3 px-3 text-sm">{reportKindLabel(report.report_kind)}</td>
                       <td className="py-3 px-3 tabular-nums">{report.report_date} {report.report_time}</td>
                       <td className="py-3 px-3 text-center">
                         {report.vehicles ? (
@@ -115,7 +134,16 @@ export default function AdminOtherReportsPage() {
                         )}
                       </td>
                       <td className="py-3 px-3">{report.location}</td>
-                      <td className="py-3 px-3 text-right tabular-nums">{report.odometer_km.toLocaleString()} km</td>
+                      <td className="py-3 px-3 text-sm text-slate-700 max-w-[200px]">
+                        {report.description?.trim() ? (
+                          <span className="whitespace-pre-wrap break-words">{report.description}</span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right tabular-nums">
+                        {report.odometer_km != null ? `${report.odometer_km.toLocaleString()} km` : "—"}
+                      </td>
                       <td className="py-3 px-3 text-center">
                         {canWrite ? (
                           <div className="flex items-center justify-center gap-2">

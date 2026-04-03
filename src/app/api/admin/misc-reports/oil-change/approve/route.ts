@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
     const { data: report, error: reportErr } = await supabase
       .from("oil_change_reports")
-      .select("vehicle_id, odometer_km")
+      .select("vehicle_id, odometer_km, report_kind")
       .eq("id", id)
       .maybeSingle();
 
@@ -41,7 +41,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    if (report?.vehicle_id && report.odometer_km != null) {
+    if (
+      report?.report_kind === "oil_change" &&
+      report?.vehicle_id &&
+      report.odometer_km != null
+    ) {
       const { error: vehicleErr } = await supabase
         .from("vehicles")
         .update({

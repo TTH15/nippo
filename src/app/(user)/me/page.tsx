@@ -43,6 +43,8 @@ function MePageContent() {
   const [reportTime, setReportTime] = useState(defaultTime);
   const [reportLocation, setReportLocation] = useState("");
   const [odometerKm, setOdometerKm] = useState("");
+  const [reportKind, setReportKind] = useState<"oil_change" | "repair" | "one_off" | "other">("oil_change");
+  const [reportDescription, setReportDescription] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportMessage, setReportMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -149,17 +151,23 @@ function MePageContent() {
     }
   };
 
-  const handleOilReportSubmit = async (e: React.FormEvent) => {
+  const handleMiscReportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setReportMessage(null);
     const location = reportLocation.trim();
     const kilometer = Number(odometerKm);
+    const desc = reportDescription.trim();
     if (!location) {
       setReportMessage({ type: "error", text: "場所を入力してください" });
       return;
     }
-    if (!Number.isInteger(kilometer) || kilometer < 0) {
-      setReportMessage({ type: "error", text: "交換時走行距離は0以上の整数で入力してください" });
+    if (reportKind === "oil_change") {
+      if (!Number.isInteger(kilometer) || kilometer < 0) {
+        setReportMessage({ type: "error", text: "交換時走行距離は0以上の整数で入力してください" });
+        return;
+      }
+    } else if (desc.length < 1) {
+      setReportMessage({ type: "error", text: "内容を入力してください" });
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || !/^\d{2}:\d{2}$/.test(reportTime)) {
@@ -178,14 +186,17 @@ function MePageContent() {
           reportDate,
           reportTime,
           location,
-          odometerKm: kilometer,
+          reportKind,
+          description: reportKind === "oil_change" ? "" : desc,
+          odometerKm: reportKind === "oil_change" ? kilometer : null,
           vehicleId: selectedVehicleId,
         }),
       });
       await saveVehiclePreference(selectedVehicleId);
-      setReportMessage({ type: "ok", text: "オイル交換報告を送信しました" });
+      setReportMessage({ type: "ok", text: "報告を送信しました" });
       setReportLocation("");
       setOdometerKm("");
+      setReportDescription("");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "報告の送信に失敗しました";
       setReportMessage({ type: "error", text: msg });
@@ -212,13 +223,40 @@ function MePageContent() {
   if (isReport) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <h1 className="text-lg font-bold text-slate-900 mb-6">報告</h1>
+        <h1 className="text-lg font-bold text-slate-900 mb-6">諸報告</h1>
         <section>
-          <h2 className="text-base font-bold text-slate-900 mb-4">オイル交換の実施報告</h2>
+          <h2 className="text-base font-bold text-slate-900 mb-1">オイル交換・修理・単発案件など</h2>
+          <p className="text-sm text-slate-500 mb-4">種別を選び、内容を入力して送信してください。</p>
           <form
-            onSubmit={handleOilReportSubmit}
+            onSubmit={handleMiscReportSubmit}
             className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-lg"
           >
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">報告の種類</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(
+                  [
+                    { id: "oil_change" as const, label: "オイル交換" },
+                    { id: "repair" as const, label: "修理" },
+                    { id: "one_off" as const, label: "単発案件" },
+                    { id: "other" as const, label: "その他" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setReportKind(opt.id)}
+                    className={`py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                      reportKind === opt.id
+                        ? "bg-slate-900 text-white border-slate-900"
+                        : "bg-white text-slate-700 border-slate-200 hover:border-slate-400"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             {vehiclesLoading ? (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">実施車両</label>
@@ -306,22 +344,39 @@ function MePageContent() {
                 value={reportLocation}
                 onChange={(e) => setReportLocation(e.target.value)}
                 className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
-                placeholder="例: ○○サービスエリア"
+                placeholder={
+                  reportKind === "oil_change"
+                    ? "例: ○○サービスエリア"
+                    : "例: 整備工場名・現場住所など"
+                }
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">交換時走行距離 (km)</label>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
-                value={odometerKm}
-                onChange={(e) => setOdometerKm(e.target.value)}
-                className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
-                placeholder="例: 123456"
-              />
-            </div>
+            {reportKind === "oil_change" ? (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">交換時走行距離 (km)</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
+                  value={odometerKm}
+                  onChange={(e) => setOdometerKm(e.target.value)}
+                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
+                  placeholder="例: 123456"
+                />
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">内容</label>
+                <textarea
+                  value={reportDescription}
+                  onChange={(e) => setReportDescription(e.target.value)}
+                  rows={4}
+                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none text-sm resize-y min-h-[96px]"
+                  placeholder="実施内容・依頼内容・金額の目安など、管理者が判断できるよう具体的に記入してください"
+                />
+              </div>
+            )}
             {reportMessage && (
               <p className={`text-sm ${reportMessage.type === "ok" ? "text-green-600" : "text-red-600"}`}>
                 {reportMessage.text}
@@ -345,7 +400,7 @@ function MePageContent() {
             >
               <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-5" onClick={(e) => e.stopPropagation()}>
                 <h2 className="text-sm font-semibold text-slate-900 mb-2">他の車両を選択</h2>
-                <p className="text-xs text-slate-500 mb-4">オイル交換を実施した車両を選択してください。</p>
+                <p className="text-xs text-slate-500 mb-4">報告に紐づける車両を選択してください。</p>
                 {vehicleCandidates.length === 0 ? (
                   <p className="text-xs text-slate-500 py-6 text-center">選択できる車両がありません。</p>
                 ) : (

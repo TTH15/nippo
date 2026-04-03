@@ -21,7 +21,7 @@ export default function AdminMiscReportsPage() {
             className="block rounded-lg border border-slate-200 bg-white p-5 hover:border-slate-300 hover:shadow-sm transition"
           >
             <h2 className="text-base font-bold text-slate-900">その他の報告</h2>
-            <p className="text-sm text-slate-500 mt-2">オイル交換などの諸報告の承認・却下を行います。</p>
+            <p className="text-sm text-slate-500 mt-2">オイル交換・修理・単発案件などの諸報告の承認・却下を行います。</p>
           </Link>
         </div>
       </div>
