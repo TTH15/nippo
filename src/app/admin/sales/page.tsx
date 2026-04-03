@@ -567,7 +567,6 @@ function LogEntriesByDate({
   }, [entries]);
 
   const [filterTypeId, setFilterTypeId] = useState("");
-  const [filterAttribution, setFilterAttribution] = useState("");
   const [sortDateOrder, setSortDateOrder] = useState<"desc" | "asc">("desc");
 
   const byDate = useMemo((): [string, LogRow[]][] => {
@@ -585,11 +584,10 @@ function LogEntriesByDate({
       dayEntries.forEach((e) => rows.push({ kind: "entry", entry: e }));
       let filtered = rows;
       if (filterTypeId) filtered = filtered.filter((r) => r.kind === "calculated" || r.entry.type_id === filterTypeId);
-      if (filterAttribution) filtered = filtered.filter((r) => r.kind === "calculated" ? filterAttribution === "COMPANY" : r.entry.attribution === filterAttribution);
       if (filtered.length > 0) out.push([day.iso, filtered]);
     });
     return out.sort((a, b) => (sortDateOrder === "desc" ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0])));
-  }, [daysInRange, displayData, entriesByDate, filterTypeId, filterAttribution, sortDateOrder]);
+  }, [daysInRange, displayData, entriesByDate, filterTypeId, sortDateOrder]);
 
   const dateLabel = (iso: string) => {
     const [y, m, d] = iso.split("-").map(Number);
@@ -618,22 +616,6 @@ function LogEntriesByDate({
           />
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">帰属先</span>
-          <CustomSelect
-            size="sm"
-            options={[
-              { value: "", label: "すべて" },
-              { value: "COMPANY", label: "会社" },
-              { value: "DRIVER", label: "ドライバー" },
-            ]}
-            value={filterAttribution}
-            onChange={setFilterAttribution}
-            placeholder="すべて"
-            clearable={false}
-            className="min-w-[90px]"
-          />
-        </div>
-        <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">並べ替え</span>
           <CustomSelect
             size="sm"
@@ -651,7 +633,7 @@ function LogEntriesByDate({
       </div>
       {byDate.length === 0 ? (
         <div className="p-8 text-center text-sm text-slate-500">
-          {entries.length === 0 && !filterTypeId && !filterAttribution
+          {entries.length === 0 && !filterTypeId
             ? "この期間にログがありません。右上の「新規追加」から登録するか、日付範囲を変更してください。"
             : "該当するログがありません。フィルターを変更するか、日付範囲を確認してください。"}
         </div>
@@ -670,7 +652,6 @@ function LogEntriesByDate({
                     <th className="sticky left-[80px] z-20 bg-slate-50/80 px-3 py-2 text-left font-medium text-slate-600 w-[12ch]">内容</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">売上</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">利益</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-16">帰属先</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">対象者</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">車両</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[240px]">備考</th>
@@ -686,7 +667,6 @@ function LogEntriesByDate({
                           <td className="sticky left-[80px] z-10 bg-slate-50/30 px-3 py-2 text-slate-600 truncate">{row.content}</td>
                           <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{fmt(row.revenue)}</td>
                           <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmtSigned(row.profit)}</td>
-                          <td className="px-3 py-2 text-slate-500">会社</td>
                           <td className="px-3 py-2 text-slate-500">—</td>
                           <td className="px-3 py-2 text-slate-500">—</td>
                           <td className="px-3 py-2 text-slate-400 text-[11px]">—</td>
@@ -709,7 +689,6 @@ function LogEntriesByDate({
                         <td className={`px-3 py-2 text-right tabular-nums font-medium ${r.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                           {fmtSigned(r.profit)}
                         </td>
-                        <td className="px-3 py-2 text-slate-600">{r.attribution === "COMPANY" ? "会社" : "ドライバー"}</td>
                         <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
                         <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
                         <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
