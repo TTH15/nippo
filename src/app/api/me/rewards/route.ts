@@ -148,41 +148,32 @@ export async function GET(req: NextRequest) {
 
   dailyIncomeDetails.sort((a, b) => a.log_date.localeCompare(b.log_date));
 
-  // 売上ログ（ドライバー収入／変動控除）※ 計算売上とは別の手動登録分
-  const { data: logRows, error: logError } = await supabase
-    .from("sales_log_entries")
-    .select(`
-      log_date,
-      amount,
-      content,
-      sales_log_types ( name )
-    `)
-    .eq("target_driver_id", user.driverId)
-    .gte("log_date", startDate)
-    .lte("log_date", endDate)
-    .order("log_date", { ascending: true })
+  // 報酬調整（臨時経費）: amount は +控除 / -手当（報酬加算）
+  const { data: adHocRows, error: adHocError } = await supabase
+    .from("driver_ad_hoc_expenses")
+    .select("month, name, amount, created_at")
+    .eq("driver_id", user.driverId)
+    .eq("month", month)
     .order("created_at", { ascending: true });
 
-  if (logError) {
-    console.error("[/api/me/rewards] sales_log_entries error", logError);
+  if (adHocError) {
+    console.error("[/api/me/rewards] driver_ad_hoc_expenses error", adHocError);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  let incomeLog = 0;
+  let rewardAdjustments = 0;
   let variableDeductions = 0;
-
-  const logDetails: RewardLogDetail[] = (logRows ?? []).map((row: any) => {
-    const amount = Number(row.amount) || 0;
-    if (amount > 0) {
-      incomeLog += amount;
-    } else if (amount < 0) {
-      variableDeductions += amount;
-    }
-    const type = row.sales_log_types as { name: string } | null;
+  const logDetails: RewardLogDetail[] = (adHocRows ?? []).map((row: any) => {
+    const rawAmount = Number(row.amount) || 0;
+    // driver_ad_hoc_expenses の符号を、ドライバー目線の表示符号に変換
+    // (+) 報酬加算、(-) 報酬減算
+    const amount = -rawAmount;
+    rewardAdjustments += amount;
+    if (amount < 0) variableDeductions += Math.abs(amount);
     return {
-      log_date: String(row.log_date ?? ""),
-      type_name: type?.name ?? "",
-      content: String(row.content ?? ""),
+      log_date: `${String(row.month ?? month)}-01`,
+      type_name: "報酬調整",
+      content: String(row.name ?? ""),
       amount,
     };
   });
@@ -242,8 +233,8 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // 収入 = 日報・シフトから計算した売上 + ログのプラス分（変動控除は net に含めない）
-  const totalIncome = calculatedIncome + incomeLog;
+  // 収入 = 日報・シフトから計算した報酬 + 報酬調整（手当/控除）
+  const totalIncome = calculatedIncome + rewardAdjustments;
   const net = totalIncome - fixedDeductions - optionalDeductions;
 
   return NextResponse.json({
@@ -252,7 +243,7 @@ export async function GET(req: NextRequest) {
     endDate,
     incomeLog: totalIncome,
     calculatedIncome,
-    logIncome: incomeLog,
+    logIncome: rewardAdjustments,
     variableDeductions,
     fixedDeductions,
     optionalDeductions,

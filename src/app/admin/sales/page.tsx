@@ -314,6 +314,9 @@ function LogEntryModal({
 
   const vehicleLabel = (v: VehicleRow) => [v.manufacturer, v.brand, v.number_numeric].filter(Boolean).join(" ") || v.id;
   const dateValue = logDate ? new Date(logDate + "T12:00:00") : undefined;
+  const previewRevenue = Math.max(0, Math.trunc(Number(revenueValue) || 0));
+  const previewProfit = Math.trunc(Number(profitValue) || 0);
+  const driverRewardPreview = Math.max(0, previewRevenue - previewProfit);
 
   const handleSave = () => {
     if (!logDate || !typeId || content.trim() === "") return;
@@ -463,6 +466,12 @@ function LogEntryModal({
                   className={`min-w-0 text-right tabular-nums ${inputClass}`}
                 />
               </div>
+              {targetDriverId && (
+                <p className="mt-1 text-[11px] text-slate-600">
+                  対象ドライバーへの報酬反映: {fmt(driverRewardPreview)}
+                  （売上 - 利益）
+                </p>
+              )}
               {inputError && <p className="mt-1 text-xs text-red-600">{inputError}</p>}
             </div>
             <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
