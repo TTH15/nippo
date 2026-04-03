@@ -318,22 +318,22 @@ function MePageContent() {
               </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
+              <div className="min-w-0">
                 <label className="block text-sm font-medium text-slate-700 mb-1">日付</label>
                 <input
                   type="date"
                   value={reportDate}
                   onChange={(e) => setReportDate(e.target.value)}
-                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
+                  className="block w-full min-w-0 py-2.5 px-3 border border-slate-200 rounded-lg text-sm focus:border-slate-400 focus:outline-none"
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <label className="block text-sm font-medium text-slate-700 mb-1">時間</label>
                 <input
                   type="time"
                   value={reportTime}
                   onChange={(e) => setReportTime(e.target.value)}
-                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
+                  className="block w-full min-w-0 py-2.5 px-3 border border-slate-200 rounded-lg text-sm focus:border-slate-400 focus:outline-none"
                 />
               </div>
             </div>
