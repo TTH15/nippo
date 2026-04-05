@@ -1141,6 +1141,7 @@ function applyRecipientFromSection() {
 
     try {
         const params = new URLSearchParams(window.location.search);
+        if (params.get('counterparty')) return;
         const section = params.get('section'); // Amazon | ヤマト運輸 | 郵便局
         if (!section) return;
 
@@ -1164,9 +1165,14 @@ async function loadInvoiceDraftFromApi() {
         const params = new URLSearchParams(window.location.search);
         const month = params.get('month'); // YYYY-MM
         const section = params.get('section'); // Amazon | ヤマト運輸 | 郵便局
+        const counterparty = params.get('counterparty'); // invoice_addresses.id（取引先別ドラフト）
         if (!month || !section) return false;
 
-        const res = await apiFetch(`/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(section)}`);
+        let draftUrl = `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(section)}`;
+        if (counterparty) {
+            draftUrl += `&counterparty=${encodeURIComponent(counterparty)}`;
+        }
+        const res = await apiFetch(draftUrl);
         const tableData = res?.tableData;
         if (!tableData) return false;
 

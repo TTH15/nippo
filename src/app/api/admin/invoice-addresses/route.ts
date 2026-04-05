@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("invoice_addresses")
-    .select("id, name, postal_code, address, phone, invoice_no, created_at")
+    .select("id, name, postal_code, address, phone, invoice_no, billing_notes, created_at")
     .eq("company_code", user.companyCode)
     .order("name");
 
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, postalCode, address, phone, invoiceNo } = body;
+    const { name, postalCode, address, phone, invoiceNo, billingNotes } = body;
 
     if (!name || typeof name !== "string" || !name.trim()) {
       return NextResponse.json({ error: "会社名を入力してください" }, { status: 400 });
@@ -45,6 +45,8 @@ export async function POST(req: NextRequest) {
         address: typeof address === "string" ? address.trim() || null : null,
         phone: typeof phone === "string" ? phone.trim() || null : null,
         invoice_no: typeof invoiceNo === "string" ? invoiceNo.trim() || null : null,
+        billing_notes:
+          typeof billingNotes === "string" ? (billingNotes.trim() ? billingNotes : null) : null,
       })
       .select()
       .single();

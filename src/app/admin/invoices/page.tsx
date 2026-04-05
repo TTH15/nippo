@@ -81,6 +81,12 @@ export default function InvoicesPage() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">請求書一覧</h1>
             <p className="text-sm text-slate-500 mt-0.5">登録済みの請求データから請求書を作成・管理</p>
+            <p className="text-xs text-slate-400 mt-1">
+              <a href="/admin/counterparties" className="underline hover:text-slate-600">
+                取引先
+              </a>
+              からコース単位の集計を見ながら、ワンクリックで下書きを開けます。
+            </p>
           </div>
           {canWrite && (
             <a

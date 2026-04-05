@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { computeCounterpartyMonthRevenue } from "@/server/billing/computeCounterpartyMonthRevenue";
 
 export const dynamic = "force-dynamic";
 
@@ -171,17 +172,66 @@ async function computeTotalForSection(startDate: string, endDate: string, sectio
   return total;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   const monthParam = req.nextUrl.searchParams.get("month");
   const sectionParamRaw = req.nextUrl.searchParams.get("section");
-  const section = (["Amazon", "ヤマト運輸", "郵便局"] as const).includes(sectionParamRaw as any)
-    ? (sectionParamRaw as Section)
-    : "ヤマト運輸";
+  const section: Section =
+    sectionParamRaw === "Amazon" || sectionParamRaw === "ヤマト運輸" || sectionParamRaw === "郵便局"
+      ? sectionParamRaw
+      : "ヤマト運輸";
 
   const range = getMonthRange(monthParam);
+  const counterpartyParam = req.nextUrl.searchParams.get("counterparty")?.trim() ?? "";
+
+  if (counterpartyParam && UUID_RE.test(counterpartyParam)) {
+    const { data: addr, error: addrErr } = await supabase
+      .from("invoice_addresses")
+      .select("id, name")
+      .eq("id", counterpartyParam)
+      .eq("company_code", user.companyCode)
+      .maybeSingle();
+
+    if (addrErr) {
+      console.error(addrErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    if (!addr) {
+      return NextResponse.json({ error: "取引先が見つかりません" }, { status: 404 });
+    }
+
+    const total = await computeCounterpartyMonthRevenue(
+      supabase,
+      range.startDate,
+      range.endDate,
+      counterpartyParam
+    );
+    const shortId = counterpartyParam.replace(/-/g, "").slice(0, 8).toUpperCase();
+    const tableData = {
+      main: [
+        {
+          title: `${addr.name} ${range.month} 分稼働売上`,
+          qty: 1,
+          price: total,
+        },
+      ],
+      deduct: [],
+    };
+
+    return NextResponse.json({
+      month: range.month,
+      section,
+      issueDate: range.endDate,
+      invoiceNo: `INV-${range.month.replace("-", "")}-CP-${shortId}`,
+      counterparty_invoice_address_id: counterpartyParam,
+      tableData,
+    });
+  }
 
   const total = await computeTotalForSection(range.startDate, range.endDate, section);
 

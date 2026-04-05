@@ -14,7 +14,7 @@ export async function PUT(
 
   try {
     const body = await req.json();
-    const { name, postalCode, address, phone, invoiceNo } = body;
+    const { name, postalCode, address, phone, invoiceNo, billingNotes } = body;
     const { id } = await params;
 
     const updates: Record<string, unknown> = {};
@@ -23,6 +23,10 @@ export async function PUT(
     if (address !== undefined) updates.address = typeof address === "string" ? address.trim() || null : null;
     if (phone !== undefined) updates.phone = typeof phone === "string" ? phone.trim() || null : null;
     if (invoiceNo !== undefined) updates.invoice_no = typeof invoiceNo === "string" ? invoiceNo.trim() || null : null;
+    if (billingNotes !== undefined) {
+      updates.billing_notes =
+        typeof billingNotes === "string" ? (billingNotes.trim() ? billingNotes : null) : null;
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "更新する項目がありません" }, { status: 400 });

@@ -19,6 +19,7 @@ import {
   faPlus,
   faRightFromBracket,
   faMoneyBill1Wave,
+  faBuilding,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { apiFetch, clearAuth, getStoredDriver } from "@/lib/api";
@@ -59,6 +60,7 @@ const navItems: NavItem[] = [
   },
   { href: "/admin/vehicles", label: "車両", icon: faCar },
   { href: "/admin/courses", label: "コース", icon: faRoute },
+  { href: "/admin/counterparties", label: "取引先", icon: faBuilding },
   {
     label: "請求書",
     icon: faFileInvoice,

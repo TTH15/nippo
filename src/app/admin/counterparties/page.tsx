@@ -1,0 +1,291 @@
+"use client";
+
+import { Fragment, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faChevronDown,
+  faChevronRight,
+  faFileInvoice,
+  faFloppyDisk,
+} from "@fortawesome/free-solid-svg-icons";
+import { AdminLayout } from "@/lib/components/AdminLayout";
+import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
+import { apiFetch, getStoredDriver } from "@/lib/api";
+import { canAdminWrite } from "@/lib/authz";
+
+type CourseRow = {
+  id: string;
+  name: string;
+  carrier: "YAMATO" | "AMAZON" | "OTHER";
+};
+
+type CounterpartySummaryRow = {
+  id: string;
+  name: string;
+  billingNotes: string;
+  courseCount: number;
+  courses: CourseRow[];
+  estimatedRevenue: number;
+  suggestedSection: "Amazon" | "ヤマト運輸" | "郵便局";
+};
+
+const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
+
+function carrierLabel(c: CourseRow["carrier"]) {
+  if (c === "AMAZON") return "Amazon";
+  if (c === "YAMATO") return "ヤマト";
+  return "その他";
+}
+
+function monthStrFromYm(y: number, m: number) {
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+
+export default function CounterpartiesPage() {
+  const [canWrite, setCanWrite] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [month, setMonth] = useState(() => {
+    const d = new Date();
+    return monthStrFromYm(d.getFullYear(), d.getMonth() + 1);
+  });
+  const [ym, setYm] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  });
+  const [rows, setRows] = useState<CounterpartySummaryRow[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [draftNotes, setDraftNotes] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ month: string; rows: CounterpartySummaryRow[] }>(
+        `/api/admin/counterparties/summary?month=${encodeURIComponent(month)}`
+      );
+      setRows(res.rows ?? []);
+    } catch (e) {
+      console.error(e);
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [month]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const saveNotes = async (id: string) => {
+    if (!canWrite) return;
+    setSavingId(id);
+    try {
+      await apiFetch(`/api/admin/invoice-addresses/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ billingNotes: draftNotes[id] ?? "" }),
+      });
+      setRows((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, billingNotes: draftNotes[id] ?? "" } : r))
+      );
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const openDraftNotes = (r: CounterpartySummaryRow) => {
+    setExpandedId((id) => (id === r.id ? null : r.id));
+    setDraftNotes((d) => ({ ...d, [r.id]: r.billingNotes ?? "" }));
+  };
+
+  return (
+    <AdminLayout>
+      <div className="w-full max-w-6xl">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">取引先</h1>
+            <p className="text-sm text-slate-500 mt-0.5">
+              コースに設定した取引先（請求先）を集計し、月次の推定売上や社内メモをまとめて管理します。
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <MonthYearPicker
+              value={ym}
+              onChange={(v) => {
+                setYm(v);
+                setMonth(monthStrFromYm(v.year, v.month));
+              }}
+              placeholder="対象月"
+            />
+            <Link
+              href="/admin/invoices"
+              className="text-sm text-slate-600 hover:text-slate-900 underline underline-offset-2"
+            >
+              請求書一覧
+            </Link>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900 mb-4">
+          推定売上は、紐づくコースの<strong>シフト＋承認済み日報</strong>から単価を積み上げた値です。管理画面の「郵便局」帯で使う
+          sales_log ベースの金額とは一致しない場合があります。請求書作成時は「取引先指定」でこの取引先に紐づくコース分だけを明細に載せます。
+        </div>
+
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[720px]">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="text-left px-3 py-3 font-medium text-slate-600 w-10" />
+                  <th className="text-left px-3 py-3 font-medium text-slate-600">取引先（請求先）</th>
+                  <th className="text-right px-3 py-3 font-medium text-slate-600">コース数</th>
+                  <th className="text-right px-3 py-3 font-medium text-slate-600">
+                    推定売上（{month}）
+                  </th>
+                  <th className="text-left px-3 py-3 font-medium text-slate-600">メモ</th>
+                  <th className="text-right px-3 py-3 font-medium text-slate-600">請求書</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                      読み込み中…
+                    </td>
+                  </tr>
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                      アドレス帳に法人がありません。請求書の「アドレス帳」から登録してください。
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((r) => {
+                    const open = expandedId === r.id;
+                    const firstLine = (r.billingNotes || "").split("\n")[0] ?? "";
+                    const memoPreview =
+                      firstLine.length > 40 ? `${firstLine.slice(0, 40)}…` : firstLine;
+                    return (
+                      <Fragment key={r.id}>
+                        <tr
+                          className={`border-b border-slate-100 hover:bg-slate-50/80 ${
+                            r.courseCount === 0 ? "opacity-60" : ""
+                          }`}
+                        >
+                          <td className="px-1 py-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => openDraftNotes(r)}
+                              className="p-2 rounded text-slate-500 hover:bg-slate-100"
+                              aria-expanded={open}
+                              title="詳細・メモ"
+                            >
+                              <FontAwesomeIcon
+                                icon={open ? faChevronDown : faChevronRight}
+                                className="w-3 h-3"
+                              />
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 font-medium text-slate-900">{r.name}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                            {r.courseCount}
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium text-slate-900 tabular-nums">
+                            {fmt(r.estimatedRevenue)}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 text-xs max-w-[200px] truncate" title={r.billingNotes || undefined}>
+                            {memoPreview.trim() ? memoPreview : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {canWrite ? (
+                              <Link
+                                href={`/admin/invoices/new?month=${encodeURIComponent(month)}&section=${encodeURIComponent(r.suggestedSection)}&counterparty=${encodeURIComponent(r.id)}`}
+                                className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-900 border border-slate-200 rounded-md px-2 py-1.5 hover:bg-slate-50"
+                              >
+                                <FontAwesomeIcon icon={faFileInvoice} className="w-3 h-3" />
+                                請求書を作成
+                              </Link>
+                            ) : (
+                              <span className="text-xs text-slate-400">—</span>
+                            )}
+                          </td>
+                        </tr>
+                        {open && (
+                          <tr className="bg-slate-50/90 border-b border-slate-100">
+                            <td colSpan={6} className="px-4 py-4">
+                              <div className="space-y-3">
+                                <div>
+                                  <div className="text-xs font-medium text-slate-500 mb-1">
+                                    紐づくコース
+                                  </div>
+                                  {r.courses.length === 0 ? (
+                                    <p className="text-sm text-slate-500">
+                                      コースに取引先が設定されていません。コース管理で「取引先（請求先）」を選ぶとここに表示されます。
+                                    </p>
+                                  ) : (
+                                    <ul className="flex flex-wrap gap-2">
+                                      {r.courses.map((c) => (
+                                        <li
+                                          key={c.id}
+                                          className="text-xs px-2 py-1 rounded-md bg-white border border-slate-200 text-slate-700"
+                                        >
+                                          <span className="font-medium">{c.name}</span>
+                                          <span className="text-slate-400 ml-1">
+                                            ({carrierLabel(c.carrier)})
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                                    社内メモ（車両リース内訳・備考など。請求書には出力されません）
+                                  </label>
+                                  <textarea
+                                    className="w-full min-h-[100px] text-sm border border-slate-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-slate-300 focus:border-slate-300 outline-none"
+                                    value={draftNotes[r.id] ?? ""}
+                                    disabled={!canWrite}
+                                    onChange={(e) =>
+                                      setDraftNotes((d) => ({ ...d, [r.id]: e.target.value }))
+                                    }
+                                    placeholder="例：No.1 エブリィ 月43,000円（2024/4〜）…"
+                                  />
+                                  {canWrite && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void saveNotes(r.id)}
+                                      disabled={savingId === r.id}
+                                      className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50"
+                                    >
+                                      <FontAwesomeIcon icon={faFloppyDisk} className="w-3 h-3" />
+                                      {savingId === r.id ? "保存中…" : "メモを保存"}
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-500">
+                                  請求書の帯域（セクション）はコースのキャリア構成から自動提案しています（
+                                  {r.suggestedSection}）。必要なら作成画面のプルダウンで変更できます。
+                                </p>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </AdminLayout>
+  );
+}
