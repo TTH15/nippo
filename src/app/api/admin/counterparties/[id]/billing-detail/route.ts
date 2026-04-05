@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
-import { computeCounterpartyMonthBillingDetail } from "@/server/billing/computeCounterpartyMonthRevenue";
+import { buildCounterpartyBillingSnapshot } from "@/server/billing/counterpartyBillingSnapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -57,48 +57,23 @@ export async function GET(
   }
 
   try {
-    const { systemLines, systemTotal } = await computeCounterpartyMonthBillingDetail(
+    const snapshot = await buildCounterpartyBillingSnapshot(
       supabase,
+      user.companyCode,
+      invoiceAddressId,
       range.startDate,
       range.endDate,
-      invoiceAddressId
+      range.month
     );
 
-    const { data: customRows, error: customErr } = await supabase
-      .from("counterparty_monthly_custom_lines")
-      .select("id, description, quantity, unit_price, sort_order")
-      .eq("company_code", user.companyCode)
-      .eq("invoice_address_id", invoiceAddressId)
-      .eq("month_yyyy_mm", range.month)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
-
-    if (customErr) {
-      console.error(customErr);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
-
-    const customLines = (customRows ?? []).map((row: Record<string, unknown>) => {
-      const qty = Number(row.quantity) || 0;
-      const unit = Number(row.unit_price) || 0;
-      return {
-        id: String(row.id),
-        description: String(row.description ?? ""),
-        quantity: qty,
-        unitPrice: unit,
-        amount: Math.round(qty * unit * 100) / 100,
-      };
-    });
-
-    const customTotal = customLines.reduce((s, l) => s + l.amount, 0);
-
     return NextResponse.json({
-      month: range.month,
-      systemLines,
-      customLines,
-      systemTotal,
-      customTotal,
-      grandTotal: systemTotal + customTotal,
+      month: snapshot.month,
+      mainLines: snapshot.mainLines,
+      deductLines: snapshot.deductLines,
+      shiftSystemTotal: snapshot.shiftSystemTotal,
+      mainSubtotal: snapshot.mainSubtotal,
+      deductSubtotal: snapshot.deductSubtotal,
+      grandTotal: snapshot.grandTotal,
     });
   } catch (e) {
     console.error(e);

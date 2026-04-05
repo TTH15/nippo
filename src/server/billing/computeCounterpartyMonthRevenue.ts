@@ -32,6 +32,8 @@ export type SystemBillingLineKind = "course_fixed" | "course_takuhaibin" | "cour
 /** システム集計行（コース別・請求書明細風） */
 export type SystemBillingLine = {
   kind: SystemBillingLineKind;
+  /** 明細キー: fx:/tk:/nk: + courseId（統合・摘要オーバーライド用） */
+  lineKey: string;
   courseId: string;
   courseName: string;
   label: string;
@@ -158,6 +160,7 @@ export async function computeCounterpartyMonthBillingDetail(
       systemTotal += amount;
       systemLines.push({
         kind: "course_fixed",
+        lineKey: `fx:${courseId}`,
         courseId,
         courseName: name,
         label: `${name}（固定売上・稼働日）`,
@@ -171,6 +174,7 @@ export async function computeCounterpartyMonthBillingDetail(
       systemTotal += tkAmt + nkAmt;
       systemLines.push({
         kind: "course_takuhaibin",
+        lineKey: `tk:${courseId}`,
         courseId,
         courseName: name,
         label: `${name} 宅急便`,
@@ -180,6 +184,7 @@ export async function computeCounterpartyMonthBillingDetail(
       });
       systemLines.push({
         kind: "course_nekopos",
+        lineKey: `nk:${courseId}`,
         courseId,
         courseName: name,
         label: `${name} ネコポス`,

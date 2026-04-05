@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
 
   const { data: customAgg, error: customErr } = await supabase
     .from("counterparty_monthly_custom_lines")
-    .select("invoice_address_id, quantity, unit_price")
+    .select("invoice_address_id, quantity, unit_price, row_kind")
     .eq("company_code", user.companyCode)
     .eq("month_yyyy_mm", range.month);
 
@@ -105,12 +105,41 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  const customTotalByAddr = new Map<string, number>();
+  const customMainByAddr = new Map<string, number>();
+  const customDedByAddr = new Map<string, number>();
   (customAgg ?? []).forEach((row: Record<string, unknown>) => {
     const id = String(row.invoice_address_id ?? "");
     if (!id) return;
     const amt = (Number(row.quantity) || 0) * (Number(row.unit_price) || 0);
-    customTotalByAddr.set(id, (customTotalByAddr.get(id) ?? 0) + amt);
+    const rk = String(row.row_kind ?? "main");
+    if (rk === "deduction") {
+      customDedByAddr.set(id, (customDedByAddr.get(id) ?? 0) + amt);
+    } else {
+      customMainByAddr.set(id, (customMainByAddr.get(id) ?? 0) + amt);
+    }
+  });
+
+  const { data: slRows, error: slErr } = await supabase
+    .from("sales_log_entries")
+    .select("counterparty_invoice_address_id, revenue, profit")
+    .gte("log_date", range.startDate)
+    .lte("log_date", range.endDate)
+    .not("counterparty_invoice_address_id", "is", null);
+
+  if (slErr) {
+    console.error(slErr);
+    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  }
+
+  const slPlusByAddr = new Map<string, number>();
+  const slMinusByAddr = new Map<string, number>();
+  (slRows ?? []).forEach((row: Record<string, unknown>) => {
+    const id = String(row.counterparty_invoice_address_id ?? "");
+    if (!id) return;
+    const rev = Number(row.revenue) || 0;
+    const prof = Number(row.profit) || 0;
+    if (rev > 0) slPlusByAddr.set(id, (slPlusByAddr.get(id) ?? 0) + rev);
+    if (prof < 0) slMinusByAddr.set(id, (slMinusByAddr.get(id) ?? 0) - prof);
   });
 
   const rows = await Promise.all(
@@ -126,8 +155,18 @@ export async function GET(req: NextRequest) {
           a.id
         );
       }
-      const customLinesTotal = Math.round((customTotalByAddr.get(a.id) ?? 0) * 100) / 100;
-      const monthTotal = Math.round((systemRevenue + customLinesTotal) * 100) / 100;
+      const customMainTotal = Math.round((customMainByAddr.get(a.id) ?? 0) * 100) / 100;
+      const customDeductionTotal = Math.round((customDedByAddr.get(a.id) ?? 0) * 100) / 100;
+      const salesLogRevenueTotal = Math.round((slPlusByAddr.get(a.id) ?? 0) * 100) / 100;
+      const salesLogDeductionTotal = Math.round((slMinusByAddr.get(a.id) ?? 0) * 100) / 100;
+      const monthTotal = Math.round(
+        (systemRevenue +
+          salesLogRevenueTotal +
+          customMainTotal -
+          salesLogDeductionTotal -
+          customDeductionTotal) *
+          100
+      ) / 100;
       const suggestedSection = courseCount > 0 ? dominantSectionFromCourses(linked) : "ヤマト運輸";
 
       return {
@@ -137,7 +176,10 @@ export async function GET(req: NextRequest) {
         courseCount,
         courses: linked,
         systemRevenue,
-        customLinesTotal,
+        salesLogRevenueTotal,
+        salesLogDeductionTotal,
+        customMainTotal,
+        customDeductionTotal,
         monthTotal,
         suggestedSection,
       };

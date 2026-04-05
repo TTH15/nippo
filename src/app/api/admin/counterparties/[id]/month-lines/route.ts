@@ -9,6 +9,37 @@ function parseMonth(monthParam: string | null): string | null {
   return monthParam;
 }
 
+type LineIn = {
+  description?: string;
+  quantity?: number;
+  unit_price?: number;
+};
+
+function normalizeLines(
+  raw: unknown,
+  rowKind: "main" | "deduction"
+): { description: string; quantity: number; unit_price: number; sort_order: number; row_kind: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { description: string; quantity: number; unit_price: number; sort_order: number; row_kind: string }[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const row = raw[i] as LineIn;
+    const description = typeof row.description === "string" ? row.description : "";
+    const quantity = Number(row.quantity);
+    const unit_price = Number(row.unit_price);
+    if (!Number.isFinite(quantity) || !Number.isFinite(unit_price)) {
+      throw new Error(`lines[${i}] の数量・単価が不正です`);
+    }
+    out.push({
+      description,
+      quantity,
+      unit_price,
+      sort_order: i,
+      row_kind: rowKind,
+    });
+  }
+  return out;
+}
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -38,33 +69,27 @@ export async function PUT(
     return NextResponse.json({ error: "取引先が見つかりません" }, { status: 404 });
   }
 
-  let body: { lines?: unknown };
+  let body: { mainLines?: unknown; deductionLines?: unknown; lines?: unknown };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const rawLines = body.lines;
-  if (!Array.isArray(rawLines)) {
-    return NextResponse.json({ error: "lines 配列が必要です" }, { status: 400 });
-  }
-
-  const normalized: { description: string; quantity: number; unit_price: number; sort_order: number }[] = [];
-  for (let i = 0; i < rawLines.length; i++) {
-    const row = rawLines[i] as Record<string, unknown>;
-    const description = typeof row.description === "string" ? row.description : "";
-    const quantity = Number(row.quantity);
-    const unit_price = Number(row.unit_price);
-    if (!Number.isFinite(quantity) || !Number.isFinite(unit_price)) {
-      return NextResponse.json({ error: `lines[${i}] の数量・単価が不正です` }, { status: 400 });
+  let mainNormalized: ReturnType<typeof normalizeLines>;
+  let dedNormalized: ReturnType<typeof normalizeLines>;
+  try {
+    const legacy = body.lines;
+    if (legacy !== undefined && body.mainLines === undefined && body.deductionLines === undefined) {
+      mainNormalized = normalizeLines(legacy, "main");
+      dedNormalized = [];
+    } else {
+      mainNormalized = normalizeLines(body.mainLines ?? [], "main");
+      dedNormalized = normalizeLines(body.deductionLines ?? [], "deduction");
     }
-    normalized.push({
-      description,
-      quantity,
-      unit_price,
-      sort_order: i,
-    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Invalid lines";
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 
   const { error: delErr } = await supabase
@@ -79,26 +104,28 @@ export async function PUT(
     return NextResponse.json({ error: delErr.message }, { status: 500 });
   }
 
-  if (normalized.length === 0) {
-    return NextResponse.json({ ok: true, count: 0 });
-  }
-
-  const insertRows = normalized.map((r) => ({
+  let ord = 0;
+  const allRows = [...mainNormalized, ...dedNormalized].map((r) => ({
     company_code: user.companyCode,
     invoice_address_id: invoiceAddressId,
     month_yyyy_mm: month,
-    sort_order: r.sort_order,
+    sort_order: ord++,
     description: r.description,
     quantity: r.quantity,
     unit_price: r.unit_price,
+    row_kind: r.row_kind,
   }));
 
-  const { error: insErr } = await supabase.from("counterparty_monthly_custom_lines").insert(insertRows);
+  if (allRows.length === 0) {
+    return NextResponse.json({ ok: true, count: 0 });
+  }
+
+  const { error: insErr } = await supabase.from("counterparty_monthly_custom_lines").insert(allRows);
 
   if (insErr) {
     console.error(insErr);
     return NextResponse.json({ error: insErr.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, count: normalized.length });
+  return NextResponse.json({ ok: true, count: allRows.length });
 }

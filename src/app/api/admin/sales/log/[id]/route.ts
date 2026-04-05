@@ -15,6 +15,7 @@ type UpdateEntryBody = {
   target_driver_id?: string | null;
   vehicle_id?: string | null;
   memo?: string | null;
+  counterparty_invoice_address_id?: string | null;
 };
 
 export async function PATCH(
@@ -55,11 +56,17 @@ export async function PATCH(
   if (body.target_driver_id !== undefined) updates.target_driver_id = body.target_driver_id || null;
   if (body.vehicle_id !== undefined) updates.vehicle_id = body.vehicle_id || null;
   if (body.memo !== undefined) updates.memo = body.memo?.trim() || null;
+  if (body.counterparty_invoice_address_id !== undefined) {
+    updates.counterparty_invoice_address_id =
+      typeof body.counterparty_invoice_address_id === "string" && body.counterparty_invoice_address_id.trim()
+        ? body.counterparty_invoice_address_id.trim()
+        : null;
+  }
 
   const { data: before, error: beforeErr } = await supabase
     .from("sales_log_entries")
     .select(
-      "log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo",
+      "log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo, counterparty_invoice_address_id",
     )
     .eq("id", id)
     .single();
@@ -72,7 +79,7 @@ export async function PATCH(
     .from("sales_log_entries")
     .update(updates)
     .eq("id", id)
-    .select("id, log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo, updated_at")
+    .select("id, log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo, counterparty_invoice_address_id, updated_at")
     .single();
 
   if (error) {
@@ -104,6 +111,7 @@ export async function PATCH(
         target_driver_id: b.target_driver_id,
         vehicle_id: b.vehicle_id,
         memo: b.memo,
+        counterparty_invoice_address_id: b.counterparty_invoice_address_id,
         updated_at: new Date().toISOString(),
       })
       .eq("id", id);

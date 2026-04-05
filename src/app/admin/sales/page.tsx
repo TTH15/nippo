@@ -62,9 +62,11 @@ type SalesLogEntryRow = {
   vehicle_id: string | null;
   vehicle_label: string | null;
   memo: string | null;
+  counterparty_invoice_address_id: string | null;
   created_at: string;
   updated_at: string;
 };
+type InvoiceAddressOption = { id: string; name: string };
 type VehicleRow = { id: string; manufacturer?: string | null; brand?: string | null; number_numeric?: string | null };
 
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
@@ -260,6 +262,7 @@ function LogEntryModal({
   logTypes,
   drivers,
   vehicles,
+  invoiceAddresses,
   onSaved,
   onTypeAdded,
 }: {
@@ -270,6 +273,7 @@ function LogEntryModal({
   logTypes: SalesLogTypeRow[];
   drivers: DriverRow[];
   vehicles: VehicleRow[];
+  invoiceAddresses: InvoiceAddressOption[];
   onSaved: () => void;
   onTypeAdded: () => void;
 }) {
@@ -281,6 +285,7 @@ function LogEntryModal({
   const [targetDriverId, setTargetDriverId] = useState("");
   const [vehicleId, setVehicleId] = useState("");
   const [memo, setMemo] = useState("");
+  const [counterpartyInvoiceAddressId, setCounterpartyInvoiceAddressId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
   const [newTypeName, setNewTypeName] = useState("");
@@ -297,6 +302,7 @@ function LogEntryModal({
         setTargetDriverId(editingEntry.target_driver_id || "");
         setVehicleId(editingEntry.vehicle_id || "");
         setMemo(editingEntry.memo ?? "");
+        setCounterpartyInvoiceAddressId(editingEntry.counterparty_invoice_address_id ?? "");
         setInputError(null);
       } else {
         setLogDate(toLocalYmd(new Date()));
@@ -307,6 +313,7 @@ function LogEntryModal({
         setTargetDriverId("");
         setVehicleId("");
         setMemo("");
+        setCounterpartyInvoiceAddressId("");
         setInputError(null);
       }
     }
@@ -348,6 +355,7 @@ function LogEntryModal({
             target_driver_id: targetDriverId || null,
             vehicle_id: vehicleId || null,
             memo: memo.trim() || null,
+            counterparty_invoice_address_id: counterpartyInvoiceAddressId.trim() || null,
           }),
         })
       : apiFetch("/api/admin/sales/log", {
@@ -361,6 +369,7 @@ function LogEntryModal({
             target_driver_id: targetDriverId || null,
             vehicle_id: vehicleId || null,
             memo: memo.trim() || null,
+            counterparty_invoice_address_id: counterpartyInvoiceAddressId.trim() || null,
           }),
         });
 
@@ -474,6 +483,25 @@ function LogEntryModal({
               )}
               {inputError && <p className="mt-1 text-xs text-red-600">{inputError}</p>}
             </div>
+            <div className="sm:col-span-2 lg:col-span-3">
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                取引先（請求先）— 取引先画面・請求ドラフトに反映
+              </label>
+              <CustomSelect
+                size="md"
+                options={[
+                  { value: "", label: "（未設定）" },
+                  ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
+                ]}
+                value={counterpartyInvoiceAddressId}
+                onChange={setCounterpartyInvoiceAddressId}
+                placeholder="（未設定）"
+                clearable
+              />
+              <p className="mt-1 text-[11px] text-slate-500 leading-snug">
+                単発案件など、コース外の売上を特定の取引先に紐づけるときに指定します。利益がマイナスのときは取引先の「控除」に載ります。
+              </p>
+            </div>
             <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="min-w-0">
                 <label className="block text-xs font-medium text-slate-600 mb-1.5">対象者</label>
@@ -540,6 +568,7 @@ function LogEntriesByDate({
   logTypes,
   drivers,
   vehicles,
+  invoiceAddressById,
   startIso,
   endIso,
   onUpdated,
@@ -555,6 +584,7 @@ function LogEntriesByDate({
   logTypes: SalesLogTypeRow[];
   drivers: DriverRow[];
   vehicles: VehicleRow[];
+  invoiceAddressById: Record<string, string>;
   startIso: string;
   endIso: string;
   onUpdated: () => void;
@@ -654,7 +684,7 @@ function LogEntriesByDate({
                 {dateLabel(dateIso)}
               </div>
               <div className="overflow-x-auto -mx-2 md:mx-0">
-                <table className="w-full text-xs table-fixed min-w-[720px] md:min-w-0">
+                <table className="w-full text-xs table-fixed min-w-[800px] md:min-w-0">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
                     <th className="sticky left-0 z-20 bg-slate-50/80 px-3 py-2 text-left font-medium text-slate-600 w-20">種別</th>
@@ -663,7 +693,8 @@ function LogEntriesByDate({
                     <th className="px-3 py-2 text-right font-medium text-slate-600 w-24">利益</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">対象者</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">車両</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[240px]">備考</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 w-28">取引先</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600 min-w-[200px]">備考</th>
                     {canWrite && <th className="px-3 py-2 w-20" />}
                   </tr>
                 </thead>
@@ -676,6 +707,7 @@ function LogEntriesByDate({
                           <td className="sticky left-[80px] z-10 bg-slate-50/30 px-3 py-2 text-slate-600 truncate">{row.content}</td>
                           <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{fmt(row.revenue)}</td>
                           <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmtSigned(row.profit)}</td>
+                          <td className="px-3 py-2 text-slate-500">—</td>
                           <td className="px-3 py-2 text-slate-500">—</td>
                           <td className="px-3 py-2 text-slate-500">—</td>
                           <td className="px-3 py-2 text-slate-400 text-[11px]">—</td>
@@ -700,6 +732,11 @@ function LogEntriesByDate({
                         </td>
                         <td className="px-3 py-2 text-slate-600">{r.target_driver_name ?? "—"}</td>
                         <td className="px-3 py-2 text-slate-600">{r.vehicle_label ?? "—"}</td>
+                        <td className="px-3 py-2 text-slate-600 truncate max-w-[7rem]" title={r.counterparty_invoice_address_id ? invoiceAddressById[r.counterparty_invoice_address_id] : undefined}>
+                          {r.counterparty_invoice_address_id
+                            ? invoiceAddressById[r.counterparty_invoice_address_id] ?? "—"
+                            : "—"}
+                        </td>
                         <td className="px-3 py-2 text-slate-500 text-[11px]">{r.memo ?? "—"}</td>
                         {canWrite && (
                           <td className="px-3 py-2">
@@ -760,6 +797,7 @@ export default function SalesPage() {
   const [logTypes, setLogTypes] = useState<SalesLogTypeRow[]>([]);
   const [logDrivers, setLogDrivers] = useState<DriverRow[]>([]);
   const [logVehicles, setLogVehicles] = useState<VehicleRow[]>([]);
+  const [logInvoiceAddresses, setLogInvoiceAddresses] = useState<InvoiceAddressOption[]>([]);
   const [loadingLog, setLoadingLog] = useState(false);
   const [logSavingId, setLogSavingId] = useState<string | null>(null);
   const [logModalOpen, setLogModalOpen] = useState(false);
@@ -921,6 +959,23 @@ export default function SalesPage() {
       .then((res) => setLogVehicles(res.vehicles ?? []))
       .catch(() => setLogVehicles([]));
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "log") return;
+    apiFetch<{ addresses: { id: string; name: string }[] }>("/api/admin/invoice-addresses")
+      .then((res) =>
+        setLogInvoiceAddresses((res.addresses ?? []).map((a) => ({ id: a.id, name: a.name })))
+      )
+      .catch(() => setLogInvoiceAddresses([]));
+  }, [tab]);
+
+  const invoiceAddressById = useMemo(() => {
+    const m: Record<string, string> = {};
+    logInvoiceAddresses.forEach((a) => {
+      m[a.id] = a.name;
+    });
+    return m;
+  }, [logInvoiceAddresses]);
 
   const logCompanyByDate = useMemo(() => {
     const rev = new Map<string, number>();
@@ -1391,6 +1446,7 @@ export default function SalesPage() {
                   logTypes={logTypes}
                   drivers={logDrivers}
                   vehicles={logVehicles}
+                  invoiceAddresses={logInvoiceAddresses}
                   onSaved={() => {
                     if (startIso && endIso) {
                       apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
@@ -1419,6 +1475,7 @@ export default function SalesPage() {
                       logTypes={logTypes}
                       drivers={logDrivers}
                       vehicles={logVehicles}
+                      invoiceAddressById={invoiceAddressById}
                       startIso={startIso}
                       endIso={endIso}
                       onUpdated={() => {

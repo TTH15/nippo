@@ -20,6 +20,7 @@ export type SalesLogEntryRow = {
   vehicle_id: string | null;
   vehicle_label: string | null;
   memo: string | null;
+  counterparty_invoice_address_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
     .from("sales_log_entries")
     .select(`
       id, log_date, type_id, content, revenue, profit, amount, attribution,
-      target_driver_id, vehicle_id, memo, created_at, updated_at,
+      target_driver_id, vehicle_id, memo, counterparty_invoice_address_id, created_at, updated_at,
       sales_log_types ( name ),
       drivers ( id, name, display_name ),
       vehicles ( id, manufacturer, brand, number_numeric )
@@ -79,6 +80,7 @@ export async function GET(req: NextRequest) {
       vehicle_id: (r.vehicle_id as string) || null,
       vehicle_label: vehicleLabel,
       memo: (r.memo as string) || null,
+      counterparty_invoice_address_id: (r.counterparty_invoice_address_id as string) || null,
       created_at: String(r.created_at ?? ""),
       updated_at: String(r.updated_at ?? ""),
     };
@@ -97,6 +99,7 @@ type CreateEntryBody = {
   target_driver_id?: string | null;
   vehicle_id?: string | null;
   memo?: string | null;
+  counterparty_invoice_address_id?: string | null;
 };
 
 // POST: 1件追加
@@ -130,6 +133,10 @@ export async function POST(req: NextRequest) {
     target_driver_id: body.target_driver_id || null,
     vehicle_id: body.vehicle_id || null,
     memo: body.memo?.trim() || null,
+    counterparty_invoice_address_id:
+      typeof body.counterparty_invoice_address_id === "string" && body.counterparty_invoice_address_id.trim()
+        ? body.counterparty_invoice_address_id.trim()
+        : null,
     updated_at: new Date().toISOString(),
   };
 
@@ -138,7 +145,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabase
     .from("sales_log_entries")
     .insert(payload)
-    .select("id, log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo, created_at, updated_at")
+    .select("id, log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo, counterparty_invoice_address_id, created_at, updated_at")
     .single();
 
   if (error) {

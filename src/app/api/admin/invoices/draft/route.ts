@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
-import { computeCounterpartyMonthBillingDetail } from "@/server/billing/computeCounterpartyMonthRevenue";
+import { buildCounterpartyBillingSnapshot } from "@/server/billing/counterpartyBillingSnapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -205,42 +205,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "取引先が見つかりません" }, { status: 404 });
     }
 
-    const { systemLines } = await computeCounterpartyMonthBillingDetail(
+    const snap = await buildCounterpartyBillingSnapshot(
       supabase,
+      user.companyCode,
+      counterpartyParam,
       range.startDate,
       range.endDate,
-      counterpartyParam
+      range.month
     );
 
-    const { data: customRows, error: customErr } = await supabase
-      .from("counterparty_monthly_custom_lines")
-      .select("description, quantity, unit_price, sort_order, created_at")
-      .eq("company_code", user.companyCode)
-      .eq("invoice_address_id", counterpartyParam)
-      .eq("month_yyyy_mm", range.month)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
-
-    if (customErr) {
-      console.error(customErr);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
-
-    const main: { title: string; qty: number; price: number }[] = systemLines.map((line) => ({
+    const main: { title: string; qty: number; price: number }[] = snap.mainLines.map((line) => ({
       title: line.label,
       qty: line.quantity,
       price: line.unitPrice,
     }));
 
-    for (const row of customRows ?? []) {
-      const qty = Number(row.quantity) || 0;
-      const price = Number(row.unit_price) || 0;
-      main.push({
-        title: String(row.description ?? "").trim() || "（品目未入力）",
-        qty,
-        price,
-      });
-    }
+    const deduct: { title: string; qty: number; price: number }[] = snap.deductLines.map((line) => ({
+      title: line.label,
+      qty: line.quantity,
+      price: line.unitPrice,
+    }));
 
     if (main.length === 0) {
       main.push({
@@ -253,7 +237,7 @@ export async function GET(req: NextRequest) {
     const shortId = counterpartyParam.replace(/-/g, "").slice(0, 8).toUpperCase();
     const tableData = {
       main,
-      deduct: [],
+      deduct,
     };
 
     return NextResponse.json({
