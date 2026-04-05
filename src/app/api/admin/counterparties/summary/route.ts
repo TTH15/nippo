@@ -94,19 +94,40 @@ export async function GET(req: NextRequest) {
     byCounterparty.set(cp, list);
   });
 
+  const { data: customAgg, error: customErr } = await supabase
+    .from("counterparty_monthly_custom_lines")
+    .select("invoice_address_id, quantity, unit_price")
+    .eq("company_code", user.companyCode)
+    .eq("month_yyyy_mm", range.month);
+
+  if (customErr) {
+    console.error(customErr);
+    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  }
+
+  const customTotalByAddr = new Map<string, number>();
+  (customAgg ?? []).forEach((row: Record<string, unknown>) => {
+    const id = String(row.invoice_address_id ?? "");
+    if (!id) return;
+    const amt = (Number(row.quantity) || 0) * (Number(row.unit_price) || 0);
+    customTotalByAddr.set(id, (customTotalByAddr.get(id) ?? 0) + amt);
+  });
+
   const rows = await Promise.all(
     (addresses ?? []).map(async (a: { id: string; name: string; billing_notes: string | null }) => {
       const linked = byCounterparty.get(a.id) ?? [];
       const courseCount = linked.length;
-      let estimatedRevenue = 0;
+      let systemRevenue = 0;
       if (courseCount > 0) {
-        estimatedRevenue = await computeCounterpartyMonthRevenue(
+        systemRevenue = await computeCounterpartyMonthRevenue(
           supabase,
           range.startDate,
           range.endDate,
           a.id
         );
       }
+      const customLinesTotal = Math.round((customTotalByAddr.get(a.id) ?? 0) * 100) / 100;
+      const monthTotal = Math.round((systemRevenue + customLinesTotal) * 100) / 100;
       const suggestedSection = courseCount > 0 ? dominantSectionFromCourses(linked) : "ヤマト運輸";
 
       return {
@@ -115,7 +136,9 @@ export async function GET(req: NextRequest) {
         billingNotes: a.billing_notes ?? "",
         courseCount,
         courses: linked,
-        estimatedRevenue,
+        systemRevenue,
+        customLinesTotal,
+        monthTotal,
         suggestedSection,
       };
     })

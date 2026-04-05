@@ -10,6 +10,16 @@ type CourseRate = {
   fixed_profit: number;
 };
 
+const zeroRate = (): CourseRate => ({
+  course_id: "",
+  takuhaibin_revenue: 0,
+  takuhaibin_profit: 0,
+  nekopos_revenue: 0,
+  nekopos_profit: 0,
+  fixed_revenue: 0,
+  fixed_profit: 0,
+});
+
 function normalizeCarrierFromCourseName(courseName: string) {
   if (!courseName) return "OTHER";
   if (courseName.startsWith("ヤマト")) return "YAMATO";
@@ -17,24 +27,46 @@ function normalizeCarrierFromCourseName(courseName: string) {
   return "OTHER";
 }
 
+export type SystemBillingLineKind = "course_fixed" | "course_takuhaibin" | "course_nekopos";
+
+/** システム集計行（コース別・請求書明細風） */
+export type SystemBillingLine = {
+  kind: SystemBillingLineKind;
+  courseId: string;
+  courseName: string;
+  label: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+};
+
+type CourseAgg = {
+  name: string;
+  takuhaibinCount: number;
+  nekoposCount: number;
+  fixedDays: number;
+  rate: CourseRate;
+};
+
 /**
- * 指定期間・取引先（請求先）に紐づくコースのシフト売上を、請求ドラフトと同じ単価ロジックで合算する。
- * ※「郵便局」帯の sales_log 集計はコース単位ではないため、ここには含めない。
+ * 取引先に紐づくコースごとの件数・売上行を、請求ドラフトと同じ単価ロジックで算出する。
  */
-export async function computeCounterpartyMonthRevenue(
+export async function computeCounterpartyMonthBillingDetail(
   supabase: SupabaseClient,
   startDate: string,
   endDate: string,
   counterpartyInvoiceAddressId: string
-): Promise<number> {
+): Promise<{ systemLines: SystemBillingLine[]; systemTotal: number }> {
   const { data: courses, error: coursesErr } = await supabase
     .from("courses")
     .select("id, name, carrier")
-    .eq("counterparty_invoice_address_id", counterpartyInvoiceAddressId);
+    .eq("counterparty_invoice_address_id", counterpartyInvoiceAddressId)
+    .order("sort_order", { ascending: true });
   if (coursesErr) throw coursesErr;
-  if (!courses?.length) return 0;
+  if (!courses?.length) return { systemLines: [], systemTotal: 0 };
 
-  const allowedCourseIds = courses.map((c: { id: string }) => String(c.id));
+  const coursesOrdered = courses as { id: string; name?: string | null }[];
+  const allowedCourseIds = coursesOrdered.map((c) => String(c.id));
 
   const { data: courseRates, error: rateErr } = await supabase
     .from("course_rates")
@@ -55,6 +87,18 @@ export async function computeCounterpartyMonthRevenue(
       fixed_profit: Number(r.fixed_profit) || 0,
     };
   });
+
+  const perCourse = new Map<string, CourseAgg>();
+  for (const c of coursesOrdered) {
+    const id = String(c.id);
+    perCourse.set(id, {
+      name: String(c.name ?? ""),
+      takuhaibinCount: 0,
+      nekoposCount: 0,
+      fixedDays: 0,
+      rate: rateByCourse[id] ?? zeroRate(),
+    });
+  }
 
   const { data: shifts, error: shiftsErr } = await supabase
     .from("shifts")
@@ -77,8 +121,6 @@ export async function computeCounterpartyMonthRevenue(
     reportMap.set(`${r.driver_id}:${r.report_date}`, r);
   });
 
-  let total = 0;
-
   (shifts ?? []).forEach((s: Record<string, unknown>) => {
     const driverId = s.driver_id as string | undefined;
     const courseId = s.course_id as string | undefined;
@@ -88,20 +130,85 @@ export async function computeCounterpartyMonthRevenue(
     const rep = reportMap.get(`${driverId}:${date}`);
     if (!rep) return;
 
-    const rate = rateByCourse[courseId];
-    if (!rate) return;
+    const agg = perCourse.get(courseId);
+    if (!agg) return;
 
+    const rate = agg.rate;
     if (rate.fixed_revenue > 0) {
-      total += rate.fixed_revenue;
+      agg.fixedDays += 1;
       return;
     }
 
     const tkComp = Number(rep.takuhaibin_completed ?? 0) || 0;
     const nkComp = Number(rep.nekopos_completed ?? 0) || 0;
-    total += tkComp * rate.takuhaibin_revenue + nkComp * rate.nekopos_revenue;
+    agg.takuhaibinCount += tkComp;
+    agg.nekoposCount += nkComp;
   });
 
-  return total;
+  const systemLines: SystemBillingLine[] = [];
+  let systemTotal = 0;
+
+  for (const c of coursesOrdered) {
+    const courseId = String(c.id);
+    const agg = perCourse.get(courseId);
+    if (!agg) continue;
+    const { rate, name } = agg;
+    if (rate.fixed_revenue > 0) {
+      const amount = agg.fixedDays * rate.fixed_revenue;
+      systemTotal += amount;
+      systemLines.push({
+        kind: "course_fixed",
+        courseId,
+        courseName: name,
+        label: `${name}（固定売上・稼働日）`,
+        quantity: agg.fixedDays,
+        unitPrice: rate.fixed_revenue,
+        amount,
+      });
+    } else {
+      const tkAmt = agg.takuhaibinCount * rate.takuhaibin_revenue;
+      const nkAmt = agg.nekoposCount * rate.nekopos_revenue;
+      systemTotal += tkAmt + nkAmt;
+      systemLines.push({
+        kind: "course_takuhaibin",
+        courseId,
+        courseName: name,
+        label: `${name} 宅急便`,
+        quantity: agg.takuhaibinCount,
+        unitPrice: rate.takuhaibin_revenue,
+        amount: tkAmt,
+      });
+      systemLines.push({
+        kind: "course_nekopos",
+        courseId,
+        courseName: name,
+        label: `${name} ネコポス`,
+        quantity: agg.nekoposCount,
+        unitPrice: rate.nekopos_revenue,
+        amount: nkAmt,
+      });
+    }
+  }
+
+  return { systemLines, systemTotal };
+}
+
+/**
+ * 指定期間・取引先（請求先）に紐づくコースのシフト売上合計（システム計上のみ）。
+ */
+export async function computeCounterpartyMonthRevenue(
+  supabase: SupabaseClient,
+  startDate: string,
+  endDate: string,
+  counterpartyInvoiceAddressId: string
+): Promise<number> {
+  const { systemTotal } = await computeCounterpartyMonthBillingDetail(
+    supabase,
+    startDate,
+    endDate,
+    counterpartyInvoiceAddressId
+  );
+  return systemTotal;
 }
 
 export type CounterpartyCourse = { id: string; name: string; carrier: "YAMATO" | "AMAZON" | "OTHER" };
