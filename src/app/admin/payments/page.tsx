@@ -45,6 +45,46 @@ type DraftExpense = {
   repeat: boolean;
 };
 
+type RewardLogDetail = {
+  log_date: string;
+  type_name: string;
+  content: string;
+  amount: number;
+};
+
+type FixedExpenseDetail = {
+  id: string;
+  name: string;
+  amount: number;
+};
+
+type OptionalExpenseDetail = {
+  id: string;
+  name: string;
+  amount: number;
+};
+
+type DriverRewardsSummary = {
+  month: string;
+  startDate: string;
+  endDate: string;
+  incomeLog: number;
+  variableDeductions: number;
+  fixedDeductions: number;
+  optionalDeductions?: number;
+  net: number;
+  logDetails: RewardLogDetail[];
+  dailyIncomeDetails?: RewardLogDetail[];
+  fixedDetails: FixedExpenseDetail[];
+  optionalDetails?: OptionalExpenseDetail[];
+};
+
+function mergedDetails(rewards: DriverRewardsSummary): RewardLogDetail[] {
+  const daily = rewards.dailyIncomeDetails ?? [];
+  const manual = rewards.logDetails ?? [];
+  return [...daily, ...manual].sort((a, b) => a.log_date.localeCompare(b.log_date));
+}
+
 function currentYearMonth(): { year: number; month: number } {
   const d = new Date();
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
@@ -69,6 +109,9 @@ export default function PaymentsPage() {
   ]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [rewardSummary, setRewardSummary] = useState<DriverRewardsSummary | null>(null);
+  const [rewardLoading, setRewardLoading] = useState(false);
+  const [rewardError, setRewardError] = useState<string | null>(null);
 
   const monthStr = `${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}`;
 
@@ -105,6 +148,18 @@ export default function PaymentsPage() {
       .finally(() => setAdHocLoading(false));
     setDraftExpenses([{ id: 1, name: "", amount: "", sign: "-", repeat: false }]);
     setSaveError(null);
+    setRewardLoading(true);
+    setRewardError(null);
+    setRewardSummary(null);
+    apiFetch<DriverRewardsSummary>(
+      `/api/admin/driver-rewards?driver_id=${modalDriver.driverId}&month=${monthStr}`,
+    )
+      .then((res) => setRewardSummary(res))
+      .catch((e: unknown) => {
+        console.error(e);
+        setRewardError("報酬詳細の取得に失敗しました");
+      })
+      .finally(() => setRewardLoading(false));
   }, [modalDriver, monthStr]);
 
   const fmtSignedYen = (amount: number) => {
@@ -353,7 +408,96 @@ export default function PaymentsPage() {
               報酬内訳: ヤマト {formatYen(modalDriver.yamatoIncome)}／Amazon {formatYen(modalDriver.amazonIncome)}／その他 {formatYen(modalDriver.otherIncome)}
             </p>
 
-            <div>
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800 mb-1">
+                  収入の明細
+                </h3>
+                {rewardLoading ? (
+                  <div className="space-y-2 text-sm">
+                    <Skeleton className="h-4 w-24" />
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-40" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                    ))}
+                  </div>
+                ) : rewardError ? (
+                  <p className="text-xs text-red-600">{rewardError}</p>
+                ) : rewardSummary ? (
+                  <div className="space-y-2">
+                    <div className="text-[11px] text-slate-500">
+                      期間: {rewardSummary.startDate} 〜 {rewardSummary.endDate}
+                    </div>
+                    <div className="border border-slate-200 rounded-md p-2 bg-slate-50 text-[11px] text-slate-700">
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        <span>
+                          売上ベース報酬:{" "}
+                          <span className="font-semibold text-slate-900">
+                            {rewardSummary.incomeLog.toLocaleString("ja-JP")}円
+                          </span>
+                        </span>
+                        <span>
+                          変動控除:{" "}
+                          <span className="font-semibold text-slate-900">
+                            {rewardSummary.variableDeductions.toLocaleString("ja-JP")}円
+                          </span>
+                        </span>
+                        <span>
+                          固定控除:{" "}
+                          <span className="font-semibold text-slate-900">
+                            {rewardSummary.fixedDeductions.toLocaleString("ja-JP")}円
+                          </span>
+                        </span>
+                        <span>
+                          自由控除:{" "}
+                          <span className="font-semibold text-slate-900">
+                            {(rewardSummary.optionalDeductions ?? 0).toLocaleString("ja-JP")}円
+                          </span>
+                        </span>
+                        <span>
+                          手取り見込み:{" "}
+                          <span className="font-semibold text-slate-900">
+                            {rewardSummary.net.toLocaleString("ja-JP")}円
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="max-h-52 overflow-y-auto border border-slate-200 rounded-md p-2 text-xs text-slate-700">
+                      {(() => {
+                        const details = mergedDetails(rewardSummary);
+                        if (details.length === 0) {
+                          return <p className="text-slate-500">この月の明細はありません。</p>;
+                        }
+                        return details.map((l, idx) => (
+                          <div
+                            key={`${l.log_date}-${l.type_name}-${idx}`}
+                            className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums py-0.5"
+                          >
+                            <span className="text-slate-500">
+                              {(() => {
+                                const [y, m, d] = l.log_date.split("-").map(Number);
+                                return `${m}月${d}日`;
+                              })()}
+                            </span>
+                            <span className="text-slate-800">
+                              {l.content || l.type_name || "—"}
+                            </span>
+                            <span className="ml-auto font-semibold">
+                              {l.amount >= 0
+                                ? `${l.amount.toLocaleString("ja-JP")}円`
+                                : `-${Math.abs(l.amount).toLocaleString("ja-JP")}円`}
+                            </span>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
               {saveError && <p className="text-xs text-red-600 mb-2">{saveError}</p>}
               {fixedLoading || adHocLoading ? (
                 <div className="space-y-2">
