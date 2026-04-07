@@ -102,6 +102,7 @@ export default function AdminDailyPage() {
   const [editingEntry, setEditingEntry] = useState<{ entry: Entry; groupDate: string } | null>(null);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [savingEdit, setSavingEdit] = useState(false);
+  const [editSaveError, setEditSaveError] = useState<string | null>(null);
   const [allDateRange, setAllDateRange] = useState<DateRangeValue | undefined>(undefined);
   const [daySummaries, setDaySummaries] = useState<DaySummary[]>([]);
 
@@ -116,13 +117,13 @@ export default function AdminDailyPage() {
     return `${y}-${m}-${day}`;
   };
 
-  const load = (targetTab: Tab, range?: DateRangeValue) => {
+  const load = (targetTab: Tab, range?: DateRangeValue): Promise<void> => {
     setLoading(true);
     setFetchError(null);
     const cacheOpt = { cache: "no-store" as RequestCache };
     if (targetTab === "pending") {
       // 未承認タブは日付範囲指定なし。API 側のデフォルト（直近14日・未来除外）を使用
-      apiFetch<{ days: DaySummary[] }>(`/api/admin/daily/day-summary-range`, cacheOpt)
+      return apiFetch<{ days: DaySummary[] }>(`/api/admin/daily/day-summary-range`, cacheOpt)
         .then((res) => setDaySummaries(res.days ?? []))
         .catch((e) => {
           console.error("[admin/daily] fetch error", e);
@@ -130,20 +131,18 @@ export default function AdminDailyPage() {
           setDaySummaries([]);
         })
         .finally(() => setLoading(false));
-    } else {
-      const start = range?.startDate ? toYmd(range.startDate) : "";
-      const end = range?.endDate ? toYmd(range.endDate) : "";
-      const query =
-        start && end ? `?start=${start}&end=${end}` : "";
-      apiFetch<{ groups: Group[] }>(`/api/admin/daily/all${query}`, cacheOpt)
-        .then((res) => setGroups(res.groups ?? []))
-        .catch((e) => {
-          console.error("[admin/daily] fetch error", e);
-          setFetchError(e instanceof Error ? e.message : "日報の取得に失敗しました");
-          setGroups([]);
-        })
-        .finally(() => setLoading(false));
     }
+    const start = range?.startDate ? toYmd(range.startDate) : "";
+    const end = range?.endDate ? toYmd(range.endDate) : "";
+    const query = start && end ? `?start=${start}&end=${end}` : "";
+    return apiFetch<{ groups: Group[] }>(`/api/admin/daily/all${query}`, cacheOpt)
+      .then((res) => setGroups(res.groups ?? []))
+      .catch((e) => {
+        console.error("[admin/daily] fetch error", e);
+        setFetchError(e instanceof Error ? e.message : "日報の取得に失敗しました");
+        setGroups([]);
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
@@ -181,6 +180,7 @@ export default function AdminDailyPage() {
 
   const openEdit = (entry: Entry) => {
     const r = entry.report;
+    setEditSaveError(null);
     setEditingEntry({ entry, groupDate: r.report_date });
     setEditForm({
       report_date: r.report_date ?? "",
@@ -199,10 +199,13 @@ export default function AdminDailyPage() {
   };
 
   const saveEdit = async () => {
-    if (!editingEntry?.entry.report.id) return;
+    if (!editingEntry?.entry.report.id) {
+      setEditSaveError("日報IDが取得できません。画面を再読み込みしてください。");
+      return;
+    }
     setSavingEdit(true);
+    setEditSaveError(null);
     try {
-      const r = editingEntry.entry.report;
       const carrier = editForm.carrier === "AMAZON" ? "AMAZON" : "YAMATO";
       const reportDate = (editForm.report_date ?? "").trim();
       await apiFetch(`/api/admin/daily/reports/${editingEntry.entry.report.id}`, {
@@ -222,10 +225,11 @@ export default function AdminDailyPage() {
           amazon_4_completed: Number(editForm.amazon_4_completed) || 0,
         }),
       });
+      await load(tab, tab === "all" ? allDateRange : undefined);
       setEditingEntry(null);
-      load(tab, tab === "all" ? allDateRange : undefined);
     } catch (err) {
       console.error(err);
+      setEditSaveError(err instanceof Error ? err.message : "保存に失敗しました");
     } finally {
       setSavingEdit(false);
     }
@@ -784,7 +788,11 @@ export default function AdminDailyPage() {
           editForm={editForm}
           setEditForm={(updater) => setEditForm((prev) => updater(prev))}
           savingEdit={savingEdit}
-          onClose={() => setEditingEntry(null)}
+          saveError={editSaveError}
+          onClose={() => {
+            setEditSaveError(null);
+            setEditingEntry(null);
+          }}
           onSave={saveEdit}
         />
       )}

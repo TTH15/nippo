@@ -47,14 +47,32 @@ export async function PUT(
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
 
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from("daily_reports")
       .update(updates)
-      .eq("id", reportId);
+      .eq("id", reportId)
+      .select("id")
+      .maybeSingle();
 
     if (error) {
+      if (error.code === "23505") {
+        return NextResponse.json(
+          {
+            error:
+              "その日付には同一勤務区分の日報が既にあります。別の日付にするか、重複する日報を確認してください。",
+          },
+          { status: 409 },
+        );
+      }
       console.error("[admin/daily/reports] update error", error);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+
+    if (!updated) {
+      return NextResponse.json(
+        { error: "日報が見つからないか、更新できませんでした。" },
+        { status: 404 },
+      );
     }
 
     return NextResponse.json({ ok: true });

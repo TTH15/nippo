@@ -34,6 +34,7 @@ interface EditReportModalProps {
   editForm: EditForm;
   setEditForm: (updater: (prev: EditForm) => EditForm) => void;
   savingEdit: boolean;
+  saveError?: string | null;
   onClose: () => void;
   onSave: () => void;
 }
@@ -43,6 +44,7 @@ export default function EditReportModal({
   editForm,
   setEditForm,
   savingEdit,
+  saveError,
   onClose,
   onSave,
 }: EditReportModalProps) {
@@ -70,7 +72,13 @@ export default function EditReportModal({
           </h2>
           <p className="text-xs text-slate-500 mb-4">
             承認済みの日報を編集すると、売上・報酬・集計にもその内容が反映されます。
+            日付を変えた場合は一覧の別の日付ブロックへ移動します（未承認タブは直近14日のみ表示）。
           </p>
+          {saveError ? (
+            <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+              {saveError}
+            </div>
+          ) : null}
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">日付</label>
