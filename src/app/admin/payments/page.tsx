@@ -112,6 +112,17 @@ export default function PaymentsPage() {
   const [rewardSummary, setRewardSummary] = useState<DriverRewardsSummary | null>(null);
   const [rewardLoading, setRewardLoading] = useState(false);
   const [rewardError, setRewardError] = useState<string | null>(null);
+  const [expandedDriverId, setExpandedDriverId] = useState<string | null>(null);
+  const [rewardsCache, setRewardsCache] = useState<
+    Record<
+      string,
+      {
+        loading: boolean;
+        error: string | null;
+        data: DriverRewardsSummary | null;
+      }
+    >
+  >({});
 
   const monthStr = `${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}`;
 
@@ -131,6 +142,41 @@ export default function PaymentsPage() {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
     loadPayments();
   }, [loadPayments]);
+
+  useEffect(() => {
+    // 月を切り替えたら展開状態とキャッシュをクリア
+    setExpandedDriverId(null);
+    setRewardsCache({});
+  }, [monthStr]);
+
+  const ensureRewardsLoaded = useCallback(
+    async (driverId: string) => {
+      const key = `${driverId}:${monthStr}`;
+      setRewardsCache((prev) => {
+        if (prev[key]?.loading || prev[key]?.data || prev[key]?.error) return prev;
+        return {
+          ...prev,
+          [key]: { loading: true, error: null, data: null },
+        };
+      });
+      try {
+        const res = await apiFetch<DriverRewardsSummary>(
+          `/api/admin/driver-rewards?driver_id=${driverId}&month=${monthStr}`,
+        );
+        setRewardsCache((prev) => ({
+          ...prev,
+          [key]: { loading: false, error: null, data: res },
+        }));
+      } catch (e: unknown) {
+        console.error(e);
+        setRewardsCache((prev) => ({
+          ...prev,
+          [key]: { loading: false, error: "報酬詳細の取得に失敗しました", data: null },
+        }));
+      }
+    },
+    [monthStr],
+  );
 
   useEffect(() => {
     if (!modalDriver) return;
@@ -302,6 +348,7 @@ export default function PaymentsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="py-2.5 px-2 text-left"><Skeleton className="h-4 w-6" /></th>
                   <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-16" /></th>
                   <th className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-20" /></th>
                   <th className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-20" /></th>
@@ -314,6 +361,7 @@ export default function PaymentsPage() {
               <tbody>
                 {[...Array(5)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-100">
+                    <td className="py-2.5 px-2"><Skeleton className="h-4 w-6" /></td>
                     <td className="py-2.5 px-4"><Skeleton className="h-4 w-24" /></td>
                     <td className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-16" /></td>
                     <td className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-16" /></td>
@@ -333,6 +381,7 @@ export default function PaymentsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="py-2.5 px-2 text-left font-medium text-slate-600 w-10"></th>
                   <th className="py-2.5 px-4 text-left font-medium text-slate-600">名前</th>
                   <th className="py-2.5 px-4 text-right font-medium text-slate-600">支払額</th>
                   <th className="py-2.5 px-4 text-right font-medium text-slate-600">報酬</th>
@@ -348,44 +397,161 @@ export default function PaymentsPage() {
               <tbody>
                 {rows.map((row) => {
                   const totalDeductions = row.fixedDeductions + row.adHocDeductions;
+                  const isOpen = expandedDriverId === row.driverId;
+                  const cacheKey = `${row.driverId}:${monthStr}`;
+                  const reward = rewardsCache[cacheKey];
                   return (
-                    <tr
-                      key={row.driverId}
-                      className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
-                    >
-                      <td className="py-2.5 px-4 font-medium text-slate-800 whitespace-nowrap">
-                        {getDisplayName({
-                          name: row.driverName,
-                          display_name: row.displayName,
-                        })}
-                      </td>
-                      <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-slate-900">
-                        {formatYen(row.net)}
-                      </td>
-                      <td className="py-2.5 px-4 text-right tabular-nums text-slate-700">
-                        {formatYen(row.incomeLog)}
-                      </td>
-                      <td className="py-2.5 px-4 text-right tabular-nums text-orange-600 text-xs">
-                        {formatYen(totalDeductions)}
-                      </td>
-                      <td className="py-2.5 px-4 text-right text-[11px] leading-snug text-slate-500">
-                        報酬: ヤマト {formatYen(row.yamatoIncome)}／Amazon{" "}
-                        {formatYen(row.amazonIncome)}／その他{" "}
-                        {formatYen(row.otherIncome)}
-                        <br />
-                        控除: 固定 {formatYen(-row.fixedDeductions)}／臨時{" "}
-                        {formatYen(-row.adHocDeductions)}
-                      </td>
-                      <td className="py-2.5 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => openModal(row)}
-                          className="text-slate-600 hover:text-slate-900 text-xs font-medium"
-                        >
-                          <FontAwesomeIcon icon={faPenToSquare} />
-                        </button>
-                      </td>
-                    </tr>
+                    <>
+                      <tr
+                        key={row.driverId}
+                        className={`border-b border-slate-100 last:border-b-0 ${
+                          isOpen ? "bg-slate-50" : "hover:bg-slate-50"
+                        }`}
+                      >
+                        <td className="py-2.5 px-2 align-middle">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = isOpen ? null : row.driverId;
+                              setExpandedDriverId(next);
+                              if (!isOpen) void ensureRewardsLoaded(row.driverId);
+                            }}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded hover:bg-slate-100 text-slate-500"
+                            title={isOpen ? "詳細を閉じる" : "詳細を見る"}
+                          >
+                            <span className="text-sm">{isOpen ? "▾" : "▸"}</span>
+                          </button>
+                        </td>
+                        <td className="py-2.5 px-4 font-medium text-slate-800 whitespace-nowrap">
+                          {getDisplayName({
+                            name: row.driverName,
+                            display_name: row.displayName,
+                          })}
+                        </td>
+                        <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-slate-900">
+                          {formatYen(row.net)}
+                        </td>
+                        <td className="py-2.5 px-4 text-right tabular-nums text-slate-700">
+                          {formatYen(row.incomeLog)}
+                        </td>
+                        <td className="py-2.5 px-4 text-right tabular-nums text-orange-600 text-xs">
+                          {formatYen(totalDeductions)}
+                        </td>
+                        <td className="py-2.5 px-4 text-right text-[11px] leading-snug text-slate-500">
+                          報酬: ヤマト {formatYen(row.yamatoIncome)}／Amazon{" "}
+                          {formatYen(row.amazonIncome)}／その他{" "}
+                          {formatYen(row.otherIncome)}
+                          <br />
+                          控除: 固定 {formatYen(-row.fixedDeductions)}／臨時{" "}
+                          {formatYen(-row.adHocDeductions)}
+                        </td>
+                        <td className="py-2.5 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => openModal(row)}
+                            className="text-slate-600 hover:text-slate-900 text-xs font-medium"
+                            title="経費を編集"
+                          >
+                            <FontAwesomeIcon icon={faPenToSquare} />
+                          </button>
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="border-b border-slate-100">
+                          <td colSpan={7} className="px-4 pb-4">
+                            <div className="mt-2 rounded-lg border border-slate-200 bg-white p-3">
+                              <div className="flex items-center justify-between">
+                                <div className="text-sm font-semibold text-slate-800">収入の明細</div>
+                                <div className="text-[11px] text-slate-500">{monthStr}</div>
+                              </div>
+                              {reward?.loading ? (
+                                <div className="mt-3 space-y-2">
+                                  <Skeleton className="h-4 w-24" />
+                                  {[...Array(4)].map((_, i) => (
+                                    <div key={i} className="flex items-center gap-2">
+                                      <Skeleton className="h-4 w-16" />
+                                      <Skeleton className="h-4 w-40" />
+                                      <Skeleton className="h-4 w-20" />
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : reward?.error ? (
+                                <p className="mt-2 text-xs text-red-600">{reward.error}</p>
+                              ) : reward?.data ? (
+                                <div className="mt-3 space-y-2">
+                                  <div className="text-[11px] text-slate-500">
+                                    期間: {reward.data.startDate} 〜 {reward.data.endDate}
+                                  </div>
+                                  <div className="border border-slate-200 rounded-md p-2 bg-slate-50 text-[11px] text-slate-700">
+                                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                      <span>
+                                        売上ベース報酬:{" "}
+                                        <span className="font-semibold text-slate-900">
+                                          {reward.data.incomeLog.toLocaleString("ja-JP")}円
+                                        </span>
+                                      </span>
+                                      <span>
+                                        変動控除:{" "}
+                                        <span className="font-semibold text-slate-900">
+                                          {reward.data.variableDeductions.toLocaleString("ja-JP")}円
+                                        </span>
+                                      </span>
+                                      <span>
+                                        固定控除:{" "}
+                                        <span className="font-semibold text-slate-900">
+                                          {reward.data.fixedDeductions.toLocaleString("ja-JP")}円
+                                        </span>
+                                      </span>
+                                      <span>
+                                        自由控除:{" "}
+                                        <span className="font-semibold text-slate-900">
+                                          {(reward.data.optionalDeductions ?? 0).toLocaleString("ja-JP")}円
+                                        </span>
+                                      </span>
+                                      <span>
+                                        手取り見込み:{" "}
+                                        <span className="font-semibold text-slate-900">
+                                          {reward.data.net.toLocaleString("ja-JP")}円
+                                        </span>
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-md p-2 text-xs text-slate-700">
+                                    {(() => {
+                                      const details = mergedDetails(reward.data);
+                                      if (details.length === 0) {
+                                        return <p className="text-slate-500">この月の明細はありません。</p>;
+                                      }
+                                      return details.map((l, idx) => (
+                                        <div
+                                          key={`${l.log_date}-${l.type_name}-${idx}`}
+                                          className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums py-0.5"
+                                        >
+                                          <span className="text-slate-500">
+                                            {(() => {
+                                              const [y, m, d] = l.log_date.split("-").map(Number);
+                                              return `${m}月${d}日`;
+                                            })()}
+                                          </span>
+                                          <span className="text-slate-800">{l.content || l.type_name || "—"}</span>
+                                          <span className="ml-auto font-semibold">
+                                            {l.amount >= 0
+                                              ? `${l.amount.toLocaleString("ja-JP")}円`
+                                              : `-${Math.abs(l.amount).toLocaleString("ja-JP")}円`}
+                                          </span>
+                                        </div>
+                                      ));
+                                    })()}
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="mt-2 text-xs text-slate-500">明細がありません。</p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   );
                 })}
               </tbody>
