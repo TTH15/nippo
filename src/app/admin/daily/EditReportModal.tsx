@@ -1,7 +1,9 @@
-"use client";
+\"use client\";
 
-import { SimpleSelect } from "@/lib/components/SimpleSelect";
-import type { SelectOption } from "@/lib/components/CustomSelect";
+import { SimpleSelect } from \"@/lib/components/SimpleSelect\";
+import type { SelectOption } from \"@/lib/components/CustomSelect\";
+import { DatePicker } from \"@/lib/components/DatePicker\";
+import { dateToReportDateStr, reportDateStrToDate } from \"@/lib/date\";
 
 type ReportData = {
   id?: string;
@@ -57,11 +59,17 @@ export default function EditReportModal({
 
   const carrierValue = editForm.carrier ?? "YAMATO";
   const isYamato = carrierValue === "YAMATO";
+  const statusValue = (editForm.status as "approved" | "rejected" | undefined) ?? undefined;
 
   const handleChange = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setEditForm((f) => ({ ...f, [key]: value }));
   };
+
+  const reportDateValue =
+    editForm.report_date && /^\d{4}-\d{2}-\d{2}$/.test(editForm.report_date)
+      ? reportDateStrToDate(editForm.report_date)
+      : undefined;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -82,11 +90,15 @@ export default function EditReportModal({
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">日付</label>
-              <input
-                type="date"
-                value={editForm.report_date ?? ""}
-                onChange={(e) => setEditForm((f) => ({ ...f, report_date: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded"
+              <DatePicker
+                value={reportDateValue}
+                onChange={(d) =>
+                  setEditForm((f) => ({
+                    ...f,
+                    report_date: d ? dateToReportDateStr(d) : "",
+                  }))
+                }
+                className="w-full"
               />
             </div>
             <div>
@@ -98,6 +110,28 @@ export default function EditReportModal({
                 clearable={false}
                 size="sm"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">承認ステータス</label>
+              <SimpleSelect
+                options={[
+                  { value: "approved", label: "承認済み" },
+                  { value: "rejected", label: "却下" },
+                ]}
+                value={statusValue ?? undefined}
+                onChange={(v) =>
+                  setEditForm((f) => ({
+                    ...f,
+                    status: v,
+                  }))
+                }
+                placeholder="変更しない"
+                clearable
+                size="sm"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                ステータスを変更しない場合は未選択のままにしてください。
+              </p>
             </div>
             {isYamato ? (
               <div className="grid grid-cols-2 gap-4">

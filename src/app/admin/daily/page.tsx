@@ -195,6 +195,11 @@ export default function AdminDailyPage() {
       amazon_pm_completed: String(r.amazon_pm_completed ?? 0),
       amazon_4_mochidashi: String(r.amazon_4_mochidashi ?? 0),
       amazon_4_completed: String(r.amazon_4_completed ?? 0),
+      status: r.approved_at
+        ? "approved"
+        : r.rejected_at
+          ? "rejected"
+          : "",
     });
   };
 
@@ -206,6 +211,18 @@ export default function AdminDailyPage() {
     setSavingEdit(true);
     setEditSaveError(null);
     try {
+      const originalReport = editingEntry.entry.report;
+      const originalStatus = originalReport.approved_at
+        ? "approved"
+        : originalReport.rejected_at
+          ? "rejected"
+          : "";
+      const desiredStatusRaw = editForm.status as string | undefined;
+      const desiredStatus =
+        desiredStatusRaw === "approved" || desiredStatusRaw === "rejected"
+          ? desiredStatusRaw
+          : originalStatus;
+
       const carrier = editForm.carrier === "AMAZON" ? "AMAZON" : "YAMATO";
       const reportDate = (editForm.report_date ?? "").trim();
       await apiFetch(`/api/admin/daily/reports/${editingEntry.entry.report.id}`, {
@@ -225,6 +242,24 @@ export default function AdminDailyPage() {
           amazon_4_completed: Number(editForm.amazon_4_completed) || 0,
         }),
       });
+
+      const effectiveDate =
+        /^\d{4}-\d{2}-\d{2}$/.test(reportDate) && reportDate
+          ? reportDate
+          : originalReport.report_date;
+
+      if (desiredStatus !== originalStatus && desiredStatus === "approved") {
+        await apiFetch("/api/admin/daily/approve", {
+          method: "POST",
+          body: JSON.stringify({ driverId: editingEntry.entry.driver.id, date: effectiveDate }),
+        });
+      } else if (desiredStatus !== originalStatus && desiredStatus === "rejected") {
+        await apiFetch("/api/admin/daily/reject", {
+          method: "POST",
+          body: JSON.stringify({ driverId: editingEntry.entry.driver.id, date: effectiveDate }),
+        });
+      }
+
       await load(tab, tab === "all" ? allDateRange : undefined);
       setEditingEntry(null);
     } catch (err) {
