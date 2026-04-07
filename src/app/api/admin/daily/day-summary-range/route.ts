@@ -111,7 +111,9 @@ export async function GET(req: NextRequest) {
         vehicles ( id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand )
       `)
       .gte("report_date", startParam)
-      .lte("report_date", endParam);
+      .lte("report_date", endParam)
+      // 却下済みは同日に残るため、一覧は「未却下」を優先表示
+      .is("rejected_at", null);
 
     if (reportsErr) {
       console.error("[admin/daily/day-summary-range] reports error", reportsErr);

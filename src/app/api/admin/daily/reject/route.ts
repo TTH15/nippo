@@ -26,7 +26,9 @@ export async function POST(req: NextRequest) {
         rejected_by: user.driverId,
       })
       .eq("driver_id", driverId)
-      .eq("report_date", date);
+      .eq("report_date", date)
+      // 却下対象は「未却下」の日報のみ（却下済みが同日に残っていてもOK）
+      .is("rejected_at", null);
 
     if (error) {
       console.error(error);

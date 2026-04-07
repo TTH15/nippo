@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
       .select("vehicle_id, meter_value")
       .eq("driver_id", driverId)
       .eq("report_date", date)
+      // 却下済みが同日に残っていても、承認対象は「未却下」の日報のみ
+      .is("rejected_at", null)
       .maybeSingle();
 
     if (reportErr) {
@@ -70,7 +72,8 @@ export async function POST(req: NextRequest) {
         rejected_by: null,
       })
       .eq("driver_id", driverId)
-      .eq("report_date", date);
+      .eq("report_date", date)
+      .is("rejected_at", null);
 
     if (error) {
       console.error(error);

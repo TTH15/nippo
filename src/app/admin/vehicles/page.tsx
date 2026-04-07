@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faFileLines, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -105,6 +105,8 @@ export default function VehiclesPage() {
     driverIds: [] as string[],
   });
   const [saving, setSaving] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const [imageDragOver, setImageDragOver] = useState(false);
   const [openDriverPopoverVehicleId, setOpenDriverPopoverVehicleId] = useState<string | null>(null);
   const [openDetail, setOpenDetail] = useState<{
     type: "meter" | "recovery";
@@ -338,6 +340,16 @@ export default function VehiclesPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const readImageFileAsDataUrl = (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = typeof reader.result === "string" ? reader.result : "";
+      if (url) setForm((f) => ({ ...f, imageDataUrl: url }));
+    };
+    reader.readAsDataURL(file);
   };
 
   const deleteVehicle = async (id: string, _label: string) => {
@@ -1069,123 +1081,124 @@ export default function VehiclesPage() {
                   <p className="text-xs text-slate-500 mt-1">デフォルト: 3,000km</p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">購入費用明細 (円)</label>
-                    <div className="border border-slate-200 rounded-md overflow-hidden">
-                      <table className="w-full text-xs">
-                        <thead className="bg-slate-50">
-                          <tr>
-                            <th className="px-2 py-1.5 text-left text-slate-600 w-16">符号</th>
-                            <th className="px-2 py-1.5 text-left text-slate-600">項目</th>
-                            <th className="px-2 py-1.5 text-right text-slate-600 w-28">金額</th>
-                            <th className="px-1 py-1.5 w-10"></th>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">購入費用明細 (円)</label>
+                  <div className="border border-slate-200 rounded-md overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-2 py-2 text-left text-slate-600 w-20">符号</th>
+                          <th className="px-2 py-2 text-left text-slate-600">項目</th>
+                          <th className="px-2 py-2 text-right text-slate-600 w-32">金額</th>
+                          <th className="px-2 py-2 w-12"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {form.purchaseCostItems.map((item, idx) => (
+                          <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                            <td className="px-2 py-2 align-middle">
+                              <select
+                                value={item.sign}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    purchaseCostItems: f.purchaseCostItems.map((row, i) =>
+                                      i === idx ? { ...row, sign: e.target.value === "-" ? "-" : "+" } : row
+                                    ),
+                                  }))
+                                }
+                                className="w-full h-9 px-2 border border-slate-200 rounded bg-white"
+                              >
+                                <option value="+">+</option>
+                                <option value="-">-</option>
+                              </select>
+                            </td>
+                            <td className="px-2 py-2 align-middle">
+                              <input
+                                type="text"
+                                value={item.label}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    purchaseCostItems: f.purchaseCostItems.map((row, i) =>
+                                      i === idx ? { ...row, label: e.target.value } : row
+                                    ),
+                                  }))
+                                }
+                                placeholder="例: 車検費用 / 車税 / タイヤ"
+                                className="w-full h-9 px-3 border border-slate-200 rounded bg-white"
+                              />
+                            </td>
+                            <td className="px-2 py-2 align-middle">
+                              <input
+                                type="number"
+                                min={0}
+                                value={item.amount}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    purchaseCostItems: f.purchaseCostItems.map((row, i) =>
+                                      i === idx ? { ...row, amount: e.target.value } : row
+                                    ),
+                                  }))
+                                }
+                                className="w-full h-9 px-3 text-right border border-slate-200 rounded bg-white tabular-nums"
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-center align-middle">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    purchaseCostItems:
+                                      f.purchaseCostItems.length > 1
+                                        ? f.purchaseCostItems.filter((_, i) => i !== idx)
+                                        : f.purchaseCostItems,
+                                  }))
+                                }
+                                className="inline-flex items-center justify-center w-9 h-9 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
+                                title="この明細を削除"
+                              >
+                                <FontAwesomeIcon icon={faTrash} className="w-4 h-4" />
+                              </button>
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {form.purchaseCostItems.map((item, idx) => (
-                            <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                              <td className="px-2 py-1.5">
-                                <select
-                                  value={item.sign}
-                                  onChange={(e) =>
-                                    setForm((f) => ({
-                                      ...f,
-                                      purchaseCostItems: f.purchaseCostItems.map((row, i) =>
-                                        i === idx ? { ...row, sign: e.target.value === "-" ? "-" : "+" } : row
-                                      ),
-                                    }))
-                                  }
-                                  className="w-full px-1.5 py-1 border border-slate-200 rounded"
-                                >
-                                  <option value="+">+</option>
-                                  <option value="-">-</option>
-                                </select>
-                              </td>
-                              <td className="px-2 py-1.5">
-                                <input
-                                  type="text"
-                                  value={item.label}
-                                  onChange={(e) =>
-                                    setForm((f) => ({
-                                      ...f,
-                                      purchaseCostItems: f.purchaseCostItems.map((row, i) =>
-                                        i === idx ? { ...row, label: e.target.value } : row
-                                      ),
-                                    }))
-                                  }
-                                  placeholder="例: 車検費用"
-                                  className="w-full px-2 py-1 border border-slate-200 rounded"
-                                />
-                              </td>
-                              <td className="px-2 py-1.5">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={item.amount}
-                                  onChange={(e) =>
-                                    setForm((f) => ({
-                                      ...f,
-                                      purchaseCostItems: f.purchaseCostItems.map((row, i) =>
-                                        i === idx ? { ...row, amount: e.target.value } : row
-                                      ),
-                                    }))
-                                  }
-                                  className="w-full px-2 py-1 text-right border border-slate-200 rounded tabular-nums"
-                                />
-                              </td>
-                              <td className="px-1 py-1.5 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setForm((f) => ({
-                                      ...f,
-                                      purchaseCostItems:
-                                        f.purchaseCostItems.length > 1
-                                          ? f.purchaseCostItems.filter((_, i) => i !== idx)
-                                          : f.purchaseCostItems,
-                                    }))
-                                  }
-                                  className="inline-flex items-center justify-center w-7 h-7 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
-                                >
-                                  <FontAwesomeIcon icon={faTrash} className="w-3.5 h-3.5" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setForm((f) => ({
-                            ...f,
-                            purchaseCostItems: [...f.purchaseCostItems, emptyPurchaseItem()],
-                          }))
-                        }
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-50"
-                      >
-                        <FontAwesomeIcon icon={faPlus} className="w-3 h-3" />
-                        明細追加
-                      </button>
-                      <div className="text-sm font-semibold text-slate-700">
-                        合計:{" "}
-                        {fmt(
-                          Math.max(
-                            0,
-                            form.purchaseCostItems.reduce((sum, it) => {
-                              const n = Number(String(it.amount ?? "").replace(/[^\d]/g, "")) || 0;
-                              return sum + (it.sign === "-" ? -n : n);
-                            }, 0),
-                          ),
-                        )}
-                        円
-                      </div>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          purchaseCostItems: [...f.purchaseCostItems, emptyPurchaseItem()],
+                        }))
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 bg-white"
+                    >
+                      <FontAwesomeIcon icon={faPlus} className="w-3 h-3" />
+                      明細追加
+                    </button>
+                    <div className="text-sm font-semibold text-slate-700">
+                      合計:{" "}
+                      {fmt(
+                        Math.max(
+                          0,
+                          form.purchaseCostItems.reduce((sum, it) => {
+                            const n = Number(String(it.amount ?? "").replace(/[^\d]/g, "")) || 0;
+                            return sum + (it.sign === "-" ? -n : n);
+                          }, 0),
+                        ),
+                      )}
+                      円
                     </div>
                   </div>
+                </div>
 
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">月々保険料 (円)</label>
                     <input
@@ -1194,11 +1207,8 @@ export default function VehiclesPage() {
                       onChange={(e) => setForm((f) => ({ ...f, monthlyInsurance: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
-                    <p className="text-xs text-slate-500 mt-1">リース代35,000円から差し引きます</p>
+                    <p className="text-xs text-slate-500 mt-1">リース代から差し引きます</p>
                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">月々リース代 (円)</label>
                     <input
@@ -1209,36 +1219,76 @@ export default function VehiclesPage() {
                     />
                     <p className="text-xs text-slate-500 mt-1">デフォルト: {fmt(DEFAULT_LEASE_COST)}円</p>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">車両画像</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = () => {
-                            const url = typeof reader.result === "string" ? reader.result : "";
-                            if (url) setForm((f) => ({ ...f, imageDataUrl: url }));
-                          };
-                          reader.readAsDataURL(file);
-                        }}
-                        className="block w-full text-xs text-slate-600"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setForm((f) => ({ ...f, imageDataUrl: "" }))}
-                        className="px-3 py-2 text-sm border border-slate-200 rounded text-slate-600 hover:bg-slate-50"
-                      >
-                        削除
-                      </button>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1">
-                      画像はアップロードのみ対応です。削除ボタンで画像を外せます。
-                    </p>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium text-slate-700">車両画像</label>
+                    <span className="text-[11px] text-slate-500">ドラッグ&ドロップ / クリックで選択</span>
+                  </div>
+                  <div
+                    className={`group relative w-full rounded-lg border-2 border-dashed p-4 transition-colors ${
+                      imageDragOver
+                        ? "border-slate-800 bg-slate-50"
+                        : "border-slate-200 bg-white hover:bg-slate-50"
+                    }`}
+                    onClick={() => imageInputRef.current?.click()}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setImageDragOver(true);
+                    }}
+                    onDragLeave={() => setImageDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setImageDragOver(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) readImageFileAsDataUrl(file);
+                    }}
+                  >
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) readImageFileAsDataUrl(file);
+                      }}
+                    />
+
+                    {form.imageDataUrl ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={form.imageDataUrl}
+                          alt="車両画像プレビュー"
+                          className="w-full h-52 sm:h-60 object-cover rounded-md"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setForm((f) => ({ ...f, imageDataUrl: "" }));
+                          }}
+                          className="absolute top-3 right-3 inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/90 border border-slate-200 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600 hover:bg-white"
+                          title="画像を削除"
+                        >
+                          <FontAwesomeIcon icon={faTrash} className="w-4 h-4" />
+                        </button>
+                        <div className="mt-2 text-xs text-slate-500">
+                          クリックすると別の画像に差し替えできます。
+                        </div>
+                      </>
+                    ) : (
+                      <div className="h-52 sm:h-60 rounded-md flex items-center justify-center text-slate-500 text-sm">
+                        <div className="text-center space-y-1">
+                          <div className="font-medium text-slate-700">画像をアップロード</div>
+                          <div className="text-xs text-slate-500">
+                            ここに画像をドロップするか、クリックして選択してください
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
