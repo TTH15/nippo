@@ -4,6 +4,32 @@ import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
+type PurchaseCostItem = {
+  sign: "+" | "-";
+  label: string;
+  amount: number;
+};
+
+function normalizePurchaseCostItems(input: unknown): PurchaseCostItem[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((x) => {
+      const sign = x && typeof x === "object" && (x as { sign?: unknown }).sign === "-" ? "-" : "+";
+      const rawLabel = x && typeof x === "object" ? String((x as { label?: unknown }).label ?? "") : "";
+      const label = rawLabel.trim();
+      const rawAmount = x && typeof x === "object" ? Number((x as { amount?: unknown }).amount) : 0;
+      const amount = Number.isFinite(rawAmount) ? Math.max(0, Math.round(rawAmount)) : 0;
+      if (!label && amount === 0) return null;
+      return { sign, label, amount };
+    })
+    .filter((x): x is PurchaseCostItem => x != null);
+}
+
+function totalFromItems(items: PurchaseCostItem[]): number {
+  const total = items.reduce((sum, item) => sum + (item.sign === "-" ? -item.amount : item.amount), 0);
+  return Math.max(0, total);
+}
+
 // GET: 全車両一覧（回収済みマーク含む）
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
@@ -70,6 +96,7 @@ export async function POST(req: NextRequest) {
       lastOilChangeMileage = 0,
       oilChangeInterval = 3000,
       purchaseCost = 0,
+      purchaseCostItems = [],
       leaseCost = 35000,
       monthlyInsurance = 0,
       imageUrl = null,
@@ -82,6 +109,9 @@ export async function POST(req: NextRequest) {
     if (!hasIdentity) {
       return NextResponse.json({ error: "メーカー名またはブランド名が必須です" }, { status: 400 });
     }
+
+    const normalizedItems = normalizePurchaseCostItems(purchaseCostItems);
+    const computedPurchaseCost = normalizedItems.length > 0 ? totalFromItems(normalizedItems) : Number(purchaseCost) || 0;
 
     const { data: vehicle, error } = await supabase
       .from("vehicles")
@@ -96,7 +126,8 @@ export async function POST(req: NextRequest) {
         current_mileage: currentMileage,
         last_oil_change_mileage: lastOilChangeMileage,
         oil_change_interval: oilChangeInterval,
-        purchase_cost: purchaseCost,
+        purchase_cost: computedPurchaseCost,
+        purchase_cost_items: normalizedItems.length > 0 ? normalizedItems : null,
         lease_cost: leaseCost,
         monthly_insurance: monthlyInsurance,
         image_url: imageUrl && String(imageUrl).trim() ? String(imageUrl).trim() : null,

@@ -1,9 +1,9 @@
-\"use client\";
+"use client";
 
-import { SimpleSelect } from \"@/lib/components/SimpleSelect\";
-import type { SelectOption } from \"@/lib/components/CustomSelect\";
-import { DatePicker } from \"@/lib/components/DatePicker\";
-import { dateToReportDateStr, reportDateStrToDate } from \"@/lib/date\";
+import { SimpleSelect } from "@/lib/components/SimpleSelect";
+import type { SelectOption } from "@/lib/components/CustomSelect";
+import { DatePicker } from "@/lib/components/DatePicker";
+import { dateToReportDateStr, reportDateStrToDate } from "@/lib/date";
 
 type ReportData = {
   id?: string;

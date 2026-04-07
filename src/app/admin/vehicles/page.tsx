@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faFileLines, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { DatePicker } from "@/lib/components/DatePicker";
+import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
@@ -57,6 +58,7 @@ type Vehicle = {
   last_oil_change_mileage: number;
   oil_change_interval: number;
   purchase_cost: number;
+  purchase_cost_items?: Array<{ sign: "+" | "-"; label: string; amount: number }> | null;
   lease_cost?: number | null;
   monthly_insurance: number;
   image_url?: string | null;
@@ -75,6 +77,7 @@ type MeterLog = {
 };
 
 export default function VehiclesPage() {
+  const emptyPurchaseItem = () => ({ sign: "+" as "+" | "-", label: "", amount: "" });
   const [canWrite, setCanWrite] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -93,9 +96,10 @@ export default function VehiclesPage() {
     lastOilChangeMileage: "",
     oilChangeInterval: "3000",
     purchaseCost: "",
+    purchaseCostItems: [emptyPurchaseItem()],
     leaseCost: String(DEFAULT_LEASE_COST),
     monthlyInsurance: "",
-    imageUrl: "",
+    imageDataUrl: "",
     nextShakenDate: "",
     jibaisekiRenewalMonth: "",
     driverIds: [] as string[],
@@ -203,9 +207,10 @@ export default function VehiclesPage() {
       lastOilChangeMileage: "",
       oilChangeInterval: "3000",
       purchaseCost: "",
+      purchaseCostItems: [emptyPurchaseItem()],
       leaseCost: String(DEFAULT_LEASE_COST),
       monthlyInsurance: "",
-      imageUrl: "",
+      imageDataUrl: "",
       nextShakenDate: "",
       jibaisekiRenewalMonth: "",
       driverIds: [],
@@ -217,6 +222,15 @@ export default function VehiclesPage() {
     if (!canWrite) return;
     setEditingVehicle(v);
     const shaken = v.next_shaken_date;
+    const rawItems = Array.isArray(v.purchase_cost_items) ? v.purchase_cost_items : [];
+    const mappedItems: Array<{ sign: "+" | "-"; label: string; amount: string }> =
+      rawItems.length > 0
+        ? rawItems.map((it) => ({
+            sign: (it?.sign === "-" ? "-" : "+") as "+" | "-",
+            label: String(it?.label ?? ""),
+            amount: String(Number(it?.amount) || 0),
+          }))
+        : [{ sign: "+", label: "初期費用", amount: String(v.purchase_cost || 0) }];
     setForm({
       isDisposed: !!v.is_disposed,
       manufacturer: v.manufacturer || "",
@@ -229,12 +243,13 @@ export default function VehiclesPage() {
       lastOilChangeMileage: v.last_oil_change_mileage ? String(v.last_oil_change_mileage) : "",
       oilChangeInterval: v.oil_change_interval ? String(v.oil_change_interval) : "3000",
       purchaseCost: v.purchase_cost ? String(v.purchase_cost) : "",
+      purchaseCostItems: mappedItems,
       leaseCost:
         v.lease_cost != null && Number.isFinite(Number(v.lease_cost))
           ? String(v.lease_cost)
           : String(DEFAULT_LEASE_COST),
       monthlyInsurance: v.monthly_insurance ? String(v.monthly_insurance) : "",
-      imageUrl: v.image_url || "",
+      imageDataUrl: v.image_url || "",
       nextShakenDate: shaken && typeof shaken === "string" ? shaken.slice(0, 10) : "",
       jibaisekiRenewalMonth:
         v.jibaiseki_renewal_month && /^\d{4}-\d{2}$/.test(v.jibaiseki_renewal_month)
@@ -259,6 +274,17 @@ export default function VehiclesPage() {
     setSaving(true);
     try {
       const toIntOrNull = (v: string) => (v !== "" ? Number(v) : null);
+      const normalizedItems = form.purchaseCostItems
+        .map((it) => ({
+          sign: it.sign === "-" ? "-" : "+",
+          label: String(it.label ?? "").trim(),
+          amount: Number(String(it.amount ?? "").replace(/[^\d]/g, "")) || 0,
+        }))
+        .filter((it) => it.label || it.amount > 0);
+      const computedPurchaseCost = Math.max(
+        0,
+        normalizedItems.reduce((sum, it) => sum + (it.sign === "-" ? -it.amount : it.amount), 0),
+      );
       const payload = {
         isDisposed: form.isDisposed,
         manufacturer: form.manufacturer || null,
@@ -270,10 +296,11 @@ export default function VehiclesPage() {
         currentMileage: toIntOrNull(form.currentMileage),
         lastOilChangeMileage: toIntOrNull(form.lastOilChangeMileage),
         oilChangeInterval: toIntOrNull(form.oilChangeInterval),
-        purchaseCost: toIntOrNull(form.purchaseCost),
+        purchaseCost: computedPurchaseCost,
+        purchaseCostItems: normalizedItems,
         leaseCost: toIntOrNull(form.leaseCost) ?? DEFAULT_LEASE_COST,
         monthlyInsurance: toIntOrNull(form.monthlyInsurance),
-        imageUrl: form.imageUrl.trim() || null,
+        imageUrl: form.imageDataUrl.trim() || null,
         nextShakenDate: form.nextShakenDate.trim() || null,
         jibaisekiRenewalMonth: form.jibaisekiRenewalMonth.trim() || null,
         driverIds: form.driverIds,
@@ -1044,13 +1071,119 @@ export default function VehiclesPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">購入費用 (円)</label>
-                    <input
-                      type="number"
-                      value={form.purchaseCost}
-                      onChange={(e) => setForm((f) => ({ ...f, purchaseCost: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    />
+                    <label className="block text-sm font-medium text-slate-700 mb-1">購入費用明細 (円)</label>
+                    <div className="border border-slate-200 rounded-md overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50">
+                          <tr>
+                            <th className="px-2 py-1.5 text-left text-slate-600 w-16">符号</th>
+                            <th className="px-2 py-1.5 text-left text-slate-600">項目</th>
+                            <th className="px-2 py-1.5 text-right text-slate-600 w-28">金額</th>
+                            <th className="px-1 py-1.5 w-10"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {form.purchaseCostItems.map((item, idx) => (
+                            <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                              <td className="px-2 py-1.5">
+                                <select
+                                  value={item.sign}
+                                  onChange={(e) =>
+                                    setForm((f) => ({
+                                      ...f,
+                                      purchaseCostItems: f.purchaseCostItems.map((row, i) =>
+                                        i === idx ? { ...row, sign: e.target.value === "-" ? "-" : "+" } : row
+                                      ),
+                                    }))
+                                  }
+                                  className="w-full px-1.5 py-1 border border-slate-200 rounded"
+                                >
+                                  <option value="+">+</option>
+                                  <option value="-">-</option>
+                                </select>
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input
+                                  type="text"
+                                  value={item.label}
+                                  onChange={(e) =>
+                                    setForm((f) => ({
+                                      ...f,
+                                      purchaseCostItems: f.purchaseCostItems.map((row, i) =>
+                                        i === idx ? { ...row, label: e.target.value } : row
+                                      ),
+                                    }))
+                                  }
+                                  placeholder="例: 車検費用"
+                                  className="w-full px-2 py-1 border border-slate-200 rounded"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={item.amount}
+                                  onChange={(e) =>
+                                    setForm((f) => ({
+                                      ...f,
+                                      purchaseCostItems: f.purchaseCostItems.map((row, i) =>
+                                        i === idx ? { ...row, amount: e.target.value } : row
+                                      ),
+                                    }))
+                                  }
+                                  className="w-full px-2 py-1 text-right border border-slate-200 rounded tabular-nums"
+                                />
+                              </td>
+                              <td className="px-1 py-1.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setForm((f) => ({
+                                      ...f,
+                                      purchaseCostItems:
+                                        f.purchaseCostItems.length > 1
+                                          ? f.purchaseCostItems.filter((_, i) => i !== idx)
+                                          : f.purchaseCostItems,
+                                    }))
+                                  }
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
+                                >
+                                  <FontAwesomeIcon icon={faTrash} className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            purchaseCostItems: [...f.purchaseCostItems, emptyPurchaseItem()],
+                          }))
+                        }
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-slate-200 rounded hover:bg-slate-50"
+                      >
+                        <FontAwesomeIcon icon={faPlus} className="w-3 h-3" />
+                        明細追加
+                      </button>
+                      <div className="text-sm font-semibold text-slate-700">
+                        合計:{" "}
+                        {fmt(
+                          Math.max(
+                            0,
+                            form.purchaseCostItems.reduce((sum, it) => {
+                              const n = Number(String(it.amount ?? "").replace(/[^\d]/g, "")) || 0;
+                              return sum + (it.sign === "-" ? -n : n);
+                            }, 0),
+                          ),
+                        )}
+                        円
+                      </div>
+                    </div>
                   </div>
 
                   <div>
@@ -1079,24 +1212,7 @@ export default function VehiclesPage() {
 
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">車両画像</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="url"
-                        value={form.imageUrl}
-                        onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
-                        placeholder="画像URL（または下のファイルで設定）"
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setForm((f) => ({ ...f, imageUrl: "" }))}
-                        className="px-3 py-2 text-sm border border-slate-200 rounded text-slate-600 hover:bg-slate-50"
-                        title="画像をクリア"
-                      >
-                        クリア
-                      </button>
-                    </div>
-                    <div className="mt-2">
+                    <div className="flex items-center gap-2">
                       <input
                         type="file"
                         accept="image/*"
@@ -1106,16 +1222,23 @@ export default function VehiclesPage() {
                           const reader = new FileReader();
                           reader.onload = () => {
                             const url = typeof reader.result === "string" ? reader.result : "";
-                            if (url) setForm((f) => ({ ...f, imageUrl: url }));
+                            if (url) setForm((f) => ({ ...f, imageDataUrl: url }));
                           };
                           reader.readAsDataURL(file);
                         }}
                         className="block w-full text-xs text-slate-600"
                       />
-                      <p className="text-xs text-slate-500 mt-1">
-                        URL入力か、画像ファイル選択で設定できます（MVPとしてデータURL保存）。
-                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, imageDataUrl: "" }))}
+                        className="px-3 py-2 text-sm border border-slate-200 rounded text-slate-600 hover:bg-slate-50"
+                      >
+                        削除
+                      </button>
                     </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      画像はアップロードのみ対応です。削除ボタンで画像を外せます。
+                    </p>
                   </div>
                 </div>
 
@@ -1136,11 +1259,21 @@ export default function VehiclesPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">自賠責の更新月</label>
-                    <input
-                      type="month"
-                      value={form.jibaisekiRenewalMonth}
-                      onChange={(e) => setForm((f) => ({ ...f, jibaisekiRenewalMonth: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    <MonthYearPicker
+                      value={
+                        /^\d{4}-\d{2}$/.test(form.jibaisekiRenewalMonth)
+                          ? {
+                              year: Number(form.jibaisekiRenewalMonth.slice(0, 4)),
+                              month: Number(form.jibaisekiRenewalMonth.slice(5, 7)),
+                            }
+                          : undefined
+                      }
+                      onChange={(v) =>
+                        setForm((f) => ({
+                          ...f,
+                          jibaisekiRenewalMonth: `${v.year}-${String(v.month).padStart(2, "0")}`,
+                        }))
+                      }
                     />
                     <p className="text-xs text-slate-500 mt-1">例: 2026-04</p>
                   </div>

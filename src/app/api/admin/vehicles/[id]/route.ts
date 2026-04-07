@@ -4,6 +4,32 @@ import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
+type PurchaseCostItem = {
+  sign: "+" | "-";
+  label: string;
+  amount: number;
+};
+
+function normalizePurchaseCostItems(input: unknown): PurchaseCostItem[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((x) => {
+      const sign = x && typeof x === "object" && (x as { sign?: unknown }).sign === "-" ? "-" : "+";
+      const rawLabel = x && typeof x === "object" ? String((x as { label?: unknown }).label ?? "") : "";
+      const label = rawLabel.trim();
+      const rawAmount = x && typeof x === "object" ? Number((x as { amount?: unknown }).amount) : 0;
+      const amount = Number.isFinite(rawAmount) ? Math.max(0, Math.round(rawAmount)) : 0;
+      if (!label && amount === 0) return null;
+      return { sign, label, amount };
+    })
+    .filter((x): x is PurchaseCostItem => x != null);
+}
+
+function totalFromItems(items: PurchaseCostItem[]): number {
+  const total = items.reduce((sum, item) => sum + (item.sign === "-" ? -item.amount : item.amount), 0);
+  return Math.max(0, total);
+}
+
 // PUT: 車両情報更新
 export async function PUT(
   req: NextRequest,
@@ -31,6 +57,7 @@ export async function PUT(
       lastOilChangeMileage,
       oilChangeInterval,
       purchaseCost,
+      purchaseCostItems,
       leaseCost,
       monthlyInsurance,
       imageUrl,
@@ -56,7 +83,13 @@ export async function PUT(
     if (currentMileage !== undefined) updates.current_mileage = currentMileage;
     if (lastOilChangeMileage !== undefined) updates.last_oil_change_mileage = lastOilChangeMileage;
     if (oilChangeInterval !== undefined) updates.oil_change_interval = oilChangeInterval;
-    if (purchaseCost !== undefined) updates.purchase_cost = purchaseCost;
+    if (purchaseCostItems !== undefined) {
+      const normalizedItems = normalizePurchaseCostItems(purchaseCostItems);
+      updates.purchase_cost_items = normalizedItems.length > 0 ? normalizedItems : null;
+      updates.purchase_cost = totalFromItems(normalizedItems);
+    } else if (purchaseCost !== undefined) {
+      updates.purchase_cost = purchaseCost;
+    }
     if (leaseCost !== undefined) updates.lease_cost = leaseCost;
     if (monthlyInsurance !== undefined) updates.monthly_insurance = monthlyInsurance;
     if (imageUrl !== undefined) updates.image_url = imageUrl && String(imageUrl).trim() ? String(imageUrl).trim() : null;
