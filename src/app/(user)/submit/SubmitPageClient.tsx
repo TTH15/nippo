@@ -58,6 +58,8 @@ export default function SubmitPageClient() {
   const [meterError, setMeterError] = useState<string>("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [todayReward, setTodayReward] = useState<number | null>(null);
+  const [todayRewardLoading, setTodayRewardLoading] = useState(false);
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [showVehicleSelector, setShowVehicleSelector] = useState(false);
@@ -356,6 +358,26 @@ export default function SubmitPageClient() {
       });
       if (selectedVehicleId) saveVehiclePreference(selectedVehicleId);
       setStatus("success");
+      if (carrier === "YAMATO" && selectedIdentityId) {
+        setTodayRewardLoading(true);
+        try {
+          const rewardRes = await apiFetch<{ reward: number }>(
+            `/api/reports/today-reward?reportDate=${encodeURIComponent(
+              dateToReportDateStr(reportDate),
+            )}&driverIdentityId=${encodeURIComponent(selectedIdentityId)}`,
+            { cache: "no-store" },
+          );
+          setTodayReward(Number(rewardRes.reward) || 0);
+        } catch (e) {
+          console.error(e);
+          setTodayReward(null);
+        } finally {
+          setTodayRewardLoading(false);
+        }
+      } else {
+        setTodayReward(null);
+        setTodayRewardLoading(false);
+      }
     } catch (err: unknown) {
       setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : "送信に失敗しました");
@@ -535,6 +557,16 @@ export default function SubmitPageClient() {
           </div>
         )}
 
+        {carrier === "YAMATO" && (
+          <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 text-center">
+            <p className="text-xs text-slate-500">今日の報酬（見込み）</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900 tabular-nums">
+              {todayRewardLoading ? "計算中..." : `${(todayReward ?? 0).toLocaleString("ja-JP")}円`}
+            </p>
+            <p className="mt-2 text-sm text-slate-600">今日も一日お疲れ様でした！</p>
+          </div>
+        )}
+
         <div className="text-center">
           <button
             onClick={() => {
@@ -555,6 +587,8 @@ export default function SubmitPageClient() {
                 fourCompleted: "",
               });
               setCertImageDataUrl(null);
+              setTodayReward(null);
+              setTodayRewardLoading(false);
             }}
             className="text-sm text-brand-600 font-medium hover:underline"
           >

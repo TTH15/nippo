@@ -14,15 +14,24 @@ export async function GET(req: NextRequest) {
   if (isAuthError(user)) return user;
 
   try {
-    const { data: reports, error: reportErr } = await supabase
+    const status = req.nextUrl.searchParams.get("status") === "approved" ? "approved" : "pending";
+    let query = supabase
       .from("oil_change_reports")
       .select(`
         *,
         vehicles ( id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand )
-      `)
-      .is("approved_at", null)
-      .is("rejected_at", null)
-      .order("submitted_at", { ascending: false });
+      `);
+
+    if (status === "approved") {
+      query = query.not("approved_at", "is", null).order("approved_at", { ascending: false });
+    } else {
+      query = query
+        .is("approved_at", null)
+        .is("rejected_at", null)
+        .order("submitted_at", { ascending: false });
+    }
+
+    const { data: reports, error: reportErr } = await query;
 
     if (reportErr) {
       console.error("[admin/misc-reports/oil-change] reports error", reportErr);

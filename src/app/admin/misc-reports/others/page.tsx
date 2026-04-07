@@ -51,6 +51,7 @@ function reportKindLabel(kind: string | undefined): string {
 }
 
 export default function AdminOtherReportsPage() {
+  const [tab, setTab] = useState<"pending" | "approved">("pending");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -60,7 +61,10 @@ export default function AdminOtherReportsPage() {
     setLoading(true);
     setErrorMessage(null);
     try {
-      const res = await apiFetch<{ entries: Entry[] }>("/api/admin/misc-reports/oil-change", { cache: "no-store" });
+      const res = await apiFetch<{ entries: Entry[] }>(
+        `/api/admin/misc-reports/oil-change?status=${tab}`,
+        { cache: "no-store" },
+      );
       setEntries(res.entries ?? []);
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : "その他の報告の取得に失敗しました");
@@ -72,7 +76,7 @@ export default function AdminOtherReportsPage() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [tab]);
 
   const handleAction = async (id: string, action: "approve" | "reject") => {
     try {
@@ -91,6 +95,26 @@ export default function AdminOtherReportsPage() {
       <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">その他の報告</h1>
+          <div className="flex rounded-lg bg-slate-100 p-0.5">
+            <button
+              type="button"
+              onClick={() => setTab("pending")}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                tab === "pending" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-800"
+              }`}
+            >
+              未承認
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("approved")}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                tab === "approved" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-800"
+              }`}
+            >
+              承認履歴
+            </button>
+          </div>
         </div>
 
         {errorMessage && (
@@ -102,7 +126,9 @@ export default function AdminOtherReportsPage() {
         {loading ? (
           <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">読み込み中...</div>
         ) : entries.length === 0 ? (
-          <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">未承認のその他報告はありません。</div>
+          <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
+            {tab === "pending" ? "未承認のその他報告はありません。" : "承認済みのその他報告はありません。"}
+          </div>
         ) : (
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
@@ -116,7 +142,9 @@ export default function AdminOtherReportsPage() {
                     <th className="py-3 px-3 font-semibold text-slate-600">場所</th>
                     <th className="py-3 px-3 font-semibold text-slate-600">内容</th>
                     <th className="py-3 px-3 font-semibold text-slate-600 text-right">走行距離</th>
-                    <th className="py-3 px-3 font-semibold text-slate-600 text-center">承認</th>
+                    <th className="py-3 px-3 font-semibold text-slate-600 text-center">
+                      {tab === "pending" ? "承認" : "ステータス"}
+                    </th>
                     <th className="py-3 px-4 font-semibold text-slate-600 text-right">送信時刻</th>
                   </tr>
                 </thead>
@@ -145,7 +173,11 @@ export default function AdminOtherReportsPage() {
                         {report.odometer_km != null ? `${report.odometer_km.toLocaleString()} km` : "—"}
                       </td>
                       <td className="py-3 px-3 text-center">
-                        {canWrite ? (
+                        {tab === "approved" ? (
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+                            承認済み
+                          </span>
+                        ) : canWrite ? (
                           <div className="flex items-center justify-center gap-2">
                             <button
                               type="button"
