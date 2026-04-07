@@ -77,37 +77,60 @@ export async function POST(req: NextRequest) {
       reportDate = reportDateDefaultJST();
     }
 
-    // Upsert
-    const { data, error } = await supabase
+    const reportPayload = {
+      driver_id: user.driverId,
+      driver_identity_id: driverIdentityId,
+      report_date: reportDate,
+      carrier,
+      takuhaibin_completed: carrier === "YAMATO" ? takuhaibinCompleted : 0,
+      takuhaibin_returned: carrier === "YAMATO" ? takuhaibinReturned : 0,
+      nekopos_completed: carrier === "YAMATO" ? nekoposCompleted : 0,
+      nekopos_returned: carrier === "YAMATO" ? nekoposReturned : 0,
+      amazon_am_mochidashi: carrier === "AMAZON" ? amazonAmMochidashi : 0,
+      amazon_am_completed: carrier === "AMAZON" ? amazonAmCompleted : 0,
+      amazon_pm_mochidashi: carrier === "AMAZON" ? amazonPmMochidashi : 0,
+      amazon_pm_completed: carrier === "AMAZON" ? amazonPmCompleted : 0,
+      amazon_4_mochidashi: carrier === "AMAZON" ? amazon4Mochidashi : 0,
+      amazon_4_completed: carrier === "AMAZON" ? amazon4Completed : 0,
+      vehicle_id: vehicleId,
+      meter_value: meterValue,
+      submitted_at: new Date().toISOString(),
+      approved_at: null,
+      approved_by: null,
+      rejected_at: null,
+      rejected_by: null,
+    };
+
+    // 部分ユニーク（rejected_at IS NULL）運用のため upsert は使わず、
+    // 「未却下の同日レコードがあれば更新、なければ新規作成」を行う。
+    const { data: existing } = await supabase
       .from("daily_reports")
-      .upsert(
-        {
-          driver_id: user.driverId,
-          driver_identity_id: driverIdentityId,
-          report_date: reportDate,
-          carrier,
-          takuhaibin_completed: carrier === "YAMATO" ? takuhaibinCompleted : 0,
-          takuhaibin_returned: carrier === "YAMATO" ? takuhaibinReturned : 0,
-          nekopos_completed: carrier === "YAMATO" ? nekoposCompleted : 0,
-          nekopos_returned: carrier === "YAMATO" ? nekoposReturned : 0,
-          amazon_am_mochidashi: carrier === "AMAZON" ? amazonAmMochidashi : 0,
-          amazon_am_completed: carrier === "AMAZON" ? amazonAmCompleted : 0,
-          amazon_pm_mochidashi: carrier === "AMAZON" ? amazonPmMochidashi : 0,
-          amazon_pm_completed: carrier === "AMAZON" ? amazonPmCompleted : 0,
-          amazon_4_mochidashi: carrier === "AMAZON" ? amazon4Mochidashi : 0,
-          amazon_4_completed: carrier === "AMAZON" ? amazon4Completed : 0,
-          vehicle_id: vehicleId,
-          meter_value: meterValue,
-          submitted_at: new Date().toISOString(),
-          approved_at: null,
-          approved_by: null,
-          rejected_at: null,
-          rejected_by: null,
-        },
-        { onConflict: "driver_identity_id,report_date" }
-      )
-      .select()
-      .single();
+      .select("id")
+      .eq("driver_identity_id", driverIdentityId)
+      .eq("report_date", reportDate)
+      .is("rejected_at", null)
+      .maybeSingle();
+
+    let data: any = null;
+    let error: any = null;
+    if (existing?.id) {
+      const result = await supabase
+        .from("daily_reports")
+        .update(reportPayload)
+        .eq("id", existing.id)
+        .select()
+        .single();
+      data = result.data;
+      error = result.error;
+    } else {
+      const result = await supabase
+        .from("daily_reports")
+        .insert(reportPayload)
+        .select()
+        .single();
+      data = result.data;
+      error = result.error;
+    }
 
     if (error) throw error;
 
