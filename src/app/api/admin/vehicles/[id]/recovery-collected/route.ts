@@ -22,8 +22,8 @@ export async function PUT(
     const body = await req.json();
     const { month, collected } = body as { month?: number; collected?: boolean };
 
-    if (typeof month !== "number" || month < 1 || month > 24) {
-      return NextResponse.json({ error: "month must be 1-24" }, { status: 400 });
+    if (!Number.isInteger(month) || month < 1) {
+      return NextResponse.json({ error: "month must be integer >= 1" }, { status: 400 });
     }
     if (typeof collected !== "boolean") {
       return NextResponse.json({ error: "collected must be boolean" }, { status: 400 });

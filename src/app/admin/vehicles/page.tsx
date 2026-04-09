@@ -17,10 +17,9 @@ import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 
 const DEFAULT_LEASE_COST = 35000; // 月々リース代（デフォルト）
-const MAX_RECOVERY_MONTHS = 24;
 
 type RecoveryTableRow = {
-  /** API vehicle_recovery_collected.month（1〜24） */
+  /** API vehicle_recovery_collected.month（1以上） */
   month: number;
   leaseStr: string;
   insuranceStr: string;
@@ -116,6 +115,7 @@ export default function VehiclesPage() {
     vehicleId: string;
     rows: RecoveryTableRow[];
   } | null>(null);
+  const [recoverySavingMonth, setRecoverySavingMonth] = useState<number | null>(null);
   const [meterTab, setMeterTab] = useState<"table" | "graph">("table");
   const [meterRange, setMeterRange] = useState<{ start: string; end: string } | null>(null);
   const [meterLogs, setMeterLogs] = useState<MeterLog[]>([]);
@@ -463,7 +463,7 @@ export default function VehiclesPage() {
       const baseLease = v.lease_cost ?? DEFAULT_LEASE_COST;
       const baseInsurance = v.monthly_insurance || 0;
       const collected = v.recovery_collected ?? {};
-      const rows: RecoveryTableRow[] = Array.from({ length: 12 }, (_x, i) => {
+      const rows: RecoveryTableRow[] = Array.from({ length: 1 }, (_x, i) => {
         const month = i + 1;
         const collectedAt = collected[month];
         return {
@@ -483,9 +483,7 @@ export default function VehiclesPage() {
     const v = openDetail.vehicle;
     setRecoveryTable((prev) => {
       if (!prev || prev.vehicleId !== v.id) return prev;
-      if (prev.rows.length >= MAX_RECOVERY_MONTHS) return prev;
       const nextMonth = Math.max(...prev.rows.map((r) => r.month), 0) + 1;
-      if (nextMonth > MAX_RECOVERY_MONTHS) return prev;
       const baseLease = v.lease_cost ?? DEFAULT_LEASE_COST;
       const baseInsurance = v.monthly_insurance || 0;
       return {
@@ -537,6 +535,56 @@ export default function VehiclesPage() {
       const rows = prev.rows.filter((_, i) => i !== idx);
       return { ...prev, rows };
     });
+  };
+
+  const saveRecoveryRowLease = async (row: RecoveryTableRow) => {
+    if (!canWrite || !openDetail || openDetail.type !== "recovery") return;
+    const vehicleId = openDetail.vehicle.id;
+    const leaseCost = parseMoneyInput(row.leaseStr);
+    const monthlyInsurance = parseMoneyInput(row.insuranceStr);
+    setRecoverySavingMonth(row.month);
+    try {
+      await apiFetch(`/api/admin/vehicles/${vehicleId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          leaseCost,
+          monthlyInsurance,
+        }),
+      });
+      setVehicles((prev) =>
+        prev.map((veh) =>
+          veh.id === vehicleId
+            ? {
+                ...veh,
+                lease_cost: leaseCost,
+                monthly_insurance: monthlyInsurance,
+              }
+            : veh
+        )
+      );
+      setOpenDetail((d) =>
+        d && d.type === "recovery" && d.vehicle.id === vehicleId
+          ? {
+              ...d,
+              vehicle: {
+                ...d.vehicle,
+                lease_cost: leaseCost,
+                monthly_insurance: monthlyInsurance,
+              },
+            }
+          : d
+      );
+    } catch (e) {
+      console.error(e);
+      setErrorState({
+        title: "リース代の保存に失敗しました",
+        message:
+          "回収テーブルの値を車両情報へ保存できませんでした。\n\n時間をおいて再度お試しください。",
+        detail: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setRecoverySavingMonth(null);
+    }
   };
 
   const orderedVehicles = [...vehicles].sort((a, b) => {
@@ -1699,7 +1747,7 @@ export default function VehiclesPage() {
                     </div>
                     <p className="text-xs text-slate-500">
                       リース代と保険料を月ごとに調整して、回収ペースをシミュレーションできます
-                      （この表の数値は車両情報には保存されません）。行の追加・削除で期間を変えられます。
+                      （各行の「保存」で車両のリース代/保険料へ反映できます）。行の追加・削除で期間を変えられます。
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -1708,8 +1756,7 @@ export default function VehiclesPage() {
                       onClick={addRecoveryRow}
                       disabled={
                         !recoveryTable ||
-                        recoveryTable.vehicleId !== openDetail.vehicle.id ||
-                        recoveryTable.rows.length >= MAX_RECOVERY_MONTHS
+                        recoveryTable.vehicleId !== openDetail.vehicle.id
                       }
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
@@ -1717,10 +1764,11 @@ export default function VehiclesPage() {
                       行を追加
                     </button>
                     <span className="text-[11px] text-slate-400">
-                      最大{MAX_RECOVERY_MONTHS}行 · 回収チェックは「月次」番号で保存されます
+                      回収チェックは「月次」番号で保存されます（必要なだけ行を追加できます）
                     </span>
                   </div>
                   <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="min-h-[420px] max-h-[520px] overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50">
                         <tr>
@@ -1729,7 +1777,7 @@ export default function VehiclesPage() {
                           <th className="px-2 py-2 text-right text-slate-600">保険料</th>
                           <th className="px-2 py-2 text-right text-slate-600">月回収額</th>
                           <th className="px-2 py-2 text-right text-slate-600">累計回収額</th>
-                          <th className="px-2 py-2 w-10 text-center text-slate-600"> </th>
+                          <th className="px-2 py-2 w-[120px] text-center text-slate-600">操作</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1871,15 +1919,26 @@ export default function VehiclesPage() {
                                   {fmt(cumulative)}円
                                 </td>
                                 <td className="px-1 py-1.5 text-center align-middle">
-                                  <button
-                                    type="button"
-                                    title="この行を削除"
-                                    disabled={table.rows.length <= 1}
-                                    onClick={() => void removeRecoveryRow(idx)}
-                                    className="inline-flex items-center justify-center w-8 h-8 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:text-slate-400 disabled:hover:bg-transparent"
-                                  >
-                                    <FontAwesomeIcon icon={faTrash} className="w-3.5 h-3.5" />
-                                  </button>
+                                  <div className="inline-flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      title="この行のリース代/保険料を車両情報に保存"
+                                      disabled={!canWrite || recoverySavingMonth === row.month}
+                                      onClick={() => void saveRecoveryRowLease(row)}
+                                      className="px-2 py-1 rounded border border-slate-200 bg-white text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                      {recoverySavingMonth === row.month ? "保存中..." : "保存"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      title="この行を削除"
+                                      disabled={table.rows.length <= 1}
+                                      onClick={() => void removeRecoveryRow(idx)}
+                                      className="inline-flex items-center justify-center w-8 h-8 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:text-slate-400 disabled:hover:bg-transparent"
+                                    >
+                                      <FontAwesomeIcon icon={faTrash} className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1887,6 +1946,7 @@ export default function VehiclesPage() {
                         })()}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 </>
               )}
