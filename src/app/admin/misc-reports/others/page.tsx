@@ -132,13 +132,13 @@ export default function AdminOtherReportsPage() {
         ) : (
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[760px]">
+              <table className="w-full text-sm min-w-[840px]">
                 <thead className="bg-slate-50">
                   <tr className="border-b border-slate-200 text-left">
                     <th className="py-3 px-4 font-semibold text-slate-600">ドライバー</th>
                     <th className="py-3 px-3 font-semibold text-slate-600">種別</th>
                     <th className="py-3 px-3 font-semibold text-slate-600">日時</th>
-                    <th className="py-3 px-3 font-semibold text-slate-600 text-center">車両</th>
+                    <th className="py-3 px-3 font-semibold text-slate-600 text-center min-w-[160px]">車両</th>
                     <th className="py-3 px-3 font-semibold text-slate-600">場所</th>
                     <th className="py-3 px-3 font-semibold text-slate-600">内容</th>
                     <th className="py-3 px-3 font-semibold text-slate-600 text-right">走行距離</th>
@@ -156,7 +156,7 @@ export default function AdminOtherReportsPage() {
                       <td className="py-3 px-3 tabular-nums">{report.report_date} {report.report_time}</td>
                       <td className="py-3 px-3 text-center">
                         {report.vehicles ? (
-                          <VehiclePlate vehicle={report.vehicles} compact className="max-w-[100px] mx-auto" />
+                          <VehiclePlate vehicle={report.vehicles} compact className="max-w-[150px] mx-auto" />
                         ) : (
                           <span className="text-slate-400 text-xs">—</span>
                         )}

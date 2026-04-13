@@ -427,11 +427,11 @@ export default function AdminDailyPage() {
                       {rows.length > 0 && (
                         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                           <div className="overflow-x-auto -mx-2 md:mx-0">
-                            <table className="w-full text-sm table-fixed min-w-[800px] md:min-w-0">
+                            <table className="w-full text-sm table-fixed min-w-[860px] md:min-w-0">
                             <colgroup>
                               <col className="w-28" />
                               <col className="w-20" />
-                              <col className="w-24" />
+                              <col className="w-40" />
                               <col className="w-24" />
                               <col className="w-auto" />
                               <col className="w-36" />
@@ -481,7 +481,7 @@ export default function AdminDailyPage() {
                                     </td>
                                     <td className="py-2 px-2 align-middle text-center">
                                       {vehiclePlate && (vehiclePlate.number_prefix || vehiclePlate.number_hiragana || vehiclePlate.number_numeric) ? (
-                                        <VehiclePlate vehicle={vehiclePlate} compact className="max-w-[100px] mx-auto" />
+                                        <VehiclePlate vehicle={vehiclePlate} compact className="max-w-[150px] mx-auto" />
                                       ) : (
                                         <span className="inline-block w-full text-center text-xs text-slate-400">—</span>
                                       )}
