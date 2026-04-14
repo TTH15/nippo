@@ -496,7 +496,7 @@ export default function AdminDailyPage() {
                                         <span className="inline-block w-full text-center text-slate-400 text-xs">—</span>
                                       )}
                                     </td>
-                                    <td className="py-3 px-2 text-left align-top">
+                                    <td className="py-3 px-2 text-left align-middle">
                                       {status === "unsubmitted" && <span className="text-red-600 align-middle font-semibold">日報が未提出です</span>}
                                       {status === "off" && <span className="text-slate-500 align-middle">休み</span>}
                                       {status === "approved" && (report ? (carrier === "YAMATO" ? (
@@ -524,7 +524,7 @@ export default function AdminDailyPage() {
                                         </div>
                                       ))}
                                     </td>
-                                    <td className="py-3 px-2 text-center align-top">
+                                    <td className="py-3 px-2 text-center align-middle">
                                       {status === "approved" && <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700"><FontAwesomeIcon icon={faCircleCheck} className="mr-1" />承認済み</span>}
                                       {status === "pending" && canWrite && (
                                         <div className="flex items-center justify-center gap-2">
@@ -537,7 +537,7 @@ export default function AdminDailyPage() {
                                       {status === "off" && <span className="text-slate-400 text-xs">—</span>}
                                     </td>
                                     {canWrite && (
-                                      <td className="py-3 px-2 text-center align-top">
+                                      <td className="py-3 px-2 text-center align-middle">
                                         {report && (status === "pending" || status === "approved") && (
                                           <button type="button" onClick={() => openEdit(entry)} className="text-sm text-slate-600 hover:text-slate-900 underline">
                                             <FontAwesomeIcon icon={faPenToSquare} />
@@ -700,7 +700,7 @@ export default function AdminDailyPage() {
                                     {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
                                   </span>
                                 </td>
-                                <td className="py-3 px-3 text-left align-top">
+                                <td className="py-3 px-3 text-left align-middle">
                                   {carrier === "YAMATO" ? (
                                     <div className="text-[13px] pl-6">
                                       <span className="text-slate-500 text-xs">宅急便</span>{" "}
@@ -751,7 +751,7 @@ export default function AdminDailyPage() {
                                     );
                                   })()}
                                 </td>
-                                <td className="py-3 px-3 text-center align-top">
+                                <td className="py-3 px-3 text-center align-middle">
                                   {approved ? (
                                     <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700" title="承認済み">
                                       <FontAwesomeIcon icon={faCircleCheck} className="mr-1" />
@@ -783,7 +783,7 @@ export default function AdminDailyPage() {
                                   )}
                                 </td>
                                 {tab === "all" && canWrite && (
-                                  <td className="py-3 px-3 text-center align-top">
+                                  <td className="py-3 px-3 text-center align-middle">
                                     <button
                                       type="button"
                                       onClick={() => openEdit(e)}
