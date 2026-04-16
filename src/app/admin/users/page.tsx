@@ -34,6 +34,7 @@ type Driver = {
   /** 会社内ドライバー一覧の通し番号（永続） */
   list_no?: number | null;
   created_at: string;
+  license_expiry_date?: string | null;
   postal_code?: string | null;
   address?: string | null;
   phone?: string | null;
@@ -128,6 +129,7 @@ export default function UsersPage() {
     bankTypeOther: "", // その他選択時の入力値
     bankNumber: "",
     bankHolder: "",
+    licenseExpiryDate: "",
   });
   const [postalLoading, setPostalLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -192,6 +194,7 @@ export default function UsersPage() {
       bankTypeOther: "",
       bankNumber: "",
       bankHolder: "",
+      licenseExpiryDate: "",
     });
     setShowModal(true);
   };
@@ -221,6 +224,10 @@ export default function UsersPage() {
       bankTypeOther: typeOther,
       bankNumber: number,
       bankHolder: d.bank_holder || "",
+      licenseExpiryDate:
+        d.license_expiry_date && /^\d{4}-\d{2}-\d{2}$/.test(d.license_expiry_date)
+          ? d.license_expiry_date
+          : "",
     });
     setShowModal(true);
   };
@@ -325,6 +332,7 @@ export default function UsersPage() {
             bankName: [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null,
             bankNo: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
             bankHolder: form.bankHolder.trim() || null,
+            licenseExpiryDate: form.licenseExpiryDate.trim() || null,
           }),
         });
       } else {
@@ -346,6 +354,7 @@ export default function UsersPage() {
             bankName: [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null,
             bankNo: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
             bankHolder: form.bankHolder.trim() || null,
+            licenseExpiryDate: form.licenseExpiryDate.trim() || null,
           }),
         });
       }
@@ -409,6 +418,44 @@ export default function UsersPage() {
     /^\d{6}$/.test(form.driverNumber) &&
     slot2Valid;
 
+  const getLicenseStatus = (dateStr?: string | null): { label: string; className: string } => {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return {
+        label: "未設定",
+        className: "bg-slate-100 text-slate-500",
+      };
+    }
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const expiry = new Date(`${dateStr}T00:00:00`);
+    const oneMonthBefore = new Date(expiry);
+    oneMonthBefore.setMonth(oneMonthBefore.getMonth() - 1);
+    const twoMonthsBefore = new Date(expiry);
+    twoMonthsBefore.setMonth(twoMonthsBefore.getMonth() - 2);
+    if (today >= expiry) {
+      return {
+        label: `${dateStr}（期限切れ）`,
+        className: "bg-red-100 text-red-700",
+      };
+    }
+    if (today >= oneMonthBefore) {
+      return {
+        label: `${dateStr}（1ヶ月以内）`,
+        className: "bg-red-100 text-red-700",
+      };
+    }
+    if (today >= twoMonthsBefore) {
+      return {
+        label: `${dateStr}（2ヶ月以内）`,
+        className: "bg-amber-100 text-amber-700",
+      };
+    }
+    return {
+      label: dateStr,
+      className: "bg-emerald-100 text-emerald-700",
+    };
+  };
+
   return (
     <AdminLayout>
       <div className="w-full">
@@ -432,114 +479,83 @@ export default function UsersPage() {
         </div>
 
         {loading ? (
-          <div className="bg-white rounded border border-slate-200 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="py-2.5 px-3 text-right w-14"><Skeleton className="h-4 w-6 ml-auto" /></th>
-                  <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-12" /></th>
-                  <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-14" /></th>
-                  <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-20" /></th>
-                  <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-14" /></th>
-                  <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-20" /></th>
-                  <th className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-10 ml-auto" /></th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...Array(6)].map((_, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2.5 px-3 text-right"><Skeleton className="h-4 w-5 ml-auto" /></td>
-                    <td className="py-2.5 px-4"><Skeleton className="h-4 w-24" /></td>
-                    <td className="py-2.5 px-4"><Skeleton className="h-4 w-20" /></td>
-                    <td className="py-2.5 px-4"><Skeleton className="h-4 w-16" /></td>
-                    <td className="py-2.5 px-4"><Skeleton className="h-4 w-12" /></td>
-                    <td className="py-2.5 px-4"><Skeleton className="h-5 w-24" /></td>
-                    <td className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-14 ml-auto" /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid gap-4 md:grid-cols-2">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-5 w-12" />
+                  <Skeleton className="h-5 w-28" />
+                </div>
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ))}
           </div>
         ) : drivers.length === 0 ? (
           <p className="text-sm text-slate-500">ドライバーが登録されていません</p>
         ) : (
-          <div className="bg-white rounded border border-slate-200 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="py-2.5 px-3 text-right font-medium text-slate-600 w-14 tabular-nums">No.</th>
-                  <th className="py-2.5 px-4 text-left font-medium text-slate-600">名前</th>
-                  <th className="py-2.5 px-4 text-left font-medium text-slate-600">表示名</th>
-                  <th className="py-2.5 px-4 text-left font-medium text-slate-600">ドライバーコード</th>
-                  <th className="py-2.5 px-4 text-left font-medium text-slate-600">事業所</th>
-                  <th className="py-2.5 px-4 text-left font-medium text-slate-600">担当コース</th>
-                  <th className="py-2.5 px-4 text-right font-medium text-slate-600">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {drivers.map((d, index) => (
-                  <tr key={d.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
-                    <td className="py-2.5 px-3 text-right text-slate-500 tabular-nums text-xs w-14">
-                      {d.list_no ?? index + 1}
-                    </td>
-                    <td className="py-2.5 px-4 font-medium text-slate-800">{d.name}</td>
-                    <td className="py-2.5 px-4 text-slate-600">{getDisplayName(d)}</td>
-                    <td className="py-2.5 px-4 font-mono text-slate-600 whitespace-pre-line leading-snug">
-                      {(() => {
-                        const id1 = d.driver_identities?.find((x) => x.slot === 1);
-                        const id2 = d.driver_identities?.find((x) => x.slot === 2);
-                        const c1 = id1?.driver_code ?? d.driver_code ?? "-";
-                        if (id2?.driver_code) return `${c1}\n${id2.driver_code}`;
-                        return c1;
-                      })()}
-                    </td>
-                    <td className="py-2.5 px-4 text-slate-600 whitespace-pre-line leading-snug">
-                      {(() => {
-                        const id1 = d.driver_identities?.find((x) => x.slot === 1);
-                        const id2 = d.driver_identities?.find((x) => x.slot === 2);
-                        const o1 = id1?.office_code ?? d.office_code ?? "-";
-                        if (id2?.office_code) return `${o1}\n${id2.office_code}`;
-                        return o1;
-                      })()}
-                    </td>
-                    <td className="py-2.5 px-4">
-                      <div className="flex flex-wrap gap-1">
-                        {allIdentityCourses(d).map((dc) => (
-                          <span
-                            key={dc.course_id}
-                            className="px-1.5 py-0.5 rounded text-xs text-white"
-                            style={{ backgroundColor: dc.courses.color }}
-                          >
-                            {dc.courses.name}
-                          </span>
-                        ))}
-                        {allIdentityCourses(d).length === 0 && (
-                          <span className="text-xs text-slate-400">未設定</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-4 text-right">
-                      {canWrite && (
-                        <>
-                          <button
-                            onClick={() => openEdit(d)}
-                            className="text-sm text-slate-500 hover:text-slate-800 mr-3 transition-colors"
-                          >
-                            <FontAwesomeIcon icon={faPenToSquare} />
-                          </button>
-                          <button
-                            onClick={() => deleteDriver(d.id, d.name)}
-                            className="pl-3 text-sm text-red-500 hover:text-red-700 transition-colors"
-                          >
-                            <FontAwesomeIcon icon={faTrash} />
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid gap-4 md:grid-cols-2">
+            {drivers.map((d, index) => {
+              const id1 = d.driver_identities?.find((x) => x.slot === 1);
+              const id2 = d.driver_identities?.find((x) => x.slot === 2);
+              const codeText = id2?.driver_code
+                ? `${id1?.driver_code ?? d.driver_code ?? "-"} / ${id2.driver_code}`
+                : (id1?.driver_code ?? d.driver_code ?? "-");
+              const officeText = id2?.office_code
+                ? `${id1?.office_code ?? d.office_code ?? "-"} / ${id2.office_code}`
+                : (id1?.office_code ?? d.office_code ?? "-");
+              const coursesOfDriver = allIdentityCourses(d);
+              const licenseStatus = getLicenseStatus(d.license_expiry_date);
+              return (
+                <div key={d.id} className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <div className="text-xs text-slate-500 tabular-nums">No.{d.list_no ?? index + 1}</div>
+                      <div className="text-base font-semibold text-slate-900">{d.name}</div>
+                      <div className="text-sm text-slate-500">{getDisplayName(d)}</div>
+                    </div>
+                    <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${licenseStatus.className}`}>
+                      免許期限: {licenseStatus.label}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 text-sm mb-3">
+                    <div><span className="text-slate-400">ドライバーコード:</span> <span className="font-mono text-slate-700">{codeText}</span></div>
+                    <div><span className="text-slate-400">事業所:</span> <span className="text-slate-700">{officeText}</span></div>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mb-3">
+                    {coursesOfDriver.map((dc) => (
+                      <span
+                        key={dc.course_id}
+                        className="px-1.5 py-0.5 rounded text-xs text-white"
+                        style={{ backgroundColor: dc.courses.color }}
+                      >
+                        {dc.courses.name}
+                      </span>
+                    ))}
+                    {coursesOfDriver.length === 0 && (
+                      <span className="text-xs text-slate-400">担当コース未設定</span>
+                    )}
+                  </div>
+                  {canWrite && (
+                    <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                      <button
+                        onClick={() => openEdit(d)}
+                        className="text-sm text-slate-500 hover:text-slate-800 transition-colors"
+                      >
+                        <FontAwesomeIcon icon={faPenToSquare} />
+                      </button>
+                      <button
+                        onClick={() => deleteDriver(d.id, d.name)}
+                        className="text-sm text-red-500 hover:text-red-700 transition-colors"
+                      >
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -701,6 +717,15 @@ export default function UsersPage() {
                 <h3 className="text-sm font-semibold text-slate-700 mb-3">請求書用情報（個人）</h3>
                 <p className="text-xs text-slate-500 mb-3">請求書の請求元として使用する際の住所・振込先情報</p>
                 <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">運転免許証 有効期限</label>
+                    <input
+                      type="date"
+                      value={form.licenseExpiryDate}
+                      onChange={(e) => setForm((f) => ({ ...f, licenseExpiryDate: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
                   <div className="flex gap-2">
                     <div className="flex-1">
                       <label className="block text-xs font-medium text-slate-600 mb-1">郵便番号</label>

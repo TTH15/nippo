@@ -35,6 +35,7 @@ export async function PUT(
       bankName,
       bankNo,
       bankHolder,
+      licenseExpiryDate,
       identities: identitiesRaw,
     } = body;
     const { id: driverId } = await params;
@@ -63,6 +64,12 @@ export async function PUT(
     if (bankName !== undefined) updates.bank_name = typeof bankName === "string" ? bankName.trim() || null : null;
     if (bankNo !== undefined) updates.bank_no = typeof bankNo === "string" ? bankNo.trim() || null : null;
     if (bankHolder !== undefined) updates.bank_holder = typeof bankHolder === "string" ? bankHolder.trim() || null : null;
+    if (licenseExpiryDate !== undefined) {
+      updates.license_expiry_date =
+        typeof licenseExpiryDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(licenseExpiryDate)
+          ? licenseExpiryDate
+          : null;
+    }
 
     const syncSlot1ToDriver = async (fullCode: string, office: string) => {
       const { data: d } = await supabase

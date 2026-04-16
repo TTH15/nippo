@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers, error } = await supabase
     .from("drivers")
     .select(`
-      id, name, display_name, role, company_code, office_code, driver_code, list_no, created_at,
+      id, name, display_name, role, company_code, office_code, driver_code, list_no, created_at, license_expiry_date,
       postal_code, address, phone, bank_name, bank_no, bank_holder,
       driver_identities (
         id, slot, driver_code, office_code, label,
@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
       officeCode2,
       driverNumber2,
       courseIds2 = [],
+      licenseExpiryDate,
     } = body as {
       name?: string;
       officeCode?: string;
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest) {
       officeCode2?: string;
       driverNumber2?: string;
       courseIds2?: string[];
+      licenseExpiryDate?: string | null;
     };
 
     if (!name || typeof name !== "string" || !name.trim()) {
@@ -127,6 +129,10 @@ export async function POST(req: NextRequest) {
         bank_name: typeof bankName === "string" ? bankName.trim() || null : null,
         bank_no: typeof bankNo === "string" ? bankNo.trim() || null : null,
         bank_holder: typeof bankHolder === "string" ? bankHolder.trim() || null : null,
+        license_expiry_date:
+          typeof licenseExpiryDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(licenseExpiryDate)
+            ? licenseExpiryDate
+            : null,
       })
       .select()
       .single();
