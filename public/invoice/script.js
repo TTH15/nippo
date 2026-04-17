@@ -573,6 +573,15 @@ function parseAmountFromDisplay(text) {
     return Number.isFinite(n) ? n : 0;
 }
 
+function bumpInvoiceRevision(invoiceNo) {
+    const base = String(invoiceNo || '').trim();
+    if (!base) return 'INV-MANUAL-R01';
+    const m = base.match(/^(.*)-R(\d{2})$/);
+    if (!m) return `${base}-R01`;
+    const next = Math.min((Number(m[2]) || 0) + 1, 99);
+    return `${m[1]}-R${String(next).padStart(2, '0')}`;
+}
+
 async function persistInvoiceDocument(data, options = {}) {
     try {
         const params = new URLSearchParams(window.location.search);
@@ -593,12 +602,15 @@ async function persistInvoiceDocument(data, options = {}) {
             payload: data,
             markEdited: options.markEdited === true,
         };
-        if (currentInvoiceId) {
+        if (currentInvoiceId && !options.createVersion) {
             await apiFetchWithBody(`/api/admin/invoices/${currentInvoiceId}`, {
                 method: 'PATCH',
                 body: JSON.stringify(body),
             });
             return;
+        }
+        if (options.createVersion) {
+            body.invoiceNo = bumpInvoiceRevision(data.invoiceNo || '');
         }
         const created = await apiFetchWithBody('/api/admin/invoices', {
             method: 'POST',
@@ -606,6 +618,11 @@ async function persistInvoiceDocument(data, options = {}) {
         });
         if (created?.invoice?.id) {
             currentInvoiceId = created.invoice.id;
+            if (created?.invoice?.invoiceNo && q('#p_invoiceNo')) {
+                q('#p_invoiceNo').textContent = created.invoice.invoiceNo;
+            } else if (body.invoiceNo && q('#p_invoiceNo')) {
+                q('#p_invoiceNo').textContent = body.invoiceNo;
+            }
             const u = new URL(window.location.href);
             u.searchParams.set('invoiceId', currentInvoiceId);
             if (!u.searchParams.get('month') && body.month) u.searchParams.set('month', body.month);
@@ -1534,7 +1551,7 @@ q('#saveBtn').onclick = async () => {
             }
         };
         localStorage.setItem('invoice_direct_edit_v1', JSON.stringify(data));
-        await persistInvoiceDocument(data, { markEdited: true });
+        await persistInvoiceDocument(data, { markEdited: true, createVersion: true });
         btn.textContent = '保存済み';
         setTimeout(() => {
             btn.textContent = prevText;

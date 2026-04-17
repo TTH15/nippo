@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 type Section = "Amazon" | "ヤマト運輸" | "郵便局";
 type InvoiceStatus = "draft" | "sent" | "paid";
+type FolderDirection = "outgoing" | "incoming";
 
 function normalizeMonth(monthParam: string | null): string {
   const now = new Date();
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
   const month = monthParam ? normalizeMonth(monthParam) : null;
   let query = supabase
     .from("invoice_documents")
-    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, updated_at")
+    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, updated_at, payload")
     .eq("company_code", user.companyCode)
     .order("updated_at", { ascending: false });
   if (month) {
@@ -48,6 +49,14 @@ export async function GET(req: NextRequest) {
   }
 
   const invoices = (data ?? []).map((r: any) => ({
+    direction:
+      r?.payload?.parties?.toParty === "ace_creation"
+        ? ("incoming" as FolderDirection)
+        : ("outgoing" as FolderDirection),
+    counterpartyName:
+      r?.payload?.parties?.toParty === "ace_creation"
+        ? (r?.payload?.fromName ?? r?.client_name ?? "未設定")
+        : (r?.payload?.toName ?? r?.client_name ?? "未設定"),
     id: r.id,
     month: r.month_yyyy_mm,
     section: r.section as Section,

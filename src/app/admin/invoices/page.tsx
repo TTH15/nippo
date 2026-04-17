@@ -8,6 +8,8 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
 
 type SavedInvoice = {
+  direction?: "outgoing" | "incoming";
+  counterpartyName?: string;
   id: string;
   clientName: string;
   issueDate: string;
@@ -40,22 +42,31 @@ export default function InvoicesPage() {
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     return `${yyyy}-${mm}`;
   });
-  const [selectedSection, setSelectedSection] = useState<"Amazon" | "ヤマト運輸" | "郵便局">("ヤマト運輸");
+  const [selectedDirection, setSelectedDirection] = useState<"outgoing" | "incoming">("outgoing");
+  const [selectedCounterparty, setSelectedCounterparty] = useState<string>("");
   const [filter, setFilter] = useState<"all" | SavedInvoice["status"]>("all");
 
   const monthFolders = Array.from(new Set((invoices ?? []).map((i) => i.month).filter(Boolean))).sort().reverse();
-  const sectionFolders = Array.from(
+  const directionFolders = (["outgoing", "incoming"] as const).filter((d) =>
+    invoices.some((i) => (i.month ?? "") === selectedMonth && (i.direction ?? "outgoing") === d)
+  );
+  const counterpartyFolders = Array.from(
     new Set(
       invoices
-        .filter((i) => (i.month ?? "") === selectedMonth)
-        .map((i) => i.section)
+        .filter(
+          (i) =>
+            (i.month ?? "") === selectedMonth &&
+            (i.direction ?? "outgoing") === selectedDirection
+        )
+        .map((i) => i.counterpartyName || i.clientName || "未設定")
         .filter(Boolean)
     )
-  ) as Array<"Amazon" | "ヤマト運輸" | "郵便局">;
+  ).sort((a, b) => a.localeCompare(b, "ja"));
   const filtered = (filter === "all" ? invoices : invoices.filter((inv) => inv.status === filter)).filter(
     (inv) =>
       (!selectedMonth || inv.month === selectedMonth) &&
-      (!selectedSection || inv.section === selectedSection)
+      (inv.direction ?? "outgoing") === selectedDirection &&
+      (!selectedCounterparty || (inv.counterpartyName || inv.clientName || "未設定") === selectedCounterparty)
   );
   
   useEffect(() => {
@@ -82,10 +93,20 @@ export default function InvoicesPage() {
   }, []);
 
   useEffect(() => {
-    if (sectionFolders.length > 0 && !sectionFolders.includes(selectedSection)) {
-      setSelectedSection(sectionFolders[0]);
+    if (directionFolders.length > 0 && !directionFolders.includes(selectedDirection)) {
+      setSelectedDirection(directionFolders[0]);
     }
-  }, [sectionFolders, selectedSection]);
+  }, [directionFolders, selectedDirection]);
+
+  useEffect(() => {
+    if (counterpartyFolders.length === 0) {
+      setSelectedCounterparty("");
+      return;
+    }
+    if (!selectedCounterparty || !counterpartyFolders.includes(selectedCounterparty)) {
+      setSelectedCounterparty(counterpartyFolders[0]);
+    }
+  }, [counterpartyFolders, selectedCounterparty]);
 
   return (
     <AdminLayout>
@@ -142,19 +163,38 @@ export default function InvoicesPage() {
               )}
             </div>
             <div className="border-t border-slate-100 pt-3 space-y-1">
-              {(["Amazon", "ヤマト運輸", "郵便局"] as const).map((section) => (
+              {(directionFolders.length === 0 ? (["outgoing", "incoming"] as const) : directionFolders).map((dir) => (
                 <button
-                  key={section}
+                  key={dir}
                   type="button"
-                  onClick={() => setSelectedSection(section)}
+                  onClick={() => setSelectedDirection(dir)}
                   className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
-                    selectedSection === section ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
+                    selectedDirection === dir ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
-                  {section}
+                  {dir === "outgoing" ? "自社が請求" : "自社に請求"}
                 </button>
               ))}
+            </div>
+            <div className="border-t border-slate-100 mt-3 pt-3 space-y-1">
+              {counterpartyFolders.length === 0 ? (
+                <p className="text-xs text-slate-400 px-2 py-1">取引先フォルダがありません</p>
+              ) : (
+                counterpartyFolders.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setSelectedCounterparty(name)}
+                    className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
+                      selectedCounterparty === name ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
+                    {name}
+                  </button>
+                ))
+              )}
             </div>
           </div>
 
@@ -184,7 +224,7 @@ export default function InvoicesPage() {
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50">
                 <th className="text-left px-4 py-3 font-medium text-slate-600">請求書番号</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">請求先</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">取引先</th>
                 <th className="text-left px-4 py-3 font-medium text-slate-600">発行日</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">金額</th>
                 <th className="text-center px-4 py-3 font-medium text-slate-600">ステータス</th>
@@ -213,7 +253,7 @@ export default function InvoicesPage() {
                       <td className="px-4 py-3 text-slate-900 font-medium">
                         <div className="inline-flex items-center gap-2">
                           <FontAwesomeIcon icon={faFileInvoice} className="text-slate-400" />
-                          {inv.clientName}
+                          {inv.counterpartyName || inv.clientName}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-600">{inv.issueDate}</td>
@@ -282,15 +322,14 @@ export default function InvoicesPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-600 mb-1">セクションフォルダ</label>
+                <label className="block text-xs text-slate-600 mb-1">請求方向フォルダ</label>
                 <select
-                  value={selectedSection}
-                  onChange={(e) => setSelectedSection(e.target.value as "Amazon" | "ヤマト運輸" | "郵便局")}
+                  value={selectedDirection}
+                  onChange={(e) => setSelectedDirection(e.target.value as "outgoing" | "incoming")}
                   className="w-full border border-slate-200 rounded px-3 py-2 text-sm"
                 >
-                  <option value="Amazon">Amazon</option>
-                  <option value="ヤマト運輸">ヤマト運輸</option>
-                  <option value="郵便局">郵便局</option>
+                  <option value="outgoing">自社が請求</option>
+                  <option value="incoming">自社に請求</option>
                 </select>
               </div>
             </div>
@@ -303,7 +342,7 @@ export default function InvoicesPage() {
                 キャンセル
               </button>
               <a
-                href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&section=${encodeURIComponent(selectedSection)}`}
+                href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&direction=${encodeURIComponent(selectedDirection)}&section=${encodeURIComponent(selectedDirection === "incoming" ? "郵便局" : "ヤマト運輸")}`}
                 className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700"
               >
                 この保存先で作成
