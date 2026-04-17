@@ -65,7 +65,7 @@ const navItems: NavItem[] = [
     label: "請求書",
     icon: faFileInvoice,
     children: [
-      { href: "/admin/invoices", label: "登録済情報から作成", icon: faFileLines },
+      { href: "/admin/invoices", label: "保存済", icon: faFileLines },
       { href: "/admin/invoices/new", label: "新規作成", icon: faPlus },
       { href: "/admin/invoices/addressbook", label: "アドレス帳", icon: faAddressBook },
     ],
@@ -254,11 +254,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                       <button
                         type="button"
                         onClick={() => handleParentClick(item)}
-                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${
-                          hasActiveChild || isOpen
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${hasActiveChild || isOpen
                             ? "bg-slate-700/80 text-white"
                             : "text-slate-400 hover:bg-slate-800 hover:text-white"
-                        }`}
+                          }`}
                       >
                         <span className="flex items-center gap-2">
                           {item.icon && (
@@ -302,11 +301,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                   key={child.href}
                                   href={child.href}
                                   onClick={() => setOpenMenu(null)}
-                                  className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-bold transition-colors ${
-                                    childActive
+                                  className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-bold transition-colors ${childActive
                                       ? "bg-slate-700 text-white"
                                       : "text-slate-300 hover:bg-slate-700/60 hover:text-white"
-                                  }`}
+                                    }`}
                                 >
                                   {child.icon && (
                                     <FontAwesomeIcon
@@ -335,11 +333,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                   <li key={item.href}>
                     <Link
                       href={item.href}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${
-                        active
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${active
                           ? "bg-slate-700/80 text-white"
                           : "text-slate-400 hover:bg-slate-800 hover:text-white"
-                      }`}
+                        }`}
                     >
                       {item.icon && (
                         <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />
@@ -434,11 +431,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                   <Link
                                     href={child.href}
                                     onClick={() => setMobileNavOpen(false)}
-                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-medium ${
-                                      active
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-medium ${active
                                         ? "bg-slate-700/80 text-white"
                                         : "text-slate-200 hover:bg-slate-800 hover:text-white"
-                                    }`}
+                                      }`}
                                   >
                                     {child.icon && (
                                       <FontAwesomeIcon
@@ -466,11 +462,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                         <Link
                           href={item.href}
                           onClick={() => setMobileNavOpen(false)}
-                          className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold ${
-                            active
+                          className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold ${active
                               ? "bg-slate-700/80 text-white"
                               : "text-slate-200 hover:bg-slate-800 hover:text-white"
-                          }`}
+                            }`}
                         >
                           {item.icon && (
                             <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />
