@@ -1,12 +1,131 @@
 "use client";
 
 import * as React from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { DayPicker } from "react-day-picker";
+import { format } from "date-fns";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { DayPicker, useNavigation } from "react-day-picker";
 import { ja } from "date-fns/locale";
 
 import { cn } from "./utils";
 import { buttonVariants } from "./button";
+
+function MonthYearWheel({
+  value,
+  values,
+  toLabel,
+  onChange,
+}: {
+  value: number;
+  values: number[];
+  toLabel: (v: number) => string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="relative h-44 overflow-hidden rounded-md border border-slate-200 bg-white">
+      <div className="pointer-events-none absolute inset-x-1 top-1/2 z-10 h-10 -translate-y-1/2 rounded-md bg-slate-100/80" />
+      <div className="h-full overflow-y-auto py-[68px] scrollbar-thin">
+        {values.map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(v)}
+            className={cn(
+              "block h-10 w-full snap-center px-2 text-center text-base transition-colors",
+              v === value ? "font-semibold text-slate-900" : "text-slate-500 hover:text-slate-700",
+            )}
+          >
+            {toLabel(v)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CaptionLabelButton(props: { displayMonth: Date }) {
+  const { goToMonth } = useNavigation();
+  const panelRef = React.useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = React.useState(false);
+  const [selectedYear, setSelectedYear] = React.useState(props.displayMonth.getFullYear());
+  const [selectedMonth, setSelectedMonth] = React.useState(props.displayMonth.getMonth());
+  const currentYear = new Date().getFullYear();
+  const years = React.useMemo(
+    () => Array.from({ length: 121 }, (_, i) => currentYear - 60 + i),
+    [currentYear],
+  );
+  const months = React.useMemo(() => Array.from({ length: 12 }, (_, i) => i), []);
+
+  React.useEffect(() => {
+    if (!open) {
+      setSelectedYear(props.displayMonth.getFullYear());
+      setSelectedMonth(props.displayMonth.getMonth());
+    }
+  }, [open, props.displayMonth]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!panelRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  const applyMonth = () => {
+    goToMonth?.(new Date(selectedYear, selectedMonth, 1));
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={panelRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-slate-800 hover:bg-slate-100"
+      >
+        {format(props.displayMonth, "M月 yyyy", { locale: ja })}
+        <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+      </button>
+      {open ? (
+        <div className="absolute left-1/2 top-[calc(100%+8px)] z-50 w-[300px] -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+          <div className="grid grid-cols-2 gap-2">
+            <MonthYearWheel
+              value={selectedMonth}
+              values={months}
+              toLabel={(m) => `${m + 1}月`}
+              onChange={setSelectedMonth}
+            />
+            <MonthYearWheel
+              value={selectedYear}
+              values={years}
+              toLabel={(y) => `${y}年`}
+              onChange={setSelectedYear}
+            />
+          </div>
+          <div className="mt-3 flex justify-between">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+            >
+              閉じる
+            </button>
+            <button
+              type="button"
+              onClick={applyMonth}
+              className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              決定
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function Calendar({
   className,
@@ -70,6 +189,7 @@ function Calendar({
         ...classNames,
       }}
       components={{
+        CaptionLabel: ({ displayMonth }) => <CaptionLabelButton displayMonth={displayMonth} />,
         IconLeft: ({ className, ...props }) => (
           <ChevronLeft className={cn("size-4", className)} {...props} />
         ),
