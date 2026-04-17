@@ -14,6 +14,10 @@ export async function GET(req: NextRequest) {
   if (isAuthError(user)) return user;
 
   try {
+    const limitRaw = Number(req.nextUrl.searchParams.get("limit") || "30");
+    const cursorRaw = Number(req.nextUrl.searchParams.get("cursor") || "0");
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 30;
+    const offset = Number.isFinite(cursorRaw) ? Math.max(0, Math.floor(cursorRaw)) : 0;
     const status = req.nextUrl.searchParams.get("status") === "approved" ? "approved" : "pending";
     let query = supabase
       .from("oil_change_reports")
@@ -31,7 +35,7 @@ export async function GET(req: NextRequest) {
         .order("submitted_at", { ascending: false });
     }
 
-    const { data: reports, error: reportErr } = await query;
+    const { data: reports, error: reportErr } = await query.range(offset, offset + limit);
 
     if (reportErr) {
       console.error("[admin/misc-reports/oil-change] reports error", reportErr);
@@ -39,32 +43,40 @@ export async function GET(req: NextRequest) {
     }
 
     const rows = reports ?? [];
-    if (!rows.length) return NextResponse.json({ entries: [] });
+    if (!rows.length) return NextResponse.json({ entries: [], nextCursor: null, hasMore: false });
 
-    const driverIds = Array.from(new Set(rows.map((r: { driver_id: string }) => r.driver_id).filter(Boolean)));
-    const { data: drivers, error: driverErr } = await supabase
+    const hasMore = rows.length > limit;
+    const pagedRows = hasMore ? rows.slice(0, limit) : rows;
+    const pagedDriverIds = Array.from(new Set(pagedRows.map((r: { driver_id: string }) => r.driver_id).filter(Boolean)));
+    const { data: pagedDrivers, error: pagedDriverErr } = await supabase
       .from("drivers")
       .select("id, name, display_name")
-      .in("id", driverIds);
+      .in("id", pagedDriverIds);
 
-    if (driverErr) {
-      console.error("[admin/misc-reports/oil-change] drivers error", driverErr);
+    if (pagedDriverErr) {
+      console.error("[admin/misc-reports/oil-change] paged drivers error", pagedDriverErr);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    const driverMap = new Map<string, { id: string; name: string; display_name: string | null }>();
-    (drivers ?? []).forEach((d: { id: string; name: string; display_name: string | null }) => {
-      driverMap.set(d.id, { id: d.id, name: d.name, display_name: d.display_name ?? null });
+    const pagedDriverMap = new Map<string, { id: string; name: string; display_name: string | null }>();
+    (pagedDrivers ?? []).forEach((d: { id: string; name: string; display_name: string | null }) => {
+      pagedDriverMap.set(d.id, { id: d.id, name: d.name, display_name: d.display_name ?? null });
     });
 
-    const entries: Entry[] = [];
-    rows.forEach((r: Record<string, unknown> & { driver_id: string }) => {
-      const driver = driverMap.get(r.driver_id);
+    const pagedEntries: Entry[] = [];
+    pagedRows.forEach((r: Record<string, unknown> & { driver_id: string }) => {
+      const driver = pagedDriverMap.get(r.driver_id);
       if (!driver) return;
-      entries.push({ driver, report: r });
+      pagedEntries.push({ driver, report: r });
     });
 
-    return NextResponse.json({ entries });
+    const response = NextResponse.json({
+      entries: pagedEntries,
+      nextCursor: hasMore ? String(offset + limit) : null,
+      hasMore,
+    });
+    response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=300");
+    return response;
   } catch (err) {
     console.error("[admin/misc-reports/oil-change] error", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

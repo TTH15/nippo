@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
+import useSWRInfinite from "swr/infinite";
 
 type MiscReport = {
   id: string;
@@ -35,6 +36,8 @@ type Entry = {
   driver: { id: string; name: string; display_name: string | null };
   report: MiscReport;
 };
+type OilChangePage = { entries: Entry[]; nextCursor: string | null; hasMore: boolean };
+const PAGE_SIZE = 30;
 
 function reportKindLabel(kind: string | undefined): string {
   switch (kind) {
@@ -52,31 +55,43 @@ function reportKindLabel(kind: string | undefined): string {
 
 export default function AdminOtherReportsPage() {
   const [tab, setTab] = useState<"pending" | "approved">("pending");
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const canWrite = canAdminWrite(getStoredDriver()?.role);
 
-  const load = async () => {
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-      const res = await apiFetch<{ entries: Entry[] }>(
-        `/api/admin/misc-reports/oil-change?status=${tab}`,
-        { cache: "no-store" },
-      );
-      setEntries(res.entries ?? []);
-    } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : "その他の報告の取得に失敗しました");
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
+  const getKey = (pageIndex: number, previousPageData: OilChangePage | null) => {
+    if (previousPageData && !previousPageData.hasMore) return null;
+    const cursor = previousPageData?.nextCursor ?? "0";
+    return `/api/admin/misc-reports/oil-change?status=${tab}&limit=${PAGE_SIZE}&cursor=${cursor}`;
   };
 
+  const {
+    data: pages,
+    isLoading,
+    isValidating,
+    setSize,
+    mutate,
+  } = useSWRInfinite<OilChangePage>(getKey, (url: string) => apiFetch<OilChangePage>(url), {
+    revalidateOnFocus: false,
+    dedupingInterval: 5 * 60 * 1000,
+    revalidateFirstPage: false,
+  });
+
+  const entries = useMemo(() => (pages ?? []).flatMap((p) => p.entries ?? []), [pages]);
+  const loading = isLoading && entries.length === 0;
+  const hasMore = (pages?.[pages.length - 1]?.hasMore ?? false) && !isValidating;
+
   useEffect(() => {
-    load();
-  }, [tab]);
+    const node = loadMoreRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver((obsEntries) => {
+      if (!obsEntries[0]?.isIntersecting) return;
+      if (!hasMore) return;
+      void setSize((s) => s + 1);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, setSize]);
 
   const handleAction = async (id: string, action: "approve" | "reject") => {
     try {
@@ -84,8 +99,13 @@ export default function AdminOtherReportsPage() {
         method: "POST",
         body: JSON.stringify({ id }),
       });
-      // 現在タブの対象外になるため、全件再取得せずローカルから除外する
-      setEntries((prev) => prev.filter((e) => e.report.id !== id));
+      await mutate((prev) => {
+        if (!prev) return prev;
+        return prev.map((page) => ({
+          ...page,
+          entries: page.entries.filter((e) => e.report.id !== id),
+        }));
+      }, { revalidate: false });
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : "操作に失敗しました");
     }
@@ -210,6 +230,12 @@ export default function AdminOtherReportsPage() {
                 </tbody>
               </table>
             </div>
+            <div ref={loadMoreRef} className="h-6" />
+            {hasMore && (
+              <div className="px-4 py-2 text-xs text-slate-500 border-t border-slate-100">
+                さらに読み込み中...
+              </div>
+            )}
           </div>
         )}
       </div>
