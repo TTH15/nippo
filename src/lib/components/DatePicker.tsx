@@ -32,6 +32,9 @@ export function DatePicker({
   toDate,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
+  const baseDate = value ?? toDate ?? fromDate ?? new Date();
+  const minYear = fromDate?.getFullYear() ?? baseDate.getFullYear() - 20;
+  const maxYear = toDate?.getFullYear() ?? baseDate.getFullYear() + 20;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -47,6 +50,9 @@ export function DatePicker({
       <PopoverContent className="w-auto p-0" align="start">
         <Calendar
           mode="single"
+          captionLayout="dropdown-buttons"
+          fromYear={Math.min(minYear, maxYear)}
+          toYear={Math.max(minYear, maxYear)}
           selected={value}
           onSelect={(date) => {
             onChange?.(date);
