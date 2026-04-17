@@ -25,16 +25,20 @@ function MonthYearWheel({
   const ITEM_HEIGHT = 40;
   const TOP_PADDING = 68;
 
-  const getNearestIndex = React.useCallback((scrollTop: number) => {
-    const rawIndex = (scrollTop - TOP_PADDING) / ITEM_HEIGHT;
-    return Math.max(0, Math.min(values.length - 1, Math.round(rawIndex)));
-  }, [values.length]);
+  const getNearestIndex = React.useCallback(
+    (scrollTop: number, viewportHeight: number) => {
+      const viewportCenterY = scrollTop + viewportHeight / 2;
+      const rawIndex = (viewportCenterY - TOP_PADDING - ITEM_HEIGHT / 2) / ITEM_HEIGHT;
+      return Math.max(0, Math.min(values.length - 1, Math.round(rawIndex)));
+    },
+    [values.length],
+  );
 
   const scrollToIndex = React.useCallback(
     (index: number, behavior: ScrollBehavior) => {
       const el = containerRef.current;
       if (!el) return;
-      const nextTop = TOP_PADDING + index * ITEM_HEIGHT;
+      const nextTop = TOP_PADDING + index * ITEM_HEIGHT + ITEM_HEIGHT / 2 - el.clientHeight / 2;
       el.scrollTo({ top: nextTop, behavior });
     },
     [],
@@ -61,7 +65,7 @@ function MonthYearWheel({
     settleTimerRef.current = window.setTimeout(() => {
       const el = containerRef.current;
       if (!el) return;
-      const index = getNearestIndex(el.scrollTop);
+      const index = getNearestIndex(el.scrollTop, el.clientHeight);
       const nextValue = values[index];
       if (nextValue !== value) onChange(nextValue);
       scrollToIndex(index, "smooth");
@@ -69,7 +73,9 @@ function MonthYearWheel({
   };
 
   return (
-    <div className="relative h-44 overflow-hidden rounded-md border border-slate-200 bg-white">
+    <div className="relative h-44 overflow-hidden rounded-md">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-12 bg-gradient-to-b from-white via-white/90 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-12 bg-gradient-to-t from-white via-white/90 to-transparent" />
       <div
         ref={containerRef}
         onScroll={handleScroll}
