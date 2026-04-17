@@ -543,7 +543,7 @@ function saveData() {
 
         // セクション選択データ
         sectionSelections: {
-            main: document.querySelector('.section-select[data-section="main"]')?.value || 'Amazon'
+            main: getEffectiveSection()
         },
         taxSettings: {
             enabled: q('#taxEnabled')?.checked ?? true,
@@ -564,7 +564,7 @@ function queuePersistInvoice(data) {
     if (isManualSaving) return;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-        void persistInvoiceDocument(data);
+        void persistInvoiceDocument(data, { markEdited: false });
     }, 500);
 }
 
@@ -573,13 +573,14 @@ function parseAmountFromDisplay(text) {
     return Number.isFinite(n) ? n : 0;
 }
 
-async function persistInvoiceDocument(data) {
+async function persistInvoiceDocument(data, options = {}) {
     try {
         const params = new URLSearchParams(window.location.search);
         const month = params.get('month') || '';
-        const section = params.get('section') || (data.sectionSelections?.main || 'ヤマト運輸');
+        const section = getEffectiveSection() || params.get('section') || (data.sectionSelections?.main || 'ヤマト運輸');
+        const selectedCounterparty = getSelectedCounterpartyMeta();
         const counterpartyRaw = params.get('counterparty');
-        const counterpartyInvoiceAddressId = counterpartyRaw || null;
+        const counterpartyInvoiceAddressId = counterpartyRaw || selectedCounterparty.id || null;
         const body = {
             month: /^\d{4}-\d{2}$/.test(month) ? month : undefined,
             section,
@@ -590,6 +591,7 @@ async function persistInvoiceDocument(data) {
             amount: parseAmountFromDisplay(data.billAmountDisplay),
             status: 'draft',
             payload: data,
+            markEdited: options.markEdited === true,
         };
         if (currentInvoiceId) {
             await apiFetchWithBody(`/api/admin/invoices/${currentInvoiceId}`, {
@@ -607,7 +609,8 @@ async function persistInvoiceDocument(data) {
             const u = new URL(window.location.href);
             u.searchParams.set('invoiceId', currentInvoiceId);
             if (!u.searchParams.get('month') && body.month) u.searchParams.set('month', body.month);
-            if (!u.searchParams.get('section') && body.section) u.searchParams.set('section', body.section);
+            if (body.section) u.searchParams.set('section', body.section);
+            if (counterpartyInvoiceAddressId) u.searchParams.set('counterparty', counterpartyInvoiceAddressId);
             window.history.replaceState({}, '', u.toString());
         }
     } catch (e) {
@@ -844,6 +847,17 @@ function syncPartiesToInvoice() {
     }
 
     // ACE CREATIONが請求先の場合、電話番号と登録番号は表示しない（請求先には不要）
+
+    // セクション混在を避けるため、請求先ベースで自動合わせ込み
+    const section = getEffectiveSection();
+    if (section) {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('section') !== section) {
+            const u = new URL(window.location.href);
+            u.searchParams.set('section', section);
+            window.history.replaceState({}, '', u.toString());
+        }
+    }
 
     saveData();
 }
@@ -1187,6 +1201,37 @@ function mapSectionToCarrier(section) {
     return null;
 }
 
+function inferSectionFromCounterpartyName(name) {
+    const n = String(name || '');
+    if (!n) return null;
+    if (n.includes('Amazon') || n.includes('アマゾン')) return 'Amazon';
+    if (n.includes('ヤマト')) return 'ヤマト運輸';
+    if (n.includes('郵便')) return '郵便局';
+    return null;
+}
+
+function getSelectedCounterpartyMeta() {
+    const toSelect = q('#toPartySelect');
+    if (!toSelect) return { id: null, name: '' };
+    const value = toSelect.value || '';
+    if (!value || value === 'new') return { id: null, name: '' };
+    if (value === 'ace_creation') return { id: null, name: ACE_CREATION.name };
+    const address = addressBook.getAddress(value);
+    const id = value.startsWith('corp-') ? value.slice('corp-'.length) : null;
+    return { id, name: address?.name || '' };
+}
+
+function getEffectiveSection() {
+    const sectionSelect = document.querySelector('.section-select[data-section="main"]');
+    const fallback = sectionSelect?.value || 'Amazon';
+    const { name } = getSelectedCounterpartyMeta();
+    const inferred = inferSectionFromCounterpartyName(name);
+    if (inferred && sectionSelect && sectionSelect.value !== inferred) {
+        sectionSelect.value = inferred;
+    }
+    return inferred || fallback;
+}
+
 function setSelectIfOptionExists(selectEl, candidates) {
     if (!selectEl || !Array.isArray(candidates)) return false;
     for (const value of candidates) {
@@ -1476,7 +1521,7 @@ q('#saveBtn').onclick = async () => {
             tableData: getDataFromTables(),
             // セクション選択データ
             sectionSelections: {
-                main: document.querySelector('.section-select[data-section="main"]')?.value || 'Amazon'
+                main: getEffectiveSection()
             },
             taxSettings: {
                 enabled: q('#taxEnabled')?.checked ?? true,
@@ -1489,7 +1534,7 @@ q('#saveBtn').onclick = async () => {
             }
         };
         localStorage.setItem('invoice_direct_edit_v1', JSON.stringify(data));
-        await persistInvoiceDocument(data);
+        await persistInvoiceDocument(data, { markEdited: true });
         btn.textContent = '保存済み';
         setTimeout(() => {
             btn.textContent = prevText;

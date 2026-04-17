@@ -6,6 +6,16 @@ export const dynamic = "force-dynamic";
 
 type InvoiceStatus = "draft" | "sent" | "paid";
 
+function bumpInvoiceRevision(invoiceNo: string) {
+  const base = String(invoiceNo || "").trim();
+  if (!base) return "INV-MANUAL-R01";
+  const m = base.match(/^(.*)-R(\d{2})$/);
+  if (!m) return `${base}-R01`;
+  const n = Number(m[2]);
+  const next = Number.isFinite(n) ? Math.min(n + 1, 99) : 1;
+  return `${m[1]}-R${String(next).padStart(2, "0")}`;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -80,6 +90,21 @@ export async function PATCH(
   }
   if (body.payload && typeof body.payload === "object") {
     updates.payload = body.payload;
+  }
+  if (body.markEdited === true) {
+    const { data: current } = await supabase
+      .from("invoice_documents")
+      .select("invoice_no")
+      .eq("id", id)
+      .eq("company_code", user.companyCode)
+      .maybeSingle();
+    const baseInvoiceNo =
+      typeof current?.invoice_no === "string" && current.invoice_no.trim()
+        ? current.invoice_no
+        : typeof body.invoiceNo === "string"
+          ? body.invoiceNo
+          : "";
+    updates.invoice_no = bumpInvoiceRevision(baseInvoiceNo);
   }
 
   const { data, error } = await supabase

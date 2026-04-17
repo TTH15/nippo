@@ -7,6 +7,36 @@ export const dynamic = "force-dynamic";
 
 type Section = "Amazon" | "ヤマト運輸" | "郵便局";
 
+function sectionCode(section: Section) {
+  if (section === "Amazon") return "AMZ";
+  if (section === "ヤマト運輸") return "YMT";
+  return "PST";
+}
+
+function normalizeCounterpartyToken(name: string | null | undefined) {
+  const token = String(name ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 6);
+  return token || null;
+}
+
+function buildInvoiceNo(params: {
+  month: string;
+  section: Section;
+  counterpartyId?: string | null;
+  counterpartyName?: string | null;
+}) {
+  const ym = params.month.replace("-", "");
+  const sec = sectionCode(params.section);
+  const byName = normalizeCounterpartyToken(params.counterpartyName);
+  const byId = params.counterpartyId
+    ? params.counterpartyId.replace(/-/g, "").slice(0, 4).toUpperCase()
+    : null;
+  const cp = byName || byId || "GEN";
+  return `INV-${ym}-${sec}-${cp}-R00`;
+}
+
 function getMonthRange(monthParam: string | null): { month: string; startDate: string; endDate: string } {
   const now = new Date();
   let year = now.getFullYear();
@@ -234,7 +264,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const shortId = counterpartyParam.replace(/-/g, "").slice(0, 8).toUpperCase();
     const tableData = {
       main,
       deduct,
@@ -244,7 +273,12 @@ export async function GET(req: NextRequest) {
       month: range.month,
       section,
       issueDate: range.endDate,
-      invoiceNo: `INV-${range.month.replace("-", "")}-CP-${shortId}`,
+      invoiceNo: buildInvoiceNo({
+        month: range.month,
+        section,
+        counterpartyId: counterpartyParam,
+        counterpartyName: addr.name,
+      }),
       counterparty_invoice_address_id: counterpartyParam,
       tableData,
     });
@@ -295,7 +329,11 @@ export async function GET(req: NextRequest) {
     month: range.month,
     section,
     issueDate: range.endDate,
-    invoiceNo: `INV-${range.month.replace("-", "")}-${section === "Amazon" ? "AMZ" : section === "ヤマト運輸" ? "YAMATO" : "OTHER"}`,
+    invoiceNo: buildInvoiceNo({
+      month: range.month,
+      section,
+      counterpartyId: counterpartyInvoiceAddressId,
+    }),
     counterparty_invoice_address_id: counterpartyInvoiceAddressId,
     tableData,
   });
