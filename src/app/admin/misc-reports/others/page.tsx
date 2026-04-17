@@ -84,7 +84,8 @@ export default function AdminOtherReportsPage() {
         method: "POST",
         body: JSON.stringify({ id }),
       });
-      await load();
+      // 現在タブの対象外になるため、全件再取得せずローカルから除外する
+      setEntries((prev) => prev.filter((e) => e.report.id !== id));
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : "操作に失敗しました");
     }

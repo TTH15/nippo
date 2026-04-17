@@ -130,6 +130,39 @@ export default function ShiftsPage() {
   const [exportFormat, setExportFormat] = useState<"png" | "pdf">("png");
   const exportRef = useRef<HTMLDivElement | null>(null);
 
+  const applyLocalChangesToShifts = useCallback(
+    (base: Shift[], changes: Map<string, string | null>) => {
+      const next = [...base];
+      changes.forEach((driverId, key) => {
+        const [shiftDate, courseId, slotStr] = key.split(":");
+        const slot = Number(slotStr) || 1;
+        const idx = next.findIndex(
+          (s) => s.shift_date === shiftDate && s.course_id === courseId && s.slot === slot,
+        );
+        const assignedDriver = driverId
+          ? (() => {
+              const d = drivers.find((x) => x.id === driverId);
+              return d ? { id: d.id, name: d.name, display_name: d.display_name } : null;
+            })()
+          : null;
+        if (idx >= 0) {
+          next[idx] = { ...next[idx], driver_id: driverId ?? null, drivers: assignedDriver };
+        } else {
+          next.push({
+            id: `local:${shiftDate}:${courseId}:${slot}`,
+            shift_date: shiftDate,
+            course_id: courseId,
+            slot,
+            driver_id: driverId ?? null,
+            drivers: assignedDriver,
+          });
+        }
+      });
+      return next;
+    },
+    [drivers],
+  );
+
   const displayDates = useMemo(
     () =>
       period === "first"
@@ -173,7 +206,6 @@ export default function ShiftsPage() {
           body: JSON.stringify({ order: newOrder.map((c) => c.id) }),
         });
         setCourses(newOrder);
-        await load();
       } catch (e) {
         console.error(e);
         const reason = e instanceof Error ? e.message : "";
@@ -398,7 +430,9 @@ export default function ShiftsPage() {
         );
       });
       await Promise.all(promises);
-      await load();
+      setShifts((prev) => applyLocalChangesToShifts(prev, localShifts));
+      setLocalShifts(new Map());
+      setHasChanges(false);
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";

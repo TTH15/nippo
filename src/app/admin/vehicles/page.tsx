@@ -133,6 +133,24 @@ export default function VehiclesPage() {
   } | null>(null);
   const [numberFocused, setNumberFocused] = useState(false);
 
+  const sortVehicles = (list: Vehicle[]) =>
+    [...list].sort((a, b) => {
+      const ma = (a.manufacturer ?? "").localeCompare(b.manufacturer ?? "", "ja");
+      if (ma !== 0) return ma;
+      const ba = (a.brand ?? "").localeCompare(b.brand ?? "", "ja");
+      if (ba !== 0) return ba;
+      return (a.id ?? "").localeCompare(b.id ?? "");
+    });
+
+  const toVehicleDrivers = (ids: string[]): VehicleDriver[] =>
+    ids
+      .map((id) => {
+        const d = drivers.find((x) => x.id === id);
+        if (!d) return null;
+        return { driver_id: id, drivers: d };
+      })
+      .filter((x): x is VehicleDriver => x !== null);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -140,7 +158,7 @@ export default function VehiclesPage() {
         apiFetch<{ vehicles: Vehicle[] }>("/api/admin/vehicles"),
         apiFetch<{ drivers: Array<Driver & { role?: string }> }>("/api/admin/users"),
       ]);
-      setVehicles(vehiclesRes.vehicles);
+      setVehicles(sortVehicles(vehiclesRes.vehicles));
       setDrivers(driversRes.drivers.filter((d) => !d.role || d.role === "DRIVER"));
     } catch (e) {
       console.error(e);
@@ -276,9 +294,9 @@ export default function VehiclesPage() {
     setSaving(true);
     try {
       const toIntOrNull = (v: string) => (v !== "" ? Number(v) : null);
-      const normalizedItems = form.purchaseCostItems
+      const normalizedItems: Array<{ sign: "+" | "-"; label: string; amount: number }> = form.purchaseCostItems
         .map((it) => ({
-          sign: it.sign === "-" ? "-" : "+",
+          sign: (it.sign === "-" ? "-" : "+") as "+" | "-",
           label: String(it.label ?? "").trim(),
           amount: Number(String(it.amount ?? "").replace(/[^\d]/g, "")) || 0,
         }))
@@ -318,14 +336,36 @@ export default function VehiclesPage() {
           method: "PUT",
           body: JSON.stringify(payload),
         });
+        const updatedVehicle: Vehicle = {
+          ...editingVehicle,
+          is_disposed: form.isDisposed,
+          manufacturer: payload.manufacturer,
+          brand: payload.brand,
+          number_prefix: payload.numberPrefix,
+          number_class: payload.numberClass,
+          number_hiragana: payload.numberHiragana,
+          number_numeric: payload.numberNumeric,
+          current_mileage: payload.currentMileage ?? 0,
+          last_oil_change_mileage: payload.lastOilChangeMileage ?? 0,
+          oil_change_interval: payload.oilChangeInterval ?? 3000,
+          purchase_cost: computedPurchaseCost,
+          purchase_cost_items: normalizedItems,
+          lease_cost: payload.leaseCost ?? DEFAULT_LEASE_COST,
+          monthly_insurance: payload.monthlyInsurance ?? 0,
+          image_url: payload.imageUrl,
+          next_shaken_date: payload.nextShakenDate,
+          jibaiseki_renewal_month: payload.jibaisekiRenewalMonth,
+          vehicle_drivers: toVehicleDrivers(payload.driverIds ?? []),
+        };
+        setVehicles((prev) => sortVehicles(prev.map((v) => (v.id === editingVehicle.id ? updatedVehicle : v))));
       } else {
-        await apiFetch("/api/admin/vehicles", {
+        const res = await apiFetch<{ vehicle: Vehicle }>("/api/admin/vehicles", {
           method: "POST",
           body: JSON.stringify(payload),
         });
+        setVehicles((prev) => sortVehicles([...prev, res.vehicle]));
       }
       setShowModal(false);
-      load();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -359,7 +399,7 @@ export default function VehiclesPage() {
       onConfirm: async () => {
         try {
           await apiFetch(`/api/admin/vehicles/${id}`, { method: "DELETE" });
-          load();
+          setVehicles((prev) => prev.filter((v) => v.id !== id));
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";
@@ -1408,7 +1448,7 @@ export default function VehiclesPage() {
                               await apiFetch(`/api/admin/vehicles/${vehicleId}`, { method: "DELETE" });
                               setShowModal(false);
                               setEditingVehicle(null);
-                              load();
+                              setVehicles((prev) => prev.filter((v) => v.id !== vehicleId));
                             } catch (e) {
                               console.error(e);
                               const reason = e instanceof Error ? e.message : "";

@@ -81,6 +81,17 @@ export function CounterpartyBillingExpand({
   const [mergeOpen, setMergeOpen] = useState<{ keys: string[]; description: string } | null>(null);
   const [mergeBusy, setMergeBusy] = useState(false);
 
+  const recomputeTotals = useCallback((base: BillingDetail): BillingDetail => {
+    const mainSubtotal = base.mainLines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+    const deductSubtotal = base.deductLines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+    return {
+      ...base,
+      mainSubtotal,
+      deductSubtotal,
+      grandTotal: mainSubtotal - deductSubtotal,
+    };
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -148,8 +159,19 @@ export function CounterpartyBillingExpand({
           body: JSON.stringify({ month, lineKey, displayLabel: trimmed }),
         });
       }
-      await load();
-      onRefreshSummary();
+      setDetail((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          mainLines: prev.mainLines.map((l) => (l.lineKey === lineKey ? { ...l, label: trimmed } : l)),
+          deductLines: prev.deductLines.map((l) => (l.lineKey === lineKey ? { ...l, label: trimmed } : l)),
+        };
+      });
+      if (rowType === "custom_main" && refId) {
+        setDraftMain((prev) => prev.map((r) => (r.key === refId ? { ...r, description: trimmed } : r)));
+      } else if (rowType === "custom_deduction" && refId) {
+        setDraftDed((prev) => prev.map((r) => (r.key === refId ? { ...r, description: trimmed } : r)));
+      }
     } catch (e) {
       console.error(e);
     }
@@ -170,7 +192,43 @@ export function CounterpartyBillingExpand({
           body: JSON.stringify({ quantity, unit_price: unitPrice }),
         }
       );
-      await load();
+      setDetail((prev) => {
+        if (!prev) return prev;
+        const applyMain = prev.mainLines.map((l) =>
+          l.refId === refId
+            ? {
+                ...l,
+                quantity,
+                unitPrice,
+                amount: Math.round(quantity * unitPrice),
+              }
+            : l,
+        );
+        const applyDeduct = prev.deductLines.map((l) =>
+          l.refId === refId
+            ? {
+                ...l,
+                quantity,
+                unitPrice,
+                amount: Math.round(quantity * unitPrice),
+              }
+            : l,
+        );
+        return recomputeTotals({
+          ...prev,
+          mainLines: applyMain,
+          deductLines: applyDeduct,
+        });
+      });
+      if (kind === "main") {
+        setDraftMain((prev) =>
+          prev.map((r) => (r.key === refId ? { ...r, quantity, unitPrice } : r)),
+        );
+      } else {
+        setDraftDed((prev) =>
+          prev.map((r) => (r.key === refId ? { ...r, quantity, unitPrice } : r)),
+        );
+      }
       onRefreshSummary();
     } catch (e) {
       console.error(e);
@@ -199,8 +257,9 @@ export function CounterpartyBillingExpand({
           }),
         }
       );
-      await load();
       onRefreshSummary();
+      // 体感速度優先: 画面操作を先に返し、整合はバックグラウンドで再取得
+      void load();
     } catch (e) {
       console.error(e);
     } finally {
@@ -214,8 +273,8 @@ export function CounterpartyBillingExpand({
       await apiFetch(`/api/admin/counterparties/${counterpartyId}/merged-lines/${mergeId}`, {
         method: "DELETE",
       });
-      await load();
       onRefreshSummary();
+      void load();
     } catch (e) {
       console.error(e);
     }
@@ -236,8 +295,8 @@ export function CounterpartyBillingExpand({
         }),
       });
       setMergeOpen(null);
-      await load();
       onRefreshSummary();
+      void load();
     } catch (e) {
       console.error(e);
     } finally {
