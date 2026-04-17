@@ -39,9 +39,9 @@ export function DatePicker({
 
   useEffect(() => {
     if (!open) return;
-    const next = value ?? baseDate;
+    const next = value ?? toDate ?? fromDate ?? new Date();
     setViewMonth(new Date(next.getFullYear(), next.getMonth(), 1));
-  }, [open, value, baseDate]);
+  }, [open, value, toDate, fromDate]);
 
   const yearOptions = useMemo(() => {
     const from = Math.min(minYear, maxYear);
