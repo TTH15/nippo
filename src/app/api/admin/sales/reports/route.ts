@@ -23,13 +23,11 @@ export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
-  // DB から取得する生データの範囲（シード期間に合わせて十分広く取る）
-  const RAW_START = "2025-01-01";
-  const RAW_END = "2026-12-31";
-
   const url = req.nextUrl;
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
+  const driverIdParam = url.searchParams.get("driver_id");
+  const driverId = driverIdParam?.trim() || "";
 
   let startDate: string;
   let endDate: string;
@@ -48,11 +46,13 @@ export async function GET(req: NextRequest) {
     endDate = `${year}-${String(mon).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
   }
 
-  const { data: drivers, error: dErr } = await supabase
+  let driversQuery = supabase
     .from("drivers")
     .select("id, name, display_name, role")
     .eq("role", "DRIVER")
     .order("name");
+  if (driverId) driversQuery = driversQuery.eq("id", driverId);
+  const { data: drivers, error: dErr } = await driversQuery;
 
   if (dErr) {
     console.error(dErr);
@@ -60,14 +60,16 @@ export async function GET(req: NextRequest) {
   }
 
   // 集計表には承認済みの日報のみを含める
-  const { data: reports, error: rErr } = await supabase
+  let reportsQuery = supabase
     .from("daily_reports")
     .select(
       "driver_id, report_date, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned",
     )
-    .gte("report_date", RAW_START)
-    .lte("report_date", RAW_END)
+    .gte("report_date", startDate)
+    .lte("report_date", endDate)
     .not("approved_at", "is", null);
+  if (driverId) reportsQuery = reportsQuery.eq("driver_id", driverId);
+  const { data: reports, error: rErr } = await reportsQuery;
 
   if (rErr) {
     console.error(rErr);
@@ -77,40 +79,38 @@ export async function GET(req: NextRequest) {
   // Amazonミッドナイト判定用にコースとシフトを取得
   const { data: courses } = await supabase.from("courses").select("id, name, carrier, summary_title");
   const courseNameMap = new Map<string, string>();
+  const courseSummaryMap = new Map<string, string>();
   (courses ?? []).forEach((c: any) => {
     if (c.id && c.name) courseNameMap.set(c.id, c.name);
+    if (c.id && c.summary_title) courseSummaryMap.set(c.id, c.summary_title);
   });
 
-  const { data: shifts, error: sErr } = await supabase
+  let shiftsQuery = supabase
     .from("shifts")
     .select("shift_date, driver_id, course_id")
-    .gte("shift_date", RAW_START)
-    .lte("shift_date", RAW_END);
+    .gte("shift_date", startDate)
+    .lte("shift_date", endDate);
+  if (driverId) shiftsQuery = shiftsQuery.eq("driver_id", driverId);
+  const { data: shifts, error: sErr } = await shiftsQuery;
 
   if (sErr) {
     console.error(sErr);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  // 指定範囲内のレコードだけに絞り込む
-  const filteredReports: ReportRow[] =
-    (reports ?? []).filter(
-      (r: any) => r.report_date >= startDate && r.report_date <= endDate,
-    ) as ReportRow[];
+  const filteredReports: ReportRow[] = (reports ?? []) as ReportRow[];
 
   const midnights: MidnightRow[] = [];
   const courseShifts: Record<string, { driver_id: string; date: string }[]> = {};
 
   (shifts ?? []).forEach((s: any) => {
     if (!s.driver_id || !s.course_id) return;
-    if (s.shift_date < startDate || s.shift_date > endDate) return;
     const name = courseNameMap.get(s.course_id);
     if (name === "Amazonミッドナイト") {
       midnights.push({ driver_id: s.driver_id, date: s.shift_date });
     }
     // 略記（summary_title）が設定されているコースのシフトを按コースで集約
-    const course = (courses ?? []).find((c: any) => c.id === s.course_id);
-    if (course?.summary_title) {
+    if (courseSummaryMap.has(s.course_id)) {
       const list = courseShifts[s.course_id] ?? [];
       list.push({ driver_id: s.driver_id, date: s.shift_date });
       courseShifts[s.course_id] = list;

@@ -84,6 +84,15 @@ function toLocalYmd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 /** コースをキャリア別にグループ化: ヤマト / Amazon / その他（DBの carrier を優先、未設定時は名前で判定） */
 function groupCoursesByCarrier(courses: CourseRow[]): { label: string; courses: CourseRow[] }[] {
   const byCarrier = (carrier: "YAMATO" | "AMAZON" | "OTHER") =>
@@ -827,11 +836,17 @@ export default function SalesPage() {
     if (coursesData) setCourses(coursesData.courses ?? []);
   }, [coursesData]);
 
+  const debouncedSelectedDriverId = useDebouncedValue(selectedDriverId, 400);
+  const debouncedCourseIds = useDebouncedValue(
+    Array.from(selectedCourseIds).sort().join(","),
+    400,
+  );
+
   const courseIdsQuery =
-    selectedCourseIds.size > 0
-      ? `&course_ids=${Array.from(selectedCourseIds).join(",")}`
+    debouncedCourseIds.length > 0
+      ? `&course_ids=${debouncedCourseIds}`
       : "";
-  const driverIdQuery = selectedDriverId ? `&driver_id=${selectedDriverId}` : "";
+  const driverIdQuery = debouncedSelectedDriverId ? `&driver_id=${debouncedSelectedDriverId}` : "";
   const salesFilterQuery = `${courseIdsQuery}${driverIdQuery}`;
 
   // URL のクエリ (?tab=summary など) から初期タブを決定（クライアント側でのみ実行）
@@ -957,7 +972,7 @@ export default function SalesPage() {
       midnights: MidnightRow[];
       summaryCourses?: SummaryCourseRow[];
       courseShifts?: Record<string, { driver_id: string; date: string }[]>;
-    }>(`/api/admin/sales/reports?start=${startIso}&end=${endIso}`)
+    }>(`/api/admin/sales/reports?start=${startIso}&end=${endIso}${driverIdQuery}`)
       .then((res) => {
         setDrivers(res.drivers ?? []);
         setReports(res.reports ?? []);
@@ -975,7 +990,7 @@ export default function SalesPage() {
       .finally(() => {
         if (tab === "summary") setLoadingSummary(false);
       });
-  }, [startIso, endIso, tab]);
+  }, [startIso, endIso, tab, driverIdQuery]);
 
   useEffect(() => {
     if (!startIso || !endIso) return;
@@ -1101,29 +1116,10 @@ export default function SalesPage() {
     return list;
   }, [startIso, endIso]);
 
-  const filteredDrivers = useMemo(
-    () => (selectedDriverId ? (drivers ?? []).filter((d) => d.id === selectedDriverId) : drivers ?? []),
-    [drivers, selectedDriverId],
-  );
-
-  const filteredReports = useMemo(
-    () => (selectedDriverId ? (reports ?? []).filter((r) => r.driver_id === selectedDriverId) : reports ?? []),
-    [reports, selectedDriverId],
-  );
-
-  const filteredMidnights = useMemo(
-    () => (selectedDriverId ? (midnights ?? []).filter((m) => m.driver_id === selectedDriverId) : midnights ?? []),
-    [midnights, selectedDriverId],
-  );
-
-  const filteredCourseShifts = useMemo(() => {
-    if (!selectedDriverId) return courseShifts;
-    const out: Record<string, { driver_id: string; date: string }[]> = {};
-    Object.entries(courseShifts).forEach(([courseId, list]) => {
-      out[courseId] = list.filter((s) => s.driver_id === selectedDriverId);
-    });
-    return out;
-  }, [courseShifts, selectedDriverId]);
+  const filteredDrivers = drivers ?? [];
+  const filteredReports = reports ?? [];
+  const filteredMidnights = midnights ?? [];
+  const filteredCourseShifts = courseShifts;
 
   const reportMap = useMemo(() => {
     const map = new Map<string, ReportRow>();
@@ -1196,13 +1192,13 @@ export default function SalesPage() {
 
   // 会社帰属ログ（手動追加）の合計
   const logCompanyTotals = useMemo(() => {
-    if (selectedDriverId) return { revenue: 0, profit: 0 };
+    if (debouncedSelectedDriverId) return { revenue: 0, profit: 0 };
     let revenue = 0;
     let profit = 0;
     logCompanyByDate.rev.forEach((v) => { revenue += v; });
     logCompanyByDate.prof.forEach((v) => { profit += v; });
     return { revenue, profit };
-  }, [logCompanyByDate, selectedDriverId]);
+  }, [logCompanyByDate, debouncedSelectedDriverId]);
 
   const displayTotals = useMemo(() => {
     // 全タブで「日報集計 + 会社帰属ログ」を同じ合計として扱う
