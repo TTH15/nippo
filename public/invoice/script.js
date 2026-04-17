@@ -2,6 +2,7 @@ const q = sel => document.querySelector(sel);
 const fmt = (n, cur) => (cur || "¥") + Number(n || 0).toLocaleString();
 let currentInvoiceId = null;
 let saveTimer = null;
+let isManualSaving = false;
 
 // ACE CREATIONの固定情報
 const ACE_CREATION = {
@@ -544,11 +545,15 @@ function saveData() {
         sectionSelections: {
             main: document.querySelector('.section-select[data-section="main"]')?.value || 'Amazon'
         },
+        taxSettings: {
+            enabled: q('#taxEnabled')?.checked ?? true,
+            rate: Number(q('#taxRate')?.value || 10),
+        },
 
         // 請求先・請求元データ
         parties: {
-            fromParty: q('#fromParty')?.value || ACE_CREATION.name,
-            toParty: q('#toParty')?.value || ''
+            fromParty: q('#fromPartySelect')?.value || 'ace_creation',
+            toParty: q('#toPartySelect')?.value || 'new'
         }
     };
     localStorage.setItem('invoice_direct_edit_v1', JSON.stringify(data));
@@ -556,6 +561,7 @@ function saveData() {
 }
 
 function queuePersistInvoice(data) {
+    if (isManualSaving) return;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         void persistInvoiceDocument(data);
@@ -1354,6 +1360,20 @@ function applySavedInvoicePayload(payload) {
     if (payload.bankHolder && q('#p_bankHolder')) q('#p_bankHolder').textContent = payload.bankHolder;
     if (payload.notes && q('#p_notes')) q('#p_notes').innerHTML = payload.notes;
     if (payload.tableData) setDataToTables(payload.tableData);
+    if (payload.taxSettings && typeof payload.taxSettings === 'object') {
+        const taxEnabled = q('#taxEnabled');
+        const taxRate = q('#taxRate');
+        if (taxEnabled && typeof payload.taxSettings.enabled === 'boolean') {
+            taxEnabled.checked = payload.taxSettings.enabled;
+        }
+        if (taxRate && Number.isFinite(Number(payload.taxSettings.rate))) {
+            taxRate.value = String(Number(payload.taxSettings.rate));
+        }
+        if (taxRate && taxEnabled) {
+            taxRate.disabled = !taxEnabled.checked;
+        }
+        calculateTotals();
+    }
 }
 
 async function loadSavedInvoiceFromApi() {
@@ -1421,6 +1441,70 @@ q('#pdfBtn').onclick = downloadPDF;
 q('#printBtn').onclick = () => window.print();
 q('#addressBookBtn').onclick = openAddressBookModal;
 q('#addressBookClose').onclick = closeAddressBookModal;
+q('#saveBtn').onclick = async () => {
+    const btn = q('#saveBtn');
+    if (!btn) return;
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+    }
+    const prevText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+    isManualSaving = true;
+    try {
+        const data = {
+            // ヘッダー情報
+            toName: q('#p_toCompany')?.textContent || '',
+            toAddr: q('#p_toAddr').innerHTML,
+            subject: q('#p_subject').textContent,
+            issueDate: q('#p_issueDate').textContent,
+            invoiceNo: q('#p_invoiceNo').textContent,
+            billAmountDisplay: q('#p_billAmountDisplay').textContent,
+            // 差出人情報
+            fromName: q('#p_fromName').textContent,
+            fromAddr: q('#p_fromAddr').innerHTML,
+            fromTel: q('#p_fromTel').textContent,
+            fromReg: q('#p_fromReg').textContent,
+            // 銀行情報
+            dueDate: q('#p_dueDate').textContent,
+            bankName: q('#p_bankName').textContent,
+            bankNo: q('#p_bankNo').textContent,
+            bankHolder: q('#p_bankHolder').textContent,
+            notes: q('#p_notes').innerHTML,
+            // テーブルデータ
+            tableData: getDataFromTables(),
+            // セクション選択データ
+            sectionSelections: {
+                main: document.querySelector('.section-select[data-section="main"]')?.value || 'Amazon'
+            },
+            taxSettings: {
+                enabled: q('#taxEnabled')?.checked ?? true,
+                rate: Number(q('#taxRate')?.value || 10),
+            },
+            // 請求先・請求元データ
+            parties: {
+                fromParty: q('#fromPartySelect')?.value || 'ace_creation',
+                toParty: q('#toPartySelect')?.value || 'new'
+            }
+        };
+        localStorage.setItem('invoice_direct_edit_v1', JSON.stringify(data));
+        await persistInvoiceDocument(data);
+        btn.textContent = '保存済み';
+        setTimeout(() => {
+            btn.textContent = prevText;
+        }, 1000);
+    } catch (e) {
+        console.warn('手動保存に失敗しました:', e);
+        btn.textContent = '保存失敗';
+        setTimeout(() => {
+            btn.textContent = prevText;
+        }, 1200);
+    } finally {
+        isManualSaving = false;
+        btn.disabled = false;
+    }
+};
 
 // モーダル外クリックで閉じる
 document.addEventListener('click', (e) => {
