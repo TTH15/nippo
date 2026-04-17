@@ -1116,7 +1116,10 @@ export default function SalesPage() {
     return list;
   }, [startIso, endIso]);
 
-  const filteredDrivers = drivers ?? [];
+  const filteredDrivers = useMemo(
+    () => (selectedDriverId ? (drivers ?? []).filter((d) => d.id === selectedDriverId) : drivers ?? []),
+    [drivers, selectedDriverId],
+  );
   const filteredReports = reports ?? [];
   const filteredMidnights = midnights ?? [];
   const filteredCourseShifts = courseShifts;

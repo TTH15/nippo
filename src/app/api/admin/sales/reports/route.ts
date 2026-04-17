@@ -46,12 +46,11 @@ export async function GET(req: NextRequest) {
     endDate = `${year}-${String(mon).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
   }
 
-  let driversQuery = supabase
+  const driversQuery = supabase
     .from("drivers")
     .select("id, name, display_name, role")
     .eq("role", "DRIVER")
     .order("name");
-  if (driverId) driversQuery = driversQuery.eq("id", driverId);
   const { data: drivers, error: dErr } = await driversQuery;
 
   if (dErr) {
