@@ -793,6 +793,7 @@ export default function SalesPage() {
   const [loadingPrev, setLoadingPrev] = useState(false);
   const [courses, setCourses] = useState<CourseRow[]>([]);
   const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(new Set());
+  const [selectedDriverId, setSelectedDriverId] = useState("");
   const [logEntries, setLogEntries] = useState<SalesLogEntryRow[]>([]);
   const [logTypes, setLogTypes] = useState<SalesLogTypeRow[]>([]);
   const [logDrivers, setLogDrivers] = useState<DriverRow[]>([]);
@@ -821,6 +822,8 @@ export default function SalesPage() {
     selectedCourseIds.size > 0
       ? `&course_ids=${Array.from(selectedCourseIds).join(",")}`
       : "";
+  const driverIdQuery = selectedDriverId ? `&driver_id=${selectedDriverId}` : "";
+  const salesFilterQuery = `${courseIdsQuery}${driverIdQuery}`;
 
   // URL のクエリ (?tab=summary など) から初期タブを決定（クライアント側でのみ実行）
   useEffect(() => {
@@ -875,7 +878,7 @@ export default function SalesPage() {
 
     setLoadingPrev(true);
     apiFetch<{ data: DataPoint[] }>(
-      `/api/admin/sales?start=${prevStartIso}&end=${prevEndIso}${courseIdsQuery}`,
+      `/api/admin/sales?start=${prevStartIso}&end=${prevEndIso}${salesFilterQuery}`,
     )
       .then((res) => {
         const data = res.data ?? [];
@@ -886,18 +889,18 @@ export default function SalesPage() {
       })
       .catch(() => setPrevTotals(null))
       .finally(() => setLoadingPrev(false));
-  }, [startIso, endIso, courseIdsQuery]);
+  }, [startIso, endIso, salesFilterQuery]);
 
   useEffect(() => {
     if (!startIso || !endIso) return;
     setLoadingAnalytics(true);
     apiFetch<{ data: DataPoint[] }>(
-      `/api/admin/sales?start=${startIso}&end=${endIso}${courseIdsQuery}`,
+      `/api/admin/sales?start=${startIso}&end=${endIso}${salesFilterQuery}`,
     )
       .then((res) => setDeliveryData(res.data ?? []))
       .catch(() => setDeliveryData([]))
       .finally(() => setLoadingAnalytics(false));
-  }, [startIso, endIso, courseIdsQuery]);
+  }, [startIso, endIso, salesFilterQuery]);
 
   // 右パネルの「1人あたり売上」用に、日付範囲が決まっているときはドライバー・日報・ミッドナイトを取得（集計タブでなくても取得）
   useEffect(() => {
@@ -947,6 +950,13 @@ export default function SalesPage() {
       .then((res) => setLogTypes(res.types ?? []))
       .catch(() => setLogTypes([]));
   }, [tab]);
+
+  useEffect(() => {
+    if (!selectedDriverId) return;
+    if (!(drivers ?? []).some((d) => d.id === selectedDriverId)) {
+      setSelectedDriverId("");
+    }
+  }, [drivers, selectedDriverId]);
   useEffect(() => {
     if (tab !== "log") return;
     apiFetch<{ drivers: DriverRow[] }>("/api/admin/users")
@@ -994,13 +1004,14 @@ export default function SalesPage() {
   // 日報集計データ + 会社帰属ログ（手動追加）を日付ごとに合算して表示
   const displayData = useMemo(() => {
     if (!deliveryData.length) return deliveryData;
+    if (selectedDriverId) return deliveryData;
     const { rev, prof } = logCompanyByDate;
     return deliveryData.map((d) => ({
       ...d,
       other: (d.other ?? 0) + (rev.get(d.date) ?? 0),
       profit: (d.profit ?? 0) + (prof.get(d.date) ?? 0),
     }));
-  }, [deliveryData, logCompanyByDate]);
+  }, [deliveryData, logCompanyByDate, selectedDriverId]);
 
   // 数値に応じた「きりの良い」上限（例: 15万→20万、23万→25万、38万→50万）
   const niceCeil = (value: number): number => {
@@ -1052,16 +1063,40 @@ export default function SalesPage() {
     return list;
   }, [startIso, endIso]);
 
+  const filteredDrivers = useMemo(
+    () => (selectedDriverId ? (drivers ?? []).filter((d) => d.id === selectedDriverId) : drivers ?? []),
+    [drivers, selectedDriverId],
+  );
+
+  const filteredReports = useMemo(
+    () => (selectedDriverId ? (reports ?? []).filter((r) => r.driver_id === selectedDriverId) : reports ?? []),
+    [reports, selectedDriverId],
+  );
+
+  const filteredMidnights = useMemo(
+    () => (selectedDriverId ? (midnights ?? []).filter((m) => m.driver_id === selectedDriverId) : midnights ?? []),
+    [midnights, selectedDriverId],
+  );
+
+  const filteredCourseShifts = useMemo(() => {
+    if (!selectedDriverId) return courseShifts;
+    const out: Record<string, { driver_id: string; date: string }[]> = {};
+    Object.entries(courseShifts).forEach(([courseId, list]) => {
+      out[courseId] = list.filter((s) => s.driver_id === selectedDriverId);
+    });
+    return out;
+  }, [courseShifts, selectedDriverId]);
+
   const reportMap = useMemo(() => {
     const map = new Map<string, ReportRow>();
-    (reports ?? []).forEach((r) => map.set(`${r.driver_id}:${r.report_date}`, r));
+    (filteredReports ?? []).forEach((r) => map.set(`${r.driver_id}:${r.report_date}`, r));
     return map;
-  }, [reports]);
+  }, [filteredReports]);
 
   const driverTotals = useMemo(() => {
     const totalsByDriver = new Map<string, { tk: number; nk: number; total: number }>();
-    (drivers ?? []).forEach((d) => totalsByDriver.set(d.id, { tk: 0, nk: 0, total: 0 }));
-    (reports ?? []).forEach((r) => {
+    (filteredDrivers ?? []).forEach((d) => totalsByDriver.set(d.id, { tk: 0, nk: 0, total: 0 }));
+    (filteredReports ?? []).forEach((r) => {
       const t = totalsByDriver.get(r.driver_id) ?? { tk: 0, nk: 0, total: 0 };
       const tk = r.takuhaibin_completed ?? 0;
       const nk = r.nekopos_completed ?? 0;
@@ -1071,39 +1106,39 @@ export default function SalesPage() {
       totalsByDriver.set(r.driver_id, t);
     });
     return totalsByDriver;
-  }, [drivers, reports]);
+  }, [filteredDrivers, filteredReports]);
 
   const midnightSet = useMemo(() => {
     const s = new Set<string>();
-    (midnights ?? []).forEach((m) => {
+    (filteredMidnights ?? []).forEach((m) => {
       s.add(`${m.driver_id}:${m.date}`);
     });
     return s;
-  }, [midnights]);
+  }, [filteredMidnights]);
 
   const midnightCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    (midnights ?? []).forEach((m) => {
+    (filteredMidnights ?? []).forEach((m) => {
       counts.set(m.driver_id, (counts.get(m.driver_id) ?? 0) + 1);
     });
     return counts;
-  }, [midnights]);
+  }, [filteredMidnights]);
 
   // 集計表示タイトル付きコースごとの (driver_id, date) セット
   const courseShiftSets = useMemo(() => {
     const map = new Map<string, Set<string>>();
-    Object.entries(courseShifts).forEach(([courseId, list]) => {
+    Object.entries(filteredCourseShifts).forEach(([courseId, list]) => {
       const s = new Set<string>();
       list.forEach(({ driver_id, date }) => s.add(`${driver_id}:${date}`));
       map.set(courseId, s);
     });
     return map;
-  }, [courseShifts]);
+  }, [filteredCourseShifts]);
 
   // 集計表示タイトル付きコースごとのドライバー別日数
   const courseShiftCounts = useMemo(() => {
     const map = new Map<string, Map<string, number>>();
-    Object.entries(courseShifts).forEach(([courseId, list]) => {
+    Object.entries(filteredCourseShifts).forEach(([courseId, list]) => {
       const byDriver = new Map<string, number>();
       list.forEach(({ driver_id }) => {
         byDriver.set(driver_id, (byDriver.get(driver_id) ?? 0) + 1);
@@ -1111,7 +1146,7 @@ export default function SalesPage() {
       map.set(courseId, byDriver);
     });
     return map;
-  }, [courseShifts]);
+  }, [filteredCourseShifts]);
 
   const totals = useMemo(() => {
     const yamato = displayData.reduce((s, d) => s + d.yamato, 0);
@@ -1123,12 +1158,13 @@ export default function SalesPage() {
 
   // 会社帰属ログ（手動追加）の合計
   const logCompanyTotals = useMemo(() => {
+    if (selectedDriverId) return { revenue: 0, profit: 0 };
     let revenue = 0;
     let profit = 0;
     logCompanyByDate.rev.forEach((v) => { revenue += v; });
     logCompanyByDate.prof.forEach((v) => { profit += v; });
     return { revenue, profit };
-  }, [logCompanyByDate]);
+  }, [logCompanyByDate, selectedDriverId]);
 
   const displayTotals = useMemo(() => {
     // 全タブで「日報集計 + 会社帰属ログ」を同じ合計として扱う
@@ -1150,13 +1186,13 @@ export default function SalesPage() {
   );
   const activeDriverCount = useMemo(() => {
     let count = 0;
-    drivers.forEach((drv) => {
+    filteredDrivers.forEach((drv) => {
       const t = driverTotals.get(drv.id);
       const mid = midnightCounts.get(drv.id) ?? 0;
       if ((t && t.total > 0) || mid > 0) count += 1;
     });
     return count || 1;
-  }, [drivers, driverTotals, midnightCounts]);
+  }, [filteredDrivers, driverTotals, midnightCounts]);
 
   const margin = displayTotals.total ? (displayTotals.profit / displayTotals.total) * 100 : null;
   const prevMargin =
@@ -1207,6 +1243,22 @@ export default function SalesPage() {
               value={selectedCourseIds}
               onChange={setSelectedCourseIds}
             />
+            <span className="text-xs text-slate-500">対象ドライバー</span>
+            <div className="w-56">
+              <CustomSelect
+                size="sm"
+                value={selectedDriverId}
+                onChange={setSelectedDriverId}
+                options={[
+                  { value: "", label: "すべてのドライバー" },
+                  ...(drivers ?? []).map((d) => ({
+                    value: d.id,
+                    label: d.display_name ?? d.name,
+                  })),
+                ]}
+                clearable={false}
+              />
+            </div>
           </div>
         </div>
 
@@ -1279,7 +1331,7 @@ export default function SalesPage() {
                       </table>
                     </div>
                   </div>
-                ) : drivers.length === 0 ? (
+                ) : filteredDrivers.length === 0 ? (
                   <p className="text-sm text-slate-500 py-8">ドライバーがいません</p>
                 ) : (
                   <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -1305,7 +1357,7 @@ export default function SalesPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {drivers.map((drv) => {
+                          {filteredDrivers.map((drv) => {
                             const t = driverTotals.get(drv.id) ?? { tk: 0, nk: 0, total: 0 };
                             const midDays = midnightCounts.get(drv.id) ?? 0;
                             return (

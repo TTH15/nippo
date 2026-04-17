@@ -32,10 +32,12 @@ export async function GET(req: NextRequest) {
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
   const courseIdsParam = url.searchParams.get("course_ids");
+  const driverIdParam = url.searchParams.get("driver_id");
   const courseIds: string[] =
     courseIdsParam && courseIdsParam.trim()
       ? courseIdsParam.split(",").map((id) => id.trim()).filter(Boolean)
       : [];
+  const driverId = driverIdParam?.trim() || "";
 
   let startDate: string;
   let endDate: string;
@@ -100,6 +102,8 @@ export async function GET(req: NextRequest) {
     const date = s.shift_date;
     // コースで絞り込み（指定がある場合のみ）
     if (courseIds.length > 0 && !courseIds.includes(s.course_id)) return;
+    // ドライバーで絞り込み（指定がある場合のみ）
+    if (driverId && s.driver_id !== driverId) return;
     // ユーザーが指定した範囲外の日付は集計対象にしない
     if (date < startDate || date > endDate) return;
     if (!dateMap.has(date))
