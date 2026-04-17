@@ -1001,17 +1001,10 @@ export default function SalesPage() {
     return { rev, prof };
   }, [logEntries]);
 
-  // 日報集計データ + 会社帰属ログ（手動追加）を日付ごとに合算して表示
+  // 表示データは /api/admin/sales 側でドライバー条件込みで集計済み
   const displayData = useMemo(() => {
-    if (!deliveryData.length) return deliveryData;
-    if (selectedDriverId) return deliveryData;
-    const { rev, prof } = logCompanyByDate;
-    return deliveryData.map((d) => ({
-      ...d,
-      other: (d.other ?? 0) + (rev.get(d.date) ?? 0),
-      profit: (d.profit ?? 0) + (prof.get(d.date) ?? 0),
-    }));
-  }, [deliveryData, logCompanyByDate, selectedDriverId]);
+    return deliveryData;
+  }, [deliveryData]);
 
   // 数値に応じた「きりの良い」上限（例: 15万→20万、23万→25万、38万→50万）
   const niceCeil = (value: number): number => {

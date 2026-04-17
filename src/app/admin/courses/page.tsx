@@ -139,6 +139,17 @@ export default function CoursesPage() {
   } | null>(null);
   const [reordering, setReordering] = useState(false);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [initialLoaded, setInitialLoaded] = useState(false);
+
+  const sortRatesByCourses = (nextRates: CourseRate[], courseList: Course[]) => {
+    const indexByCourseId = new Map(courseList.map((c, idx) => [c.id, idx]));
+    return [...nextRates].sort((a, b) => {
+      const ai = indexByCourseId.get(a.course_id) ?? Number.MAX_SAFE_INTEGER;
+      const bi = indexByCourseId.get(b.course_id) ?? Number.MAX_SAFE_INTEGER;
+      if (ai !== bi) return ai - bi;
+      return (a.id || "").localeCompare(b.id || "");
+    });
+  };
 
   const reorderCourses = async (newOrder: Course[]) => {
     if (!canWrite) return;
@@ -149,7 +160,7 @@ export default function CoursesPage() {
         body: JSON.stringify({ order: newOrder.map((c) => c.id) }),
       });
       setCourses(newOrder);
-      load(); // 単価テーブルの順序も同期
+      setRates((prev) => sortRatesByCourses(prev, newOrder));
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -207,8 +218,9 @@ export default function CoursesPage() {
       ]);
       setCourses(coursesRes.courses);
       setDrivers(usersRes.drivers.filter((d) => d.role === "DRIVER"));
-      setRates(ratesRes.rates ?? []);
+      setRates(sortRatesByCourses(ratesRes.rates ?? [], coursesRes.courses));
       setInvoiceAddresses(invoiceAddressesRes.addresses ?? []);
+      setInitialLoaded(true);
     } catch (e) {
       console.error(e);
     } finally {
@@ -226,7 +238,7 @@ export default function CoursesPage() {
     if (!newCourse.name.trim()) return;
     setSaving(true);
     try {
-      await apiFetch("/api/admin/courses", {
+      const res = await apiFetch<{ course: Course }>("/api/admin/courses", {
         method: "POST",
         body: JSON.stringify({
           name: newCourse.name.trim(),
@@ -238,6 +250,31 @@ export default function CoursesPage() {
           counterparty_invoice_address_id: newCourse.counterparty_invoice_address_id || null,
         }),
       });
+      const createdCourse: Course = res.course;
+      const nextCourses = [...courses, createdCourse].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      setCourses(nextCourses);
+      setRates((prev) =>
+        sortRatesByCourses(
+          [
+            ...prev,
+            {
+              id: `local-${createdCourse.id}`,
+              course_id: createdCourse.id,
+              takuhaibin_revenue: INITIAL_RATE_FORM.takuhaibin_revenue,
+              takuhaibin_driver_payout: INITIAL_RATE_FORM.takuhaibin_driver_payout,
+              takuhaibin_profit:
+                INITIAL_RATE_FORM.takuhaibin_revenue - INITIAL_RATE_FORM.takuhaibin_driver_payout,
+              nekopos_revenue: INITIAL_RATE_FORM.nekopos_revenue,
+              nekopos_driver_payout: INITIAL_RATE_FORM.nekopos_driver_payout,
+              nekopos_profit: INITIAL_RATE_FORM.nekopos_revenue - INITIAL_RATE_FORM.nekopos_driver_payout,
+              fixed_revenue: INITIAL_RATE_FORM.fixed_revenue,
+              fixed_profit: INITIAL_RATE_FORM.fixed_profit,
+              courses: { id: createdCourse.id, name: createdCourse.name, color: createdCourse.color },
+            },
+          ],
+          nextCourses,
+        ),
+      );
       setShowModal(false);
       setNewCourse({
         name: "",
@@ -248,7 +285,6 @@ export default function CoursesPage() {
         principal_invoice_address_id: "",
         counterparty_invoice_address_id: "",
       });
-      load();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -297,9 +333,31 @@ export default function CoursesPage() {
           counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
         }),
       });
+      const updatedCourse: Course = {
+        ...editingCourse,
+        name: editForm.name.trim(),
+        color: editForm.color,
+        max_drivers: Math.max(1, parseInt(editForm.max_drivers, 10) || 1),
+        carrier: editForm.carrier,
+        summary_title: editForm.summary_title.trim() ? editForm.summary_title.trim() : null,
+        principal_invoice_address_id: editForm.principal_invoice_address_id || null,
+        counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
+      };
+      setCourses((prev) => prev.map((c) => (c.id === editingCourse.id ? updatedCourse : c)));
+      setRates((prev) =>
+        prev.map((r) =>
+          r.course_id === editingCourse.id
+            ? {
+                ...r,
+                courses: r.courses
+                  ? { ...r.courses, name: updatedCourse.name, color: updatedCourse.color }
+                  : { id: updatedCourse.id, name: updatedCourse.name, color: updatedCourse.color },
+              }
+            : r,
+        ),
+      );
       setShowEditModal(false);
       setEditingCourse(null);
-      load();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -335,13 +393,52 @@ export default function CoursesPage() {
     if (!editingRate) return;
     setSaving(true);
     try {
-      await apiFetch("/api/admin/course-rates", {
+      const res = await apiFetch<{ rate: Partial<CourseRate> }>("/api/admin/course-rates", {
         method: "PATCH",
         body: JSON.stringify({ course_id: editingRate.course_id, ...rateForm }),
       });
+      const nextRate = res.rate;
+      setRates((prev) =>
+        prev.map((r) =>
+          r.course_id === editingRate.course_id
+            ? {
+                ...r,
+                takuhaibin_revenue:
+                  typeof nextRate.takuhaibin_revenue === "number"
+                    ? nextRate.takuhaibin_revenue
+                    : rateForm.takuhaibin_revenue,
+                takuhaibin_driver_payout:
+                  typeof nextRate.takuhaibin_driver_payout === "number"
+                    ? nextRate.takuhaibin_driver_payout
+                    : rateForm.takuhaibin_driver_payout,
+                takuhaibin_profit:
+                  typeof nextRate.takuhaibin_profit === "number"
+                    ? nextRate.takuhaibin_profit
+                    : rateForm.takuhaibin_revenue - rateForm.takuhaibin_driver_payout,
+                nekopos_revenue:
+                  typeof nextRate.nekopos_revenue === "number"
+                    ? nextRate.nekopos_revenue
+                    : rateForm.nekopos_revenue,
+                nekopos_driver_payout:
+                  typeof nextRate.nekopos_driver_payout === "number"
+                    ? nextRate.nekopos_driver_payout
+                    : rateForm.nekopos_driver_payout,
+                nekopos_profit:
+                  typeof nextRate.nekopos_profit === "number"
+                    ? nextRate.nekopos_profit
+                    : rateForm.nekopos_revenue - rateForm.nekopos_driver_payout,
+                fixed_revenue:
+                  typeof nextRate.fixed_revenue === "number"
+                    ? nextRate.fixed_revenue
+                    : rateForm.fixed_revenue,
+                fixed_profit:
+                  typeof nextRate.fixed_profit === "number" ? nextRate.fixed_profit : rateForm.fixed_profit,
+              }
+            : r,
+        ),
+      );
       setShowRateModal(false);
       setEditingRate(null);
-      load();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -372,7 +469,8 @@ export default function CoursesPage() {
           await apiFetch(`/api/admin/courses/${courseId}`, {
             method: "DELETE",
           });
-          load();
+          setCourses((prev) => prev.filter((c) => c.id !== courseId));
+          setRates((prev) => prev.filter((r) => r.course_id !== courseId));
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";
@@ -389,6 +487,11 @@ export default function CoursesPage() {
       },
     });
   };
+
+  useEffect(() => {
+    if (!initialLoaded || courses.length === 0) return;
+    setRates((prev) => sortRatesByCourses(prev, courses));
+  }, [courses, initialLoaded]);
 
   return (
     <AdminLayout>

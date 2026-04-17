@@ -18,6 +18,14 @@ type Address = {
   created_at: string;
 };
 
+function sortAddresses(list: Address[]): Address[] {
+  return [...list].sort((a, b) => {
+    const byName = (a.name || "").localeCompare(b.name || "", "ja");
+    if (byName !== 0) return byName;
+    return (a.id || "").localeCompare(b.id || "");
+  });
+}
+
 const COMPANY_CODE = "AAA";
 
 export default function AddressBookPage() {
@@ -57,7 +65,7 @@ export default function AddressBookPage() {
     setLoading(true);
     try {
       const res = await apiFetch<{ addresses: Address[] }>("/api/admin/invoice-addresses");
-      setAddresses(res.addresses);
+      setAddresses(sortAddresses(res.addresses));
     } catch (e) {
       console.error(e);
     } finally {
@@ -103,7 +111,7 @@ export default function AddressBookPage() {
     setSaving(true);
     try {
       if (editingAddress) {
-        await apiFetch(`/api/admin/invoice-addresses/${editingAddress.id}`, {
+        const res = await apiFetch<{ address: Address }>(`/api/admin/invoice-addresses/${editingAddress.id}`, {
           method: "PUT",
           body: JSON.stringify({
             name: form.name.trim(),
@@ -113,8 +121,12 @@ export default function AddressBookPage() {
             invoiceNo: form.invoiceNo.trim() || null,
           }),
         });
+        const updated = res.address;
+        setAddresses((prev) =>
+          sortAddresses(prev.map((a) => (a.id === editingAddress.id ? updated : a))),
+        );
       } else {
-        await apiFetch("/api/admin/invoice-addresses", {
+        const res = await apiFetch<{ address: Address }>("/api/admin/invoice-addresses", {
           method: "POST",
           body: JSON.stringify({
             name: form.name.trim(),
@@ -124,9 +136,9 @@ export default function AddressBookPage() {
             invoiceNo: form.invoiceNo.trim() || null,
           }),
         });
+        setAddresses((prev) => sortAddresses([...prev, res.address]));
       }
       setShowModal(false);
-      load();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -150,7 +162,7 @@ export default function AddressBookPage() {
       onConfirm: async () => {
         try {
           await apiFetch(`/api/admin/invoice-addresses/${id}`, { method: "DELETE" });
-          load();
+          setAddresses((prev) => prev.filter((a) => a.id !== id));
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";
