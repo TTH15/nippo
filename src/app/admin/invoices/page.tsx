@@ -178,7 +178,7 @@ export default function InvoicesPage() {
         )}
 
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-          <div className="grid grid-cols-1 xl:grid-cols-[240px_240px_320px_1fr]">
+          <div className="grid grid-cols-1 xl:grid-cols-[160px_180px_240px_1fr]">
             <div className="border-r border-slate-200 min-h-[520px]">
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">年月</div>
               <div className="p-2 space-y-1">
@@ -245,7 +245,7 @@ export default function InvoicesPage() {
             </div>
 
             {/* テーブル */}
-            <div className="overflow-hidden">
+            <div className="overflow-x-auto">
             <div className="flex gap-1 p-3 border-b border-slate-100 bg-slate-50/70">
               {([
                 { key: "all", label: "すべて" },
@@ -266,15 +266,15 @@ export default function InvoicesPage() {
                 </button>
               ))}
             </div>
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[760px] text-sm table-fixed">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50">
-                <th className="text-left px-4 py-3 font-medium text-slate-600">請求書番号</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">取引先</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">発行日</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">金額</th>
-                <th className="text-center px-4 py-3 font-medium text-slate-600">ステータス</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600"></th>
+                <th className="w-[190px] text-left px-3 py-3 font-medium text-slate-600">請求書番号</th>
+                <th className="w-[190px] text-left px-3 py-3 font-medium text-slate-600">取引先</th>
+                <th className="w-[110px] text-left px-3 py-3 font-medium text-slate-600">発行日</th>
+                <th className="w-[110px] text-right px-3 py-3 font-medium text-slate-600">金額</th>
+                <th className="w-[120px] text-center px-3 py-3 font-medium text-slate-600">ステータス</th>
+                <th className="w-[90px] text-right px-3 py-3 font-medium text-slate-600"></th>
               </tr>
             </thead>
             <tbody>
@@ -295,16 +295,18 @@ export default function InvoicesPage() {
                   const s = statusLabel[inv.status];
                   return (
                     <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 font-mono text-slate-700">{inv.invoiceNo || inv.id}</td>
-                      <td className="px-4 py-3 text-slate-900 font-medium">
-                        <div className="inline-flex items-center gap-2">
+                      <td className="px-3 py-3 font-mono text-slate-700 break-all">{inv.invoiceNo || inv.id}</td>
+                      <td className="px-3 py-3 text-slate-900 font-medium">
+                        <div className="inline-flex items-center gap-2 max-w-full">
                           <FontAwesomeIcon icon={faFileInvoice} className="text-slate-400" />
-                          {inv.counterpartyName || inv.clientName}
+                          <span className="truncate inline-block max-w-[150px]" title={inv.counterpartyName || inv.clientName}>
+                            {inv.counterpartyName || inv.clientName}
+                          </span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{inv.issueDate}</td>
-                      <td className="px-4 py-3 text-right font-medium text-slate-900">{fmt(inv.amount)}</td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{inv.issueDate}</td>
+                      <td className="px-3 py-3 text-right font-medium text-slate-900 whitespace-nowrap">{fmt(inv.amount)}</td>
+                      <td className="px-3 py-3 text-center">
                         {canWrite ? (
                           <select
                             value={inv.status}
@@ -322,7 +324,7 @@ export default function InvoicesPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-3 py-3 text-right">
                         {canWrite ? (
                           (() => {
                             const href = `/admin/invoices/new?invoiceId=${encodeURIComponent(inv.id)}`;
