@@ -135,3 +135,24 @@ export async function PATCH(
     },
   });
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const user = await requireAuth(req, "ADMIN");
+  if (isAuthError(user)) return user;
+  const { id } = await params;
+
+  const { error } = await supabase
+    .from("invoice_documents")
+    .delete()
+    .eq("id", id)
+    .eq("company_code", user.companyCode);
+
+  if (error) {
+    return NextResponse.json({ error: "請求書の削除に失敗しました" }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

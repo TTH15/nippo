@@ -573,6 +573,20 @@ function parseAmountFromDisplay(text) {
     return Number.isFinite(n) ? n : 0;
 }
 
+function getTodayIsoDate() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function toJpDate(isoDate) {
+    const m = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    return `${m[1]}年${Number(m[2])}月${Number(m[3])}日`;
+}
+
 function bumpInvoiceRevision(invoiceNo) {
     const base = String(invoiceNo || '').trim();
     if (!base) return 'INV-MANUAL-R01';
@@ -611,6 +625,11 @@ async function persistInvoiceDocument(data, options = {}) {
         }
         if (options.createVersion) {
             body.invoiceNo = bumpInvoiceRevision(data.invoiceNo || '');
+            body.issueDate = getTodayIsoDate();
+            data.issueDate = toJpDate(body.issueDate);
+            if (q('#p_issueDate')) {
+                q('#p_issueDate').textContent = data.issueDate;
+            }
         }
         const created = await apiFetchWithBody('/api/admin/invoices', {
             method: 'POST',
@@ -1515,6 +1534,9 @@ q('#saveBtn').onclick = async () => {
     btn.textContent = '保存中...';
     isManualSaving = true;
     try {
+        const todayIso = getTodayIsoDate();
+        const issueDateEl = q('#p_issueDate');
+        if (issueDateEl) issueDateEl.textContent = toJpDate(todayIso);
         const data = {
             // ヘッダー情報
             toName: q('#p_toCompany')?.textContent || '',

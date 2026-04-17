@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFolder, faFileInvoice, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
@@ -45,6 +45,8 @@ export default function InvoicesPage() {
   const [selectedDirection, setSelectedDirection] = useState<"outgoing" | "incoming">("outgoing");
   const [selectedCounterparty, setSelectedCounterparty] = useState<string>("");
   const [filter, setFilter] = useState<"all" | SavedInvoice["status"]>("all");
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const monthFolders = Array.from(new Set((invoices ?? []).map((i) => i.month).filter(Boolean))).sort().reverse();
   const directionFolders = (["outgoing", "incoming"] as const).filter((d) =>
@@ -73,24 +75,59 @@ export default function InvoicesPage() {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
   }, []);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setErrorMessage(null);
-      try {
-        const res = await apiFetch<{ invoices: SavedInvoice[] }>(
-          `/api/admin/invoices`,
-        );
-        setInvoices(res.invoices ?? []);
-      } catch (e) {
-        console.error(e);
-        setErrorMessage("請求書一覧の取得に失敗しました。migration未適用やDBエラーの可能性があります。");
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await apiFetch<{ invoices: SavedInvoice[] }>(
+        `/api/admin/invoices`,
+      );
+      setInvoices(res.invoices ?? []);
+    } catch (e) {
+      console.error(e);
+      setErrorMessage("請求書一覧の取得に失敗しました。migration未適用やDBエラーの可能性があります。");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const updateStatus = async (invoiceId: string, status: SavedInvoice["status"]) => {
+    if (!canWrite) return;
+    setUpdatingStatusId(invoiceId);
+    try {
+      await apiFetch(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      setInvoices((prev) => prev.map((inv) => (inv.id === invoiceId ? { ...inv, status } : inv)));
+    } catch (e) {
+      console.error(e);
+      setErrorMessage("ステータス更新に失敗しました。");
+    } finally {
+      setUpdatingStatusId(null);
+    }
+  };
+
+  const deleteInvoice = async (invoiceId: string) => {
+    if (!canWrite) return;
+    if (!window.confirm("この請求書を削除しますか？")) return;
+    setDeletingId(invoiceId);
+    try {
+      await apiFetch(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`, {
+        method: "DELETE",
+      });
+      setInvoices((prev) => prev.filter((inv) => inv.id !== invoiceId));
+    } catch (e) {
+      console.error(e);
+      setErrorMessage("請求書の削除に失敗しました。");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     if (directionFolders.length > 0 && !directionFolders.includes(selectedDirection)) {
@@ -140,66 +177,75 @@ export default function InvoicesPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
-            <div className="text-xs font-semibold text-slate-500 mb-2">保存先フォルダ</div>
-            <div className="space-y-1 mb-3">
-              {monthFolders.length === 0 ? (
-                <p className="text-xs text-slate-400">月フォルダがありません</p>
-              ) : (
-                monthFolders.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setSelectedMonth(m!)}
-                    className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
-                      selectedMonth === m ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
-                    {m}
-                  </button>
-                ))
-              )}
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <div className="grid grid-cols-1 xl:grid-cols-[240px_240px_320px_1fr]">
+            <div className="border-r border-slate-200 min-h-[520px]">
+              <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">年月</div>
+              <div className="p-2 space-y-1">
+                {monthFolders.length === 0 ? (
+                  <p className="text-xs text-slate-400 px-2 py-1">月フォルダがありません</p>
+                ) : (
+                  monthFolders.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setSelectedMonth(m!)}
+                      className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
+                        selectedMonth === m ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
+                      {m}
+                    </button>
+                  ))
+                )}
+              </div>
             </div>
-            <div className="border-t border-slate-100 pt-3 space-y-1">
-              {(directionFolders.length === 0 ? (["outgoing", "incoming"] as const) : directionFolders).map((dir) => (
-                <button
-                  key={dir}
-                  type="button"
-                  onClick={() => setSelectedDirection(dir)}
-                  className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
-                    selectedDirection === dir ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
-                  {dir === "outgoing" ? "自社が請求" : "自社に請求"}
-                </button>
-              ))}
-            </div>
-            <div className="border-t border-slate-100 mt-3 pt-3 space-y-1">
-              {counterpartyFolders.length === 0 ? (
-                <p className="text-xs text-slate-400 px-2 py-1">取引先フォルダがありません</p>
-              ) : (
-                counterpartyFolders.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => setSelectedCounterparty(name)}
-                    className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
-                      selectedCounterparty === name ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
-                    {name}
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
 
-          {/* テーブル */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <div className="border-r border-slate-200 min-h-[520px]">
+              <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">請求方向</div>
+              <div className="p-2 space-y-1">
+                {(directionFolders.length === 0 ? (["outgoing", "incoming"] as const) : directionFolders).map((dir) => (
+                  <button
+                    key={dir}
+                    type="button"
+                    onClick={() => setSelectedDirection(dir)}
+                    className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
+                      selectedDirection === dir ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
+                    {dir === "outgoing" ? "自社が請求" : "自社に請求"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-r border-slate-200 min-h-[520px]">
+              <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">取引先</div>
+              <div className="p-2 space-y-1">
+                {counterpartyFolders.length === 0 ? (
+                  <p className="text-xs text-slate-400 px-2 py-1">取引先フォルダがありません</p>
+                ) : (
+                  counterpartyFolders.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => setSelectedCounterparty(name)}
+                      className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
+                        selectedCounterparty === name ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
+                      {name}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* テーブル */}
+            <div className="overflow-hidden">
             <div className="flex gap-1 p-3 border-b border-slate-100 bg-slate-50/70">
               {([
                 { key: "all", label: "すべて" },
@@ -259,18 +305,46 @@ export default function InvoicesPage() {
                       <td className="px-4 py-3 text-slate-600">{inv.issueDate}</td>
                       <td className="px-4 py-3 text-right font-medium text-slate-900">{fmt(inv.amount)}</td>
                       <td className="px-4 py-3 text-center">
-                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.cls}`}>
-                          {s.text}
-                        </span>
+                        {canWrite ? (
+                          <select
+                            value={inv.status}
+                            disabled={updatingStatusId === inv.id}
+                            onChange={(e) => void updateStatus(inv.id, e.target.value as SavedInvoice["status"])}
+                            className={`px-2 py-1 rounded text-xs font-medium border border-slate-200 ${s.cls}`}
+                          >
+                            <option value="draft">下書き</option>
+                            <option value="sent">送付済</option>
+                            <option value="paid">入金済</option>
+                          </select>
+                        ) : (
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.cls}`}>
+                            {s.text}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         {canWrite ? (
                           (() => {
                             const href = `/admin/invoices/new?invoiceId=${encodeURIComponent(inv.id)}`;
                             return (
-                              <a href={href} className="text-xs text-slate-500 hover:text-slate-800 transition-colors">
-                                編集
-                              </a>
+                              <div className="inline-flex items-center gap-2">
+                                <a
+                                  href={href}
+                                  title="編集"
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
+                                >
+                                  <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
+                                </a>
+                                <button
+                                  type="button"
+                                  title="削除"
+                                  disabled={deletingId === inv.id}
+                                  onClick={() => void deleteInvoice(inv.id)}
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-rose-200 text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                                >
+                                  <FontAwesomeIcon icon={faTrashCan} className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             );
                           })()
                         ) : null}
@@ -281,27 +355,6 @@ export default function InvoicesPage() {
               )}
             </tbody>
             </table>
-          </div>
-        </div>
-
-        {/* サマリー */}
-        <div className="grid grid-cols-3 gap-4 mt-6">
-          <div className="bg-white rounded-lg border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">下書き</div>
-            <div className="text-lg font-bold text-slate-700">
-              {invoices.filter((i) => i.status === "draft").length}件
-            </div>
-          </div>
-          <div className="bg-white rounded-lg border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">送付済（未入金）</div>
-            <div className="text-lg font-bold text-blue-600">
-              {fmt(invoices.filter((i) => i.status === "sent").reduce((s, i) => s + i.amount, 0))}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">今月入金済</div>
-            <div className="text-lg font-bold text-emerald-600">
-              {fmt(invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.amount, 0))}
             </div>
           </div>
         </div>
