@@ -20,10 +20,62 @@ function MonthYearWheel({
   toLabel: (v: number) => string;
   onChange: (v: number) => void;
 }) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const settleTimerRef = React.useRef<number | null>(null);
+  const ITEM_HEIGHT = 40;
+  const TOP_PADDING = 68;
+
+  const getNearestIndex = React.useCallback((scrollTop: number) => {
+    const rawIndex = (scrollTop - TOP_PADDING) / ITEM_HEIGHT;
+    return Math.max(0, Math.min(values.length - 1, Math.round(rawIndex)));
+  }, [values.length]);
+
+  const scrollToIndex = React.useCallback(
+    (index: number, behavior: ScrollBehavior) => {
+      const el = containerRef.current;
+      if (!el) return;
+      const nextTop = TOP_PADDING + index * ITEM_HEIGHT;
+      el.scrollTo({ top: nextTop, behavior });
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    const index = values.indexOf(value);
+    if (index < 0) return;
+    scrollToIndex(index, "auto");
+  }, [value, values, scrollToIndex]);
+
+  React.useEffect(() => {
+    return () => {
+      if (settleTimerRef.current != null) {
+        window.clearTimeout(settleTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleScroll = () => {
+    if (settleTimerRef.current != null) {
+      window.clearTimeout(settleTimerRef.current);
+    }
+    settleTimerRef.current = window.setTimeout(() => {
+      const el = containerRef.current;
+      if (!el) return;
+      const index = getNearestIndex(el.scrollTop);
+      const nextValue = values[index];
+      if (nextValue !== value) onChange(nextValue);
+      scrollToIndex(index, "smooth");
+    }, 90);
+  };
+
   return (
     <div className="relative h-44 overflow-hidden rounded-md border border-slate-200 bg-white">
-      <div className="pointer-events-none absolute inset-x-1 top-1/2 z-10 h-10 -translate-y-1/2 rounded-md bg-slate-100/80" />
-      <div className="h-full overflow-y-auto py-[68px] scrollbar-thin">
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="h-full snap-y snap-mandatory overflow-y-auto py-[68px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
         {values.map((v) => (
           <button
             key={v}
@@ -31,7 +83,7 @@ function MonthYearWheel({
             onClick={() => onChange(v)}
             className={cn(
               "block h-10 w-full snap-center px-2 text-center text-base transition-colors",
-              v === value ? "font-semibold text-slate-900" : "text-slate-500 hover:text-slate-700",
+              v === value ? "font-semibold text-slate-900" : "text-slate-400 hover:text-slate-700",
             )}
           >
             {toLabel(v)}
@@ -64,6 +116,11 @@ function CaptionLabelButton(props: { displayMonth: Date }) {
 
   React.useEffect(() => {
     if (!open) return;
+    goToMonth?.(new Date(selectedYear, selectedMonth, 1));
+  }, [open, selectedYear, selectedMonth, goToMonth]);
+
+  React.useEffect(() => {
+    if (!open) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (!panelRef.current?.contains(target)) {
@@ -73,11 +130,6 @@ function CaptionLabelButton(props: { displayMonth: Date }) {
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
-
-  const applyMonth = () => {
-    goToMonth?.(new Date(selectedYear, selectedMonth, 1));
-    setOpen(false);
-  };
 
   return (
     <div className="relative" ref={panelRef}>
@@ -105,20 +157,13 @@ function CaptionLabelButton(props: { displayMonth: Date }) {
               onChange={setSelectedYear}
             />
           </div>
-          <div className="mt-3 flex justify-between">
+          <div className="mt-3 flex justify-start">
             <button
               type="button"
               onClick={() => setOpen(false)}
               className="rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
             >
               閉じる
-            </button>
-            <button
-              type="button"
-              onClick={applyMonth}
-              className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-            >
-              決定
             </button>
           </div>
         </div>
