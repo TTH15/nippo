@@ -12,6 +12,8 @@ import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite } from "@/lib/authz";
 import { faPenToSquare, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { format } from "date-fns";
+import { DatePicker } from "@/lib/components/DatePicker";
 
 type Course = { id: string; name: string; color: string };
 type DriverIdentity = {
@@ -714,18 +716,32 @@ export default function UsersPage() {
               </div>
 
               <div className="pt-4 mt-4 border-t border-slate-200">
+                <h3 className="text-sm font-semibold text-slate-700 mb-1">運転免許証</h3>
+                <p className="text-xs text-slate-500 mb-3">有効期限の管理（一覧では期限色で表示されます）</p>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">有効期限</label>
+                  <DatePicker
+                    value={
+                      form.licenseExpiryDate && /^\d{4}-\d{2}-\d{2}$/.test(form.licenseExpiryDate)
+                        ? new Date(form.licenseExpiryDate + "T12:00:00")
+                        : undefined
+                    }
+                    onChange={(d) =>
+                      setForm((f) => ({
+                        ...f,
+                        licenseExpiryDate: d ? format(d, "yyyy-MM-dd") : "",
+                      }))
+                    }
+                    placeholder="日付を選択"
+                    className="w-full h-11"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 mt-4 border-t border-slate-200">
                 <h3 className="text-sm font-semibold text-slate-700 mb-3">請求書用情報（個人）</h3>
                 <p className="text-xs text-slate-500 mb-3">請求書の請求元として使用する際の住所・振込先情報</p>
                 <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">運転免許証 有効期限</label>
-                    <input
-                      type="date"
-                      value={form.licenseExpiryDate}
-                      onChange={(e) => setForm((f) => ({ ...f, licenseExpiryDate: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    />
-                  </div>
                   <div className="flex gap-2">
                     <div className="flex-1">
                       <label className="block text-xs font-medium text-slate-600 mb-1">郵便番号</label>
