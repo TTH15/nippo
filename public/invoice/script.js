@@ -1181,6 +1181,47 @@ function mapSectionToCarrier(section) {
     return null;
 }
 
+function setSelectIfOptionExists(selectEl, candidates) {
+    if (!selectEl || !Array.isArray(candidates)) return false;
+    for (const value of candidates) {
+        if (!value) continue;
+        if (selectEl.querySelector(`option[value="${value}"]`)) {
+            selectEl.value = value;
+            return true;
+        }
+    }
+    return false;
+}
+
+function resolveCorporateOptionByName(name) {
+    const target = String(name || '').trim();
+    if (!target) return null;
+    const corp = addressBook.getCorporateAddresses();
+    const exact = corp.find((a) => String(a.name || '').trim() === target);
+    return exact ? exact.id : null;
+}
+
+function applyPartySelectionFromSavedInvoice(invoice, payload) {
+    const fromSelect = q('#fromPartySelect');
+    const toSelect = q('#toPartySelect');
+    if (!fromSelect || !toSelect) return;
+
+    const savedCounterpartyId = invoice?.counterpartyInvoiceAddressId || null;
+    const savedToParty = payload?.parties?.toParty || '';
+    const savedFromParty = payload?.parties?.fromParty || '';
+    const toNameMatchedId = resolveCorporateOptionByName(payload?.toName);
+
+    // 優先順: DB保存の請求先ID > payloadのselect値 > payloadの社名一致
+    setSelectIfOptionExists(toSelect, [
+        savedCounterpartyId ? `corp-${savedCounterpartyId}` : null,
+        savedToParty,
+        toNameMatchedId,
+    ]);
+
+    // 請求元は payload の select 値を優先し、無効値なら既存のまま
+    setSelectIfOptionExists(fromSelect, [savedFromParty]);
+}
+
 async function applyPrincipalFromQuery() {
     try {
         const params = new URLSearchParams(window.location.search);
@@ -1319,18 +1360,26 @@ async function loadSavedInvoiceFromApi() {
     try {
         const params = new URLSearchParams(window.location.search);
         const invoiceId = params.get('invoiceId');
-        if (!invoiceId) return false;
+        if (!invoiceId) return null;
         const res = await apiFetch(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`);
         currentInvoiceId = res?.invoice?.id || invoiceId;
-        if (res?.invoice?.payload) {
-            applySavedInvoicePayload(res.invoice.payload);
-            saveData();
-            return true;
+        const invoice = res?.invoice || null;
+        if (!invoice) return null;
+
+        const payload = invoice.payload || null;
+        if (payload) {
+            applySavedInvoicePayload(payload);
         }
-        return false;
+        applyPartySelectionFromSavedInvoice(invoice, payload);
+
+        if (res?.invoice?.payload) {
+            saveData();
+            return invoice;
+        }
+        return invoice;
     } catch (e) {
         console.warn('保存済み請求書の読み込みに失敗しました:', e);
-        return false;
+        return null;
     }
 }
 
@@ -1451,8 +1500,8 @@ async function initializeApp() {
     }
     updatePartySelects();
     applyRecipientFromSection();
-    const loadedSaved = await loadSavedInvoiceFromApi();
-    const prefilled = loadedSaved ? true : await loadInvoiceDraftFromApi();
+    const loadedInvoice = await loadSavedInvoiceFromApi();
+    const prefilled = loadedInvoice ? true : await loadInvoiceDraftFromApi();
     await applyPrincipalFromQuery();
     syncPartiesToInvoice();
 
