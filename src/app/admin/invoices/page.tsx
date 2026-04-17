@@ -15,6 +15,7 @@ type SavedInvoice = {
   status: "draft" | "sent" | "paid";
   month?: string;
   section?: "Amazon" | "ヤマト運輸" | "郵便局";
+  invoiceNo?: string;
 };
 
 const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }> = {
@@ -24,20 +25,6 @@ const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }>
 };
 
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
-
-function getMonthFromIssueDate(issueDate: string) {
-  // "YYYY-MM-DD" を想定
-  if (!issueDate) return null;
-  const m = issueDate.slice(0, 7);
-  return /^\d{4}-\d{2}$/.test(m) ? m : null;
-}
-
-function getSectionFromClientName(clientName: string) {
-  if (!clientName) return "郵便局";
-  if (clientName.includes("Amazon")) return "Amazon";
-  if (clientName.includes("ヤマト")) return "ヤマト運輸";
-  return "郵便局";
-}
 
 export default function InvoicesPage() {
   const [canWrite, setCanWrite] = useState(false);
@@ -152,7 +139,7 @@ export default function InvoicesPage() {
                   const s = statusLabel[inv.status];
                   return (
                     <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 font-mono text-slate-700">{inv.id}</td>
+                      <td className="px-4 py-3 font-mono text-slate-700">{inv.invoiceNo || inv.id}</td>
                       <td className="px-4 py-3 text-slate-900 font-medium">{inv.clientName}</td>
                       <td className="px-4 py-3 text-slate-600">{inv.issueDate}</td>
                       <td className="px-4 py-3 text-right font-medium text-slate-900">{fmt(inv.amount)}</td>
@@ -164,9 +151,7 @@ export default function InvoicesPage() {
                       <td className="px-4 py-3 text-right">
                         {canWrite ? (
                           (() => {
-                            const month = inv.month ?? getMonthFromIssueDate(inv.issueDate) ?? "";
-                            const section = inv.section ?? getSectionFromClientName(inv.clientName);
-                            const href = `/admin/invoices/new?month=${encodeURIComponent(month)}&section=${encodeURIComponent(section)}`;
+                            const href = `/admin/invoices/new?invoiceId=${encodeURIComponent(inv.id)}`;
                             return (
                               <a href={href} className="text-xs text-slate-500 hover:text-slate-800 transition-colors">
                                 編集

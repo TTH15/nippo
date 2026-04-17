@@ -219,13 +219,48 @@ export default function CounterpartiesPage() {
                           </td>
                           <td className="px-3 py-2 text-right">
                             {canWrite ? (
-                              <Link
-                                href={`/admin/invoices/new?month=${encodeURIComponent(month)}&section=${encodeURIComponent(r.suggestedSection)}&counterparty=${encodeURIComponent(r.id)}`}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const res = await apiFetch<{ month: string; issueDate: string; invoiceNo: string; tableData: { main: { title: string; qty: number; price: number }[]; deduct: { title: string; qty: number; price: number }[] } }>(
+                                      `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(r.suggestedSection)}&counterparty=${encodeURIComponent(r.id)}`
+                                    );
+                                    const amount =
+                                      (res.tableData?.main ?? []).reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) -
+                                      (res.tableData?.deduct ?? []).reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.price) || 0), 0);
+                                    const payload = {
+                                      issueDate: res.issueDate,
+                                      invoiceNo: res.invoiceNo,
+                                      tableData: res.tableData,
+                                      toName: r.name,
+                                      subject: `${month.slice(0, 4)}年${Number(month.slice(5, 7))}月稼働分`,
+                                      section: r.suggestedSection,
+                                    };
+                                    const created = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices", {
+                                      method: "POST",
+                                      body: JSON.stringify({
+                                        month,
+                                        section: r.suggestedSection,
+                                        counterpartyInvoiceAddressId: r.id,
+                                        clientName: r.name,
+                                        issueDate: res.issueDate,
+                                        invoiceNo: res.invoiceNo,
+                                        amount,
+                                        status: "draft",
+                                        payload,
+                                      }),
+                                    });
+                                    window.location.href = `/admin/invoices/new?invoiceId=${encodeURIComponent(created.invoice.id)}`;
+                                  } catch (e) {
+                                    console.error(e);
+                                  }
+                                }}
                                 className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-900 border border-slate-200 rounded-md px-2 py-1.5 hover:bg-slate-50"
                               >
                                 <FontAwesomeIcon icon={faFileInvoice} className="w-3 h-3" />
-                                請求書を作成
-                              </Link>
+                                請求書を保存して編集
+                              </button>
                             ) : (
                               <span className="text-xs text-slate-400">—</span>
                             )}

@@ -1,5 +1,7 @@
 const q = sel => document.querySelector(sel);
 const fmt = (n, cur) => (cur || "¥") + Number(n || 0).toLocaleString();
+let currentInvoiceId = null;
+let saveTimer = null;
 
 // ACE CREATIONの固定情報
 const ACE_CREATION = {
@@ -16,6 +18,15 @@ async function apiFetch(path) {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = 'Bearer ' + token;
     const res = await fetch(path, { headers });
+    if (!res.ok) throw new Error('API error: ' + res.status);
+    return res.json();
+}
+
+async function apiFetchWithBody(path, options = {}) {
+    const token = localStorage.getItem('nippo_token');
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    const res = await fetch(path, { ...options, headers: { ...headers, ...(options.headers || {}) } });
     if (!res.ok) throw new Error('API error: ' + res.status);
     return res.json();
 }
@@ -541,6 +552,71 @@ function saveData() {
         }
     };
     localStorage.setItem('invoice_direct_edit_v1', JSON.stringify(data));
+    queuePersistInvoice(data);
+}
+
+function queuePersistInvoice(data) {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+        void persistInvoiceDocument(data);
+    }, 500);
+}
+
+function parseAmountFromDisplay(text) {
+    const n = Number(String(text || '').replace(/[^\d.-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+}
+
+async function persistInvoiceDocument(data) {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const month = params.get('month') || '';
+        const section = params.get('section') || (data.sectionSelections?.main || 'ヤマト運輸');
+        const counterpartyRaw = params.get('counterparty');
+        const counterpartyInvoiceAddressId = counterpartyRaw || null;
+        const body = {
+            month: /^\d{4}-\d{2}$/.test(month) ? month : undefined,
+            section,
+            counterpartyInvoiceAddressId,
+            clientName: data.toName || '',
+            issueDate: toIsoDateFromJp(data.issueDate),
+            invoiceNo: data.invoiceNo || '',
+            amount: parseAmountFromDisplay(data.billAmountDisplay),
+            status: 'draft',
+            payload: data,
+        };
+        if (currentInvoiceId) {
+            await apiFetchWithBody(`/api/admin/invoices/${currentInvoiceId}`, {
+                method: 'PATCH',
+                body: JSON.stringify(body),
+            });
+            return;
+        }
+        const created = await apiFetchWithBody('/api/admin/invoices', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+        if (created?.invoice?.id) {
+            currentInvoiceId = created.invoice.id;
+            const u = new URL(window.location.href);
+            u.searchParams.set('invoiceId', currentInvoiceId);
+            if (!u.searchParams.get('month') && body.month) u.searchParams.set('month', body.month);
+            if (!u.searchParams.get('section') && body.section) u.searchParams.set('section', body.section);
+            window.history.replaceState({}, '', u.toString());
+        }
+    } catch (e) {
+        console.warn('請求書データの保存に失敗しました:', e);
+    }
+}
+
+function toIsoDateFromJp(s) {
+    const t = String(s || '').trim();
+    const m = t.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日$/);
+    if (!m) return null;
+    const yyyy = m[1];
+    const mm = String(Number(m[2])).padStart(2, '0');
+    const dd = String(Number(m[3])).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
 }
 
 
@@ -1219,6 +1295,45 @@ async function loadInvoiceDraftFromApi() {
     }
 }
 
+function applySavedInvoicePayload(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.toName && q('#p_toCompany')) q('#p_toCompany').textContent = payload.toName;
+    if (payload.toAddr && q('#p_toAddr')) q('#p_toAddr').innerHTML = payload.toAddr;
+    if (payload.subject && q('#p_subject')) q('#p_subject').textContent = payload.subject;
+    if (payload.issueDate && q('#p_issueDate')) q('#p_issueDate').textContent = payload.issueDate;
+    if (payload.invoiceNo && q('#p_invoiceNo')) q('#p_invoiceNo').textContent = payload.invoiceNo;
+    if (payload.billAmountDisplay && q('#p_billAmountDisplay')) q('#p_billAmountDisplay').textContent = payload.billAmountDisplay;
+    if (payload.fromName && q('#p_fromName')) q('#p_fromName').textContent = payload.fromName;
+    if (payload.fromAddr && q('#p_fromAddr')) q('#p_fromAddr').innerHTML = payload.fromAddr;
+    if (payload.fromTel && q('#p_fromTel')) q('#p_fromTel').textContent = payload.fromTel;
+    if (payload.fromReg && q('#p_fromReg')) q('#p_fromReg').textContent = payload.fromReg;
+    if (payload.dueDate && q('#p_dueDate')) q('#p_dueDate').textContent = payload.dueDate;
+    if (payload.bankName && q('#p_bankName')) q('#p_bankName').textContent = payload.bankName;
+    if (payload.bankNo && q('#p_bankNo')) q('#p_bankNo').textContent = payload.bankNo;
+    if (payload.bankHolder && q('#p_bankHolder')) q('#p_bankHolder').textContent = payload.bankHolder;
+    if (payload.notes && q('#p_notes')) q('#p_notes').innerHTML = payload.notes;
+    if (payload.tableData) setDataToTables(payload.tableData);
+}
+
+async function loadSavedInvoiceFromApi() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const invoiceId = params.get('invoiceId');
+        if (!invoiceId) return false;
+        const res = await apiFetch(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`);
+        currentInvoiceId = res?.invoice?.id || invoiceId;
+        if (res?.invoice?.payload) {
+            applySavedInvoicePayload(res.invoice.payload);
+            saveData();
+            return true;
+        }
+        return false;
+    } catch (e) {
+        console.warn('保存済み請求書の読み込みに失敗しました:', e);
+        return false;
+    }
+}
+
 function applySectionAndSubjectFromQuery() {
     try {
         const params = new URLSearchParams(window.location.search);
@@ -1336,7 +1451,8 @@ async function initializeApp() {
     }
     updatePartySelects();
     applyRecipientFromSection();
-    const prefilled = await loadInvoiceDraftFromApi();
+    const loadedSaved = await loadSavedInvoiceFromApi();
+    const prefilled = loadedSaved ? true : await loadInvoiceDraftFromApi();
     await applyPrincipalFromQuery();
     syncPartiesToInvoice();
 
