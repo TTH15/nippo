@@ -218,5 +218,7 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ startDate, endDate, data });
+  const response = NextResponse.json({ startDate, endDate, data });
+  response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=600");
+  return response;
 }

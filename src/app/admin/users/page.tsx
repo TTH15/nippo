@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -14,6 +14,8 @@ import { canAdminWrite } from "@/lib/authz";
 import { faPenToSquare, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
+import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 
 type Course = { id: string; name: string; color: string };
 type DriverIdentity = {
@@ -29,13 +31,13 @@ type Driver = {
   id: string;
   name: string;
   display_name?: string | null;
-  role: string;
-  company_code: string;
+  role?: string;
+  company_code?: string;
   office_code: string;
   driver_code: string;
   /** 会社内ドライバー一覧の通し番号（永続） */
   list_no?: number | null;
-  created_at: string;
+  created_at?: string;
   license_expiry_date?: string | null;
   postal_code?: string | null;
   address?: string | null;
@@ -46,7 +48,15 @@ type Driver = {
   driver_identities?: DriverIdentity[];
 };
 
+type UsersPageResponse = {
+  drivers: Driver[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  total?: number;
+};
+
 const COMPANY_CODE = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE).code;
+const USERS_PAGE_SIZE = 20;
 
 // 口座種別の選択肢
 const BANK_TYPES = [
@@ -120,8 +130,7 @@ function sortDrivers(list: Driver[]): Driver[] {
 export default function UsersPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [openingEditId, setOpeningEditId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [form, setForm] = useState({
@@ -156,6 +165,37 @@ export default function UsersPage() {
     message: string;
     detail?: string;
   } | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+
+  const usersPageKey = (pageIndex: number, previousPageData: UsersPageResponse | null) => {
+    if (previousPageData && !previousPageData.hasMore) return null;
+    const cursor = previousPageData?.nextCursor ?? "0";
+    return `/api/admin/users?limit=${USERS_PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`;
+  };
+
+  const { data: usersPages, isLoading: usersLoading, isValidating: usersValidating, setSize } =
+    useSWRInfinite<UsersPageResponse>(usersPageKey, (url: string) => apiFetch<UsersPageResponse>(url), {
+      revalidateOnFocus: false,
+      dedupingInterval: 10 * 60 * 1000,
+      revalidateFirstPage: false,
+    });
+
+  const { data: coursesRes, isLoading: coursesLoading } = useSWR<{ courses: Course[] }>(
+    "/api/admin/courses",
+    (url: string) => apiFetch<{ courses: Course[] }>(url),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 30 * 60 * 1000,
+    },
+  );
+  const courses = coursesRes?.courses ?? [];
+
+  const hasMore = (usersPages?.[usersPages.length - 1]?.hasMore ?? false) && !usersValidating;
+  const loading = usersLoading || coursesLoading;
+  const flattenedDrivers = useMemo(
+    () => sortDrivers((usersPages ?? []).flatMap((p) => p.drivers ?? [])),
+    [usersPages],
+  );
 
   const courseMap = new Map(courses.map((c) => [c.id, c]));
 
@@ -167,30 +207,27 @@ export default function UsersPage() {
     }
   }, []);
 
-  const loadUsers = async () => {
-    const usersRes = await apiFetch<{ drivers: Driver[] }>("/api/admin/users");
-    setDrivers(sortDrivers(usersRes.drivers.filter((d) => d.role === "DRIVER")));
-  };
-
-  const loadCourses = async () => {
-    const coursesRes = await apiFetch<{ courses: Course[] }>("/api/admin/courses");
-    setCourses(coursesRes.courses);
-  };
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      await Promise.all([loadUsers(), loadCourses()]);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    setDrivers((prev) => {
+      if (flattenedDrivers.length === 0 && prev.length === 0) return prev;
+      const prevById = new Map(prev.map((d) => [d.id, d]));
+      const merged = flattenedDrivers.map((d) => prevById.get(d.id) ?? d);
+      const missingLocal = prev.filter((d) => !merged.some((x) => x.id === d.id));
+      return sortDrivers([...merged, ...missingLocal]);
+    });
+  }, [flattenedDrivers]);
 
   useEffect(() => {
-    load();
-  }, []);
+    const node = loadMoreRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries[0]?.isIntersecting) return;
+      if (!hasMore) return;
+      void setSize((s) => s + 1);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, setSize]);
 
   const openNew = () => {
     if (!canWrite) return;
@@ -218,37 +255,50 @@ export default function UsersPage() {
     setShowModal(true);
   };
 
-  const openEdit = (d: Driver) => {
+  const openEdit = async (d: Driver) => {
     if (!canWrite) return;
-    setEditingDriver(d);
-    const { institution, branch } = parseBankName(d.bank_name || "");
-    const { type, number, typeOther } = parseBankNo(d.bank_no || "");
-    const id1 = d.driver_identities?.find((x) => x.slot === 1);
-    const id2 = d.driver_identities?.find((x) => x.slot === 2);
-    setForm({
-      name: d.name,
-      displayName: d.display_name?.trim() ?? getDisplayName(d),
-      officeCode: id1?.office_code ?? d.office_code ?? "",
-      driverNumber: (id1?.driver_code ?? d.driver_code)?.slice(3) || "",
-      courseIds: (id1?.driver_courses ?? []).map((dc) => dc.course_id),
-      officeCode2: id2?.office_code ?? "",
-      driverNumber2: id2?.driver_code?.slice(3) ?? "",
-      courseIds2: (id2?.driver_courses ?? []).map((dc) => dc.course_id),
-      postalCode: d.postal_code || "",
-      address: d.address || "",
-      phone: d.phone || "",
-      bankInstitution: institution,
-      bankBranch: branch,
-      bankType: type,
-      bankTypeOther: typeOther,
-      bankNumber: number,
-      bankHolder: d.bank_holder || "",
-      licenseExpiryDate:
-        d.license_expiry_date && /^\d{4}-\d{2}-\d{2}$/.test(d.license_expiry_date)
-          ? d.license_expiry_date
-          : "",
-    });
-    setShowModal(true);
+    setOpeningEditId(d.id);
+    try {
+      const res = await apiFetch<{ driver: Driver }>(`/api/admin/users/${d.id}`);
+      const full = res.driver;
+      setEditingDriver(full);
+      const { institution, branch } = parseBankName(full.bank_name || "");
+      const { type, number, typeOther } = parseBankNo(full.bank_no || "");
+      const id1 = full.driver_identities?.find((x) => x.slot === 1);
+      const id2 = full.driver_identities?.find((x) => x.slot === 2);
+      setForm({
+        name: full.name,
+        displayName: full.display_name?.trim() ?? getDisplayName(full),
+        officeCode: id1?.office_code ?? full.office_code ?? "",
+        driverNumber: (id1?.driver_code ?? full.driver_code)?.slice(3) || "",
+        courseIds: (id1?.driver_courses ?? []).map((dc) => dc.course_id),
+        officeCode2: id2?.office_code ?? "",
+        driverNumber2: id2?.driver_code?.slice(3) ?? "",
+        courseIds2: (id2?.driver_courses ?? []).map((dc) => dc.course_id),
+        postalCode: full.postal_code || "",
+        address: full.address || "",
+        phone: full.phone || "",
+        bankInstitution: institution,
+        bankBranch: branch,
+        bankType: type,
+        bankTypeOther: typeOther,
+        bankNumber: number,
+        bankHolder: full.bank_holder || "",
+        licenseExpiryDate:
+          full.license_expiry_date && /^\d{4}-\d{2}-\d{2}$/.test(full.license_expiry_date)
+            ? full.license_expiry_date
+            : "",
+      });
+      setShowModal(true);
+    } catch (e) {
+      console.error(e);
+      setErrorState({
+        title: "ドライバー詳細の取得に失敗しました",
+        message: "編集用データの取得に失敗しました。時間をおいて再度お試しください。",
+      });
+    } finally {
+      setOpeningEditId(null);
+    }
   };
 
   const getBankTypeForSave = () => {
@@ -625,10 +675,11 @@ export default function UsersPage() {
                   {canWrite && (
                     <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
                       <button
-                        onClick={() => openEdit(d)}
+                        onClick={() => void openEdit(d)}
+                        disabled={openingEditId === d.id}
                         className="text-sm text-slate-500 hover:text-slate-800 transition-colors"
                       >
-                        <FontAwesomeIcon icon={faPenToSquare} />
+                        {openingEditId === d.id ? "..." : <FontAwesomeIcon icon={faPenToSquare} />}
                       </button>
                       <button
                         onClick={() => deleteDriver(d.id, d.name)}
@@ -641,6 +692,12 @@ export default function UsersPage() {
                 </div>
               );
             })}
+            <div ref={loadMoreRef} className="h-8 md:col-span-2" />
+            {hasMore && (
+              <div className="md:col-span-2 text-center text-xs text-slate-500 py-2">
+                さらに読み込み中...
+              </div>
+            )}
           </div>
         )}
       </div>

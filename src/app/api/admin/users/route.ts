@@ -9,13 +9,17 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const url = req.nextUrl;
+  const limitRaw = Number(url.searchParams.get("limit") || "20");
+  const cursorRaw = Number(url.searchParams.get("cursor") || "0");
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 20;
+  const offset = Number.isFinite(cursorRaw) ? Math.max(0, Math.floor(cursorRaw)) : 0;
 
-  // 同じ会社コードのドライバーのみ取得
+  // 同じ会社コードのドライバー一覧（一覧表示に不要な住所/口座情報は除外）
   const { data: drivers, error } = await supabase
     .from("drivers")
     .select(`
-      id, name, display_name, role, company_code, office_code, driver_code, list_no, created_at, license_expiry_date,
-      postal_code, address, phone, bank_name, bank_no, bank_holder,
+      id, name, display_name, role, office_code, driver_code, list_no, license_expiry_date,
       driver_identities (
         id, slot, driver_code, office_code, label,
         driver_courses (
@@ -25,16 +29,32 @@ export async function GET(req: NextRequest) {
       )
     `)
     .eq("company_code", user.companyCode)
+    .eq("role", "DRIVER")
     .order("list_no", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true })
-    .order("id", { ascending: true });
+    .order("id", { ascending: true })
+    .range(offset, offset + limit - 1);
 
   if (error) {
     console.error(error);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  return NextResponse.json({ drivers });
+  const countRes = await supabase
+    .from("drivers")
+    .select("id", { count: "exact", head: true })
+    .eq("company_code", user.companyCode)
+    .eq("role", "DRIVER");
+  const total = countRes.count ?? 0;
+  const nextCursor = offset + (drivers?.length ?? 0) < total ? String(offset + (drivers?.length ?? 0)) : null;
+  const response = NextResponse.json({
+    drivers: drivers ?? [],
+    nextCursor,
+    hasMore: nextCursor != null,
+    total,
+  });
+  response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=600");
+  return response;
 }
 
 // POST: 新規ドライバー追加

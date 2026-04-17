@@ -13,6 +13,40 @@ type IdentityInput = {
   courseIds: string[];
 };
 
+// GET: ドライバー詳細（編集用）
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  if (isAuthError(user)) return user;
+  const { id: driverId } = await params;
+
+  const { data: driver, error } = await supabase
+    .from("drivers")
+    .select(`
+      id, name, display_name, role, company_code, office_code, driver_code, list_no, created_at, license_expiry_date,
+      postal_code, address, phone, bank_name, bank_no, bank_holder,
+      driver_identities (
+        id, slot, driver_code, office_code, label,
+        driver_courses (
+          course_id,
+          courses (id, name, color)
+        )
+      )
+    `)
+    .eq("id", driverId)
+    .eq("company_code", user.companyCode)
+    .single();
+
+  if (error || !driver) {
+    return NextResponse.json({ error: "ドライバーが見つかりません" }, { status: 404 });
+  }
+  const response = NextResponse.json({ driver });
+  response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=300");
+  return response;
+}
+
 // PUT: ドライバー更新
 export async function PUT(
   req: NextRequest,

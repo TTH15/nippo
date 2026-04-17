@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, Fragment } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare } from "@fortawesome/free-solid-svg-icons";
+import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare, faRotateRight } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
@@ -26,6 +26,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import useSWR, { mutate as mutateSWR } from "swr";
 
 type DataPoint = { iso: string; date: string; yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number };
 type DriverRow = { id: string; name: string; display_name?: string | null };
@@ -782,7 +783,7 @@ export default function SalesPage() {
   const [tab, setTab] = useState<Tab>("analytics");
   const [range, setRange] = useState<DateRangeValue | undefined>();
   const [deliveryData, setDeliveryData] = useState<DataPoint[]>([]);
-  const [loadingAnalytics, setLoadingAnalytics] = useState(true);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
   const [reports, setReports] = useState<ReportRow[]>([]);
@@ -806,17 +807,25 @@ export default function SalesPage() {
   const [logDeleteTarget, setLogDeleteTarget] = useState<SalesLogEntryRow | null>(null);
   const [canWrite, setCanWrite] = useState(false);
   const [selectedDayIso, setSelectedDayIso] = useState<string>("");
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
   }, []);
 
-  // コース一覧を取得
+  const { data: coursesData } = useSWR<{ courses: CourseRow[] }>(
+    "/api/admin/courses",
+    (url: string) => apiFetch<{ courses: CourseRow[] }>(url),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 30 * 60 * 1000,
+    },
+  );
   useEffect(() => {
-    apiFetch<{ courses: CourseRow[] }>("/api/admin/courses")
-      .then((res) => setCourses(res.courses ?? []))
-      .catch(() => setCourses([]));
-  }, []);
+    if (coursesData) setCourses(coursesData.courses ?? []);
+  }, [coursesData]);
 
   const courseIdsQuery =
     selectedCourseIds.size > 0
@@ -854,53 +863,89 @@ export default function SalesPage() {
     });
   }, [startIso, endIso]);
 
-  // 前期間（同じ日数分ひとつ前の区間）の売上・利益を取得
-  useEffect(() => {
-    if (!startIso || !endIso) return;
+  const prevRange = useMemo(() => {
+    if (!startIso || !endIso) return null;
     const start = new Date(startIso);
     const end = new Date(endIso);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
-      return;
-    }
-    const days =
-      Math.max(
-        1,
-        Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1,
-      ) || 1;
-
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return null;
+    const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1) || 1;
     const prevEnd = new Date(start);
     prevEnd.setDate(prevEnd.getDate() - 1);
     const prevStart = new Date(prevEnd);
     prevStart.setDate(prevStart.getDate() - (days - 1));
+    return { prevStartIso: toLocalYmd(prevStart), prevEndIso: toLocalYmd(prevEnd) };
+  }, [startIso, endIso]);
 
-    const prevStartIso = toLocalYmd(prevStart);
-    const prevEndIso = toLocalYmd(prevEnd);
+  const salesKey = startIso && endIso ? `/api/admin/sales?start=${startIso}&end=${endIso}${salesFilterQuery}` : null;
+  const prevSalesKey =
+    prevRange != null
+      ? `/api/admin/sales?start=${prevRange.prevStartIso}&end=${prevRange.prevEndIso}${salesFilterQuery}`
+      : null;
 
-    setLoadingPrev(true);
-    apiFetch<{ data: DataPoint[] }>(
-      `/api/admin/sales?start=${prevStartIso}&end=${prevEndIso}${salesFilterQuery}`,
-    )
-      .then((res) => {
-        const data = res.data ?? [];
-        const yamato = data.reduce((s, d) => s + d.yamato, 0);
-        const amazon = data.reduce((s, d) => s + d.amazon, 0);
-        const profit = data.reduce((s, d) => s + d.profit, 0);
-        setPrevTotals({ total: yamato + amazon, profit });
-      })
-      .catch(() => setPrevTotals(null))
-      .finally(() => setLoadingPrev(false));
-  }, [startIso, endIso, salesFilterQuery]);
+  const { data: salesDataRes, isLoading: salesLoading } = useSWR<{ data: DataPoint[] }>(
+    salesKey,
+    (url: string) => apiFetch<{ data: DataPoint[] }>(url),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 10 * 60 * 1000,
+      keepPreviousData: true,
+    },
+  );
+  useEffect(() => {
+    setDeliveryData(salesDataRes?.data ?? []);
+  }, [salesDataRes]);
+  useEffect(() => {
+    if (salesDataRes) {
+      setLastUpdatedAt(Date.now());
+      setElapsedSec(0);
+    }
+  }, [salesDataRes]);
+  useEffect(() => {
+    setLoadingAnalytics(salesLoading);
+  }, [salesLoading]);
+
+  const { data: prevSalesDataRes, isLoading: prevSalesLoading } = useSWR<{ data: DataPoint[] }>(
+    prevSalesKey,
+    (url: string) => apiFetch<{ data: DataPoint[] }>(url),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 10 * 60 * 1000,
+      keepPreviousData: true,
+    },
+  );
+  useEffect(() => {
+    const data = prevSalesDataRes?.data ?? [];
+    if (data.length === 0) {
+      setPrevTotals(null);
+      return;
+    }
+    const yamato = data.reduce((s, d) => s + d.yamato, 0);
+    const amazon = data.reduce((s, d) => s + d.amazon, 0);
+    const profit = data.reduce((s, d) => s + d.profit, 0);
+    setPrevTotals({ total: yamato + amazon, profit });
+  }, [prevSalesDataRes]);
+  useEffect(() => {
+    setLoadingPrev(prevSalesLoading);
+  }, [prevSalesLoading]);
+
+  const refreshSalesCaches = useCallback(async () => {
+    const tasks: Promise<unknown>[] = [];
+    if (salesKey) tasks.push(mutateSWR(salesKey));
+    if (prevSalesKey) tasks.push(mutateSWR(prevSalesKey));
+    await Promise.all(tasks);
+    setLastUpdatedAt(Date.now());
+    setElapsedSec(0);
+  }, [salesKey, prevSalesKey]);
 
   useEffect(() => {
-    if (!startIso || !endIso) return;
-    setLoadingAnalytics(true);
-    apiFetch<{ data: DataPoint[] }>(
-      `/api/admin/sales?start=${startIso}&end=${endIso}${salesFilterQuery}`,
-    )
-      .then((res) => setDeliveryData(res.data ?? []))
-      .catch(() => setDeliveryData([]))
-      .finally(() => setLoadingAnalytics(false));
-  }, [startIso, endIso, salesFilterQuery]);
+    if (!lastUpdatedAt) return;
+    const updateElapsed = () => {
+      setElapsedSec(Math.max(0, Math.floor((Date.now() - lastUpdatedAt) / 1000)));
+    };
+    updateElapsed();
+    const id = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(id);
+  }, [lastUpdatedAt]);
 
   // 右パネルの「1人あたり売上」用に、日付範囲が決まっているときはドライバー・日報・ミッドナイトを取得（集計タブでなくても取得）
   useEffect(() => {
@@ -1212,6 +1257,27 @@ export default function SalesPage() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">売上</h1>
           </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-500">
+              最終更新: {lastUpdatedAt ? `${elapsedSec}秒前` : "未取得"}
+            </span>
+            <button
+              type="button"
+              onClick={async () => {
+                setManualRefreshing(true);
+                try {
+                  await refreshSalesCaches();
+                } finally {
+                  setManualRefreshing(false);
+                }
+              }}
+              disabled={manualRefreshing || !startIso || !endIso}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-200 rounded bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FontAwesomeIcon icon={faRotateRight} className={manualRefreshing ? "animate-spin" : ""} />
+              最新に更新
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -1498,6 +1564,7 @@ export default function SalesPage() {
                         .then((res) => setLogEntries(res.entries ?? []))
                         .catch(() => { });
                     }
+                    void refreshSalesCaches();
                   }}
                   onTypeAdded={() => {
                     apiFetch<{ types: SalesLogTypeRow[] }>("/api/admin/sales/log/types")
@@ -1529,6 +1596,7 @@ export default function SalesPage() {
                             .then((res) => setLogEntries(res.entries ?? []))
                             .catch(() => { });
                         }
+                        void refreshSalesCaches();
                       }}
                       onEdit={(entry) => {
                         setLogEditingEntry(entry);
@@ -1707,6 +1775,9 @@ export default function SalesPage() {
                   .then((res) => setLogEntries(res.entries ?? []))
                   .catch(() => { });
               }
+            })
+            .then(() => {
+              void refreshSalesCaches();
             })
             .catch(() => { })
             .finally(() => setLogSavingId(null));
