@@ -30,13 +30,17 @@ export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
-  const month = normalizeMonth(req.nextUrl.searchParams.get("month"));
-  const { data, error } = await supabase
+  const monthParam = req.nextUrl.searchParams.get("month");
+  const month = monthParam ? normalizeMonth(monthParam) : null;
+  let query = supabase
     .from("invoice_documents")
     .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, updated_at")
     .eq("company_code", user.companyCode)
-    .eq("month_yyyy_mm", month)
     .order("updated_at", { ascending: false });
+  if (month) {
+    query = query.eq("month_yyyy_mm", month);
+  }
+  const { data, error } = await query;
 
   if (error) {
     console.error(error);

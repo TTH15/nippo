@@ -57,6 +57,7 @@ export default function CounterpartiesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [createInvoiceError, setCreateInvoiceError] = useState<string | null>(null);
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
@@ -137,6 +138,11 @@ export default function CounterpartiesPage() {
           売上ログのマイナス利益 − 手入力控除」です。摘要は明細表でフォーカスアウト時に保存されます。郵便局帯の
           sales_log 会社集計とは定義が異なる場合があります。
         </div>
+        {createInvoiceError && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 mb-4">
+            {createInvoiceError}
+          </div>
+        )}
 
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
@@ -222,6 +228,7 @@ export default function CounterpartiesPage() {
                               <button
                                 type="button"
                                 onClick={async () => {
+                                  setCreateInvoiceError(null);
                                   try {
                                     const res = await apiFetch<{ month: string; issueDate: string; invoiceNo: string; tableData: { main: { title: string; qty: number; price: number }[]; deduct: { title: string; qty: number; price: number }[] } }>(
                                       `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(r.suggestedSection)}&counterparty=${encodeURIComponent(r.id)}`
@@ -254,6 +261,7 @@ export default function CounterpartiesPage() {
                                     window.location.href = `/admin/invoices/new?invoiceId=${encodeURIComponent(created.invoice.id)}`;
                                   } catch (e) {
                                     console.error(e);
+                                    setCreateInvoiceError("請求書の保存に失敗しました。DB migration適用状況とAPIエラーをご確認ください。");
                                   }
                                 }}
                                 className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-900 border border-slate-200 rounded-md px-2 py-1.5 hover:bg-slate-50"
