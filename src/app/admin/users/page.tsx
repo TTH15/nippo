@@ -106,6 +106,17 @@ function allIdentityCourses(d: Driver): { course_id: string; courses: Course }[]
   return out;
 }
 
+function sortDrivers(list: Driver[]): Driver[] {
+  return [...list].sort((a, b) => {
+    const aNo = typeof a.list_no === "number" ? a.list_no : Number.MAX_SAFE_INTEGER;
+    const bNo = typeof b.list_no === "number" ? b.list_no : Number.MAX_SAFE_INTEGER;
+    if (aNo !== bNo) return aNo - bNo;
+    const byName = (a.name || "").localeCompare(b.name || "", "ja");
+    if (byName !== 0) return byName;
+    return (a.id || "").localeCompare(b.id || "");
+  });
+}
+
 export default function UsersPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -146,6 +157,8 @@ export default function UsersPage() {
     detail?: string;
   } | null>(null);
 
+  const courseMap = new Map(courses.map((c) => [c.id, c]));
+
   useEffect(() => {
     const stored = getStoredDriver();
     setCanWrite(canAdminWrite(stored?.role));
@@ -154,16 +167,20 @@ export default function UsersPage() {
     }
   }, []);
 
+  const loadUsers = async () => {
+    const usersRes = await apiFetch<{ drivers: Driver[] }>("/api/admin/users");
+    setDrivers(sortDrivers(usersRes.drivers.filter((d) => d.role === "DRIVER")));
+  };
+
+  const loadCourses = async () => {
+    const coursesRes = await apiFetch<{ courses: Course[] }>("/api/admin/courses");
+    setCourses(coursesRes.courses);
+  };
+
   const load = async () => {
     setLoading(true);
     try {
-      const [usersRes, coursesRes] = await Promise.all([
-        apiFetch<{ drivers: Driver[] }>("/api/admin/users"),
-        apiFetch<{ courses: Course[] }>("/api/admin/courses"),
-      ]);
-      // 同じ会社コードのドライバーのみ表示
-      setDrivers(usersRes.drivers.filter(d => d.role === "DRIVER"));
-      setCourses(coursesRes.courses);
+      await Promise.all([loadUsers(), loadCourses()]);
     } catch (e) {
       console.error(e);
     } finally {
@@ -307,6 +324,32 @@ export default function UsersPage() {
     setSaving(true);
     try {
       const driverCode = companyCode + form.driverNumber;
+      const makeIdentity = (slot: 1 | 2) => {
+        const office = slot === 1 ? form.officeCode : form.officeCode2;
+        const number = slot === 1 ? form.driverNumber : form.driverNumber2;
+        const courseIds = slot === 1 ? form.courseIds : form.courseIds2;
+        if (!office || !number || !/^\d{6}$/.test(office) || !/^\d{6}$/.test(number)) return null;
+        const full = `${companyCode}${number}`;
+        return {
+          id: `local-${slot}`,
+          slot,
+          driver_code: full,
+          office_code: office,
+          label: null,
+          driver_courses: courseIds
+            .map((courseId) => {
+              const course = courseMap.get(courseId);
+              return course ? { course_id: courseId, courses: course } : null;
+            })
+            .filter((v): v is { course_id: string; courses: Course } => v !== null),
+        };
+      };
+
+      const slot1Identity = makeIdentity(1);
+      const slot2Identity = makeIdentity(2);
+      const nextIdentities = [slot1Identity, slot2Identity].filter(
+        (v): v is NonNullable<typeof v> => v !== null,
+      );
 
       if (editingDriver) {
         await apiFetch(`/api/admin/users/${editingDriver.id}`, {
@@ -337,8 +380,31 @@ export default function UsersPage() {
             licenseExpiryDate: form.licenseExpiryDate.trim() || null,
           }),
         });
+        setDrivers((prev) =>
+          sortDrivers(
+            prev.map((d) =>
+              d.id === editingDriver.id
+                ? {
+                    ...d,
+                    name: form.name.trim(),
+                    display_name: form.displayName.trim() || null,
+                    office_code: form.officeCode,
+                    driver_code: driverCode,
+                    postal_code: form.postalCode.trim() || null,
+                    address: form.address.trim() || null,
+                    phone: form.phone.trim() || null,
+                    bank_name: [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null,
+                    bank_no: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
+                    bank_holder: form.bankHolder.trim() || null,
+                    license_expiry_date: form.licenseExpiryDate.trim() || null,
+                    driver_identities: nextIdentities,
+                  }
+                : d,
+            ),
+          ),
+        );
       } else {
-        await apiFetch("/api/admin/users", {
+        const created = await apiFetch<{ driver: Driver }>("/api/admin/users", {
           method: "POST",
           body: JSON.stringify({
             name: form.name,
@@ -359,9 +425,26 @@ export default function UsersPage() {
             licenseExpiryDate: form.licenseExpiryDate.trim() || null,
           }),
         });
+        const newDriver: Driver = {
+          ...created.driver,
+          name: form.name.trim(),
+          display_name: form.displayName.trim() || null,
+          role: "DRIVER",
+          company_code: companyCode,
+          office_code: form.officeCode,
+          driver_code: driverCode,
+          postal_code: form.postalCode.trim() || null,
+          address: form.address.trim() || null,
+          phone: form.phone.trim() || null,
+          bank_name: [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null,
+          bank_no: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
+          bank_holder: form.bankHolder.trim() || null,
+          license_expiry_date: form.licenseExpiryDate.trim() || null,
+          driver_identities: nextIdentities,
+        };
+        setDrivers((prev) => sortDrivers([...prev, newDriver]));
       }
       setShowModal(false);
-      load();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -385,7 +468,7 @@ export default function UsersPage() {
       onConfirm: async () => {
         try {
           await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
-          load();
+          setDrivers((prev) => prev.filter((d) => d.id !== id));
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";
