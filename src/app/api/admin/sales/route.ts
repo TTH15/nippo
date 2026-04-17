@@ -178,29 +178,29 @@ export async function GET(req: NextRequest) {
   }
 
   // 3. 売上ログ（sales_log_entries）
-  // - デフォルト（driver_id 未指定）では集計に含めない
-  // - driver_id 指定時のみ、対象ドライバーに紐づくログを「その他売上」として加算
-  if (driverId) {
-    const { data: logRows } = await supabase
-      .from("sales_log_entries")
-      .select("log_date, revenue, profit, target_driver_id")
-      .gte("log_date", startDate)
-      .lte("log_date", endDate)
-      .eq("target_driver_id", driverId);
+  // - driver_id 指定時: そのドライバーに紐づくログのみ加算
+  // - driver_id 未指定（すべてのドライバー）: target_driver_id 未設定を含む全ログを加算
+  const logQuery = supabase
+    .from("sales_log_entries")
+    .select("log_date, revenue, profit, target_driver_id")
+    .gte("log_date", startDate)
+    .lte("log_date", endDate);
+  const { data: logRows } = driverId
+    ? await logQuery.eq("target_driver_id", driverId)
+    : await logQuery;
 
-    (logRows ?? []).forEach((row: any) => {
-      const date = row.log_date as string;
-      if (!date || date < startDate || date > endDate) return;
-      const revenue = Number(row.revenue) || 0;
-      const profit = Number(row.profit) || 0;
-      if (!dateMap.has(date)) {
-        dateMap.set(date, { yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
-      }
-      const entry = dateMap.get(date)!;
-      if (revenue > 0) entry.other += revenue;
-      entry.profit += profit;
-    });
-  }
+  (logRows ?? []).forEach((row: any) => {
+    const date = row.log_date as string;
+    if (!date || date < startDate || date > endDate) return;
+    const revenue = Number(row.revenue) || 0;
+    const profit = Number(row.profit) || 0;
+    if (!dateMap.has(date)) {
+      dateMap.set(date, { yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
+    }
+    const entry = dateMap.get(date)!;
+    if (revenue > 0) entry.other += revenue;
+    entry.profit += profit;
+  });
 
   const sortedDates = Array.from(dateMap.keys()).sort();
   const data = sortedDates.map((date) => {
