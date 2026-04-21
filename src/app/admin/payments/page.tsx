@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faRepeat, faPenToSquare, faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { faRepeat, faPenToSquare, faPlus, faTrash, faFileInvoice } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -108,6 +108,7 @@ export default function PaymentsPage() {
     { id: 1, name: "", amount: "", sign: "-", repeat: false },
   ]);
   const [saving, setSaving] = useState(false);
+  const [creatingInvoiceFor, setCreatingInvoiceFor] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [rewardSummary, setRewardSummary] = useState<DriverRewardsSummary | null>(null);
   const [rewardLoading, setRewardLoading] = useState(false);
@@ -220,6 +221,77 @@ export default function PaymentsPage() {
 
   const closeModal = () => {
     setModalDriver(null);
+  };
+
+  const createIncomingInvoiceFromDriver = async (row: DriverPaymentRow) => {
+    if (!canWrite) return;
+    const driverLabel = getDisplayName({
+      name: row.driverName,
+      display_name: row.displayName,
+    });
+    const yyyymm = monthStr.replace("-", "");
+    const invoiceNo = `IN-${yyyymm}-${row.driverId.replace(/-/g, "").slice(0, 4).toUpperCase()}-R00`;
+    const total = Math.max(0, Number(row.net) || 0);
+    const issueDate = monthEndDate;
+
+    const payload = {
+      toName: "株式会社ACE CREATION",
+      toAddr: "",
+      subject: `${monthStr} 業務委託料のご請求`,
+      issueDate: `${issueDate.slice(0, 4)}年${Number(issueDate.slice(5, 7))}月${Number(issueDate.slice(8, 10))}日`,
+      invoiceNo,
+      billAmountDisplay: `¥${total.toLocaleString("ja-JP")}`,
+      fromName: driverLabel,
+      fromAddr: "",
+      fromTel: "",
+      fromReg: "",
+      dueDate: "",
+      bankName: "",
+      bankNo: "",
+      bankHolder: "",
+      notes: "",
+      tableData: {
+        main: [{ title: `${monthStr} 業務委託料`, qty: 1, price: total }],
+        deduct: [],
+      },
+      sectionSelections: {
+        main: "郵便局",
+      },
+      taxSettings: {
+        enabled: false,
+        rate: 10,
+      },
+      parties: {
+        fromParty: `drv-${row.driverId}`,
+        toParty: "ace_creation",
+      },
+    };
+
+    setCreatingInvoiceFor(row.driverId);
+    try {
+      const res = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices", {
+        method: "POST",
+        body: JSON.stringify({
+          month: monthStr,
+          section: "郵便局",
+          clientName: driverLabel,
+          issueDate,
+          invoiceNo,
+          amount: total,
+          status: "draft",
+          payload,
+        }),
+      });
+      if (!res?.invoice?.id) throw new Error("請求書IDが取得できませんでした");
+      window.location.href = `/admin/invoices/new?invoiceId=${encodeURIComponent(
+        res.invoice.id,
+      )}&month=${encodeURIComponent(monthStr)}&direction=incoming&section=${encodeURIComponent("郵便局")}`;
+    } catch (e) {
+      console.error(e);
+      setSaveError(e instanceof Error ? e.message : "請求書の作成に失敗しました");
+    } finally {
+      setCreatingInvoiceFor(null);
+    }
   };
 
   const handleSave = async () => {
@@ -446,14 +518,27 @@ export default function PaymentsPage() {
                           {formatYen(-row.adHocDeductions)}
                         </td>
                         <td className="py-2.5 px-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() => openModal(row)}
-                            className="text-slate-600 hover:text-slate-900 text-xs font-medium"
-                            title="経費を編集"
-                          >
-                            <FontAwesomeIcon icon={faPenToSquare} />
-                          </button>
+                          <div className="inline-flex items-center gap-2">
+                            {canWrite && (
+                              <button
+                                type="button"
+                                disabled={creatingInvoiceFor === row.driverId}
+                                onClick={() => void createIncomingInvoiceFromDriver(row)}
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                                title="自社へ請求の請求書を作成"
+                              >
+                                <FontAwesomeIcon icon={faFileInvoice} className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => openModal(row)}
+                              className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
+                              title="経費を編集"
+                            >
+                              <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                       {isOpen && (
