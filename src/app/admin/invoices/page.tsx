@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan, faEye } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
@@ -276,7 +276,7 @@ export default function InvoicesPage() {
                 <th className="w-[110px] text-left px-3 py-3 font-medium text-slate-600">発行日</th>
                 <th className="w-[110px] text-right px-3 py-3 font-medium text-slate-600">金額</th>
                 <th className="w-[120px] text-center px-3 py-3 font-medium text-slate-600">ステータス</th>
-                <th className="w-[90px] text-right px-3 py-3 font-medium text-slate-600"></th>
+                <th className="w-[130px] text-right px-3 py-3 font-medium text-slate-600"></th>
               </tr>
             </thead>
             <tbody>
@@ -333,6 +333,13 @@ export default function InvoicesPage() {
                             const href = `/admin/invoices/new?invoiceId=${encodeURIComponent(inv.id)}`;
                             return (
                               <div className="inline-flex items-center gap-2">
+                                <a
+                                  href={`/admin/invoices/${encodeURIComponent(inv.id)}/preview`}
+                                  title="プレビュー"
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
+                                >
+                                  <FontAwesomeIcon icon={faEye} className="w-3.5 h-3.5" />
+                                </a>
                                 <a
                                   href={href}
                                   title="編集"
