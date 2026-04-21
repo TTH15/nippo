@@ -296,6 +296,13 @@ export default function PaymentsPage() {
           qty: 1,
           price: Number(x.amount) || 0,
         }));
+      const fixedAllowanceLines = (fixedRes.expenses ?? [])
+        .filter((x) => (Number(x.amount) || 0) < 0)
+        .map((x) => ({
+          title: `${x.name || "固定手当"}（手当）`,
+          qty: 1,
+          price: Math.abs(Number(x.amount) || 0),
+        }));
       const adHocDeductLines = (adHocRes.expenses ?? [])
         .filter((x) => (Number(x.amount) || 0) > 0)
         .map((x) => ({
@@ -303,6 +310,14 @@ export default function PaymentsPage() {
           qty: 1,
           price: Number(x.amount) || 0,
         }));
+      const adHocAllowanceLines = (adHocRes.expenses ?? [])
+        .filter((x) => (Number(x.amount) || 0) < 0)
+        .map((x) => ({
+          title: `${x.name || "当月手当"}（手当）`,
+          qty: 1,
+          price: Math.abs(Number(x.amount) || 0),
+        }));
+      mainLines = [...mainLines, ...fixedAllowanceLines, ...adHocAllowanceLines];
       deductLines = [...fixedDeductLines, ...adHocDeductLines];
       const computedTotal = Math.max(
         0,
