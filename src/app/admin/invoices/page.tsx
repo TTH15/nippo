@@ -333,13 +333,15 @@ export default function InvoicesPage() {
                             const href = `/admin/invoices/new?invoiceId=${encodeURIComponent(inv.id)}`;
                             return (
                               <div className="inline-flex items-center gap-2">
-                                <a
-                                  href={`/admin/invoices/${encodeURIComponent(inv.id)}/preview`}
-                                  title="プレビュー"
-                                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
-                                >
-                                  <FontAwesomeIcon icon={faEye} className="w-3.5 h-3.5" />
-                                </a>
+                                {inv.status === "pending_approval" && (
+                                  <a
+                                    href={`/admin/invoices/${encodeURIComponent(inv.id)}/preview`}
+                                    title="プレビュー"
+                                    className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
+                                  >
+                                    <FontAwesomeIcon icon={faEye} className="w-3.5 h-3.5" />
+                                  </a>
+                                )}
                                 <a
                                   href={href}
                                   title="編集"

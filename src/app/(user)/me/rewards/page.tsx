@@ -52,13 +52,6 @@ type MyInvoice = {
   payload: any;
 };
 
-function invoiceStatusLabel(status: MyInvoice["status"]): string {
-  if (status === "draft") return "下書き";
-  if (status === "pending_approval") return "承認待ち";
-  if (status === "approved") return "承認済";
-  return "入金済";
-}
-
 function currentYearMonth(): { year: number; month: number } {
   const d = new Date();
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
@@ -112,14 +105,17 @@ export default function MeRewardsPage() {
 
   useEffect(() => {
     setInvoicesLoading(true);
-    apiFetch<{ invoices: MyInvoice[] }>(`/api/me/invoices?month=${monthStr}`)
-      .then((res) => setInvoices(res.invoices ?? []))
+    apiFetch<{ invoices: MyInvoice[] }>(`/api/me/invoices`)
+      .then((res) => {
+        const pendingOnly = (res.invoices ?? []).filter((inv) => inv.status === "pending_approval");
+        setInvoices(pendingOnly);
+      })
       .catch((e) => {
         console.error(e);
         setInvoices([]);
       })
       .finally(() => setInvoicesLoading(false));
-  }, [monthStr]);
+  }, []);
 
   const handleAddOptional = async (name: string, amount: number) => {
     setOptionalError(null);
@@ -151,8 +147,8 @@ export default function MeRewardsPage() {
     setApprovingInvoiceId(invoiceId);
     try {
       await apiFetch(`/api/me/invoices/${encodeURIComponent(invoiceId)}/approve`, { method: "POST" });
-      const res = await apiFetch<{ invoices: MyInvoice[] }>(`/api/me/invoices?month=${monthStr}`);
-      setInvoices(res.invoices ?? []);
+      const res = await apiFetch<{ invoices: MyInvoice[] }>(`/api/me/invoices`);
+      setInvoices((res.invoices ?? []).filter((inv) => inv.status === "pending_approval"));
     } catch (e) {
       console.error(e);
     } finally {
@@ -267,18 +263,19 @@ export default function MeRewardsPage() {
             </>
           ) : (
             <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
+              <p className="text-xs text-slate-600">
+                承認待ちの請求書のみ表示しています。内容を確認して承認してください。
+              </p>
               {invoicesLoading ? (
                 <p className="text-xs text-slate-500">読み込み中...</p>
               ) : invoices.length === 0 ? (
-                <p className="text-xs text-slate-500">この月の請求書はありません。</p>
+                <p className="text-xs text-slate-500">現在、承認待ちの請求書はありません。</p>
               ) : (
                 invoices.map((inv) => (
                   <div key={inv.id} className="rounded-md border border-slate-200 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-xs text-slate-600">{inv.invoiceNo || inv.id}</div>
-                      <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                        {invoiceStatusLabel(inv.status)}
-                      </span>
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-amber-50 text-amber-700">承認待ち</span>
                     </div>
                     <div className="mt-1 text-sm font-semibold text-slate-900">
                       {inv.amount.toLocaleString("ja-JP")}円
@@ -291,18 +288,14 @@ export default function MeRewardsPage() {
                       >
                         プレビューを見る
                       </button>
-                      {inv.status === "pending_approval" ? (
-                        <button
-                          type="button"
-                          disabled={approvingInvoiceId === inv.id}
-                          onClick={() => void handleApproveInvoice(inv.id)}
-                          className="rounded-md bg-slate-800 text-white text-sm py-2 disabled:opacity-50"
-                        >
-                          {approvingInvoiceId === inv.id ? "承認中..." : "内容を確認して承認"}
-                        </button>
-                      ) : (
-                        <div />
-                      )}
+                      <button
+                        type="button"
+                        disabled={approvingInvoiceId === inv.id}
+                        onClick={() => void handleApproveInvoice(inv.id)}
+                        className="rounded-md bg-slate-800 text-white text-sm py-2 disabled:opacity-50"
+                      >
+                        {approvingInvoiceId === inv.id ? "承認中..." : "内容を確認して承認"}
+                      </button>
                     </div>
                   </div>
                 ))
