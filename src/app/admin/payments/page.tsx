@@ -233,39 +233,6 @@ export default function PaymentsPage() {
     const issueDate = monthEndDate;
     let mainLines: Array<{ title: string; qty: number; price: number }> = [];
 
-    const payload = {
-      toName: "株式会社ACE CREATION",
-      toAddr: "",
-      subject: `${monthStr} 業務委託料のご請求`,
-      issueDate: `${issueDate.slice(0, 4)}年${Number(issueDate.slice(5, 7))}月${Number(issueDate.slice(8, 10))}日`,
-      invoiceNo,
-      billAmountDisplay: `¥${total.toLocaleString("ja-JP")}`,
-      fromName: driverLabel,
-      fromAddr: "",
-      fromTel: "",
-      fromReg: "",
-      dueDate: "",
-      bankName: "",
-      bankNo: "",
-      bankHolder: "",
-      notes: "",
-      tableData: {
-        main: mainLines,
-        deduct: [],
-      },
-      sectionSelections: {
-        main: "郵便局",
-      },
-      taxSettings: {
-        enabled: false,
-        rate: 10,
-      },
-      parties: {
-        fromParty: `drv-${row.driverId}`,
-        toParty: "ace_creation",
-      },
-    };
-
     setCreatingInvoiceFor(row.driverId);
     try {
       const detail = await apiFetch<{
@@ -320,13 +287,36 @@ export default function PaymentsPage() {
           amount: computedTotal,
           status: "draft",
           payload: {
-            ...payload,
+            toName: "株式会社ACE CREATION",
+            toAddr: "",
+            subject: `${monthStr} 業務委託料のご請求`,
+            issueDate: `${issueDate.slice(0, 4)}年${Number(issueDate.slice(5, 7))}月${Number(issueDate.slice(8, 10))}日`,
+            invoiceNo,
             billAmountDisplay: `¥${computedTotal.toLocaleString("ja-JP")}`,
+            fromName: driverLabel,
             fromAddr,
             fromTel,
+            fromReg: "",
+            dueDate: "",
             bankName,
             bankNo,
             bankHolder,
+            notes: "",
+            tableData: {
+              main: mainLines,
+              deduct: [],
+            },
+            sectionSelections: {
+              main: "郵便局",
+            },
+            taxSettings: {
+              enabled: false,
+              rate: 10,
+            },
+            parties: {
+              fromParty: `drv-${row.driverId}`,
+              toParty: "ace_creation",
+            },
           },
         }),
       });
