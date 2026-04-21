@@ -5,7 +5,7 @@ import { supabase } from "@/server/db/client";
 export const dynamic = "force-dynamic";
 
 type Section = "Amazon" | "ヤマト運輸" | "郵便局";
-type InvoiceStatus = "draft" | "sent" | "paid";
+type InvoiceStatus = "draft" | "pending_approval" | "approved" | "paid";
 type FolderDirection = "outgoing" | "incoming";
 
 function normalizeMonth(monthParam: string | null): string {
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
     clientName: r.client_name ?? "",
     issueDate: r.issue_date ?? "",
     amount: Number(r.amount) || 0,
-    status: (r.status ?? "draft") as InvoiceStatus,
+    status: ((r.status === "sent" ? "pending_approval" : r.status) ?? "draft") as InvoiceStatus,
     invoiceNo: r.invoice_no ?? "",
     counterpartyInvoiceAddressId: r.counterparty_invoice_address_id ?? null,
     updatedAt: r.updated_at ?? null,
@@ -95,7 +95,10 @@ export async function POST(req: NextRequest) {
       ? body.issueDate
       : null;
   const status: InvoiceStatus =
-    body.status === "sent" || body.status === "paid" || body.status === "draft"
+    body.status === "pending_approval" ||
+    body.status === "approved" ||
+    body.status === "paid" ||
+    body.status === "draft"
       ? body.status
       : "draft";
 

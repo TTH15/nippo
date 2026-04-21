@@ -14,7 +14,7 @@ type SavedInvoice = {
   clientName: string;
   issueDate: string;
   amount: number;
-  status: "draft" | "sent" | "paid";
+  status: "draft" | "pending_approval" | "approved" | "paid";
   month?: string;
   section?: "Amazon" | "ヤマト運輸" | "郵便局";
   invoiceNo?: string;
@@ -24,7 +24,8 @@ type SavedInvoice = {
 
 const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }> = {
   draft: { text: "下書き", cls: "bg-slate-100 text-slate-600" },
-  sent: { text: "送付済", cls: "bg-blue-50 text-blue-700" },
+  pending_approval: { text: "承認待ち", cls: "bg-amber-50 text-amber-700" },
+  approved: { text: "承認済", cls: "bg-blue-50 text-blue-700" },
   paid: { text: "入金済", cls: "bg-emerald-50 text-emerald-700" },
 };
 
@@ -250,7 +251,8 @@ export default function InvoicesPage() {
               {([
                 { key: "all", label: "すべて" },
                 { key: "draft", label: "下書き" },
-                { key: "sent", label: "送付済" },
+                { key: "pending_approval", label: "承認待ち" },
+                { key: "approved", label: "承認済" },
                 { key: "paid", label: "入金済" },
               ] as const).map((f) => (
                 <button
@@ -315,7 +317,8 @@ export default function InvoicesPage() {
                             className={`px-2 py-1 rounded text-xs font-medium border border-slate-200 ${s.cls}`}
                           >
                             <option value="draft">下書き</option>
-                            <option value="sent">送付済</option>
+                            <option value="pending_approval">承認待ち</option>
+                            <option value="approved">承認済</option>
                             <option value="paid">入金済</option>
                           </select>
                         ) : (

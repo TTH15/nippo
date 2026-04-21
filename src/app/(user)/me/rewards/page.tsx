@@ -43,6 +43,16 @@ type RewardsSummary = {
   optionalDetails?: OptionalExpenseDetail[];
 };
 
+type MyInvoice = {
+  id: string;
+  month: string;
+  issueDate: string;
+  amount: number;
+  status: "draft" | "pending_approval" | "approved" | "paid";
+  invoiceNo: string;
+  payload: any;
+};
+
 function currentYearMonth(): { year: number; month: number } {
   const d = new Date();
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
@@ -70,6 +80,9 @@ export default function MeRewardsPage() {
   const [optionalSubmitting, setOptionalSubmitting] = useState(false);
   const [optionalError, setOptionalError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [invoices, setInvoices] = useState<MyInvoice[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [approvingInvoiceId, setApprovingInvoiceId] = useState<string | null>(null);
 
   const monthStr = `${rewardMonth.year}-${String(rewardMonth.month).padStart(2, "0")}`;
 
@@ -88,6 +101,17 @@ export default function MeRewardsPage() {
   useEffect(() => {
     loadRewards();
   }, [loadRewards]);
+
+  useEffect(() => {
+    setInvoicesLoading(true);
+    apiFetch<{ invoices: MyInvoice[] }>(`/api/me/invoices?month=${monthStr}`)
+      .then((res) => setInvoices(res.invoices ?? []))
+      .catch((e) => {
+        console.error(e);
+        setInvoices([]);
+      })
+      .finally(() => setInvoicesLoading(false));
+  }, [monthStr]);
 
   const handleAddOptional = async (name: string, amount: number) => {
     setOptionalError(null);
@@ -112,6 +136,19 @@ export default function MeRewardsPage() {
       loadRewards();
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleApproveInvoice = async (invoiceId: string) => {
+    setApprovingInvoiceId(invoiceId);
+    try {
+      await apiFetch(`/api/me/invoices/${encodeURIComponent(invoiceId)}/approve`, { method: "POST" });
+      const res = await apiFetch<{ invoices: MyInvoice[] }>(`/api/me/invoices?month=${monthStr}`);
+      setInvoices(res.invoices ?? []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setApprovingInvoiceId(null);
     }
   };
 
@@ -202,6 +239,68 @@ export default function MeRewardsPage() {
           </div>
 
           <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800 mb-2">請求書確認</h2>
+              {invoicesLoading ? (
+                <p className="text-xs text-slate-500">読み込み中...</p>
+              ) : invoices.length === 0 ? (
+                <p className="text-xs text-slate-500">この月の請求書はありません。</p>
+              ) : (
+                <div className="space-y-3">
+                  {invoices.map((inv) => {
+                    const lines = inv?.payload?.tableData?.main ?? [];
+                    const statusLabel =
+                      inv.status === "draft"
+                        ? "下書き"
+                        : inv.status === "pending_approval"
+                          ? "承認待ち"
+                          : inv.status === "approved"
+                            ? "承認済"
+                            : "入金済";
+                    return (
+                      <div key={inv.id} className="rounded-md border border-slate-200 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs text-slate-600">
+                            {inv.invoiceNo || inv.id}
+                          </div>
+                          <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                            {statusLabel}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-slate-900">
+                          {inv.amount.toLocaleString("ja-JP")}円
+                        </div>
+                        <div className="mt-2 max-h-40 overflow-y-auto text-xs text-slate-700 space-y-1">
+                          {Array.isArray(lines) && lines.length > 0 ? (
+                            lines.map((l: any, i: number) => (
+                              <div key={i} className="flex justify-between gap-2">
+                                <span className="truncate">{l.title || "明細"}</span>
+                                <span className="tabular-nums whitespace-nowrap">
+                                  {(Number(l.qty) || 0).toLocaleString("ja-JP")} x {(Number(l.price) || 0).toLocaleString("ja-JP")}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <span className="text-slate-500">明細がありません</span>
+                          )}
+                        </div>
+                        {inv.status === "pending_approval" && (
+                          <button
+                            type="button"
+                            disabled={approvingInvoiceId === inv.id}
+                            onClick={() => void handleApproveInvoice(inv.id)}
+                            className="mt-3 w-full rounded-md bg-slate-800 text-white text-sm py-2 disabled:opacity-50"
+                          >
+                            {approvingInvoiceId === inv.id ? "承認中..." : "内容を確認して承認"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             <FixedExpenseSection expenses={rewards.fixedDetails} />
 
             <ExpenseSection

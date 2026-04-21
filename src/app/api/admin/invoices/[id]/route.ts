@@ -4,7 +4,7 @@ import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
-type InvoiceStatus = "draft" | "sent" | "paid";
+type InvoiceStatus = "draft" | "pending_approval" | "approved" | "paid";
 
 function bumpInvoiceRevision(invoiceNo: string) {
   const base = String(invoiceNo || "").trim();
@@ -43,7 +43,7 @@ export async function GET(
       clientName: data.client_name,
       issueDate: data.issue_date,
       amount: Number(data.amount) || 0,
-      status: data.status as InvoiceStatus,
+      status: ((data.status as string) === "sent" ? "pending_approval" : data.status) as InvoiceStatus,
       invoiceNo: data.invoice_no,
       counterpartyInvoiceAddressId: data.counterparty_invoice_address_id,
       payload: data.payload ?? {},
@@ -82,7 +82,7 @@ export async function PATCH(
   } else if (body.issueDate === null) {
     updates.issue_date = null;
   }
-  if (body.status === "draft" || body.status === "sent" || body.status === "paid") {
+  if (body.status === "draft" || body.status === "pending_approval" || body.status === "approved" || body.status === "paid") {
     updates.status = body.status;
   }
   if (typeof body.section === "string" && (body.section === "Amazon" || body.section === "ヤマト運輸" || body.section === "郵便局")) {
@@ -127,7 +127,7 @@ export async function PATCH(
       clientName: data.client_name,
       issueDate: data.issue_date,
       amount: Number(data.amount) || 0,
-      status: data.status as InvoiceStatus,
+      status: ((data.status as string) === "sent" ? "pending_approval" : data.status) as InvoiceStatus,
       invoiceNo: data.invoice_no,
       counterpartyInvoiceAddressId: data.counterparty_invoice_address_id,
       payload: data.payload ?? {},

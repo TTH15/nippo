@@ -614,10 +614,12 @@ async function persistInvoiceDocument(data, options = {}) {
             issueDate: toIsoDateFromJp(data.issueDate),
             invoiceNo: data.invoiceNo || '',
             amount: parseAmountFromDisplay(data.billAmountDisplay),
-            status: 'draft',
             payload: data,
             markEdited: options.markEdited === true,
         };
+        if (!currentInvoiceId || options.createVersion) {
+            body.status = 'draft';
+        }
         if (currentInvoiceId && !options.createVersion) {
             await apiFetchWithBody(`/api/admin/invoices/${currentInvoiceId}`, {
                 method: 'PATCH',
