@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { ExpenseSection } from "@/lib/components/ExpenseSection";
 import { FixedExpenseSection } from "@/lib/components/FixedExpenseSection";
@@ -53,6 +52,13 @@ type MyInvoice = {
   payload: any;
 };
 
+function invoiceStatusLabel(status: MyInvoice["status"]): string {
+  if (status === "draft") return "下書き";
+  if (status === "pending_approval") return "承認待ち";
+  if (status === "approved") return "承認済";
+  return "入金済";
+}
+
 function currentYearMonth(): { year: number; month: number } {
   const d = new Date();
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
@@ -83,6 +89,8 @@ export default function MeRewardsPage() {
   const [invoices, setInvoices] = useState<MyInvoice[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [approvingInvoiceId, setApprovingInvoiceId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"rewards" | "invoices">("rewards");
+  const [previewInvoice, setPreviewInvoice] = useState<MyInvoice | null>(null);
 
   const monthStr = `${rewardMonth.year}-${String(rewardMonth.month).padStart(2, "0")}`;
 
@@ -195,112 +203,114 @@ export default function MeRewardsPage() {
         <p className="text-sm text-slate-500">報酬情報を取得できませんでした</p>
       ) : (
         <div className="space-y-4">
-          <PaymentSummary
-            income={rewards.incomeLog}
-            companyExpenses={rewards.fixedDeductions}
-            customExpenses={rewards.optionalDeductions ?? 0}
-            selectedDate={new Date(rewardMonth.year, rewardMonth.month - 1, 1)}
-          />
-
-          <div className="bg-white rounded-lg border border-slate-200 p-4">
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
             <button
               type="button"
-              onClick={() => setDetailsOpen((o) => !o)}
-              className="flex items-center justify-between w-full text-left py-1 text-sm font-semibold text-slate-800 hover:text-slate-900"
+              onClick={() => setActiveTab("rewards")}
+              className={`px-3 py-1.5 text-sm rounded-md ${activeTab === "rewards" ? "bg-slate-800 text-white" : "text-slate-600"}`}
             >
-              <span>詳細</span>
-              <span className="text-slate-400">{detailsOpen ? "▲" : "▼"}</span>
+              報酬明細
             </button>
-            {detailsOpen && (() => {
-              const details = mergedDetails(rewards);
-              return (
-              <div className="mt-3 pt-3 border-t border-slate-100 space-y-2 text-sm text-slate-700">
-                {details.length === 0 ? (
-                  <p className="text-slate-500">この月の明細はありません</p>
-                ) : (
-                  details.map((l, idx) => (
-                    <div key={`${l.log_date}-${l.type_name}-${idx}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
-                      <span className="text-slate-600 font-medium">
-                        {(() => {
-                          const [y, m, d] = l.log_date.split("-").map(Number);
-                          return `${m}月${d}日`;
-                        })()}
-                      </span>
-                      <span className="text-slate-800">{l.content || l.type_name || "—"}</span>
-                      <span className="text-slate-900 font-semibold">
-                        {l.amount >= 0 ? `${l.amount.toLocaleString("ja-JP")}円` : `-${Math.abs(l.amount).toLocaleString("ja-JP")}円`}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-              );
-            })()}
+            <button
+              type="button"
+              onClick={() => setActiveTab("invoices")}
+              className={`px-3 py-1.5 text-sm rounded-md ${activeTab === "invoices" ? "bg-slate-800 text-white" : "text-slate-600"}`}
+            >
+              請求書確認
+            </button>
           </div>
 
-          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-800 mb-2">請求書確認</h2>
+          {activeTab === "rewards" ? (
+            <>
+              <PaymentSummary
+                income={rewards.incomeLog}
+                companyExpenses={rewards.fixedDeductions}
+                customExpenses={rewards.optionalDeductions ?? 0}
+                selectedDate={new Date(rewardMonth.year, rewardMonth.month - 1, 1)}
+              />
+
+              <div className="bg-white rounded-lg border border-slate-200 p-4">
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen((o) => !o)}
+                  className="flex items-center justify-between w-full text-left py-1 text-sm font-semibold text-slate-800 hover:text-slate-900"
+                >
+                  <span>詳細</span>
+                  <span className="text-slate-400">{detailsOpen ? "▲" : "▼"}</span>
+                </button>
+                {detailsOpen && (() => {
+                  const details = mergedDetails(rewards);
+                  return (
+                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-2 text-sm text-slate-700">
+                    {details.length === 0 ? (
+                      <p className="text-slate-500">この月の明細はありません</p>
+                    ) : (
+                      details.map((l, idx) => (
+                        <div key={`${l.log_date}-${l.type_name}-${idx}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
+                          <span className="text-slate-600 font-medium">
+                            {(() => {
+                              const [y, m, d] = l.log_date.split("-").map(Number);
+                              return `${m}月${d}日`;
+                            })()}
+                          </span>
+                          <span className="text-slate-800">{l.content || l.type_name || "—"}</span>
+                          <span className="text-slate-900 font-semibold">
+                            {l.amount >= 0 ? `${l.amount.toLocaleString("ja-JP")}円` : `-${Math.abs(l.amount).toLocaleString("ja-JP")}円`}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  );
+                })()}
+              </div>
+            </>
+          ) : (
+            <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
               {invoicesLoading ? (
                 <p className="text-xs text-slate-500">読み込み中...</p>
               ) : invoices.length === 0 ? (
                 <p className="text-xs text-slate-500">この月の請求書はありません。</p>
               ) : (
-                <div className="space-y-3">
-                  {invoices.map((inv) => {
-                    const lines = inv?.payload?.tableData?.main ?? [];
-                    const statusLabel =
-                      inv.status === "draft"
-                        ? "下書き"
-                        : inv.status === "pending_approval"
-                          ? "承認待ち"
-                          : inv.status === "approved"
-                            ? "承認済"
-                            : "入金済";
-                    return (
-                      <div key={inv.id} className="rounded-md border border-slate-200 p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-xs text-slate-600">
-                            {inv.invoiceNo || inv.id}
-                          </div>
-                          <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                            {statusLabel}
-                          </span>
-                        </div>
-                        <div className="mt-1 text-sm font-semibold text-slate-900">
-                          {inv.amount.toLocaleString("ja-JP")}円
-                        </div>
-                        <div className="mt-2 max-h-40 overflow-y-auto text-xs text-slate-700 space-y-1">
-                          {Array.isArray(lines) && lines.length > 0 ? (
-                            lines.map((l: any, i: number) => (
-                              <div key={i} className="flex justify-between gap-2">
-                                <span className="truncate">{l.title || "明細"}</span>
-                                <span className="tabular-nums whitespace-nowrap">
-                                  {(Number(l.qty) || 0).toLocaleString("ja-JP")} x {(Number(l.price) || 0).toLocaleString("ja-JP")}
-                                </span>
-                              </div>
-                            ))
-                          ) : (
-                            <span className="text-slate-500">明細がありません</span>
-                          )}
-                        </div>
-                        {inv.status === "pending_approval" && (
-                          <button
-                            type="button"
-                            disabled={approvingInvoiceId === inv.id}
-                            onClick={() => void handleApproveInvoice(inv.id)}
-                            className="mt-3 w-full rounded-md bg-slate-800 text-white text-sm py-2 disabled:opacity-50"
-                          >
-                            {approvingInvoiceId === inv.id ? "承認中..." : "内容を確認して承認"}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                invoices.map((inv) => (
+                  <div key={inv.id} className="rounded-md border border-slate-200 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs text-slate-600">{inv.invoiceNo || inv.id}</div>
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                        {invoiceStatusLabel(inv.status)}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">
+                      {inv.amount.toLocaleString("ja-JP")}円
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewInvoice(inv)}
+                        className="rounded-md border border-slate-300 text-slate-700 text-sm py-2"
+                      >
+                        プレビューを見る
+                      </button>
+                      {inv.status === "pending_approval" ? (
+                        <button
+                          type="button"
+                          disabled={approvingInvoiceId === inv.id}
+                          onClick={() => void handleApproveInvoice(inv.id)}
+                          className="rounded-md bg-slate-800 text-white text-sm py-2 disabled:opacity-50"
+                        >
+                          {approvingInvoiceId === inv.id ? "承認中..." : "内容を確認して承認"}
+                        </button>
+                      ) : (
+                        <div />
+                      )}
+                    </div>
+                  </div>
+                ))
               )}
             </div>
+          )}
 
+          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4">
             <FixedExpenseSection expenses={rewards.fixedDetails} />
 
             <ExpenseSection
@@ -310,6 +320,55 @@ export default function MeRewardsPage() {
               submitting={optionalSubmitting}
               error={optionalError}
             />
+          </div>
+        </div>
+      )}
+
+      {previewInvoice && (
+        <div className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center">
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white rounded-lg shadow-lg">
+            <div className="p-3 border-b border-slate-200 flex items-center justify-between">
+              <div className="text-sm font-semibold text-slate-900">請求書プレビュー（編集不可）</div>
+              <button type="button" onClick={() => setPreviewInvoice(null)} className="text-sm text-slate-500">
+                閉じる
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="border border-slate-200 rounded-md p-4 space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <div>
+                    <div className="font-semibold">{previewInvoice?.payload?.fromName || "請求元"}</div>
+                    <div className="text-xs text-slate-600" dangerouslySetInnerHTML={{ __html: previewInvoice?.payload?.fromAddr || "" }} />
+                  </div>
+                  <div className="text-right text-xs text-slate-600">
+                    <div>請求日: {previewInvoice?.payload?.issueDate || "-"}</div>
+                    <div>請求書番号: {previewInvoice?.invoiceNo || "-"}</div>
+                  </div>
+                </div>
+                <div className="font-semibold text-base">
+                  請求額 {previewInvoice.amount.toLocaleString("ja-JP")}円
+                </div>
+                <div className="space-y-1">
+                  {(previewInvoice?.payload?.tableData?.main ?? []).map((l: any, i: number) => (
+                    <div key={`m-${i}`} className="flex justify-between text-xs">
+                      <span>{l?.title || "明細"}</span>
+                      <span>{Number(l?.qty || 0).toLocaleString("ja-JP")} x {Number(l?.price || 0).toLocaleString("ja-JP")}円</span>
+                    </div>
+                  ))}
+                </div>
+                {(previewInvoice?.payload?.tableData?.deduct ?? []).length > 0 && (
+                  <div className="pt-2 border-t border-slate-100 space-y-1">
+                    <div className="text-xs font-semibold text-slate-700">控除</div>
+                    {(previewInvoice?.payload?.tableData?.deduct ?? []).map((l: any, i: number) => (
+                      <div key={`d-${i}`} className="flex justify-between text-xs">
+                        <span>{l?.title || "控除"}</span>
+                        <span>{Number(l?.qty || 0).toLocaleString("ja-JP")} x {Number(l?.price || 0).toLocaleString("ja-JP")}円</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

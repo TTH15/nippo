@@ -6,6 +6,15 @@ export const dynamic = "force-dynamic";
 
 type InvoiceStatus = "draft" | "pending_approval" | "approved" | "paid";
 
+function extractIncomingDriverParty(payload: Record<string, unknown> | undefined): string | null {
+  const parties = (payload as any)?.parties;
+  if (!parties) return null;
+  if (parties.toParty !== "ace_creation") return null;
+  const fromParty = String(parties.fromParty ?? "");
+  if (!fromParty.startsWith("drv-")) return null;
+  return fromParty;
+}
+
 function bumpInvoiceRevision(invoiceNo: string) {
   const base = String(invoiceNo || "").trim();
   if (!base) return "INV-MANUAL-R01";
@@ -65,6 +74,45 @@ export async function PATCH(
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const desiredStatus = body.status;
+  if (desiredStatus === "pending_approval") {
+    const { data: current, error: curErr } = await supabase
+      .from("invoice_documents")
+      .select("id, payload")
+      .eq("id", id)
+      .eq("company_code", user.companyCode)
+      .maybeSingle();
+    if (curErr || !current) {
+      return NextResponse.json({ error: "請求書の更新に失敗しました" }, { status: 500 });
+    }
+    const nextPayload =
+      body.payload && typeof body.payload === "object"
+        ? (body.payload as Record<string, unknown>)
+        : ((current.payload as Record<string, unknown>) ?? {});
+    const incomingDriverParty = extractIncomingDriverParty(nextPayload);
+    if (incomingDriverParty) {
+      const { data: existing, error: pendingErr } = await supabase
+        .from("invoice_documents")
+        .select("id")
+        .eq("company_code", user.companyCode)
+        .eq("status", "pending_approval")
+        .eq("payload->parties->>toParty", "ace_creation")
+        .eq("payload->parties->>fromParty", incomingDriverParty)
+        .neq("id", id)
+        .limit(1)
+        .maybeSingle();
+      if (pendingErr) {
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      if (existing?.id) {
+        return NextResponse.json(
+          { error: "このドライバーには既に承認待ちの請求書があります。" },
+          { status: 409 },
+        );
+      }
+    }
   }
 
   const updates: Record<string, unknown> = {

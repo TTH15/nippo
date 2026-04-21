@@ -27,6 +27,15 @@ type SaveBody = {
   payload?: Record<string, unknown>;
 };
 
+function extractIncomingDriverParty(payload: Record<string, unknown> | undefined): string | null {
+  const parties = (payload as any)?.parties;
+  if (!parties) return null;
+  if (parties.toParty !== "ace_creation") return null;
+  const fromParty = String(parties.fromParty ?? "");
+  if (!fromParty.startsWith("drv-")) return null;
+  return fromParty;
+}
+
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
@@ -101,6 +110,29 @@ export async function POST(req: NextRequest) {
     body.status === "draft"
       ? body.status
       : "draft";
+  const incomingDriverParty = extractIncomingDriverParty(body.payload);
+
+  if (status === "pending_approval" && incomingDriverParty) {
+    const { data: existing, error: pendingErr } = await supabase
+      .from("invoice_documents")
+      .select("id")
+      .eq("company_code", user.companyCode)
+      .eq("status", "pending_approval")
+      .eq("payload->parties->>toParty", "ace_creation")
+      .eq("payload->parties->>fromParty", incomingDriverParty)
+      .limit(1)
+      .maybeSingle();
+    if (pendingErr) {
+      console.error(pendingErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    if (existing?.id) {
+      return NextResponse.json(
+        { error: "このドライバーには既に承認待ちの請求書があります。" },
+        { status: 409 },
+      );
+    }
+  }
 
   const insertRow = {
     company_code: user.companyCode,
