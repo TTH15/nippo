@@ -1121,10 +1121,16 @@ textarea {
 }
 
 /* readonly preview: PDF表示に寄せる */
+html.readonly-preview body,
 body.readonly-preview {
     background: #fff;
 }
 
+html.readonly-preview .control-bar,
+html.readonly-preview .invoice-parties-container,
+html.readonly-preview .row .chip,
+html.readonly-preview .add-row-btn,
+html.readonly-preview .hide-print,
 body.readonly-preview .control-bar,
 body.readonly-preview .invoice-parties-container,
 body.readonly-preview .row .chip,
@@ -1133,16 +1139,19 @@ body.readonly-preview .hide-print {
     display: none !important;
 }
 
+html.readonly-preview .wrap,
 body.readonly-preview .wrap {
     padding: 0;
 }
 
+html.readonly-preview .preview,
 body.readonly-preview .preview {
     border: none;
     border-radius: 0;
     box-shadow: none;
 }
 
+html.readonly-preview .section-select,
 body.readonly-preview .section-select {
     background-image: none !important;
     padding-right: 8px !important;
@@ -1150,11 +1159,38 @@ body.readonly-preview .section-select {
     pointer-events: none !important;
 }
 
+html.readonly-preview .editable,
+html.readonly-preview .editable-cell,
 body.readonly-preview .editable,
 body.readonly-preview .editable-cell {
     outline: none !important;
     box-shadow: none !important;
     background: transparent !important;
+}
+
+/* モバイル readonly では帳票を横幅に合わせて余白を減らす */
+@media (max-width: 768px) {
+  html.readonly-preview .preview-wrap,
+  body.readonly-preview .preview-wrap {
+    padding: 0;
+    width: 100%;
+  }
+
+  html.readonly-preview .preview,
+  body.readonly-preview .preview {
+    width: 100vw;
+    height: calc(100vw * 297 / 210);
+    margin: 0 auto;
+    overflow: hidden;
+  }
+
+  html.readonly-preview .sheet,
+  body.readonly-preview .sheet {
+    width: 100%;
+    height: 100%;
+    padding: 6.06% 7.62% 5.39% 7.62%;
+    box-sizing: border-box;
+  }
 }
 
 /* ==============================================
