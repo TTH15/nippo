@@ -1670,7 +1670,11 @@ async function initializeApp() {
     applyRecipientFromSection();
     const loadedInvoice = await loadSavedInvoiceFromApi();
     const prefilled = loadedInvoice ? true : await loadInvoiceDraftFromApi();
-    await applyPrincipalFromQuery();
+    // 既存請求書を開いたときは保存済みの請求元を優先し、
+    // 月次デフォルトの請求元（元請け）自動設定で上書きしない
+    if (!loadedInvoice) {
+        await applyPrincipalFromQuery();
+    }
     syncPartiesToInvoice();
 
     // 初期テーブル行を追加（明細をDBから読み込めた場合は不要）

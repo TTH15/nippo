@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
     .from("drivers")
     .select(`
       id, name, display_name, role, office_code, driver_code, list_no, license_expiry_date,
+      postal_code, address, phone, bank_name, bank_no, bank_holder,
       driver_identities (
         id, slot, driver_code, office_code, label,
         driver_courses (
