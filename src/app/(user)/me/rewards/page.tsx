@@ -83,7 +83,7 @@ export default function MeRewardsPage() {
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [approvingInvoiceId, setApprovingInvoiceId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"rewards" | "invoices">("rewards");
-  const [previewInvoice, setPreviewInvoice] = useState<MyInvoice | null>(null);
+  const [previewInvoiceId, setPreviewInvoiceId] = useState<string | null>(null);
 
   const monthStr = `${rewardMonth.year}-${String(rewardMonth.month).padStart(2, "0")}`;
 
@@ -283,7 +283,7 @@ export default function MeRewardsPage() {
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        onClick={() => setPreviewInvoice(inv)}
+                        onClick={() => setPreviewInvoiceId(inv.id)}
                         className="rounded-md border border-slate-300 text-slate-700 text-sm py-2"
                       >
                         プレビューを見る
@@ -317,51 +317,21 @@ export default function MeRewardsPage() {
         </div>
       )}
 
-      {previewInvoice && (
+      {previewInvoiceId && (
         <div className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center">
-          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white rounded-lg shadow-lg">
+          <div className="w-full max-w-5xl h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="p-3 border-b border-slate-200 flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-900">請求書プレビュー（編集不可）</div>
-              <button type="button" onClick={() => setPreviewInvoice(null)} className="text-sm text-slate-500">
+              <div className="text-sm font-semibold text-slate-900">請求書プレビュー</div>
+              <button type="button" onClick={() => setPreviewInvoiceId(null)} className="text-sm text-slate-500">
                 閉じる
               </button>
             </div>
-            <div className="p-4">
-              <div className="border border-slate-200 rounded-md p-4 space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <div>
-                    <div className="font-semibold">{previewInvoice?.payload?.fromName || "請求元"}</div>
-                    <div className="text-xs text-slate-600" dangerouslySetInnerHTML={{ __html: previewInvoice?.payload?.fromAddr || "" }} />
-                  </div>
-                  <div className="text-right text-xs text-slate-600">
-                    <div>請求日: {previewInvoice?.payload?.issueDate || "-"}</div>
-                    <div>請求書番号: {previewInvoice?.invoiceNo || "-"}</div>
-                  </div>
-                </div>
-                <div className="font-semibold text-base">
-                  請求額 {previewInvoice.amount.toLocaleString("ja-JP")}円
-                </div>
-                <div className="space-y-1">
-                  {(previewInvoice?.payload?.tableData?.main ?? []).map((l: any, i: number) => (
-                    <div key={`m-${i}`} className="flex justify-between text-xs">
-                      <span>{l?.title || "明細"}</span>
-                      <span>{Number(l?.qty || 0).toLocaleString("ja-JP")} x {Number(l?.price || 0).toLocaleString("ja-JP")}円</span>
-                    </div>
-                  ))}
-                </div>
-                {(previewInvoice?.payload?.tableData?.deduct ?? []).length > 0 && (
-                  <div className="pt-2 border-t border-slate-100 space-y-1">
-                    <div className="text-xs font-semibold text-slate-700">控除</div>
-                    {(previewInvoice?.payload?.tableData?.deduct ?? []).map((l: any, i: number) => (
-                      <div key={`d-${i}`} className="flex justify-between text-xs">
-                        <span>{l?.title || "控除"}</span>
-                        <span>{Number(l?.qty || 0).toLocaleString("ja-JP")} x {Number(l?.price || 0).toLocaleString("ja-JP")}円</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <iframe
+              src={`/invoice/index.html?invoiceId=${encodeURIComponent(previewInvoiceId)}&readonly=1&scope=me`}
+              className="w-full border-0"
+              style={{ height: "calc(90vh - 49px)" }}
+              title="請求書プレビュー"
+            />
           </div>
         </div>
       )}

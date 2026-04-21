@@ -4,6 +4,7 @@ let currentInvoiceId = null;
 let saveTimer = null;
 let isManualSaving = false;
 const IS_READONLY_PREVIEW = new URLSearchParams(window.location.search).get('readonly') === '1';
+const INVOICE_SCOPE = new URLSearchParams(window.location.search).get('scope') || 'admin';
 
 // ACE CREATIONの固定情報
 const ACE_CREATION = {
@@ -664,6 +665,7 @@ async function persistInvoiceDocument(data, options = {}) {
 
 function applyReadonlyPreviewMode() {
     if (!IS_READONLY_PREVIEW) return;
+    document.body.classList.add('readonly-preview');
     const hideSelectors = [
         '#saveBtn',
         '#addressBookBtn',
@@ -1496,7 +1498,11 @@ async function loadSavedInvoiceFromApi() {
         const params = new URLSearchParams(window.location.search);
         const invoiceId = params.get('invoiceId');
         if (!invoiceId) return null;
-        const res = await apiFetch(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`);
+        const endpoint =
+            INVOICE_SCOPE === 'me'
+                ? `/api/me/invoices/${encodeURIComponent(invoiceId)}`
+                : `/api/admin/invoices/${encodeURIComponent(invoiceId)}`;
+        const res = await apiFetch(endpoint);
         currentInvoiceId = res?.invoice?.id || invoiceId;
         const invoice = res?.invoice || null;
         if (!invoice) return null;

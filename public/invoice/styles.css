@@ -1120,6 +1120,43 @@ textarea {
     display: block;
 }
 
+/* readonly preview: PDF表示に寄せる */
+body.readonly-preview {
+    background: #fff;
+}
+
+body.readonly-preview .control-bar,
+body.readonly-preview .invoice-parties-container,
+body.readonly-preview .row .chip,
+body.readonly-preview .add-row-btn,
+body.readonly-preview .hide-print {
+    display: none !important;
+}
+
+body.readonly-preview .wrap {
+    padding: 0;
+}
+
+body.readonly-preview .preview {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+body.readonly-preview .section-select {
+    background-image: none !important;
+    padding-right: 8px !important;
+    appearance: none !important;
+    pointer-events: none !important;
+}
+
+body.readonly-preview .editable,
+body.readonly-preview .editable-cell {
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+
 /* ==============================================
    宛名エリアのスタイル
    ============================================== */
