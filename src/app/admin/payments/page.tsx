@@ -232,6 +232,7 @@ export default function PaymentsPage() {
     const total = Math.max(0, Number(row.incomeLog) || 0);
     const issueDate = monthEndDate;
     let mainLines: Array<{ title: string; qty: number; price: number }> = [];
+    let deductLines: Array<{ title: string; qty: number; price: number }> = [];
 
     setCreatingInvoiceFor(row.driverId);
     try {
@@ -271,9 +272,35 @@ export default function PaymentsPage() {
       if (mainLines.length === 0) {
         mainLines = [{ title: `${monthStr} 業務委託料`, qty: 1, price: total }];
       }
+      const [fixedRes, adHocRes] = await Promise.all([
+        apiFetch<{ expenses: FixedExpense[] }>(
+          `/api/admin/driver-expenses?driver_id=${encodeURIComponent(row.driverId)}`,
+        ),
+        apiFetch<{ expenses: AdHocExpense[] }>(
+          `/api/admin/driver-ad-hoc-expenses?driver_id=${encodeURIComponent(
+            row.driverId,
+          )}&month=${encodeURIComponent(monthStr)}`,
+        ),
+      ]);
+      const fixedDeductLines = (fixedRes.expenses ?? [])
+        .filter((x) => (Number(x.amount) || 0) > 0)
+        .map((x) => ({
+          title: x.name || "固定控除",
+          qty: 1,
+          price: Number(x.amount) || 0,
+        }));
+      const adHocDeductLines = (adHocRes.expenses ?? [])
+        .filter((x) => (Number(x.amount) || 0) > 0)
+        .map((x) => ({
+          title: x.name || "当月控除",
+          qty: 1,
+          price: Number(x.amount) || 0,
+        }));
+      deductLines = [...fixedDeductLines, ...adHocDeductLines];
       const computedTotal = Math.max(
         0,
-        mainLines.reduce((sum, x) => sum + (Number(x.qty) || 0) * (Number(x.price) || 0), 0),
+        mainLines.reduce((sum, x) => sum + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) -
+          deductLines.reduce((sum, x) => sum + (Number(x.qty) || 0) * (Number(x.price) || 0), 0),
       );
 
       const res = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices", {
@@ -304,7 +331,7 @@ export default function PaymentsPage() {
             notes: "",
             tableData: {
               main: mainLines,
-              deduct: [],
+              deduct: deductLines,
             },
             sectionSelections: {
               main: "郵便局",
