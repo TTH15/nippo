@@ -229,37 +229,9 @@ export default function PaymentsPage() {
     const driverLabel = row.driverName;
     const yyyymm = monthStr.replace("-", "");
     const invoiceNo = `IN-${yyyymm}-${row.driverId.replace(/-/g, "").slice(0, 4).toUpperCase()}-R00`;
-    const total = Math.max(0, Number(row.net) || 0);
+    const total = Math.max(0, Number(row.incomeLog) || 0);
     const issueDate = monthEndDate;
-    const mainLines: Array<{ title: string; qty: number; price: number }> = [];
-    if ((Number(row.yamatoIncome) || 0) > 0) {
-      mainLines.push({
-        title: `${monthStr} ヤマト（宅急便・ネコポス）`,
-        qty: 1,
-        price: Number(row.yamatoIncome) || 0,
-      });
-    }
-    if ((Number(row.amazonIncome) || 0) > 0) {
-      mainLines.push({
-        title: `${monthStr} Amazon`,
-        qty: 1,
-        price: Number(row.amazonIncome) || 0,
-      });
-    }
-    if ((Number(row.otherIncome) || 0) > 0) {
-      mainLines.push({
-        title: `${monthStr} その他`,
-        qty: 1,
-        price: Number(row.otherIncome) || 0,
-      });
-    }
-    if (mainLines.length === 0) {
-      mainLines.push({
-        title: `${monthStr} 業務委託料`,
-        qty: 1,
-        price: total,
-      });
-    }
+    let mainLines: Array<{ title: string; qty: number; price: number }> = [];
 
     const payload = {
       toName: "株式会社ACE CREATION",
@@ -314,6 +286,28 @@ export default function PaymentsPage() {
       const bankName = d?.bank_name?.trim() ?? "";
       const bankNo = d?.bank_no?.trim() ?? "";
       const bankHolder = d?.bank_holder?.trim() ?? "";
+      const breakdown = await apiFetch<{
+        lines: Array<{ title: string; qty: number; unitPrice: number; amount: number }>;
+        total: number;
+      }>(
+        `/api/admin/payments/driver-breakdown?driver_id=${encodeURIComponent(
+          row.driverId,
+        )}&month=${encodeURIComponent(monthStr)}`,
+      );
+      mainLines = (breakdown.lines ?? [])
+        .filter((x) => (Number(x.qty) || 0) > 0 && (Number(x.unitPrice) || 0) > 0)
+        .map((x) => ({
+          title: x.title,
+          qty: Number(x.qty) || 0,
+          price: Number(x.unitPrice) || 0,
+        }));
+      if (mainLines.length === 0) {
+        mainLines = [{ title: `${monthStr} 業務委託料`, qty: 1, price: total }];
+      }
+      const computedTotal = Math.max(
+        0,
+        mainLines.reduce((sum, x) => sum + (Number(x.qty) || 0) * (Number(x.price) || 0), 0),
+      );
 
       const res = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices", {
         method: "POST",
@@ -323,10 +317,11 @@ export default function PaymentsPage() {
           clientName: driverLabel,
           issueDate,
           invoiceNo,
-          amount: total,
+          amount: computedTotal,
           status: "draft",
           payload: {
             ...payload,
+            billAmountDisplay: `¥${computedTotal.toLocaleString("ja-JP")}`,
             fromAddr,
             fromTel,
             bankName,
