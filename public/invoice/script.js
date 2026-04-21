@@ -608,7 +608,9 @@ async function persistInvoiceDocument(data, options = {}) {
             month: /^\d{4}-\d{2}$/.test(month) ? month : undefined,
             section,
             counterpartyInvoiceAddressId,
-            clientName: data.toName || '',
+            // 一覧フォルダの取引先名は「相手先」で統一する。
+            // incoming（toParty=ace_creation）の場合は請求元（fromName）を保存する。
+            clientName: data?.parties?.toParty === 'ace_creation' ? (data.fromName || '') : (data.toName || ''),
             issueDate: toIsoDateFromJp(data.issueDate),
             invoiceNo: data.invoiceNo || '',
             amount: parseAmountFromDisplay(data.billAmountDisplay),
