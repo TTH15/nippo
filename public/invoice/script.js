@@ -3,6 +3,7 @@ const fmt = (n, cur) => (cur || "¥") + Number(n || 0).toLocaleString();
 let currentInvoiceId = null;
 let saveTimer = null;
 let isManualSaving = false;
+const IS_READONLY_PREVIEW = new URLSearchParams(window.location.search).get('readonly') === '1';
 
 // ACE CREATIONの固定情報
 const ACE_CREATION = {
@@ -516,6 +517,7 @@ async function downloadPDF() {
 
 // 新しいsaveData関数（プレビューから直接データを取得）
 function saveData() {
+    if (IS_READONLY_PREVIEW) return;
     const data = {
         // ヘッダー情報
         toName: q('#p_toCompany')?.textContent || '',
@@ -561,6 +563,7 @@ function saveData() {
 }
 
 function queuePersistInvoice(data) {
+    if (IS_READONLY_PREVIEW) return;
     if (isManualSaving) return;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -597,6 +600,7 @@ function bumpInvoiceRevision(invoiceNo) {
 }
 
 async function persistInvoiceDocument(data, options = {}) {
+    if (IS_READONLY_PREVIEW) return;
     try {
         const params = new URLSearchParams(window.location.search);
         const month = params.get('month') || '';
@@ -656,6 +660,32 @@ async function persistInvoiceDocument(data, options = {}) {
     } catch (e) {
         console.warn('請求書データの保存に失敗しました:', e);
     }
+}
+
+function applyReadonlyPreviewMode() {
+    if (!IS_READONLY_PREVIEW) return;
+    const hideSelectors = [
+        '#saveBtn',
+        '#addressBookBtn',
+        '#swapPartiesBtn',
+        '.add-row-btn',
+        '.btn.small.hide-print',
+    ];
+    hideSelectors.forEach((sel) => {
+        document.querySelectorAll(sel).forEach((el) => {
+            el.style.display = 'none';
+        });
+    });
+
+    document.querySelectorAll('[contenteditable="true"]').forEach((el) => {
+        el.setAttribute('contenteditable', 'false');
+    });
+    document.querySelectorAll('input, select, textarea, button').forEach((el) => {
+        const id = el.id || '';
+        if (id === 'pdfBtn' || id === 'printBtn') return;
+        if (el.classList?.contains('modal-close')) return;
+        el.setAttribute('disabled', 'disabled');
+    });
 }
 
 function toIsoDateFromJp(s) {
@@ -1786,6 +1816,7 @@ function setupHonorificSelector() {
 // 初期化
 async function initialize() {
     await initializeApp();
+    applyReadonlyPreviewMode();
     setupHonorificSelector();
     render();
 }
