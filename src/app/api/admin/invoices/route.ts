@@ -53,10 +53,12 @@ export async function GET(req: NextRequest) {
       r?.payload?.parties?.toParty === "ace_creation"
         ? ("incoming" as FolderDirection)
         : ("outgoing" as FolderDirection),
+    // 一覧上の取引先名は DB の client_name を正とする（表示名揺れを避ける）
     counterpartyName:
-      r?.payload?.parties?.toParty === "ace_creation"
-        ? (r?.payload?.fromName ?? r?.client_name ?? "未設定")
-        : (r?.payload?.toName ?? r?.client_name ?? "未設定"),
+      (typeof r?.client_name === "string" && r.client_name.trim()) ||
+      (r?.payload?.parties?.toParty === "ace_creation"
+        ? (r?.payload?.fromName ?? "未設定")
+        : (r?.payload?.toName ?? "未設定")),
     id: r.id,
     month: r.month_yyyy_mm,
     section: r.section as Section,

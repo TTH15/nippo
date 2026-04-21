@@ -225,10 +225,8 @@ export default function PaymentsPage() {
 
   const createIncomingInvoiceFromDriver = async (row: DriverPaymentRow) => {
     if (!canWrite) return;
-    const driverLabel = getDisplayName({
-      name: row.driverName,
-      display_name: row.displayName,
-    });
+    // 請求書の取引先キーは本名で統一（表示名だと同一人物が分裂する）
+    const driverLabel = row.driverName;
     const yyyymm = monthStr.replace("-", "");
     const invoiceNo = `IN-${yyyymm}-${row.driverId.replace(/-/g, "").slice(0, 4).toUpperCase()}-R00`;
     const total = Math.max(0, Number(row.net) || 0);
