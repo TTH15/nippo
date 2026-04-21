@@ -1475,6 +1475,11 @@ async function loadSavedInvoiceFromApi() {
         if (payload) {
             applySavedInvoicePayload(payload);
         }
+        // payload 側に請求書番号が入っていない既存データでも
+        // DB の invoiceNo を画面へ補完して自動表示する
+        if ((!payload || !payload.invoiceNo) && invoice?.invoiceNo && q('#p_invoiceNo')) {
+            q('#p_invoiceNo').textContent = invoice.invoiceNo;
+        }
         applyPartySelectionFromSavedInvoice(invoice, payload);
 
         if (res?.invoice?.payload) {

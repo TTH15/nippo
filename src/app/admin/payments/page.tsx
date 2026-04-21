@@ -94,6 +94,13 @@ function formatYen(amount: number): string {
   return `${amount.toLocaleString("ja-JP")}円`;
 }
 
+function nextMonthEndDate(year: number, month: number): string {
+  const y = month === 12 ? year + 1 : year;
+  const m = month === 12 ? 1 : month + 1;
+  const lastDay = new Date(y, m, 0).getDate();
+  return `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+}
+
 export default function PaymentsPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [yearMonth, setYearMonth] = useState(() => currentYearMonth());
@@ -230,7 +237,7 @@ export default function PaymentsPage() {
     const yyyymm = monthStr.replace("-", "");
     const invoiceNo = `IN-${yyyymm}-${row.driverId.replace(/-/g, "").slice(0, 4).toUpperCase()}-R00`;
     const total = Math.max(0, Number(row.incomeLog) || 0);
-    const issueDate = monthEndDate;
+    const issueDate = nextMonthEndDate(yearMonth.year, yearMonth.month);
     let mainLines: Array<{ title: string; qty: number; price: number }> = [];
     let deductLines: Array<{ title: string; qty: number; price: number }> = [];
 
@@ -324,7 +331,7 @@ export default function PaymentsPage() {
             fromAddr,
             fromTel,
             fromReg: "",
-            dueDate: "",
+            dueDate: `${issueDate.slice(0, 4)}年${Number(issueDate.slice(5, 7))}月${Number(issueDate.slice(8, 10))}日`,
             bankName,
             bankNo,
             bankHolder,
