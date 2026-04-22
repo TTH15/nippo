@@ -8,6 +8,7 @@ import { CalendarIcon } from "lucide-react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 import { cn } from "@/lib/ui/utils";
+import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 
 export type DatePickerValue = Date | undefined;
 
@@ -32,6 +33,7 @@ export function DatePicker({
   toDate,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
+  useBodyScrollLock(open);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

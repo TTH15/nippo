@@ -585,6 +585,23 @@ function getTodayIsoDate() {
     return `${y}-${m}-${day}`;
 }
 
+function getNextMonthEndIsoFromMonth(monthStr) {
+    const m = String(monthStr || '').match(/^(\d{4})-(\d{2})$/);
+    if (!m) return null;
+    const year = Number(m[1]);
+    const month = Number(m[2]);
+    const y = month === 12 ? year + 1 : year;
+    const mm = month === 12 ? 1 : month + 1;
+    const day = new Date(y, mm, 0).getDate();
+    return `${y}-${String(mm).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function getDefaultDueDateJp() {
+    const queryMonth = new URLSearchParams(window.location.search).get('month');
+    const iso = getNextMonthEndIsoFromMonth(queryMonth) || getTodayIsoDate();
+    return toJpDate(iso);
+}
+
 function toJpDate(isoDate) {
     const m = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!m) return '';
@@ -634,11 +651,6 @@ async function persistInvoiceDocument(data, options = {}) {
         }
         if (options.createVersion) {
             body.invoiceNo = bumpInvoiceRevision(data.invoiceNo || '');
-            body.issueDate = getTodayIsoDate();
-            data.issueDate = toJpDate(body.issueDate);
-            if (q('#p_issueDate')) {
-                q('#p_issueDate').textContent = data.issueDate;
-            }
         }
         const created = await apiFetchWithBody('/api/admin/invoices', {
             method: 'POST',
@@ -900,7 +912,7 @@ function syncPartiesToInvoice() {
             const bankNoElem = q('#p_bankNo');
             const bankHolderElem = q('#p_bankHolder');
 
-            if (dueDateElem) dueDateElem.textContent = '2025年12月31日';
+            if (dueDateElem) dueDateElem.textContent = getDefaultDueDateJp();
             if (bankNameElem) bankNameElem.textContent = '京都信用金庫 梅津支店';
             if (bankNoElem) bankNoElem.textContent = '普通 3058832';
             if (bankHolderElem) bankHolderElem.textContent = '口座名義：カ)ｴｰｽｸﾘｴｲｼｮﾝ';
@@ -911,7 +923,7 @@ function syncPartiesToInvoice() {
             const bankNoElem = q('#p_bankNo');
             const bankHolderElem = q('#p_bankHolder');
 
-            if (dueDateElem) dueDateElem.textContent = '2025年12月31日';
+            if (dueDateElem) dueDateElem.textContent = getDefaultDueDateJp();
             if (bankNameElem) bankNameElem.textContent = fromData.bankName || '';
             if (bankNoElem) bankNoElem.textContent = fromData.bankNo || '';
             if (bankHolderElem) bankHolderElem.textContent = fromData.bankHolder || '';
@@ -1579,9 +1591,6 @@ q('#saveBtn').onclick = async () => {
     btn.textContent = '保存中...';
     isManualSaving = true;
     try {
-        const todayIso = getTodayIsoDate();
-        const issueDateEl = q('#p_issueDate');
-        if (issueDateEl) issueDateEl.textContent = toJpDate(todayIso);
         const data = {
             // ヘッダー情報
             toName: q('#p_toCompany')?.textContent || '',
@@ -1663,13 +1672,9 @@ async function initializeApp() {
     // 日付の初期設定（空 or プレースホルダーなら本日の日付を設定）
     const issueDateEl = q('#p_issueDate');
     const dueDateEl = q('#p_dueDate');
-    const todayStr = (() => {
-        const d = new Date();
-        const y = d.getFullYear();
-        const m = d.getMonth() + 1;
-        const day = d.getDate();
-        return `${y}年${m}月${day}日`;
-    })();
+    const queryMonth = new URLSearchParams(window.location.search).get('month');
+    const defaultDateIso = getNextMonthEndIsoFromMonth(queryMonth) || getTodayIsoDate();
+    const defaultDateStr = toJpDate(defaultDateIso);
     const isPlaceholderDate = (t) => {
         const s = (t || '').trim();
         if (s === '') return true;
@@ -1681,10 +1686,10 @@ async function initializeApp() {
     };
 
     if (issueDateEl && isPlaceholderDate(issueDateEl.textContent)) {
-        issueDateEl.textContent = todayStr;
+        issueDateEl.textContent = defaultDateStr;
     }
     if (dueDateEl && isPlaceholderDate(dueDateEl.textContent)) {
-        dueDateEl.textContent = todayStr;
+        dueDateEl.textContent = defaultDateStr;
     }
 
     // イベントリスナーを設定

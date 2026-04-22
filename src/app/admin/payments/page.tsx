@@ -101,6 +101,21 @@ function nextMonthEndDate(year: number, month: number): string {
   return `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 }
 
+function nextInvoiceNoForDriver(month: string, driverId: string, existingNos: string[]): string {
+  const yyyymm = month.replace("-", "");
+  const driverKey = driverId.replace(/-/g, "").slice(0, 4).toUpperCase();
+  const prefix = `IN-${yyyymm}-${driverKey}-R`;
+  const maxRevision = existingNos.reduce((max, no) => {
+    const m = String(no).trim().match(new RegExp(`^IN-${yyyymm}-${driverKey}-R(\\d{2})$`));
+    if (!m) return max;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n)) return max;
+    return Math.max(max, n);
+  }, -1);
+  const next = Math.min(maxRevision + 1, 99);
+  return `${prefix}${String(next).padStart(2, "0")}`;
+}
+
 export default function PaymentsPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [yearMonth, setYearMonth] = useState(() => currentYearMonth());
@@ -234,8 +249,6 @@ export default function PaymentsPage() {
     if (!canWrite) return;
     // 請求書の取引先キーは本名で統一（表示名だと同一人物が分裂する）
     const driverLabel = row.driverName;
-    const yyyymm = monthStr.replace("-", "");
-    const invoiceNo = `IN-${yyyymm}-${row.driverId.replace(/-/g, "").slice(0, 4).toUpperCase()}-R00`;
     const total = Math.max(0, Number(row.incomeLog) || 0);
     const issueDate = nextMonthEndDate(yearMonth.year, yearMonth.month);
     let mainLines: Array<{ title: string; qty: number; price: number }> = [];
@@ -254,6 +267,14 @@ export default function PaymentsPage() {
         };
       }>(`/api/admin/users/${encodeURIComponent(row.driverId)}`);
       const d = detail?.driver;
+      const existing = await apiFetch<{ invoices: Array<{ invoiceNo?: string | null }> }>(
+        `/api/admin/invoices?month=${encodeURIComponent(monthStr)}`,
+      );
+      const invoiceNo = nextInvoiceNoForDriver(
+        monthStr,
+        row.driverId,
+        (existing.invoices ?? []).map((x) => x.invoiceNo || ""),
+      );
       const postal = d?.postal_code?.trim() ? `〒${d.postal_code.trim()}` : "";
       const addr = d?.address?.trim() ?? "";
       const fromAddr = [postal, addr].filter(Boolean).join("<br />");

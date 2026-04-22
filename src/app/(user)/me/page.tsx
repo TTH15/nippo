@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { apiFetch } from "@/lib/api";
+import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 
 type Profile = {
   name: string;
@@ -57,6 +58,7 @@ function MePageContent() {
   const [confirmPin, setConfirmPin] = useState("");
   const [pinSubmitting, setPinSubmitting] = useState(false);
   const [pinMessage, setPinMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  useBodyScrollLock(showVehicleModal);
 
   useEffect(() => {
     apiFetch<Profile>("/api/reports/profile")

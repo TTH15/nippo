@@ -9,6 +9,7 @@ import { FixedExpenseSection } from "@/lib/components/FixedExpenseSection";
 import { PaymentSummary } from "@/lib/components/PaymentSummary";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
+import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 
 type RewardLogDetail = {
   log_date: string;
@@ -90,6 +91,7 @@ export default function MeRewardsPage() {
   const [approvingInvoiceId, setApprovingInvoiceId] = useState<string | null>(null);
   const [invoicePanelOpen, setInvoicePanelOpen] = useState(false);
   const [previewInvoiceId, setPreviewInvoiceId] = useState<string | null>(null);
+  useBodyScrollLock(invoicePanelOpen || previewInvoiceId !== null);
 
   const monthStr = `${rewardMonth.year}-${String(rewardMonth.month).padStart(2, "0")}`;
 
@@ -315,17 +317,9 @@ export default function MeRewardsPage() {
                       <button
                         type="button"
                         onClick={() => setPreviewInvoiceId(inv.id)}
-                        className="rounded-md border border-slate-300 text-slate-700 text-sm py-2"
+                        className="col-span-2 rounded-md border border-slate-300 text-slate-700 text-sm py-2"
                       >
-                        プレビューを見る
-                      </button>
-                      <button
-                        type="button"
-                        disabled={approvingInvoiceId === inv.id}
-                        onClick={() => void handleApproveInvoice(inv.id)}
-                        className="rounded-md bg-slate-800 text-white text-sm py-2 disabled:opacity-50"
-                      >
-                        {approvingInvoiceId === inv.id ? "承認中..." : "内容を確認して承認"}
+                        内容を確認する
                       </button>
                     </div>
                   </div>
@@ -341,9 +335,19 @@ export default function MeRewardsPage() {
           <div className="w-full max-w-3xl max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="p-3 border-b border-slate-200 flex items-center justify-between">
               <div className="text-sm font-semibold text-slate-900">請求書プレビュー</div>
-              <button type="button" onClick={() => setPreviewInvoiceId(null)} className="text-sm text-slate-500">
-                閉じる
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={approvingInvoiceId === previewInvoiceId}
+                  onClick={() => previewInvoiceId && void handleApproveInvoice(previewInvoiceId)}
+                  className="px-3 py-1.5 rounded-md bg-slate-800 text-white text-xs disabled:opacity-50"
+                >
+                  {approvingInvoiceId === previewInvoiceId ? "承認中..." : "確認して承認"}
+                </button>
+                <button type="button" onClick={() => setPreviewInvoiceId(null)} className="text-sm text-slate-500">
+                  閉じる
+                </button>
+              </div>
             </div>
             <div className="p-4 overflow-y-auto max-h-[calc(90vh-49px)]">
               {(() => {

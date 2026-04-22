@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
 import { Button } from "@/lib/ui/button";
 import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
+import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 
 export interface MonthYearPickerProps {
   value?: { year: number; month: number };
@@ -22,6 +23,7 @@ export function MonthYearPicker({
   placeholder = "年月を選択",
 }: MonthYearPickerProps) {
   const [open, setOpen] = useState(false);
+  useBodyScrollLock(open);
   const currentYear = new Date().getFullYear();
   const [displayYear, setDisplayYear] = useState(value?.year ?? currentYear);
 

@@ -75,6 +75,30 @@ function bumpInvoiceRevision(invoiceNo: string) {
   return `${m[1]}-R${String(next).padStart(2, "0")}`;
 }
 
+function normalizeInvoiceNo(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+async function isDuplicateInvoiceNo(
+  companyCode: string,
+  invoiceNo: string | null | undefined,
+  currentId: string,
+): Promise<boolean> {
+  const normalized = String(invoiceNo ?? "").trim();
+  if (!normalized) return false;
+  const { data, error } = await supabase
+    .from("invoice_documents")
+    .select("id")
+    .eq("company_code", companyCode)
+    .eq("invoice_no", normalized)
+    .neq("id", currentId)
+    .limit(1);
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -180,7 +204,9 @@ export async function PATCH(
   }
   if (typeof body.clientName === "string") updates.client_name = body.clientName.trim();
   if (typeof body.driverId === "string" || body.driverId === null) updates.driver_id = body.driverId;
-  if (typeof body.invoiceNo === "string" || body.invoiceNo === null) updates.invoice_no = body.invoiceNo;
+  if (typeof body.invoiceNo === "string" || body.invoiceNo === null) {
+    updates.invoice_no = body.invoiceNo === null ? null : normalizeInvoiceNo(body.invoiceNo);
+  }
   if (typeof body.amount === "number") updates.amount = body.amount;
   if (typeof body.month === "string" && /^\d{4}-\d{2}$/.test(body.month)) updates.month_yyyy_mm = body.month;
   if (body.counterpartyInvoiceAddressId === null || typeof body.counterpartyInvoiceAddressId === "string") {
@@ -229,10 +255,26 @@ export async function PATCH(
     const baseInvoiceNo =
       typeof current?.invoice_no === "string" && current.invoice_no.trim()
         ? current.invoice_no
-        : typeof body.invoiceNo === "string"
-          ? body.invoiceNo
+        : typeof body.invoiceNo === "string" && body.invoiceNo.trim()
+          ? body.invoiceNo.trim()
           : "";
     updates.invoice_no = bumpInvoiceRevision(baseInvoiceNo);
+  }
+
+  try {
+    if ("invoice_no" in updates) {
+      const duplicated = await isDuplicateInvoiceNo(
+        user.companyCode,
+        typeof updates.invoice_no === "string" ? updates.invoice_no : null,
+        id,
+      );
+      if (duplicated) {
+        return NextResponse.json({ error: "請求書番号が重複しています。" }, { status: 409 });
+      }
+    }
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
   const { data, error } = await supabase
@@ -244,6 +286,9 @@ export async function PATCH(
     .single();
 
   if (error || !data) {
+    if ((error as any)?.code === "23505") {
+      return NextResponse.json({ error: "請求書番号が重複しています。" }, { status: 409 });
+    }
     return NextResponse.json({ error: "請求書の更新に失敗しました" }, { status: 500 });
   }
 

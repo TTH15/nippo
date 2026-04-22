@@ -9,6 +9,7 @@ import { DatePicker } from "@/lib/components/DatePicker";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 import { JukenCertificate, type JukenNumbers, type JukenOverlay } from "@/lib/components/JukenCertificate";
+import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 
 type Vehicle = {
   id: string;
@@ -86,6 +87,7 @@ export default function SubmitPageClient() {
   const certRef = useRef<HTMLDivElement | null>(null);
   const vehicleItemRefs = useRef<Array<HTMLDivElement | null>>([]);
   const defaultReportDateRef = useRef(reportDateDefaultJST());
+  useBodyScrollLock(showVehicleModal || oilReminderModal !== null);
 
   // 日本時間 午前3:00 でデフォルト日付が切り替わるため、表示中の日付を同期
   useEffect(() => {

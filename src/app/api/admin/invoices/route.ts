@@ -87,6 +87,28 @@ function isSystemGeneratedInvoice(payload: Record<string, unknown> | undefined):
   return true;
 }
 
+function normalizeInvoiceNo(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+async function isDuplicateInvoiceNo(
+  companyCode: string,
+  invoiceNo: string | null | undefined,
+): Promise<boolean> {
+  const normalized = String(invoiceNo ?? "").trim();
+  if (!normalized) return false;
+  const { data, error } = await supabase
+    .from("invoice_documents")
+    .select("id")
+    .eq("company_code", companyCode)
+    .eq("invoice_no", normalized)
+    .limit(1);
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
@@ -213,11 +235,24 @@ export async function POST(req: NextRequest) {
     counterparty_invoice_address_id: body.counterpartyInvoiceAddressId ?? null,
     client_name: (body.clientName ?? "").trim(),
     issue_date: issueDate,
-    invoice_no: body.invoiceNo ?? null,
+    invoice_no: normalizeInvoiceNo(body.invoiceNo),
     amount: Number(body.amount) || 0,
     status,
     payload: body.payload ?? {},
   };
+
+  try {
+    const duplicated = await isDuplicateInvoiceNo(
+      user.companyCode,
+      typeof insertRow.invoice_no === "string" ? insertRow.invoice_no : null,
+    );
+    if (duplicated) {
+      return NextResponse.json({ error: "請求書番号が重複しています。" }, { status: 409 });
+    }
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  }
 
   const { data, error } = await supabase
     .from("invoice_documents")
@@ -227,6 +262,9 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     console.error(error);
+    if ((error as any)?.code === "23505") {
+      return NextResponse.json({ error: "請求書番号が重複しています。" }, { status: 409 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
