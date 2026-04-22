@@ -25,6 +25,7 @@ type DriverFolder = { id: string; name: string; display_name?: string | null };
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const ALLOWED_UPLOAD_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const FINDER_STATE_STORAGE_KEY = "admin_invoices_finder_state_v1";
+const FOLDER_STATUS_PRIORITY: SavedInvoice["status"][] = ["draft", "pending_approval", "approved", "paid"];
 
 const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }> = {
   draft: { text: "下書き", cls: "bg-slate-100 text-slate-600" },
@@ -52,6 +53,49 @@ function readFinderState(): FinderState {
   } catch {
     return {};
   }
+}
+
+function getFolderTopStatus(items: SavedInvoice[]): SavedInvoice["status"] | null {
+  if (items.length === 0) return null;
+  const rank = new Map(FOLDER_STATUS_PRIORITY.map((s, i) => [s, i]));
+  return items.reduce<SavedInvoice["status"]>((top, item) => {
+    const currentRank = rank.get(item.status) ?? -1;
+    const topRank = rank.get(top) ?? -1;
+    return currentRank > topRank ? item.status : top;
+  }, "draft");
+}
+
+function getFolderStatusUi(status: SavedInvoice["status"] | null): { dotCls: string; text: string } {
+  if (!status) {
+    return { dotCls: "bg-slate-300", text: "なし" };
+  }
+  if (status === "draft") {
+    return { dotCls: "bg-slate-400", text: "下書き" };
+  }
+  if (status === "pending_approval") {
+    return { dotCls: "bg-amber-400", text: "承認待ち" };
+  }
+  if (status === "approved") {
+    return { dotCls: "bg-blue-400", text: "承認済み" };
+  }
+  return { dotCls: "bg-emerald-400", text: "入金済み" };
+}
+
+function isFullWidthChar(ch: string): boolean {
+  // CJK / 全角記号 / かな等を概ね全角として扱う
+  return /[^\u0020-\u007E]/.test(ch);
+}
+
+function truncateByDisplayWidth(value: string, maxWidth: number): string {
+  let width = 0;
+  let out = "";
+  for (const ch of value) {
+    const w = isFullWidthChar(ch) ? 2 : 1;
+    if (width + w > maxWidth) return `${out}…`;
+    out += ch;
+    width += w;
+  }
+  return out;
 }
 
 export default function InvoicesPage() {
@@ -118,6 +162,19 @@ export default function InvoicesPage() {
     () => drivers.find((d) => d.name === selectedCounterparty) ?? null,
     [drivers, selectedCounterparty],
   );
+  const counterpartyStatusMap = useMemo(() => {
+    const map = new Map<string, SavedInvoice["status"] | null>();
+    for (const name of counterpartyFolders) {
+      const folderInvoices = invoices.filter(
+        (i) =>
+          (i.month ?? "") === selectedMonth &&
+          (i.direction ?? "outgoing") === selectedDirection &&
+          (i.counterpartyName || i.clientName || "未設定") === name,
+      );
+      map.set(name, getFolderTopStatus(folderInvoices));
+    }
+    return map;
+  }, [counterpartyFolders, invoices, selectedDirection, selectedMonth]);
   const filtered = (filter === "all" ? invoices : invoices.filter((inv) => inv.status === filter)).filter((inv) => {
     if (selectedMonth && inv.month !== selectedMonth) return false;
     if ((inv.direction ?? "outgoing") !== selectedDirection) return false;
@@ -391,8 +448,24 @@ export default function InvoicesPage() {
                         selectedCounterparty === name ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
                       }`}
                     >
-                      <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
-                      {name}
+                      <div className="flex items-center gap-2">
+                        <FontAwesomeIcon icon={faFolder} className="text-slate-400" />
+                        <span className="min-w-0 flex-1 truncate" title={name}>
+                          {truncateByDisplayWidth(name, 20)}
+                        </span>
+                        {(() => {
+                          const topStatus = counterpartyStatusMap.get(name) ?? null;
+                          const ui = getFolderStatusUi(topStatus);
+                          return (
+                            <>
+                              <span className="ml-auto inline-flex items-center gap-1.5 shrink-0">
+                                <span className={`inline-block h-2.5 w-2.5 rounded-full ${ui.dotCls}`} />
+                                <span className="text-[10px] text-slate-500">{ui.text}</span>
+                              </span>
+                            </>
+                          );
+                        })()}
+                      </div>
                     </button>
                   ))
                 )}
