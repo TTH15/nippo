@@ -345,10 +345,11 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            {/* テーブル */}
-            <div className="overflow-x-auto">
-            {canWrite && selectedDirection === "incoming" && selectedDriver && (
-              <div className="p-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between gap-3">
+            {/* 右ペイン */}
+            <div className="min-h-[520px] max-h-[520px] overflow-auto">
+            <div className="sticky top-0 z-20 bg-white border-b border-slate-200">
+              {canWrite && selectedDirection === "incoming" && selectedDriver && (
+                <div className="p-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between gap-3">
                 <div className="text-xs text-slate-600">
                   {selectedMonth} / {selectedDriver.name} フォルダにPDF・画像をアップロード
                 </div>
@@ -372,30 +373,31 @@ export default function InvoicesPage() {
                     {uploading ? "アップロード中..." : "PDF/画像を追加"}
                   </button>
                 </div>
+                </div>
+              )}
+              <div className="flex gap-1 p-3 bg-slate-50/70">
+                {([
+                  { key: "all", label: "すべて" },
+                  { key: "draft", label: "下書き" },
+                  { key: "pending_approval", label: "承認待ち" },
+                  { key: "approved", label: "承認済" },
+                  { key: "paid", label: "入金済" },
+                ] as const).map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setFilter(f.key)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      filter === f.key
+                        ? "bg-slate-800 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
               </div>
-            )}
-            <div className="flex gap-1 p-3 border-b border-slate-100 bg-slate-50/70">
-              {([
-                { key: "all", label: "すべて" },
-                { key: "draft", label: "下書き" },
-                { key: "pending_approval", label: "承認待ち" },
-                { key: "approved", label: "承認済" },
-                { key: "paid", label: "入金済" },
-              ] as const).map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => setFilter(f.key)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                    filter === f.key
-                      ? "bg-slate-800 text-white"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
             </div>
-            <table className="w-full min-w-[760px] text-sm table-fixed">
+            <table className="w-full min-w-[860px] text-sm table-fixed">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50">
                 <th className="w-[190px] text-left px-3 py-3 font-medium text-slate-600">請求書番号</th>
