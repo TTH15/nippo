@@ -14,7 +14,6 @@ export function useBodyScrollLock(locked: boolean) {
       right: body.style.right,
       width: body.style.width,
       overflow: body.style.overflow,
-      touchAction: body.style.touchAction,
     };
 
     body.style.position = "fixed";
@@ -23,7 +22,6 @@ export function useBodyScrollLock(locked: boolean) {
     body.style.right = "0";
     body.style.width = "100%";
     body.style.overflow = "hidden";
-    body.style.touchAction = "none";
 
     return () => {
       body.style.position = prev.position;
@@ -32,7 +30,6 @@ export function useBodyScrollLock(locked: boolean) {
       body.style.right = prev.right;
       body.style.width = prev.width;
       body.style.overflow = prev.overflow;
-      body.style.touchAction = prev.touchAction;
       window.scrollTo(0, scrollY);
     };
   }, [locked]);
