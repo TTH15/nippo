@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan, faEye } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -21,6 +21,7 @@ type SavedInvoice = {
   counterpartyInvoiceAddressId?: string | null;
   updatedAt?: string | null;
 };
+type DriverFolder = { id: string; name: string; display_name?: string | null };
 
 const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }> = {
   draft: { text: "下書き", cls: "bg-slate-100 text-slate-600" },
@@ -48,29 +49,48 @@ export default function InvoicesPage() {
   const [filter, setFilter] = useState<"all" | SavedInvoice["status"]>("all");
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [drivers, setDrivers] = useState<DriverFolder[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
-  const monthFolders = Array.from(new Set((invoices ?? []).map((i) => i.month).filter(Boolean))).sort().reverse();
+  const nowMonth = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  })();
+  const monthFolders = Array.from(new Set([...(invoices ?? []).map((i) => i.month).filter(Boolean), nowMonth])).sort().reverse();
   const directionFolders = (["outgoing", "incoming"] as const).filter((d) =>
     invoices.some((i) => (i.month ?? "") === selectedMonth && (i.direction ?? "outgoing") === d)
   );
-  const counterpartyFolders = Array.from(
-    new Set(
-      invoices
-        .filter(
-          (i) =>
-            (i.month ?? "") === selectedMonth &&
-            (i.direction ?? "outgoing") === selectedDirection
-        )
-        .map((i) => i.counterpartyName || i.clientName || "未設定")
+  const counterpartyFolders = useMemo(() => {
+    if (selectedDirection === "incoming") {
+      return drivers
+        .map((d) => d.name)
         .filter(Boolean)
-    )
-  ).sort((a, b) => a.localeCompare(b, "ja"));
-  const filtered = (filter === "all" ? invoices : invoices.filter((inv) => inv.status === filter)).filter(
-    (inv) =>
-      (!selectedMonth || inv.month === selectedMonth) &&
-      (inv.direction ?? "outgoing") === selectedDirection &&
-      (!selectedCounterparty || (inv.counterpartyName || inv.clientName || "未設定") === selectedCounterparty)
+        .sort((a, b) => a.localeCompare(b, "ja"));
+    }
+    return Array.from(
+      new Set(
+        invoices
+          .filter(
+            (i) =>
+              (i.month ?? "") === selectedMonth &&
+              (i.direction ?? "outgoing") === selectedDirection
+          )
+          .map((i) => i.counterpartyName || i.clientName || "未設定")
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, "ja"));
+  }, [drivers, invoices, selectedDirection, selectedMonth]);
+  const selectedDriver = useMemo(
+    () => drivers.find((d) => d.name === selectedCounterparty) ?? null,
+    [drivers, selectedCounterparty],
   );
+  const filtered = (filter === "all" ? invoices : invoices.filter((inv) => inv.status === filter)).filter((inv) => {
+    if (selectedMonth && inv.month !== selectedMonth) return false;
+    if ((inv.direction ?? "outgoing") !== selectedDirection) return false;
+    if (!selectedCounterparty) return true;
+    return (inv.counterpartyName || inv.clientName || "未設定") === selectedCounterparty;
+  });
   
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
@@ -92,9 +112,75 @@ export default function InvoicesPage() {
     }
   }, []);
 
+  const loadDrivers = useCallback(async () => {
+    try {
+      const all: DriverFolder[] = [];
+      let cursor: string | null = "0";
+      while (cursor !== null) {
+        const res: { drivers: DriverFolder[]; nextCursor: string | null } = await apiFetch(
+          `/api/admin/users?limit=100&cursor=${encodeURIComponent(cursor)}`
+        );
+        all.push(...(res.drivers ?? []));
+        cursor = res.nextCursor;
+      }
+      setDrivers(all);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadDrivers();
+  }, [load, loadDrivers]);
+
+  const handleUploadForDriver = async (file: File) => {
+    if (!selectedDriver || !canWrite) return;
+    setUploading(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("ファイル読み込みに失敗しました"));
+        reader.readAsDataURL(file);
+      });
+      const [y, m] = selectedMonth.split("-").map(Number);
+      const issueDate = (() => {
+        const yy = m === 12 ? y + 1 : y;
+        const mm = m === 12 ? 1 : m + 1;
+        const dd = new Date(yy, mm, 0).getDate();
+        return `${yy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+      })();
+      await apiFetch("/api/admin/invoices", {
+        method: "POST",
+        body: JSON.stringify({
+          month: selectedMonth,
+          section: "郵便局",
+          clientName: selectedDriver.name,
+          issueDate,
+          invoiceNo: `UPL-${selectedMonth.replace("-", "")}-${selectedDriver.id.replace(/-/g, "").slice(0, 4).toUpperCase()}`,
+          amount: 0,
+          status: "pending_approval",
+          payload: {
+            toName: "株式会社ACE CREATION",
+            fromName: selectedDriver.name,
+            issueDate: `${issueDate.slice(0, 4)}年${Number(issueDate.slice(5, 7))}月${Number(issueDate.slice(8, 10))}日`,
+            billAmountDisplay: "¥0",
+            tableData: { main: [], deduct: [] },
+            attachments: [{ name: file.name, type: file.type, dataUrl }],
+            parties: { fromParty: `drv-${selectedDriver.id}`, toParty: "ace_creation" },
+          },
+        }),
+      });
+      await load();
+    } catch (e: any) {
+      console.error(e);
+      setErrorMessage(e?.message || "アップロードに失敗しました。");
+    } finally {
+      setUploading(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+    }
+  };
 
   const updateStatus = async (invoiceId: string, status: SavedInvoice["status"]) => {
     if (!canWrite) return;
@@ -247,6 +333,33 @@ export default function InvoicesPage() {
 
             {/* テーブル */}
             <div className="overflow-x-auto">
+            {canWrite && selectedDirection === "incoming" && selectedDriver && (
+              <div className="p-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between gap-3">
+                <div className="text-xs text-slate-600">
+                  {selectedMonth} / {selectedDriver.name} フォルダにPDF・画像をアップロード
+                </div>
+                <div>
+                  <input
+                    ref={uploadInputRef}
+                    type="file"
+                    accept="application/pdf,image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void handleUploadForDriver(f);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={uploading}
+                    onClick={() => uploadInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-md bg-slate-800 text-white text-xs disabled:opacity-50"
+                  >
+                    {uploading ? "アップロード中..." : "PDF/画像を追加"}
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex gap-1 p-3 border-b border-slate-100 bg-slate-50/70">
               {([
                 { key: "all", label: "すべて" },

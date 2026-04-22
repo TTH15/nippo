@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faFileInvoice } from "@fortawesome/free-solid-svg-icons";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { ExpenseSection } from "@/lib/components/ExpenseSection";
 import { FixedExpenseSection } from "@/lib/components/FixedExpenseSection";
@@ -82,7 +84,7 @@ export default function MeRewardsPage() {
   const [invoices, setInvoices] = useState<MyInvoice[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [approvingInvoiceId, setApprovingInvoiceId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"rewards" | "invoices">("rewards");
+  const [invoicePanelOpen, setInvoicePanelOpen] = useState(false);
   const [previewInvoiceId, setPreviewInvoiceId] = useState<string | null>(null);
 
   const monthStr = `${rewardMonth.year}-${String(rewardMonth.month).padStart(2, "0")}`;
@@ -158,7 +160,22 @@ export default function MeRewardsPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-lg font-bold text-slate-900 mb-4">報酬</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-bold text-slate-900">報酬</h1>
+        <button
+          type="button"
+          onClick={() => setInvoicePanelOpen(true)}
+          className="relative inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700"
+        >
+          <FontAwesomeIcon icon={faFileInvoice} className="w-4 h-4" />
+          請求書
+          {invoices.length > 0 && (
+            <span className="absolute -top-2 -right-2 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-semibold">
+              {invoices.length}
+            </span>
+          )}
+        </button>
+      </div>
 
       <div className="mb-3">
         <MonthYearPicker
@@ -199,70 +216,73 @@ export default function MeRewardsPage() {
         <p className="text-sm text-slate-500">報酬情報を取得できませんでした</p>
       ) : (
         <div className="space-y-4">
-          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
+          <PaymentSummary
+            income={rewards.incomeLog}
+            companyExpenses={rewards.fixedDeductions}
+            customExpenses={rewards.optionalDeductions ?? 0}
+            selectedDate={new Date(rewardMonth.year, rewardMonth.month - 1, 1)}
+          />
+
+          <div className="bg-white rounded-lg border border-slate-200 p-4">
             <button
               type="button"
-              onClick={() => setActiveTab("rewards")}
-              className={`px-3 py-1.5 text-sm rounded-md ${activeTab === "rewards" ? "bg-slate-800 text-white" : "text-slate-600"}`}
+              onClick={() => setDetailsOpen((o) => !o)}
+              className="flex items-center justify-between w-full text-left py-1 text-sm font-semibold text-slate-800 hover:text-slate-900"
             >
-              報酬明細
+              <span>詳細</span>
+              <span className="text-slate-400">{detailsOpen ? "▲" : "▼"}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("invoices")}
-              className={`px-3 py-1.5 text-sm rounded-md ${activeTab === "invoices" ? "bg-slate-800 text-white" : "text-slate-600"}`}
-            >
-              請求書確認
-            </button>
+            {detailsOpen && (() => {
+              const details = mergedDetails(rewards);
+              return (
+              <div className="mt-3 pt-3 border-t border-slate-100 space-y-2 text-sm text-slate-700">
+                {details.length === 0 ? (
+                  <p className="text-slate-500">この月の明細はありません</p>
+                ) : (
+                  details.map((l, idx) => (
+                    <div key={`${l.log_date}-${l.type_name}-${idx}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
+                      <span className="text-slate-600 font-medium">
+                        {(() => {
+                          const [y, m, d] = l.log_date.split("-").map(Number);
+                          return `${m}月${d}日`;
+                        })()}
+                      </span>
+                      <span className="text-slate-800">{l.content || l.type_name || "—"}</span>
+                      <span className="text-slate-900 font-semibold">
+                        {l.amount >= 0 ? `${l.amount.toLocaleString("ja-JP")}円` : `-${Math.abs(l.amount).toLocaleString("ja-JP")}円`}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+              );
+            })()}
           </div>
 
-          {activeTab === "rewards" ? (
-            <>
-              <PaymentSummary
-                income={rewards.incomeLog}
-                companyExpenses={rewards.fixedDeductions}
-                customExpenses={rewards.optionalDeductions ?? 0}
-                selectedDate={new Date(rewardMonth.year, rewardMonth.month - 1, 1)}
-              />
+          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4">
+            <FixedExpenseSection expenses={rewards.fixedDetails} />
 
-              <div className="bg-white rounded-lg border border-slate-200 p-4">
-                <button
-                  type="button"
-                  onClick={() => setDetailsOpen((o) => !o)}
-                  className="flex items-center justify-between w-full text-left py-1 text-sm font-semibold text-slate-800 hover:text-slate-900"
-                >
-                  <span>詳細</span>
-                  <span className="text-slate-400">{detailsOpen ? "▲" : "▼"}</span>
-                </button>
-                {detailsOpen && (() => {
-                  const details = mergedDetails(rewards);
-                  return (
-                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-2 text-sm text-slate-700">
-                    {details.length === 0 ? (
-                      <p className="text-slate-500">この月の明細はありません</p>
-                    ) : (
-                      details.map((l, idx) => (
-                        <div key={`${l.log_date}-${l.type_name}-${idx}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
-                          <span className="text-slate-600 font-medium">
-                            {(() => {
-                              const [y, m, d] = l.log_date.split("-").map(Number);
-                              return `${m}月${d}日`;
-                            })()}
-                          </span>
-                          <span className="text-slate-800">{l.content || l.type_name || "—"}</span>
-                          <span className="text-slate-900 font-semibold">
-                            {l.amount >= 0 ? `${l.amount.toLocaleString("ja-JP")}円` : `-${Math.abs(l.amount).toLocaleString("ja-JP")}円`}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                  );
-                })()}
-              </div>
-            </>
-          ) : (
-            <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
+            <ExpenseSection
+              expenses={rewards.optionalDetails ?? []}
+              onAddExpense={handleAddOptional}
+              onDeleteExpense={handleDeleteOptional}
+              submitting={optionalSubmitting}
+              error={optionalError}
+            />
+          </div>
+        </div>
+      )}
+
+      {invoicePanelOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center">
+          <div className="w-full max-w-xl max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden">
+            <div className="p-3 border-b border-slate-200 flex items-center justify-between">
+              <div className="text-sm font-semibold text-slate-900">請求書確認</div>
+              <button type="button" onClick={() => setInvoicePanelOpen(false)} className="text-sm text-slate-500">
+                閉じる
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[calc(90vh-49px)] space-y-3">
               <p className="text-xs text-slate-600">
                 承認待ちの請求書のみ表示しています。内容を確認して承認してください。
               </p>
@@ -301,18 +321,6 @@ export default function MeRewardsPage() {
                 ))
               )}
             </div>
-          )}
-
-          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4">
-            <FixedExpenseSection expenses={rewards.fixedDetails} />
-
-            <ExpenseSection
-              expenses={rewards.optionalDetails ?? []}
-              onAddExpense={handleAddOptional}
-              onDeleteExpense={handleDeleteOptional}
-              submitting={optionalSubmitting}
-              error={optionalError}
-            />
           </div>
         </div>
       )}
@@ -334,6 +342,7 @@ export default function MeRewardsPage() {
                 }
                 const mainLines = Array.isArray(inv?.payload?.tableData?.main) ? inv.payload.tableData.main : [];
                 const deductLines = Array.isArray(inv?.payload?.tableData?.deduct) ? inv.payload.tableData.deduct : [];
+                const attachments = Array.isArray(inv?.payload?.attachments) ? inv.payload.attachments : [];
                 const sumRows = (rows: any[]) =>
                   rows.reduce(
                     (acc, row) => acc + (Number(row?.qty) || 0) * (Number(row?.price) || 0),
@@ -400,6 +409,33 @@ export default function MeRewardsPage() {
                         </table>
                       </div>
                     </div>
+
+                    {attachments.length > 0 && (
+                      <div className="rounded-lg border border-slate-200 overflow-hidden">
+                        <div className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100">添付ファイル</div>
+                        <div className="p-3 space-y-3">
+                          {attachments.map((f: any, idx: number) => {
+                            const type = String(f?.type || "");
+                            const url = String(f?.dataUrl || "");
+                            if (!url) return null;
+                            return (
+                              <div key={`att-${idx}`} className="space-y-2">
+                                <div className="text-xs text-slate-600">{f?.name || `添付ファイル ${idx + 1}`}</div>
+                                {type.startsWith("image/") ? (
+                                  <img src={url} alt={f?.name || "attachment"} className="w-full rounded border border-slate-200" />
+                                ) : type === "application/pdf" ? (
+                                  <iframe src={url} className="w-full h-80 border border-slate-200 rounded" title={`pdf-${idx}`} />
+                                ) : (
+                                  <a href={url} target="_blank" rel="noreferrer" className="text-sm text-blue-600 underline">
+                                    ファイルを開く
+                                  </a>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="rounded-lg border border-slate-200 overflow-hidden">
                       <div className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100">控除明細</div>
