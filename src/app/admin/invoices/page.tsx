@@ -55,11 +55,7 @@ export default function InvoicesPage() {
   const [uploading, setUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
-  const nowMonth = (() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  })();
-  const monthFolders = Array.from(new Set([...(invoices ?? []).map((i) => i.month).filter(Boolean), nowMonth])).sort().reverse();
+  const monthFolders = Array.from(new Set((invoices ?? []).map((i) => i.month).filter(Boolean))).sort().reverse();
   const directionFolders = (["outgoing", "incoming"] as const).filter((d) =>
     invoices.some((i) => (i.month ?? "") === selectedMonth && (i.direction ?? "outgoing") === d)
   );
@@ -283,7 +279,11 @@ export default function InvoicesPage() {
             <div className="border-r border-slate-200 min-h-[520px]">
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">年月</div>
               <div className="p-2 space-y-1">
-                {monthFolders.length === 0 ? (
+                {loading ? (
+                  [...Array(6)].map((_, i) => (
+                    <div key={`month-skel-${i}`} className="h-8 rounded bg-slate-100 animate-pulse" />
+                  ))
+                ) : monthFolders.length === 0 ? (
                   <p className="text-xs text-slate-400 px-2 py-1">月フォルダがありません</p>
                 ) : (
                   monthFolders.map((m) => (
@@ -306,7 +306,11 @@ export default function InvoicesPage() {
             <div className="border-r border-slate-200 min-h-[520px]">
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">請求方向</div>
               <div className="p-2 space-y-1">
-                {(directionFolders.length === 0 ? (["outgoing", "incoming"] as const) : directionFolders).map((dir) => (
+                {loading ? (
+                  [...Array(2)].map((_, i) => (
+                    <div key={`dir-skel-${i}`} className="h-8 rounded bg-slate-100 animate-pulse" />
+                  ))
+                ) : (directionFolders.length === 0 ? (["outgoing", "incoming"] as const) : directionFolders).map((dir) => (
                   <button
                     key={dir}
                     type="button"
@@ -325,7 +329,11 @@ export default function InvoicesPage() {
             <div className="border-r border-slate-200 min-h-[520px]">
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">取引先</div>
               <div className="p-2 space-y-1">
-                {counterpartyFolders.length === 0 ? (
+                {loading ? (
+                  [...Array(10)].map((_, i) => (
+                    <div key={`cp-skel-${i}`} className="h-8 rounded bg-slate-100 animate-pulse" />
+                  ))
+                ) : counterpartyFolders.length === 0 ? (
                   <p className="text-xs text-slate-400 px-2 py-1">取引先フォルダがありません</p>
                 ) : (
                   counterpartyFolders.map((name) => (
@@ -346,7 +354,7 @@ export default function InvoicesPage() {
             </div>
 
             {/* 右ペイン */}
-            <div className="min-h-[520px] max-h-[520px] overflow-auto">
+            <div className="min-h-[520px] max-h-[520px] overflow-y-auto">
             <div className="sticky top-0 z-20 bg-white border-b border-slate-200">
               {canWrite && selectedDirection === "incoming" && selectedDriver && (
                 <div className="p-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between gap-3">
@@ -397,6 +405,7 @@ export default function InvoicesPage() {
                 ))}
               </div>
             </div>
+            <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-sm table-fixed">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50">
@@ -498,6 +507,7 @@ export default function InvoicesPage() {
               )}
             </tbody>
             </table>
+            </div>
             </div>
           </div>
         </div>
