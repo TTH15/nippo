@@ -319,19 +319,145 @@ export default function MeRewardsPage() {
 
       {previewInvoiceId && (
         <div className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center">
-          <div className="w-full max-w-5xl h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden">
+          <div className="w-full max-w-3xl max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="p-3 border-b border-slate-200 flex items-center justify-between">
               <div className="text-sm font-semibold text-slate-900">請求書プレビュー</div>
               <button type="button" onClick={() => setPreviewInvoiceId(null)} className="text-sm text-slate-500">
                 閉じる
               </button>
             </div>
-            <iframe
-              src={`/invoice/index.html?invoiceId=${encodeURIComponent(previewInvoiceId)}&readonly=1&scope=me`}
-              className="w-full border-0"
-              style={{ height: "calc(90vh - 49px)" }}
-              title="請求書プレビュー"
-            />
+            <div className="p-4 overflow-y-auto max-h-[calc(90vh-49px)]">
+              {(() => {
+                const inv = invoices.find((x) => x.id === previewInvoiceId);
+                if (!inv) {
+                  return <p className="text-sm text-slate-500">請求書データが見つかりません。</p>;
+                }
+                const mainLines = Array.isArray(inv?.payload?.tableData?.main) ? inv.payload.tableData.main : [];
+                const deductLines = Array.isArray(inv?.payload?.tableData?.deduct) ? inv.payload.tableData.deduct : [];
+                const sumRows = (rows: any[]) =>
+                  rows.reduce(
+                    (acc, row) => acc + (Number(row?.qty) || 0) * (Number(row?.price) || 0),
+                    0,
+                  );
+                const mainTotal = sumRows(mainLines);
+                const deductTotal = sumRows(deductLines);
+                return (
+                  <div className="space-y-4">
+                    <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-900">
+                            {inv.invoiceNo || inv.id}
+                          </div>
+                          <div className="text-xs text-slate-600 mt-0.5">
+                            請求日: {inv.payload?.issueDate || inv.issueDate || "-"}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-slate-500">請求額</div>
+                          <div className="text-lg font-bold text-slate-900">
+                            {Number(inv.amount || 0).toLocaleString("ja-JP")}円
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 overflow-hidden">
+                      <div className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100">売上明細</div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[420px] text-sm">
+                          <thead className="bg-white border-b border-slate-200">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium text-slate-600">摘要</th>
+                              <th className="text-right px-3 py-2 font-medium text-slate-600">数量</th>
+                              <th className="text-right px-3 py-2 font-medium text-slate-600">単価</th>
+                              <th className="text-right px-3 py-2 font-medium text-slate-600">金額</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {mainLines.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="px-3 py-3 text-center text-slate-500 text-xs">
+                                  売上明細はありません
+                                </td>
+                              </tr>
+                            ) : (
+                              mainLines.map((row: any, idx: number) => {
+                                const qty = Number(row?.qty) || 0;
+                                const price = Number(row?.price) || 0;
+                                const amount = qty * price;
+                                return (
+                                  <tr key={`main-${idx}`} className="border-t border-slate-100">
+                                    <td className="px-3 py-2 text-slate-800">{row?.title || "明細"}</td>
+                                    <td className="px-3 py-2 text-right tabular-nums">{qty.toLocaleString("ja-JP")}</td>
+                                    <td className="px-3 py-2 text-right tabular-nums">{price.toLocaleString("ja-JP")}円</td>
+                                    <td className="px-3 py-2 text-right tabular-nums font-medium">{amount.toLocaleString("ja-JP")}円</td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 overflow-hidden">
+                      <div className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100">控除明細</div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[420px] text-sm">
+                          <thead className="bg-white border-b border-slate-200">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium text-slate-600">摘要</th>
+                              <th className="text-right px-3 py-2 font-medium text-slate-600">数量</th>
+                              <th className="text-right px-3 py-2 font-medium text-slate-600">単価</th>
+                              <th className="text-right px-3 py-2 font-medium text-slate-600">金額</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {deductLines.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="px-3 py-3 text-center text-slate-500 text-xs">
+                                  控除明細はありません
+                                </td>
+                              </tr>
+                            ) : (
+                              deductLines.map((row: any, idx: number) => {
+                                const qty = Number(row?.qty) || 0;
+                                const price = Number(row?.price) || 0;
+                                const amount = qty * price;
+                                return (
+                                  <tr key={`deduct-${idx}`} className="border-t border-slate-100">
+                                    <td className="px-3 py-2 text-slate-800">{row?.title || "控除"}</td>
+                                    <td className="px-3 py-2 text-right tabular-nums">{qty.toLocaleString("ja-JP")}</td>
+                                    <td className="px-3 py-2 text-right tabular-nums">{price.toLocaleString("ja-JP")}円</td>
+                                    <td className="px-3 py-2 text-right tabular-nums font-medium">{amount.toLocaleString("ja-JP")}円</td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                      <div className="flex justify-between py-1">
+                        <span className="text-slate-600">売上合計</span>
+                        <span className="tabular-nums font-medium">{mainTotal.toLocaleString("ja-JP")}円</span>
+                      </div>
+                      <div className="flex justify-between py-1">
+                        <span className="text-slate-600">控除合計</span>
+                        <span className="tabular-nums font-medium">-{deductTotal.toLocaleString("ja-JP")}円</span>
+                      </div>
+                      <div className="flex justify-between pt-2 mt-2 border-t border-slate-200">
+                        <span className="font-semibold text-slate-900">合計請求額</span>
+                        <span className="tabular-nums font-bold text-slate-900">{Number(inv.amount || 0).toLocaleString("ja-JP")}円</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         </div>
       )}
