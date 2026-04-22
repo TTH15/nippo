@@ -336,6 +336,7 @@ export default function PaymentsPage() {
           amount: computedTotal,
           status: "draft",
           payload: {
+            source: "system_invoice",
             toName: "株式会社ACE CREATION",
             toAddr: "",
             subject: `${monthStr} 業務委託料のご請求`,

@@ -175,6 +175,7 @@ export default function InvoicesPage() {
           amount: 0,
           status: "pending_approval",
           payload: {
+            source: "uploaded_document",
             toName: "株式会社ACE CREATION",
             fromName: selectedDriver.name,
             issueDate: `${issueDate.slice(0, 4)}年${Number(issueDate.slice(5, 7))}月${Number(issueDate.slice(8, 10))}日`,

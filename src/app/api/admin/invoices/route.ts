@@ -81,6 +81,12 @@ function extractDriverIdFromParty(fromParty: string | null): string | null {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) ? id : null;
 }
 
+function isSystemGeneratedInvoice(payload: Record<string, unknown> | undefined): boolean {
+  const source = String((payload as any)?.source ?? "");
+  if (source === "uploaded_document") return false;
+  return true;
+}
+
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
@@ -174,22 +180,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (status === "pending_approval" && incomingDriverParty) {
-    const { data: existing, error: pendingErr } = await supabase
+  // 承認待ち1件制約は「システム作成請求書」のみ適用
+  if (status === "pending_approval" && incomingDriverParty && isSystemGeneratedInvoice(body.payload)) {
+    const { data: pendingRows, error: pendingErr } = await supabase
       .from("invoice_documents")
-      .select("id")
+      .select("id, payload")
       .eq("company_code", user.companyCode)
       .eq("status", "pending_approval")
       .eq("driver_id", incomingDriverId)
-      .limit(1)
-      .maybeSingle();
+      .limit(50);
     if (pendingErr) {
       console.error(pendingErr);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
-    if (existing?.id) {
+    const hasSystemPending = (pendingRows ?? []).some((row: any) =>
+      isSystemGeneratedInvoice((row?.payload ?? {}) as Record<string, unknown>)
+    );
+    if (hasSystemPending) {
       return NextResponse.json(
-        { error: "このドライバーには既に承認待ちの請求書があります。" },
+        { error: "このドライバーには既に承認待ちのシステム請求書があります。" },
         { status: 409 },
       );
     }

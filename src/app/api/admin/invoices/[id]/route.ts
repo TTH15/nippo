@@ -59,6 +59,12 @@ function extractDriverIdFromParty(fromParty: string | null): string | null {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) ? id : null;
 }
 
+function isSystemGeneratedInvoice(payload: Record<string, unknown> | undefined): boolean {
+  const source = String((payload as any)?.source ?? "");
+  if (source === "uploaded_document") return false;
+  return true;
+}
+
 function bumpInvoiceRevision(invoiceNo: string) {
   const base = String(invoiceNo || "").trim();
   if (!base) return "INV-MANUAL-R01";
@@ -137,22 +143,24 @@ export async function PATCH(
         : ((current.payload as Record<string, unknown>) ?? {});
     const incomingDriverParty = extractIncomingDriverParty(nextPayload);
     const incomingDriverId = extractDriverIdFromParty(incomingDriverParty);
-    if (incomingDriverParty) {
-      const { data: existing, error: pendingErr } = await supabase
+    if (incomingDriverParty && isSystemGeneratedInvoice(nextPayload)) {
+      const { data: pendingRows, error: pendingErr } = await supabase
         .from("invoice_documents")
-        .select("id")
+        .select("id, payload")
         .eq("company_code", user.companyCode)
         .eq("status", "pending_approval")
         .eq("driver_id", incomingDriverId)
         .neq("id", id)
-        .limit(1)
-        .maybeSingle();
+        .limit(50);
       if (pendingErr) {
         return NextResponse.json({ error: "DB error" }, { status: 500 });
       }
-      if (existing?.id) {
+      const hasSystemPending = (pendingRows ?? []).some((row: any) =>
+        isSystemGeneratedInvoice((row?.payload ?? {}) as Record<string, unknown>)
+      );
+      if (hasSystemPending) {
         return NextResponse.json(
-          { error: "このドライバーには既に承認待ちの請求書があります。" },
+          { error: "このドライバーには既に承認待ちのシステム請求書があります。" },
           { status: 409 },
         );
       }
