@@ -40,6 +40,19 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+:root {
+  --bottom-nav-safe-space: max(env(safe-area-inset-bottom, 0px), 8px);
+  --bottom-nav-total-height: calc(64px + var(--bottom-nav-safe-space));
+}
+
+.user-main-with-bottom-nav {
+  padding-bottom: var(--bottom-nav-total-height);
+}
+
+.user-bottom-nav-safe {
+  padding-bottom: var(--bottom-nav-safe-space);
+}
+
 /* Utility for number inputs — hide spinners */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {

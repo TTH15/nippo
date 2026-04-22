@@ -10,7 +10,7 @@ export default function UserLayout({
   return (
     <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
       <Nav variant="user" />
-      <main className="flex-1 pb-16">
+      <main className="flex-1 user-main-with-bottom-nav">
         {children}
       </main>
       <Suspense fallback={null}>

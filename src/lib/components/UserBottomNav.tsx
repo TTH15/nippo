@@ -41,8 +41,7 @@ export function UserBottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-slate-200 safe-area-inset-bottom"
-      style={{ paddingBottom: "env(safe-area-inset-bottom, 0)" }}
+      className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-slate-200 user-bottom-nav-safe"
       aria-label="メインメニュー"
     >
       <div className="max-w-2xl mx-auto flex items-end h-16">
