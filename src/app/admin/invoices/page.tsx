@@ -24,6 +24,7 @@ type SavedInvoice = {
 type DriverFolder = { id: string; name: string; display_name?: string | null };
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const ALLOWED_UPLOAD_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const FINDER_STATE_STORAGE_KEY = "admin_invoices_finder_state_v1";
 
 const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }> = {
   draft: { text: "下書き", cls: "bg-slate-100 text-slate-600" },
@@ -34,21 +35,55 @@ const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }>
 
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 
+type FinderState = {
+  selectedMonth?: string;
+  selectedDirection?: "outgoing" | "incoming";
+  selectedCounterparty?: string;
+  filter?: "all" | SavedInvoice["status"];
+};
+
+function readFinderState(): FinderState {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(FINDER_STATE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as FinderState;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export default function InvoicesPage() {
+  const initialFinderState = readFinderState();
   const [canWrite, setCanWrite] = useState(false);
   const [invoices, setInvoices] = useState<SavedInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showCreatePicker, setShowCreatePicker] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(() => {
+    if (initialFinderState.selectedMonth && /^\d{4}-\d{2}$/.test(initialFinderState.selectedMonth)) {
+      return initialFinderState.selectedMonth;
+    }
     const now = new Date();
     const yyyy = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     return `${yyyy}-${mm}`;
   });
-  const [selectedDirection, setSelectedDirection] = useState<"outgoing" | "incoming">("outgoing");
-  const [selectedCounterparty, setSelectedCounterparty] = useState<string>("");
-  const [filter, setFilter] = useState<"all" | SavedInvoice["status"]>("all");
+  const [selectedDirection, setSelectedDirection] = useState<"outgoing" | "incoming">(
+    initialFinderState.selectedDirection === "incoming" ? "incoming" : "outgoing",
+  );
+  const [selectedCounterparty, setSelectedCounterparty] = useState<string>(
+    initialFinderState.selectedCounterparty ?? "",
+  );
+  const [filter, setFilter] = useState<"all" | SavedInvoice["status"]>(
+    initialFinderState.filter === "draft" ||
+      initialFinderState.filter === "pending_approval" ||
+      initialFinderState.filter === "approved" ||
+      initialFinderState.filter === "paid"
+      ? initialFinderState.filter
+      : "all",
+  );
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [drivers, setDrivers] = useState<DriverFolder[]>([]);
@@ -131,6 +166,17 @@ export default function InvoicesPage() {
     void load();
     void loadDrivers();
   }, [load, loadDrivers]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const state: FinderState = {
+      selectedMonth,
+      selectedDirection,
+      selectedCounterparty,
+      filter,
+    };
+    window.localStorage.setItem(FINDER_STATE_STORAGE_KEY, JSON.stringify(state));
+  }, [filter, selectedCounterparty, selectedDirection, selectedMonth]);
 
   const handleUploadForDriver = async (file: File) => {
     if (!selectedDriver || !canWrite) return;
