@@ -67,7 +67,7 @@ function getFolderTopStatus(items: SavedInvoice[]): SavedInvoice["status"] | nul
 
 function getFolderStatusUi(status: SavedInvoice["status"] | null): { dotCls: string; text: string } {
   if (!status) {
-    return { dotCls: "bg-slate-300", text: "なし" };
+    return { dotCls: "", text: "" };
   }
   if (status === "draft") {
     return { dotCls: "bg-slate-400", text: "下書き" };
@@ -458,10 +458,11 @@ export default function InvoicesPage() {
                           const ui = getFolderStatusUi(topStatus);
                           return (
                             <>
-                              <span className="ml-auto inline-flex items-center gap-1.5 shrink-0">
-                                <span className={`inline-block h-2.5 w-2.5 rounded-full ${ui.dotCls}`} />
-                                <span className="text-[10px] text-slate-500">{ui.text}</span>
-                              </span>
+                              {topStatus ? (
+                                <span className="ml-auto inline-flex items-center shrink-0" title={ui.text}>
+                                  <span className={`inline-block h-2.5 w-2.5 rounded-full ${ui.dotCls}`} />
+                                </span>
+                              ) : null}
                             </>
                           );
                         })()}
