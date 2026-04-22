@@ -156,7 +156,13 @@ export default function MeRewardsPage() {
     try {
       await apiFetch(`/api/me/invoices/${encodeURIComponent(invoiceId)}/approve`, { method: "POST" });
       const res = await apiFetch<{ invoices: MyInvoice[] }>(`/api/me/invoices`);
-      setInvoices((res.invoices ?? []).filter((inv) => inv.status === "pending_approval"));
+      const pendingOnly = (res.invoices ?? []).filter((inv) => inv.status === "pending_approval");
+      setInvoices(pendingOnly);
+      // 承認完了後はプレビューを閉じ、残件がなければ一覧モーダルも閉じる
+      setPreviewInvoiceId(null);
+      if (pendingOnly.length === 0) {
+        setInvoicePanelOpen(false);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -284,14 +290,16 @@ export default function MeRewardsPage() {
           <div className="w-full max-w-xl max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="p-3 border-b border-slate-200 flex items-center justify-between">
               <div className="text-sm font-semibold text-slate-900">請求書確認</div>
-              <button type="button" onClick={() => setInvoicePanelOpen(false)} className="text-sm text-slate-500">
-                閉じる
+              <button
+                type="button"
+                onClick={() => setInvoicePanelOpen(false)}
+                className="h-7 w-7 inline-flex items-center justify-center rounded text-slate-500 hover:bg-slate-100"
+                aria-label="閉じる"
+              >
+                ×
               </button>
             </div>
             <div className="p-4 overflow-y-auto max-h-[calc(90vh-49px)] space-y-3">
-              <p className="text-xs text-slate-600">
-                承認待ちの請求書のみ表示しています。内容を確認して承認してください。
-              </p>
               {invoicesLoading ? (
                 <p className="text-xs text-slate-500">読み込み中...</p>
               ) : invoices.length === 0 ? (
@@ -335,21 +343,16 @@ export default function MeRewardsPage() {
           <div className="w-full max-w-3xl max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="p-3 border-b border-slate-200 flex items-center justify-between">
               <div className="text-sm font-semibold text-slate-900">請求書プレビュー</div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={approvingInvoiceId === previewInvoiceId}
-                  onClick={() => previewInvoiceId && void handleApproveInvoice(previewInvoiceId)}
-                  className="px-3 py-1.5 rounded-md bg-slate-800 text-white text-xs disabled:opacity-50"
-                >
-                  {approvingInvoiceId === previewInvoiceId ? "承認中..." : "確認して承認"}
-                </button>
-                <button type="button" onClick={() => setPreviewInvoiceId(null)} className="text-sm text-slate-500">
-                  閉じる
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewInvoiceId(null)}
+                className="h-7 w-7 inline-flex items-center justify-center rounded text-slate-500 hover:bg-slate-100"
+                aria-label="閉じる"
+              >
+                ×
+              </button>
             </div>
-            <div className="p-4 overflow-y-auto max-h-[calc(90vh-49px)]">
+            <div className="p-4 pb-6 overflow-y-auto max-h-[calc(90vh-114px)]">
               {(() => {
                 const inv = invoices.find((x) => x.id === previewInvoiceId);
                 if (!inv) {
@@ -515,6 +518,16 @@ export default function MeRewardsPage() {
                   </div>
                 );
               })()}
+            </div>
+            <div className="border-t border-slate-200 p-3 bg-white">
+              <button
+                type="button"
+                disabled={approvingInvoiceId === previewInvoiceId}
+                onClick={() => previewInvoiceId && void handleApproveInvoice(previewInvoiceId)}
+                className="w-full py-2 rounded-md bg-slate-800 text-white text-sm font-medium disabled:opacity-50"
+              >
+                {approvingInvoiceId === previewInvoiceId ? "承認中..." : "承認する"}
+              </button>
             </div>
           </div>
         </div>
