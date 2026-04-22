@@ -6,6 +6,43 @@ export const dynamic = "force-dynamic";
 
 type InvoiceStatus = "draft" | "pending_approval" | "approved" | "paid";
 
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const ALLOWED_ATTACHMENT_MIME = new Set(["application/pdf", "image/jpeg", "image/png"]);
+
+function estimateDataUrlBytes(dataUrl: string): number | null {
+  const m = String(dataUrl || "").match(/^data:([^;]+);base64,(.*)$/);
+  if (!m?.[2]) return null;
+  const b64 = m[2];
+  const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - padding;
+}
+
+function validateAttachments(payload: Record<string, unknown> | undefined): string | null {
+  const attachments = (payload as any)?.attachments;
+  if (!Array.isArray(attachments)) return null;
+  for (const item of attachments) {
+    const type = String(item?.type || "").toLowerCase();
+    const name = String(item?.name || "").toLowerCase();
+    const dataUrl = String(item?.dataUrl || "");
+    const mimeOk =
+      ALLOWED_ATTACHMENT_MIME.has(type) ||
+      name.endsWith(".pdf") ||
+      name.endsWith(".jpg") ||
+      name.endsWith(".jpeg") ||
+      name.endsWith(".png");
+    if (!mimeOk) {
+      return "添付ファイルは PDF / JPG / PNG のみ対応しています。";
+    }
+    if (dataUrl) {
+      const bytes = estimateDataUrlBytes(dataUrl);
+      if (bytes !== null && bytes > MAX_ATTACHMENT_BYTES) {
+        return "添付ファイルのサイズは5MB以下にしてください。";
+      }
+    }
+  }
+  return null;
+}
+
 function extractIncomingDriverParty(payload: Record<string, unknown> | undefined): string | null {
   const parties = (payload as any)?.parties;
   if (!parties) return null;
@@ -13,6 +50,13 @@ function extractIncomingDriverParty(payload: Record<string, unknown> | undefined
   const fromParty = String(parties.fromParty ?? "");
   if (!fromParty.startsWith("drv-")) return null;
   return fromParty;
+}
+
+function extractDriverIdFromParty(fromParty: string | null): string | null {
+  if (!fromParty) return null;
+  if (!fromParty.startsWith("drv-")) return null;
+  const id = fromParty.slice("drv-".length);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) ? id : null;
 }
 
 function bumpInvoiceRevision(invoiceNo: string) {
@@ -92,14 +136,14 @@ export async function PATCH(
         ? (body.payload as Record<string, unknown>)
         : ((current.payload as Record<string, unknown>) ?? {});
     const incomingDriverParty = extractIncomingDriverParty(nextPayload);
+    const incomingDriverId = extractDriverIdFromParty(incomingDriverParty);
     if (incomingDriverParty) {
       const { data: existing, error: pendingErr } = await supabase
         .from("invoice_documents")
         .select("id")
         .eq("company_code", user.companyCode)
         .eq("status", "pending_approval")
-        .eq("payload->parties->>toParty", "ace_creation")
-        .eq("payload->parties->>fromParty", incomingDriverParty)
+        .eq("driver_id", incomingDriverId)
         .neq("id", id)
         .limit(1)
         .maybeSingle();
@@ -118,7 +162,16 @@ export async function PATCH(
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
+  const payloadForValidation =
+    body.payload && typeof body.payload === "object"
+      ? (body.payload as Record<string, unknown>)
+      : undefined;
+  const attachmentError = validateAttachments(payloadForValidation);
+  if (attachmentError) {
+    return NextResponse.json({ error: attachmentError }, { status: 400 });
+  }
   if (typeof body.clientName === "string") updates.client_name = body.clientName.trim();
+  if (typeof body.driverId === "string" || body.driverId === null) updates.driver_id = body.driverId;
   if (typeof body.invoiceNo === "string" || body.invoiceNo === null) updates.invoice_no = body.invoiceNo;
   if (typeof body.amount === "number") updates.amount = body.amount;
   if (typeof body.month === "string" && /^\d{4}-\d{2}$/.test(body.month)) updates.month_yyyy_mm = body.month;
@@ -138,6 +191,25 @@ export async function PATCH(
   }
   if (body.payload && typeof body.payload === "object") {
     updates.payload = body.payload;
+  }
+
+  // incoming（自社に請求）のドライバー起点請求書は driver_id を必須とする
+  if (updates.payload && typeof updates.payload === "object") {
+    const incomingDriverParty = extractIncomingDriverParty(updates.payload as Record<string, unknown>);
+    const incomingDriverId = extractDriverIdFromParty(incomingDriverParty);
+    if (incomingDriverParty) {
+      const driverId =
+        typeof updates.driver_id === "string" && updates.driver_id
+          ? (updates.driver_id as string)
+          : incomingDriverId;
+      if (!driverId) {
+        return NextResponse.json({ error: "driver_id is required" }, { status: 400 });
+      }
+      if (incomingDriverId && driverId !== incomingDriverId) {
+        return NextResponse.json({ error: "driver_id mismatch" }, { status: 400 });
+      }
+      updates.driver_id = driverId;
+    }
   }
   if (body.markEdited === true) {
     const { data: current } = await supabase

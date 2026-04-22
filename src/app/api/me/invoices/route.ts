@@ -13,8 +13,7 @@ export async function GET(req: NextRequest) {
     .from("invoice_documents")
     .select("id, month_yyyy_mm, issue_date, amount, status, invoice_no, payload, updated_at")
     .eq("company_code", user.companyCode)
-    .eq("payload->parties->>toParty", "ace_creation")
-    .eq("payload->parties->>fromParty", `drv-${user.driverId}`)
+    .eq("driver_id", user.driverId)
     .order("updated_at", { ascending: false });
 
   if (month && /^\d{4}-\d{2}$/.test(month)) {

@@ -14,7 +14,7 @@ export async function POST(
 
   const { data: invoice, error: fetchErr } = await supabase
     .from("invoice_documents")
-    .select("id, status, payload")
+    .select("id, status, payload, driver_id")
     .eq("id", id)
     .eq("company_code", user.companyCode)
     .maybeSingle();
@@ -23,9 +23,7 @@ export async function POST(
     return NextResponse.json({ error: "請求書が見つかりません" }, { status: 404 });
   }
 
-  const fromParty = (invoice as any)?.payload?.parties?.fromParty;
-  const toParty = (invoice as any)?.payload?.parties?.toParty;
-  if (fromParty !== `drv-${user.driverId}` || toParty !== "ace_creation") {
+  if ((invoice as any)?.driver_id !== user.driverId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

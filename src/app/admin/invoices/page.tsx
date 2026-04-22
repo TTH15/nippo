@@ -22,6 +22,8 @@ type SavedInvoice = {
   updatedAt?: string | null;
 };
 type DriverFolder = { id: string; name: string; display_name?: string | null };
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const ALLOWED_UPLOAD_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
 
 const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }> = {
   draft: { text: "下書き", cls: "bg-slate-100 text-slate-600" },
@@ -136,6 +138,16 @@ export default function InvoicesPage() {
 
   const handleUploadForDriver = async (file: File) => {
     if (!selectedDriver || !canWrite) return;
+    if (!ALLOWED_UPLOAD_TYPES.has(file.type)) {
+      setErrorMessage("アップロード可能な形式は PDF / JPG / PNG のみです。");
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setErrorMessage("ファイルサイズは5MB以下にしてください。");
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+      return;
+    }
     setUploading(true);
     try {
       const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -157,6 +169,7 @@ export default function InvoicesPage() {
           month: selectedMonth,
           section: "郵便局",
           clientName: selectedDriver.name,
+          driverId: selectedDriver.id,
           issueDate,
           invoiceNo: `UPL-${selectedMonth.replace("-", "")}-${selectedDriver.id.replace(/-/g, "").slice(0, 4).toUpperCase()}`,
           amount: 0,
@@ -342,7 +355,7 @@ export default function InvoicesPage() {
                   <input
                     ref={uploadInputRef}
                     type="file"
-                    accept="application/pdf,image/*"
+                    accept="application/pdf,image/jpeg,image/png"
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];

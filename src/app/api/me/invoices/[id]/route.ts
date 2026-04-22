@@ -17,8 +17,7 @@ export async function GET(
     .select("id, month_yyyy_mm, issue_date, amount, status, invoice_no, payload, updated_at")
     .eq("id", id)
     .eq("company_code", user.companyCode)
-    .eq("payload->parties->>toParty", "ace_creation")
-    .eq("payload->parties->>fromParty", `drv-${user.driverId}`)
+    .eq("driver_id", user.driverId)
     .maybeSingle();
 
   if (error || !data) {
