@@ -151,7 +151,7 @@ export async function GET(req: NextRequest) {
   // 報酬調整（臨時経費）: amount は +控除 / -手当（報酬加算）
   const { data: adHocRows, error: adHocError } = await supabase
     .from("driver_ad_hoc_expenses")
-    .select("month, name, amount, created_at")
+    .select("month, name, amount, created_at, sales_log_entry_id, sales_log_entries(log_date)")
     .eq("driver_id", user.driverId)
     .eq("month", month)
     .order("created_at", { ascending: true });
@@ -170,8 +170,10 @@ export async function GET(req: NextRequest) {
     const amount = -rawAmount;
     rewardAdjustments += amount;
     if (amount < 0) variableDeductions += Math.abs(amount);
+    const salesLogDate = String(row?.sales_log_entries?.log_date ?? "").slice(0, 10);
+    const fallbackMonthDate = `${String(row.month ?? month)}-01`;
     return {
-      log_date: `${String(row.month ?? month)}-01`,
+      log_date: /^\d{4}-\d{2}-\d{2}$/.test(salesLogDate) ? salesLogDate : fallbackMonthDate,
       type_name: "報酬調整",
       content: String(row.name ?? ""),
       amount,

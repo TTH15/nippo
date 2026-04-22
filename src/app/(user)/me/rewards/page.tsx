@@ -284,8 +284,14 @@ export default function MeRewardsPage() {
       )}
 
       {invoicePanelOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center">
-          <div className="w-full max-w-xl max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden">
+        <div
+          className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center"
+          onClick={() => setInvoicePanelOpen(false)}
+        >
+          <div
+            className="w-full max-w-xl max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-3 border-b border-slate-200 flex items-center justify-between">
               <div className="text-sm font-semibold text-slate-900">請求書確認</div>
               <button
@@ -337,8 +343,14 @@ export default function MeRewardsPage() {
       )}
 
       {previewInvoiceId && (
-        <div className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center">
-          <div className="w-full max-w-3xl max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden">
+        <div
+          className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center"
+          onClick={() => setPreviewInvoiceId(null)}
+        >
+          <div
+            className="w-full max-w-3xl max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-3 border-b border-slate-200 flex items-center justify-between">
               <div className="text-sm font-semibold text-slate-900">請求書プレビュー</div>
               <button
