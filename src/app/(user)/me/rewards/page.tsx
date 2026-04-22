@@ -9,7 +9,6 @@ import { FixedExpenseSection } from "@/lib/components/FixedExpenseSection";
 import { PaymentSummary } from "@/lib/components/PaymentSummary";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
-import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 
 type RewardLogDetail = {
   log_date: string;
@@ -91,7 +90,6 @@ export default function MeRewardsPage() {
   const [approvingInvoiceId, setApprovingInvoiceId] = useState<string | null>(null);
   const [invoicePanelOpen, setInvoicePanelOpen] = useState(false);
   const [previewInvoiceId, setPreviewInvoiceId] = useState<string | null>(null);
-  useBodyScrollLock(invoicePanelOpen || previewInvoiceId !== null);
 
   const monthStr = `${rewardMonth.year}-${String(rewardMonth.month).padStart(2, "0")}`;
 
