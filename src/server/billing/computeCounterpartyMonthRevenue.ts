@@ -89,7 +89,10 @@ export async function computeCounterpartyMonthBillingDetail(
   });
 
   const perCourse = new Map<string, CourseAgg>();
-  const perCourseDriver = new Map<string, { takuhaibinCount: number; nekoposCount: number }>();
+  const perCourseDriver = new Map<
+    string,
+    { takuhaibinCount: number; nekoposCount: number; fixedDays: number }
+  >();
   for (const c of coursesOrdered) {
     const id = String(c.id);
     perCourse.set(id, {
@@ -148,13 +151,21 @@ export async function computeCounterpartyMonthBillingDetail(
     const rate = courseAgg.rate;
     if (rate.fixed_revenue > 0) {
       courseAgg.fixedDays += 1;
+      const key = `${courseId}:${driverId}`;
+      const prev = perCourseDriver.get(key) ?? {
+        takuhaibinCount: 0,
+        nekoposCount: 0,
+        fixedDays: 0,
+      };
+      prev.fixedDays += 1;
+      perCourseDriver.set(key, prev);
       return;
     }
 
     const tkComp = Number(rep.takuhaibin_completed ?? 0) || 0;
     const nkComp = Number(rep.nekopos_completed ?? 0) || 0;
     const key = `${courseId}:${driverId}`;
-    const prev = perCourseDriver.get(key) ?? { takuhaibinCount: 0, nekoposCount: 0 };
+    const prev = perCourseDriver.get(key) ?? { takuhaibinCount: 0, nekoposCount: 0, fixedDays: 0 };
     prev.takuhaibinCount += tkComp;
     prev.nekoposCount += nkComp;
     perCourseDriver.set(key, prev);
@@ -169,18 +180,48 @@ export async function computeCounterpartyMonthBillingDetail(
     if (!agg) continue;
     const { rate, name } = agg;
     if (rate.fixed_revenue > 0) {
-      const amount = agg.fixedDays * rate.fixed_revenue;
-      systemTotal += amount;
-      systemLines.push({
-        kind: "course_fixed",
-        lineKey: `fx:${courseId}`,
-        courseId,
-        courseName: name,
-        label: `${name}（固定売上・稼働日）`,
-        quantity: agg.fixedDays,
-        unitPrice: rate.fixed_revenue,
-        amount,
-      });
+      const driverRows = Array.from(perCourseDriver.entries())
+        .filter(([k, v]) => k.startsWith(`${courseId}:`) && (v.fixedDays || 0) > 0)
+        .map(([k, v]) => {
+          const driverId = k.split(":")[1] || "";
+          return { driverId, fixedDays: v.fixedDays || 0 };
+        })
+        .sort((a, b) => {
+          const an = driverNameMap.get(a.driverId) ?? "";
+          const bn = driverNameMap.get(b.driverId) ?? "";
+          return an.localeCompare(bn, "ja");
+        });
+
+      if (driverRows.length === 0 && agg.fixedDays > 0) {
+        const amount = agg.fixedDays * rate.fixed_revenue;
+        systemTotal += amount;
+        systemLines.push({
+          kind: "course_fixed",
+          lineKey: `fx:${courseId}`,
+          courseId,
+          courseName: name,
+          label: `${name}（固定売上・稼働日）`,
+          quantity: agg.fixedDays,
+          unitPrice: rate.fixed_revenue,
+          amount,
+        });
+      } else {
+        for (const row of driverRows) {
+          const driverName = driverNameMap.get(row.driverId) ?? "担当者";
+          const amount = row.fixedDays * rate.fixed_revenue;
+          systemTotal += amount;
+          systemLines.push({
+            kind: "course_fixed",
+            lineKey: `fx:${courseId}:drv:${row.driverId}`,
+            courseId,
+            courseName: name,
+            label: `${name}（固定売上・稼働日・${driverName}）`,
+            quantity: row.fixedDays,
+            unitPrice: rate.fixed_revenue,
+            amount,
+          });
+        }
+      }
     } else {
       const driverRows = Array.from(perCourseDriver.entries())
         .filter(([k]) => k.startsWith(`${courseId}:`))

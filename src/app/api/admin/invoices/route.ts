@@ -117,7 +117,7 @@ export async function GET(req: NextRequest) {
   const month = monthParam ? normalizeMonth(monthParam) : null;
   let query = supabase
     .from("invoice_documents")
-    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, updated_at, payload")
+    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, created_at, updated_at, payload")
     .eq("company_code", user.companyCode)
     .order("updated_at", { ascending: false });
   if (month) {
@@ -145,7 +145,11 @@ export async function GET(req: NextRequest) {
     month: r.month_yyyy_mm,
     section: r.section as Section,
     clientName: r.client_name ?? "",
-    issueDate: r.issue_date ?? "",
+    // Finder 上の発行日は「作成日」を優先表示（帳票内の請求日と分離）
+    issueDate:
+      (typeof r?.created_at === "string" && r.created_at.slice(0, 10)) ||
+      r.issue_date ||
+      "",
     amount: Number(r.amount) || 0,
     status: ((r.status === "sent" ? "pending_approval" : r.status) ?? "draft") as InvoiceStatus,
     invoiceNo: r.invoice_no ?? "",
