@@ -635,6 +635,7 @@ textarea {
 .tbl {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
     font-size: 13px;         /* テーブル内文字サイズ */
     margin-top: 0px;
     margin-bottom: 16px;
@@ -666,6 +667,7 @@ textarea {
 /* 右寄せセル */
 .tbl tbody td.right {
     text-align: right;
+    white-space: nowrap;
 }
 
 /* セクショングループ */
@@ -1227,6 +1229,16 @@ body.readonly-preview .editable-cell {
     font-size: inherit;
     font-family: inherit;
     text-align: inherit;
+}
+
+/* 数値列の視認性確保（単価・金額の見切れ防止） */
+.tbl th:nth-child(2),
+.tbl th:nth-child(3),
+.tbl th:nth-child(4),
+.tbl td:nth-child(2),
+.tbl td:nth-child(3),
+.tbl td:nth-child(4) {
+    white-space: nowrap;
 }
 
 .editable-cell:focus {
