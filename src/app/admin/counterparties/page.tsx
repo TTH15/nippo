@@ -230,7 +230,7 @@ export default function CounterpartiesPage() {
                                 onClick={async () => {
                                   setCreateInvoiceError(null);
                                   try {
-                                    const res = await apiFetch<{ month: string; issueDate: string; invoiceNo: string; tableData: { main: { title: string; qty: number; price: number }[]; deduct: { title: string; qty: number; price: number }[] } }>(
+                                    const res = await apiFetch<{ month: string; issueDate: string; dueDate: string; invoiceNo: string; tableData: { main: { title: string; qty: number; price: number }[]; deduct: { title: string; qty: number; price: number }[] } }>(
                                       `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(r.suggestedSection)}&counterparty=${encodeURIComponent(r.id)}`
                                     );
                                     const amount =
@@ -239,9 +239,12 @@ export default function CounterpartiesPage() {
                                     const issueDateJp = `${res.issueDate.slice(0, 4)}年${Number(
                                       res.issueDate.slice(5, 7),
                                     )}月${Number(res.issueDate.slice(8, 10))}日`;
+                                    const dueDateJp = `${res.dueDate.slice(0, 4)}年${Number(
+                                      res.dueDate.slice(5, 7),
+                                    )}月${Number(res.dueDate.slice(8, 10))}日`;
                                     const payload = {
                                       issueDate: issueDateJp,
-                                      dueDate: issueDateJp,
+                                      dueDate: dueDateJp,
                                       invoiceNo: res.invoiceNo,
                                       tableData: res.tableData,
                                       toName: r.name,

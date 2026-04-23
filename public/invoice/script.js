@@ -617,6 +617,14 @@ function getDefaultDueDateJp() {
     return toJpDate(iso);
 }
 
+function isPlaceholderDateText(text) {
+    const s = String(text || '').trim();
+    if (s === '') return true;
+    if (/^\d{4}年\s*月\s*日$/.test(s)) return true;
+    if (/^-{2,}年?-{0,}月?-{0,}日?$/.test(s)) return true;
+    return false;
+}
+
 function toJpDate(isoDate) {
     const m = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!m) return '';
@@ -927,7 +935,9 @@ function syncPartiesToInvoice() {
             const bankNoElem = q('#p_bankNo');
             const bankHolderElem = q('#p_bankHolder');
 
-            if (dueDateElem) dueDateElem.textContent = getDefaultDueDateJp();
+            if (dueDateElem && isPlaceholderDateText(dueDateElem.textContent)) {
+                dueDateElem.textContent = getDefaultDueDateJp();
+            }
             if (bankNameElem) bankNameElem.textContent = '京都信用金庫 梅津支店';
             if (bankNoElem) bankNoElem.textContent = '普通 3058832';
             if (bankHolderElem) bankHolderElem.textContent = '口座名義：カ)ｴｰｽｸﾘｴｲｼｮﾝ';
@@ -938,7 +948,9 @@ function syncPartiesToInvoice() {
             const bankNoElem = q('#p_bankNo');
             const bankHolderElem = q('#p_bankHolder');
 
-            if (dueDateElem) dueDateElem.textContent = getDefaultDueDateJp();
+            if (dueDateElem && isPlaceholderDateText(dueDateElem.textContent)) {
+                dueDateElem.textContent = getDefaultDueDateJp();
+            }
             if (bankNameElem) bankNameElem.textContent = fromData.bankName || '';
             if (bankNoElem) bankNoElem.textContent = fromData.bankNo || '';
             if (bankHolderElem) bankHolderElem.textContent = fromData.bankHolder || '';
@@ -1690,20 +1702,10 @@ async function initializeApp() {
     const queryMonth = new URLSearchParams(window.location.search).get('month');
     const defaultDateIso = getNextMonthEndIsoFromMonth(queryMonth) || getTodayIsoDate();
     const defaultDateStr = toJpDate(defaultDateIso);
-    const isPlaceholderDate = (t) => {
-        const s = (t || '').trim();
-        if (s === '') return true;
-        // 例: "2025年 月 日" のように月と日が空白
-        if (/^\d{4}年\s*月\s*日$/.test(s)) return true;
-        // 例: "----年--月--日" のようなプレースホルダー
-        if (/^-{2,}年?-{0,}月?-{0,}日?$/.test(s)) return true;
-        return false;
-    };
-
-    if (issueDateEl && isPlaceholderDate(issueDateEl.textContent)) {
+    if (issueDateEl && isPlaceholderDateText(issueDateEl.textContent)) {
         issueDateEl.textContent = defaultDateStr;
     }
-    if (dueDateEl && isPlaceholderDate(dueDateEl.textContent)) {
+    if (dueDateEl && isPlaceholderDateText(dueDateEl.textContent)) {
         dueDateEl.textContent = defaultDateStr;
     }
 

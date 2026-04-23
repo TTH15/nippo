@@ -103,6 +103,11 @@ function nextMonthEndDate(month: string): string {
   return `${ny}-${String(nm).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
 }
 
+function todayIsoDate(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function sectionToCarrier(section: Section): "YAMATO" | "AMAZON" | "OTHER" {
   if (section === "Amazon") return "AMAZON";
   if (section === "ヤマト運輸") return "YAMATO";
@@ -258,7 +263,8 @@ export async function GET(req: NextRequest) {
       : "ヤマト運輸";
 
   const range = getMonthRange(monthParam);
-  const issueDate = nextMonthEndDate(range.month);
+  const issueDate = todayIsoDate();
+  const dueDate = nextMonthEndDate(range.month);
   const counterpartyParam = req.nextUrl.searchParams.get("counterparty")?.trim() ?? "";
 
   if (counterpartyParam && UUID_RE.test(counterpartyParam)) {
@@ -315,6 +321,7 @@ export async function GET(req: NextRequest) {
       month: range.month,
       section,
       issueDate,
+      dueDate,
       invoiceNo: await buildNextInvoiceNo(user.companyCode, {
         month: range.month,
         section,
@@ -371,6 +378,7 @@ export async function GET(req: NextRequest) {
     month: range.month,
     section,
     issueDate,
+    dueDate,
     invoiceNo: await buildNextInvoiceNo(user.companyCode, {
       month: range.month,
       section,

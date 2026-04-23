@@ -101,6 +101,11 @@ function nextMonthEndDate(year: number, month: number): string {
   return `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 }
 
+function todayIsoDate(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function nextInvoiceNoForDriver(month: string, driverId: string, existingNos: string[]): string {
   const yyyymm = month.replace("-", "");
   const driverKey = driverId.replace(/-/g, "").slice(0, 4).toUpperCase();
@@ -250,7 +255,8 @@ export default function PaymentsPage() {
     // 請求書の取引先キーは本名で統一（表示名だと同一人物が分裂する）
     const driverLabel = row.driverName;
     const total = Math.max(0, Number(row.incomeLog) || 0);
-    const issueDate = nextMonthEndDate(yearMonth.year, yearMonth.month);
+    const issueDate = todayIsoDate();
+    const dueDate = nextMonthEndDate(yearMonth.year, yearMonth.month);
     let mainLines: Array<{ title: string; qty: number; price: number }> = [];
     let deductLines: Array<{ title: string; qty: number; price: number }> = [];
 
@@ -368,7 +374,7 @@ export default function PaymentsPage() {
             fromAddr,
             fromTel,
             fromReg: "",
-            dueDate: `${issueDate.slice(0, 4)}年${Number(issueDate.slice(5, 7))}月${Number(issueDate.slice(8, 10))}日`,
+            dueDate: `${dueDate.slice(0, 4)}年${Number(dueDate.slice(5, 7))}月${Number(dueDate.slice(8, 10))}日`,
             bankName,
             bankNo,
             bankHolder,
