@@ -434,6 +434,41 @@ async function downloadPDF() {
     });
 
     try {
+        const sheetRect = sheet.getBoundingClientRect();
+        const toSheetY = (el) => {
+            const rect = el.getBoundingClientRect();
+            return Math.max(0, rect.bottom - sheetRect.top);
+        };
+        const pageRatio = 297 / 210; // A4縦
+        const pageHeightDomPx = sheet.scrollWidth * pageRatio;
+        const allBreakYs = Array.from(
+            sheet.querySelectorAll(
+                '.tbl tr, .totals .row, .bank > div, .headline, .title, .meta'
+            )
+        )
+            .map(toSheetY)
+            .filter((y) => Number.isFinite(y) && y > 0 && y < sheet.scrollHeight)
+            .sort((a, b) => a - b);
+
+        const segmentsDom = [];
+        const minSegment = pageHeightDomPx * 0.45;
+        let startDom = 0;
+        while (startDom < sheet.scrollHeight - 1) {
+            const idealEnd = startDom + pageHeightDomPx;
+            if (idealEnd >= sheet.scrollHeight) {
+                segmentsDom.push([startDom, sheet.scrollHeight]);
+                break;
+            }
+            const candidates = allBreakYs.filter((y) => y > startDom + minSegment && y <= idealEnd);
+            const endDom = candidates.length > 0 ? candidates[candidates.length - 1] : idealEnd;
+            if (endDom <= startDom + 1) {
+                segmentsDom.push([startDom, Math.min(sheet.scrollHeight, idealEnd)]);
+                break;
+            }
+            segmentsDom.push([startDom, endDom]);
+            startDom = endDom;
+        }
+
         // レンダリング完了を十分に待つ
         await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -516,25 +551,41 @@ async function downloadPDF() {
             }
         });
 
-        const imgData = canvas.toDataURL('image/jpeg', 0.7); // JPEG圧縮で軽量化
         const pdf = new jsPDF('p', 'mm', 'a4');
         const pageWidth = 210;
-        const pageHeight = 297;
-        const imgWidth = pageWidth;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        const domToCanvasScale = canvas.height / sheet.scrollHeight;
 
-        // 複数ページ対応（明細が長い場合は2ページ目以降を追加）
-        let heightLeft = imgHeight;
-        let position = 0;
-        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+        segmentsDom.forEach((segment, index) => {
+            const [startDom, endDom] = segment;
+            const startPx = Math.floor(startDom * domToCanvasScale);
+            const endPx = Math.ceil(endDom * domToCanvasScale);
+            const segHeightPx = Math.max(1, endPx - startPx);
 
-        while (heightLeft > 0) {
-            position = heightLeft - imgHeight;
-            pdf.addPage();
-            pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-            heightLeft -= pageHeight;
-        }
+            const pageCanvas = document.createElement('canvas');
+            pageCanvas.width = canvas.width;
+            pageCanvas.height = segHeightPx;
+            const ctx = pageCanvas.getContext('2d');
+            if (!ctx) return;
+
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+            ctx.drawImage(
+                canvas,
+                0,
+                startPx,
+                canvas.width,
+                segHeightPx,
+                0,
+                0,
+                pageCanvas.width,
+                pageCanvas.height
+            );
+
+            const segmentImg = pageCanvas.toDataURL('image/jpeg', 0.78);
+            const mmHeight = (segHeightPx * pageWidth) / canvas.width;
+            if (index > 0) pdf.addPage();
+            pdf.addImage(segmentImg, 'JPEG', 0, 0, pageWidth, mmHeight);
+        });
 
         // ファイル名を生成: 「202512_12月分御請求書_〇〇.pdf」
         const fileName = generatePDFFileName();
