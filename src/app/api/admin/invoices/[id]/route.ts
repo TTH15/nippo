@@ -263,13 +263,29 @@ export async function PATCH(
 
   try {
     if ("invoice_no" in updates) {
-      const duplicated = await isDuplicateInvoiceNo(
-        user.companyCode,
-        typeof updates.invoice_no === "string" ? updates.invoice_no : null,
-        id,
-      );
-      if (duplicated) {
-        return NextResponse.json({ error: "請求書番号が重複しています。" }, { status: 409 });
+      const { data: currentNoRow, error: currentNoErr } = await supabase
+        .from("invoice_documents")
+        .select("invoice_no")
+        .eq("id", id)
+        .eq("company_code", user.companyCode)
+        .maybeSingle();
+      if (currentNoErr) {
+        console.error(currentNoErr);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      const currentNo =
+        typeof currentNoRow?.invoice_no === "string" ? currentNoRow.invoice_no.trim() : "";
+      const nextNo = typeof updates.invoice_no === "string" ? updates.invoice_no.trim() : "";
+      // 請求書番号が変更された場合のみ重複チェックする
+      if (nextNo && nextNo !== currentNo) {
+        const duplicated = await isDuplicateInvoiceNo(
+          user.companyCode,
+          nextNo,
+          id,
+        );
+        if (duplicated) {
+          return NextResponse.json({ error: "請求書番号が重複しています。" }, { status: 409 });
+        }
       }
     }
   } catch (e) {
