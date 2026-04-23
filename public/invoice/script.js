@@ -124,23 +124,7 @@ function addTableRow(kind) {
         <td class="right calculated-amount">¥0</td>
     `;
 
-    // 削除ボタンを追加（印刷時は非表示）
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'btn small hide-print';
-    deleteBtn.textContent = '×';
-    deleteBtn.style.position = 'absolute';
-    deleteBtn.style.right = '-30px';
-    deleteBtn.style.top = '50%';
-    deleteBtn.style.transform = 'translateY(-50%)';
-    deleteBtn.onclick = () => {
-        row.remove();
-        calculateTotals();
-        updateAddButtonPositions(); // ボタン位置を更新
-        saveData();
-    };
-
-    row.style.position = 'relative';
-    row.appendChild(deleteBtn);
+    attachDeleteButtonToRow(row);
 
     // 入力フィールドにイベントリスナーを追加
     const inputs = row.querySelectorAll('input');
@@ -167,6 +151,34 @@ function addTableRow(kind) {
     calculateTotals();
     updateAddButtonPositions(); // ボタン位置を更新
     saveData();
+}
+
+function attachDeleteButtonToRow(row) {
+    const amountCell = row.querySelector('.calculated-amount');
+    if (!amountCell) return;
+
+    amountCell.style.position = 'relative';
+    amountCell.style.paddingRight = '32px';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn small hide-print row-delete-btn';
+    deleteBtn.textContent = '×';
+    deleteBtn.style.position = 'absolute';
+    deleteBtn.style.right = '4px';
+    deleteBtn.style.top = '50%';
+    deleteBtn.style.transform = 'translateY(-50%)';
+    deleteBtn.style.minWidth = '20px';
+    deleteBtn.style.height = '20px';
+    deleteBtn.style.padding = '0';
+    deleteBtn.style.lineHeight = '1';
+    deleteBtn.onclick = () => {
+        row.remove();
+        calculateTotals();
+        updateAddButtonPositions();
+        saveData();
+    };
+
+    amountCell.appendChild(deleteBtn);
 }
 
 // 行の金額を更新
@@ -313,23 +325,7 @@ function setDataToTables(data) {
                 <td class="right calculated-amount">¥0</td>
             `;
 
-            // 削除ボタンを追加
-            const deleteBtn = document.createElement('button');
-            deleteBtn.className = 'btn small hide-print';
-            deleteBtn.textContent = '×';
-            deleteBtn.style.position = 'absolute';
-            deleteBtn.style.right = '-30px';
-            deleteBtn.style.top = '50%';
-            deleteBtn.style.transform = 'translateY(-50%)';
-            deleteBtn.onclick = () => {
-                row.remove();
-                calculateTotals();
-                updateAddButtonPositions(); // ボタン位置を更新
-                saveData();
-            };
-
-            row.style.position = 'relative';
-            row.appendChild(deleteBtn);
+            attachDeleteButtonToRow(row);
 
             // イベントリスナーを追加
             const inputs = row.querySelectorAll('input');
