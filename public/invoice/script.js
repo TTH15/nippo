@@ -446,7 +446,8 @@ async function downloadPDF() {
                 const clonedSheet = clonedDoc.querySelector('#sheet');
                 if (clonedSheet) {
                     clonedSheet.style.width = '210mm';
-                    clonedSheet.style.height = '297mm';
+                    clonedSheet.style.height = 'auto';
+                    clonedSheet.style.minHeight = '297mm';
                     clonedSheet.style.transform = 'none';
                     clonedSheet.style.overflow = 'visible';
                 }
@@ -497,9 +498,23 @@ async function downloadPDF() {
 
         const imgData = canvas.toDataURL('image/jpeg', 0.7); // JPEG圧縮で軽量化
         const pdf = new jsPDF('p', 'mm', 'a4');
+        const pageWidth = 210;
+        const pageHeight = 297;
+        const imgWidth = pageWidth;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-        // 画像をA4サイズに正確にフィット
-        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+        // 複数ページ対応（明細が長い場合は2ページ目以降を追加）
+        let heightLeft = imgHeight;
+        let position = 0;
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+
+        while (heightLeft > 0) {
+            position = heightLeft - imgHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+        }
 
         // ファイル名を生成: 「202512_12月分御請求書_〇〇.pdf」
         const fileName = generatePDFFileName();

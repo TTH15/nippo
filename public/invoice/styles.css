@@ -421,12 +421,12 @@ textarea {
 /* A4サイズのプレビューパネル */
 .preview {
     width: 210mm;        /* A4幅 */
-    height: 297mm;       /* A4高さ */
+    min-height: 297mm;   /* A4高さ以上は自動拡張 */
     background: #fff;
     border: 1px solid var(--border);
     border-radius: 8px;
     margin: auto;
-    overflow: hidden;
+    overflow: visible;
     position: relative;
     box-sizing: border-box;
 }
@@ -434,7 +434,8 @@ textarea {
 /* 実際の請求書シート（余白設定） */
 .sheet {
     width: 210mm;
-    height: 297mm;
+    min-height: 297mm;
+    height: auto;
     padding: 18mm 16mm 16mm 16mm;  /* 上右下左の余白 */
     box-sizing: border-box;
 }
@@ -973,14 +974,14 @@ textarea {
     margin: 0;
     padding: 0;
     width: 210mm;
-    height: 297mm;
+    height: auto;
   }
   
   .wrap {
     display: block;
     padding: 0;
     width: 210mm;
-    height: 297mm;
+    height: auto;
   }
   
   .control-bar {
@@ -1000,12 +1001,15 @@ textarea {
     padding: 0;
     margin: 0;
     width: 210mm;
-    height: 297mm;
+    height: auto;
+    min-height: 297mm;
+    overflow: visible;
   }
   
   .sheet {
     width: 210mm;
-    height: 297mm;
+    height: auto;
+    min-height: 297mm;
     padding: 18mm 16mm 16mm 16mm;
     box-sizing: border-box;
   }
