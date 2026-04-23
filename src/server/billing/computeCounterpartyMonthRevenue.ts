@@ -44,8 +44,6 @@ export type SystemBillingLine = {
 
 type CourseAgg = {
   name: string;
-  takuhaibinCount: number;
-  nekoposCount: number;
   fixedDays: number;
   rate: CourseRate;
 };
@@ -91,16 +89,24 @@ export async function computeCounterpartyMonthBillingDetail(
   });
 
   const perCourse = new Map<string, CourseAgg>();
+  const perCourseDriver = new Map<string, { takuhaibinCount: number; nekoposCount: number }>();
   for (const c of coursesOrdered) {
     const id = String(c.id);
     perCourse.set(id, {
       name: String(c.name ?? ""),
-      takuhaibinCount: 0,
-      nekoposCount: 0,
       fixedDays: 0,
       rate: rateByCourse[id] ?? zeroRate(),
     });
   }
+
+  const { data: drivers, error: driversErr } = await supabase.from("drivers").select("id, name");
+  if (driversErr) throw driversErr;
+  const driverNameMap = new Map<string, string>();
+  (drivers ?? []).forEach((d: Record<string, unknown>) => {
+    const id = String(d.id ?? "");
+    if (!id) return;
+    driverNameMap.set(id, String(d.name ?? "").trim() || "担当者");
+  });
 
   const { data: shifts, error: shiftsErr } = await supabase
     .from("shifts")
@@ -132,19 +138,22 @@ export async function computeCounterpartyMonthBillingDetail(
     const rep = reportMap.get(`${driverId}:${date}`);
     if (!rep) return;
 
-    const agg = perCourse.get(courseId);
-    if (!agg) return;
+    const courseAgg = perCourse.get(courseId);
+    if (!courseAgg) return;
 
-    const rate = agg.rate;
+    const rate = courseAgg.rate;
     if (rate.fixed_revenue > 0) {
-      agg.fixedDays += 1;
+      courseAgg.fixedDays += 1;
       return;
     }
 
     const tkComp = Number(rep.takuhaibin_completed ?? 0) || 0;
     const nkComp = Number(rep.nekopos_completed ?? 0) || 0;
-    agg.takuhaibinCount += tkComp;
-    agg.nekoposCount += nkComp;
+    const key = `${courseId}:${driverId}`;
+    const prev = perCourseDriver.get(key) ?? { takuhaibinCount: 0, nekoposCount: 0 };
+    prev.takuhaibinCount += tkComp;
+    prev.nekoposCount += nkComp;
+    perCourseDriver.set(key, prev);
   });
 
   const systemLines: SystemBillingLine[] = [];
@@ -169,29 +178,44 @@ export async function computeCounterpartyMonthBillingDetail(
         amount,
       });
     } else {
-      const tkAmt = agg.takuhaibinCount * rate.takuhaibin_revenue;
-      const nkAmt = agg.nekoposCount * rate.nekopos_revenue;
-      systemTotal += tkAmt + nkAmt;
-      systemLines.push({
-        kind: "course_takuhaibin",
-        lineKey: `tk:${courseId}`,
-        courseId,
-        courseName: name,
-        label: `${name} 宅急便`,
-        quantity: agg.takuhaibinCount,
-        unitPrice: rate.takuhaibin_revenue,
-        amount: tkAmt,
-      });
-      systemLines.push({
-        kind: "course_nekopos",
-        lineKey: `nk:${courseId}`,
-        courseId,
-        courseName: name,
-        label: `${name} ネコポス`,
-        quantity: agg.nekoposCount,
-        unitPrice: rate.nekopos_revenue,
-        amount: nkAmt,
-      });
+      const driverRows = Array.from(perCourseDriver.entries())
+        .filter(([k]) => k.startsWith(`${courseId}:`))
+        .map(([k, v]) => {
+          const driverId = k.split(":")[1] || "";
+          return { driverId, ...v };
+        })
+        .sort((a, b) => {
+          const an = driverNameMap.get(a.driverId) ?? "";
+          const bn = driverNameMap.get(b.driverId) ?? "";
+          return an.localeCompare(bn, "ja");
+        });
+
+      for (const row of driverRows) {
+        const driverName = driverNameMap.get(row.driverId) ?? "担当者";
+        const tkAmt = row.takuhaibinCount * rate.takuhaibin_revenue;
+        const nkAmt = row.nekoposCount * rate.nekopos_revenue;
+        systemTotal += tkAmt + nkAmt;
+        systemLines.push({
+          kind: "course_takuhaibin",
+          lineKey: `tk:${courseId}:drv:${row.driverId}`,
+          courseId,
+          courseName: name,
+          label: `${name} 宅急便（${driverName}）`,
+          quantity: row.takuhaibinCount,
+          unitPrice: rate.takuhaibin_revenue,
+          amount: tkAmt,
+        });
+        systemLines.push({
+          kind: "course_nekopos",
+          lineKey: `nk:${courseId}:drv:${row.driverId}`,
+          courseId,
+          courseName: name,
+          label: `${name} ネコポス（${driverName}）`,
+          quantity: row.nekoposCount,
+          unitPrice: rate.nekopos_revenue,
+          amount: nkAmt,
+        });
+      }
     }
   }
 

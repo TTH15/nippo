@@ -34,7 +34,37 @@ function buildInvoiceNo(params: {
     ? params.counterpartyId.replace(/-/g, "").slice(0, 4).toUpperCase()
     : null;
   const cp = byName || byId || "GEN";
-  return `INV-${ym}-${sec}-${cp}-R00`;
+  return `INV-${ym}-${sec}-${cp}`;
+}
+
+async function buildNextInvoiceNo(
+  companyCode: string,
+  params: {
+    month: string;
+    section: Section;
+    counterpartyId?: string | null;
+    counterpartyName?: string | null;
+  }
+): Promise<string> {
+  const base = buildInvoiceNo(params);
+  const prefix = `${base}-R`;
+  const { data, error } = await supabase
+    .from("invoice_documents")
+    .select("invoice_no")
+    .eq("company_code", companyCode)
+    .like("invoice_no", `${prefix}%`)
+    .limit(300);
+  if (error) throw error;
+  const maxRevision = (data ?? []).reduce((max, row: Record<string, unknown>) => {
+    const no = String(row.invoice_no ?? "");
+    const m = no.match(new RegExp(`^${prefix}(\\d{2})$`));
+    if (!m) return max;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n)) return max;
+    return Math.max(max, n);
+  }, -1);
+  const next = Math.min(maxRevision + 1, 99);
+  return `${prefix}${String(next).padStart(2, "0")}`;
 }
 
 function getMonthRange(monthParam: string | null): { month: string; startDate: string; endDate: string } {
@@ -273,7 +303,7 @@ export async function GET(req: NextRequest) {
       month: range.month,
       section,
       issueDate: range.endDate,
-      invoiceNo: buildInvoiceNo({
+      invoiceNo: await buildNextInvoiceNo(user.companyCode, {
         month: range.month,
         section,
         counterpartyId: counterpartyParam,
@@ -329,7 +359,7 @@ export async function GET(req: NextRequest) {
     month: range.month,
     section,
     issueDate: range.endDate,
-    invoiceNo: buildInvoiceNo({
+    invoiceNo: await buildNextInvoiceNo(user.companyCode, {
       month: range.month,
       section,
       counterpartyId: counterpartyInvoiceAddressId,
