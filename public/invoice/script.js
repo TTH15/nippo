@@ -159,6 +159,13 @@ function attachDeleteButtonToRow(row) {
 
     amountCell.style.position = 'relative';
     amountCell.style.paddingRight = '32px';
+    if (!amountCell.querySelector('.amount-value')) {
+        const amountValue = document.createElement('span');
+        amountValue.className = 'amount-value';
+        amountValue.textContent = amountCell.textContent || '¥0';
+        amountCell.textContent = '';
+        amountCell.appendChild(amountValue);
+    }
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn small hide-print row-delete-btn';
@@ -188,7 +195,13 @@ function updateRowAmount(row) {
     const price = parseFloat(inputs[2].value || 0); // 単価が2番目に戻る
     const amount = qty * price;
     const amountCell = row.querySelector('.calculated-amount');
-    amountCell.textContent = `¥${Number(amount || 0).toLocaleString()}`; // 金額に¥マークを追加
+    let amountValue = amountCell.querySelector('.amount-value');
+    if (!amountValue) {
+        amountValue = document.createElement('span');
+        amountValue.className = 'amount-value';
+        amountCell.prepend(amountValue);
+    }
+    amountValue.textContent = `¥${Number(amount || 0).toLocaleString()}`; // 金額に¥マークを追加
 
     // 単価フィールドに¥マークを追加
     const priceInput = inputs[2];
