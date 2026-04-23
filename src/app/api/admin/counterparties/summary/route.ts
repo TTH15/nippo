@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import {
-  computeCounterpartyMonthRevenue,
   dominantSectionFromCourses,
   type CounterpartyCourse,
 } from "@/server/billing/computeCounterpartyMonthRevenue";
@@ -81,6 +80,10 @@ export async function GET(req: NextRequest) {
   }
 
   const byCounterparty = new Map<string, CounterpartyCourse[]>();
+  const courseById = new Map<
+    string,
+    { id: string; name: string; carrier: "YAMATO" | "AMAZON" | "OTHER"; counterpartyId: string }
+  >();
   (courses ?? []).forEach((c: Record<string, unknown>) => {
     const cp = c.counterparty_invoice_address_id as string | null;
     if (!cp) return;
@@ -92,7 +95,97 @@ export async function GET(req: NextRequest) {
     const list = byCounterparty.get(cp) ?? [];
     list.push(row);
     byCounterparty.set(cp, list);
+    courseById.set(row.id, {
+      id: row.id,
+      name: row.name,
+      carrier: row.carrier,
+      counterpartyId: cp,
+    });
   });
+
+  // 取引先ごとのシステム売上を一括計算（N+1クエリ回避）
+  const systemRevenueByAddr = new Map<string, number>();
+  const linkedCourseIds = Array.from(courseById.keys());
+  if (linkedCourseIds.length > 0) {
+    const { data: courseRates, error: rateErr } = await supabase
+      .from("course_rates")
+      .select(
+        "course_id, takuhaibin_revenue, nekopos_revenue, fixed_revenue, fixed_profit",
+      );
+    if (rateErr) {
+      console.error(rateErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    const rateByCourse = new Map<
+      string,
+      {
+        takuhaibin_revenue: number;
+        nekopos_revenue: number;
+        fixed_revenue: number;
+        fixed_profit: number;
+      }
+    >();
+    (courseRates ?? []).forEach((r: Record<string, unknown>) => {
+      const id = String(r.course_id ?? "");
+      if (!id) return;
+      rateByCourse.set(id, {
+        takuhaibin_revenue: Number(r.takuhaibin_revenue) || 0,
+        nekopos_revenue: Number(r.nekopos_revenue) || 0,
+        fixed_revenue: Number(r.fixed_revenue) || 0,
+        fixed_profit: Number(r.fixed_profit) || 0,
+      });
+    });
+
+    const { data: shifts, error: shiftsErr } = await supabase
+      .from("shifts")
+      .select("shift_date, course_id, driver_id")
+      .gte("shift_date", range.startDate)
+      .lte("shift_date", range.endDate)
+      .in("course_id", linkedCourseIds);
+    if (shiftsErr) {
+      console.error(shiftsErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+
+    const { data: reports, error: reportsErr } = await supabase
+      .from("daily_reports")
+      .select("driver_id, report_date, takuhaibin_completed, nekopos_completed")
+      .gte("report_date", range.startDate)
+      .lte("report_date", range.endDate)
+      .not("approved_at", "is", null);
+    if (reportsErr) {
+      console.error(reportsErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    const reportMap = new Map<string, Record<string, unknown>>();
+    (reports ?? []).forEach((r: Record<string, unknown>) => {
+      const key = `${String(r.driver_id ?? "")}:${String(r.report_date ?? "")}`;
+      reportMap.set(key, r);
+    });
+
+    (shifts ?? []).forEach((s: Record<string, unknown>) => {
+      const courseId = String(s.course_id ?? "");
+      const driverId = String(s.driver_id ?? "");
+      const date = String(s.shift_date ?? "");
+      if (!courseId || !driverId || !date) return;
+      const course = courseById.get(courseId);
+      if (!course) return;
+      const rate = rateByCourse.get(courseId);
+      if (!rate) return;
+      const rep = reportMap.get(`${driverId}:${date}`);
+      if (!rep) return;
+      const revenue =
+        rate.fixed_revenue > 0
+          ? rate.fixed_revenue
+          : (Number(rep.takuhaibin_completed) || 0) * rate.takuhaibin_revenue +
+            (Number(rep.nekopos_completed) || 0) * rate.nekopos_revenue;
+      if (revenue <= 0) return;
+      systemRevenueByAddr.set(
+        course.counterpartyId,
+        (systemRevenueByAddr.get(course.counterpartyId) ?? 0) + revenue,
+      );
+    });
+  }
 
   const { data: customAgg, error: customErr } = await supabase
     .from("counterparty_monthly_custom_lines")
@@ -142,19 +235,10 @@ export async function GET(req: NextRequest) {
     if (prof < 0) slMinusByAddr.set(id, (slMinusByAddr.get(id) ?? 0) - prof);
   });
 
-  const rows = await Promise.all(
-    (addresses ?? []).map(async (a: { id: string; name: string; billing_notes: string | null }) => {
+  const rows = (addresses ?? []).map((a: { id: string; name: string; billing_notes: string | null }) => {
       const linked = byCounterparty.get(a.id) ?? [];
       const courseCount = linked.length;
-      let systemRevenue = 0;
-      if (courseCount > 0) {
-        systemRevenue = await computeCounterpartyMonthRevenue(
-          supabase,
-          range.startDate,
-          range.endDate,
-          a.id
-        );
-      }
+      const systemRevenue = Math.round((systemRevenueByAddr.get(a.id) ?? 0) * 100) / 100;
       const customMainTotal = Math.round((customMainByAddr.get(a.id) ?? 0) * 100) / 100;
       const customDeductionTotal = Math.round((customDedByAddr.get(a.id) ?? 0) * 100) / 100;
       const salesLogRevenueTotal = Math.round((slPlusByAddr.get(a.id) ?? 0) * 100) / 100;
@@ -183,8 +267,7 @@ export async function GET(req: NextRequest) {
         monthTotal,
         suggestedSection,
       };
-    })
-  );
+    });
 
   rows.sort((a, b) => {
     const ac = a.courseCount > 0 ? 1 : 0;
