@@ -30,7 +30,18 @@ async function apiFetchWithBody(path, options = {}) {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = 'Bearer ' + token;
     const res = await fetch(path, { ...options, headers: { ...headers, ...(options.headers || {}) } });
-    if (!res.ok) throw new Error('API error: ' + res.status);
+    if (!res.ok) {
+        let message = `API error: ${res.status}`;
+        try {
+            const data = await res.json();
+            if (data?.error) message = String(data.error);
+        } catch (_) {
+            // ignore parse error
+        }
+        const err = new Error(message);
+        err.status = res.status;
+        throw err;
+    }
     return res.json();
 }
 
@@ -644,6 +655,11 @@ async function persistInvoiceDocument(data, options = {}) {
     if (IS_READONLY_PREVIEW) return;
     try {
         const params = new URLSearchParams(window.location.search);
+        const invoiceIdInUrl = params.get('invoiceId');
+        // 既存請求書を開いた直後に currentInvoiceId 未反映で誤POSTされるのを防ぐ
+        if (invoiceIdInUrl && !currentInvoiceId && !options.createVersion) {
+            return;
+        }
         const month = params.get('month') || '';
         const section = getEffectiveSection() || params.get('section') || (data.sectionSelections?.main || 'ヤマト運輸');
         const selectedCounterparty = getSelectedCounterpartyMeta();
@@ -672,13 +688,35 @@ async function persistInvoiceDocument(data, options = {}) {
             });
             return;
         }
+        let created = null;
         if (options.createVersion) {
-            body.invoiceNo = bumpInvoiceRevision(data.invoiceNo || '');
+            let nextNo = bumpInvoiceRevision(data.invoiceNo || '');
+            const maxAttempts = 10;
+            for (let i = 0; i < maxAttempts; i++) {
+                try {
+                    body.invoiceNo = nextNo;
+                    created = await apiFetchWithBody('/api/admin/invoices', {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    });
+                    break;
+                } catch (e) {
+                    if (e?.status === 409) {
+                        nextNo = bumpInvoiceRevision(nextNo);
+                        continue;
+                    }
+                    throw e;
+                }
+            }
+            if (!created) {
+                throw new Error('請求書番号の採番に失敗しました。');
+            }
+        } else {
+            created = await apiFetchWithBody('/api/admin/invoices', {
+                method: 'POST',
+                body: JSON.stringify(body),
+            });
         }
-        const created = await apiFetchWithBody('/api/admin/invoices', {
-            method: 'POST',
-            body: JSON.stringify(body),
-        });
         if (created?.invoice?.id) {
             currentInvoiceId = created.invoice.id;
             if (created?.invoice?.invoiceNo && q('#p_invoiceNo')) {
