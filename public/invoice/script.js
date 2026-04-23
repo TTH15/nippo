@@ -1603,6 +1603,7 @@ async function loadSavedInvoiceFromApi() {
             q('#p_invoiceNo').textContent = invoice.invoiceNo;
         }
         applyPartySelectionFromSavedInvoice(invoice, payload);
+        await renderSnapshotNotice(invoice);
 
         if (res?.invoice?.payload) {
             saveData();
@@ -1612,6 +1613,44 @@ async function loadSavedInvoiceFromApi() {
     } catch (e) {
         console.warn('保存済み請求書の読み込みに失敗しました:', e);
         return null;
+    }
+}
+
+function toJpDateTime(isoString) {
+    if (!isoString) return '';
+    const d = new Date(isoString);
+    if (Number.isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${y}/${m}/${day} ${hh}:${mm}`;
+}
+
+async function renderSnapshotNotice(invoice) {
+    const notice = q('#snapshotNotice');
+    if (!notice) return;
+    const invoiceId = invoice?.id || currentInvoiceId;
+    if (!invoiceId) {
+        notice.style.display = 'none';
+        return;
+    }
+    notice.classList.remove('is-warning');
+    notice.textContent = 'スナップショット固定: この請求書は保存時点の明細で固定されています。';
+    notice.style.display = 'block';
+    if (INVOICE_SCOPE !== 'admin') return;
+
+    try {
+        const res = await apiFetch(`/api/admin/invoices/${encodeURIComponent(invoiceId)}/staleness`);
+        if (!res?.stale) return;
+        const latest = toJpDateTime(res.latestSourceUpdatedAt);
+        notice.classList.add('is-warning');
+        notice.textContent = latest
+            ? `この請求書は最新ログと不一致の可能性があります（最新更新: ${latest}）。必要に応じて一覧画面から再作成してください。`
+            : 'この請求書は最新ログと不一致の可能性があります。必要に応じて一覧画面から再作成してください。';
+    } catch (e) {
+        console.warn('スナップショット状態の取得に失敗しました:', e);
     }
 }
 

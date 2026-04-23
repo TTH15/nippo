@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan, faEye } from "@fortawesome/free-solid-svg-icons";
+import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan, faEye, faArrowsRotate } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
@@ -378,6 +378,9 @@ export default function InvoicesPage() {
         )}
 
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50 text-xs text-slate-600">
+            保存済み請求書はスナップショット固定です。売上ログ変更後は「再作成」から最新内容で作り直してください。
+          </div>
           <div className="grid grid-cols-1 xl:grid-cols-[160px_180px_240px_1fr]">
             <div className="border-r border-slate-200 min-h-[520px]">
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">年月</div>
@@ -555,7 +558,12 @@ export default function InvoicesPage() {
                   const s = statusLabel[inv.status];
                   return (
                     <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                      <td className="px-3 py-3 font-mono text-slate-700 break-all">{inv.invoiceNo || inv.id}</td>
+                      <td className="px-3 py-3 font-mono text-slate-700 break-all">
+                        <div>{inv.invoiceNo || inv.id}</div>
+                        <span className="mt-1 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                          スナップショット固定
+                        </span>
+                      </td>
                       <td className="px-3 py-3 text-slate-900 font-medium">
                         <div className="inline-flex items-center gap-2 max-w-full">
                           <FontAwesomeIcon icon={faFileInvoice} className="text-slate-400" />
@@ -600,6 +608,19 @@ export default function InvoicesPage() {
                                     <FontAwesomeIcon icon={faEye} className="w-3.5 h-3.5" />
                                   </a>
                                 )}
+                                {inv.month && inv.section ? (
+                                  <a
+                                    href={`/admin/invoices/new?month=${encodeURIComponent(inv.month)}&section=${encodeURIComponent(inv.section)}${
+                                      inv.counterpartyInvoiceAddressId
+                                        ? `&counterparty=${encodeURIComponent(inv.counterpartyInvoiceAddressId)}`
+                                        : ""
+                                    }`}
+                                    title="再作成"
+                                    className="inline-flex items-center justify-center w-7 h-7 rounded border border-amber-200 text-amber-600 hover:text-amber-700 hover:bg-amber-50 transition-colors"
+                                  >
+                                    <FontAwesomeIcon icon={faArrowsRotate} className="w-3.5 h-3.5" />
+                                  </a>
+                                ) : null}
                                 <a
                                   href={href}
                                   title="編集"

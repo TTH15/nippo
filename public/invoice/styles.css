@@ -64,6 +64,24 @@ body {
     gap: 10px;
 }
 
+.snapshot-notice {
+    margin-top: -8px;
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #dbeafe;
+    background: #eff6ff;
+    color: #1e3a8a;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.snapshot-notice.is-warning {
+    border-color: #fcd34d;
+    background: #fffbeb;
+    color: #92400e;
+}
+
 .tax-control {
     display: flex;
     align-items: center;

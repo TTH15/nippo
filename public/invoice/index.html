@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>請求書作成システム</title>
+    <title>請求書</title>
     <script>
       (function () {
         try {
@@ -26,7 +26,7 @@
         <!-- 上部のコントロールバー -->
         <div class="control-bar">
             <div class="control-left">
-                <h1 style="margin:0;font-size:18px;">請求書作成システム</h1>
+                <h1 style="margin:0;font-size:18px;">請求書</h1>
             </div>
             <div class="control-right">
                 <div class="tax-control">
@@ -44,6 +44,7 @@
                 <button class="btn" id="printBtn">印刷</button>
             </div>
         </div>
+        <div id="snapshotNotice" class="snapshot-notice" style="display:none;"></div>
 
         <!-- 請求先・請求元入力エリア -->
         <div class="invoice-parties-container">

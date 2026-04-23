@@ -109,7 +109,7 @@ export async function GET(
 
   const { data, error } = await supabase
     .from("invoice_documents")
-    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, payload, updated_at")
+    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, payload, created_at, updated_at")
     .eq("id", id)
     .eq("company_code", user.companyCode)
     .single();
@@ -130,6 +130,7 @@ export async function GET(
       invoiceNo: data.invoice_no,
       counterpartyInvoiceAddressId: data.counterparty_invoice_address_id,
       payload: data.payload ?? {},
+      createdAt: data.created_at,
       updatedAt: data.updated_at,
     },
   });
@@ -298,7 +299,7 @@ export async function PATCH(
     .update(updates)
     .eq("id", id)
     .eq("company_code", user.companyCode)
-    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, payload, updated_at")
+    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, payload, created_at, updated_at")
     .single();
 
   if (error || !data) {
@@ -320,6 +321,7 @@ export async function PATCH(
       invoiceNo: data.invoice_no,
       counterpartyInvoiceAddressId: data.counterparty_invoice_address_id,
       payload: data.payload ?? {},
+      createdAt: data.created_at,
       updatedAt: data.updated_at,
     },
   });
