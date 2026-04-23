@@ -236,8 +236,12 @@ export default function CounterpartiesPage() {
                                     const amount =
                                       (res.tableData?.main ?? []).reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) -
                                       (res.tableData?.deduct ?? []).reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.price) || 0), 0);
+                                    const issueDateJp = `${res.issueDate.slice(0, 4)}年${Number(
+                                      res.issueDate.slice(5, 7),
+                                    )}月${Number(res.issueDate.slice(8, 10))}日`;
                                     const payload = {
-                                      issueDate: res.issueDate,
+                                      issueDate: issueDateJp,
+                                      dueDate: issueDateJp,
                                       invoiceNo: res.invoiceNo,
                                       tableData: res.tableData,
                                       toName: r.name,
@@ -258,7 +262,11 @@ export default function CounterpartiesPage() {
                                         payload,
                                       }),
                                     });
-                                    window.location.href = `/admin/invoices/new?invoiceId=${encodeURIComponent(created.invoice.id)}`;
+                                    window.location.href = `/admin/invoices/new?invoiceId=${encodeURIComponent(
+                                      created.invoice.id,
+                                    )}&month=${encodeURIComponent(month)}&direction=outgoing&section=${encodeURIComponent(
+                                      r.suggestedSection,
+                                    )}&counterparty=${encodeURIComponent(r.id)}`;
                                   } catch (e) {
                                     console.error(e);
                                     setCreateInvoiceError("請求書の保存に失敗しました。DB migration適用状況とAPIエラーをご確認ください。");

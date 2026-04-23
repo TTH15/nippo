@@ -92,6 +92,17 @@ function getMonthRange(monthParam: string | null): { month: string; startDate: s
   };
 }
 
+function nextMonthEndDate(month: string): string {
+  const m = String(month).match(/^(\d{4})-(\d{2})$/);
+  if (!m) return month;
+  const y = Number(m[1]);
+  const mm = Number(m[2]);
+  const ny = mm === 12 ? y + 1 : y;
+  const nm = mm === 12 ? 1 : mm + 1;
+  const last = new Date(ny, nm, 0).getDate();
+  return `${ny}-${String(nm).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+}
+
 function sectionToCarrier(section: Section): "YAMATO" | "AMAZON" | "OTHER" {
   if (section === "Amazon") return "AMAZON";
   if (section === "ヤマト運輸") return "YAMATO";
@@ -247,6 +258,7 @@ export async function GET(req: NextRequest) {
       : "ヤマト運輸";
 
   const range = getMonthRange(monthParam);
+  const issueDate = nextMonthEndDate(range.month);
   const counterpartyParam = req.nextUrl.searchParams.get("counterparty")?.trim() ?? "";
 
   if (counterpartyParam && UUID_RE.test(counterpartyParam)) {
@@ -302,7 +314,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       month: range.month,
       section,
-      issueDate: range.endDate,
+      issueDate,
       invoiceNo: await buildNextInvoiceNo(user.companyCode, {
         month: range.month,
         section,
@@ -358,7 +370,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     month: range.month,
     section,
-    issueDate: range.endDate,
+    issueDate,
     invoiceNo: await buildNextInvoiceNo(user.companyCode, {
       month: range.month,
       section,
