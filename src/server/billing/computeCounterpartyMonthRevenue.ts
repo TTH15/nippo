@@ -99,13 +99,17 @@ export async function computeCounterpartyMonthBillingDetail(
     });
   }
 
-  const { data: drivers, error: driversErr } = await supabase.from("drivers").select("id, name");
+  const { data: drivers, error: driversErr } = await supabase
+    .from("drivers")
+    .select("id, name, display_name");
   if (driversErr) throw driversErr;
   const driverNameMap = new Map<string, string>();
   (drivers ?? []).forEach((d: Record<string, unknown>) => {
     const id = String(d.id ?? "");
     if (!id) return;
-    driverNameMap.set(id, String(d.name ?? "").trim() || "担当者");
+    const displayName = String(d.display_name ?? "").trim();
+    const fullName = String(d.name ?? "").trim();
+    driverNameMap.set(id, displayName || fullName || "担当者");
   });
 
   const { data: shifts, error: shiftsErr } = await supabase
