@@ -184,7 +184,7 @@ export default function InvoicesPage() {
     if (!selectedCounterparty) return true;
     return (inv.counterpartyName || inv.clientName || "未設定") === selectedCounterparty;
   });
-  
+
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
   }, []);
@@ -454,9 +454,8 @@ export default function InvoicesPage() {
                       key={m}
                       type="button"
                       onClick={() => setSelectedMonth(m!)}
-                      className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
-                        selectedMonth === m ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
-                      }`}
+                      className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${selectedMonth === m ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
+                        }`}
                     >
                       <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
                       {m}
@@ -478,9 +477,8 @@ export default function InvoicesPage() {
                     key={dir}
                     type="button"
                     onClick={() => setSelectedDirection(dir)}
-                    className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
-                      selectedDirection === dir ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
-                    }`}
+                    className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${selectedDirection === dir ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
+                      }`}
                   >
                     <FontAwesomeIcon icon={faFolder} className="mr-2 text-slate-400" />
                     {dir === "outgoing" ? "自社が請求" : "自社に請求"}
@@ -504,9 +502,8 @@ export default function InvoicesPage() {
                       key={name}
                       type="button"
                       onClick={() => setSelectedCounterparty(name)}
-                      className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
-                        selectedCounterparty === name ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
-                      }`}
+                      className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${selectedCounterparty === name ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
+                        }`}
                     >
                       <div className="flex items-center gap-2">
                         <FontAwesomeIcon icon={faFolder} className="text-slate-400" />
@@ -535,186 +532,183 @@ export default function InvoicesPage() {
 
             {/* 右ペイン */}
             <div className="min-h-[520px] max-h-[520px] overflow-y-auto">
-            <div className="sticky top-0 z-20 bg-white border-b border-slate-200">
-              {canWrite && selectedDirection === "incoming" && selectedDriver && (
-                <div className="p-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between gap-3">
-                <div className="text-xs text-slate-600">
-                  {selectedMonth} / {selectedDriver.name} フォルダにPDF・画像をアップロード
+              <div className="sticky top-0 z-20 bg-white border-b border-slate-200">
+                {canWrite && selectedDirection === "incoming" && selectedDriver && (
+                  <div className="p-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between gap-3">
+                    <div className="text-xs text-slate-600">
+                      {selectedMonth} / {selectedDriver.name} フォルダにPDF・画像をアップロード
+                    </div>
+                    <div>
+                      <input
+                        ref={uploadInputRef}
+                        type="file"
+                        accept="application/pdf,image/jpeg,image/png"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void handleUploadForDriver(f);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={uploading}
+                        onClick={() => uploadInputRef.current?.click()}
+                        className="px-3 py-1.5 rounded-md bg-slate-800 text-white text-xs disabled:opacity-50"
+                      >
+                        {uploading ? "アップロード中..." : "PDF/画像を追加"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="flex gap-1 p-3 bg-slate-50/70">
+                  {([
+                    { key: "all", label: "すべて" },
+                    { key: "draft", label: "下書き" },
+                    { key: "pending_approval", label: "承認待ち" },
+                    { key: "approved", label: "承認済" },
+                    { key: "paid", label: "入金済" },
+                  ] as const).map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setFilter(f.key)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${filter === f.key
+                          ? "bg-slate-800 text-white"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
                 </div>
-                <div>
-                  <input
-                    ref={uploadInputRef}
-                    type="file"
-                    accept="application/pdf,image/jpeg,image/png"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) void handleUploadForDriver(f);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    disabled={uploading}
-                    onClick={() => uploadInputRef.current?.click()}
-                    className="px-3 py-1.5 rounded-md bg-slate-800 text-white text-xs disabled:opacity-50"
-                  >
-                    {uploading ? "アップロード中..." : "PDF/画像を追加"}
-                  </button>
-                </div>
-                </div>
-              )}
-              <div className="flex gap-1 p-3 bg-slate-50/70">
-                {([
-                  { key: "all", label: "すべて" },
-                  { key: "draft", label: "下書き" },
-                  { key: "pending_approval", label: "承認待ち" },
-                  { key: "approved", label: "承認済" },
-                  { key: "paid", label: "入金済" },
-                ] as const).map((f) => (
-                  <button
-                    key={f.key}
-                    onClick={() => setFilter(f.key)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                      filter === f.key
-                        ? "bg-slate-800 text-white"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
               </div>
-            </div>
-            <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm table-fixed">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50">
-                <th className="w-[40px] text-center px-2 py-3 font-medium text-slate-600"></th>
-                <th className="w-[190px] text-left px-3 py-3 font-medium text-slate-600">請求書番号</th>
-                <th className="w-[190px] text-left px-3 py-3 font-medium text-slate-600">取引先</th>
-                <th className="w-[110px] text-left px-3 py-3 font-medium text-slate-600">発行日</th>
-                <th className="w-[110px] text-right px-3 py-3 font-medium text-slate-600">金額</th>
-                <th className="w-[120px] text-center px-3 py-3 font-medium text-slate-600">ステータス</th>
-                <th className="w-[130px] text-right px-3 py-3 font-medium text-slate-600"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                    読み込み中...
-                  </td>
-                </tr>
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                    該当する請求書はありません
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((inv) => {
-                  const s = statusLabel[inv.status];
-                  return (
-                    <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                      <td className="px-2 py-3 align-middle text-center">
-                        {canWrite ? (
-                          <button
-                            type="button"
-                            title={inv.starred ? "スター解除" : "スターを付ける"}
-                            onClick={() => toggleStar(inv.id, !inv.starred)}
-                            className={`inline-flex items-center justify-center w-5 h-5 transition-colors ${
-                              inv.starred
-                                ? "text-amber-500 hover:text-amber-600"
-                                : "text-slate-300 hover:text-slate-500"
-                            }`}
-                          >
-                            <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <span
-                            className={`inline-flex items-center justify-center w-5 h-5 ${
-                              inv.starred ? "text-amber-500" : "text-transparent"
-                            }`}
-                          >
-                            <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 font-mono text-slate-700 break-all">
-                        <span className="min-w-0">{inv.invoiceNo || inv.id}</span>
-                      </td>
-                      <td className="px-3 py-3 text-slate-900 font-medium">
-                        <div className="inline-flex items-center gap-2 max-w-full">
-                          <FontAwesomeIcon icon={faFileInvoice} className="text-slate-400" />
-                          <span className="truncate inline-block max-w-[150px]" title={inv.counterpartyName || inv.clientName}>
-                            {inv.counterpartyName || inv.clientName}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{inv.issueDate}</td>
-                      <td className="px-3 py-3 text-right font-medium text-slate-900 whitespace-nowrap">{fmt(inv.amount)}</td>
-                      <td className="px-3 py-3 text-center">
-                        {canWrite ? (
-                          <select
-                            value={inv.status}
-                            disabled={updatingStatusId === inv.id}
-                            onChange={(e) => void updateStatus(inv.id, e.target.value as SavedInvoice["status"])}
-                            className={`px-2 py-1 rounded text-xs font-medium border border-slate-200 ${s.cls}`}
-                          >
-                            <option value="draft">下書き</option>
-                            <option value="pending_approval">承認待ち</option>
-                            <option value="approved">承認済</option>
-                            <option value="paid">入金済</option>
-                          </select>
-                        ) : (
-                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.cls}`}>
-                            {s.text}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        {canWrite ? (
-                          (() => {
-                            const href = `/admin/invoices/new?invoiceId=${encodeURIComponent(inv.id)}`;
-                            return (
-                              <div className="inline-flex items-center gap-2">
-                                {inv.status === "pending_approval" && (
-                                  <a
-                                    href={`/admin/invoices/${encodeURIComponent(inv.id)}/preview`}
-                                    title="プレビュー"
-                                    className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
-                                  >
-                                    <FontAwesomeIcon icon={faEye} className="w-3.5 h-3.5" />
-                                  </a>
-                                )}
-                                <a
-                                  href={href}
-                                  title="編集"
-                                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
-                                >
-                                  <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
-                                </a>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[860px] text-sm table-fixed">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50">
+                      <th className="w-[40px] text-center px-2 py-3 font-medium text-slate-600"></th>
+                      <th className="w-[190px] text-left px-3 py-3 font-medium text-slate-600">請求書番号</th>
+                      <th className="w-[190px] text-left px-3 py-3 font-medium text-slate-600">取引先</th>
+                      <th className="w-[110px] text-left px-3 py-3 font-medium text-slate-600">発行日</th>
+                      <th className="w-[110px] text-right px-3 py-3 font-medium text-slate-600">金額</th>
+                      <th className="w-[120px] text-center px-3 py-3 font-medium text-slate-600">ステータス</th>
+                      <th className="w-[130px] text-right px-3 py-3 font-medium text-slate-600"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                          読み込み中...
+                        </td>
+                      </tr>
+                    ) : filtered.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                          該当する請求書はありません
+                        </td>
+                      </tr>
+                    ) : (
+                      filtered.map((inv) => {
+                        const s = statusLabel[inv.status];
+                        return (
+                          <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                            <td className="px-2 py-3 align-middle text-center">
+                              {canWrite ? (
                                 <button
                                   type="button"
-                                  title="削除"
-                                  disabled={deletingId === inv.id}
-                                  onClick={() => void deleteInvoice(inv.id)}
-                                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-rose-200 text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                                  title={inv.starred ? "スター解除" : "スターを付ける"}
+                                  onClick={() => toggleStar(inv.id, !inv.starred)}
+                                  className={`inline-flex items-center justify-center w-5 h-5 transition-colors ${inv.starred
+                                      ? "text-amber-500"
+                                      : "text-slate-300"
+                                    }`}
                                 >
-                                  <FontAwesomeIcon icon={faTrashCan} className="w-3.5 h-3.5" />
+                                  <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
                                 </button>
+                              ) : (
+                                <span
+                                  className={`inline-flex items-center justify-center w-5 h-5 ${inv.starred ? "text-amber-500" : "text-transparent"
+                                    }`}
+                                >
+                                  <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 font-mono text-slate-700 break-all">
+                              <span className="min-w-0">{inv.invoiceNo || inv.id}</span>
+                            </td>
+                            <td className="px-3 py-3 text-slate-900 font-medium">
+                              <div className="inline-flex items-center gap-2 max-w-full">
+                                <FontAwesomeIcon icon={faFileInvoice} className="text-slate-400" />
+                                <span className="truncate inline-block max-w-[150px]" title={inv.counterpartyName || inv.clientName}>
+                                  {inv.counterpartyName || inv.clientName}
+                                </span>
                               </div>
-                            );
-                          })()
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-            </table>
-            </div>
+                            </td>
+                            <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{inv.issueDate}</td>
+                            <td className="px-3 py-3 text-right font-medium text-slate-900 whitespace-nowrap">{fmt(inv.amount)}</td>
+                            <td className="px-3 py-3 text-center">
+                              {canWrite ? (
+                                <select
+                                  value={inv.status}
+                                  disabled={updatingStatusId === inv.id}
+                                  onChange={(e) => void updateStatus(inv.id, e.target.value as SavedInvoice["status"])}
+                                  className={`px-2 py-1 rounded text-xs font-medium border border-slate-200 ${s.cls}`}
+                                >
+                                  <option value="draft">下書き</option>
+                                  <option value="pending_approval">承認待ち</option>
+                                  <option value="approved">承認済</option>
+                                  <option value="paid">入金済</option>
+                                </select>
+                              ) : (
+                                <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.cls}`}>
+                                  {s.text}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              {canWrite ? (
+                                (() => {
+                                  const href = `/admin/invoices/new?invoiceId=${encodeURIComponent(inv.id)}`;
+                                  return (
+                                    <div className="inline-flex items-center gap-2">
+                                      {inv.status === "pending_approval" && (
+                                        <a
+                                          href={`/admin/invoices/${encodeURIComponent(inv.id)}/preview`}
+                                          title="プレビュー"
+                                          className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
+                                        >
+                                          <FontAwesomeIcon icon={faEye} className="w-3.5 h-3.5" />
+                                        </a>
+                                      )}
+                                      <a
+                                        href={href}
+                                        title="編集"
+                                        className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
+                                      >
+                                        <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
+                                      </a>
+                                      <button
+                                        type="button"
+                                        title="削除"
+                                        disabled={deletingId === inv.id}
+                                        onClick={() => void deleteInvoice(inv.id)}
+                                        className="inline-flex items-center justify-center w-7 h-7 rounded border border-rose-200 text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                                      >
+                                        <FontAwesomeIcon icon={faTrashCan} className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  );
+                                })()
+                              ) : null}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
