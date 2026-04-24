@@ -577,31 +577,31 @@ export default function InvoicesPage() {
                   return (
                     <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-3 font-mono text-slate-700 break-all">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-start gap-2">
                           {canWrite ? (
                             <button
                               type="button"
                               title={inv.starred ? "スター解除" : "スターを付ける"}
                               disabled={updatingStarId === inv.id}
                               onClick={() => void toggleStar(inv.id, !inv.starred)}
-                              className={`inline-flex items-center justify-center w-6 h-6 rounded border transition-colors disabled:opacity-50 ${
+                              className={`inline-flex items-center justify-center w-5 h-5 mt-0.5 transition-colors disabled:opacity-50 ${
                                 inv.starred
-                                  ? "border-amber-200 text-amber-500 hover:bg-amber-50"
-                                  : "border-slate-200 text-slate-300 hover:text-slate-500 hover:bg-slate-50"
+                                  ? "text-amber-500 hover:text-amber-600"
+                                  : "text-slate-300 hover:text-slate-500"
                               }`}
                             >
                               <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
                             </button>
                           ) : (
                             <span
-                              className={`inline-flex items-center justify-center w-6 h-6 ${
+                              className={`inline-flex items-center justify-center w-5 h-5 mt-0.5 ${
                                 inv.starred ? "text-amber-500" : "text-transparent"
                               }`}
                             >
                               <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
                             </span>
                           )}
-                          <span>{inv.invoiceNo || inv.id}</span>
+                          <span className="min-w-0">{inv.invoiceNo || inv.id}</span>
                         </div>
                       </td>
                       <td className="px-3 py-3 text-slate-900 font-medium">
