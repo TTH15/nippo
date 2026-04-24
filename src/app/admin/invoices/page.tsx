@@ -130,11 +130,12 @@ export default function InvoicesPage() {
       : "all",
   );
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
-  const [updatingStarId, setUpdatingStarId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [drivers, setDrivers] = useState<DriverFolder[]>([]);
   const [uploading, setUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const starSyncTimerRef = useRef<number | null>(null);
+  const pendingStarUpdatesRef = useRef<Map<string, boolean>>(new Map());
 
   const monthFolders = Array.from(new Set((invoices ?? []).map((i) => i.month).filter(Boolean))).sort().reverse();
   const directionFolders = (["outgoing", "incoming"] as const).filter((d) =>
@@ -237,6 +238,14 @@ export default function InvoicesPage() {
     window.localStorage.setItem(FINDER_STATE_STORAGE_KEY, JSON.stringify(state));
   }, [filter, selectedCounterparty, selectedDirection, selectedMonth]);
 
+  useEffect(() => {
+    return () => {
+      if (starSyncTimerRef.current != null) {
+        window.clearTimeout(starSyncTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleUploadForDriver = async (file: File) => {
     if (!selectedDriver || !canWrite) return;
     if (!ALLOWED_UPLOAD_TYPES.has(file.type)) {
@@ -331,23 +340,53 @@ export default function InvoicesPage() {
     }
   };
 
-  const toggleStar = async (invoiceId: string, nextStarred: boolean) => {
-    if (!canWrite) return;
-    setUpdatingStarId(invoiceId);
-    try {
-      await apiFetch(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ starred: nextStarred }),
-      });
-      setInvoices((prev) =>
-        prev.map((inv) => (inv.id === invoiceId ? { ...inv, starred: nextStarred } : inv))
-      );
-    } catch (e) {
-      console.error(e);
-      setErrorMessage("スター更新に失敗しました。");
-    } finally {
-      setUpdatingStarId(null);
+  const flushPendingStarUpdates = useCallback(async () => {
+    const entries = Array.from(pendingStarUpdatesRef.current.entries());
+    if (entries.length === 0) return;
+    pendingStarUpdatesRef.current.clear();
+    const failed: Array<[string, boolean]> = [];
+    await Promise.all(
+      entries.map(async ([invoiceId, starred]) => {
+        try {
+          await apiFetch(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ starred }),
+          });
+        } catch (e) {
+          console.error(e);
+          failed.push([invoiceId, starred]);
+        }
+      })
+    );
+    if (failed.length > 0) {
+      failed.forEach(([id, starred]) => pendingStarUpdatesRef.current.set(id, starred));
+      setErrorMessage("スター更新に失敗したため再試行します。");
+      if (starSyncTimerRef.current == null) {
+        starSyncTimerRef.current = window.setTimeout(() => {
+          starSyncTimerRef.current = null;
+          void flushPendingStarUpdates();
+        }, 1500);
+      }
     }
+  }, []);
+
+  const scheduleStarSync = useCallback(() => {
+    if (starSyncTimerRef.current != null) {
+      window.clearTimeout(starSyncTimerRef.current);
+    }
+    starSyncTimerRef.current = window.setTimeout(() => {
+      starSyncTimerRef.current = null;
+      void flushPendingStarUpdates();
+    }, 350);
+  }, [flushPendingStarUpdates]);
+
+  const toggleStar = (invoiceId: string, nextStarred: boolean) => {
+    if (!canWrite) return;
+    setInvoices((prev) =>
+      prev.map((inv) => (inv.id === invoiceId ? { ...inv, starred: nextStarred } : inv))
+    );
+    pendingStarUpdatesRef.current.set(invoiceId, nextStarred);
+    scheduleStarSync();
   };
 
   useEffect(() => {
@@ -550,6 +589,7 @@ export default function InvoicesPage() {
             <table className="w-full min-w-[860px] text-sm table-fixed">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50">
+                <th className="w-[40px] text-center px-2 py-3 font-medium text-slate-600"></th>
                 <th className="w-[190px] text-left px-3 py-3 font-medium text-slate-600">請求書番号</th>
                 <th className="w-[190px] text-left px-3 py-3 font-medium text-slate-600">取引先</th>
                 <th className="w-[110px] text-left px-3 py-3 font-medium text-slate-600">発行日</th>
@@ -561,13 +601,13 @@ export default function InvoicesPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                     読み込み中...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                     該当する請求書はありません
                   </td>
                 </tr>
@@ -576,33 +616,32 @@ export default function InvoicesPage() {
                   const s = statusLabel[inv.status];
                   return (
                     <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                      <td className="px-2 py-3 align-middle text-center">
+                        {canWrite ? (
+                          <button
+                            type="button"
+                            title={inv.starred ? "スター解除" : "スターを付ける"}
+                            onClick={() => toggleStar(inv.id, !inv.starred)}
+                            className={`inline-flex items-center justify-center w-5 h-5 transition-colors ${
+                              inv.starred
+                                ? "text-amber-500 hover:text-amber-600"
+                                : "text-slate-300 hover:text-slate-500"
+                            }`}
+                          >
+                            <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center justify-center w-5 h-5 ${
+                              inv.starred ? "text-amber-500" : "text-transparent"
+                            }`}
+                          >
+                            <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-3 font-mono text-slate-700 break-all">
-                        <div className="flex items-start gap-2">
-                          {canWrite ? (
-                            <button
-                              type="button"
-                              title={inv.starred ? "スター解除" : "スターを付ける"}
-                              disabled={updatingStarId === inv.id}
-                              onClick={() => void toggleStar(inv.id, !inv.starred)}
-                              className={`inline-flex items-center justify-center w-5 h-5 mt-0.5 transition-colors disabled:opacity-50 ${
-                                inv.starred
-                                  ? "text-amber-500 hover:text-amber-600"
-                                  : "text-slate-300 hover:text-slate-500"
-                              }`}
-                            >
-                              <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
-                            </button>
-                          ) : (
-                            <span
-                              className={`inline-flex items-center justify-center w-5 h-5 mt-0.5 ${
-                                inv.starred ? "text-amber-500" : "text-transparent"
-                              }`}
-                            >
-                              <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
-                            </span>
-                          )}
-                          <span className="min-w-0">{inv.invoiceNo || inv.id}</span>
-                        </div>
+                        <span className="min-w-0">{inv.invoiceNo || inv.id}</span>
                       </td>
                       <td className="px-3 py-3 text-slate-900 font-medium">
                         <div className="inline-flex items-center gap-2 max-w-full">
