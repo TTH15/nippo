@@ -26,6 +26,7 @@ type SaveBody = {
   amount?: number;
   status?: InvoiceStatus;
   payload?: Record<string, unknown>;
+  starred?: boolean;
 };
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
@@ -117,7 +118,7 @@ export async function GET(req: NextRequest) {
   const month = monthParam ? normalizeMonth(monthParam) : null;
   let query = supabase
     .from("invoice_documents")
-    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, created_at, updated_at, payload")
+    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, is_starred, created_at, updated_at, payload")
     .eq("company_code", user.companyCode)
     .order("updated_at", { ascending: false });
   if (month) {
@@ -153,6 +154,7 @@ export async function GET(req: NextRequest) {
     amount: Number(r.amount) || 0,
     status: ((r.status === "sent" ? "pending_approval" : r.status) ?? "draft") as InvoiceStatus,
     invoiceNo: r.invoice_no ?? "",
+    starred: Boolean(r.is_starred),
     counterpartyInvoiceAddressId: r.counterparty_invoice_address_id ?? null,
     updatedAt: r.updated_at ?? null,
   }));
@@ -242,6 +244,7 @@ export async function POST(req: NextRequest) {
     invoice_no: normalizeInvoiceNo(body.invoiceNo),
     amount: Number(body.amount) || 0,
     status,
+    is_starred: body.starred === true,
     payload: body.payload ?? {},
   };
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan, faEye } from "@fortawesome/free-solid-svg-icons";
+import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan, faEye, faStar } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
@@ -18,6 +18,7 @@ type SavedInvoice = {
   month?: string;
   section?: "Amazon" | "ヤマト運輸" | "郵便局";
   invoiceNo?: string;
+  starred?: boolean;
   counterpartyInvoiceAddressId?: string | null;
   updatedAt?: string | null;
 };
@@ -129,6 +130,7 @@ export default function InvoicesPage() {
       : "all",
   );
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+  const [updatingStarId, setUpdatingStarId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [drivers, setDrivers] = useState<DriverFolder[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -326,6 +328,25 @@ export default function InvoicesPage() {
       setErrorMessage("請求書の削除に失敗しました。");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const toggleStar = async (invoiceId: string, nextStarred: boolean) => {
+    if (!canWrite) return;
+    setUpdatingStarId(invoiceId);
+    try {
+      await apiFetch(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ starred: nextStarred }),
+      });
+      setInvoices((prev) =>
+        prev.map((inv) => (inv.id === invoiceId ? { ...inv, starred: nextStarred } : inv))
+      );
+    } catch (e) {
+      console.error(e);
+      setErrorMessage("スター更新に失敗しました。");
+    } finally {
+      setUpdatingStarId(null);
     }
   };
 
@@ -555,7 +576,34 @@ export default function InvoicesPage() {
                   const s = statusLabel[inv.status];
                   return (
                     <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                      <td className="px-3 py-3 font-mono text-slate-700 break-all">{inv.invoiceNo || inv.id}</td>
+                      <td className="px-3 py-3 font-mono text-slate-700 break-all">
+                        <div className="flex items-center gap-2">
+                          {canWrite ? (
+                            <button
+                              type="button"
+                              title={inv.starred ? "スター解除" : "スターを付ける"}
+                              disabled={updatingStarId === inv.id}
+                              onClick={() => void toggleStar(inv.id, !inv.starred)}
+                              className={`inline-flex items-center justify-center w-6 h-6 rounded border transition-colors disabled:opacity-50 ${
+                                inv.starred
+                                  ? "border-amber-200 text-amber-500 hover:bg-amber-50"
+                                  : "border-slate-200 text-slate-300 hover:text-slate-500 hover:bg-slate-50"
+                              }`}
+                            >
+                              <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <span
+                              className={`inline-flex items-center justify-center w-6 h-6 ${
+                                inv.starred ? "text-amber-500" : "text-transparent"
+                              }`}
+                            >
+                              <FontAwesomeIcon icon={faStar} className="w-3.5 h-3.5" />
+                            </span>
+                          )}
+                          <span>{inv.invoiceNo || inv.id}</span>
+                        </div>
+                      </td>
                       <td className="px-3 py-3 text-slate-900 font-medium">
                         <div className="inline-flex items-center gap-2 max-w-full">
                           <FontAwesomeIcon icon={faFileInvoice} className="text-slate-400" />

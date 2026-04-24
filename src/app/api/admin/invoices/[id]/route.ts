@@ -109,7 +109,7 @@ export async function GET(
 
   const { data, error } = await supabase
     .from("invoice_documents")
-    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, payload, created_at, updated_at")
+    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, is_starred, payload, created_at, updated_at")
     .eq("id", id)
     .eq("company_code", user.companyCode)
     .single();
@@ -128,6 +128,7 @@ export async function GET(
       amount: Number(data.amount) || 0,
       status: ((data.status as string) === "sent" ? "pending_approval" : data.status) as InvoiceStatus,
       invoiceNo: data.invoice_no,
+      starred: Boolean((data as any).is_starred),
       counterpartyInvoiceAddressId: data.counterparty_invoice_address_id,
       payload: data.payload ?? {},
       createdAt: data.created_at,
@@ -207,6 +208,9 @@ export async function PATCH(
   if (typeof body.driverId === "string" || body.driverId === null) updates.driver_id = body.driverId;
   if (typeof body.invoiceNo === "string" || body.invoiceNo === null) {
     updates.invoice_no = body.invoiceNo === null ? null : normalizeInvoiceNo(body.invoiceNo);
+  }
+  if (typeof body.starred === "boolean") {
+    updates.is_starred = body.starred;
   }
   if (typeof body.amount === "number") updates.amount = body.amount;
   if (typeof body.month === "string" && /^\d{4}-\d{2}$/.test(body.month)) updates.month_yyyy_mm = body.month;
@@ -299,7 +303,7 @@ export async function PATCH(
     .update(updates)
     .eq("id", id)
     .eq("company_code", user.companyCode)
-    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, payload, created_at, updated_at")
+    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, is_starred, payload, created_at, updated_at")
     .single();
 
   if (error || !data) {
@@ -319,6 +323,7 @@ export async function PATCH(
       amount: Number(data.amount) || 0,
       status: ((data.status as string) === "sent" ? "pending_approval" : data.status) as InvoiceStatus,
       invoiceNo: data.invoice_no,
+      starred: Boolean((data as any).is_starred),
       counterpartyInvoiceAddressId: data.counterparty_invoice_address_id,
       payload: data.payload ?? {},
       createdAt: data.created_at,
