@@ -94,6 +94,15 @@ function normalizeInvoiceNo(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
+function bumpInvoiceNo(invoiceNo: string): string {
+  const s = String(invoiceNo || "").trim();
+  if (!s) return "INV-MANUAL-R01";
+  const m = s.match(/^(.*)-R(\d{2})$/);
+  if (!m) return `${s}-R01`;
+  const next = Math.min((Number(m[2]) || 0) + 1, 99);
+  return `${m[1]}-R${String(next).padStart(2, "0")}`;
+}
+
 async function isDuplicateInvoiceNo(
   companyCode: string,
   invoiceNo: string | null | undefined,
@@ -108,6 +117,20 @@ async function isDuplicateInvoiceNo(
     .limit(1);
   if (error) throw error;
   return (data ?? []).length > 0;
+}
+
+async function resolveUniqueInvoiceNo(
+  companyCode: string,
+  invoiceNo: string | null,
+): Promise<string | null> {
+  let candidate = normalizeInvoiceNo(invoiceNo);
+  if (!candidate) return null;
+  for (let i = 0; i < 120; i++) {
+    const duplicated = await isDuplicateInvoiceNo(companyCode, candidate);
+    if (!duplicated) return candidate;
+    candidate = bumpInvoiceNo(candidate);
+  }
+  return `${candidate}-${Date.now().toString().slice(-4)}`;
 }
 
 export async function GET(req: NextRequest) {
@@ -249,29 +272,35 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    const duplicated = await isDuplicateInvoiceNo(
+    insertRow.invoice_no = await resolveUniqueInvoiceNo(
       user.companyCode,
       typeof insertRow.invoice_no === "string" ? insertRow.invoice_no : null,
     );
-    if (duplicated) {
-      return NextResponse.json({ error: "請求書番号が重複しています。" }, { status: 409 });
-    }
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
-
-  const { data, error } = await supabase
-    .from("invoice_documents")
-    .insert(insertRow)
-    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, payload, updated_at")
-    .single();
+  let data: any = null;
+  let error: any = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await supabase
+      .from("invoice_documents")
+      .insert(insertRow)
+      .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, payload, updated_at")
+      .single();
+    data = res.data;
+    error = res.error;
+    if (!error) break;
+    if ((error as any)?.code !== "23505") break;
+    insertRow.invoice_no = await resolveUniqueInvoiceNo(
+      user.companyCode,
+      typeof insertRow.invoice_no === "string" ? bumpInvoiceNo(insertRow.invoice_no) : "INV-MANUAL-R01",
+    );
+  }
 
   if (error) {
     console.error(error);
-    if ((error as any)?.code === "23505") {
-      return NextResponse.json({ error: "請求書番号が重複しています。" }, { status: 409 });
-    }
+    if ((error as any)?.code === "23505") return NextResponse.json({ error: "請求書の採番に失敗しました。再実行してください。" }, { status: 409 });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
