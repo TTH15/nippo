@@ -344,11 +344,11 @@ export default function MeRewardsPage() {
 
       {previewInvoiceId && (
         <div
-          className="fixed inset-0 z-50 bg-black/50 p-2 sm:p-4 flex items-center justify-center"
+          className="fixed inset-0 z-[120] bg-black/50 p-2 sm:p-4 flex items-center justify-center"
           onClick={() => setPreviewInvoiceId(null)}
         >
           <div
-            className="w-full max-w-3xl h-[92vh] sm:h-auto sm:max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden flex flex-col"
+            className="w-full max-w-3xl h-[92dvh] sm:h-auto sm:max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-3 border-b border-slate-200 flex items-center justify-between">
@@ -532,7 +532,10 @@ export default function MeRewardsPage() {
                 );
               })()}
             </div>
-            <div className="border-t border-slate-200 p-3 bg-white">
+            <div
+              className="border-t border-slate-200 p-3 bg-white sticky bottom-0"
+              style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}
+            >
               <button
                 type="button"
                 disabled={approvingInvoiceId === previewInvoiceId}
