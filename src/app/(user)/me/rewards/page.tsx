@@ -344,11 +344,11 @@ export default function MeRewardsPage() {
 
       {previewInvoiceId && (
         <div
-          className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center"
+          className="fixed inset-0 z-50 bg-black/50 p-2 sm:p-4 flex items-center justify-center"
           onClick={() => setPreviewInvoiceId(null)}
         >
           <div
-            className="w-full max-w-3xl max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden"
+            className="w-full max-w-3xl h-[92vh] sm:h-auto sm:max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-3 border-b border-slate-200 flex items-center justify-between">
@@ -362,7 +362,10 @@ export default function MeRewardsPage() {
                 ×
               </button>
             </div>
-            <div className="p-4 pb-6 overflow-y-auto max-h-[calc(90vh-114px)]">
+            <div
+              className="p-4 pb-6 overflow-y-auto flex-1 min-h-0 overscroll-contain"
+              style={{ WebkitOverflowScrolling: "touch" }}
+            >
               {(() => {
                 const inv = invoices.find((x) => x.id === previewInvoiceId);
                 if (!inv) {
