@@ -344,11 +344,11 @@ export default function MeRewardsPage() {
 
       {previewInvoiceId && (
         <div
-          className="fixed inset-0 z-[120] bg-black/50 p-2 sm:p-4 flex items-center justify-center"
+          className="fixed inset-0 z-[120] bg-black/50 p-2 sm:p-4 flex items-center justify-center overflow-y-auto"
           onClick={() => setPreviewInvoiceId(null)}
         >
           <div
-            className="w-full max-w-3xl h-[92dvh] sm:h-auto sm:max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden flex flex-col"
+            className="w-full max-w-3xl h-[calc(100dvh-12px)] sm:h-auto sm:max-h-[90vh] bg-white rounded-lg shadow-lg overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-3 border-b border-slate-200 flex items-center justify-between">
@@ -364,7 +364,7 @@ export default function MeRewardsPage() {
             </div>
             <div
               className="p-4 pb-6 overflow-y-auto flex-1 min-h-0 overscroll-contain"
-              style={{ WebkitOverflowScrolling: "touch" }}
+              style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
             >
               {(() => {
                 const inv = invoices.find((x) => x.id === previewInvoiceId);
@@ -410,10 +410,10 @@ export default function MeRewardsPage() {
                           <table className="w-full min-w-[420px] text-sm">
                             <thead className="bg-white border-b border-slate-200">
                               <tr>
-                                <th className="text-left px-3 py-2 font-medium text-slate-600">摘要</th>
-                                <th className="text-right px-3 py-2 font-medium text-slate-600">数量</th>
-                                <th className="text-right px-3 py-2 font-medium text-slate-600">単価</th>
-                                <th className="text-right px-3 py-2 font-medium text-slate-600">金額</th>
+                                <th className="text-left px-3 py-2 font-medium text-slate-600 whitespace-nowrap">摘要</th>
+                                <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">数量</th>
+                                <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">単価</th>
+                                <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">金額</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -430,10 +430,12 @@ export default function MeRewardsPage() {
                                   const amount = qty * price;
                                   return (
                                     <tr key={`main-${idx}`} className="border-t border-slate-100">
-                                      <td className="px-3 py-2 text-slate-800">{row?.title || "明細"}</td>
-                                      <td className="px-3 py-2 text-right tabular-nums">{qty.toLocaleString("ja-JP")}</td>
-                                      <td className="px-3 py-2 text-right tabular-nums">{price.toLocaleString("ja-JP")}円</td>
-                                      <td className="px-3 py-2 text-right tabular-nums font-medium">{amount.toLocaleString("ja-JP")}円</td>
+                                      <td className="px-3 py-2 text-slate-800 max-w-[20ch] truncate whitespace-nowrap" title={row?.title || "明細"}>
+                                        {row?.title || "明細"}
+                                      </td>
+                                      <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{qty.toLocaleString("ja-JP")}</td>
+                                      <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{price.toLocaleString("ja-JP")}円</td>
+                                      <td className="px-3 py-2 text-right tabular-nums font-medium whitespace-nowrap">{amount.toLocaleString("ja-JP")}円</td>
                                     </tr>
                                   );
                                 })
@@ -479,10 +481,10 @@ export default function MeRewardsPage() {
                             <table className="w-full min-w-[420px] text-sm">
                               <thead className="bg-white border-b border-slate-200">
                                 <tr>
-                                  <th className="text-left px-3 py-2 font-medium text-slate-600">摘要</th>
-                                  <th className="text-right px-3 py-2 font-medium text-slate-600">数量</th>
-                                  <th className="text-right px-3 py-2 font-medium text-slate-600">単価</th>
-                                  <th className="text-right px-3 py-2 font-medium text-slate-600">金額</th>
+                                  <th className="text-left px-3 py-2 font-medium text-slate-600 whitespace-nowrap">摘要</th>
+                                  <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">数量</th>
+                                  <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">単価</th>
+                                  <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">金額</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -499,10 +501,12 @@ export default function MeRewardsPage() {
                                     const amount = qty * price;
                                     return (
                                       <tr key={`deduct-${idx}`} className="border-t border-slate-100">
-                                        <td className="px-3 py-2 text-slate-800">{row?.title || "控除"}</td>
-                                        <td className="px-3 py-2 text-right tabular-nums">{qty.toLocaleString("ja-JP")}</td>
-                                        <td className="px-3 py-2 text-right tabular-nums">{price.toLocaleString("ja-JP")}円</td>
-                                        <td className="px-3 py-2 text-right tabular-nums font-medium">{amount.toLocaleString("ja-JP")}円</td>
+                                        <td className="px-3 py-2 text-slate-800 max-w-[20ch] truncate whitespace-nowrap" title={row?.title || "控除"}>
+                                          {row?.title || "控除"}
+                                        </td>
+                                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{qty.toLocaleString("ja-JP")}</td>
+                                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{price.toLocaleString("ja-JP")}円</td>
+                                        <td className="px-3 py-2 text-right tabular-nums font-medium whitespace-nowrap">{amount.toLocaleString("ja-JP")}円</td>
                                       </tr>
                                     );
                                   })
