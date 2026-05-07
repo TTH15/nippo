@@ -4,7 +4,7 @@ import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
-const REPORT_KINDS = ["oil_change", "repair", "one_off", "other"] as const;
+const REPORT_KINDS = ["oil_change", "repair", "expense", "other"] as const;
 type ReportKind = (typeof REPORT_KINDS)[number];
 
 export async function POST(req: NextRequest) {
@@ -21,6 +21,11 @@ export async function POST(req: NextRequest) {
       ? (rawKind as ReportKind)
       : "oil_change";
     const description = String(body.description ?? "").trim();
+    const expenseAmountRaw = body.expenseAmount;
+    const expenseAmount =
+      expenseAmountRaw === "" || expenseAmountRaw === null || expenseAmountRaw === undefined
+        ? null
+        : Number(expenseAmountRaw);
     const odometerRaw = body.odometerKm;
     const odometerKm =
       odometerRaw === "" || odometerRaw === null || odometerRaw === undefined
@@ -49,6 +54,11 @@ export async function POST(req: NextRequest) {
       if (description.length < 1) {
         return NextResponse.json({ error: "description is required" }, { status: 400 });
       }
+      if (reportKind === "expense") {
+        if (expenseAmount == null || !Number.isInteger(expenseAmount) || expenseAmount <= 0) {
+          return NextResponse.json({ error: "expenseAmount must be positive integer" }, { status: 400 });
+        }
+      }
     }
 
     const occurredAt = new Date(`${reportDate}T${reportTime}:00+09:00`);
@@ -67,6 +77,7 @@ export async function POST(req: NextRequest) {
         odometer_km: reportKind === "oil_change" ? odometerKm : null,
         report_kind: reportKind,
         description: reportKind === "oil_change" ? "" : description,
+        expense_amount: reportKind === "expense" ? expenseAmount : null,
         vehicle_id: vehicleId,
         submitted_at: new Date().toISOString(),
       })

@@ -30,6 +30,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    const { error: cleanupError } = await supabase
+      .from("driver_ad_hoc_expenses")
+      .delete()
+      .eq("misc_report_id", id);
+
+    if (cleanupError) {
+      console.error("[admin/misc-reports/oil-change/reject] cleanup error", cleanupError);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[admin/misc-reports/oil-change/reject] error", err);

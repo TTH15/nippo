@@ -45,6 +45,8 @@ function reportKindLabel(kind: string | undefined): string {
       return "修理";
     case "one_off":
       return "単発案件";
+    case "expense":
+      return "経費報告";
     case "other":
       return "その他";
     case "oil_change":

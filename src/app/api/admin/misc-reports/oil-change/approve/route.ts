@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
     const { data: report, error: reportErr } = await supabase
       .from("oil_change_reports")
-      .select("vehicle_id, odometer_km, report_kind")
+      .select("driver_id, report_date, report_kind, description, expense_amount, vehicle_id, odometer_km")
       .eq("id", id)
       .maybeSingle();
 
@@ -56,6 +56,36 @@ export async function POST(req: NextRequest) {
       if (vehicleErr) {
         console.error("[admin/misc-reports/oil-change/approve] vehicle update error", vehicleErr);
         return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+    }
+
+    if (
+      report?.report_kind === "expense" &&
+      report?.driver_id &&
+      report?.report_date &&
+      report?.expense_amount != null
+    ) {
+      const month = String(report.report_date).slice(0, 7);
+      const amountYen = Math.trunc(Number(report.expense_amount) || 0);
+      if (month.match(/^\d{4}-\d{2}$/) && amountYen > 0) {
+        const rawTitle = String(report.description ?? "").trim();
+        const title = rawTitle ? `経費報告: ${rawTitle}` : "経費報告";
+        const name = title.length > 200 ? title.slice(0, 200) : title;
+        const { error: adHocErr } = await supabase
+          .from("driver_ad_hoc_expenses")
+          .upsert({
+            driver_id: report.driver_id,
+            month,
+            name,
+            // ペイメントでは控除(+)を差し引く設計のため、加算は負値で保持する
+            amount: -amountYen,
+            misc_report_id: id,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "misc_report_id" });
+        if (adHocErr) {
+          console.error("[admin/misc-reports/oil-change/approve] ad hoc insert error", adHocErr);
+          return NextResponse.json({ error: "DB error" }, { status: 500 });
+        }
       }
     }
 
