@@ -11,7 +11,22 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 
-type Course = { id: string; name: string; color: string; sort_order: number; max_drivers?: number | null };
+type Course = {
+  id: string;
+  name: string;
+  color: string;
+  sort_order: number;
+  max_drivers?: number | null;
+  /** コース編集画面の「略記」。未設定時はコース名を表示 */
+  summary_title?: string | null;
+};
+
+/** シフト・エクスポートで見せる文言（略記優先・なければ正式名） */
+function courseShiftLabel(course: Course): string {
+  const t = course.summary_title?.trim();
+  return t ? t : course.name;
+}
+
 type Driver = {
   id: string;
   name: string;
@@ -571,7 +586,7 @@ export default function ShiftsPage() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">シフト管理</h1>
             <p className="text-xs text-slate-500 mt-1">
-              列は日付、行はドライバー。割当があるセルにはコース名を表示します（担当可能コースのみ選択可能）。
+              列は日付、行はドライバー。割当セルにはコースの略記を表示します（未設定時はコース名。担当可能コースのみ選択可能）。
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -746,7 +761,7 @@ export default function ShiftsPage() {
                           );
                           const selectOptions = [
                             { value: "", label: "—" },
-                            ...sortedOptions.map((c) => ({ value: c.id, label: c.name })),
+                            ...sortedOptions.map((c) => ({ value: c.id, label: courseShiftLabel(c) })),
                           ];
 
                           return (
@@ -894,7 +909,7 @@ export default function ShiftsPage() {
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-3 h-6 rounded-l border-l-4 border-slate-400 bg-slate-50" />
-                <span>割当済（左線はコース色・枠内はコース名）</span>
+                <span>割当済（左線はコース色・枠内は略記またはコース名）</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-8 h-6 rounded border border-amber-400 bg-amber-50" />
@@ -1008,7 +1023,7 @@ export default function ShiftsPage() {
                               lineHeight: 1.25,
                             }}
                           >
-                            {course.name}
+                            {courseShiftLabel(course)}
                           </div>
                         </td>
                       );
