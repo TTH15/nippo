@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -77,22 +78,6 @@ function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
   const days = ["日", "月", "火", "水", "木", "金", "土"];
   return `${d.getMonth() + 1}/${d.getDate()}(${days[d.getDay()]})`;
-}
-
-function stringToHue(input: string): number {
-  let hash = 0;
-  for (let i = 0; i < input.length; i++) {
-    hash = (hash * 31 + input.charCodeAt(i)) % 360;
-  }
-  return hash;
-}
-
-function driverChipColor(input: string): { bg: string; text: string } {
-  const hue = stringToHue(input);
-  return {
-    bg: `hsl(${hue} 80% 92%)`,
-    text: `hsl(${hue} 55% 28%)`,
-  };
 }
 
 type Period = "first" | "second";
@@ -475,10 +460,47 @@ export default function ShiftsPage() {
       .sort();
   };
 
-  const isDriverAssignedToCourse = (date: string, driverId: string, courseId: string): boolean => {
-    const maxSlots = Math.max(1, courses.find((c) => c.id === courseId)?.max_drivers ?? 1);
-    for (let s = 1; s <= maxSlots; s++) {
-      if (getCurrentDriverId(date, courseId, s) === driverId) return true;
+  const clearDriverOnDate = (date: string, driverId: string) => {
+    if (!canWrite) return;
+    setLocalShifts((prev) => {
+      const next = new Map(prev);
+      for (const c of courses) {
+        const maxSlots = Math.max(1, c.max_drivers ?? 1);
+        for (let s = 1; s <= maxSlots; s++) {
+          if (getEffectiveIdFromMap(next, date, c.id, s) === driverId) {
+            next.set(getCellKey(date, c.id, s), null);
+          }
+        }
+      }
+      return next;
+    });
+    setHasChanges(true);
+  };
+
+  /** 未割当セル用: このドライバーが選べるコース（マスタ＋定員あり） */
+  const getSelectableCoursesForDriverOnDate = (date: string, driverId: string): Course[] => {
+    const driver = drivers.find((d) => d.id === driverId);
+    if (!driver) return [];
+    const allowed = new Set(getDriverCourseIds(driver));
+    return courses.filter(
+      (c) => allowed.has(c.id) && canAssignDriverToCourseAfterClearing(date, driverId, c.id, localShifts),
+    );
+  };
+
+  /** localShifts がサーバーと異なり、この日×このドライバーに関係するか */
+  const isDateDriverDirty = (date: string, driverId: string): boolean => {
+    for (const c of courses) {
+      const maxSlots = Math.max(1, c.max_drivers ?? 1);
+      for (let s = 1; s <= maxSlots; s++) {
+        const k = getCellKey(date, c.id, s);
+        if (!localShifts.has(k)) continue;
+        const localVal = localShifts.get(k) ?? null;
+        const serverVal =
+          shifts.find((sh) => sh.shift_date === date && sh.course_id === c.id && sh.slot === s)?.driver_id ??
+          null;
+        if (localVal === serverVal) continue;
+        if (localVal === driverId || serverVal === driverId) return true;
+      }
     }
     return false;
   };
@@ -549,7 +571,7 @@ export default function ShiftsPage() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">シフト管理</h1>
             <p className="text-xs text-slate-500 mt-1">
-              日付ごとにドライバー（行）× コース（列）。担当可能なコースのみクリックして割り当てられます。
+              列は日付、行はドライバー。割当があるセルにはコース名を表示します（担当可能コースのみ選択可能）。
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -635,179 +657,174 @@ export default function ShiftsPage() {
         )}
 
         {loading ? (
-          <div className="space-y-6">
+          <div className="space-y-3">
             <Skeleton className="h-8 w-48" />
-            <div className="bg-white rounded border border-slate-200 overflow-x-auto p-4">
-              <Skeleton className="h-64 w-full" />
+            <div className="bg-white rounded border border-slate-200 overflow-x-auto">
+              <table className="w-full text-sm min-w-[800px]">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="py-2 px-2 w-32">
+                      <Skeleton className="h-4 w-16" />
+                    </th>
+                    {[...Array(8)].map((_, i) => (
+                      <th key={i} className="py-2 px-1">
+                        <Skeleton className="h-4 w-12 mx-auto" />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...Array(6)].map((_, i) => (
+                    <tr key={i} className="border-b border-slate-50">
+                      <td className="py-2 px-2">
+                        <Skeleton className="h-4 w-24" />
+                      </td>
+                      {[...Array(8)].map((_, j) => (
+                        <td key={j} className="py-2 px-1">
+                          <Skeleton className="h-8 w-full" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         ) : (
           <div className="space-y-6">
-            {displayDates.map((date) => {
-              const d = new Date(date);
-              const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-              const offNames = getOffDriverNamesOnDate(date);
-              return (
-                <div
-                  key={date}
-                  className={`rounded-lg border border-slate-200 bg-white overflow-hidden ${
-                    isWeekend ? "ring-1 ring-red-100" : ""
-                  }`}
-                >
-                  <div
-                    className={`px-3 py-2 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap ${
-                      isWeekend ? "bg-red-50/80" : "bg-slate-50"
-                    }`}
-                  >
-                    <span
-                      className={`text-sm font-semibold ${isWeekend ? "text-red-700" : "text-slate-800"}`}
-                    >
-                      {formatDate(date)}
-                    </span>
-                    {offNames.length > 0 && (
-                      <span className="text-xs text-slate-500">
-                        未割当（休み扱い）:{" "}
-                        <span className="text-slate-700">{offNames.join("・")}</span>
-                      </span>
-                    )}
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[720px]">
-                      <thead>
-                        <tr className="border-b border-slate-100 bg-white">
-                          <th className="sticky left-0 z-20 bg-white py-2 px-3 text-left font-medium text-slate-600 min-w-[9rem] shadow-[2px_0_0_0_rgb(241_245_249)]">
-                            ドライバー
-                          </th>
-                          {courses.map((course) => (
-                            <th
-                              key={`${date}-${course.id}`}
-                              className="py-2 px-1.5 text-center font-medium text-slate-700 min-w-[5.5rem] border-l-4 bg-slate-50/90"
-                              style={{ borderLeftColor: course.color }}
-                            >
-                              <span className="line-clamp-2">{course.name}</span>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {drivers.map((driver) => {
-                          const allowed = new Set(getDriverCourseIds(driver));
+            <div className="bg-white rounded border border-slate-200 overflow-x-auto">
+              <table className="w-full text-sm min-w-[720px]">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    <th className="sticky left-0 z-20 py-2 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50 shadow-[2px_0_0_0_rgb(241_245_249)]">
+                      ドライバー
+                    </th>
+                    {displayDates.map((date) => {
+                      const day = new Date(date).getDay();
+                      const isWeekend = day === 0 || day === 6;
+                      return (
+                        <th
+                          key={date}
+                          className={`py-2 px-1.5 text-center font-medium min-w-[5.5rem] max-w-[7rem] ${
+                            isWeekend ? "text-red-600 bg-red-50/60" : "text-slate-600"
+                          }`}
+                        >
+                          <span className="line-clamp-2 leading-tight">{formatDate(date)}</span>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {drivers.map((driver) => {
+                    const hasAnyCourse = getDriverCourseIds(driver).length > 0;
+                    return (
+                      <tr key={driver.id} className="border-b border-slate-50 last:border-b-0">
+                        <td className="sticky left-0 z-10 bg-white py-2 px-3 align-middle shadow-[2px_0_0_0_rgb(241_245_249)]">
+                          <span className="font-medium text-slate-800">{getDisplayName(driver)}</span>
+                        </td>
+                        {displayDates.map((date) => {
+                          const day = new Date(date).getDay();
+                          const isWeekend = day === 0 || day === 6;
                           const off = isDriverOffDay(driver.id, date);
+                          const placement = findDriverPlacementOnDate(localShifts, date, driver.id);
+                          const selectedCourseId = placement?.courseId ?? "";
+                          const assignedCourse = selectedCourseId
+                            ? courses.find((c) => c.id === selectedCourseId)
+                            : null;
+                          const dirty = isDateDriverDirty(date, driver.id);
+
+                          const baseSelect = getSelectableCoursesForDriverOnDate(date, driver.id);
+                          const optionMap = new Map<string, Course>();
+                          for (const c of baseSelect) optionMap.set(c.id, c);
+                          if (selectedCourseId) {
+                            const cur = courses.find((c) => c.id === selectedCourseId);
+                            if (cur) optionMap.set(cur.id, cur);
+                          }
+                          const sortedOptions = Array.from(optionMap.values()).sort(
+                            (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
+                          );
+                          const selectOptions = [
+                            { value: "", label: "—" },
+                            ...sortedOptions.map((c) => ({ value: c.id, label: c.name })),
+                          ];
+
                           return (
-                            <tr key={`${date}-${driver.id}`} className="border-b border-slate-50 last:border-b-0">
-                              <td className="sticky left-0 z-10 bg-white py-2 px-3 align-middle shadow-[2px_0_0_0_rgb(241_245_249)]">
-                                <div className="flex flex-col gap-0.5">
-                                  <span className="font-medium text-slate-800 leading-tight">
-                                    {getDisplayName(driver)}
-                                  </span>
-                                  {off && (
-                                    <span className="text-[10px] font-medium text-amber-700">希望休</span>
-                                  )}
-                                </div>
-                              </td>
-                              {courses.map((course) => {
-                                const eligible = allowed.has(course.id);
-                                const assigned = isDriverAssignedToCourse(date, driver.id, course.id);
-                                const keyPrefix = `${date}-${driver.id}-${course.id}`;
-                                const maxSlots = Math.max(1, course.max_drivers ?? 1);
-                                const slotKeys = Array.from({ length: maxSlots }, (_, i) =>
-                                  getCellKey(date, course.id, i + 1),
-                                );
-                                const isModified = slotKeys.some((k) => {
-                                  if (!localShifts.has(k)) return false;
-                                  const slot = Number(k.split(":").pop()) || 1;
-                                  return getCurrentDriverId(date, course.id, slot) === driver.id;
-                                });
-
-                                let filled = 0;
-                                const otherNames: string[] = [];
-                                for (let s = 1; s <= maxSlots; s++) {
-                                  const oid = getCurrentDriverId(date, course.id, s);
-                                  if (!oid) continue;
-                                  filled++;
-                                  if (oid !== driver.id) {
-                                    const od = drivers.find((x) => x.id === oid);
-                                    if (od) otherNames.push(getDisplayName(od));
+                            <td
+                              key={`${driver.id}-${date}`}
+                              className={`py-1.5 px-1 align-middle min-w-[5.5rem] ${
+                                isWeekend ? "bg-red-50/25" : ""
+                              }`}
+                            >
+                              {!hasAnyCourse ? (
+                                <span className="text-slate-300 text-xs flex justify-center">—</span>
+                              ) : off ? (
+                                <span className="text-[11px] text-amber-700 font-medium flex justify-center text-center">
+                                  希望休
+                                </span>
+                              ) : (
+                                <div
+                                  className="min-w-0 rounded-xl"
+                                  style={
+                                    assignedCourse
+                                      ? { borderLeft: `4px solid ${assignedCourse.color}` }
+                                      : undefined
                                   }
-                                }
-                                const hasFreeSlot = filled < maxSlots;
-                                const courseFull = !assigned && eligible && !hasFreeSlot;
-
-                                const canTapAssign =
-                                  canWrite && eligible && !off && !courseFull;
-
-                                return (
-                                  <td
-                                    key={keyPrefix}
-                                    className={`py-1.5 px-1 align-middle text-center border-l border-slate-100 ${
-                                      !eligible ? "bg-slate-50/80" : isWeekend ? "bg-red-50/20" : ""
-                                    }`}
-                                  >
-                                    {!eligible ? (
-                                      <span className="text-slate-300 text-xs">—</span>
-                                    ) : assigned ? (
-                                      <button
-                                        type="button"
-                                        title={canWrite ? "クリックでこのコースの割当を解除" : undefined}
-                                        onClick={() => handleCellClick(date, driver.id, course.id)}
-                                        disabled={!canWrite || off}
-                                        className={`w-full min-h-[2rem] rounded-md border text-xs font-semibold transition-colors ${
-                                          isModified
-                                            ? "border-amber-400 bg-amber-50 text-slate-900"
-                                            : "border-emerald-300 bg-emerald-50 text-emerald-900"
-                                        } ${!canWrite || off ? "opacity-60 cursor-default" : "hover:bg-emerald-100"}`}
-                                      >
-                                        担当
-                                      </button>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        title={
-                                          courseFull
-                                            ? `定員（${otherNames.slice(0, 3).join("・")}${otherNames.length > 3 ? "…" : ""}）`
-                                            : canWrite
-                                              ? "クリックでこのコースに割当"
-                                              : undefined
-                                        }
-                                        onClick={() => handleCellClick(date, driver.id, course.id)}
-                                        disabled={!canTapAssign}
-                                        className={`w-full min-h-[2rem] rounded-md border text-xs transition-colors ${
-                                          courseFull
-                                            ? "border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed"
-                                            : isModified
-                                              ? "border-amber-400 bg-amber-50 text-slate-700"
-                                              : "border-dashed border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:bg-slate-50"
-                                        } ${!canTapAssign && !courseFull ? "opacity-60 cursor-not-allowed" : ""}`}
-                                      >
-                                        {courseFull ? (
-                                          <span className="line-clamp-3 leading-tight">
-                                            満員
-                                            {otherNames.length > 0 && (
-                                              <span className="block text-[10px] font-normal text-slate-500 mt-0.5">
-                                                {otherNames[0]}
-                                                {otherNames.length > 1
-                                                  ? ` 他${otherNames.length - 1}`
-                                                  : ""}
-                                              </span>
-                                            )}
-                                          </span>
-                                        ) : (
-                                          "タップ"
-                                        )}
-                                      </button>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                            </tr>
+                                >
+                                  <CustomSelect
+                                    options={selectOptions}
+                                    value={selectedCourseId}
+                                    onChange={(v) => {
+                                      if (v === "") clearDriverOnDate(date, driver.id);
+                                      else handleCellClick(date, driver.id, v);
+                                    }}
+                                    placeholder="—"
+                                    clearable={false}
+                                    disabled={!canWrite}
+                                    size="sm"
+                                    className={
+                                      dirty
+                                        ? "[&_button]:border-amber-400 [&_button]:bg-amber-50"
+                                        : selectedCourseId
+                                          ? "[&_button]:bg-slate-50 [&_button]:border-slate-200"
+                                          : undefined
+                                    }
+                                  />
+                                </div>
+                              )}
+                            </td>
                           );
                         })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              );
-            })}
+                      </tr>
+                    );
+                  })}
+                  <tr className="border-t border-slate-200 bg-slate-50/90">
+                    <td className="sticky left-0 z-10 py-2 px-3 text-xs font-medium text-slate-600 bg-slate-50 shadow-[2px_0_0_0_rgb(241_245_249)]">
+                      未割当
+                    </td>
+                    {displayDates.map((date) => {
+                      const names = getOffDriverNamesOnDate(date);
+                      const day = new Date(date).getDay();
+                      const isWeekend = day === 0 || day === 6;
+                      return (
+                        <td
+                          key={`off-${date}`}
+                          className={`py-2 px-1.5 text-[11px] text-slate-600 align-top ${
+                            isWeekend ? "bg-red-50/20" : ""
+                          }`}
+                        >
+                          {names.length > 0 ? (
+                            <span className="line-clamp-4 break-words">{names.join("・")}</span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
             <div className="bg-white rounded border border-slate-200 p-4">
               <h3 className="text-sm font-medium text-slate-700 mb-3">この期間の希望休（一覧）</h3>
@@ -869,15 +886,15 @@ export default function ShiftsPage() {
             <div className="flex flex-wrap gap-6 text-xs text-slate-500">
               <div className="flex items-center gap-1.5">
                 <div className="w-8 h-6 rounded border border-slate-200 bg-slate-50" />
-                <span>担当不可コース（マスタ未割当）</span>
+                <span>コース未登録（ドライバーマスタ）</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-8 h-6 rounded border border-dashed border-slate-200 bg-white" />
-                <span>未割当（タップで割当）</span>
+                <span>未割当（プルダウンで選択）</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className="w-8 h-6 rounded border border-emerald-300 bg-emerald-50" />
-                <span>割当済</span>
+                <div className="w-3 h-6 rounded-l border-l-4 border-slate-400 bg-slate-50" />
+                <span>割当済（左線はコース色・枠内はコース名）</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-8 h-6 rounded border border-amber-400 bg-amber-50" />
@@ -901,101 +918,127 @@ export default function ShiftsPage() {
             <h2 style={{ fontSize: "24px", fontWeight: 700, margin: "0 0 16px" }}>
               シフト表（{yearMonth.year}年{yearMonth.month}月 {period === "first" ? "前半" : "後半"}）
             </h2>
-            {displayDates.map((date) => (
-              <div key={`export-${date}`} style={{ marginBottom: "20px" }}>
-                <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "8px", color: "#374151" }}>
-                  {formatDate(date)}
-                </div>
-                <table
-                  style={{
-                    width: "100%",
-                    borderCollapse: "separate",
-                    borderSpacing: "0 2px",
-                    fontSize: "12px",
-                  }}
-                >
-                  <thead>
-                    <tr>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "separate",
+                borderSpacing: "0 2px",
+                fontSize: "12px",
+              }}
+            >
+              <thead>
+                <tr>
+                  <th
+                    style={{
+                      width: "160px",
+                      textAlign: "left",
+                      padding: "6px 8px",
+                      color: "#6b7280",
+                      background: "#f9fafb",
+                    }}
+                  >
+                    ドライバー
+                  </th>
+                  {displayDates.map((date) => {
+                    const day = new Date(date).getDay();
+                    const isWeekend = day === 0 || day === 6;
+                    return (
                       <th
+                        key={`ex-h-${date}`}
                         style={{
-                          width: "160px",
-                          textAlign: "left",
-                          padding: "4px 8px",
-                          color: "#6b7280",
-                          background: "#f9fafb",
+                          textAlign: "center",
+                          padding: "6px 4px",
+                          background: isWeekend ? "#fef2f2" : "#f9fafb",
+                          color: isWeekend ? "#b91c1c" : "#6b7280",
+                          fontWeight: 600,
+                          maxWidth: "88px",
                         }}
                       >
-                        ドライバー
+                        {formatDate(date)}
                       </th>
-                      {courses.map((course) => (
-                        <th
-                          key={`ex-h-${date}-${course.id}`}
-                          style={{
-                            textAlign: "center",
-                            padding: "4px 6px",
-                            borderLeft: `4px solid ${course.color}`,
-                            background: "#f9fafb",
-                            color: "#374151",
-                            maxWidth: "100px",
-                          }}
-                        >
-                          {course.name}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {drivers.map((driver) => (
-                      <tr key={`ex-r-${date}-${driver.id}`}>
-                        <td style={{ padding: "4px 8px", fontWeight: 600, color: "#111827" }}>
-                          {getDisplayName(driver)}
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {drivers.map((driver) => (
+                  <tr key={`ex-row-${driver.id}`}>
+                    <td style={{ padding: "6px 8px", fontWeight: 600, color: "#111827" }}>
+                      {getDisplayName(driver)}
+                    </td>
+                    {displayDates.map((date) => {
+                      const placement = findDriverPlacementOnDate(localShifts, date, driver.id);
+                      const course = placement
+                        ? courses.find((c) => c.id === placement.courseId)
+                        : null;
+                      const hasCourses = getDriverCourseIds(driver).length > 0;
+                      if (!hasCourses) {
+                        return (
+                          <td key={`ex-${driver.id}-${date}`} style={{ padding: "4px", background: "#fafafa" }}>
+                            <div style={{ color: "#d1d5db", textAlign: "center" }}>—</div>
+                          </td>
+                        );
+                      }
+                      if (isDriverOffDay(driver.id, date)) {
+                        return (
+                          <td key={`ex-${driver.id}-${date}`} style={{ padding: "4px", textAlign: "center" }}>
+                            <span style={{ fontSize: "10px", color: "#b45309" }}>希望休</span>
+                          </td>
+                        );
+                      }
+                      if (!course) {
+                        return (
+                          <td key={`ex-${driver.id}-${date}`} style={{ padding: "4px" }}>
+                            <div style={{ color: "#d1d5db", textAlign: "center", fontSize: "11px" }}>・</div>
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key={`ex-${driver.id}-${date}`} style={{ padding: "4px", verticalAlign: "top" }}>
+                          <div
+                            style={{
+                              borderLeft: `4px solid ${course.color}`,
+                              background: "#f8fafc",
+                              borderRadius: "6px",
+                              padding: "4px 6px",
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              color: "#0f172a",
+                              textAlign: "center",
+                              lineHeight: 1.25,
+                            }}
+                          >
+                            {course.name}
+                          </div>
                         </td>
-                        {courses.map((course) => {
-                          const assigned = isDriverAssignedToCourse(date, driver.id, course.id);
-                          const eligible = getDriverCourseIds(driver).includes(course.id);
-                          if (!eligible) {
-                            return (
-                              <td
-                                key={`ex-c-${date}-${driver.id}-${course.id}`}
-                                style={{ padding: "4px", background: "#f9fafb" }}
-                              >
-                                <div style={{ color: "#d1d5db", textAlign: "center" }}>—</div>
-                              </td>
-                            );
-                          }
-                          if (!assigned) {
-                            return (
-                              <td key={`ex-c-${date}-${driver.id}-${course.id}`} style={{ padding: "4px" }}>
-                                <div style={{ color: "#d1d5db", textAlign: "center", fontSize: "11px" }}>・</div>
-                              </td>
-                            );
-                          }
-                          const name = getDisplayName(driver);
-                          const color = driverChipColor(name);
-                          return (
-                            <td key={`ex-c-${date}-${driver.id}-${course.id}`} style={{ padding: "4px" }}>
-                              <div
-                                style={{
-                                  background: color.bg,
-                                  color: color.text,
-                                  borderRadius: "6px",
-                                  padding: "3px 6px",
-                                  fontSize: "11px",
-                                  fontWeight: 700,
-                                  textAlign: "center",
-                                }}
-                              >
-                                {name}
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
+                      );
+                    })}
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{ padding: "6px 8px", fontWeight: 700, color: "#4b5563", background: "#f9fafb" }}>
+                    未割当
+                  </td>
+                  {displayDates.map((date) => {
+                    const names = getOffDriverNamesOnDate(date);
+                    return (
+                      <td
+                        key={`ex-off-${date}`}
+                        style={{
+                          padding: "4px",
+                          fontSize: "10px",
+                          color: "#64748b",
+                          verticalAlign: "top",
+                          background: "#fafafa",
+                        }}
+                      >
+                        {names.length ? names.join("・") : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
