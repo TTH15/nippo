@@ -10,6 +10,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
+import { formatPlateNumeric, type VehiclePlateData } from "@/lib/components/VehiclePlate";
 
 type Course = {
   id: string;
@@ -26,6 +27,31 @@ function courseShiftLabel(course: Course): string {
   const t = course.summary_title?.trim();
   return t ? t : course.name;
 }
+
+/** 同日×同ドライバーの車両上書き用（ISO日付 と UUID はどちらもハイフンを含むため区切りに | を使う） */
+function driverDayVehicleKey(date: string, driverId: string): string {
+  return `${date}|${driverId}`;
+}
+
+/** 一覧・セル用のコンパクトなナンバー表記（プレート縮約） */
+function formatPlateOneLine(v: VehiclePlateData): string {
+  const parts = [
+    v.number_prefix ?? "",
+    v.number_class ?? "",
+    v.number_hiragana ?? "",
+    v.number_numeric ? formatPlateNumeric(v.number_numeric) : "",
+  ].filter((x) => String(x).trim() !== "");
+  return parts.join(" ").trim() || "—";
+}
+
+function courseAbbrevTooltip(course: Course): string {
+  const abbr = courseShiftLabel(course);
+  return abbr !== course.name ? `${abbr}（${course.name}）` : abbr;
+}
+
+/** シフト一覧の「日」列・セルの共通幅（参考UI寄せの固定カラム） */
+const SHIFT_COL_WIDTH_CLASS =
+  "w-[5.75rem] min-w-[5.75rem] max-w-[5.75rem] box-border";
 
 type Driver = {
   id: string;
@@ -56,7 +82,16 @@ type Shift = {
   slot: number;
   driver_id: string | null;
   drivers: { id: string; name: string; display_name?: string | null } | null;
+  vehicle_id?: string | null;
+  /** FK vehicle_id のネスト（0〜1台） */
+  vehicles?: VehiclePlateData | VehiclePlateData[] | null;
 };
+
+function normalizeShiftVehiclesEmbed(s: Shift): Shift & { vehicles?: VehiclePlateData | null } {
+  const raw = s.vehicles;
+  const one = Array.isArray(raw) ? raw[0] ?? null : raw ?? null;
+  return { ...s, vehicles: one };
+}
 type ShiftRequest = {
   id: string;
   driver_id: string;
@@ -110,7 +145,20 @@ export default function ShiftsPage() {
   const [generating, setGenerating] = useState(false);
 
   const [localShifts, setLocalShifts] = useState<Map<string, string | null>>(new Map());
+  const [localVehicleByDriverDay, setLocalVehicleByDriverDay] = useState<Map<string, string | null>>(
+    new Map(),
+  );
+  const [fleetVehicles, setFleetVehicles] = useState<VehiclePlateData[]>([]);
+  const [vehicleLinks, setVehicleLinks] = useState<{ driver_id: string; vehicle_id: string }[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
+
+  const fleetById = useMemo(() => {
+    const m = new Map<string, VehiclePlateData>();
+    for (const v of fleetVehicles) {
+      m.set(v.id, v);
+    }
+    return m;
+  }, [fleetVehicles]);
   const [confirmState, setConfirmState] = useState<{
     message: string;
     onConfirm: () => void;
@@ -124,39 +172,6 @@ export default function ShiftsPage() {
   const [exportFormat, setExportFormat] = useState<"png" | "pdf">("png");
   const exportRef = useRef<HTMLDivElement | null>(null);
 
-  const applyLocalChangesToShifts = useCallback(
-    (base: Shift[], changes: Map<string, string | null>) => {
-      const next = [...base];
-      changes.forEach((driverId, key) => {
-        const [shiftDate, courseId, slotStr] = key.split(":");
-        const slot = Number(slotStr) || 1;
-        const idx = next.findIndex(
-          (s) => s.shift_date === shiftDate && s.course_id === courseId && s.slot === slot,
-        );
-        const assignedDriver = driverId
-          ? (() => {
-              const d = drivers.find((x) => x.id === driverId);
-              return d ? { id: d.id, name: d.name, display_name: d.display_name } : null;
-            })()
-          : null;
-        if (idx >= 0) {
-          next[idx] = { ...next[idx], driver_id: driverId ?? null, drivers: assignedDriver };
-        } else {
-          next.push({
-            id: `local:${shiftDate}:${courseId}:${slot}`,
-            shift_date: shiftDate,
-            course_id: courseId,
-            slot,
-            driver_id: driverId ?? null,
-            drivers: assignedDriver,
-          });
-        }
-      });
-      return next;
-    },
-    [drivers],
-  );
-
   const displayDates = useMemo(
     () =>
       period === "first"
@@ -165,9 +180,10 @@ export default function ShiftsPage() {
     [yearMonth.year, yearMonth.month, period],
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (displayDates.length === 0) return;
-    setLoading(true);
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     const start = displayDates[0];
     const end = displayDates[displayDates.length - 1];
     try {
@@ -176,17 +192,22 @@ export default function ShiftsPage() {
         drivers: Driver[];
         shifts: Shift[];
         requests: ShiftRequest[];
+        vehicles?: VehiclePlateData[];
+        vehicle_driver_links?: { driver_id: string; vehicle_id: string }[];
       }>(`/api/admin/shifts?start=${start}&end=${end}`);
       setCourses(res.courses);
       setDrivers(res.drivers);
-      setShifts(res.shifts);
+      setShifts((res.shifts ?? []).map((s) => normalizeShiftVehiclesEmbed(s)));
       setRequests(res.requests);
+      setFleetVehicles(Array.isArray(res.vehicles) ? res.vehicles : []);
+      setVehicleLinks(res.vehicle_driver_links ?? []);
       setLocalShifts(new Map());
+      setLocalVehicleByDriverDay(new Map());
       setHasChanges(false);
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [displayDates]);
 
@@ -201,6 +222,7 @@ export default function ShiftsPage() {
         message: "変更が保存されていません。破棄しますか？",
         onConfirm: () => {
           setLocalShifts(new Map());
+          setLocalVehicleByDriverDay(new Map());
           setHasChanges(false);
           setYearMonth(value);
         },
@@ -216,6 +238,7 @@ export default function ShiftsPage() {
         message: "変更が保存されていません。破棄しますか？",
         onConfirm: () => {
           setLocalShifts(new Map());
+          setLocalVehicleByDriverDay(new Map());
           setHasChanges(false);
           setPeriod(p);
         },
@@ -309,6 +332,45 @@ export default function ShiftsPage() {
       }
     }
     return null;
+  };
+
+  /** 親 shift 行の vehicle_id を解決（車両選択はドライバー×日単位だが保存はシフト行） */
+  const getCurrentVehicleForDriverOnDate = (date: string, driverId: string): string | null => {
+    const dk = driverDayVehicleKey(date, driverId);
+    if (localVehicleByDriverDay.has(dk)) return localVehicleByDriverDay.get(dk) ?? null;
+    const placement = findDriverPlacementOnDate(localShifts, date, driverId);
+    if (!placement) return null;
+    const row = shifts.find(
+      (s) =>
+        s.shift_date === date &&
+        s.course_id === placement.courseId &&
+        s.slot === placement.slot,
+    );
+    return row?.vehicle_id ?? null;
+  };
+
+  const vehicleSelectOptionsForDriver = (driverId: string, selectedVehicleId: string | null) => {
+    const allowedIds = new Set<string>();
+    for (const l of vehicleLinks) {
+      if (l.driver_id === driverId) allowedIds.add(l.vehicle_id);
+    }
+    if (selectedVehicleId) allowedIds.add(selectedVehicleId);
+    const opts = fleetVehicles.filter((v) => allowedIds.has(v.id));
+    opts.sort((a, b) => formatPlateOneLine(a).localeCompare(formatPlateOneLine(b), "ja"));
+    return [
+      { value: "", label: "車両なし" },
+      ...opts.map((v) => ({ value: v.id, label: formatPlateOneLine(v) })),
+    ];
+  };
+
+  const setVehicleForDriverOnDate = (date: string, driverId: string, vehicleId: string | null) => {
+    if (!canWrite) return;
+    setLocalVehicleByDriverDay((prev) => {
+      const next = new Map(prev);
+      next.set(driverDayVehicleKey(date, driverId), vehicleId);
+      return next;
+    });
+    setHasChanges(true);
   };
 
   const hasFreeSlotOnCourse = (date: string, courseId: string, localMap: Map<string, string | null>): boolean => {
@@ -406,28 +468,46 @@ export default function ShiftsPage() {
 
   const saveAll = async () => {
     if (!canWrite) return;
-    if (localShifts.size === 0) return;
+    if (localShifts.size === 0 && localVehicleByDriverDay.size === 0) return;
+
+    const shiftKeysTodo = new Set<string>(localShifts.keys());
+    localVehicleByDriverDay.forEach((_, dk) => {
+      const bar = dk.indexOf("|");
+      if (bar < 0) return;
+      const dStr = dk.slice(0, bar);
+      const drvId = dk.slice(bar + 1);
+      const p = findDriverPlacementOnDate(localShifts, dStr, drvId);
+      if (p) shiftKeysTodo.add(getCellKey(dStr, p.courseId, p.slot));
+    });
+
+    if (shiftKeysTodo.size === 0) return;
+
     setSaving(true);
     try {
       const promises: Promise<unknown>[] = [];
-      localShifts.forEach((driverId, key) => {
-        const [dDate, cId, slot] = key.split(":");
+      shiftKeysTodo.forEach((key) => {
+        const [shiftDate, courseId, slotRaw] = key.split(":");
+        const slotNum = Number(slotRaw) || 1;
+        const driverId = getCurrentDriverId(shiftDate, courseId, slotNum);
+        const vehicleId =
+          driverId == null ? null : getCurrentVehicleForDriverOnDate(shiftDate, driverId);
+
         promises.push(
           apiFetch("/api/admin/shifts", {
             method: "POST",
             body: JSON.stringify({
-              shiftDate: dDate,
-              courseId: cId,
-              slot: Number(slot) || 1,
+              shiftDate,
+              courseId,
+              slot: slotNum,
               driverId,
+              vehicleId,
             }),
           }),
         );
       });
+
       await Promise.all(promises);
-      setShifts((prev) => applyLocalChangesToShifts(prev, localShifts));
-      setLocalShifts(new Map());
-      setHasChanges(false);
+      await load({ silent: true });
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -450,6 +530,7 @@ export default function ShiftsPage() {
       message: "変更を破棄しますか？",
       onConfirm: () => {
         setLocalShifts(new Map());
+        setLocalVehicleByDriverDay(new Map());
         setHasChanges(false);
       },
     });
@@ -489,6 +570,11 @@ export default function ShiftsPage() {
       }
       return next;
     });
+    setLocalVehicleByDriverDay((prev) => {
+      const next = new Map(prev);
+      next.set(driverDayVehicleKey(date, driverId), null);
+      return next;
+    });
     setHasChanges(true);
   };
 
@@ -502,7 +588,7 @@ export default function ShiftsPage() {
     );
   };
 
-  /** localShifts がサーバーと異なり、この日×このドライバーに関係するか */
+  /** ローカル編集により、このセルが未保存になるか（コースまたは車両） */
   const isDateDriverDirty = (date: string, driverId: string): boolean => {
     for (const c of courses) {
       const maxSlots = Math.max(1, c.max_drivers ?? 1);
@@ -517,7 +603,23 @@ export default function ShiftsPage() {
         if (localVal === driverId || serverVal === driverId) return true;
       }
     }
-    return false;
+
+    const dk = driverDayVehicleKey(date, driverId);
+    if (!localVehicleByDriverDay.has(dk)) return false;
+
+    const newV = localVehicleByDriverDay.get(dk) ?? null;
+    const placement = findDriverPlacementOnDate(localShifts, date, driverId);
+    let oldV: string | null = null;
+    if (placement) {
+      oldV =
+        shifts.find(
+          (s) =>
+            s.shift_date === date &&
+            s.course_id === placement.courseId &&
+            s.slot === placement.slot,
+        )?.vehicle_id ?? null;
+    }
+    return newV !== oldV;
   };
 
   const handleExport = async () => {
@@ -586,7 +688,7 @@ export default function ShiftsPage() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">シフト管理</h1>
             <p className="text-xs text-slate-500 mt-1">
-              列は日付、行はドライバー。割当セルにはコースの略記を表示します（未設定時はコース名。担当可能コースのみ選択可能）。
+              列幅は固定で略記が「…」省略されます（ホバーで詳細）。上部でコース、下部で車両（ナンバー）を指定します。「車両管理」でドライバーと車両を紐付けた車だけ選べます。
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -650,7 +752,9 @@ export default function ShiftsPage() {
 
         {hasChanges && canWrite && (
           <div className="mb-4 p-3 bg-amber-50 border border-amber-300 rounded flex items-center justify-between">
-            <span className="text-sm font-medium text-amber-800">{localShifts.size}件の未保存の変更</span>
+            <span className="text-sm font-medium text-amber-800">
+              {localShifts.size + localVehicleByDriverDay.size}件の未保存の変更
+            </span>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -720,11 +824,13 @@ export default function ShiftsPage() {
                       return (
                         <th
                           key={date}
-                          className={`py-2 px-1.5 text-center font-medium min-w-[5.5rem] max-w-[7rem] ${
+                          className={`${SHIFT_COL_WIDTH_CLASS} px-1 py-2 text-center font-medium overflow-hidden align-top ${
                             isWeekend ? "text-red-600 bg-red-50/60" : "text-slate-600"
                           }`}
                         >
-                          <span className="line-clamp-2 leading-tight">{formatDate(date)}</span>
+                          <span className="line-clamp-2 leading-tight break-words" title={formatDate(date)}>
+                            {formatDate(date)}
+                          </span>
                         </th>
                       );
                     })}
@@ -764,10 +870,50 @@ export default function ShiftsPage() {
                             ...sortedOptions.map((c) => ({ value: c.id, label: courseShiftLabel(c) })),
                           ];
 
+                          const prow =
+                            placement
+                              ? shifts.find(
+                                  (s) =>
+                                    s.shift_date === date &&
+                                    s.course_id === placement.courseId &&
+                                    s.slot === placement.slot,
+                                )
+                              : null;
+
+                          const currentVid = getCurrentVehicleForDriverOnDate(date, driver.id);
+                          const hoverVehiclePlate: VehiclePlateData | null = (() => {
+                            if (!currentVid) return null;
+                            const fromFleet = fleetById.get(currentVid);
+                            if (fromFleet) return fromFleet;
+                            const embedded =
+                              prow?.vehicle_id === currentVid ? normalizeShiftVehiclesEmbed(prow).vehicles : null;
+                            if (embedded) return embedded;
+                            return { id: currentVid };
+                          })();
+
+                          let vehicleOpts = vehicleSelectOptionsForDriver(driver.id, currentVid);
+                          const courseTitle = assignedCourse ? courseAbbrevTooltip(assignedCourse) : undefined;
+                          const vehicleTitle =
+                            hoverVehiclePlate && currentVid ? formatPlateOneLine(hoverVehiclePlate) : undefined;
+
+                          if (
+                            currentVid &&
+                            !vehicleOpts.some((o) => o.value === currentVid)
+                          ) {
+                            vehicleOpts = [
+                              vehicleOpts[0],
+                              {
+                                value: currentVid,
+                                label: vehicleTitle ?? `車両（${currentVid.slice(0, 8)}…）`,
+                              },
+                              ...vehicleOpts.slice(1),
+                            ];
+                          }
+
                           return (
                             <td
                               key={`${driver.id}-${date}`}
-                              className={`py-1.5 px-1 align-middle min-w-[5.5rem] ${
+                              className={`${SHIFT_COL_WIDTH_CLASS} px-1 py-1.5 align-top ${
                                 isWeekend ? "bg-red-50/25" : ""
                               }`}
                             >
@@ -778,33 +924,62 @@ export default function ShiftsPage() {
                                   希望休
                                 </span>
                               ) : (
-                                <div
-                                  className="min-w-0 rounded-xl"
-                                  style={
-                                    assignedCourse
-                                      ? { borderLeft: `4px solid ${assignedCourse.color}` }
-                                      : undefined
-                                  }
-                                >
-                                  <CustomSelect
-                                    options={selectOptions}
-                                    value={selectedCourseId}
-                                    onChange={(v) => {
-                                      if (v === "") clearDriverOnDate(date, driver.id);
-                                      else handleCellClick(date, driver.id, v);
-                                    }}
-                                    placeholder="—"
-                                    clearable={false}
-                                    disabled={!canWrite}
-                                    size="sm"
-                                    className={
-                                      dirty
-                                        ? "[&_button]:border-amber-400 [&_button]:bg-amber-50"
-                                        : selectedCourseId
-                                          ? "[&_button]:bg-slate-50 [&_button]:border-slate-200"
-                                          : undefined
+                                <div className={`flex flex-col gap-1 min-h-[6.75rem]`}>
+                                  <div
+                                    title={courseTitle}
+                                    className="min-w-0 w-full shrink-0 overflow-hidden rounded-xl"
+                                    style={
+                                      assignedCourse
+                                        ? { borderLeft: `4px solid ${assignedCourse.color}` }
+                                        : undefined
                                     }
-                                  />
+                                  >
+                                    <CustomSelect
+                                      options={selectOptions}
+                                      value={selectedCourseId}
+                                      onChange={(v) => {
+                                        if (v === "") clearDriverOnDate(date, driver.id);
+                                        else handleCellClick(date, driver.id, v);
+                                      }}
+                                      placeholder="—"
+                                      clearable={false}
+                                      disabled={!canWrite}
+                                      size="sm"
+                                      className={[
+                                        "[&_button]:min-h-9 [&_button]:rounded-xl",
+                                        dirty && "[&_button]:border-amber-400 [&_button]:bg-amber-50",
+                                        Boolean(selectedCourseId) &&
+                                          !dirty &&
+                                          "[&_button]:bg-slate-50 [&_button]:border-slate-200",
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" ")}
+                                    />
+                                  </div>
+                                  {selectedCourseId ? (
+                                    <div title={vehicleTitle} className="min-w-0 w-full shrink-0 overflow-hidden">
+                                      <CustomSelect
+                                        options={vehicleOpts}
+                                        value={currentVid ?? ""}
+                                        onChange={(v) =>
+                                          setVehicleForDriverOnDate(date, driver.id, v || null)
+                                        }
+                                        placeholder="車両なし"
+                                        clearable={false}
+                                        disabled={!canWrite}
+                                        size="sm"
+                                        className={[
+                                          "[&_button]:min-h-[2rem] [&_button]:rounded-lg [&_button]:border-slate-300",
+                                          dirty && "[&_button]:border-amber-400 [&_button]:bg-amber-50/80",
+                                          Boolean(currentVid) && !dirty && "[&_button]:bg-white",
+                                        ]
+                                          .filter(Boolean)
+                                          .join(" ")}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="min-h-[2rem]" aria-hidden />
+                                  )}
                                 </div>
                               )}
                             </td>
@@ -824,7 +999,7 @@ export default function ShiftsPage() {
                       return (
                         <td
                           key={`off-${date}`}
-                          className={`py-2 px-1.5 text-[11px] text-slate-600 align-top ${
+                          className={`${SHIFT_COL_WIDTH_CLASS} px-1 py-2 text-[11px] text-slate-600 align-top overflow-hidden ${
                             isWeekend ? "bg-red-50/20" : ""
                           }`}
                         >
@@ -914,6 +1089,11 @@ export default function ShiftsPage() {
               <div className="flex items-center gap-1.5">
                 <div className="w-8 h-6 rounded border border-amber-400 bg-amber-50" />
                 <span>未保存の変更</span>
+              </div>
+              <div className="flex items-center gap-1.5 basis-full md:basis-auto">
+                <span className="text-slate-500">
+                  下部のリストは、このドライバーに車両マスタで紐付いたナンバーから選択できます。
+                </span>
               </div>
             </div>
           </div>
@@ -1008,22 +1188,68 @@ export default function ShiftsPage() {
                           </td>
                         );
                       }
+
+                      const exVid = getCurrentVehicleForDriverOnDate(date, driver.id);
+                      const prowEx =
+                        placement
+                          ? shifts.find(
+                              (s) =>
+                                s.shift_date === date &&
+                                s.course_id === placement.courseId &&
+                                s.slot === placement.slot,
+                            )
+                          : null;
+                      const exPlate: VehiclePlateData | null = (() => {
+                        if (!exVid) return null;
+                        const f = fleetById.get(exVid);
+                        if (f) return f;
+                        const emb =
+                          prowEx?.vehicle_id === exVid ? normalizeShiftVehiclesEmbed(prowEx).vehicles : null;
+                        return emb ?? null;
+                      })();
+                      const plateLine = exPlate ? formatPlateOneLine(exPlate) : "";
+
                       return (
                         <td key={`ex-${driver.id}-${date}`} style={{ padding: "4px", verticalAlign: "top" }}>
-                          <div
-                            style={{
-                              borderLeft: `4px solid ${course.color}`,
-                              background: "#f8fafc",
-                              borderRadius: "6px",
-                              padding: "4px 6px",
-                              fontSize: "11px",
-                              fontWeight: 700,
-                              color: "#0f172a",
-                              textAlign: "center",
-                              lineHeight: 1.25,
-                            }}
-                          >
-                            {courseShiftLabel(course)}
+                          <div style={{ display: "flex", flexDirection: "column", gap: "3px", minHeight: "40px" }}>
+                            <div
+                              style={{
+                                borderLeft: `4px solid ${course.color}`,
+                                background: "#f8fafc",
+                                borderRadius: "6px",
+                                padding: "4px 5px",
+                                fontSize: "10px",
+                                fontWeight: 700,
+                                color: "#0f172a",
+                                textAlign: "center",
+                                lineHeight: 1.2,
+                                overflow: "hidden",
+                                whiteSpace: "nowrap",
+                                textOverflow: "ellipsis",
+                              }}
+                              title={`${courseShiftLabel(course)}｜${course.name}`}
+                            >
+                              {courseShiftLabel(course)}
+                            </div>
+                            {plateLine ? (
+                              <div
+                                style={{
+                                  fontSize: "9px",
+                                  fontWeight: 600,
+                                  color: "#475569",
+                                  textAlign: "center",
+                                  lineHeight: 1.2,
+                                  overflow: "hidden",
+                                  whiteSpace: "nowrap",
+                                  textOverflow: "ellipsis",
+                                }}
+                                title={plateLine}
+                              >
+                                {plateLine}
+                              </div>
+                            ) : (
+                              <div style={{ flex: "1", minHeight: "8px" }} />
+                            )}
                           </div>
                         </td>
                       );

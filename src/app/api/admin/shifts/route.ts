@@ -22,15 +22,35 @@ export async function GET(req: NextRequest) {
     .select("*")
     .order("sort_order");
 
-  // Get shifts for date range
-  const { data: shifts } = await supabase
+  const { data: fleet } = await supabase
+    .from("vehicles")
+    .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand")
+    .eq("is_disposed", false)
+    .order("manufacturer")
+    .order("brand");
+
+  const fleetById = new Map((fleet ?? []).map((v) => [v.id, v]));
+
+  // Get shifts（vehicle_id は fleet と結合して返す／ネスト名の都合を避ける）
+  const { data: shiftsRaw } = await supabase
     .from("shifts")
-    .select(`
-      id, shift_date, course_id, slot, driver_id,
+    .select(
+      `
+      id, shift_date, course_id, slot, driver_id, vehicle_id,
       drivers (id, name, display_name)
-    `)
+    `,
+    )
     .gte("shift_date", startDate)
     .lte("shift_date", endDate);
+
+  const shifts =
+    shiftsRaw?.map((s) => ({
+      ...s,
+      vehicles:
+        "vehicle_id" in s && s.vehicle_id ? (fleetById.get(s.vehicle_id as string) ?? null) : null,
+    })) ?? [];
+
+  const { data: vehicleLinks } = await supabase.from("vehicle_drivers").select("driver_id, vehicle_id");
 
   // Get drivers with their course assignments
   const { data: drivers } = await supabase
@@ -56,6 +76,8 @@ export async function GET(req: NextRequest) {
     shifts: shifts ?? [],
     drivers: drivers ?? [],
     requests: requests ?? [],
+    vehicles: fleet ?? [],
+    vehicle_driver_links: vehicleLinks ?? [],
   });
 }
 
@@ -66,11 +88,13 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { shiftDate, courseId, driverId, slot } = body as {
+    const { shiftDate, courseId, driverId, slot, vehicleId } = body as {
       shiftDate?: string;
       courseId?: string;
       driverId?: string | null;
       slot?: number;
+      /** 明示的に null で車両のみクリアすることも許可 */
+      vehicleId?: string | null;
     };
 
     if (!shiftDate || !courseId) {
@@ -79,19 +103,26 @@ export async function POST(req: NextRequest) {
 
     const slotNumber = Number.isFinite(slot) && Number(slot) >= 1 ? Math.floor(Number(slot)) : 1;
 
+    let resolvedVehicleId: string | null | undefined = undefined;
+    if ("vehicleId" in body) {
+      resolvedVehicleId = vehicleId && typeof vehicleId === "string" ? vehicleId : null;
+    }
+
+    const upsertRow: Record<string, unknown> = {
+      shift_date: shiftDate,
+      course_id: courseId,
+      slot: slotNumber,
+      driver_id: driverId || null,
+      updated_at: new Date().toISOString(),
+    };
+    if (resolvedVehicleId !== undefined) {
+      upsertRow.vehicle_id = resolvedVehicleId;
+    }
+
     // Upsert
     const { data, error } = await supabase
       .from("shifts")
-      .upsert(
-        {
-          shift_date: shiftDate,
-          course_id: courseId,
-          slot: slotNumber,
-          driver_id: driverId || null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "shift_date,course_id,slot" }
-      )
+      .upsert(upsertRow, { onConflict: "shift_date,course_id,slot" })
       .select()
       .single();
 
