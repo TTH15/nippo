@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import type { CSSProperties } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -56,16 +57,23 @@ function courseAbbrevTooltip(course: Course): string {
   return abbr !== course.name ? `${abbr}（${course.name}）` : abbr;
 }
 
-/** コース色を左ボーダーではなくセル／コントロール背景で示すための薄い色 */
-function courseTintBackground(hex: string): string {
+function hexToRgba(hex: string, alpha: number): string {
   const raw = hex.replace("#", "").trim();
   if (raw.length !== 6 || !/^[0-9a-fA-F]+$/.test(raw)) {
-    return "rgba(241, 245, 249, 0.7)";
+    return `rgba(148, 163, 184, ${alpha})`;
   }
   const r = parseInt(raw.slice(0, 2), 16);
   const g = parseInt(raw.slice(2, 4), 16);
   const b = parseInt(raw.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, 0.22)`;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** コース色：背景＋内側フレームで色をはっきり示す */
+function courseCellSurface(hex: string): Pick<CSSProperties, "background" | "boxShadow"> {
+  return {
+    background: hexToRgba(hex, 0.44),
+    boxShadow: `inset 0 0 0 2px ${hexToRgba(hex, 0.72)}`,
+  };
 }
 
 function ShiftVehiclePlatePicker({
@@ -94,7 +102,7 @@ function ShiftVehiclePlatePicker({
           disabled={disabled}
           title={title}
           className={cn(
-            "w-full flex items-center gap-0.5 rounded-lg px-0.5 py-0.5 min-h-[2rem] border-2 transition-colors text-left",
+            "w-full flex items-center gap-0.5 rounded-lg px-0.5 py-0.5 min-h-0 border-2 transition-colors text-left",
             disabled && "opacity-50 cursor-not-allowed",
             dirty ? "border-amber-400 bg-amber-50/90" : "border-slate-200 bg-white hover:border-slate-300",
           )}
@@ -792,7 +800,7 @@ export default function ShiftsPage() {
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex rounded-lg border border-slate-200 overflow-hidden bg-white">
+            <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
               <button
                 type="button"
                 onClick={() => switchPeriod("first")}
@@ -807,7 +815,7 @@ export default function ShiftsPage() {
               <button
                 type="button"
                 onClick={() => switchPeriod("second")}
-                className={`px-4 py-2 text-sm font-medium transition-colors border-l border-slate-200 ${
+                className={`px-4 py-2 text-sm font-medium transition-colors border-l border-slate-300 ${
                   period === "second"
                     ? "bg-slate-800 text-white"
                     : "text-slate-600 hover:bg-slate-50"
@@ -878,10 +886,10 @@ export default function ShiftsPage() {
         {loading ? (
           <div className="space-y-3">
             <Skeleton className="h-8 w-48" />
-            <div className="bg-white rounded border border-slate-200 overflow-x-auto">
+            <div className="bg-white rounded border border-slate-300 overflow-x-auto">
               <table className="w-full text-sm min-w-[800px]">
                 <thead>
-                  <tr className="border-b border-slate-100">
+                  <tr className="border-b border-slate-300">
                     <th className="py-2 px-2 w-32">
                       <Skeleton className="h-4 w-16" />
                     </th>
@@ -894,7 +902,7 @@ export default function ShiftsPage() {
                 </thead>
                 <tbody>
                   {[...Array(6)].map((_, i) => (
-                    <tr key={i} className="border-b border-slate-50">
+                    <tr key={i} className="border-b border-slate-200">
                       <td className="py-2 px-2">
                         <Skeleton className="h-4 w-24" />
                       </td>
@@ -911,11 +919,11 @@ export default function ShiftsPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="bg-white rounded border border-slate-200 overflow-x-auto">
-              <table className="w-full text-sm min-w-[720px]">
+            <div className="bg-white rounded border border-slate-300 overflow-x-auto">
+              <table className="w-full text-sm min-w-[720px] border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="sticky left-0 z-20 py-2 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50 shadow-[2px_0_0_0_rgb(241_245_249)]">
+                  <tr className="border-b-2 border-slate-300 bg-slate-50">
+                    <th className="sticky left-0 z-20 py-2 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50 border-r border-slate-300">
                       ドライバー
                     </th>
                     {displayDates.map((date) => {
@@ -924,7 +932,7 @@ export default function ShiftsPage() {
                       return (
                         <th
                           key={date}
-                          className={`${SHIFT_COL_WIDTH_CLASS} px-1 py-2 text-center font-medium overflow-hidden align-top ${
+                          className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-300 px-1 py-2 text-center font-medium overflow-hidden align-top ${
                             isWeekend ? "text-red-600 bg-red-50/60" : "text-slate-600"
                           }`}
                         >
@@ -940,8 +948,8 @@ export default function ShiftsPage() {
                   {drivers.map((driver) => {
                     const hasAnyCourse = getDriverCourseIds(driver).length > 0;
                     return (
-                      <tr key={driver.id} className="border-b border-slate-50 last:border-b-0">
-                        <td className="sticky left-0 z-10 bg-white py-2 px-3 align-middle shadow-[2px_0_0_0_rgb(241_245_249)]">
+                      <tr key={driver.id} className="border-b border-slate-200 last:border-b-0">
+                        <td className="sticky left-0 z-10 bg-white py-2 px-3 align-middle border-r border-slate-300">
                           <span className="font-medium text-slate-800">{getDisplayName(driver)}</span>
                         </td>
                         {displayDates.map((date) => {
@@ -1023,25 +1031,32 @@ export default function ShiftsPage() {
                           return (
                             <td
                               key={`${driver.id}-${date}`}
-                              className={`${SHIFT_COL_WIDTH_CLASS} px-0.5 py-1 align-top ${
-                                isWeekend ? "bg-red-50/25" : ""
+                              className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-300 px-0.5 py-0.5 ${
+                                off
+                                  ? "align-middle bg-gradient-to-b from-amber-100 to-amber-200/95 ring-1 ring-inset ring-amber-400/60"
+                                  : `align-top ${isWeekend ? "bg-red-50/25" : ""}`
                               }`}
                             >
                               {!hasAnyCourse ? (
-                                <span className="text-slate-300 text-xs flex justify-center">—</span>
+                                <span className="text-slate-300 text-xs flex justify-center py-1">—</span>
                               ) : off ? (
-                                <span className="text-[11px] text-amber-700 font-medium flex justify-center text-center">
-                                  希望休
-                                </span>
+                                <div className="flex min-h-[3.25rem] items-center justify-center px-0.5 py-1">
+                                  <span className="rounded-lg px-2.5 py-1 text-[12px] font-bold tracking-tight text-amber-950 bg-amber-300/90 shadow-sm ring-1 ring-amber-600/35">
+                                    希望休
+                                  </span>
+                                </div>
                               ) : (
-                                <div className="flex flex-col gap-0.5 min-h-[5rem]">
+                                <div className="flex flex-col gap-0.5">
                                   <div
                                     title={courseTitle}
-                                    className="min-w-0 w-full shrink-0 overflow-hidden rounded-lg p-px ring-1 ring-slate-200/70"
+                                    className="min-w-0 w-full shrink-0 overflow-hidden rounded-lg p-px"
                                     style={
                                       assignedCourse
-                                        ? { background: courseTintBackground(assignedCourse.color) }
-                                        : { background: "rgba(248, 250, 252, 0.9)" }
+                                        ? courseCellSurface(assignedCourse.color)
+                                        : {
+                                            background: "rgba(248, 250, 252, 0.96)",
+                                            boxShadow: "inset 0 0 0 1px rgba(203, 213, 225, 0.85)",
+                                          }
                                     }
                                   >
                                     <CustomSelect
@@ -1056,11 +1071,11 @@ export default function ShiftsPage() {
                                       disabled={!canWrite}
                                       size="xs"
                                       className={[
-                                        "[&_button]:rounded-md [&_button]:border-0 [&_button]:bg-white/85 [&_button]:shadow-none",
+                                        "[&_button]:rounded-[5px] [&_button]:border-0 [&_button]:bg-white/55 [&_button]:shadow-none",
                                         dirty && "[&_button]:ring-1 [&_button]:ring-amber-400 [&_button]:bg-amber-50/95",
                                         Boolean(selectedCourseId) &&
                                           !dirty &&
-                                          "[&_button]:bg-white/90",
+                                          "[&_button]:bg-white/60",
                                       ]
                                         .filter(Boolean)
                                         .join(" ")}
@@ -1080,9 +1095,7 @@ export default function ShiftsPage() {
                                         title={vehicleTitle}
                                       />
                                     </div>
-                                  ) : (
-                                    <div className="min-h-[2rem]" aria-hidden />
-                                  )}
+                                  ) : null}
                                 </div>
                               )}
                             </td>
@@ -1091,8 +1104,8 @@ export default function ShiftsPage() {
                       </tr>
                     );
                   })}
-                  <tr className="border-t border-slate-200 bg-slate-50/90">
-                    <td className="sticky left-0 z-10 py-2 px-3 text-xs font-medium text-slate-600 bg-slate-50 shadow-[2px_0_0_0_rgb(241_245_249)]">
+                  <tr className="border-t-2 border-slate-300 bg-slate-50/90">
+                    <td className="sticky left-0 z-10 py-2 px-3 text-xs font-medium text-slate-600 bg-slate-50 border-r border-slate-300">
                       未割当
                     </td>
                     {displayDates.map((date) => {
@@ -1102,7 +1115,7 @@ export default function ShiftsPage() {
                       return (
                         <td
                           key={`off-${date}`}
-                          className={`${SHIFT_COL_WIDTH_CLASS} px-1 py-2 text-[11px] text-slate-600 align-top overflow-hidden ${
+                          className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-300 px-1 py-2 text-[11px] text-slate-600 align-top overflow-hidden ${
                             isWeekend ? "bg-red-50/20" : ""
                           }`}
                         >
@@ -1119,7 +1132,7 @@ export default function ShiftsPage() {
               </table>
             </div>
 
-            <div className="bg-white rounded border border-slate-200 p-4">
+            <div className="bg-white rounded border border-slate-300 p-4">
               <h3 className="text-sm font-medium text-slate-700 mb-3">この期間の希望休（一覧）</h3>
               <div className="flex flex-wrap gap-x-6 gap-y-2">
                 {drivers.map((driver) => {
@@ -1279,8 +1292,38 @@ export default function ShiftsPage() {
                       }
                       if (isDriverOffDay(driver.id, date)) {
                         return (
-                          <td key={`ex-${driver.id}-${date}`} style={{ padding: "4px", textAlign: "center" }}>
-                            <span style={{ fontSize: "10px", color: "#b45309" }}>希望休</span>
+                          <td
+                            key={`ex-${driver.id}-${date}`}
+                            style={{
+                              padding: "4px",
+                              textAlign: "center",
+                              verticalAlign: "middle",
+                              background: "linear-gradient(to bottom, #fef3c7, #fde68a)",
+                              boxShadow: "inset 0 0 0 1px rgba(217, 119, 6, 0.4)",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                minHeight: "32px",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  fontWeight: 800,
+                                  color: "#78350f",
+                                  background: "#fbbf24",
+                                  padding: "4px 8px",
+                                  borderRadius: "6px",
+                                  border: "1px solid rgba(146, 64, 14, 0.35)",
+                                }}
+                              >
+                                希望休
+                              </span>
+                            </div>
                           </td>
                         );
                       }
@@ -1314,10 +1357,9 @@ export default function ShiftsPage() {
 
                       return (
                         <td key={`ex-${driver.id}-${date}`} style={{ padding: "4px", verticalAlign: "top" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "3px", minHeight: "40px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                             <div
                               style={{
-                                background: courseTintBackground(course.color),
                                 borderRadius: "6px",
                                 padding: "3px 5px",
                                 fontSize: "10px",
@@ -1328,7 +1370,7 @@ export default function ShiftsPage() {
                                 overflow: "hidden",
                                 whiteSpace: "nowrap",
                                 textOverflow: "ellipsis",
-                                border: "1px solid rgba(226, 232, 240, 0.9)",
+                                ...courseCellSurface(course.color),
                               }}
                               title={`${courseShiftLabel(course)}｜${course.name}`}
                             >
@@ -1350,9 +1392,7 @@ export default function ShiftsPage() {
                               >
                                 {plateLine}
                               </div>
-                            ) : (
-                              <div style={{ flex: "1", minHeight: "8px" }} />
-                            )}
+                            ) : null}
                           </div>
                         </td>
                       );
