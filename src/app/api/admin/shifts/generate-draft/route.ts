@@ -21,7 +21,7 @@ type CourseRow = {
  * 各 (日付, コース) に対して、そのコースを担当可能で希望休でないドライバーを1名割り当てる。
  */
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   try {

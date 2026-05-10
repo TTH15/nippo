@@ -82,8 +82,9 @@ export async function GET(req: NextRequest) {
 }
 
 // POST: シフト登録/更新
+// 閲覧専用アカウント（ADMIN_VIEWER）にもシフトの編集を許可する運用要件のため ADMIN_OR_VIEWER。
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   try {

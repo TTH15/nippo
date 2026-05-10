@@ -11,7 +11,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
-import { canAdminWrite } from "@/lib/authz";
+import { canEditShifts } from "@/lib/authz";
 import {
   formatPlateNumeric,
   VehiclePlate,
@@ -396,7 +396,7 @@ export default function ShiftsPage() {
   }, [displayDates]);
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(canEditShifts(getStoredDriver()?.role));
     load();
   }, [load]);
 
