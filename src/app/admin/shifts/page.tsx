@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties } from "react";
+import { isJapanPublicHolidayYmd } from "@/lib/japanHolidays";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -76,10 +77,59 @@ function courseCellSurface(hex: string): Pick<CSSProperties, "background" | "box
   };
 }
 
+/** 祝日・日曜＝赤系、土曜＝青系（祝日は土曜より優先） */
+function shiftDayTone(dateStr: string): { header: string; body: string } {
+  if (isJapanPublicHolidayYmd(dateStr)) {
+    return {
+      header: "text-red-700 bg-red-50/90",
+      body: "bg-red-50/[0.14]",
+    };
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+  if (!m) return { header: "text-slate-600", body: "" };
+  const local = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+  const w = local.getDay();
+  if (w === 0) {
+    return {
+      header: "text-red-700 bg-red-50/90",
+      body: "bg-red-50/[0.14]",
+    };
+  }
+  if (w === 6) {
+    return {
+      header: "text-blue-800 bg-blue-50/90",
+      body: "bg-blue-50/30",
+    };
+  }
+  return { header: "text-slate-600", body: "" };
+}
+
+function exportDayChrome(dateStr: string): { headBg: string; headColor: string; cellBg?: string } {
+  if (isJapanPublicHolidayYmd(dateStr)) {
+    return {
+      headBg: "#fef2f2",
+      headColor: "#b91c1c",
+      cellBg: "rgba(254, 242, 242, 0.35)",
+    };
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+  if (!m) return { headBg: "#f9fafb", headColor: "#6b7280" };
+  const local = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+  const w = local.getDay();
+  if (w === 0) {
+    return { headBg: "#fef2f2", headColor: "#b91c1c", cellBg: "rgba(254, 242, 242, 0.35)" };
+  }
+  if (w === 6) {
+    return { headBg: "#eff6ff", headColor: "#1e40af", cellBg: "rgba(239, 246, 255, 0.45)" };
+  }
+  return { headBg: "#f9fafb", headColor: "#6b7280" };
+}
+
 function ShiftVehiclePlatePicker({
   valueId,
   displayVehicle,
-  choices,
+  linkedPlates,
+  otherPlates,
   onChange,
   disabled,
   dirty,
@@ -87,13 +137,35 @@ function ShiftVehiclePlatePicker({
 }: {
   valueId: string | null;
   displayVehicle: VehiclePlateData | null;
-  choices: VehiclePlateData[];
+  linkedPlates: VehiclePlateData[];
+  otherPlates: VehiclePlateData[];
   onChange: (id: string | null) => void;
   disabled?: boolean;
   dirty?: boolean;
   title?: string;
 }) {
   const [open, setOpen] = useState(false);
+
+  const row = (v: VehiclePlateData) => {
+    const selected = valueId === v.id;
+    return (
+      <button
+        key={v.id}
+        type="button"
+        className={cn(
+          "w-full rounded-md p-0.5 flex justify-center transition-colors",
+          selected ? "bg-slate-100/95 ring-1 ring-slate-400/40" : "hover:bg-slate-50/90",
+        )}
+        onClick={() => {
+          onChange(v.id);
+          setOpen(false);
+        }}
+      >
+        <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
+      </button>
+    );
+  };
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -102,56 +174,54 @@ function ShiftVehiclePlatePicker({
           disabled={disabled}
           title={title}
           className={cn(
-            "w-full flex items-center gap-0.5 rounded-lg px-0.5 py-0.5 min-h-0 border-2 transition-colors text-left",
+            "w-full flex items-center gap-0.5 rounded-lg px-0.5 py-0.5 min-h-0 border transition-colors text-left",
             disabled && "opacity-50 cursor-not-allowed",
-            dirty ? "border-amber-400 bg-amber-50/90" : "border-slate-200 bg-white hover:border-slate-300",
+            dirty ? "border-amber-300/80 bg-amber-50/50" : "border-slate-200/90 bg-white hover:border-slate-300/90",
           )}
         >
           <div className="flex-1 min-w-0 flex justify-center [&_.plate-font-hiragana]:tracking-tight">
             {valueId && displayVehicle ? (
               <VehiclePlate vehicle={displayVehicle} compact className="!max-w-none w-full min-w-0 pointer-events-none" />
             ) : (
-              <span className="text-[10px] text-slate-400 font-medium py-1">車両なし</span>
+              <span className="text-[10px] text-slate-400 font-medium py-0.5">車両なし</span>
             )}
           </div>
           <ChevronDown className="h-3 w-3 text-slate-400 shrink-0 self-center mr-0.5" aria-hidden />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={4} className="w-auto min-w-[12rem] max-w-[min(20rem,calc(100vw-1.5rem))] p-1.5 max-h-[min(22rem,70vh)] overflow-y-auto">
-        <button
-          type="button"
-          className={cn(
-            "w-full text-left text-[11px] py-1.5 px-2 rounded-md transition-colors mb-1",
-            !valueId ? "bg-slate-100 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-50",
-          )}
-          onClick={() => {
-            onChange(null);
-            setOpen(false);
-          }}
-        >
-          車両なし
-        </button>
-        <div className="flex flex-col gap-1">
-          {choices.map((v) => {
-            const selected = valueId === v.id;
-            return (
-              <button
-                key={v.id}
-                type="button"
-                className={cn(
-                  "w-full rounded-md p-0.5 flex justify-center transition-colors",
-                  selected ? "bg-slate-100 ring-2 ring-slate-800/20" : "hover:bg-slate-50",
-                )}
-                onClick={() => {
-                  onChange(v.id);
-                  setOpen(false);
-                }}
-              >
-                <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
-              </button>
-            );
-          })}
+      <PopoverContent
+        align="start"
+        sideOffset={4}
+        className="w-auto min-w-[12rem] max-w-[min(20rem,calc(100vw-1.5rem))] p-0 max-h-[min(22rem,70vh)] overflow-y-auto border-slate-200/90 shadow-lg"
+      >
+        <div className="p-1.5 pb-0">
+          <button
+            type="button"
+            className={cn(
+              "w-full text-left text-[11px] py-2 px-2 rounded-md transition-colors",
+              !valueId ? "bg-slate-100/90 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-50",
+            )}
+            onClick={() => {
+              onChange(null);
+              setOpen(false);
+            }}
+          >
+            車両なし
+          </button>
         </div>
+        {linkedPlates.length > 0 && (
+          <div className="flex flex-col gap-0.5 px-1.5 pb-1.5">
+            <p className="px-1 text-[10px] font-medium text-slate-500">紐づけ車両</p>
+            {linkedPlates.map((v) => row(v))}
+          </div>
+        )}
+        {otherPlates.length > 0 && (
+          <div className="border-t border-slate-200/80 bg-slate-50/40 px-1.5 py-1.5">
+            <p className="px-1 pb-1.5 text-[10px] font-semibold text-slate-600">他の車両を追加</p>
+            <p className="px-1 pb-1.5 text-[9px] leading-snug text-slate-500">その他の車両（全社マスタ・未紐づけ含む）</p>
+            <div className="flex flex-col gap-0.5">{otherPlates.map((v) => row(v))}</div>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -267,6 +337,12 @@ export default function ShiftsPage() {
     }
     return m;
   }, [fleetVehicles]);
+
+  const driversWithCourses = useMemo(
+    () => drivers.filter((d) => getDriverCourseIds(d).length > 0),
+    [drivers],
+  );
+
   const [confirmState, setConfirmState] = useState<{
     message: string;
     onConfirm: () => void;
@@ -457,20 +533,6 @@ export default function ShiftsPage() {
     return row?.vehicle_id ?? null;
   };
 
-  const vehicleSelectOptionsForDriver = (driverId: string, selectedVehicleId: string | null) => {
-    const allowedIds = new Set<string>();
-    for (const l of vehicleLinks) {
-      if (l.driver_id === driverId) allowedIds.add(l.vehicle_id);
-    }
-    if (selectedVehicleId) allowedIds.add(selectedVehicleId);
-    const opts = fleetVehicles.filter((v) => allowedIds.has(v.id));
-    opts.sort((a, b) => formatPlateOneLine(a).localeCompare(formatPlateOneLine(b), "ja"));
-    return [
-      { value: "", label: "車両なし" },
-      ...opts.map((v) => ({ value: v.id, label: formatPlateOneLine(v) })),
-    ];
-  };
-
   const setVehicleForDriverOnDate = (date: string, driverId: string, vehicleId: string | null) => {
     if (!canWrite) return;
     setLocalVehicleByDriverDay((prev) => {
@@ -648,7 +710,7 @@ export default function ShiftsPage() {
     return requests.filter((r) => r.driver_id === driverId);
   };
 
-  /** その日に休みの人（その日いずれのコースにも割り当てられていない人）の名前リスト */
+  /** その日に休みの人（その日いずれのコースにも割り当てられていない人）の名前リスト（コース未登録ドライバーは対象外） */
   const getOffDriverNamesOnDate = (date: string): string[] => {
     const assignedOnDate = new Set<string>();
     courses.forEach((course) => {
@@ -658,7 +720,7 @@ export default function ShiftsPage() {
         if (driverId) assignedOnDate.add(driverId);
       }
     });
-    return drivers
+    return driversWithCourses
       .filter((d) => !assignedOnDate.has(d.id))
       .map((d) => getDisplayName(d))
       .sort();
@@ -886,10 +948,10 @@ export default function ShiftsPage() {
         {loading ? (
           <div className="space-y-3">
             <Skeleton className="h-8 w-48" />
-            <div className="bg-white rounded border border-slate-300 overflow-x-auto">
+            <div className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-x-auto">
               <table className="w-full text-sm min-w-[800px]">
                 <thead>
-                  <tr className="border-b border-slate-300">
+                  <tr className="border-b border-slate-200/95">
                     <th className="py-2 px-2 w-32">
                       <Skeleton className="h-4 w-16" />
                     </th>
@@ -919,22 +981,19 @@ export default function ShiftsPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="bg-white rounded border border-slate-300 overflow-x-auto">
+            <div className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-x-auto">
               <table className="w-full text-sm min-w-[720px] border-collapse">
                 <thead>
-                  <tr className="border-b-2 border-slate-300 bg-slate-50">
-                    <th className="sticky left-0 z-20 py-2 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50 border-r border-slate-300">
+                  <tr className="border-b border-slate-200 bg-slate-50/95">
+                    <th className="sticky left-0 z-20 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-slate-200/95">
                       ドライバー
                     </th>
                     {displayDates.map((date) => {
-                      const day = new Date(date).getDay();
-                      const isWeekend = day === 0 || day === 6;
+                      const tone = shiftDayTone(date);
                       return (
                         <th
                           key={date}
-                          className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-300 px-1 py-2 text-center font-medium overflow-hidden align-top ${
-                            isWeekend ? "text-red-600 bg-red-50/60" : "text-slate-600"
-                          }`}
+                          className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-center font-medium overflow-hidden align-top ${tone.header}`}
                         >
                           <span className="line-clamp-2 leading-tight break-words" title={formatDate(date)}>
                             {formatDate(date)}
@@ -945,16 +1004,14 @@ export default function ShiftsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {drivers.map((driver) => {
-                    const hasAnyCourse = getDriverCourseIds(driver).length > 0;
+                  {driversWithCourses.map((driver) => {
                     return (
-                      <tr key={driver.id} className="border-b border-slate-200 last:border-b-0">
-                        <td className="sticky left-0 z-10 bg-white py-2 px-3 align-middle border-r border-slate-300">
+                      <tr key={driver.id} className="border-b border-slate-200/90 last:border-b-0">
+                        <td className="sticky left-0 z-10 bg-white py-2 px-3 align-middle border-r border-slate-200/95">
                           <span className="font-medium text-slate-800">{getDisplayName(driver)}</span>
                         </td>
                         {displayDates.map((date) => {
-                          const day = new Date(date).getDay();
-                          const isWeekend = day === 0 || day === 6;
+                          const tone = shiftDayTone(date);
                           const off = isDriverOffDay(driver.id, date);
                           const placement = findDriverPlacementOnDate(localShifts, date, driver.id);
                           const selectedCourseId = placement?.courseId ?? "";
@@ -999,51 +1056,38 @@ export default function ShiftsPage() {
                             return { id: currentVid };
                           })();
 
-                          let vehicleOpts = vehicleSelectOptionsForDriver(driver.id, currentVid);
+                          const byPlateLine = (a: VehiclePlateData, b: VehiclePlateData) =>
+                            formatPlateOneLine(a).localeCompare(formatPlateOneLine(b), "ja");
+
+                          const linkedIds = new Set(
+                            vehicleLinks
+                              .filter((l) => l.driver_id === driver.id)
+                              .map((l) => l.vehicle_id),
+                          );
+                          const sortedFleet = [...fleetVehicles].sort(byPlateLine);
+                          let linkedPlates = sortedFleet.filter((v) => linkedIds.has(v.id));
+                          let otherPlates = sortedFleet.filter((v) => !linkedIds.has(v.id));
+
+                          if (currentVid && hoverVehiclePlate && !sortedFleet.some((v) => v.id === currentVid)) {
+                            otherPlates = [hoverVehiclePlate, ...otherPlates].sort(byPlateLine);
+                          }
+
                           const courseTitle = assignedCourse ? courseAbbrevTooltip(assignedCourse) : undefined;
                           const vehicleTitle =
                             hoverVehiclePlate && currentVid ? formatPlateOneLine(hoverVehiclePlate) : undefined;
 
-                          if (
-                            currentVid &&
-                            !vehicleOpts.some((o) => o.value === currentVid)
-                          ) {
-                            vehicleOpts = [
-                              vehicleOpts[0],
-                              {
-                                value: currentVid,
-                                label: vehicleTitle ?? `車両（${currentVid.slice(0, 8)}…）`,
-                              },
-                              ...vehicleOpts.slice(1),
-                            ];
-                          }
-
-                          const vehicleChoicePlates: VehiclePlateData[] = vehicleOpts
-                            .filter((o) => o.value !== "")
-                            .map((o) => {
-                              const id = o.value;
-                              const fromFleet = fleetById.get(id);
-                              if (fromFleet) return fromFleet;
-                              if (id === currentVid && hoverVehiclePlate) return hoverVehiclePlate;
-                              return { id };
-                            });
-
                           return (
                             <td
                               key={`${driver.id}-${date}`}
-                              className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-300 px-0.5 py-0.5 ${
+                              className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-0.5 py-0.5 ${
                                 off
-                                  ? "align-middle bg-gradient-to-b from-amber-100 to-amber-200/95 ring-1 ring-inset ring-amber-400/60"
-                                  : `align-top ${isWeekend ? "bg-red-50/25" : ""}`
+                                  ? "align-middle bg-amber-50"
+                                  : `align-top ${tone.body}`
                               }`}
                             >
-                              {!hasAnyCourse ? (
-                                <span className="text-slate-300 text-xs flex justify-center py-1">—</span>
-                              ) : off ? (
-                                <div className="flex min-h-[3.25rem] items-center justify-center px-0.5 py-1">
-                                  <span className="rounded-lg px-2.5 py-1 text-[12px] font-bold tracking-tight text-amber-950 bg-amber-300/90 shadow-sm ring-1 ring-amber-600/35">
-                                    希望休
-                                  </span>
+                              {off ? (
+                                <div className="flex min-h-[2.75rem] items-center justify-center">
+                                  <span className="text-[12px] font-semibold text-amber-900">希望休</span>
                                 </div>
                               ) : (
                                 <div className="flex flex-col gap-0.5">
@@ -1088,7 +1132,8 @@ export default function ShiftsPage() {
                                         displayVehicle={
                                           currentVid && hoverVehiclePlate ? hoverVehiclePlate : null
                                         }
-                                        choices={vehicleChoicePlates}
+                                        linkedPlates={linkedPlates}
+                                        otherPlates={otherPlates}
                                         onChange={(id) => setVehicleForDriverOnDate(date, driver.id, id)}
                                         disabled={!canWrite}
                                         dirty={dirty}
@@ -1104,20 +1149,17 @@ export default function ShiftsPage() {
                       </tr>
                     );
                   })}
-                  <tr className="border-t-2 border-slate-300 bg-slate-50/90">
-                    <td className="sticky left-0 z-10 py-2 px-3 text-xs font-medium text-slate-600 bg-slate-50 border-r border-slate-300">
+                  <tr className="border-t border-slate-200 bg-slate-50/93">
+                    <td className="sticky left-0 z-10 py-2 px-3 text-xs font-medium text-slate-600 bg-slate-50 border-r border-slate-200/95">
                       未割当
                     </td>
                     {displayDates.map((date) => {
                       const names = getOffDriverNamesOnDate(date);
-                      const day = new Date(date).getDay();
-                      const isWeekend = day === 0 || day === 6;
+                      const tone = shiftDayTone(date);
                       return (
                         <td
                           key={`off-${date}`}
-                          className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-300 px-1 py-2 text-[11px] text-slate-600 align-top overflow-hidden ${
-                            isWeekend ? "bg-red-50/20" : ""
-                          }`}
+                          className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-[11px] text-slate-600 align-top overflow-hidden ${tone.body}`}
                         >
                           {names.length > 0 ? (
                             <span className="line-clamp-4 break-words">{names.join("・")}</span>
@@ -1132,10 +1174,10 @@ export default function ShiftsPage() {
               </table>
             </div>
 
-            <div className="bg-white rounded border border-slate-300 p-4">
+            <div className="bg-white rounded-lg border border-slate-200/95 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <h3 className="text-sm font-medium text-slate-700 mb-3">この期間の希望休（一覧）</h3>
               <div className="flex flex-wrap gap-x-6 gap-y-2">
-                {drivers.map((driver) => {
+                {driversWithCourses.map((driver) => {
                   const driverReqs = getDriverRequests(driver.id);
                   if (driverReqs.length === 0) return null;
                   return (
@@ -1192,15 +1234,15 @@ export default function ShiftsPage() {
             <div className="flex flex-wrap gap-6 text-xs text-slate-500">
               <div className="flex items-center gap-1.5">
                 <div className="w-8 h-6 rounded border border-slate-200 bg-slate-50" />
-                <span>コース未登録（ドライバーマスタ）</span>
+                <span>コース未登録のドライバーはこの表に含まれません</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-8 h-6 rounded border border-dashed border-slate-200 bg-white" />
                 <span>未割当（プルダウンで選択）</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className="w-3 h-6 rounded-l border-l-4 border-slate-400 bg-slate-50" />
-                <span>割当済（左線はコース色・枠内は略記またはコース名）</span>
+                <div className="w-8 h-6 rounded border border-slate-300 bg-gradient-to-br from-slate-100 to-slate-200" />
+                <span>割当済（コース色はコントロール周りの背景・略記／正式名はプルダウンと同じ）</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-8 h-6 rounded border border-amber-400 bg-amber-50" />
@@ -1208,7 +1250,7 @@ export default function ShiftsPage() {
               </div>
               <div className="flex items-center gap-1.5 basis-full md:basis-auto">
                 <span className="text-slate-500">
-                  下部のリストは、このドライバーに車両マスタで紐付いたナンバーから選択できます。
+                  車両は紐づけ一覧を優先表示し、「他の車両を追加」からマスタ上のその他の車両も選べます。
                 </span>
               </div>
             </div>
@@ -1251,16 +1293,15 @@ export default function ShiftsPage() {
                     ドライバー
                   </th>
                   {displayDates.map((date) => {
-                    const day = new Date(date).getDay();
-                    const isWeekend = day === 0 || day === 6;
+                    const ch = exportDayChrome(date);
                     return (
                       <th
                         key={`ex-h-${date}`}
                         style={{
                           textAlign: "center",
                           padding: "6px 4px",
-                          background: isWeekend ? "#fef2f2" : "#f9fafb",
-                          color: isWeekend ? "#b91c1c" : "#6b7280",
+                          background: ch.headBg,
+                          color: ch.headColor,
                           fontWeight: 600,
                           maxWidth: "88px",
                         }}
@@ -1272,24 +1313,17 @@ export default function ShiftsPage() {
                 </tr>
               </thead>
               <tbody>
-                {drivers.map((driver) => (
+                {driversWithCourses.map((driver) => (
                   <tr key={`ex-row-${driver.id}`}>
                     <td style={{ padding: "6px 8px", fontWeight: 600, color: "#111827" }}>
                       {getDisplayName(driver)}
                     </td>
                     {displayDates.map((date) => {
+                      const ch = exportDayChrome(date);
                       const placement = findDriverPlacementOnDate(localShifts, date, driver.id);
                       const course = placement
                         ? courses.find((c) => c.id === placement.courseId)
                         : null;
-                      const hasCourses = getDriverCourseIds(driver).length > 0;
-                      if (!hasCourses) {
-                        return (
-                          <td key={`ex-${driver.id}-${date}`} style={{ padding: "4px", background: "#fafafa" }}>
-                            <div style={{ color: "#d1d5db", textAlign: "center" }}>—</div>
-                          </td>
-                        );
-                      }
                       if (isDriverOffDay(driver.id, date)) {
                         return (
                           <td
@@ -1298,38 +1332,28 @@ export default function ShiftsPage() {
                               padding: "4px",
                               textAlign: "center",
                               verticalAlign: "middle",
-                              background: "linear-gradient(to bottom, #fef3c7, #fde68a)",
-                              boxShadow: "inset 0 0 0 1px rgba(217, 119, 6, 0.4)",
+                              background: "#fffbeb",
                             }}
                           >
                             <div
                               style={{
                                 display: "flex",
-                                minHeight: "32px",
+                                minHeight: "28px",
                                 alignItems: "center",
                                 justifyContent: "center",
                               }}
                             >
-                              <span
-                                style={{
-                                  fontSize: "10px",
-                                  fontWeight: 800,
-                                  color: "#78350f",
-                                  background: "#fbbf24",
-                                  padding: "4px 8px",
-                                  borderRadius: "6px",
-                                  border: "1px solid rgba(146, 64, 14, 0.35)",
-                                }}
-                              >
-                                希望休
-                              </span>
+                              <span style={{ fontSize: "10px", fontWeight: 700, color: "#92400e" }}>希望休</span>
                             </div>
                           </td>
                         );
                       }
                       if (!course) {
                         return (
-                          <td key={`ex-${driver.id}-${date}`} style={{ padding: "4px" }}>
+                          <td
+                            key={`ex-${driver.id}-${date}`}
+                            style={{ padding: "4px", background: ch.cellBg ?? "#ffffff" }}
+                          >
                             <div style={{ color: "#d1d5db", textAlign: "center", fontSize: "11px" }}>・</div>
                           </td>
                         );
@@ -1356,7 +1380,14 @@ export default function ShiftsPage() {
                       const plateLine = exPlate ? formatPlateOneLine(exPlate) : "";
 
                       return (
-                        <td key={`ex-${driver.id}-${date}`} style={{ padding: "4px", verticalAlign: "top" }}>
+                        <td
+                          key={`ex-${driver.id}-${date}`}
+                          style={{
+                            padding: "4px",
+                            verticalAlign: "top",
+                            background: ch.cellBg ?? "#ffffff",
+                          }}
+                        >
                           <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                             <div
                               style={{
@@ -1405,6 +1436,7 @@ export default function ShiftsPage() {
                   </td>
                   {displayDates.map((date) => {
                     const names = getOffDriverNamesOnDate(date);
+                    const ch = exportDayChrome(date);
                     return (
                       <td
                         key={`ex-off-${date}`}
@@ -1413,7 +1445,7 @@ export default function ShiftsPage() {
                           fontSize: "10px",
                           color: "#64748b",
                           verticalAlign: "top",
-                          background: "#fafafa",
+                          background: ch.cellBg ?? "#fafafa",
                         }}
                       >
                         {names.length ? names.join("・") : "—"}
