@@ -10,7 +10,14 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
-import { formatPlateNumeric, type VehiclePlateData } from "@/lib/components/VehiclePlate";
+import {
+  formatPlateNumeric,
+  VehiclePlate,
+  type VehiclePlateData,
+} from "@/lib/components/VehiclePlate";
+import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
+import { cn } from "@/lib/ui/utils";
+import { ChevronDown } from "lucide-react";
 
 type Course = {
   id: string;
@@ -49,9 +56,102 @@ function courseAbbrevTooltip(course: Course): string {
   return abbr !== course.name ? `${abbr}（${course.name}）` : abbr;
 }
 
-/** シフト一覧の「日」列・セルの共通幅（参考UI寄せの固定カラム） */
+/** コース色を左ボーダーではなくセル／コントロール背景で示すための薄い色 */
+function courseTintBackground(hex: string): string {
+  const raw = hex.replace("#", "").trim();
+  if (raw.length !== 6 || !/^[0-9a-fA-F]+$/.test(raw)) {
+    return "rgba(241, 245, 249, 0.7)";
+  }
+  const r = parseInt(raw.slice(0, 2), 16);
+  const g = parseInt(raw.slice(2, 4), 16);
+  const b = parseInt(raw.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, 0.22)`;
+}
+
+function ShiftVehiclePlatePicker({
+  valueId,
+  displayVehicle,
+  choices,
+  onChange,
+  disabled,
+  dirty,
+  title,
+}: {
+  valueId: string | null;
+  displayVehicle: VehiclePlateData | null;
+  choices: VehiclePlateData[];
+  onChange: (id: string | null) => void;
+  disabled?: boolean;
+  dirty?: boolean;
+  title?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          title={title}
+          className={cn(
+            "w-full flex items-center gap-0.5 rounded-lg px-0.5 py-0.5 min-h-[2rem] border-2 transition-colors text-left",
+            disabled && "opacity-50 cursor-not-allowed",
+            dirty ? "border-amber-400 bg-amber-50/90" : "border-slate-200 bg-white hover:border-slate-300",
+          )}
+        >
+          <div className="flex-1 min-w-0 flex justify-center [&_.plate-font-hiragana]:tracking-tight">
+            {valueId && displayVehicle ? (
+              <VehiclePlate vehicle={displayVehicle} compact className="!max-w-none w-full min-w-0 pointer-events-none" />
+            ) : (
+              <span className="text-[10px] text-slate-400 font-medium py-1">車両なし</span>
+            )}
+          </div>
+          <ChevronDown className="h-3 w-3 text-slate-400 shrink-0 self-center mr-0.5" aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" sideOffset={4} className="w-auto min-w-[12rem] max-w-[min(20rem,calc(100vw-1.5rem))] p-1.5 max-h-[min(22rem,70vh)] overflow-y-auto">
+        <button
+          type="button"
+          className={cn(
+            "w-full text-left text-[11px] py-1.5 px-2 rounded-md transition-colors mb-1",
+            !valueId ? "bg-slate-100 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-50",
+          )}
+          onClick={() => {
+            onChange(null);
+            setOpen(false);
+          }}
+        >
+          車両なし
+        </button>
+        <div className="flex flex-col gap-1">
+          {choices.map((v) => {
+            const selected = valueId === v.id;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                className={cn(
+                  "w-full rounded-md p-0.5 flex justify-center transition-colors",
+                  selected ? "bg-slate-100 ring-2 ring-slate-800/20" : "hover:bg-slate-50",
+                )}
+                onClick={() => {
+                  onChange(v.id);
+                  setOpen(false);
+                }}
+              >
+                <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** シフト一覧の「日」列・セルの共通幅（コース名・ナンバーが省略されにくいよう少し広め） */
 const SHIFT_COL_WIDTH_CLASS =
-  "w-[5.75rem] min-w-[5.75rem] max-w-[5.75rem] box-border";
+  "w-[6.5rem] min-w-[6.5rem] max-w-[6.5rem] box-border";
 
 type Driver = {
   id: string;
@@ -910,10 +1010,20 @@ export default function ShiftsPage() {
                             ];
                           }
 
+                          const vehicleChoicePlates: VehiclePlateData[] = vehicleOpts
+                            .filter((o) => o.value !== "")
+                            .map((o) => {
+                              const id = o.value;
+                              const fromFleet = fleetById.get(id);
+                              if (fromFleet) return fromFleet;
+                              if (id === currentVid && hoverVehiclePlate) return hoverVehiclePlate;
+                              return { id };
+                            });
+
                           return (
                             <td
                               key={`${driver.id}-${date}`}
-                              className={`${SHIFT_COL_WIDTH_CLASS} px-1 py-1.5 align-top ${
+                              className={`${SHIFT_COL_WIDTH_CLASS} px-0.5 py-1 align-top ${
                                 isWeekend ? "bg-red-50/25" : ""
                               }`}
                             >
@@ -924,14 +1034,14 @@ export default function ShiftsPage() {
                                   希望休
                                 </span>
                               ) : (
-                                <div className={`flex flex-col gap-1 min-h-[6.75rem]`}>
+                                <div className="flex flex-col gap-0.5 min-h-[5rem]">
                                   <div
                                     title={courseTitle}
-                                    className="min-w-0 w-full shrink-0 overflow-hidden rounded-xl"
+                                    className="min-w-0 w-full shrink-0 overflow-hidden rounded-lg p-px ring-1 ring-slate-200/70"
                                     style={
                                       assignedCourse
-                                        ? { borderLeft: `4px solid ${assignedCourse.color}` }
-                                        : undefined
+                                        ? { background: courseTintBackground(assignedCourse.color) }
+                                        : { background: "rgba(248, 250, 252, 0.9)" }
                                     }
                                   >
                                     <CustomSelect
@@ -944,37 +1054,30 @@ export default function ShiftsPage() {
                                       placeholder="—"
                                       clearable={false}
                                       disabled={!canWrite}
-                                      size="sm"
+                                      size="xs"
                                       className={[
-                                        "[&_button]:min-h-9 [&_button]:rounded-xl",
-                                        dirty && "[&_button]:border-amber-400 [&_button]:bg-amber-50",
+                                        "[&_button]:rounded-md [&_button]:border-0 [&_button]:bg-white/85 [&_button]:shadow-none",
+                                        dirty && "[&_button]:ring-1 [&_button]:ring-amber-400 [&_button]:bg-amber-50/95",
                                         Boolean(selectedCourseId) &&
                                           !dirty &&
-                                          "[&_button]:bg-slate-50 [&_button]:border-slate-200",
+                                          "[&_button]:bg-white/90",
                                       ]
                                         .filter(Boolean)
                                         .join(" ")}
                                     />
                                   </div>
                                   {selectedCourseId ? (
-                                    <div title={vehicleTitle} className="min-w-0 w-full shrink-0 overflow-hidden">
-                                      <CustomSelect
-                                        options={vehicleOpts}
-                                        value={currentVid ?? ""}
-                                        onChange={(v) =>
-                                          setVehicleForDriverOnDate(date, driver.id, v || null)
+                                    <div className="min-w-0 w-full shrink-0 overflow-hidden">
+                                      <ShiftVehiclePlatePicker
+                                        valueId={currentVid}
+                                        displayVehicle={
+                                          currentVid && hoverVehiclePlate ? hoverVehiclePlate : null
                                         }
-                                        placeholder="車両なし"
-                                        clearable={false}
+                                        choices={vehicleChoicePlates}
+                                        onChange={(id) => setVehicleForDriverOnDate(date, driver.id, id)}
                                         disabled={!canWrite}
-                                        size="sm"
-                                        className={[
-                                          "[&_button]:min-h-[2rem] [&_button]:rounded-lg [&_button]:border-slate-300",
-                                          dirty && "[&_button]:border-amber-400 [&_button]:bg-amber-50/80",
-                                          Boolean(currentVid) && !dirty && "[&_button]:bg-white",
-                                        ]
-                                          .filter(Boolean)
-                                          .join(" ")}
+                                        dirty={dirty}
+                                        title={vehicleTitle}
                                       />
                                     </div>
                                   ) : (
@@ -1214,10 +1317,9 @@ export default function ShiftsPage() {
                           <div style={{ display: "flex", flexDirection: "column", gap: "3px", minHeight: "40px" }}>
                             <div
                               style={{
-                                borderLeft: `4px solid ${course.color}`,
-                                background: "#f8fafc",
+                                background: courseTintBackground(course.color),
                                 borderRadius: "6px",
-                                padding: "4px 5px",
+                                padding: "3px 5px",
                                 fontSize: "10px",
                                 fontWeight: 700,
                                 color: "#0f172a",
@@ -1226,6 +1328,7 @@ export default function ShiftsPage() {
                                 overflow: "hidden",
                                 whiteSpace: "nowrap",
                                 textOverflow: "ellipsis",
+                                border: "1px solid rgba(226, 232, 240, 0.9)",
                               }}
                               title={`${courseShiftLabel(course)}｜${course.name}`}
                             >
