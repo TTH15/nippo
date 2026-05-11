@@ -713,6 +713,16 @@ export default function VehiclesPage() {
                         廃車
                       </span>
                     )}
+                    {!v.is_disposed && v.oil_change_interval > 0 && oilRemaining < 100 && (
+                      <span className="inline-flex items-center h-6 px-2 rounded text-xs font-semibold bg-red-600 text-white shrink-0">
+                        🔴 オイル要交換{oilRemaining < 0 ? `（${fmt(Math.abs(oilRemaining))}km超過）` : ""}
+                      </span>
+                    )}
+                    {!v.is_disposed && v.oil_change_interval > 0 && oilRemaining >= 100 && oilRemaining <= 300 && (
+                      <span className="inline-flex items-center h-6 px-2 rounded text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-300 shrink-0">
+                        🟡 オイル接近（残り{fmt(oilRemaining)}km）
+                      </span>
+                    )}
                     {(v.manufacturer || v.brand) && (
                       <span className="text-sm shrink-0 flex gap-1 items-center pl-3">
                         {v.manufacturer && (
@@ -864,7 +874,17 @@ export default function VehiclesPage() {
                           {/* 次回オイル交換（右端） */}
                           <div className="absolute right-0 top-0 text-right">
                             <div className="text-[10px] text-slate-500 leading-tight">次回オイル交換</div>
-                            <div className="text-xs font-medium text-slate-800 leading-tight">{fmt(nextOilChangeKm)} km</div>
+                            <div
+                              className={`text-xs font-medium leading-tight ${
+                                v.oil_change_interval > 0 && oilRemaining < 100
+                                  ? "text-red-600"
+                                  : v.oil_change_interval > 0 && oilRemaining <= 300
+                                    ? "text-yellow-700"
+                                    : "text-slate-800"
+                              }`}
+                            >
+                              {fmt(nextOilChangeKm)} km
+                            </div>
                           </div>
                         </div>
                         {/* ▼ マーカー行 */}
@@ -905,6 +925,28 @@ export default function VehiclesPage() {
                             );
                           })()}
                         </div>
+                        {/* 残り距離の表示 */}
+                        {v.oil_change_interval > 0 && (
+                          <div className="mt-2 text-right text-xs">
+                            {oilRemaining < 0 ? (
+                              <span className="font-semibold text-red-600">
+                                🚨 オイル交換期限を {fmt(Math.abs(oilRemaining))} km 超過
+                              </span>
+                            ) : oilRemaining < 100 ? (
+                              <span className="font-semibold text-red-600">
+                                🚨 残り {fmt(oilRemaining)} km（要交換）
+                              </span>
+                            ) : oilRemaining <= 300 ? (
+                              <span className="font-semibold text-yellow-700">
+                                ⚠️ 残り {fmt(oilRemaining)} km（交換時期接近）
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">
+                                残り {fmt(oilRemaining)} km
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* 初期費用回収ゲージ（オイルメーターに近く・細く・ラベルはゲージ上） */}
