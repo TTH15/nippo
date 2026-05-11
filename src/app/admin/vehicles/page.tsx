@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faFileLines, faTrash } from "@fortawesome/free-solid-svg-icons";
+import {
+  faPlus,
+  faFileLines,
+  faTrash,
+  faCircleExclamation,
+  faTriangleExclamation,
+} from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -718,13 +724,15 @@ export default function VehiclesPage() {
                       </span>
                     )}
                     {!v.is_disposed && v.oil_change_interval > 0 && oilRemaining < 100 && (
-                      <span className="inline-flex items-center h-6 px-2 rounded text-xs font-semibold bg-red-600 text-white shrink-0">
-                        🔴 オイル要交換{oilRemaining < 0 ? `（${fmt(Math.abs(oilRemaining))}km超過）` : ""}
+                      <span className="inline-flex items-center gap-1 h-6 px-2 rounded text-xs font-semibold bg-red-600 text-white shrink-0">
+                        <FontAwesomeIcon icon={faCircleExclamation} className="w-3 h-3" />
+                        オイル要交換{oilRemaining < 0 ? `（${fmt(Math.abs(oilRemaining))}km超過）` : ""}
                       </span>
                     )}
                     {!v.is_disposed && v.oil_change_interval > 0 && oilRemaining >= 100 && oilRemaining <= 300 && (
-                      <span className="inline-flex items-center h-6 px-2 rounded text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-300 shrink-0">
-                        🟡 オイル接近（残り{fmt(oilRemaining)}km）
+                      <span className="inline-flex items-center gap-1 h-6 px-2 rounded text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-300 shrink-0">
+                        <FontAwesomeIcon icon={faTriangleExclamation} className="w-3 h-3" />
+                        オイル接近（残り{fmt(oilRemaining)}km）
                       </span>
                     )}
                     {(v.manufacturer || v.brand) && (
@@ -954,16 +962,19 @@ export default function VehiclesPage() {
                         {v.oil_change_interval > 0 && (
                           <div className="mt-2 text-right text-xs">
                             {oilRemaining < 0 ? (
-                              <span className="font-semibold text-red-600">
-                                🚨 オイル交換期限を {fmt(Math.abs(oilRemaining))} km 超過
+                              <span className="inline-flex items-center gap-1 font-semibold text-red-600">
+                                <FontAwesomeIcon icon={faCircleExclamation} className="w-3.5 h-3.5" />
+                                オイル交換期限を {fmt(Math.abs(oilRemaining))} km 超過
                               </span>
                             ) : oilRemaining < 100 ? (
-                              <span className="font-semibold text-red-600">
-                                🚨 残り {fmt(oilRemaining)} km（要交換）
+                              <span className="inline-flex items-center gap-1 font-semibold text-red-600">
+                                <FontAwesomeIcon icon={faCircleExclamation} className="w-3.5 h-3.5" />
+                                残り {fmt(oilRemaining)} km（要交換）
                               </span>
                             ) : oilRemaining <= 300 ? (
-                              <span className="font-semibold text-yellow-700">
-                                ⚠️ 残り {fmt(oilRemaining)} km（交換時期接近）
+                              <span className="inline-flex items-center gap-1 font-semibold text-yellow-700">
+                                <FontAwesomeIcon icon={faTriangleExclamation} className="w-3.5 h-3.5" />
+                                残り {fmt(oilRemaining)} km（交換時期接近）
                               </span>
                             ) : (
                               <span className="text-slate-500">

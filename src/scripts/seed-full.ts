@@ -129,7 +129,7 @@ async function main() {
     })),
     { onConflict: "course_id" }
   );
-  console.log("✓ コース単価を設定しました");
+  console.log("[OK] コース単価を設定しました");
 
   // 3. rate_master更新（ドライバー支払い）
   await supabase.from("rate_master").upsert(
@@ -139,7 +139,7 @@ async function main() {
     ],
     { onConflict: "kind" }
   );
-  console.log("✓ rate_masterを更新しました（宅急便150円、ネコポス30円）");
+  console.log("[OK] rate_masterを更新しました（宅急便150円、ネコポス30円）");
 
   // 4. ドライバー登録
   const driverIds: string[] = [];
@@ -169,14 +169,14 @@ async function main() {
     if (existing) {
       await supabase.from("drivers").update(payload).eq("id", existing.id);
       driverIds.push(existing.id);
-      console.log(`✓ ${d.name} を更新`);
+      console.log(`[OK] ${d.name} を更新`);
     } else {
       const { data: inserted, error } = await supabase.from("drivers").insert(payload).select("id").single();
       if (error) {
-        console.error(`✗ ${d.name} 登録失敗:`, error.message);
+        console.error(`[NG] ${d.name} 登録失敗:`, error.message);
       } else {
         driverIds.push(inserted.id);
-        console.log(`✓ ${d.name} を登録`);
+        console.log(`[OK] ${d.name} を登録`);
       }
     }
   }
@@ -201,7 +201,7 @@ async function main() {
       );
     }
   }
-  console.log("✓ driver_courses を設定");
+  console.log("[OK] driver_courses を設定");
 
   // 6. 車両登録（ナンバーで既存を検索、なければ挿入）
   const vehicleIds: string[] = [];
@@ -236,7 +236,7 @@ async function main() {
   // 既存3台も取得
   const { data: allVehicles } = await supabase.from("vehicles").select("id").order("manufacturer").order("brand");
   const allVehicleIds = allVehicles?.map((v) => v.id) ?? vehicleIds;
-  console.log(`✓ 車両 ${allVehicleIds.length} 台`);
+  console.log(`[OK] 車両 ${allVehicleIds.length} 台`);
 
   // 7. vehicle_drivers（ドライバーと車両の紐付け、簡易に全員全車両）
   for (const did of driverIdList) {
@@ -247,7 +247,7 @@ async function main() {
       );
     }
   }
-  console.log("✓ vehicle_drivers を設定");
+  console.log("[OK] vehicle_drivers を設定");
 
   // 8. シフト作成（2025-01-01 〜 2026-02-25 / ヤマトは各年 1/1〜1/4 休み）
   const SHIFT_START = "2025-01-01";
@@ -291,7 +291,7 @@ async function main() {
     );
     shiftCount++;
   }
-  console.log(`✓ シフト ${shiftCount} 件（${SHIFT_START}〜${SHIFT_END}）`);
+  console.log(`[OK] シフト ${shiftCount} 件（${SHIFT_START}〜${SHIFT_END}）`);
 
   // 9. 日報作成（シフトに紐づくドライバーの実績）
   const { data: shifts } = await supabase
@@ -349,7 +349,7 @@ async function main() {
       { onConflict: "driver_identity_id,report_date" }
     );
   }
-  console.log(`✓ 日報 ${reportByDriverDate.size} 件（${SHIFT_START}〜${SHIFT_END}）`);
+  console.log(`[OK] 日報 ${reportByDriverDate.size} 件（${SHIFT_START}〜${SHIFT_END}）`);
 
   console.log("\n=== シード完了 ===");
   console.log("\n【ログイン】");

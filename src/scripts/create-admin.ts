@@ -92,7 +92,7 @@ async function main() {
     fail(`Failed to upsert admin: ${error.message}`);
   }
 
-  console.log("\n✓ ADMIN account is ready");
+  console.log("\n[OK] ADMIN account is ready");
   console.log(`- company_code: ${data.company_code}`);
   console.log(`- admin_code  : ${data.driver_code}`);
   console.log(`- name        : ${data.name}`);

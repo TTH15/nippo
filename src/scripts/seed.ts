@@ -78,7 +78,7 @@ async function main() {
       if (error) {
         console.error(`Failed to update ${d.name}:`, error.message);
       } else {
-        console.log(`✓ ${d.name} を更新しました`);
+        console.log(`[OK] ${d.name} を更新しました`);
       }
       continue;
     }
@@ -100,7 +100,7 @@ async function main() {
     if (error) {
       console.error(`Failed to insert ${d.name}:`, error.message);
     } else {
-      console.log(`✓ ${d.name} (${d.role}) — id: ${data.id}`);
+      console.log(`[OK] ${d.name} (${d.role}) — id: ${data.id}`);
     }
   }
   

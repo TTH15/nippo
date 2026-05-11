@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
+import { formatPlateNumeric } from "@/lib/components/VehiclePlate";
 
 type ShiftRequest = {
   id: string;
@@ -14,11 +15,22 @@ type ShiftRequest = {
   request_type: string;
 };
 
+type MeShiftVehicle = {
+  id: string;
+  number_prefix: string | null;
+  number_class: string | null;
+  number_hiragana: string | null;
+  number_numeric: string | null;
+  manufacturer: string | null;
+  brand: string | null;
+};
+
 type MeShift = {
   shift_date: string;
   course_name: string;
   course_color: string | null;
   slot: number;
+  vehicle: MeShiftVehicle | null;
 };
 
 function getDaysInMonth(year: number, month: number): Date[] {
@@ -443,6 +455,14 @@ export default function ShiftsPage() {
                     const dayShifts = shiftsByDate.get(dateStr) ?? [];
                     const dayOfWeek = date.getDay();
                     const isToday = date.toDateString() === today.toDateString();
+                    const uniqueVehicles = Array.from(
+                      new Map(
+                        dayShifts
+                          .map((s) => s.vehicle)
+                          .filter((v): v is MeShiftVehicle => v != null)
+                          .map((v) => [v.id, v] as const),
+                      ).values(),
+                    );
                     return (
                       <div
                         key={dateStr}
@@ -469,6 +489,30 @@ export default function ShiftsPage() {
                             </span>
                           ))}
                         </div>
+                        {uniqueVehicles.length > 0 && (
+                          <div className="mt-auto flex flex-wrap gap-0.5 pt-0.5">
+                            {uniqueVehicles.map((v) => {
+                              const plate = formatPlateNumeric(v.number_numeric ?? "");
+                              const fullPlate = [
+                                v.number_prefix,
+                                v.number_class,
+                                v.number_hiragana,
+                                v.number_numeric,
+                              ]
+                                .filter(Boolean)
+                                .join(" ");
+                              return (
+                                <span
+                                  key={v.id}
+                                  className="inline-flex items-center px-1 py-0 rounded bg-slate-100 text-slate-700 text-[10px] font-mono tabular-nums leading-tight truncate max-w-full"
+                                  title={fullPlate || undefined}
+                                >
+                                  {plate}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

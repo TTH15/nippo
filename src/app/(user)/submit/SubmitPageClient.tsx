@@ -2,7 +2,15 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCircleExclamation } from "@fortawesome/free-solid-svg-icons";
+import {
+  faCircleExclamation,
+  faCrown,
+  faMedal,
+  faTriangleExclamation,
+  faOilCan,
+  faPhone,
+} from "@fortawesome/free-solid-svg-icons";
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { DatePicker } from "@/lib/components/DatePicker";
@@ -564,11 +572,11 @@ export default function SubmitPageClient() {
           },
         ];
 
-    const rankMedal = (rank: number): string => {
-      if (rank === 1) return "🥇";
-      if (rank === 2) return "🥈";
-      if (rank === 3) return "🥉";
-      return "";
+    const rankIcon = (rank: number): { icon: IconDefinition; colorClass: string } | null => {
+      if (rank === 1) return { icon: faCrown, colorClass: "text-amber-500" };
+      if (rank === 2) return { icon: faMedal, colorClass: "text-slate-400" };
+      if (rank === 3) return { icon: faMedal, colorClass: "text-amber-700" };
+      return null;
     };
 
     return (
@@ -608,14 +616,24 @@ export default function SubmitPageClient() {
                       {c.count.toLocaleString("ja-JP")}
                       <span className="text-xs font-medium text-slate-500 ml-0.5">個</span>
                     </div>
-                    {c.rank ? (
-                      <div className="text-xs text-slate-700 tabular-nums whitespace-nowrap">
-                        {rankMedal(c.rank.rank)}
-                        <span className="font-bold text-slate-900">{c.rank.rank}</span>
-                        <span className="text-slate-400">/{c.rank.total}</span>
-                        <span className="text-slate-500 ml-0.5">位</span>
-                      </div>
-                    ) : (
+                    {c.rank ? (() => {
+                      const ic = rankIcon(c.rank.rank);
+                      return (
+                        <div className="text-xs text-slate-700 tabular-nums whitespace-nowrap inline-flex items-center gap-1">
+                          {ic && (
+                            <FontAwesomeIcon
+                              icon={ic.icon}
+                              className={`w-3.5 h-3.5 ${ic.colorClass}`}
+                            />
+                          )}
+                          <span>
+                            <span className="font-bold text-slate-900">{c.rank.rank}</span>
+                            <span className="text-slate-400">/{c.rank.total}</span>
+                            <span className="text-slate-500 ml-0.5">位</span>
+                          </span>
+                        </div>
+                      );
+                    })() : (
                       <div className="text-xs text-slate-400 whitespace-nowrap">—</div>
                     )}
                   </div>
@@ -1181,8 +1199,12 @@ export default function SubmitPageClient() {
             >
               {/* ヘッダー */}
               <div className="text-center">
-                <div className={`text-sm font-semibold ${headerClass}`}>
-                  {isCritical ? "🚨 オイル交換期限を超過しています" : "⚠️ オイル交換が近づいています"}
+                <div className={`inline-flex items-center gap-1.5 text-sm font-semibold ${headerClass}`}>
+                  <FontAwesomeIcon
+                    icon={isCritical ? faCircleExclamation : faTriangleExclamation}
+                    className="w-4 h-4"
+                  />
+                  {isCritical ? "オイル交換期限を超過しています" : "オイル交換が近づいています"}
                 </div>
                 {isCritical ? (
                   overdueKm > 0 ? (
@@ -1248,8 +1270,9 @@ export default function SubmitPageClient() {
 
               {/* 影響の周知 */}
               <div className={`mt-5 rounded-lg border p-3 ${isCritical ? "border-red-200 bg-red-50" : "border-yellow-200 bg-yellow-50"}`}>
-                <div className={`text-xs font-semibold mb-1 ${isCritical ? "text-red-700" : "text-yellow-800"}`}>
-                  🛢️ オイル交換を怠ると…
+                <div className={`inline-flex items-center gap-1.5 text-xs font-semibold mb-1 ${isCritical ? "text-red-700" : "text-yellow-800"}`}>
+                  <FontAwesomeIcon icon={faOilCan} className="w-3.5 h-3.5" />
+                  オイル交換を怠ると…
                 </div>
                 <ul className="text-[11px] text-slate-700 space-y-1 leading-snug list-disc pl-4">
                   {isCritical ? (
@@ -1268,8 +1291,9 @@ export default function SubmitPageClient() {
                   )}
                 </ul>
                 {isCritical && (
-                  <div className="mt-2 text-[11px] text-red-700 font-semibold">
-                    📞 至急、管理者へ報告し交換手配をしてください。
+                  <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-red-700 font-semibold">
+                    <FontAwesomeIcon icon={faPhone} className="w-3 h-3" />
+                    至急、管理者へ報告し交換手配をしてください。
                   </div>
                 )}
               </div>
