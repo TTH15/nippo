@@ -85,7 +85,16 @@ export default function SubmitPageClient() {
       fourCompleted: number;
     };
   };
+  type RankEntry = { rank: number; total: number } | null;
+  type MonthlyRanks = {
+    takuhaibinCompleted: RankEntry;
+    nekoposCompleted: RankEntry;
+    amazonAmCompleted: RankEntry;
+    amazonPmCompleted: RankEntry;
+    amazon4Completed: RankEntry;
+  };
   const [monthlyTotals, setMonthlyTotals] = useState<MonthlyTotals | null>(null);
+  const [monthlyRanks, setMonthlyRanks] = useState<MonthlyRanks | null>(null);
   const [monthlyTotalsLoading, setMonthlyTotalsLoading] = useState(false);
   const [oilReminderModal, setOilReminderModal] = useState<{
     nextOilChangeKm: number;
@@ -464,14 +473,18 @@ export default function SubmitPageClient() {
             setTodayReward(null);
           })
           .finally(() => setTodayRewardLoading(false));
-        const monthlyPromise = apiFetch<{ totals: MonthlyTotals }>(
+        const monthlyPromise = apiFetch<{ totals: MonthlyTotals; ranks: MonthlyRanks }>(
           `/api/reports/monthly-totals?reportDate=${dateParam}&driverIdentityId=${idParam}`,
           { cache: "no-store" },
         )
-          .then((res) => setMonthlyTotals(res.totals))
+          .then((res) => {
+            setMonthlyTotals(res.totals);
+            setMonthlyRanks(res.ranks);
+          })
           .catch((e) => {
             console.error(e);
             setMonthlyTotals(null);
+            setMonthlyRanks(null);
           })
           .finally(() => setMonthlyTotalsLoading(false));
         await Promise.all([rewardPromise, monthlyPromise]);
@@ -479,6 +492,7 @@ export default function SubmitPageClient() {
         setTodayReward(null);
         setTodayRewardLoading(false);
         setMonthlyTotals(null);
+        setMonthlyRanks(null);
         setMonthlyTotalsLoading(false);
       }
     } catch (err: unknown) {
@@ -492,15 +506,6 @@ export default function SubmitPageClient() {
     { key: "takuhaibinReturned", label: "宅急便", sub: "持戻" },
     { key: "nekoposCompleted", label: "ネコポス", sub: "完了" },
     { key: "nekoposReturned", label: "ネコポス", sub: "持戻" },
-  ];
-
-  const amazonFields: { key: keyof typeof amazonForm; label: string; sub: string }[] = [
-    { key: "amMochidashi", label: "午前", sub: "持出" },
-    { key: "amCompleted", label: "午前", sub: "完了" },
-    { key: "pmMochidashi", label: "午後", sub: "持出" },
-    { key: "pmCompleted", label: "午後", sub: "完了" },
-    { key: "fourMochidashi", label: "4便", sub: "持出" },
-    { key: "fourCompleted", label: "4便", sub: "完了" },
   ];
 
   const amazonReturns = useMemo(() => {
@@ -521,12 +526,50 @@ export default function SubmitPageClient() {
   if (status === "success") {
     const monthLabel = `${reportDate.getFullYear()}年${reportDate.getMonth() + 1}月`;
     const ym = monthlyTotals;
-    const yamatoTotal = ym
-      ? ym.yamato.takuhaibinCompleted + ym.yamato.nekoposCompleted
-      : 0;
-    const amazonTotal = ym
-      ? ym.amazon.amCompleted + ym.amazon.pmCompleted + ym.amazon.fourCompleted
-      : 0;
+    const rk = monthlyRanks;
+
+    type CategoryRow = {
+      label: string;
+      count: number;
+      rank: RankEntry;
+    };
+    const categories: CategoryRow[] = carrier === "AMAZON"
+      ? [
+          {
+            label: "午前 完了",
+            count: ym?.amazon.amCompleted ?? 0,
+            rank: rk?.amazonAmCompleted ?? null,
+          },
+          {
+            label: "午後 完了",
+            count: ym?.amazon.pmCompleted ?? 0,
+            rank: rk?.amazonPmCompleted ?? null,
+          },
+          {
+            label: "4便 完了",
+            count: ym?.amazon.fourCompleted ?? 0,
+            rank: rk?.amazon4Completed ?? null,
+          },
+        ]
+      : [
+          {
+            label: "宅急便 完了",
+            count: ym?.yamato.takuhaibinCompleted ?? 0,
+            rank: rk?.takuhaibinCompleted ?? null,
+          },
+          {
+            label: "ネコポス 完了",
+            count: ym?.yamato.nekoposCompleted ?? 0,
+            rank: rk?.nekoposCompleted ?? null,
+          },
+        ];
+
+    const rankMedal = (rank: number): string => {
+      if (rank === 1) return "🥇";
+      if (rank === 2) return "🥈";
+      if (rank === 3) return "🥉";
+      return "";
+    };
 
     return (
       <div className="max-w-sm mx-auto mt-12 px-4 pb-12">
@@ -549,54 +592,36 @@ export default function SubmitPageClient() {
         </div>
 
         <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-xs text-slate-500 text-center">{monthLabel} の累計個数</p>
+          <p className="text-xs text-slate-500 text-center mb-3">{monthLabel} の累計個数</p>
           {monthlyTotalsLoading ? (
-            <p className="mt-3 text-center text-sm text-slate-500">集計中...</p>
+            <p className="mt-1 text-center text-sm text-slate-500">集計中...</p>
           ) : (
-            <>
-              <p className="mt-1 text-center text-3xl font-bold text-slate-900 tabular-nums">
-                {(carrier === "AMAZON" ? amazonTotal : yamatoTotal).toLocaleString("ja-JP")}
-                <span className="text-base font-medium text-slate-500 ml-1">個</span>
-              </p>
-              {carrier === "YAMATO" && ym && (
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
-                    <div className="text-slate-500">宅急便 完了</div>
-                    <div className="font-semibold text-slate-800 tabular-nums">
-                      {ym.yamato.takuhaibinCompleted.toLocaleString("ja-JP")}
+            <div className="space-y-2">
+              {categories.map((c) => (
+                <div
+                  key={c.label}
+                  className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2"
+                >
+                  <div className="text-sm text-slate-600">{c.label}</div>
+                  <div className="flex items-baseline gap-3">
+                    <div className="text-2xl font-bold text-slate-900 tabular-nums">
+                      {c.count.toLocaleString("ja-JP")}
+                      <span className="text-xs font-medium text-slate-500 ml-0.5">個</span>
                     </div>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
-                    <div className="text-slate-500">ネコポス 完了</div>
-                    <div className="font-semibold text-slate-800 tabular-nums">
-                      {ym.yamato.nekoposCompleted.toLocaleString("ja-JP")}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {carrier === "AMAZON" && ym && (
-                <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
-                    <div className="text-slate-500">午前 完了</div>
-                    <div className="font-semibold text-slate-800 tabular-nums">
-                      {ym.amazon.amCompleted.toLocaleString("ja-JP")}
-                    </div>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
-                    <div className="text-slate-500">午後 完了</div>
-                    <div className="font-semibold text-slate-800 tabular-nums">
-                      {ym.amazon.pmCompleted.toLocaleString("ja-JP")}
-                    </div>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
-                    <div className="text-slate-500">4便 完了</div>
-                    <div className="font-semibold text-slate-800 tabular-nums">
-                      {ym.amazon.fourCompleted.toLocaleString("ja-JP")}
-                    </div>
+                    {c.rank ? (
+                      <div className="text-xs text-slate-700 tabular-nums whitespace-nowrap">
+                        {rankMedal(c.rank.rank)}
+                        <span className="font-bold text-slate-900">{c.rank.rank}</span>
+                        <span className="text-slate-400">/{c.rank.total}</span>
+                        <span className="text-slate-500 ml-0.5">位</span>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-400 whitespace-nowrap">—</div>
+                    )}
                   </div>
                 </div>
-              )}
-            </>
+              ))}
+            </div>
           )}
         </div>
 
@@ -622,6 +647,7 @@ export default function SubmitPageClient() {
               setTodayReward(null);
               setTodayRewardLoading(false);
               setMonthlyTotals(null);
+              setMonthlyRanks(null);
               setMonthlyTotalsLoading(false);
             }}
             className="text-sm text-brand-600 font-medium hover:underline"
