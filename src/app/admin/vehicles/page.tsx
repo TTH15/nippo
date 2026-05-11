@@ -627,10 +627,14 @@ export default function VehiclesPage() {
     }
   };
 
+  // 元の配列順に基づく安定したナンバーを割り当て（廃車も含めて変動しない）
+  const vehicleNoMap = new Map<string, number>(
+    vehicles.map((v, i) => [v.id, i + 1] as const),
+  );
   const orderedVehicles = [...vehicles].sort((a, b) => {
     const aDisposed = !!a.is_disposed;
     const bDisposed = !!b.is_disposed;
-    if (aDisposed !== bDisposed) return aDisposed ? -1 : 1;
+    if (aDisposed !== bDisposed) return aDisposed ? 1 : -1;
     return 0;
   });
 
@@ -692,7 +696,7 @@ export default function VehiclesPage() {
               const remainingMonths = getRemainingMonths(v);
               const vehicleDrivers = v.vehicle_drivers || [];
 
-              const vehicleNo = v.is_disposed ? 0 : idx + 1;
+              const vehicleNo = vehicleNoMap.get(v.id) ?? idx + 1;
 
               return (
                 <div
@@ -705,7 +709,7 @@ export default function VehiclesPage() {
                 >
                   {/* カード上部1行: No. / 車種 / ドライバー / 次回車検・自賠責 / 編集 */}
                   <div className="flex flex-wrap items-center gap-4 mb-6">
-                    <span className={`text-m font-medium shrink-0 ${v.is_disposed ? "text-red-700" : "text-slate-500"}`}>
+                    <span className={`text-m font-medium shrink-0 ${v.is_disposed ? "text-red-700 line-through decoration-2" : "text-slate-500"}`}>
                       No.{String(vehicleNo).padStart(4, "0")}
                     </span>
                     {v.is_disposed && (
