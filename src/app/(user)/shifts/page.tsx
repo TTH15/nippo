@@ -435,8 +435,8 @@ export default function ShiftsPage() {
             ) : shiftsError ? (
               <p className="text-sm text-red-600">{shiftsError}</p>
             ) : (
-              <div className="bg-white rounded border border-slate-200 p-3">
-                <div className="grid grid-cols-7 gap-1 mb-1">
+              <div className="bg-white rounded border border-slate-300 overflow-hidden">
+                <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-300">
                   {dayNames.map((name, i) => (
                     <div
                       key={name}
@@ -446,9 +446,9 @@ export default function ShiftsPage() {
                     </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-7 gap-1">
+                <div className="grid grid-cols-7 gap-px bg-slate-300">
                   {shiftViewEmptyCells.map((_, i) => (
-                    <div key={`empty-${i}`} className="aspect-square min-h-[3.5rem]" />
+                    <div key={`empty-${i}`} className="min-h-[5rem] bg-slate-50" />
                   ))}
                   {shiftViewDays.map((date) => {
                     const dateStr = getDateStr(date);
@@ -466,10 +466,10 @@ export default function ShiftsPage() {
                     return (
                       <div
                         key={dateStr}
-                        className={`aspect-square min-h-[3.5rem] rounded flex flex-col p-0.5 border border-transparent ${isToday ? "ring-2 ring-slate-400 ring-inset" : ""}`}
+                        className={`min-h-[5rem] bg-white flex flex-col p-1 ${isToday ? "ring-2 ring-slate-400 ring-inset" : ""}`}
                       >
                         <span
-                          className={`text-xs font-medium shrink-0 ${dayOfWeek === 0 ? "text-red-500" : dayOfWeek === 6 ? "text-blue-500" : "text-slate-700"}`}
+                          className={`text-xs font-medium shrink-0 self-center ${dayOfWeek === 0 ? "text-red-500" : dayOfWeek === 6 ? "text-blue-500" : "text-slate-700"}`}
                         >
                           {date.getDate()}
                         </span>
@@ -490,7 +490,7 @@ export default function ShiftsPage() {
                           ))}
                         </div>
                         {uniqueVehicles.length > 0 && (
-                          <div className="mt-auto flex flex-wrap gap-0.5 pt-0.5">
+                          <div className="mt-auto flex flex-wrap justify-center gap-0.5 pt-0.5">
                             {uniqueVehicles.map((v) => {
                               const plate = formatPlateNumeric(v.number_numeric ?? "");
                               const fullPlate = [
@@ -504,7 +504,7 @@ export default function ShiftsPage() {
                               return (
                                 <span
                                   key={v.id}
-                                  className="inline-flex items-center px-1 py-0 rounded bg-slate-100 text-slate-700 text-[10px] font-mono tabular-nums leading-tight truncate max-w-full"
+                                  className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-mono tabular-nums leading-tight truncate max-w-full"
                                   title={fullPlate || undefined}
                                 >
                                   {plate}
