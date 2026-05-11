@@ -709,7 +709,7 @@ export default function VehiclesPage() {
                 >
                   {/* カード上部1行: No. / 車種 / ドライバー / 次回車検・自賠責 / 編集 */}
                   <div className="flex flex-wrap items-center gap-4 mb-6">
-                    <span className={`text-m font-medium shrink-0 ${v.is_disposed ? "text-red-700 line-through decoration-2" : "text-slate-500"}`}>
+                    <span className={`text-m font-medium shrink-0 ${v.is_disposed ? "text-red-700" : "text-slate-500"}`}>
                       No.{String(vehicleNo).padStart(4, "0")}
                     </span>
                     {v.is_disposed && (
@@ -822,7 +822,28 @@ export default function VehiclesPage() {
                     <div className="flex-shrink-0 w-full max-w-[240px] space-y-4">
                       {/* ナンバープレート */}
                       {(v.number_prefix || v.number_hiragana || v.number_numeric) && (
-                        <VehiclePlate vehicle={v} className="w-full max-w-[240px]" />
+                        <div className="relative w-full max-w-[240px]">
+                          <VehiclePlate vehicle={v} className="w-full max-w-[240px]" />
+                          {v.is_disposed && (
+                            <svg
+                              className="absolute inset-0 w-full h-full pointer-events-none"
+                              viewBox="0 0 100 100"
+                              preserveAspectRatio="none"
+                              aria-hidden
+                            >
+                              <line
+                                x1="2"
+                                y1="2"
+                                x2="98"
+                                y2="98"
+                                stroke="#dc2626"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                vectorEffect="non-scaling-stroke"
+                              />
+                            </svg>
+                          )}
+                        </div>
                       )}
 
                       {/* 車両画像プレースホルダー（16:9） */}
