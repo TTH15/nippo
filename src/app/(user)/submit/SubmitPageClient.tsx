@@ -83,7 +83,11 @@ export default function SubmitPageClient() {
     lastOil: number;
     interval: number;
     currentKm: number;
+    remaining: number;
+    level: "warn" | "critical";
+    mode: "optional" | "mandatory";
   } | null>(null);
+  const [oilAcknowledged, setOilAcknowledged] = useState(false);
   const certRef = useRef<HTMLDivElement | null>(null);
   const vehicleItemRefs = useRef<Array<HTMLDivElement | null>>([]);
   const defaultReportDateRef = useRef(reportDateDefaultJST());
@@ -298,6 +302,66 @@ export default function SubmitPageClient() {
     selectedVehicleId ? v.id !== selectedVehicleId : true,
   );
 
+  const computeOilStatus = (sel: Vehicle | null, meterStr: string) => {
+    if (!sel) return null;
+    const interval = Math.max(1, sel.oil_change_interval ?? 0);
+    if (!sel.oil_change_interval || interval <= 0) return null;
+    const lastOil = sel.last_oil_change_mileage ?? 0;
+    const entered = meterStr === "" ? null : Number(meterStr);
+    const currentKm =
+      entered != null && Number.isFinite(entered) && entered > 0
+        ? entered
+        : sel.current_mileage || 0;
+    const nextOilChangeKm = lastOil + interval;
+    const remaining = nextOilChangeKm - currentKm;
+    const oilProgress = Math.max(0, Math.min(100, ((currentKm - lastOil) / interval) * 100));
+    let level: "safe" | "warn" | "critical" = "safe";
+    if (remaining < 100) level = "critical";
+    else if (remaining <= 300) level = "warn";
+    return { lastOil, interval, currentKm, nextOilChangeKm, remaining, oilProgress, level };
+  };
+
+  const oilAckKey = useMemo(() => {
+    if (!selectedVehicleId) return null;
+    return `oilAck:${selectedVehicleId}:${dateToReportDateStr(reportDate)}`;
+  }, [selectedVehicleId, reportDate]);
+
+  useEffect(() => {
+    if (!oilAckKey || typeof window === "undefined") {
+      setOilAcknowledged(false);
+      return;
+    }
+    setOilAcknowledged(sessionStorage.getItem(oilAckKey) === "1");
+  }, [oilAckKey]);
+
+  useEffect(() => {
+    if (!selectedVehicleId) return;
+    if (oilAcknowledged) return;
+    if (oilReminderModal) return;
+    const sel = getSelectedVehicle();
+    const status = computeOilStatus(sel, meterValue);
+    if (!status || status.level === "safe") return;
+    setOilReminderModal({
+      nextOilChangeKm: status.nextOilChangeKm,
+      oilProgress: status.oilProgress,
+      lastOil: status.lastOil,
+      interval: status.interval,
+      currentKm: status.currentKm,
+      remaining: status.remaining,
+      level: status.level,
+      mode: "mandatory",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVehicleId, meterValue, oilAcknowledged]);
+
+  const acknowledgeOilReminder = () => {
+    if (oilReminderModal?.mode === "mandatory" && oilAckKey && typeof window !== "undefined") {
+      sessionStorage.setItem(oilAckKey, "1");
+      setOilAcknowledged(true);
+    }
+    setOilReminderModal(null);
+  };
+
   const handleUnlinkedSelect = (v: Vehicle) => {
     setConfirmVehicle(v);
   };
@@ -324,6 +388,22 @@ export default function SubmitPageClient() {
     const nextKm = meterValue ? Number(meterValue) : null;
     if (nextKm != null && prevKm > 0 && nextKm <= prevKm) {
       setMeterError(`前回のメーター数値（${prevKm.toLocaleString("ja-JP")} km）より大きい値を入力してください`);
+      setStatus("idle");
+      return;
+    }
+
+    const oilStatus = computeOilStatus(sel, meterValue);
+    if (oilStatus && oilStatus.level !== "safe" && !oilAcknowledged) {
+      setOilReminderModal({
+        nextOilChangeKm: oilStatus.nextOilChangeKm,
+        oilProgress: oilStatus.oilProgress,
+        lastOil: oilStatus.lastOil,
+        interval: oilStatus.interval,
+        currentKm: oilStatus.currentKm,
+        remaining: oilStatus.remaining,
+        level: oilStatus.level === "critical" ? "critical" : "warn",
+        mode: "mandatory",
+      });
       setStatus("idle");
       return;
     }
@@ -769,13 +849,9 @@ export default function SubmitPageClient() {
       {/* メーター入力 */}
       {(vehicles.length > 0 || (selectedVehicleId && getSelectedVehicle())) && (() => {
         const sel = getSelectedVehicle();
-        const lastOil = sel?.last_oil_change_mileage ?? 0;
-        const interval = Math.max(1, sel?.oil_change_interval ?? 3000);
-        const currentKm = Number(meterValue) || sel?.current_mileage || 0;
-        const oilProgress = Math.max(0, Math.min(100, ((currentKm - lastOil) / interval) * 100));
-        const nextOilChangeKm = lastOil + interval;
-        const showReminder = oilProgress >= 70 && interval > 0;
-        const isRed = oilProgress >= 95;
+        const oilStatus = computeOilStatus(sel, meterValue);
+        const showReminder = oilStatus !== null && oilStatus.level !== "safe";
+        const isRed = oilStatus?.level === "critical";
         const reminderColorClass = isRed ? "text-red-500" : "text-yellow-500";
         const prevKm = sel?.current_mileage ?? 0;
         const isMeterInvalid = meterValue !== "" && prevKm > 0 && Number(meterValue) <= prevKm;
@@ -813,16 +889,19 @@ export default function SubmitPageClient() {
                 className={`w-full py-3 text-lg font-mono border rounded-xl focus:outline-none focus:ring-2 ${isMeterInvalid ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-brand-500"
                   } ${showReminder ? "pl-4 pr-10" : "px-4"}`}
               />
-              {showReminder && (
+              {showReminder && oilStatus && (
                 <button
                   type="button"
                   onClick={() =>
                     setOilReminderModal({
-                      nextOilChangeKm,
-                      oilProgress,
-                      lastOil,
-                      interval,
-                      currentKm,
+                      nextOilChangeKm: oilStatus.nextOilChangeKm,
+                      oilProgress: oilStatus.oilProgress,
+                      lastOil: oilStatus.lastOil,
+                      interval: oilStatus.interval,
+                      currentKm: oilStatus.currentKm,
+                      remaining: oilStatus.remaining,
+                      level: oilStatus.level === "critical" ? "critical" : "warn",
+                      mode: "optional",
                     })
                   }
                   className={`absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-8 h-8 rounded-lg ${reminderColorClass} hover:opacity-80 transition-opacity`}
@@ -1100,91 +1179,139 @@ export default function SubmitPageClient() {
       )}
 
       {/* オイル交換リマインドモーダル */}
-      {oilReminderModal && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-          onClick={() => setOilReminderModal(null)}
-        >
+      {oilReminderModal && (() => {
+        const isCritical = oilReminderModal.level === "critical";
+        const isMandatory = oilReminderModal.mode === "mandatory";
+        const remaining = oilReminderModal.remaining;
+        const overdueKm = remaining < 0 ? Math.abs(remaining) : 0;
+        const headerClass = isCritical ? "text-red-600" : "text-yellow-600";
+        const gaugeColorClass = isCritical ? "bg-red-500" : "bg-yellow-400";
+        const gaugeMarkerClass = isCritical ? "text-red-500" : "text-yellow-400";
+        const buttonClass = isCritical
+          ? "bg-red-600 hover:bg-red-500"
+          : "bg-slate-800 hover:bg-slate-700";
+        return (
           <div
-            className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => {
+              if (!isMandatory) setOilReminderModal(null);
+            }}
           >
-            <p className="text-base text-slate-800 text-center">
-              次回オイル交換次走行距離は
-              <span className="font-bold text-slate-900 mx-1">
-                {oilReminderModal.nextOilChangeKm.toLocaleString("ja-JP")} km
-              </span>
-              です
-            </p>
-
-            {/* 車両管理と同じゲージ（進捗 + マーカー） */}
-            <div className="mt-5">
-              <div className="flex items-start justify-between mb-2">
-                <div className="text-left">
-                  <div className="text-[10px] text-slate-500 leading-tight">前回オイル交換</div>
-                  <div className="text-xs font-medium text-slate-800 leading-tight">
-                    {oilReminderModal.lastOil.toLocaleString("ja-JP")} km
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[10px] text-slate-500 leading-tight">次回オイル交換</div>
-                  <div className="text-xs font-medium text-slate-800 leading-tight">
-                    {oilReminderModal.nextOilChangeKm.toLocaleString("ja-JP")} km
-                  </div>
-                </div>
-              </div>
-              {/* ▼ マーカー行 */}
-              <div className="relative h-3">
-                {(() => {
-                  const percent = Math.min(Math.max(oilReminderModal.oilProgress, 0), 100);
-                  const colorClass =
-                    percent >= 95
-                      ? "text-red-500"
-                      : percent >= 70
-                        ? "text-yellow-400"
-                        : "text-green-600";
-                  return (
-                    <div
-                      className={`absolute top-0 z-10 text-[10px] leading-none ${colorClass}`}
-                      style={{ left: `${percent}%`, transform: "translateX(-50%)" }}
-                    >
-                      ▼
-                    </div>
-                  );
-                })()}
-              </div>
-              {/* ゲージバー */}
-              <div className="relative h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                {(() => {
-                  const percent = Math.min(Math.max(oilReminderModal.oilProgress, 0), 100);
-                  const colorClass =
-                    percent >= 95
-                      ? "bg-red-500"
-                      : percent >= 70
-                        ? "bg-yellow-400"
-                        : "bg-green-500";
-                  return (
-                    <div
-                      className={`absolute top-0 left-0 h-full rounded-full transition-all ${colorClass}`}
-                      style={{ width: `${percent}%` }}
-                    />
-                  );
-                })()}
-              </div>
-              <div className="mt-2 text-center text-[11px] text-slate-500">
-                現在走行距離 {oilReminderModal.currentKm.toLocaleString("ja-JP")} km（交換目安: {oilReminderModal.interval.toLocaleString("ja-JP")} km）
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setOilReminderModal(null)}
-              className="mt-4 w-full py-2.5 bg-slate-800 text-white text-sm font-medium rounded-lg hover:bg-slate-700 transition-colors"
+            <div
+              className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6"
+              onClick={(e) => e.stopPropagation()}
             >
-              閉じる
-            </button>
+              {/* ヘッダー */}
+              <div className="text-center">
+                <div className={`text-sm font-semibold ${headerClass}`}>
+                  {isCritical ? "🚨 オイル交換期限を超過しています" : "⚠️ オイル交換が近づいています"}
+                </div>
+                {isCritical ? (
+                  overdueKm > 0 ? (
+                    <p className="mt-2 text-sm text-slate-800">
+                      期限を <span className="font-bold text-red-600">{overdueKm.toLocaleString("ja-JP")} km</span> 超過しています。
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-800">
+                      残り <span className="font-bold text-red-600">{Math.max(0, remaining).toLocaleString("ja-JP")} km</span> です。ただちに交換してください。
+                    </p>
+                  )
+                ) : (
+                  <p className="mt-2 text-sm text-slate-800">
+                    残り <span className="font-bold text-yellow-700">{remaining.toLocaleString("ja-JP")} km</span> で交換時期です。
+                  </p>
+                )}
+              </div>
+
+              {/* ゲージ */}
+              <div className="mt-5">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="text-left">
+                    <div className="text-[10px] text-slate-500 leading-tight">前回オイル交換</div>
+                    <div className="text-xs font-medium text-slate-800 leading-tight">
+                      {oilReminderModal.lastOil.toLocaleString("ja-JP")} km
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] text-slate-500 leading-tight">次回オイル交換</div>
+                    <div className="text-xs font-medium text-slate-800 leading-tight">
+                      {oilReminderModal.nextOilChangeKm.toLocaleString("ja-JP")} km
+                    </div>
+                  </div>
+                </div>
+                <div className="relative h-3">
+                  {(() => {
+                    const percent = Math.min(Math.max(oilReminderModal.oilProgress, 0), 100);
+                    return (
+                      <div
+                        className={`absolute top-0 z-10 text-[10px] leading-none ${gaugeMarkerClass}`}
+                        style={{ left: `${percent}%`, transform: "translateX(-50%)" }}
+                      >
+                        ▼
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div className="relative h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                  {(() => {
+                    const percent = Math.min(Math.max(oilReminderModal.oilProgress, 0), 100);
+                    return (
+                      <div
+                        className={`absolute top-0 left-0 h-full rounded-full transition-all ${gaugeColorClass}`}
+                        style={{ width: `${percent}%` }}
+                      />
+                    );
+                  })()}
+                </div>
+                <div className="mt-2 text-center text-[11px] text-slate-500">
+                  現在走行距離 {oilReminderModal.currentKm.toLocaleString("ja-JP")} km（交換目安: {oilReminderModal.interval.toLocaleString("ja-JP")} km）
+                </div>
+              </div>
+
+              {/* 影響の周知 */}
+              <div className={`mt-5 rounded-lg border p-3 ${isCritical ? "border-red-200 bg-red-50" : "border-yellow-200 bg-yellow-50"}`}>
+                <div className={`text-xs font-semibold mb-1 ${isCritical ? "text-red-700" : "text-yellow-800"}`}>
+                  🛢️ オイル交換を怠ると…
+                </div>
+                <ul className="text-[11px] text-slate-700 space-y-1 leading-snug list-disc pl-4">
+                  {isCritical ? (
+                    <>
+                      <li>エンジン焼き付きのリスクが高まります</li>
+                      <li>保険・保証の対象外となる場合があります</li>
+                      <li>走行中の故障で配送業務が停止する可能性があります</li>
+                      <li>修理費が <span className="font-bold">50万円以上</span> 発生するケースがあります</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>エンジン内部の摩耗が急速に進みます</li>
+                      <li>燃費が悪化し、燃料コストが増加します</li>
+                      <li>放置すると最悪エンジン故障で <span className="font-bold">高額な修理費</span> が発生します</li>
+                    </>
+                  )}
+                </ul>
+                {isCritical && (
+                  <div className="mt-2 text-[11px] text-red-700 font-semibold">
+                    📞 至急、管理者へ報告し交換手配をしてください。
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={acknowledgeOilReminder}
+                className={`mt-4 w-full py-2.5 text-white text-sm font-semibold rounded-lg transition-colors ${buttonClass}`}
+              >
+                {isMandatory ? "了解しました" : "閉じる"}
+              </button>
+              {isMandatory && (
+                <p className="mt-2 text-[10px] text-slate-500 text-center">
+                  ※ 内容を確認してから日報を送信してください
+                </p>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -871,16 +871,16 @@ export default function VehiclesPage() {
                         <div className="relative h-3">
                           {(() => {
                             const percent = Math.min(Math.max(oilProgress, 0), 100);
-                            let colorClass =
-                              percent >= 95
+                            const colorClass =
+                              oilRemaining < 100
                                 ? "text-red-500"
-                                : percent >= 70
+                                : oilRemaining <= 300
                                   ? "text-yellow-400"
                                   : "text-green-600";
                             return (
                               <div
                                 className={`absolute top-0 z-10 text-[10px] leading-none ${colorClass}`}
-                                style={{ left: `${oilProgress}%`, transform: "translateX(-50%)" }}
+                                style={{ left: `${percent}%`, transform: "translateX(-50%)" }}
                               >
                                 ▼
                               </div>
@@ -892,9 +892,9 @@ export default function VehiclesPage() {
                           {(() => {
                             const percent = Math.min(Math.max(oilProgress, 0), 100);
                             const colorClass =
-                              percent >= 95
+                              oilRemaining < 100
                                 ? "bg-red-500"
-                                : percent >= 70
+                                : oilRemaining <= 300
                                   ? "bg-yellow-400"
                                   : "bg-green-500";
                             return (
