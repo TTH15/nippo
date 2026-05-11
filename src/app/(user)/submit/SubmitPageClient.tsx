@@ -6,9 +6,8 @@ import { faCircleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { DatePicker } from "@/lib/components/DatePicker";
-import { apiFetch, getStoredDriver } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
-import { JukenCertificate, type JukenNumbers, type JukenOverlay } from "@/lib/components/JukenCertificate";
 import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 
 type Vehicle = {
@@ -67,16 +66,27 @@ export default function SubmitPageClient() {
   const [unlinkedVehicles, setUnlinkedVehicles] = useState<Vehicle[]>([]);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [confirmVehicle, setConfirmVehicle] = useState<Vehicle | null>(null);
-  const [driverProfile, setDriverProfile] = useState<{
-    name: string;
-    officeCode: string;
-    driverCode: string;
-    identities?: DriverIdentity[];
-  } | null>(null);
   const [identities, setIdentities] = useState<DriverIdentity[]>([]);
   const [selectedIdentityId, setSelectedIdentityId] = useState<string | null>(null);
   const [shiftsToday, setShiftsToday] = useState<{ course_id: string; name: string; color: string }[]>([]);
-  const [certImageDataUrl, setCertImageDataUrl] = useState<string | null>(null);
+  type MonthlyTotals = {
+    yamato: {
+      takuhaibinCompleted: number;
+      takuhaibinReturned: number;
+      nekoposCompleted: number;
+      nekoposReturned: number;
+    };
+    amazon: {
+      amMochidashi: number;
+      amCompleted: number;
+      pmMochidashi: number;
+      pmCompleted: number;
+      fourMochidashi: number;
+      fourCompleted: number;
+    };
+  };
+  const [monthlyTotals, setMonthlyTotals] = useState<MonthlyTotals | null>(null);
+  const [monthlyTotalsLoading, setMonthlyTotalsLoading] = useState(false);
   const [oilReminderModal, setOilReminderModal] = useState<{
     nextOilChangeKm: number;
     oilProgress: number;
@@ -88,7 +98,6 @@ export default function SubmitPageClient() {
     mode: "optional" | "mandatory";
   } | null>(null);
   const [oilAcknowledged, setOilAcknowledged] = useState(false);
-  const certRef = useRef<HTMLDivElement | null>(null);
   const vehicleItemRefs = useRef<Array<HTMLDivElement | null>>([]);
   const defaultReportDateRef = useRef(reportDateDefaultJST());
   useBodyScrollLock(showVehicleModal || oilReminderModal !== null);
@@ -145,7 +154,6 @@ export default function SubmitPageClient() {
         setVehicles(linkedVehicles);
         setUnlinkedVehicles(otherVehicles);
         if (profileRes) {
-          setDriverProfile(profileRes);
           const list = profileRes.identities ?? [];
           setIdentities(list);
           if (list.length > 0) {
@@ -440,101 +448,44 @@ export default function SubmitPageClient() {
       });
       if (selectedVehicleId) saveVehiclePreference(selectedVehicleId);
       setStatus("success");
-      if (carrier === "YAMATO" && selectedIdentityId) {
+      if (selectedIdentityId) {
         setTodayRewardLoading(true);
-        try {
-          const rewardRes = await apiFetch<{ reward: number }>(
-            `/api/reports/today-reward?reportDate=${encodeURIComponent(
-              dateToReportDateStr(reportDate),
-            )}&driverIdentityId=${encodeURIComponent(selectedIdentityId)}`,
-            { cache: "no-store" },
-          );
-          setTodayReward(Number(rewardRes.reward) || 0);
-        } catch (e) {
-          console.error(e);
-          setTodayReward(null);
-        } finally {
-          setTodayRewardLoading(false);
-        }
+        setMonthlyTotalsLoading(true);
+        const dateStr = dateToReportDateStr(reportDate);
+        const idParam = encodeURIComponent(selectedIdentityId);
+        const dateParam = encodeURIComponent(dateStr);
+        const rewardPromise = apiFetch<{ reward: number }>(
+          `/api/reports/today-reward?reportDate=${dateParam}&driverIdentityId=${idParam}`,
+          { cache: "no-store" },
+        )
+          .then((res) => setTodayReward(Number(res.reward) || 0))
+          .catch((e) => {
+            console.error(e);
+            setTodayReward(null);
+          })
+          .finally(() => setTodayRewardLoading(false));
+        const monthlyPromise = apiFetch<{ totals: MonthlyTotals }>(
+          `/api/reports/monthly-totals?reportDate=${dateParam}&driverIdentityId=${idParam}`,
+          { cache: "no-store" },
+        )
+          .then((res) => setMonthlyTotals(res.totals))
+          .catch((e) => {
+            console.error(e);
+            setMonthlyTotals(null);
+          })
+          .finally(() => setMonthlyTotalsLoading(false));
+        await Promise.all([rewardPromise, monthlyPromise]);
       } else {
         setTodayReward(null);
         setTodayRewardLoading(false);
+        setMonthlyTotals(null);
+        setMonthlyTotalsLoading(false);
       }
     } catch (err: unknown) {
       setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : "送信に失敗しました");
     }
   };
-
-  const activeIdentity = useMemo(
-    () => identities.find((i) => i.id === selectedIdentityId),
-    [identities, selectedIdentityId],
-  );
-
-  const jukenOverlay: JukenOverlay | undefined = useMemo(() => {
-    const driver = driverProfile ?? getStoredDriver();
-    if (!driver?.name) return undefined;
-    const codeForCert = activeIdentity?.driverCode ?? driver.driverCode ?? "";
-    const officeForCert = activeIdentity?.officeCode ?? driver.officeCode ?? "";
-    const digits6 = codeForCert.replace(/\D/g, "").slice(-6);
-    const d = reportDate;
-    const ymd = dateToReportDateStr(d).split("-").map(Number);
-    return {
-      officeCode: officeForCert,
-      personalNumber: digits6,
-      name: driver.name,
-      date: {
-        year: ymd[0],
-        month: ymd[1],
-        day: ymd[2],
-      },
-    };
-  }, [driverProfile, reportDate, activeIdentity]);
-
-  const jukenNumbers: JukenNumbers = useMemo(() => {
-    if (carrier !== "YAMATO") {
-      return {
-        takuhaibinMochidashi: 0,
-        takuhaibinHaikan: 0,
-        takuhaibinModori: 0,
-        takuhaibinHaikanModori: 0,
-        nekoposMochidashi: 0,
-        nekoposHaikan: 0,
-        nekoposModori: 0,
-        nekoposHaikanModori: 0,
-        totalMochidashi: 0,
-        totalHaikan: 0,
-        totalModori: 0,
-        totalHaikanModori: 0,
-      };
-    }
-    const tkComp = Number(form.takuhaibinCompleted) || 0;
-    const tkRet = Number(form.takuhaibinReturned) || 0;
-    const nkComp = Number(form.nekoposCompleted) || 0;
-    const nkRet = Number(form.nekoposReturned) || 0;
-
-    const takuhaibinMochidashi = tkComp + tkRet;
-    const nekoposMochidashi = nkComp + nkRet;
-    const totalMochidashi = takuhaibinMochidashi + nekoposMochidashi;
-    const totalHaikan = tkComp + nkComp;
-    const totalModori = tkRet + nkRet;
-    const totalHaikanModori = totalHaikan + totalModori;
-
-    return {
-      takuhaibinMochidashi,
-      takuhaibinHaikan: tkComp,
-      takuhaibinModori: tkRet,
-      takuhaibinHaikanModori: takuhaibinMochidashi,
-      nekoposMochidashi,
-      nekoposHaikan: nkComp,
-      nekoposModori: nkRet,
-      nekoposHaikanModori: nekoposMochidashi,
-      totalMochidashi,
-      totalHaikan,
-      totalModori,
-      totalHaikanModori,
-    };
-  }, [form, carrier]);
 
   const yamatoFields: { key: keyof typeof form; label: string; sub: string }[] = [
     { key: "takuhaibinCompleted", label: "宅急便", sub: "完了" },
@@ -567,50 +518,18 @@ export default function SubmitPageClient() {
     };
   }, [amazonForm]);
 
-  // 提出完了時に証明書を画像化（長押し保存・ダウンロード用）※ヤマトのみ
-  useEffect(() => {
-    const generateImage = async () => {
-      if (status !== "success" || carrier !== "YAMATO") return;
-      setCertImageDataUrl(null);
-      const timer = setTimeout(async () => {
-        if (!certRef.current) return;
-        try {
-          const html2canvasModule = await import("html2canvas");
-          const html2canvas = html2canvasModule.default;
-          const canvas = await html2canvas(certRef.current, {
-            scale: 3,
-            useCORS: true,
-            backgroundColor: "#ffffff",
-            logging: false,
-          });
-          setCertImageDataUrl(canvas.toDataURL("image/png"));
-        } catch (e) {
-          console.error(e);
-        }
-      }, 400);
-      return () => clearTimeout(timer);
-    };
-
-    generateImage();
-  }, [status, carrier]);
-
   if (status === "success") {
+    const monthLabel = `${reportDate.getFullYear()}年${reportDate.getMonth() + 1}月`;
+    const ym = monthlyTotals;
+    const yamatoTotal = ym
+      ? ym.yamato.takuhaibinCompleted + ym.yamato.nekoposCompleted
+      : 0;
+    const amazonTotal = ym
+      ? ym.amazon.amCompleted + ym.amazon.pmCompleted + ym.amazon.fourCompleted
+      : 0;
+
     return (
       <div className="max-w-sm mx-auto mt-12 px-4 pb-12">
-        {/* キャプチャ用（画面外に配置）：ヤマトのみ */}
-        {carrier === "YAMATO" && (
-          <div className="fixed left-[-9999px] top-0" aria-hidden>
-            <JukenCertificate
-              certificateRef={(el) => {
-                certRef.current = el;
-              }}
-              numbers={jukenNumbers}
-              overlay={jukenOverlay}
-              hideDownloadButton
-            />
-          </div>
-        )}
-
         <div className="text-center mb-6">
           <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
             <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -621,33 +540,65 @@ export default function SubmitPageClient() {
           <p className="text-sm text-slate-500 mb-6">本日の日報を提出しました</p>
         </div>
 
-        {/* 配達受託者控画像：長押しでカメラロールに保存（ヤマトのみ） */}
-        {carrier === "YAMATO" && (
-          <div className="mb-6">
-            {certImageDataUrl ? (
-              <>
-                <img
-                  src={certImageDataUrl}
-                  alt="配達受託者控"
-                  className="w-full max-w-[600px] mx-auto rounded-lg border border-slate-200 block"
-                  style={{ maxHeight: "70vh", objectFit: "contain" }}
-                />
-              </>
-            ) : (
-              <p className="text-sm text-slate-500 py-8">画像を生成しています...</p>
-            )}
-          </div>
-        )}
+        <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 text-center">
+          <p className="text-xs text-slate-500">今日の日当（見込み）</p>
+          <p className="mt-1 text-3xl font-bold text-slate-900 tabular-nums">
+            {todayRewardLoading ? "計算中..." : `${(todayReward ?? 0).toLocaleString("ja-JP")}円`}
+          </p>
+          <p className="mt-2 text-sm text-slate-600">今日も一日お疲れ様でした！</p>
+        </div>
 
-        {carrier === "YAMATO" && (
-          <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 text-center">
-            <p className="text-xs text-slate-500">今日の報酬（見込み）</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900 tabular-nums">
-              {todayRewardLoading ? "計算中..." : `${(todayReward ?? 0).toLocaleString("ja-JP")}円`}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">今日も一日お疲れ様でした！</p>
-          </div>
-        )}
+        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs text-slate-500 text-center">{monthLabel} の累計個数</p>
+          {monthlyTotalsLoading ? (
+            <p className="mt-3 text-center text-sm text-slate-500">集計中...</p>
+          ) : (
+            <>
+              <p className="mt-1 text-center text-3xl font-bold text-slate-900 tabular-nums">
+                {(carrier === "AMAZON" ? amazonTotal : yamatoTotal).toLocaleString("ja-JP")}
+                <span className="text-base font-medium text-slate-500 ml-1">個</span>
+              </p>
+              {carrier === "YAMATO" && ym && (
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
+                    <div className="text-slate-500">宅急便 完了</div>
+                    <div className="font-semibold text-slate-800 tabular-nums">
+                      {ym.yamato.takuhaibinCompleted.toLocaleString("ja-JP")}
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
+                    <div className="text-slate-500">ネコポス 完了</div>
+                    <div className="font-semibold text-slate-800 tabular-nums">
+                      {ym.yamato.nekoposCompleted.toLocaleString("ja-JP")}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {carrier === "AMAZON" && ym && (
+                <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
+                    <div className="text-slate-500">午前 完了</div>
+                    <div className="font-semibold text-slate-800 tabular-nums">
+                      {ym.amazon.amCompleted.toLocaleString("ja-JP")}
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
+                    <div className="text-slate-500">午後 完了</div>
+                    <div className="font-semibold text-slate-800 tabular-nums">
+                      {ym.amazon.pmCompleted.toLocaleString("ja-JP")}
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
+                    <div className="text-slate-500">4便 完了</div>
+                    <div className="font-semibold text-slate-800 tabular-nums">
+                      {ym.amazon.fourCompleted.toLocaleString("ja-JP")}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
 
         <div className="text-center">
           <button
@@ -668,9 +619,10 @@ export default function SubmitPageClient() {
                 fourMochidashi: "",
                 fourCompleted: "",
               });
-              setCertImageDataUrl(null);
               setTodayReward(null);
               setTodayRewardLoading(false);
+              setMonthlyTotals(null);
+              setMonthlyTotalsLoading(false);
             }}
             className="text-sm text-brand-600 font-medium hover:underline"
           >
