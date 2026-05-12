@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
-import { formatPlateNumeric } from "@/lib/components/VehiclePlate";
+import { VehiclePlate } from "@/lib/components/VehiclePlate";
 
 type ShiftRequest = {
   id: string;
@@ -490,9 +490,8 @@ export default function ShiftsPage() {
                           ))}
                         </div>
                         {uniqueVehicles.length > 0 && (
-                          <div className="mt-auto flex flex-wrap justify-center gap-0.5 pt-0.5">
+                          <div className="mt-auto flex flex-col items-center gap-0.5 pt-0.5">
                             {uniqueVehicles.map((v) => {
-                              const plate = formatPlateNumeric(v.number_numeric ?? "");
                               const fullPlate = [
                                 v.number_prefix,
                                 v.number_class,
@@ -502,13 +501,13 @@ export default function ShiftsPage() {
                                 .filter(Boolean)
                                 .join(" ");
                               return (
-                                <span
+                                <div
                                   key={v.id}
-                                  className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-mono tabular-nums leading-tight truncate max-w-full"
+                                  className="w-full"
                                   title={fullPlate || undefined}
                                 >
-                                  {plate}
-                                </span>
+                                  <VehiclePlate vehicle={v} compact glow={false} />
+                                </div>
                               );
                             })}
                           </div>
