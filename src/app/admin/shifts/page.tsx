@@ -1274,11 +1274,18 @@ export default function ShiftsPage() {
             <table
               style={{
                 width: "100%",
+                tableLayout: "fixed",
                 borderCollapse: "separate",
                 borderSpacing: "0 2px",
                 fontSize: "12px",
               }}
             >
+              <colgroup>
+                <col style={{ width: "160px" }} />
+                {displayDates.map((date) => (
+                  <col key={`ex-col-${date}`} style={{ width: "128px" }} />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
                   <th
@@ -1303,7 +1310,9 @@ export default function ShiftsPage() {
                           background: ch.headBg,
                           color: ch.headColor,
                           fontWeight: 600,
-                          maxWidth: "88px",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
                         }}
                       >
                         {formatDate(date)}
@@ -1388,16 +1397,18 @@ export default function ShiftsPage() {
                             background: ch.cellBg ?? "#ffffff",
                           }}
                         >
-                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
                             <div
                               style={{
+                                boxSizing: "border-box",
                                 borderRadius: "6px",
-                                padding: "3px 5px",
+                                padding: "5px 6px",
+                                minHeight: "22px",
                                 fontSize: "10px",
                                 fontWeight: 700,
                                 color: "#0f172a",
                                 textAlign: "center",
-                                lineHeight: 1.2,
+                                lineHeight: 1.5,
                                 overflow: "hidden",
                                 whiteSpace: "nowrap",
                                 textOverflow: "ellipsis",
@@ -1410,11 +1421,13 @@ export default function ShiftsPage() {
                             {plateLine ? (
                               <div
                                 style={{
+                                  boxSizing: "border-box",
+                                  padding: "2px 4px",
                                   fontSize: "9px",
                                   fontWeight: 600,
                                   color: "#475569",
                                   textAlign: "center",
-                                  lineHeight: 1.2,
+                                  lineHeight: 1.5,
                                   overflow: "hidden",
                                   whiteSpace: "nowrap",
                                   textOverflow: "ellipsis",
@@ -1441,10 +1454,12 @@ export default function ShiftsPage() {
                       <td
                         key={`ex-off-${date}`}
                         style={{
-                          padding: "4px",
+                          padding: "5px 4px",
                           fontSize: "10px",
+                          lineHeight: 1.5,
                           color: "#64748b",
                           verticalAlign: "top",
+                          wordBreak: "break-word",
                           background: ch.cellBg ?? "#fafafa",
                         }}
                       >
