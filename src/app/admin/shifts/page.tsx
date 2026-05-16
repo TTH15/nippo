@@ -1288,7 +1288,7 @@ export default function ShiftsPage() {
                 width: "100%",
                 tableLayout: "fixed",
                 borderCollapse: "separate",
-                borderSpacing: "0 2px",
+                borderSpacing: "0",
                 fontSize: "12px",
               }}
             >
@@ -1305,8 +1305,11 @@ export default function ShiftsPage() {
                       width: "160px",
                       textAlign: "left",
                       padding: "6px 8px",
+                      fontSize: "13px",
                       color: "#6b7280",
                       background: "#f9fafb",
+                      borderBottom: "2px solid #94a3b8",
+                      borderRight: "1px solid #cbd5e1",
                     }}
                   >
                     ドライバー
@@ -1322,9 +1325,12 @@ export default function ShiftsPage() {
                           background: ch.headBg,
                           color: ch.headColor,
                           fontWeight: 600,
+                          fontSize: "13px",
                           whiteSpace: "nowrap",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
+                          borderBottom: "2px solid #94a3b8",
+                          borderRight: "1px solid #e5e7eb",
                         }}
                       >
                         {formatDate(date)}
@@ -1336,7 +1342,17 @@ export default function ShiftsPage() {
               <tbody>
                 {driversWithCourses.map((driver) => (
                   <tr key={`ex-row-${driver.id}`}>
-                    <td style={{ padding: "6px 8px", fontWeight: 600, color: "#111827" }}>
+                    <td
+                      style={{
+                        padding: "6px 8px",
+                        fontWeight: 600,
+                        fontSize: "13px",
+                        color: "#111827",
+                        verticalAlign: "middle",
+                        borderBottom: "1px solid #cbd5e1",
+                        borderRight: "1px solid #cbd5e1",
+                      }}
+                    >
                       {getDisplayName(driver)}
                     </td>
                     {displayDates.map((date) => {
@@ -1354,17 +1370,19 @@ export default function ShiftsPage() {
                               textAlign: "center",
                               verticalAlign: "middle",
                               background: "#fffbeb",
+                              borderBottom: "1px solid #cbd5e1",
+                              borderRight: "1px solid #e5e7eb",
                             }}
                           >
                             <div
                               style={{
                                 display: "flex",
-                                minHeight: "28px",
+                                minHeight: "34px",
                                 alignItems: "center",
                                 justifyContent: "center",
                               }}
                             >
-                              <span style={{ fontSize: "10px", fontWeight: 700, color: "#92400e" }}>希望休</span>
+                              <span style={{ fontSize: "13px", fontWeight: 700, color: "#92400e" }}>希望休</span>
                             </div>
                           </td>
                         );
@@ -1373,9 +1391,15 @@ export default function ShiftsPage() {
                         return (
                           <td
                             key={`ex-${driver.id}-${date}`}
-                            style={{ padding: "4px", background: ch.cellBg ?? "#ffffff" }}
+                            style={{
+                              padding: "4px",
+                              verticalAlign: "middle",
+                              background: ch.cellBg ?? "#ffffff",
+                              borderBottom: "1px solid #cbd5e1",
+                              borderRight: "1px solid #e5e7eb",
+                            }}
                           >
-                            <div style={{ color: "#d1d5db", textAlign: "center", fontSize: "11px" }}>・</div>
+                            <div style={{ color: "#cbd5e1", textAlign: "center", fontSize: "13px" }}>・</div>
                           </td>
                         );
                       }
@@ -1405,22 +1429,34 @@ export default function ShiftsPage() {
                           key={`ex-${driver.id}-${date}`}
                           style={{
                             padding: "4px",
-                            verticalAlign: "top",
+                            verticalAlign: "middle",
                             background: ch.cellBg ?? "#ffffff",
+                            borderBottom: "1px solid #cbd5e1",
+                            borderRight: "1px solid #e5e7eb",
                           }}
                         >
-                          <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "4px",
+                              justifyContent: "center",
+                            }}
+                          >
                             <div
                               style={{
                                 boxSizing: "border-box",
                                 borderRadius: "6px",
-                                padding: "5px 6px",
-                                minHeight: "22px",
-                                fontSize: "10px",
+                                padding: "8px 6px",
+                                minHeight: "34px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "13px",
                                 fontWeight: 700,
                                 color: "#0f172a",
                                 textAlign: "center",
-                                lineHeight: 1.5,
+                                lineHeight: 1.4,
                                 overflow: "hidden",
                                 whiteSpace: "nowrap",
                                 textOverflow: "ellipsis",
@@ -1435,11 +1471,11 @@ export default function ShiftsPage() {
                                 style={{
                                   boxSizing: "border-box",
                                   padding: "2px 4px",
-                                  fontSize: "9px",
+                                  fontSize: "11px",
                                   fontWeight: 600,
                                   color: "#475569",
                                   textAlign: "center",
-                                  lineHeight: 1.5,
+                                  lineHeight: 1.4,
                                   overflow: "hidden",
                                   whiteSpace: "nowrap",
                                   textOverflow: "ellipsis",
@@ -1456,7 +1492,18 @@ export default function ShiftsPage() {
                   </tr>
                 ))}
                 <tr>
-                  <td style={{ padding: "6px 8px", fontWeight: 700, color: "#4b5563", background: "#f9fafb" }}>
+                  <td
+                    style={{
+                      padding: "6px 8px",
+                      fontWeight: 700,
+                      fontSize: "13px",
+                      color: "#4b5563",
+                      background: "#f9fafb",
+                      verticalAlign: "top",
+                      borderTop: "2px solid #94a3b8",
+                      borderRight: "1px solid #cbd5e1",
+                    }}
+                  >
                     未割当
                   </td>
                   {displayDates.map((date) => {
@@ -1467,12 +1514,14 @@ export default function ShiftsPage() {
                         key={`ex-off-${date}`}
                         style={{
                           padding: "5px 4px",
-                          fontSize: "10px",
+                          fontSize: "12px",
                           lineHeight: 1.5,
                           color: "#64748b",
                           verticalAlign: "top",
                           wordBreak: "break-word",
                           background: ch.cellBg ?? "#fafafa",
+                          borderTop: "2px solid #94a3b8",
+                          borderRight: "1px solid #e5e7eb",
                         }}
                       >
                         {names.length ? names.join("・") : "—"}
