@@ -89,6 +89,18 @@ function courseCellSurfaceExport(hex: string): CSSProperties {
   };
 }
 
+/**
+ * エクスポートのセル内寸法（px）。
+ * 車両割り当ての有無に関わらず全セルの高さを揃えるため、
+ * コース欄＋車両欄の高さを固定し、空セル・希望休も同じ高さにする。
+ * html2canvas は flex の中央寄せを正しく描けないため、
+ * 縦中央は lineHeight（行高＝ボックス高）で表現する。
+ */
+const EX_COURSE_H = 36;
+const EX_PLATE_H = 20;
+const EX_CELL_GAP = 4;
+const EX_CELL_CONTENT_H = EX_COURSE_H + EX_CELL_GAP + EX_PLATE_H;
+
 /** 祝日・日曜＝赤系、土曜＝青系（祝日は土曜より優先） */
 function shiftDayTone(dateStr: string): { header: string; body: string } {
   if (isJapanPublicHolidayYmd(dateStr)) {
@@ -142,6 +154,7 @@ function ShiftVehiclePlatePicker({
   displayVehicle,
   linkedPlates,
   otherPlates,
+  takenBy,
   onChange,
   disabled,
   dirty,
@@ -151,6 +164,8 @@ function ShiftVehiclePlatePicker({
   displayVehicle: VehiclePlateData | null;
   linkedPlates: VehiclePlateData[];
   otherPlates: VehiclePlateData[];
+  /** その日すでに他ドライバーが使用中の車両 id → 使用者名 */
+  takenBy?: Map<string, string>;
   onChange: (id: string | null) => void;
   disabled?: boolean;
   dirty?: boolean;
@@ -160,20 +175,34 @@ function ShiftVehiclePlatePicker({
 
   const row = (v: VehiclePlateData) => {
     const selected = valueId === v.id;
+    const takenByName = !selected ? takenBy?.get(v.id) : undefined;
+    const isTaken = Boolean(takenByName);
     return (
       <button
         key={v.id}
         type="button"
+        disabled={isTaken}
+        title={isTaken ? `${takenByName} さんが使用中` : undefined}
         className={cn(
-          "w-full rounded-md p-0.5 flex justify-center transition-colors",
-          selected ? "bg-slate-100/95 ring-1 ring-slate-400/40" : "hover:bg-slate-50/90",
+          "w-full rounded-md p-0.5 flex flex-col items-center gap-0.5 transition-colors",
+          isTaken
+            ? "opacity-45 cursor-not-allowed"
+            : selected
+              ? "bg-slate-100/95 ring-1 ring-slate-400/40"
+              : "hover:bg-slate-50/90",
         )}
         onClick={() => {
+          if (isTaken) return;
           onChange(v.id);
           setOpen(false);
         }}
       >
         <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
+        {isTaken ? (
+          <span className="text-[9px] font-medium text-rose-500 leading-none pb-0.5">
+            {takenByName} さん使用中
+          </span>
+        ) : null}
       </button>
     );
   };
@@ -545,8 +574,52 @@ export default function ShiftsPage() {
     return row?.vehicle_id ?? null;
   };
 
+  /** その日に車両がすでに割り当てられているドライバー（vehicle_id → driver_id[]） */
+  const vehicleHoldersByDate = useMemo(() => {
+    const byDate = new Map<string, Map<string, string[]>>();
+    for (const date of displayDates) {
+      const inner = new Map<string, string[]>();
+      for (const d of driversWithCourses) {
+        const placement = findDriverPlacementOnDate(localShifts, date, d.id);
+        if (!placement) continue;
+        const vid = getCurrentVehicleForDriverOnDate(date, d.id);
+        if (!vid) continue;
+        const arr = inner.get(vid);
+        if (arr) arr.push(d.id);
+        else inner.set(vid, [d.id]);
+      }
+      byDate.set(date, inner);
+    }
+    return byDate;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayDates, driversWithCourses, localShifts, localVehicleByDriverDay, shifts]);
+
+  /** その日その車両を使っている「他の」ドライバー名（重複割り当て検知用） */
+  const getOtherVehicleHolderName = (
+    date: string,
+    vehicleId: string,
+    selfDriverId: string,
+  ): string | null => {
+    const holders = vehicleHoldersByDate.get(date)?.get(vehicleId);
+    if (!holders) return null;
+    const otherId = holders.find((id) => id !== selfDriverId);
+    if (!otherId) return null;
+    const od = drivers.find((d) => d.id === otherId);
+    return od ? getDisplayName(od) : "別のドライバー";
+  };
+
   const setVehicleForDriverOnDate = (date: string, driverId: string, vehicleId: string | null) => {
     if (!canWrite) return;
+    if (vehicleId) {
+      const holder = getOtherVehicleHolderName(date, vehicleId, driverId);
+      if (holder) {
+        setErrorState({
+          title: "車両を割り当てできません",
+          message: `この車両は同じ日に ${holder} さんへすでに割り当てられています。1台の車両を同じ日に複数人へ割り当てることはできません。`,
+        });
+        return;
+      }
+    }
     setLocalVehicleByDriverDay((prev) => {
       const next = new Map(prev);
       next.set(driverDayVehicleKey(date, driverId), vehicleId);
@@ -1146,6 +1219,20 @@ export default function ShiftsPage() {
                                         }
                                         linkedPlates={linkedPlates}
                                         otherPlates={otherPlates}
+                                        takenBy={(() => {
+                                          const m = new Map<string, string>();
+                                          const holders = vehicleHoldersByDate.get(date);
+                                          if (holders) {
+                                            for (const [vid, ids] of holders) {
+                                              const other = ids.find((id) => id !== driver.id);
+                                              if (other) {
+                                                const od = drivers.find((d) => d.id === other);
+                                                m.set(vid, od ? getDisplayName(od) : "別のドライバー");
+                                              }
+                                            }
+                                          }
+                                          return m;
+                                        })()}
                                         onChange={(id) => setVehicleForDriverOnDate(date, driver.id, id)}
                                         disabled={!canWrite}
                                         dirty={dirty}
@@ -1366,7 +1453,7 @@ export default function ShiftsPage() {
                           <td
                             key={`ex-${driver.id}-${date}`}
                             style={{
-                              padding: "4px",
+                              padding: "5px 6px",
                               textAlign: "center",
                               verticalAlign: "middle",
                               background: "#fffbeb",
@@ -1376,13 +1463,15 @@ export default function ShiftsPage() {
                           >
                             <div
                               style={{
-                                display: "flex",
-                                minHeight: "34px",
-                                alignItems: "center",
-                                justifyContent: "center",
+                                height: `${EX_CELL_CONTENT_H}px`,
+                                lineHeight: `${EX_CELL_CONTENT_H}px`,
+                                textAlign: "center",
+                                fontSize: "13px",
+                                fontWeight: 700,
+                                color: "#92400e",
                               }}
                             >
-                              <span style={{ fontSize: "13px", fontWeight: 700, color: "#92400e" }}>希望休</span>
+                              希望休
                             </div>
                           </td>
                         );
@@ -1392,14 +1481,25 @@ export default function ShiftsPage() {
                           <td
                             key={`ex-${driver.id}-${date}`}
                             style={{
-                              padding: "4px",
+                              padding: "5px 6px",
                               verticalAlign: "middle",
                               background: ch.cellBg ?? "#ffffff",
                               borderBottom: "1px solid #cbd5e1",
                               borderRight: "1px solid #e5e7eb",
                             }}
                           >
-                            <div style={{ color: "#cbd5e1", textAlign: "center", fontSize: "13px" }}>・</div>
+                            <div
+                              style={{
+                                height: `${EX_CELL_CONTENT_H}px`,
+                                lineHeight: `${EX_CELL_CONTENT_H}px`,
+                                textAlign: "center",
+                                fontSize: "13px",
+                                fontWeight: 600,
+                                color: "#94a3b8",
+                              }}
+                            >
+                              指定休
+                            </div>
                           </td>
                         );
                       }
@@ -1428,35 +1528,25 @@ export default function ShiftsPage() {
                         <td
                           key={`ex-${driver.id}-${date}`}
                           style={{
-                            padding: "4px",
+                            padding: "5px 6px",
                             verticalAlign: "middle",
                             background: ch.cellBg ?? "#ffffff",
                             borderBottom: "1px solid #cbd5e1",
                             borderRight: "1px solid #e5e7eb",
                           }}
                         >
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: "4px",
-                              justifyContent: "center",
-                            }}
-                          >
+                          <div style={{ height: `${EX_CELL_CONTENT_H}px` }}>
                             <div
                               style={{
                                 boxSizing: "border-box",
                                 borderRadius: "6px",
-                                padding: "8px 6px",
-                                minHeight: "34px",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
+                                padding: "0 6px",
+                                height: `${EX_COURSE_H}px`,
+                                lineHeight: `${EX_COURSE_H}px`,
                                 fontSize: "13px",
                                 fontWeight: 700,
                                 color: "#0f172a",
                                 textAlign: "center",
-                                lineHeight: 1.4,
                                 overflow: "hidden",
                                 whiteSpace: "nowrap",
                                 textOverflow: "ellipsis",
@@ -1466,25 +1556,24 @@ export default function ShiftsPage() {
                             >
                               {courseShiftLabel(course)}
                             </div>
-                            {plateLine ? (
-                              <div
-                                style={{
-                                  boxSizing: "border-box",
-                                  padding: "2px 4px",
-                                  fontSize: "11px",
-                                  fontWeight: 600,
-                                  color: "#475569",
-                                  textAlign: "center",
-                                  lineHeight: 1.4,
-                                  overflow: "hidden",
-                                  whiteSpace: "nowrap",
-                                  textOverflow: "ellipsis",
-                                }}
-                                title={plateLine}
-                              >
-                                {plateLine}
-                              </div>
-                            ) : null}
+                            <div
+                              style={{
+                                boxSizing: "border-box",
+                                marginTop: `${EX_CELL_GAP}px`,
+                                height: `${EX_PLATE_H}px`,
+                                lineHeight: `${EX_PLATE_H}px`,
+                                fontSize: "11px",
+                                fontWeight: 600,
+                                color: "#475569",
+                                textAlign: "center",
+                                overflow: "hidden",
+                                whiteSpace: "nowrap",
+                                textOverflow: "ellipsis",
+                              }}
+                              title={plateLine || undefined}
+                            >
+                              {plateLine}
+                            </div>
                           </div>
                         </td>
                       );
