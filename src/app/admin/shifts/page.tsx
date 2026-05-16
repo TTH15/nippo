@@ -77,6 +77,18 @@ function courseCellSurface(hex: string): Pick<CSSProperties, "background" | "box
   };
 }
 
+/**
+ * エクスポート（html2canvas）用のコース色面。
+ * html2canvas は inset box-shadow を正しく描けず縞・重なり模様になるため、
+ * box-shadow を使わず通常の border で枠を表現する。
+ */
+function courseCellSurfaceExport(hex: string): CSSProperties {
+  return {
+    background: hexToRgba(hex, 0.44),
+    border: `2px solid ${hexToRgba(hex, 0.72)}`,
+  };
+}
+
 /** 祝日・日曜＝赤系、土曜＝青系（祝日は土曜より優先） */
 function shiftDayTone(dateStr: string): { header: string; body: string } {
   if (isJapanPublicHolidayYmd(dateStr)) {
@@ -1412,7 +1424,7 @@ export default function ShiftsPage() {
                                 overflow: "hidden",
                                 whiteSpace: "nowrap",
                                 textOverflow: "ellipsis",
-                                ...courseCellSurface(course.color),
+                                ...courseCellSurfaceExport(course.color),
                               }}
                               title={`${courseShiftLabel(course)}｜${course.name}`}
                             >
