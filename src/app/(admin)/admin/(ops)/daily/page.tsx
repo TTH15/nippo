@@ -16,7 +16,7 @@ import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { reportDateDefaultJST } from "@/lib/date";
 import type { SelectOption } from "@/lib/components/CustomSelect";
-import { OtherReportsContent } from "../misc-reports/others/page";
+import { OtherReportsContent } from "../misc-reports/others/OtherReportsContent";
 
 const EditReportModal = dynamic(() => import("./EditReportModal"), {
   ssr: false,
