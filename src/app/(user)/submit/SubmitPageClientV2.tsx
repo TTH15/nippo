@@ -54,6 +54,8 @@ export default function SubmitPageClientV2() {
   const [identities, setIdentities] = useState<DriverIdentity[]>([]);
   const [selectedIdentityId, setSelectedIdentityId] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [unlinkedVehicles, setUnlinkedVehicles] = useState<Vehicle[]>([]);
+  const [showOtherVehicles, setShowOtherVehicles] = useState(false);
   const [vehicleId, setVehicleId] = useState<string | null>(null);
   const [meter, setMeter] = useState<string>("");
 
@@ -64,20 +66,21 @@ export default function SubmitPageClientV2() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
-  // プロフィール（勤務区分）・車両
+  // プロフィール（勤務区分）・車両（紐付け＋その他）
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [profile, vehiclesRes] = await Promise.all([
+        const [profile, vehiclesRes, unlinkedRes] = await Promise.all([
           apiFetch<{ identities?: DriverIdentity[] }>("/api/reports/profile").catch(() => null),
           apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }).catch(() => ({ vehicles: [] })),
+          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }).catch(() => ({ vehicles: [] })),
         ]);
         const list = profile?.identities ?? [];
         setIdentities(list);
         if (list.length > 0) setSelectedIdentityId(list[0].id);
         setVehicles(vehiclesRes.vehicles ?? []);
-        if ((vehiclesRes.vehicles ?? []).length > 0) setVehicleId(vehiclesRes.vehicles[0].id);
+        setUnlinkedVehicles(unlinkedRes.vehicles ?? []);
       } finally {
         setLoading(false);
       }
@@ -91,7 +94,7 @@ export default function SubmitPageClientV2() {
       setFormLoading(true);
       try {
         const dateStr = dateToReportDateStr(reportDate);
-        const res = await apiFetch<{ shifts: ShiftForm[] }>(`/api/me/report-form?date=${encodeURIComponent(dateStr)}`, { cache: "no-store" });
+        const res = await apiFetch<{ shifts: ShiftForm[]; shiftVehicleId?: string | null }>(`/api/me/report-form?date=${encodeURIComponent(dateStr)}`, { cache: "no-store" });
         if (cancelled) return;
         const list = res.shifts ?? [];
         setShifts(list);
@@ -108,12 +111,13 @@ export default function SubmitPageClientV2() {
           });
         });
         setValues(init);
-        // 既存の車両/メーター（先頭シフト基準）
+        // 既定車両: 既存report の車両 > その日のシフト割当車両。メーターは既存report のみ。
         const withExisting = list.find((s) => s.existing);
-        if (withExisting?.existing) {
-          if (withExisting.existing.vehicleId) setVehicleId(withExisting.existing.vehicleId);
-          if (withExisting.existing.meterValue != null) setMeter(String(withExisting.existing.meterValue));
-        }
+        const existingVid = withExisting?.existing?.vehicleId ?? null;
+        const defaultVid = existingVid || res.shiftVehicleId || null;
+        setVehicleId(defaultVid);
+        if (withExisting?.existing?.meterValue != null) setMeter(String(withExisting.existing.meterValue));
+        else setMeter("");
       } catch {
         if (!cancelled) setShifts([]);
       } finally {
@@ -203,44 +207,77 @@ export default function SubmitPageClientV2() {
           </div>
         )}
 
-        {/* 車両選択（カード式・横スクロール。旧フォーム同様） */}
+        {/* 車両選択（カード式。紐付け車両＋当日シフト割当＋他の車両も選択可） */}
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-2">使用車両</label>
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-            {vehicles.map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                onClick={() => setVehicleId(v.id)}
-                className={`flex-shrink-0 w-48 rounded-lg border bg-white px-1 pt-1 pb-2 transition-colors ${
-                  vehicleId === v.id ? "border-slate-900" : "border-slate-200 hover:border-slate-400"
-                }`}
-              >
-                <div className="w-[180px] mx-auto">
-                  <VehiclePlate vehicle={v} selected={vehicleId === v.id} className="w-full max-w-[180px]" />
-                </div>
-              </button>
-            ))}
-            {/* 車両なしで続ける */}
-            <button
-              type="button"
-              onClick={() => setVehicleId(null)}
-              className={`flex-shrink-0 w-32 min-h-[3.5rem] rounded-lg border text-sm font-medium transition-colors ${
-                vehicleId === null
-                  ? "border-slate-900 bg-slate-50 text-slate-900"
-                  : "border-dashed border-slate-300 text-slate-500 hover:border-slate-400"
-              }`}
-            >
-              車両なしで
-              <br />
-              続ける
-            </button>
-          </div>
+          {(() => {
+            const allById = new Map<string, Vehicle>(
+              [...vehicles, ...unlinkedVehicles].map((v) => [v.id, v]),
+            );
+            const linkedIds = new Set(vehicles.map((v) => v.id));
+            const cards: Vehicle[] = [...vehicles];
+            const sel = vehicleId ? allById.get(vehicleId) : null;
+            if (sel && !linkedIds.has(sel.id)) cards.push(sel);
+            if (showOtherVehicles) {
+              for (const v of unlinkedVehicles) {
+                if (!cards.some((c) => c.id === v.id)) cards.push(v);
+              }
+            }
+            const hasMoreOthers = unlinkedVehicles.some((v) => !cards.some((c) => c.id === v.id));
+            return (
+              <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                {cards.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => setVehicleId(v.id)}
+                    className={`flex-shrink-0 w-48 rounded-lg border bg-white px-1 pt-1 pb-1 transition-colors ${
+                      vehicleId === v.id ? "border-slate-900" : "border-slate-200 hover:border-slate-400"
+                    }`}
+                  >
+                    <div className="w-[180px] mx-auto">
+                      <VehiclePlate vehicle={v} selected={vehicleId === v.id} className="w-full max-w-[180px]" />
+                    </div>
+                    {!linkedIds.has(v.id) && (
+                      <div className="text-[10px] text-slate-400 text-center leading-none mt-0.5">他の車両</div>
+                    )}
+                  </button>
+                ))}
+                {/* 他の車両を選択（未紐付け車両を展開） */}
+                {hasMoreOthers && (
+                  <button
+                    type="button"
+                    onClick={() => setShowOtherVehicles(true)}
+                    className="flex-shrink-0 w-28 min-h-[3.5rem] rounded-lg border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:border-slate-400"
+                  >
+                    ＋ 他の車両
+                    <br />
+                    を選択
+                  </button>
+                )}
+                {/* 車両なしで続ける */}
+                <button
+                  type="button"
+                  onClick={() => setVehicleId(null)}
+                  className={`flex-shrink-0 w-28 min-h-[3.5rem] rounded-lg border text-sm font-medium transition-colors ${
+                    vehicleId === null
+                      ? "border-slate-900 bg-slate-50 text-slate-900"
+                      : "border-dashed border-slate-300 text-slate-500 hover:border-slate-400"
+                  }`}
+                >
+                  車両なしで
+                  <br />
+                  続ける
+                </button>
+              </div>
+            );
+          })()}
         </div>
 
         {/* メーター（車両選択あり & EV でない時のみ） */}
         {(() => {
-          const sel = vehicles.find((v) => v.id === vehicleId) ?? null;
+          const sel =
+            [...vehicles, ...unlinkedVehicles].find((v) => v.id === vehicleId) ?? null;
           if (!sel || sel.is_ev) return null;
           const prevKm = sel.current_mileage ?? 0;
           const placeholder = prevKm > 0 ? `前回: ${prevKm.toLocaleString("ja-JP")} km` : "例: 14567";

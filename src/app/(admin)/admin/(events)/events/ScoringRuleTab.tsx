@@ -167,8 +167,8 @@ export function ScoringRuleTab({
                     ) : (
                       c.units.map((u) => (
                         <div key={u.id} className="mb-1.5 last:mb-0">
-                          {u.code && (
-                            <div className="text-[11px] text-slate-400 mb-0.5">{u.code}</div>
+                          {(u.name || u.code) && (
+                            <div className="text-[11px] text-slate-400 mb-0.5">{u.name || u.code}</div>
                           )}
                           <div className="flex flex-wrap gap-1.5">
                             {u.fields.map((f) => {

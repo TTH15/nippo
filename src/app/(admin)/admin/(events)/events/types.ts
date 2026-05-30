@@ -54,6 +54,7 @@ export type UnitFieldRow = {
 export type UnitTreeRow = {
   id: string;
   carrier_id: string;
+  name: string;
   code: string | null;
   fields: UnitFieldRow[];
 };

@@ -26,9 +26,13 @@ export async function GET(req: NextRequest) {
     .eq("shift_date", date)
     .order("slot");
 
+  // その日にシフトで割り当てられた車両（先頭の非nullを既定車両として返す）
+  const shiftVehicleId =
+    (shiftRows ?? []).map((s: any) => s.vehicle_id).find((v: string | null) => !!v) ?? null;
+
   const courseIds = Array.from(new Set((shiftRows ?? []).map((s: any) => s.course_id).filter(Boolean)));
   if (courseIds.length === 0) {
-    return NextResponse.json({ shifts: [] });
+    return NextResponse.json({ shifts: [], shiftVehicleId });
   }
 
   // コース → キャリア
@@ -117,5 +121,5 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ shifts });
+  return NextResponse.json({ shifts, shiftVehicleId });
 }

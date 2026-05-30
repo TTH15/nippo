@@ -255,6 +255,7 @@ export default function EventsPage() {
                     drivers={detail.drivers}
                     canWrite={canWrite}
                     reload={() => loadDetail(detail.event.id, { silent: true })}
+                    onMutate={(patch) => setDetail((d) => (d ? { ...d, ...patch } : d))}
                     onError={onError}
                     onConfirm={onConfirm}
                   />

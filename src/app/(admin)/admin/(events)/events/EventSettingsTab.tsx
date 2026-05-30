@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { CustomSelect } from "@/lib/components/CustomSelect";
+import { DatePicker } from "@/lib/components/DatePicker";
+import { reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 import type { EventDetailData, EventStatus } from "./types";
 import { STATUS_LABEL } from "./types";
 
@@ -116,22 +118,20 @@ export function EventSettingsTab({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">開始日</label>
-          <input
-            type="date"
-            value={startsOn}
-            onChange={(e) => setStartsOn(e.target.value)}
-            disabled={!canWrite}
-            className={inputCls}
+          <DatePicker
+            value={startsOn ? reportDateStrToDate(startsOn) : undefined}
+            onChange={(d) => canWrite && setStartsOn(d ? dateToReportDateStr(d) : "")}
+            placeholder="開始日を選択"
+            toDate={endsOn ? reportDateStrToDate(endsOn) : undefined}
           />
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">終了日</label>
-          <input
-            type="date"
-            value={endsOn}
-            onChange={(e) => setEndsOn(e.target.value)}
-            disabled={!canWrite}
-            className={inputCls}
+          <DatePicker
+            value={endsOn ? reportDateStrToDate(endsOn) : undefined}
+            onChange={(d) => canWrite && setEndsOn(d ? dateToReportDateStr(d) : "")}
+            placeholder="終了日を選択"
+            fromDate={startsOn ? reportDateStrToDate(startsOn) : undefined}
           />
         </div>
       </div>
