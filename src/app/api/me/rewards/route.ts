@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { computeDriverAutoPayout } from "@/server/billing/driverPayout";
 
 export const dynamic = "force-dynamic";
 
@@ -68,85 +69,15 @@ export async function GET(req: NextRequest) {
 
   const driverId = user.driverId as string;
 
-  // 日報・シフトから計算するドライバー売上（payments API と同じロジック）
-  const { data: courseRates } = await supabase
-    .from("course_rates")
-    .select("course_id, takuhaibin_driver_payout, nekopos_driver_payout, fixed_revenue, fixed_profit");
-  const rateByCourse: Record<string, { takuhaibin_driver_payout: number; nekopos_driver_payout: number; fixed_revenue: number; fixed_profit: number }> = {};
-  (courseRates ?? []).forEach((r: any) => {
-    rateByCourse[r.course_id] = {
-      takuhaibin_driver_payout: Number(r.takuhaibin_driver_payout) || 0,
-      nekopos_driver_payout: Number(r.nekopos_driver_payout) || 0,
-      fixed_revenue: Number(r.fixed_revenue) || 0,
-      fixed_profit: Number(r.fixed_profit) || 0,
-    };
-  });
-
-  const { data: shifts } = await supabase
-    .from("shifts")
-    .select("shift_date, course_id, driver_id")
-    .eq("driver_id", driverId)
-    .gte("shift_date", startDate)
-    .lte("shift_date", endDate);
-
-  const { data: reports } = await supabase
-    .from("daily_reports")
-    .select("driver_id, report_date, carrier, takuhaibin_completed, nekopos_completed, amazon_am_completed, amazon_pm_completed, amazon_4_completed")
-    .eq("driver_id", driverId)
-    .gte("report_date", startDate)
-    .lte("report_date", endDate)
-    .not("approved_at", "is", null);
-
-  const reportMap = new Map<string, any>();
-  (reports ?? []).forEach((r: any) => reportMap.set(`${r.driver_id}:${r.report_date}`, r));
-
-  function reportContentString(rep: any): string {
-    const carrier = rep?.carrier === "AMAZON" ? "AMAZON" : "YAMATO";
-    if (carrier === "YAMATO") {
-      const tk = Number(rep?.takuhaibin_completed) ?? 0;
-      const nk = Number(rep?.nekopos_completed) ?? 0;
-      return `宅急便 ${tk} 個 ネコポス ${nk} 個`;
-    }
-    const am = Number(rep?.amazon_am_completed) ?? 0;
-    const pm = Number(rep?.amazon_pm_completed) ?? 0;
-    const four = Number(rep?.amazon_4_completed) ?? 0;
-    const parts: string[] = [];
-    if (am > 0) parts.push(`午前 ${am} 個`);
-    if (pm > 0) parts.push(`午後 ${pm} 個`);
-    if (four > 0) parts.push(`4便 ${four} 個`);
-    return parts.length > 0 ? parts.join(" ") : "—";
-  }
-
-  let calculatedIncome = 0;
-  const dailyIncomeDetails: RewardLogDetail[] = [];
-
-  (shifts ?? []).forEach((s: any) => {
-    const date = s.shift_date;
-    const courseId = s.course_id;
-    const rate = rateByCourse[courseId];
-    if (!rate) return;
-    const rep = reportMap.get(`${driverId}:${date}`);
-    if (!rep) return;
-
-    let payout = 0;
-    if (rate.fixed_revenue > 0) {
-      const driverPayout = rate.fixed_revenue - rate.fixed_profit;
-      if (driverPayout > 0) payout = driverPayout;
-    } else {
-      const tkComp = Number(rep.takuhaibin_completed) ?? 0;
-      const nkComp = Number(rep.nekopos_completed) ?? 0;
-      payout = tkComp * rate.takuhaibin_driver_payout + nkComp * rate.nekopos_driver_payout;
-    }
-    calculatedIncome += payout;
-    dailyIncomeDetails.push({
-      log_date: date,
-      type_name: "日報",
-      content: reportContentString(rep),
-      amount: payout,
-    });
-  });
-
-  dailyIncomeDetails.sort((a, b) => a.log_date.localeCompare(b.log_date));
+  // 自動算出の報酬は v2 集計モデル（admin/payments と一致）
+  const autoPayout = await computeDriverAutoPayout(supabase, driverId, startDate, endDate);
+  const calculatedIncome = autoPayout.total;
+  const dailyIncomeDetails: RewardLogDetail[] = autoPayout.days.map((d) => ({
+    log_date: d.date,
+    type_name: "日報",
+    content: d.content,
+    amount: d.payout,
+  }));
 
   // 報酬調整（臨時経費）: amount は +控除 / -手当（報酬加算）
   const { data: adHocRows, error: adHocError } = await supabase
