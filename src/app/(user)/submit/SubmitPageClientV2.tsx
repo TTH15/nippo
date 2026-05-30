@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { DatePicker } from "@/lib/components/DatePicker";
+import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { apiFetch } from "@/lib/api";
 import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 
@@ -15,7 +16,17 @@ import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "
 // ============================================================
 
 type DriverIdentity = { id: string; slot: number; driverCode: string; officeCode: string; label?: string };
-type Vehicle = { id: string; manufacturer?: string | null; brand?: string | null; number_numeric?: string | null; current_mileage?: number };
+type Vehicle = {
+  id: string;
+  manufacturer?: string | null;
+  brand?: string | null;
+  number_prefix?: string | null;
+  number_class?: string | null;
+  number_hiragana?: string | null;
+  number_numeric?: string | null;
+  current_mileage?: number;
+  is_ev?: boolean;
+};
 
 type FieldDef = {
   fieldKey: string;
@@ -192,21 +203,70 @@ export default function SubmitPageClientV2() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">車両</label>
-            <select value={vehicleId ?? ""} onChange={(e) => setVehicleId(e.target.value || null)} className="w-full px-2 py-2 border border-slate-300 rounded">
-              <option value="">未選択</option>
-              {vehicles.map((v) => (
-                <option key={v.id} value={v.id}>{[v.manufacturer, v.brand, v.number_numeric].filter(Boolean).join(" ") || v.id.slice(0, 8)}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">メーター(km)</label>
-            <input type="number" value={meter} onChange={(e) => setMeter(e.target.value)} className="w-full px-2 py-2 border border-slate-300 rounded text-right" />
+        {/* 車両選択（カード式・横スクロール。旧フォーム同様） */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-2">使用車両</label>
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+            {vehicles.map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => setVehicleId(v.id)}
+                className={`flex-shrink-0 w-48 rounded-lg border bg-white px-1 pt-1 pb-2 transition-colors ${
+                  vehicleId === v.id ? "border-slate-900" : "border-slate-200 hover:border-slate-400"
+                }`}
+              >
+                <div className="w-[180px] mx-auto">
+                  <VehiclePlate vehicle={v} selected={vehicleId === v.id} className="w-full max-w-[180px]" />
+                </div>
+              </button>
+            ))}
+            {/* 車両なしで続ける */}
+            <button
+              type="button"
+              onClick={() => setVehicleId(null)}
+              className={`flex-shrink-0 w-32 min-h-[3.5rem] rounded-lg border text-sm font-medium transition-colors ${
+                vehicleId === null
+                  ? "border-slate-900 bg-slate-50 text-slate-900"
+                  : "border-dashed border-slate-300 text-slate-500 hover:border-slate-400"
+              }`}
+            >
+              車両なしで
+              <br />
+              続ける
+            </button>
           </div>
         </div>
+
+        {/* メーター（車両選択あり & EV でない時のみ） */}
+        {(() => {
+          const sel = vehicles.find((v) => v.id === vehicleId) ?? null;
+          if (!sel || sel.is_ev) return null;
+          const prevKm = sel.current_mileage ?? 0;
+          const placeholder = prevKm > 0 ? `前回: ${prevKm.toLocaleString("ja-JP")} km` : "例: 14567";
+          const invalid = meter !== "" && prevKm > 0 && Number(meter) <= prevKm;
+          return (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">メーター数値（km）</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                placeholder={placeholder}
+                value={meter}
+                onChange={(e) => setMeter(e.target.value.replace(/\D/g, ""))}
+                className={`w-full py-3 px-4 text-lg font-mono border rounded-xl focus:outline-none focus:ring-2 ${
+                  invalid ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-brand-500"
+                }`}
+              />
+              {invalid && (
+                <p className="mt-1 text-xs text-red-500">
+                  前回（{prevKm.toLocaleString("ja-JP")} km）より大きい値を入力してください
+                </p>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {formLoading ? (
@@ -276,26 +336,53 @@ function UnitFields({
         {Array.from(groups.entries()).map(([groupKey, fields]) => (
           <div key={groupKey}>
             {groupKey && <div className="text-[11px] text-indigo-600 mb-1">{groupKey}</div>}
-            <div className="grid grid-cols-2 gap-2">
-              {fields.map((f) => (
-                <label key={f.fieldKey} className="block">
-                  <span className="block text-[11px] text-slate-500 mb-0.5">{f.label}{f.required && <span className="text-red-500">*</span>}</span>
-                  {f.inputType === "BOOL" ? (
+            <div className="grid grid-cols-2 gap-3">
+              {fields.map((f) => {
+                const val = values[courseId]?.[unit.id]?.[f.fieldKey] ?? "";
+                // BOOL: カード内トグル
+                if (f.inputType === "BOOL") {
+                  return (
+                    <label
+                      key={f.fieldKey}
+                      className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 p-4"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={val === "true"}
+                        onChange={(e) => setVal(courseId, unit.id, f.fieldKey, e.target.checked ? "true" : "false")}
+                        className="h-5 w-5 accent-brand-700"
+                      />
+                      <span className="text-xs font-semibold text-slate-500">
+                        {f.label}
+                        {f.required && <span className="text-red-500 ml-0.5">*</span>}
+                      </span>
+                    </label>
+                  );
+                }
+                // INT/TEXT/TIME: 旧フォーム同様のカード＋大きな数値入力
+                const isInt = f.inputType === "INT";
+                return (
+                  <div key={f.fieldKey} className="bg-white rounded-xl border border-slate-200 p-4">
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">
+                      {f.label}
+                      {f.required && <span className="text-red-500 ml-0.5">*</span>}
+                    </label>
                     <input
-                      type="checkbox"
-                      checked={(values[courseId]?.[unit.id]?.[f.fieldKey] ?? "") === "true"}
-                      onChange={(e) => setVal(courseId, unit.id, f.fieldKey, e.target.checked ? "true" : "false")}
-                    />
-                  ) : (
-                    <input
-                      type={f.inputType === "INT" ? "number" : f.inputType === "TIME" ? "time" : "text"}
-                      value={values[courseId]?.[unit.id]?.[f.fieldKey] ?? ""}
+                      type={isInt ? "number" : f.inputType === "TIME" ? "time" : "text"}
+                      inputMode={isInt ? "numeric" : undefined}
+                      min={isInt ? "0" : undefined}
+                      placeholder={isInt ? "0" : ""}
+                      value={val}
                       onChange={(e) => setVal(courseId, unit.id, f.fieldKey, e.target.value)}
-                      className="w-full px-2 py-1.5 border border-slate-300 rounded text-right"
+                      className={
+                        isInt
+                          ? "w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
+                          : "w-full text-lg text-slate-900 py-2 border-0 focus:outline-none bg-transparent"
+                      }
                     />
-                  )}
-                </label>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}

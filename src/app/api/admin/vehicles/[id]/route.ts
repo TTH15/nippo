@@ -47,6 +47,7 @@ export async function PUT(
     const body = await req.json();
     const {
       isDisposed,
+      isEv,
       manufacturer,
       brand,
       numberPrefix,
@@ -70,6 +71,7 @@ export async function PUT(
     if (manufacturer !== undefined) updates.manufacturer = manufacturer?.trim() || null;
     if (brand !== undefined) updates.brand = brand?.trim() || null;
     if (isDisposed !== undefined) updates.is_disposed = !!isDisposed;
+    if (isEv !== undefined) updates.is_ev = !!isEv;
     if (numberPrefix !== undefined) updates.number_prefix = numberPrefix || null;
     if (numberClass !== undefined) updates.number_class = numberClass || null;
     if (numberHiragana !== undefined) updates.number_hiragana = numberHiragana || null;

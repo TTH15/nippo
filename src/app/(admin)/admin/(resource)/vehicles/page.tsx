@@ -53,6 +53,7 @@ type VehicleDriver = {
 type Vehicle = {
   id: string;
   is_disposed?: boolean | null;
+  is_ev?: boolean | null;
   manufacturer?: string | null;
   brand?: string | null;
   number_prefix?: string | null;
@@ -91,6 +92,7 @@ export default function VehiclesPage() {
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [form, setForm] = useState({
     isDisposed: false,
+    isEv: false,
     manufacturer: "",
     brand: "",
     numberPrefix: "",
@@ -223,6 +225,7 @@ export default function VehiclesPage() {
     setEditingVehicle(null);
     setForm({
       isDisposed: false,
+      isEv: false,
       manufacturer: "",
       brand: "",
       numberPrefix: "",
@@ -259,6 +262,7 @@ export default function VehiclesPage() {
         : [{ sign: "+", label: "初期費用", amount: String(v.purchase_cost || 0) }];
     setForm({
       isDisposed: !!v.is_disposed,
+      isEv: !!v.is_ev,
       manufacturer: v.manufacturer || "",
       brand: v.brand || "",
       numberPrefix: v.number_prefix || "",
@@ -313,6 +317,7 @@ export default function VehiclesPage() {
       );
       const payload = {
         isDisposed: form.isDisposed,
+        isEv: form.isEv,
         manufacturer: form.manufacturer || null,
         brand: form.brand || null,
         numberPrefix: form.numberPrefix || null,
@@ -1073,6 +1078,31 @@ export default function VehiclesPage() {
                     {form.isDisposed && (
                       <p className="text-xs text-red-600 mt-1">
                         廃車にすると車両ナンバーは保存時に 0000 として登録されます。
+                      </p>
+                    )}
+                  </div>
+                  <div className="col-span-2">
+                    <label className="flex items-center justify-between px-3 py-2 rounded border border-slate-200 bg-slate-50">
+                      <span className="text-sm font-medium text-slate-700">EV（電気自動車）</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={form.isEv}
+                        onClick={() => setForm((f) => ({ ...f, isEv: !f.isEv }))}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          form.isEv ? "bg-emerald-600" : "bg-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                            form.isEv ? "translate-x-5" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </label>
+                    {form.isEv && (
+                      <p className="text-xs text-emerald-700 mt-1">
+                        EV 車は日報フォームで走行距離（メーター）入力欄を表示しません。
                       </p>
                     )}
                   </div>

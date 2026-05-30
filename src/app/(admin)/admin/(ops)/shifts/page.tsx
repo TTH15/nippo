@@ -1166,35 +1166,55 @@ export default function ShiftsPage() {
                                   <span className="text-[12px] font-semibold text-amber-900">希望休</span>
                                 </div>
                               ) : (
-                                <div className="flex flex-col gap-0.5">
-                                  {assignedCourses.map((course) => (
-                                    <div
-                                      key={course.id}
-                                      title={courseAbbrevTooltip(course)}
-                                      className={cn(
-                                        "flex items-center gap-0.5 min-w-0 w-full shrink-0 overflow-hidden rounded-[6px] px-1 py-0.5",
-                                        dirty && "outline outline-2 -outline-offset-2 outline-amber-400",
-                                      )}
-                                      style={courseCellSurface(course.color)}
-                                    >
-                                      <span className="flex-1 min-w-0 truncate text-[11px] font-semibold text-slate-900 leading-tight">
-                                        {courseShiftLabel(course)}
-                                      </span>
-                                      {canWrite ? (
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            removeDriverFromCourseOnDate(date, driver.id, course.id)
-                                          }
-                                          className="shrink-0 leading-none text-[13px] text-slate-500 hover:text-rose-600 px-0.5"
-                                          title="このコースを外す"
-                                          aria-label="このコースを外す"
-                                        >
-                                          ×
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                  ))}
+                                <div className="flex flex-col gap-1">
+                                  {/* コース欄: 割当チップ + その下に「＋」追加ボタン */}
+                                  <div className="flex flex-col gap-0.5">
+                                    {assignedCourses.map((course) => (
+                                      <div
+                                        key={course.id}
+                                        title={courseAbbrevTooltip(course)}
+                                        className={cn(
+                                          "flex items-center gap-0.5 h-6 min-w-0 w-full shrink-0 overflow-hidden rounded-[6px] px-1",
+                                          dirty && "outline outline-2 -outline-offset-2 outline-amber-400",
+                                        )}
+                                        style={courseCellSurface(course.color)}
+                                      >
+                                        <span className="flex-1 min-w-0 truncate text-[11px] font-semibold text-slate-900 leading-tight">
+                                          {courseShiftLabel(course)}
+                                        </span>
+                                        {canWrite ? (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              removeDriverFromCourseOnDate(date, driver.id, course.id)
+                                            }
+                                            className="shrink-0 leading-none text-[13px] text-slate-500 hover:text-rose-600 px-0.5"
+                                            title="このコースを外す"
+                                            aria-label="このコースを外す"
+                                          >
+                                            ×
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                    ))}
+                                    {canWrite && addOptions.length > 0 ? (
+                                      <div className="h-6 min-w-0 w-full shrink-0 overflow-hidden rounded-[6px] border border-dashed border-slate-300 bg-slate-50/80 [&_button]:h-full [&_button]:min-h-0 [&_button]:rounded-[5px] [&_button]:border-0 [&_button]:bg-transparent [&_button]:shadow-none [&_button]:justify-center">
+                                        <CustomSelect
+                                          options={addOptions}
+                                          value=""
+                                          onChange={(v) => {
+                                            if (v) addDriverToCourseOnDate(date, driver.id, v);
+                                          }}
+                                          placeholder="＋"
+                                          clearable={false}
+                                          disabled={!canWrite}
+                                          size="xs"
+                                        />
+                                      </div>
+                                    ) : null}
+                                  </div>
+
+                                  {/* 車両欄 */}
                                   {hasAny ? (
                                     <div className="min-w-0 w-full shrink-0 overflow-hidden">
                                       <ShiftVehiclePlatePicker
@@ -1222,28 +1242,6 @@ export default function ShiftsPage() {
                                         disabled={!canWrite}
                                         dirty={dirty}
                                         title={vehicleTitle}
-                                      />
-                                    </div>
-                                  ) : null}
-                                  {canWrite && addOptions.length > 0 ? (
-                                    <div
-                                      className="min-w-0 w-full shrink-0 overflow-hidden rounded-lg p-px"
-                                      style={{
-                                        background: "rgba(248, 250, 252, 0.96)",
-                                        boxShadow: "inset 0 0 0 1px rgba(203, 213, 225, 0.85)",
-                                      }}
-                                    >
-                                      <CustomSelect
-                                        options={addOptions}
-                                        value=""
-                                        onChange={(v) => {
-                                          if (v) addDriverToCourseOnDate(date, driver.id, v);
-                                        }}
-                                        placeholder={hasAny ? "＋ 追加" : "＋ コース"}
-                                        clearable={false}
-                                        disabled={!canWrite}
-                                        size="xs"
-                                        className="[&_button]:rounded-[5px] [&_button]:border-0 [&_button]:bg-white/55 [&_button]:shadow-none"
                                       />
                                     </div>
                                   ) : null}

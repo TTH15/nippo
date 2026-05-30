@@ -86,6 +86,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       isDisposed = false,
+      isEv = false,
       manufacturer,
       brand,
       numberPrefix,
@@ -119,6 +120,7 @@ export async function POST(req: NextRequest) {
         manufacturer: manufacturer?.trim() || null,
         brand: brand?.trim() || null,
         is_disposed: !!isDisposed,
+        is_ev: !!isEv,
         number_prefix: numberPrefix || null,
         number_class: numberClass || null,
         number_hiragana: numberHiragana || null,
