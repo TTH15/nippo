@@ -360,7 +360,7 @@ export default function ShiftsPage() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(0);
   const [generating, setGenerating] = useState(false);
 
   const [localShifts, setLocalShifts] = useState<Map<string, string | null>>(new Map());
@@ -369,7 +369,6 @@ export default function ShiftsPage() {
   );
   const [fleetVehicles, setFleetVehicles] = useState<VehiclePlateData[]>([]);
   const [vehicleLinks, setVehicleLinks] = useState<{ driver_id: string; vehicle_id: string }[]>([]);
-  const [hasChanges, setHasChanges] = useState(false);
 
   const fleetById = useMemo(() => {
     const m = new Map<string, VehiclePlateData>();
@@ -428,7 +427,6 @@ export default function ShiftsPage() {
       setVehicleLinks(res.vehicle_driver_links ?? []);
       setLocalShifts(new Map());
       setLocalVehicleByDriverDay(new Map());
-      setHasChanges(false);
     } catch (e) {
       console.error(e);
     } finally {
@@ -441,35 +439,12 @@ export default function ShiftsPage() {
     load();
   }, [load]);
 
+  // 自動保存のため未保存確認は不要。そのまま切り替える。
   const handleYearMonthChange = (value: { year: number; month: number }) => {
-    if (hasChanges && canWrite) {
-      setConfirmState({
-        message: "変更が保存されていません。破棄しますか？",
-        onConfirm: () => {
-          setLocalShifts(new Map());
-          setLocalVehicleByDriverDay(new Map());
-          setHasChanges(false);
-          setYearMonth(value);
-        },
-      });
-      return;
-    }
     setYearMonth(value);
   };
 
   const switchPeriod = (p: Period) => {
-    if (hasChanges && canWrite) {
-      setConfirmState({
-        message: "変更が保存されていません。破棄しますか？",
-        onConfirm: () => {
-          setLocalShifts(new Map());
-          setLocalVehicleByDriverDay(new Map());
-          setHasChanges(false);
-          setPeriod(p);
-        },
-      });
-      return;
-    }
     setPeriod(p);
   };
 
@@ -636,7 +611,10 @@ export default function ShiftsPage() {
       next.set(driverDayVehicleKey(date, driverId), vehicleId);
       return next;
     });
-    setHasChanges(true);
+    // 車両は1日1台。当該ドライバーの全コース行へ同じ車両を即時保存
+    for (const p of findDriverPlacementsOnDate(localShifts, date, driverId)) {
+      persistOne(date, p.courseId, p.slot, driverId, vehicleId);
+    }
   };
 
   const hasFreeSlotOnCourse = (date: string, courseId: string, localMap: Map<string, string | null>): boolean => {
@@ -693,39 +671,39 @@ export default function ShiftsPage() {
       return;
     }
 
+    // 空きスロットを事前に確定（保存に slot が必要なため）
+    const courseObj = courses.find((c) => c.id === courseId)!;
+    const maxSlots = Math.max(1, courseObj.max_drivers ?? 1);
+    let chosenSlot: number | null = null;
+    for (let s = 1; s <= maxSlots; s++) {
+      if (!getEffectiveIdFromMap(localShifts, date, courseId, s)) {
+        chosenSlot = s;
+        break;
+      }
+    }
+    if (chosenSlot === null) return;
+    const slot = chosenSlot;
+
     setLocalShifts((prev) => {
       const next = new Map(prev);
-      const courseObj = courses.find((c) => c.id === courseId)!;
-      const maxSlots = Math.max(1, courseObj.max_drivers ?? 1);
-      let chosenSlot: number | null = null;
-      for (let s = 1; s <= maxSlots; s++) {
-        if (!getEffectiveIdFromMap(next, date, courseId, s)) {
-          chosenSlot = s;
-          break;
-        }
-      }
-      if (chosenSlot === null) return prev;
-
-      next.set(getCellKey(date, courseId, chosenSlot), driverId);
+      next.set(getCellKey(date, courseId, slot), driverId);
       return next;
     });
-    setHasChanges(true);
+    // 既存の当日車両を引き継いで即時保存
+    persistOne(date, courseId, slot, driverId, getCurrentVehicleForDriverOnDate(date, driverId));
   };
 
   /** ドライバーを指定コースから外す（他コースの割当は維持。最後の1件なら車両もクリア） */
   const removeDriverFromCourseOnDate = (date: string, driverId: string, courseId: string) => {
     if (!canWrite) return;
-    const wasLast = findDriverPlacementsOnDate(localShifts, date, driverId).length <= 1;
+    const placements = findDriverPlacementsOnDate(localShifts, date, driverId);
+    const wasLast = placements.length <= 1;
+    // このコースで当該ドライバーが入っているスロット（保存対象）
+    const clearedSlots = placements.filter((p) => p.courseId === courseId).map((p) => p.slot);
     setLocalShifts((prev) => {
       const next = new Map(prev);
-      const c = courses.find((x) => x.id === courseId);
-      if (c) {
-        const maxSlots = Math.max(1, c.max_drivers ?? 1);
-        for (let s = 1; s <= maxSlots; s++) {
-          if (getEffectiveIdFromMap(next, date, c.id, s) === driverId) {
-            next.set(getCellKey(date, c.id, s), null);
-          }
-        }
+      for (const slot of clearedSlots) {
+        next.set(getCellKey(date, courseId, slot), null);
       }
       return next;
     });
@@ -736,79 +714,39 @@ export default function ShiftsPage() {
         return next;
       });
     }
-    setHasChanges(true);
+    // 外したセルを即時保存（driverId=null）
+    for (const slot of clearedSlots) persistOne(date, courseId, slot, null, null);
   };
 
-  const saveAll = async () => {
+  /**
+   * 1セル分を即時バックグラウンド保存（楽観的・保存ボタン不要）。
+   * 値は呼び出し側が明示指定（setState 直後で state が未反映のため）。
+   * 失敗時は最新状態を再取得して巻き戻す。
+   */
+  const persistOne = (
+    date: string,
+    courseId: string,
+    slot: number,
+    driverId: string | null,
+    vehicleId: string | null,
+  ) => {
     if (!canWrite) return;
-    if (localShifts.size === 0 && localVehicleByDriverDay.size === 0) return;
-
-    const shiftKeysTodo = new Set<string>(localShifts.keys());
-    localVehicleByDriverDay.forEach((_, dk) => {
-      const bar = dk.indexOf("|");
-      if (bar < 0) return;
-      const dStr = dk.slice(0, bar);
-      const drvId = dk.slice(bar + 1);
-      // 車両は1日1台。当該ドライバーの全コース行へ同じ車両を保存する
-      for (const p of findDriverPlacementsOnDate(localShifts, dStr, drvId)) {
-        shiftKeysTodo.add(getCellKey(dStr, p.courseId, p.slot));
-      }
-    });
-
-    if (shiftKeysTodo.size === 0) return;
-
-    setSaving(true);
-    try {
-      const promises: Promise<unknown>[] = [];
-      shiftKeysTodo.forEach((key) => {
-        const [shiftDate, courseId, slotRaw] = key.split(":");
-        const slotNum = Number(slotRaw) || 1;
-        const driverId = getCurrentDriverId(shiftDate, courseId, slotNum);
-        const vehicleId =
-          driverId == null ? null : getCurrentVehicleForDriverOnDate(shiftDate, driverId);
-
-        promises.push(
-          apiFetch("/api/admin/shifts", {
-            method: "POST",
-            body: JSON.stringify({
-              shiftDate,
-              courseId,
-              slot: slotNum,
-              driverId,
-              vehicleId,
-            }),
-          }),
-        );
-      });
-
-      await Promise.all(promises);
-      await load({ silent: true });
-    } catch (e) {
-      console.error(e);
-      const reason = e instanceof Error ? e.message : "";
-      setErrorState({
-        title: "シフトの保存に失敗しました",
-        message:
-          "サーバーでエラーが発生したため、編集したシフトを保存できませんでした。\n\n" +
-          "一度ページを再読み込みして最新の状態を確認し、再度編集・保存をお試しください。\n" +
-          "同じエラーが続く場合は、管理者に連絡してください。",
-        detail: reason || undefined,
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const discardChanges = () => {
-    if (!canWrite) return;
-    setConfirmState({
-      message: "変更を破棄しますか？",
-      onConfirm: () => {
-        setLocalShifts(new Map());
-        setLocalVehicleByDriverDay(new Map());
-        setHasChanges(false);
-      },
-    });
+    setAutoSaving((n) => n + 1);
+    apiFetch("/api/admin/shifts", {
+      method: "POST",
+      body: JSON.stringify({ shiftDate: date, courseId, slot, driverId, vehicleId }),
+    })
+      .catch((e) => {
+        console.error(e);
+        setErrorState({
+          title: "自動保存に失敗しました",
+          message:
+            "変更をサーバーに保存できませんでした。最新の状態に戻します。\n通信状況を確認のうえ、もう一度お試しください。",
+          detail: e instanceof Error ? e.message : undefined,
+        });
+        void load({ silent: true });
+      })
+      .finally(() => setAutoSaving((n) => Math.max(0, n - 1)));
   };
 
   const getDriverRequests = (driverId: string) => {
@@ -1003,28 +941,14 @@ export default function ShiftsPage() {
           </div>
         </div>
 
-        {hasChanges && canWrite && (
-          <div className="mb-4 p-3 bg-amber-50 border border-amber-300 rounded flex items-center justify-between">
-            <span className="text-sm font-medium text-amber-800">
-              {localShifts.size + localVehicleByDriverDay.size}件の未保存の変更
-            </span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={discardChanges}
-                className="px-3 py-1 text-sm text-slate-600 hover:text-slate-800 transition-colors"
-              >
-                破棄
-              </button>
-              <button
-                type="button"
-                onClick={saveAll}
-                disabled={saving}
-                className="px-4 py-1 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
-              >
-                {saving ? "保存中..." : "保存"}
-              </button>
-            </div>
+        {canWrite && (
+          <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${
+                autoSaving > 0 ? "bg-amber-400 animate-pulse" : "bg-emerald-500"
+              }`}
+            />
+            {autoSaving > 0 ? "自動保存中…" : "変更は自動保存されます"}
           </div>
         )}
 
