@@ -3,8 +3,11 @@ import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import {
   dominantSectionFromCourses,
+  courseCarrierBucket,
   type CounterpartyCourse,
 } from "@/server/billing/computeCounterpartyMonthRevenue";
+import { loadAggregationData } from "@/server/aggregation/load";
+import { buildContext, buildContributions } from "@/server/aggregation/compute";
 
 export const dynamic = "force-dynamic";
 
@@ -33,22 +36,16 @@ function getMonthRange(monthParam: string | null): { month: string; startDate: s
   };
 }
 
-function normalizeCarrierFromCourseName(courseName: string): "YAMATO" | "AMAZON" | "OTHER" {
-  if (!courseName) return "OTHER";
-  if (courseName.startsWith("ヤマト")) return "YAMATO";
-  if (courseName.startsWith("Amazon") || courseName.startsWith("アマゾン")) return "AMAZON";
-  return "OTHER";
-}
-
 function toCounterpartyCourse(c: {
   id: string;
   name?: string | null;
-  carrier?: string | null;
+  carrierCode?: string | null;
 }): CounterpartyCourse {
-  const raw = c.carrier ?? normalizeCarrierFromCourseName(String(c.name ?? ""));
-  const carrier: "YAMATO" | "AMAZON" | "OTHER" =
-    raw === "YAMATO" || raw === "AMAZON" || raw === "OTHER" ? raw : "OTHER";
-  return { id: String(c.id), name: String(c.name ?? ""), carrier };
+  return {
+    id: String(c.id),
+    name: String(c.name ?? ""),
+    carrier: courseCarrierBucket(c.carrierCode ?? null),
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -69,15 +66,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  const { data: courses, error: courseErr } = await supabase
-    .from("courses")
-    .select("id, name, carrier, counterparty_invoice_address_id")
-    .not("counterparty_invoice_address_id", "is", null);
+  const [{ data: courses, error: courseErr }, { data: carrierRows }] = await Promise.all([
+    supabase
+      .from("courses")
+      .select("id, name, carrier_id, counterparty_invoice_address_id")
+      .not("counterparty_invoice_address_id", "is", null),
+    supabase.from("carriers").select("id, code"),
+  ]);
 
   if (courseErr) {
     console.error(courseErr);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
+
+  const codeByCarrierId = new Map<string, string | null>();
+  (carrierRows ?? []).forEach((c: { id: string; code: string | null }) =>
+    codeByCarrierId.set(c.id, c.code ?? null),
+  );
 
   const byCounterparty = new Map<string, CounterpartyCourse[]>();
   const courseById = new Map<
@@ -87,10 +92,11 @@ export async function GET(req: NextRequest) {
   (courses ?? []).forEach((c: Record<string, unknown>) => {
     const cp = c.counterparty_invoice_address_id as string | null;
     if (!cp) return;
+    const carrierId = c.carrier_id as string | null;
     const row = toCounterpartyCourse({
       id: String(c.id),
       name: c.name as string | null,
-      carrier: c.carrier as string | null,
+      carrierCode: carrierId ? codeByCarrierId.get(carrierId) ?? null : null,
     });
     const list = byCounterparty.get(cp) ?? [];
     list.push(row);
@@ -103,88 +109,20 @@ export async function GET(req: NextRequest) {
     });
   });
 
-  // 取引先ごとのシステム売上を一括計算（N+1クエリ回避）
+  // 取引先ごとのシステム売上を v2 集計エンジンで一括計算（admin/sales と一致・N+1回避）
   const systemRevenueByAddr = new Map<string, number>();
-  const linkedCourseIds = Array.from(courseById.keys());
-  if (linkedCourseIds.length > 0) {
-    const { data: courseRates, error: rateErr } = await supabase
-      .from("course_rates")
-      .select(
-        "course_id, takuhaibin_revenue, nekopos_revenue, fixed_revenue, fixed_profit",
-      );
-    if (rateErr) {
-      console.error(rateErr);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
-    const rateByCourse = new Map<
-      string,
-      {
-        takuhaibin_revenue: number;
-        nekopos_revenue: number;
-        fixed_revenue: number;
-        fixed_profit: number;
-      }
-    >();
-    (courseRates ?? []).forEach((r: Record<string, unknown>) => {
-      const id = String(r.course_id ?? "");
-      if (!id) return;
-      rateByCourse.set(id, {
-        takuhaibin_revenue: Number(r.takuhaibin_revenue) || 0,
-        nekopos_revenue: Number(r.nekopos_revenue) || 0,
-        fixed_revenue: Number(r.fixed_revenue) || 0,
-        fixed_profit: Number(r.fixed_profit) || 0,
-      });
-    });
-
-    const { data: shifts, error: shiftsErr } = await supabase
-      .from("shifts")
-      .select("shift_date, course_id, driver_id")
-      .gte("shift_date", range.startDate)
-      .lte("shift_date", range.endDate)
-      .in("course_id", linkedCourseIds);
-    if (shiftsErr) {
-      console.error(shiftsErr);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
-
-    const { data: reports, error: reportsErr } = await supabase
-      .from("daily_reports")
-      .select("driver_id, report_date, takuhaibin_completed, nekopos_completed")
-      .gte("report_date", range.startDate)
-      .lte("report_date", range.endDate)
-      .not("approved_at", "is", null);
-    if (reportsErr) {
-      console.error(reportsErr);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
-    const reportMap = new Map<string, Record<string, unknown>>();
-    (reports ?? []).forEach((r: Record<string, unknown>) => {
-      const key = `${String(r.driver_id ?? "")}:${String(r.report_date ?? "")}`;
-      reportMap.set(key, r);
-    });
-
-    (shifts ?? []).forEach((s: Record<string, unknown>) => {
-      const courseId = String(s.course_id ?? "");
-      const driverId = String(s.driver_id ?? "");
-      const date = String(s.shift_date ?? "");
-      if (!courseId || !driverId || !date) return;
-      const course = courseById.get(courseId);
-      if (!course) return;
-      const rate = rateByCourse.get(courseId);
-      if (!rate) return;
-      const rep = reportMap.get(`${driverId}:${date}`);
-      if (!rep) return;
-      const revenue =
-        rate.fixed_revenue > 0
-          ? rate.fixed_revenue
-          : (Number(rep.takuhaibin_completed) || 0) * rate.takuhaibin_revenue +
-            (Number(rep.nekopos_completed) || 0) * rate.nekopos_revenue;
-      if (revenue <= 0) return;
+  if (courseById.size > 0) {
+    const aggData = await loadAggregationData(supabase, range.startDate, range.endDate);
+    const aggCtx = buildContext(aggData.units, aggData.unitRates, aggData.fixedRates);
+    const contribs = buildContributions(aggData.reports, [], aggCtx); // ledger 抜き = system auto のみ
+    for (const c of contribs) {
+      const course = c.courseId ? courseById.get(c.courseId) : null;
+      if (!course) continue;
       systemRevenueByAddr.set(
         course.counterpartyId,
-        (systemRevenueByAddr.get(course.counterpartyId) ?? 0) + revenue,
+        (systemRevenueByAddr.get(course.counterpartyId) ?? 0) + c.revenue,
       );
-    });
+    }
   }
 
   const { data: customAgg, error: customErr } = await supabase

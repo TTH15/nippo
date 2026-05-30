@@ -55,7 +55,7 @@ function reportKindLabel(kind: string | undefined): string {
   }
 }
 
-export default function AdminOtherReportsPage() {
+export function OtherReportsContent() {
   const [tab, setTab] = useState<"pending" | "approved">("pending");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -114,7 +114,7 @@ export default function AdminOtherReportsPage() {
   };
 
   return (
-    <AdminLayout>
+    <>
       <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">その他の報告</h1>
@@ -241,6 +241,14 @@ export default function AdminOtherReportsPage() {
           </div>
         )}
       </div>
+    </>
+  );
+}
+
+export default function AdminOtherReportsPage() {
+  return (
+    <AdminLayout>
+      <OtherReportsContent />
     </AdminLayout>
   );
 }

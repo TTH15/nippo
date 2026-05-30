@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { buildCounterpartyBillingSnapshot } from "@/server/billing/counterpartyBillingSnapshot";
+import {
+  computeSectionMonthRevenue,
+  loadCarrierCodeByCourse,
+} from "@/server/billing/computeCounterpartyMonthRevenue";
 
 export const dynamic = "force-dynamic";
 
@@ -108,144 +112,9 @@ function todayIsoDate(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function sectionToCarrier(section: Section): "YAMATO" | "AMAZON" | "OTHER" {
-  if (section === "Amazon") return "AMAZON";
-  if (section === "ヤマト運輸") return "YAMATO";
-  return "OTHER";
-}
-
-function normalizeCarrierFromCourseName(courseName: string) {
-  if (!courseName) return "OTHER";
-  if (courseName.startsWith("ヤマト")) return "YAMATO";
-  if (courseName.startsWith("Amazon") || courseName.startsWith("アマゾン")) return "AMAZON";
-  return "OTHER";
-}
-
+/** セクション合計は v2 集計（computeSectionMonthRevenue）へ委譲。郵便局は sales_log COMPANY。 */
 async function computeTotalForSection(startDate: string, endDate: string, section: Section) {
-  type CourseRate = {
-    course_id: string;
-    takuhaibin_revenue: number;
-    takuhaibin_profit: number;
-    nekopos_revenue: number;
-    nekopos_profit: number;
-    fixed_revenue: number;
-    fixed_profit: number;
-  };
-
-  const { data: courseRates, error: rateErr } = await supabase
-    .from("course_rates")
-    .select("course_id, takuhaibin_revenue, takuhaibin_profit, nekopos_revenue, nekopos_profit, fixed_revenue, fixed_profit");
-  if (rateErr) throw rateErr;
-
-  const rateByCourse: Record<string, CourseRate> = {};
-  (courseRates ?? []).forEach((r) => {
-    rateByCourse[(r as any).course_id] = {
-      course_id: (r as any).course_id,
-      takuhaibin_revenue: Number((r as any).takuhaibin_revenue) || 0,
-      takuhaibin_profit: Number((r as any).takuhaibin_profit) || 0,
-      nekopos_revenue: Number((r as any).nekopos_revenue) || 0,
-      nekopos_profit: Number((r as any).nekopos_profit) || 0,
-      fixed_revenue: Number((r as any).fixed_revenue) || 0,
-      fixed_profit: Number((r as any).fixed_profit) || 0,
-    };
-  });
-
-  const { data: courses, error: coursesErr } = await supabase.from("courses").select("id, name, carrier");
-  if (coursesErr) throw coursesErr;
-
-  const courseMap = new Map<string, {
-    id: string;
-    name: string;
-    carrier?: "YAMATO" | "AMAZON" | "OTHER" | null;
-    counterparty_invoice_address_id?: string | null;
-  }>();
-  (courses ?? []).forEach((c: any) => {
-    courseMap.set(String(c.id), {
-      id: String(c.id),
-      name: String(c.name ?? ""),
-      carrier: c.carrier ?? null,
-      counterparty_invoice_address_id: c.counterparty_invoice_address_id ?? null,
-    });
-  });
-
-  // OTHER は sales_log_entries（COMPANY）で作る（admin/sales の other 定義に合わせる）
-  if (section === "郵便局") {
-    const { data: otherRows, error: otherErr } = await supabase
-      .from("sales_log_entries")
-      .select("revenue, log_date, attribution")
-      .gte("log_date", startDate)
-      .lte("log_date", endDate)
-      .eq("attribution", "COMPANY");
-    if (otherErr) throw otherErr;
-    let total = 0;
-    (otherRows ?? []).forEach((row: any) => {
-      const revenue = Number(row.revenue) || 0;
-      if (revenue > 0) total += revenue;
-    });
-    return total;
-  }
-
-  const { data: shifts, error: shiftsErr } = await supabase
-    .from("shifts")
-    .select("shift_date, course_id, driver_id")
-    .gte("shift_date", startDate)
-    .lte("shift_date", endDate);
-  if (shiftsErr) throw shiftsErr;
-
-  const { data: reports, error: reportsErr } = await supabase
-    .from("daily_reports")
-    .select("driver_id, report_date, takuhaibin_completed, nekopos_completed")
-    .gte("report_date", startDate)
-    .lte("report_date", endDate)
-    .not("approved_at", "is", null);
-  if (reportsErr) throw reportsErr;
-
-  const reportMap = new Map<string, any>();
-  (reports ?? []).forEach((r: any) => reportMap.set(`${r.driver_id}:${r.report_date}`, r));
-
-  let total = 0;
-  const targetCarrier = sectionToCarrier(section); // Amazon or YAMATO
-
-  (shifts ?? []).forEach((s: any) => {
-    if (!s?.driver_id || !s?.course_id) return;
-    const date = s.shift_date as string;
-    const driverId = s.driver_id as string;
-    const courseId = s.course_id as string;
-
-    const rep = reportMap.get(`${driverId}:${date}`);
-    if (!rep) return;
-
-    const rate = rateByCourse[courseId];
-    if (!rate) return;
-
-    const course = courseMap.get(courseId);
-    const carrier: "YAMATO" | "AMAZON" | "OTHER" =
-      (course?.carrier as any) ?? normalizeCarrierFromCourseName(course?.name ?? "");
-
-    if (rate.fixed_revenue > 0) {
-      // Amazon固定売上は固定売上を carrier に応じて振り分け
-      const revenue = rate.fixed_revenue;
-      if (targetCarrier === "AMAZON") {
-        if (carrier === "AMAZON") total += revenue;
-      } else {
-        // ヤマト運輸側に入れる（Amazon以外）
-        if (carrier !== "AMAZON") total += revenue;
-      }
-      return;
-    }
-
-    const tkComp = Number(rep.takuhaibin_completed ?? 0) || 0;
-    const nkComp = Number(rep.nekopos_completed ?? 0) || 0;
-    const revenue = tkComp * rate.takuhaibin_revenue + nkComp * rate.nekopos_revenue;
-
-    if (targetCarrier === "AMAZON") {
-      if (carrier === "AMAZON") total += revenue;
-    } else {
-      if (carrier !== "AMAZON") total += revenue;
-    }
-  });
-
-  return total;
+  return computeSectionMonthRevenue(supabase, startDate, endDate, section);
 }
 
 const UUID_RE =
@@ -343,18 +212,25 @@ export async function GET(req: NextRequest) {
     .lte("shift_date", range.endDate);
   const { data: coursesForTo } = await supabase
     .from("courses")
-    .select("id, name, carrier, counterparty_invoice_address_id")
+    .select("id, counterparty_invoice_address_id")
     .in("id", Array.from(new Set((shiftsForTo ?? []).map((s: any) => s.course_id).filter(Boolean))));
   const cMap = new Map<string, any>();
   (coursesForTo ?? []).forEach((c: any) => cMap.set(c.id, c));
-  const targetCarrier = sectionToCarrier(section);
+  // carrier 判定は carriers マスタ（carrier_id → code）由来
+  const carrierCodeByCourse = await loadCarrierCodeByCourse(supabase);
   const counterpartyCount = new Map<string, number>();
   (shiftsForTo ?? []).forEach((s: any) => {
     const c = cMap.get(s.course_id);
     if (!c) return;
-    const carrier = c.carrier ?? normalizeCarrierFromCourseName(c.name ?? "");
+    const code = carrierCodeByCourse.get(String(s.course_id)) ?? null;
+    const bucket = code === "AMAZON" ? "AMAZON" : code === "YAMATO" ? "YAMATO" : "OTHER";
+    // 旧ロジック踏襲: Amazon=AMAZON / ヤマト運輸=非AMAZON / 郵便局=OTHER
     const isTarget =
-      targetCarrier === "YAMATO" ? carrier !== "AMAZON" : carrier === targetCarrier;
+      section === "Amazon"
+        ? bucket === "AMAZON"
+        : section === "ヤマト運輸"
+          ? bucket !== "AMAZON"
+          : bucket === "OTHER";
     if (!isTarget) return;
     const toId = c.counterparty_invoice_address_id as string | null;
     if (!toId) return;

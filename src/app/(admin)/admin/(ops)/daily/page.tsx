@@ -16,6 +16,7 @@ import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { reportDateDefaultJST } from "@/lib/date";
 import type { SelectOption } from "@/lib/components/CustomSelect";
+import { OtherReportsContent } from "../misc-reports/others/page";
 
 const EditReportModal = dynamic(() => import("./EditReportModal"), {
   ssr: false,
@@ -95,6 +96,7 @@ type DaySummary = {
 };
 
 export default function AdminDailyPage() {
+  const [reportTab, setReportTab] = useState<"daily" | "other">("daily");
   const [tab, setTab] = useState<Tab>("pending");
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
@@ -291,6 +293,18 @@ export default function AdminDailyPage() {
 
   return (
     <AdminLayout>
+      <div className="mb-4 flex gap-6 border-b border-slate-200">
+        <button type="button" onClick={() => setReportTab("daily")} className={`relative pb-2.5 text-sm font-medium ${reportTab === "daily" ? "text-blue-600" : "text-slate-600 hover:text-slate-900"}`}>
+          日報{reportTab === "daily" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />}
+        </button>
+        <button type="button" onClick={() => setReportTab("other")} className={`relative pb-2.5 text-sm font-medium ${reportTab === "other" ? "text-blue-600" : "text-slate-600 hover:text-slate-900"}`}>
+          その他の報告{reportTab === "other" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />}
+        </button>
+      </div>
+      {reportTab === "other" ? (
+        <OtherReportsContent />
+      ) : (
+      <>
       <div className="w-full">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <h1 className="text-xl font-bold text-slate-900">日報報告</h1>
@@ -830,6 +844,8 @@ export default function AdminDailyPage() {
           }}
           onSave={saveEdit}
         />
+      )}
+      </>
       )}
     </AdminLayout>
   );

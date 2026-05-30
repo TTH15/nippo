@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
       color = "#3b82f6",
       max_drivers,
       carrier: carrierRaw,
+      carrier_id: carrierIdRaw,
       summary_title: summaryTitle,
       principal_invoice_address_id: principalInvoiceAddressIdRaw,
       counterparty_invoice_address_id: counterpartyInvoiceAddressIdRaw,
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
       color?: string;
       max_drivers?: number;
       carrier?: string;
+      carrier_id?: string | null;
       summary_title?: string | null;
       principal_invoice_address_id?: string | null;
       counterparty_invoice_address_id?: string | null;
@@ -113,6 +115,7 @@ export async function POST(req: NextRequest) {
       sort_order: sortOrder,
       max_drivers: capacity,
       carrier,
+      carrier_id: typeof carrierIdRaw === "string" && carrierIdRaw ? carrierIdRaw : null,
       principal_invoice_address_id: principalInvoiceAddressId,
       counterparty_invoice_address_id: counterpartyInvoiceAddressId,
     };

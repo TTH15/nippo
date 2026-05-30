@@ -51,6 +51,10 @@ export async function PUT(
     if (carrierRaw === "YAMATO" || carrierRaw === "AMAZON" || carrierRaw === "OTHER") {
       updates.carrier = carrierRaw;
     }
+    if ("carrier_id" in (body as Record<string, unknown>)) {
+      const cid = (body as { carrier_id?: unknown }).carrier_id;
+      updates.carrier_id = typeof cid === "string" && cid ? cid : null;
+    }
     if (summaryTitle !== undefined) {
       updates.summary_title = typeof summaryTitle === "string" && summaryTitle.trim() !== "" ? summaryTitle.trim() : null;
     }

@@ -22,6 +22,7 @@ type Course = {
   sort_order: number;
   max_drivers?: number | null;
   carrier?: CourseCarrier | null;
+  carrier_id?: string | null;
   summary_title?: string | null;
   principal_invoice_address_id?: string | null;
   counterparty_invoice_address_id?: string | null;
@@ -83,6 +84,12 @@ export default function CoursesPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [rates, setRates] = useState<CourseRate[]>([]);
   const [invoiceAddresses, setInvoiceAddresses] = useState<InvoiceAddress[]>([]);
+  const [carriers, setCarriers] = useState<{ id: string; name: string; code: string | null }[]>([]);
+  // 選択キャリアから旧 carrier テキスト(YAMATO/AMAZON/OTHER)を導出（移行期の互換用）
+  const legacyCarrierOf = (carrierId: string): CourseCarrier => {
+    const code = carriers.find((c) => c.id === carrierId)?.code;
+    return code === "YAMATO" || code === "AMAZON" ? code : "OTHER";
+  };
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showRateModal, setShowRateModal] = useState(false);
@@ -94,7 +101,7 @@ export default function CoursesPage() {
     name: string;
     color: string;
     max_drivers: string;
-    carrier: CourseCarrier;
+    carrierId: string;
     summary_title: string;
     principal_invoice_address_id: string;
     counterparty_invoice_address_id: string;
@@ -102,7 +109,7 @@ export default function CoursesPage() {
     name: "",
     color: COLORS[0],
     max_drivers: "1",
-    carrier: "OTHER",
+    carrierId: "",
     summary_title: "",
     principal_invoice_address_id: "",
     counterparty_invoice_address_id: "",
@@ -112,7 +119,7 @@ export default function CoursesPage() {
     name: string;
     color: string;
     max_drivers: string;
-    carrier: CourseCarrier;
+    carrierId: string;
     summary_title: string;
     principal_invoice_address_id: string;
     counterparty_invoice_address_id: string;
@@ -120,7 +127,7 @@ export default function CoursesPage() {
     name: "",
     color: COLORS[0],
     max_drivers: "1",
-    carrier: "OTHER",
+    carrierId: "",
     summary_title: "",
     principal_invoice_address_id: "",
     counterparty_invoice_address_id: "",
@@ -213,16 +220,18 @@ export default function CoursesPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [coursesRes, usersRes, ratesRes, invoiceAddressesRes] = await Promise.all([
+      const [coursesRes, usersRes, ratesRes, invoiceAddressesRes, carriersRes] = await Promise.all([
         apiFetch<{ courses: Course[] }>("/api/admin/courses"),
         apiFetch<{ drivers: Driver[] }>("/api/admin/users"),
         apiFetch<{ rates: CourseRate[] }>("/api/admin/course-rates"),
         apiFetch<{ addresses: InvoiceAddress[] }>("/api/admin/invoice-addresses"),
+        apiFetch<{ carriers: { id: string; name: string; code: string | null }[] }>("/api/admin/carriers"),
       ]);
       setCourses(coursesRes.courses);
       setDrivers(usersRes.drivers.filter((d) => d.role === "DRIVER"));
       setRates(sortRatesByCourses(ratesRes.rates ?? [], coursesRes.courses));
       setInvoiceAddresses(invoiceAddressesRes.addresses ?? []);
+      setCarriers((carriersRes.carriers ?? []).map((c) => ({ id: c.id, name: c.name, code: c.code ?? null })));
       setInitialLoaded(true);
     } catch (e) {
       console.error(e);
@@ -247,7 +256,8 @@ export default function CoursesPage() {
           name: newCourse.name.trim(),
           color: newCourse.color,
           max_drivers: Math.max(1, parseInt(newCourse.max_drivers, 10) || 1),
-          carrier: newCourse.carrier,
+          carrier_id: newCourse.carrierId || null,
+          carrier: legacyCarrierOf(newCourse.carrierId),
           summary_title: newCourse.summary_title.trim() ? newCourse.summary_title.trim() : null,
           principal_invoice_address_id: newCourse.principal_invoice_address_id || null,
           counterparty_invoice_address_id: newCourse.counterparty_invoice_address_id || null,
@@ -283,7 +293,7 @@ export default function CoursesPage() {
         name: "",
         color: COLORS[0],
         max_drivers: "1",
-        carrier: "OTHER",
+        carrierId: "",
         summary_title: "",
         principal_invoice_address_id: "",
         counterparty_invoice_address_id: "",
@@ -311,7 +321,7 @@ export default function CoursesPage() {
       name: course.name,
       color: course.color || COLORS[0],
       max_drivers: String(Math.max(1, course.max_drivers ?? 1)),
-      carrier: course.carrier === "YAMATO" || course.carrier === "AMAZON" ? course.carrier : "OTHER",
+      carrierId: course.carrier_id ?? "",
       summary_title: course.summary_title ?? "",
         principal_invoice_address_id: course.principal_invoice_address_id ?? "",
         counterparty_invoice_address_id: course.counterparty_invoice_address_id ?? "",
@@ -330,7 +340,8 @@ export default function CoursesPage() {
           name: editForm.name.trim(),
           color: editForm.color,
           max_drivers: Math.max(1, parseInt(editForm.max_drivers, 10) || 1),
-          carrier: editForm.carrier,
+          carrier_id: editForm.carrierId || null,
+          carrier: legacyCarrierOf(editForm.carrierId),
           summary_title: editForm.summary_title.trim() ? editForm.summary_title.trim() : null,
           principal_invoice_address_id: editForm.principal_invoice_address_id || null,
           counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
@@ -341,7 +352,8 @@ export default function CoursesPage() {
         name: editForm.name.trim(),
         color: editForm.color,
         max_drivers: Math.max(1, parseInt(editForm.max_drivers, 10) || 1),
-        carrier: editForm.carrier,
+        carrier: legacyCarrierOf(editForm.carrierId),
+        carrier_id: editForm.carrierId || null,
         summary_title: editForm.summary_title.trim() ? editForm.summary_title.trim() : null,
         principal_invoice_address_id: editForm.principal_invoice_address_id || null,
         counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
@@ -516,57 +528,7 @@ export default function CoursesPage() {
           ドライバーとコースの紐付けは「ユーザー管理」で行います
         </p>
 
-        {/* コース単価 */}
-        {rates.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-base font-semibold text-slate-800 mb-3">コース単価</h2>
-            <div className="overflow-x-auto border border-slate-200 rounded">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium text-slate-700">コース</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-700">宅急便 売上</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-700">宅急便 利益</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-700">宅急便 支払</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-700">ネコポス 売上</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-700">ネコポス 利益</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-700">ネコポス 支払</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-700">固定 売上</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-700">固定 利益</th>
-                    <th className="px-3 py-2 w-16" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rates.map((r) => (
-                    <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50/50">
-                      <td className="px-3 py-2">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: (r.courses as { color?: string })?.color ?? "#94a3b8" }} />
-                          {(r.courses as { name?: string })?.name ?? "-"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-right">{r.takuhaibin_revenue}円</td>
-                      <td className="px-3 py-2 text-right">{r.takuhaibin_profit}円</td>
-                      <td className="px-3 py-2 text-right">{r.takuhaibin_driver_payout}円</td>
-                      <td className="px-3 py-2 text-right">{r.nekopos_revenue}円</td>
-                      <td className="px-3 py-2 text-right">{r.nekopos_profit}円</td>
-                      <td className="px-3 py-2 text-right">{r.nekopos_driver_payout}円</td>
-                      <td className="px-3 py-2 text-right">{r.fixed_revenue > 0 ? `${r.fixed_revenue}円` : "-"}</td>
-                      <td className="px-3 py-2 text-right">{r.fixed_profit > 0 ? `${r.fixed_profit}円` : "-"}</td>
-                      <td className="px-3 py-2">
-                        {canWrite && (
-                          <button onClick={() => setRateEditorCourse({ id: r.course_id, name: (r.courses as { name?: string })?.name ?? "" })} className="text-slate-600 hover:text-slate-900 text-xs">
-                            <FontAwesomeIcon icon={faPenToSquare} />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        {/* 旧・横長の単価テーブルは廃止。単価は各コース行の「単価」ボタン（新エディタ）から編集する。 */}
 
         {loading ? (
           <div className="space-y-2">
@@ -639,13 +601,22 @@ export default function CoursesPage() {
                         style={{ backgroundColor: course.color }}
                       />
                       {canWrite && (
-                        <button
-                          type="button"
-                          onClick={() => openEditCourse(course)}
-                          className="text-xs text-slate-500 hover:text-slate-800 transition-colors"
-                        >
-                          <FontAwesomeIcon icon={faPenToSquare} />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setRateEditorCourse({ id: course.id, name: course.name })}
+                            className="text-xs text-slate-500 hover:text-slate-800 transition-colors px-1.5 py-0.5 rounded border border-slate-200"
+                          >
+                            単価
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditCourse(course)}
+                            className="text-xs text-slate-500 hover:text-slate-800 transition-colors"
+                          >
+                            <FontAwesomeIcon icon={faPenToSquare} />
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -666,13 +637,9 @@ export default function CoursesPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">キャリア</label>
                 <CustomSelect
-                  options={[
-                    { value: "YAMATO", label: "ヤマト" },
-                    { value: "AMAZON", label: "Amazon" },
-                    { value: "OTHER", label: "その他" },
-                  ]}
-                  value={newCourse.carrier}
-                  onChange={(v) => setNewCourse((f) => ({ ...f, carrier: v as CourseCarrier }))}
+                  options={carriers.map((c) => ({ value: c.id, label: c.name }))}
+                  value={newCourse.carrierId}
+                  onChange={(v) => setNewCourse((f) => ({ ...f, carrierId: v }))}
                   clearable={false}
                   size="sm"
                 />
@@ -804,13 +771,9 @@ export default function CoursesPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">キャリア</label>
                 <CustomSelect
-                  options={[
-                    { value: "YAMATO", label: "ヤマト" },
-                    { value: "AMAZON", label: "Amazon" },
-                    { value: "OTHER", label: "その他" },
-                  ]}
-                  value={editForm.carrier}
-                  onChange={(v) => setEditForm((f) => ({ ...f, carrier: v as CourseCarrier }))}
+                  options={carriers.map((c) => ({ value: c.id, label: c.name }))}
+                  value={editForm.carrierId}
+                  onChange={(v) => setEditForm((f) => ({ ...f, carrierId: v }))}
                   clearable={false}
                   size="sm"
                 />

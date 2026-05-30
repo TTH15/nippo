@@ -543,20 +543,31 @@ export default function ShiftsPage() {
     return shift?.driver_id ?? null;
   };
 
+  /** その日に当該ドライバーが割り当てられている全コース（複数シフト対応） */
+  const findDriverPlacementsOnDate = (
+    localMap: Map<string, string | null>,
+    date: string,
+    driverId: string,
+  ): { courseId: string; slot: number }[] => {
+    const out: { courseId: string; slot: number }[] = [];
+    for (const c of courses) {
+      const maxSlots = Math.max(1, c.max_drivers ?? 1);
+      for (let s = 1; s <= maxSlots; s++) {
+        if (getEffectiveIdFromMap(localMap, date, c.id, s) === driverId) {
+          out.push({ courseId: c.id, slot: s });
+        }
+      }
+    }
+    return out;
+  };
+
+  /** 車両など「1日1台」前提のロジック用の代表 placement（先頭コース） */
   const findDriverPlacementOnDate = (
     localMap: Map<string, string | null>,
     date: string,
     driverId: string,
   ): { courseId: string; slot: number } | null => {
-    for (const c of courses) {
-      const maxSlots = Math.max(1, c.max_drivers ?? 1);
-      for (let s = 1; s <= maxSlots; s++) {
-        if (getEffectiveIdFromMap(localMap, date, c.id, s) === driverId) {
-          return { courseId: c.id, slot: s };
-        }
-      }
-    }
-    return null;
+    return findDriverPlacementsOnDate(localMap, date, driverId)[0] ?? null;
   };
 
   /** 親 shift 行の vehicle_id を解決（車両選択はドライバー×日単位だが保存はシフト行） */
@@ -638,26 +649,22 @@ export default function ShiftsPage() {
     return false;
   };
 
-  /** その日の当該ドライバーの行をいったん空けたあと、指定コースに空きがあるか */
-  const canAssignDriverToCourseAfterClearing = (
+  /** 指定コースに当該ドライバーを「追加」できるか（既存割当は維持） */
+  const canAddDriverToCourse = (
     date: string,
     driverId: string,
     courseId: string,
     baseMap: Map<string, string | null>,
   ): boolean => {
-    const cleared = new Map(baseMap);
-    for (const c of courses) {
-      const maxSlots = Math.max(1, c.max_drivers ?? 1);
-      for (let s = 1; s <= maxSlots; s++) {
-        if (getEffectiveIdFromMap(cleared, date, c.id, s) === driverId) {
-          cleared.set(getCellKey(date, c.id, s), null);
-        }
-      }
+    // すでにそのコースに入っているなら追加不可（重複防止）
+    if (findDriverPlacementsOnDate(baseMap, date, driverId).some((p) => p.courseId === courseId)) {
+      return false;
     }
-    return hasFreeSlotOnCourse(date, courseId, cleared);
+    return hasFreeSlotOnCourse(date, courseId, baseMap);
   };
 
-  const handleCellClick = (date: string, driverId: string, courseId: string) => {
+  /** ドライバーを指定コースへ追加（他コースの割当は消さない＝複数シフト） */
+  const addDriverToCourseOnDate = (date: string, driverId: string, courseId: string) => {
     if (!canWrite) return;
     const driver = drivers.find((d) => d.id === driverId);
     if (!driver) return;
@@ -673,18 +680,12 @@ export default function ShiftsPage() {
       return;
     }
 
-    const placementBefore = findDriverPlacementOnDate(localShifts, date, driverId);
-    if (placementBefore?.courseId === courseId) {
-      setLocalShifts((prev) => {
-        const next = new Map(prev);
-        next.set(getCellKey(date, courseId, placementBefore.slot), null);
-        return next;
-      });
-      setHasChanges(true);
+    // すでに同じコースに入っているなら何もしない
+    if (findDriverPlacementsOnDate(localShifts, date, driverId).some((p) => p.courseId === courseId)) {
       return;
     }
 
-    if (!canAssignDriverToCourseAfterClearing(date, driverId, courseId, localShifts)) {
+    if (!hasFreeSlotOnCourse(date, courseId, localShifts)) {
       setErrorState({
         title: "割り当てできません",
         message: "このコースの定員に達しているため、割り当てできません。",
@@ -694,16 +695,6 @@ export default function ShiftsPage() {
 
     setLocalShifts((prev) => {
       const next = new Map(prev);
-
-      for (const c of courses) {
-        const maxSlots = Math.max(1, c.max_drivers ?? 1);
-        for (let s = 1; s <= maxSlots; s++) {
-          if (getEffectiveIdFromMap(next, date, c.id, s) === driverId) {
-            next.set(getCellKey(date, c.id, s), null);
-          }
-        }
-      }
-
       const courseObj = courses.find((c) => c.id === courseId)!;
       const maxSlots = Math.max(1, courseObj.max_drivers ?? 1);
       let chosenSlot: number | null = null;
@@ -721,6 +712,33 @@ export default function ShiftsPage() {
     setHasChanges(true);
   };
 
+  /** ドライバーを指定コースから外す（他コースの割当は維持。最後の1件なら車両もクリア） */
+  const removeDriverFromCourseOnDate = (date: string, driverId: string, courseId: string) => {
+    if (!canWrite) return;
+    const wasLast = findDriverPlacementsOnDate(localShifts, date, driverId).length <= 1;
+    setLocalShifts((prev) => {
+      const next = new Map(prev);
+      const c = courses.find((x) => x.id === courseId);
+      if (c) {
+        const maxSlots = Math.max(1, c.max_drivers ?? 1);
+        for (let s = 1; s <= maxSlots; s++) {
+          if (getEffectiveIdFromMap(next, date, c.id, s) === driverId) {
+            next.set(getCellKey(date, c.id, s), null);
+          }
+        }
+      }
+      return next;
+    });
+    if (wasLast) {
+      setLocalVehicleByDriverDay((prev) => {
+        const next = new Map(prev);
+        next.set(driverDayVehicleKey(date, driverId), null);
+        return next;
+      });
+    }
+    setHasChanges(true);
+  };
+
   const saveAll = async () => {
     if (!canWrite) return;
     if (localShifts.size === 0 && localVehicleByDriverDay.size === 0) return;
@@ -731,8 +749,10 @@ export default function ShiftsPage() {
       if (bar < 0) return;
       const dStr = dk.slice(0, bar);
       const drvId = dk.slice(bar + 1);
-      const p = findDriverPlacementOnDate(localShifts, dStr, drvId);
-      if (p) shiftKeysTodo.add(getCellKey(dStr, p.courseId, p.slot));
+      // 車両は1日1台。当該ドライバーの全コース行へ同じ車両を保存する
+      for (const p of findDriverPlacementsOnDate(localShifts, dStr, drvId)) {
+        shiftKeysTodo.add(getCellKey(dStr, p.courseId, p.slot));
+      }
     });
 
     if (shiftKeysTodo.size === 0) return;
@@ -811,36 +831,14 @@ export default function ShiftsPage() {
       .sort();
   };
 
-  const clearDriverOnDate = (date: string, driverId: string) => {
-    if (!canWrite) return;
-    setLocalShifts((prev) => {
-      const next = new Map(prev);
-      for (const c of courses) {
-        const maxSlots = Math.max(1, c.max_drivers ?? 1);
-        for (let s = 1; s <= maxSlots; s++) {
-          if (getEffectiveIdFromMap(next, date, c.id, s) === driverId) {
-            next.set(getCellKey(date, c.id, s), null);
-          }
-        }
-      }
-      return next;
-    });
-    setLocalVehicleByDriverDay((prev) => {
-      const next = new Map(prev);
-      next.set(driverDayVehicleKey(date, driverId), null);
-      return next;
-    });
-    setHasChanges(true);
-  };
-
-  /** 未割当セル用: このドライバーが選べるコース（マスタ＋定員あり） */
-  const getSelectableCoursesForDriverOnDate = (date: string, driverId: string): Course[] => {
+  /** 「＋コース」追加用: このドライバーがまだ入っていない＆定員に空きがあるコース */
+  const getAddableCoursesForDriverOnDate = (date: string, driverId: string): Course[] => {
     const driver = drivers.find((d) => d.id === driverId);
     if (!driver) return [];
     const allowed = new Set(getDriverCourseIds(driver));
-    return courses.filter(
-      (c) => allowed.has(c.id) && canAssignDriverToCourseAfterClearing(date, driverId, c.id, localShifts),
-    );
+    return courses
+      .filter((c) => allowed.has(c.id) && canAddDriverToCourse(date, driverId, c.id, localShifts))
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   };
 
   /** ローカル編集により、このセルが未保存になるか（コースまたは車両） */
@@ -1098,27 +1096,21 @@ export default function ShiftsPage() {
                         {displayDates.map((date) => {
                           const tone = shiftDayTone(date);
                           const off = isDriverOffDay(driver.id, date);
-                          const placement = findDriverPlacementOnDate(localShifts, date, driver.id);
-                          const selectedCourseId = placement?.courseId ?? "";
-                          const assignedCourse = selectedCourseId
-                            ? courses.find((c) => c.id === selectedCourseId)
-                            : null;
+                          const placements = findDriverPlacementsOnDate(localShifts, date, driver.id);
+                          const assignedCourses = placements
+                            .map((p) => courses.find((c) => c.id === p.courseId))
+                            .filter((c): c is Course => Boolean(c))
+                            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+                          const hasAny = placements.length > 0;
+                          // 車両は「1日1台」前提。代表 placement（先頭コース）で読み書きする
+                          const placement = placements[0] ?? null;
                           const dirty = isDateDriverDirty(date, driver.id);
 
-                          const baseSelect = getSelectableCoursesForDriverOnDate(date, driver.id);
-                          const optionMap = new Map<string, Course>();
-                          for (const c of baseSelect) optionMap.set(c.id, c);
-                          if (selectedCourseId) {
-                            const cur = courses.find((c) => c.id === selectedCourseId);
-                            if (cur) optionMap.set(cur.id, cur);
-                          }
-                          const sortedOptions = Array.from(optionMap.values()).sort(
-                            (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
-                          );
-                          const selectOptions = [
-                            { value: "", label: "—" },
-                            ...sortedOptions.map((c) => ({ value: c.id, label: courseShiftLabel(c) })),
-                          ];
+                          const addable = getAddableCoursesForDriverOnDate(date, driver.id);
+                          const addOptions = addable.map((c) => ({
+                            value: c.id,
+                            label: courseShiftLabel(c),
+                          }));
 
                           const prow =
                             placement
@@ -1157,7 +1149,6 @@ export default function ShiftsPage() {
                             otherPlates = [hoverVehiclePlate, ...otherPlates].sort(byPlateLine);
                           }
 
-                          const courseTitle = assignedCourse ? courseAbbrevTooltip(assignedCourse) : undefined;
                           const vehicleTitle =
                             hoverVehiclePlate && currentVid ? formatPlateOneLine(hoverVehiclePlate) : undefined;
 
@@ -1176,41 +1167,35 @@ export default function ShiftsPage() {
                                 </div>
                               ) : (
                                 <div className="flex flex-col gap-0.5">
-                                  <div
-                                    title={courseTitle}
-                                    className="min-w-0 w-full shrink-0 overflow-hidden rounded-lg p-px"
-                                    style={
-                                      assignedCourse
-                                        ? courseCellSurface(assignedCourse.color)
-                                        : {
-                                            background: "rgba(248, 250, 252, 0.96)",
-                                            boxShadow: "inset 0 0 0 1px rgba(203, 213, 225, 0.85)",
+                                  {assignedCourses.map((course) => (
+                                    <div
+                                      key={course.id}
+                                      title={courseAbbrevTooltip(course)}
+                                      className={cn(
+                                        "flex items-center gap-0.5 min-w-0 w-full shrink-0 overflow-hidden rounded-[6px] px-1 py-0.5",
+                                        dirty && "outline outline-2 -outline-offset-2 outline-amber-400",
+                                      )}
+                                      style={courseCellSurface(course.color)}
+                                    >
+                                      <span className="flex-1 min-w-0 truncate text-[11px] font-semibold text-slate-900 leading-tight">
+                                        {courseShiftLabel(course)}
+                                      </span>
+                                      {canWrite ? (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            removeDriverFromCourseOnDate(date, driver.id, course.id)
                                           }
-                                    }
-                                  >
-                                    <CustomSelect
-                                      options={selectOptions}
-                                      value={selectedCourseId}
-                                      onChange={(v) => {
-                                        if (v === "") clearDriverOnDate(date, driver.id);
-                                        else handleCellClick(date, driver.id, v);
-                                      }}
-                                      placeholder="—"
-                                      clearable={false}
-                                      disabled={!canWrite}
-                                      size="xs"
-                                      className={[
-                                        "[&_button]:rounded-[5px] [&_button]:border-0 [&_button]:bg-white/55 [&_button]:shadow-none",
-                                        dirty && "[&_button]:ring-1 [&_button]:ring-amber-400 [&_button]:bg-amber-50/95",
-                                        Boolean(selectedCourseId) &&
-                                          !dirty &&
-                                          "[&_button]:bg-white/60",
-                                      ]
-                                        .filter(Boolean)
-                                        .join(" ")}
-                                    />
-                                  </div>
-                                  {selectedCourseId ? (
+                                          className="shrink-0 leading-none text-[13px] text-slate-500 hover:text-rose-600 px-0.5"
+                                          title="このコースを外す"
+                                          aria-label="このコースを外す"
+                                        >
+                                          ×
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  ))}
+                                  {hasAny ? (
                                     <div className="min-w-0 w-full shrink-0 overflow-hidden">
                                       <ShiftVehiclePlatePicker
                                         valueId={currentVid}
@@ -1237,6 +1222,28 @@ export default function ShiftsPage() {
                                         disabled={!canWrite}
                                         dirty={dirty}
                                         title={vehicleTitle}
+                                      />
+                                    </div>
+                                  ) : null}
+                                  {canWrite && addOptions.length > 0 ? (
+                                    <div
+                                      className="min-w-0 w-full shrink-0 overflow-hidden rounded-lg p-px"
+                                      style={{
+                                        background: "rgba(248, 250, 252, 0.96)",
+                                        boxShadow: "inset 0 0 0 1px rgba(203, 213, 225, 0.85)",
+                                      }}
+                                    >
+                                      <CustomSelect
+                                        options={addOptions}
+                                        value=""
+                                        onChange={(v) => {
+                                          if (v) addDriverToCourseOnDate(date, driver.id, v);
+                                        }}
+                                        placeholder={hasAny ? "＋ 追加" : "＋ コース"}
+                                        clearable={false}
+                                        disabled={!canWrite}
+                                        size="xs"
+                                        className="[&_button]:rounded-[5px] [&_button]:border-0 [&_button]:bg-white/55 [&_button]:shadow-none"
                                       />
                                     </div>
                                   ) : null}
@@ -1444,10 +1451,12 @@ export default function ShiftsPage() {
                     </td>
                     {displayDates.map((date) => {
                       const ch = exportDayChrome(date);
-                      const placement = findDriverPlacementOnDate(localShifts, date, driver.id);
-                      const course = placement
-                        ? courses.find((c) => c.id === placement.courseId)
-                        : null;
+                      const exPlacements = findDriverPlacementsOnDate(localShifts, date, driver.id);
+                      const exCourses = exPlacements
+                        .map((p) => courses.find((c) => c.id === p.courseId))
+                        .filter((c): c is Course => Boolean(c))
+                        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+                      const placement = exPlacements[0] ?? null;
                       if (isDriverOffDay(driver.id, date)) {
                         return (
                           <td
@@ -1476,7 +1485,7 @@ export default function ShiftsPage() {
                           </td>
                         );
                       }
-                      if (!course) {
+                      if (exCourses.length === 0) {
                         return (
                           <td
                             key={`ex-${driver.id}-${date}`}
@@ -1535,27 +1544,31 @@ export default function ShiftsPage() {
                             borderRight: "1px solid #e5e7eb",
                           }}
                         >
-                          <div style={{ height: `${EX_CELL_CONTENT_H}px` }}>
-                            <div
-                              style={{
-                                boxSizing: "border-box",
-                                borderRadius: "6px",
-                                padding: "0 6px",
-                                height: `${EX_COURSE_H}px`,
-                                lineHeight: `${EX_COURSE_H}px`,
-                                fontSize: "13px",
-                                fontWeight: 700,
-                                color: "#0f172a",
-                                textAlign: "center",
-                                overflow: "hidden",
-                                whiteSpace: "nowrap",
-                                textOverflow: "ellipsis",
-                                ...courseCellSurfaceExport(course.color),
-                              }}
-                              title={`${courseShiftLabel(course)}｜${course.name}`}
-                            >
-                              {courseShiftLabel(course)}
-                            </div>
+                          <div style={{ minHeight: `${EX_CELL_CONTENT_H}px` }}>
+                            {exCourses.map((course, ci) => (
+                              <div
+                                key={course.id}
+                                style={{
+                                  boxSizing: "border-box",
+                                  borderRadius: "6px",
+                                  padding: "0 6px",
+                                  marginTop: ci === 0 ? 0 : `${EX_CELL_GAP}px`,
+                                  height: `${EX_COURSE_H}px`,
+                                  lineHeight: `${EX_COURSE_H}px`,
+                                  fontSize: "13px",
+                                  fontWeight: 700,
+                                  color: "#0f172a",
+                                  textAlign: "center",
+                                  overflow: "hidden",
+                                  whiteSpace: "nowrap",
+                                  textOverflow: "ellipsis",
+                                  ...courseCellSurfaceExport(course.color),
+                                }}
+                                title={`${courseShiftLabel(course)}｜${course.name}`}
+                              >
+                                {courseShiftLabel(course)}
+                              </div>
+                            ))}
                             <div
                               style={{
                                 boxSizing: "border-box",

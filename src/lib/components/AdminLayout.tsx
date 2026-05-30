@@ -16,10 +16,10 @@ import {
   faFolderTree,
   faFileLines,
   faListUl,
-  faPlus,
   faRightFromBracket,
   faMoneyBill1Wave,
   faBuilding,
+  faTrophy,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { apiFetch, clearAuth, getStoredDriver } from "@/lib/api";
@@ -32,45 +32,31 @@ type NavItem =
   | { label: string; icon?: IconDefinition; children: NavChild[]; href?: undefined };
 
 const navItems: NavItem[] = [
+  { href: "/admin", label: "ダッシュボード", icon: faChartLine },
+  { href: "/admin/sales", label: "売上", icon: faMoneyBill1Wave },
+  { href: "/admin/daily", label: "報告", icon: faFileLines },
+  { href: "/admin/shifts", label: "シフト", icon: faCalendar },
   {
-    label: "売上",
-    icon: faChartLine,
-    children: [
-      { href: "/admin/sales?tab=analytics", label: "アナリティクス", icon: faChartLine },
-      { href: "/admin/sales?tab=summary", label: "集計", icon: faFileLines },
-      { href: "/admin/sales?tab=log", label: "ログ", icon: faListUl },
-    ],
-  },
-  {
-    label: "諸報告",
+    label: "管理",
     icon: faFolderTree,
     children: [
-      { href: "/admin/daily", label: "日報報告", icon: faCalendar },
-      { href: "/admin/misc-reports/others", label: "その他の報告", icon: faFileLines },
+      { href: "/admin/users", label: "ドライバー", icon: faUsers },
+      { href: "/admin/vehicles", label: "車両", icon: faCar },
+      { href: "/admin/carriers", label: "キャリア", icon: faRoute },
+      { href: "/admin/courses", label: "コース", icon: faRoute },
+      { href: "/admin/counterparties", label: "取引先", icon: faBuilding },
     ],
   },
   {
-    label: "ドライバー",
-    icon: faUsers,
-    children: [
-      { href: "/admin/users", label: "ドライバー管理", icon: faUsers },
-      { href: "/admin/shifts", label: "シフト", icon: faCalendar },
-      { href: "/admin/payments", label: "ペイメント", icon: faMoneyBill1Wave },
-    ],
-  },
-  { href: "/admin/vehicles", label: "車両", icon: faCar },
-  { href: "/admin/carriers", label: "キャリア", icon: faFolderTree },
-  { href: "/admin/courses", label: "コース", icon: faRoute },
-  { href: "/admin/counterparties", label: "取引先", icon: faBuilding },
-  {
-    label: "請求書",
+    label: "収支",
     icon: faFileInvoice,
     children: [
-      { href: "/admin/invoices", label: "保存済", icon: faFileLines },
-      { href: "/admin/invoices/new", label: "新規作成", icon: faPlus },
-      { href: "/admin/invoices/addressbook", label: "アドレス帳", icon: faAddressBook },
+      { href: "/admin/payments", label: "ペイメント", icon: faMoneyBill1Wave },
+      { href: "/admin/invoices", label: "請求書", icon: faAddressBook },
+      { href: "/admin/adjustments", label: "調整履歴", icon: faListUl },
     ],
   },
+  { href: "/admin/events", label: "イベント", icon: faTrophy },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {

@@ -798,6 +798,9 @@ export default function SalesPage() {
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [midnights, setMidnights] = useState<MidnightRow[]>([]);
   const [summaryCourses, setSummaryCourses] = useState<SummaryCourseRow[]>([]);
+  // 集計テーブル(unit駆動)の動的データ
+  const [summaryUnits, setSummaryUnits] = useState<{ id: string; name: string; billingType: string }[]>([]);
+  const [summaryByDriver, setSummaryByDriver] = useState<Record<string, Record<string, { total: number; byDate: Record<string, number> }>>>({});
   const [courseShifts, setCourseShifts] = useState<Record<string, { driver_id: string; date: string }[]>>({});
   const [prevTotals, setPrevTotals] = useState<{ total: number; profit: number } | null>(null);
   const [loadingPrev, setLoadingPrev] = useState(false);
@@ -992,6 +995,23 @@ export default function SalesPage() {
       });
   }, [startIso, endIso, tab, driverIdQuery]);
 
+  // 集計テーブル(unit駆動)の動的データを取得
+  useEffect(() => {
+    if (!startIso || !endIso) return;
+    apiFetch<{
+      units: { id: string; name: string; billingType: string }[];
+      byDriver: Record<string, Record<string, { total: number; byDate: Record<string, number> }>>;
+    }>(`/api/admin/reports-summary?start=${startIso}&end=${endIso}${driverIdQuery}`)
+      .then((res) => {
+        setSummaryUnits(res.units ?? []);
+        setSummaryByDriver(res.byDriver ?? {});
+      })
+      .catch(() => {
+        setSummaryUnits([]);
+        setSummaryByDriver({});
+      });
+  }, [startIso, endIso, driverIdQuery]);
+
   useEffect(() => {
     if (!startIso || !endIso) return;
     // 会社帰属ログの合計を全タブで使うため、日付範囲が決まったら常に取得する
@@ -1161,6 +1181,20 @@ export default function SalesPage() {
     return counts;
   }, [filteredMidnights]);
 
+  // テーブルビュー用: 期間内に一度もシフトが無く、かつ集計0のドライバー行は隠す（すっきり表示）。
+  // 行の形（ドライバー別）は維持し、実績ゼロ・未稼働の行だけ除外する。
+  const summaryRowDrivers = useMemo(() => {
+    const driversWithShift = new Set<string>();
+    Object.values(courseShifts ?? {}).forEach((list) =>
+      (list ?? []).forEach((s) => driversWithShift.add(s.driver_id)),
+    );
+    return (filteredDrivers ?? []).filter((d) => {
+      const unitData = summaryByDriver[d.id];
+      const hasData = unitData ? Object.values(unitData).some((c) => c.total !== 0) : false;
+      return hasData || driversWithShift.has(d.id);
+    });
+  }, [filteredDrivers, summaryByDriver, courseShifts]);
+
   // 集計表示タイトル付きコースごとの (driver_id, date) セット
   const courseShiftSets = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -1279,17 +1313,36 @@ export default function SalesPage() {
           </div>
         </div>
 
-        {/* Tabs */}
+        {/* 主タブ: ダッシュボード（グラフ/テーブル）/ 売上調整(=ログ) */}
         <UnderlineTabs
           tabs={[
-            { value: "analytics", label: "アナリティクス" },
-            { value: "summary", label: "集計" },
-            { value: "log", label: "ログ" },
+            { value: "dashboard", label: "ダッシュボード" },
+            { value: "log", label: "売上調整" },
           ]}
-          value={tab}
-          onChange={(v) => setTab(v as Tab)}
-          className="mb-4"
+          value={tab === "log" ? "log" : "dashboard"}
+          onChange={(v) => setTab(v === "log" ? "log" : "analytics")}
+          className="mb-3"
         />
+
+        {/* ダッシュボード内のビュー切替（グラフ / テーブル） */}
+        {tab !== "log" && (
+          <div className="inline-flex rounded-md border border-slate-200 bg-white p-0.5 mb-4">
+            <button
+              type="button"
+              onClick={() => setTab("analytics")}
+              className={`px-3 py-1.5 text-xs rounded transition-colors ${tab === "analytics" ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"}`}
+            >
+              グラフ
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("summary")}
+              className={`px-3 py-1.5 text-xs rounded transition-colors ${tab === "summary" ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"}`}
+            >
+              テーブル
+            </button>
+          </div>
+        )}
 
         {/* 日付範囲選択 + キャリア・コースフィルタ（アナリティクス / 集計 共通） */}
         <div className="flex flex-col gap-4 mb-6">
@@ -1389,8 +1442,8 @@ export default function SalesPage() {
                       </table>
                     </div>
                   </div>
-                ) : filteredDrivers.length === 0 ? (
-                  <p className="text-sm text-slate-500 py-8">ドライバーがいません</p>
+                ) : summaryRowDrivers.length === 0 ? (
+                  <p className="text-sm text-slate-500 py-8">この期間に稼働・実績のあるドライバーがいません</p>
                 ) : (
                   <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
                     <div className="overflow-auto">
@@ -1407,79 +1460,66 @@ export default function SalesPage() {
                               </th>
                             ))}
                             <th className="sticky right-0 z-20 bg-slate-50 border-b border-l border-slate-200 px-3 py-2 text-right min-w-[96px]">
-                              <div className="text-right">
-                                <div>月計</div>
-                                <div className="text-[10px] text-slate-400">ミッド</div>
-                              </div>
+                              <div className="text-right">月計</div>
                             </th>
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredDrivers.map((drv) => {
-                            const t = driverTotals.get(drv.id) ?? { tk: 0, nk: 0, total: 0 };
-                            const midDays = midnightCounts.get(drv.id) ?? 0;
+                          {summaryRowDrivers.map((drv) => {
+                            const unitData = summaryByDriver[drv.id] ?? {};
+                            const usedUnits = summaryUnits.filter((u) => (unitData[u.id]?.total ?? 0) !== 0);
                             return (
                               <Fragment key={drv.id}>
-                                <tr className="border-t border-slate-100">
-                                  <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-2 text-left">
-                                    <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>
-                                  </td>
-                                  <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-2 text-right">
-                                    <div className="text-[10px] text-slate-400">宅</div>
-                                    <div className="text-[10px] text-slate-400">ネ</div>
-                                  </td>
-                                  {daysInRange.map((d) => {
-                                    const key = `${drv.id}:${d.iso}`;
-                                    const isMidnight = midnightSet.has(key);
-                                    const r = reportMap.get(key);
-                                    const tk = r?.takuhaibin_completed ?? 0;
-                                    const nk = r?.nekopos_completed ?? 0;
-                                    const tkRet = r?.takuhaibin_returned ?? 0;
-                                    const nkRet = r?.nekopos_returned ?? 0;
-                                    const has = tk + nk > 0 || isMidnight;
+                                {usedUnits.length === 0 ? (
+                                  <tr className="border-t border-slate-100">
+                                    <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-2 text-left">
+                                      <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>
+                                    </td>
+                                    <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-2 text-right">
+                                      <div className="text-[10px] text-slate-400">—</div>
+                                    </td>
+                                    {daysInRange.map((d) => (
+                                      <td key={d.iso} className="px-2 py-2 text-center text-slate-300">·</td>
+                                    ))}
+                                    <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-2 text-right text-slate-300">—</td>
+                                  </tr>
+                                ) : (
+                                  usedUnits.map((u, ui) => {
+                                    const cell = unitData[u.id] ?? { total: 0, byDate: {} as Record<string, number> };
+                                    const fixed = u.billingType === "FIXED";
                                     return (
-                                      <td
-                                        key={d.iso}
-                                        className={`px-2 py-2 text-center ${has ? "text-slate-900" : "text-slate-300"}`}
-                                        title={
-                                          isMidnight
-                                            ? "Amazonミッドナイト"
-                                            : `宅急便 配完 ${tk} / 持戻 ${tkRet}\nネコポス 配完 ${nk} / 持戻 ${nkRet}`
-                                        }
-                                      >
-                                        {isMidnight ? (
-                                          <div className="text-[11px] font-semibold text-indigo-600">ミッド</div>
-                                        ) : (
-                                          <>
-                                            <div className="tabular-nums text-[11px] font-semibold">{tk || "·"}</div>
-                                            <div className="tabular-nums text-[11px] font-semibold">{nk || "·"}</div>
-                                          </>
-                                        )}
-                                      </td>
+                                      <tr key={`${drv.id}-${u.id}`} className={ui === 0 ? "border-t border-slate-100" : ""}>
+                                        <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-1.5 text-left">
+                                          {ui === 0 && <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>}
+                                        </td>
+                                        <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-1.5 text-right">
+                                          <div className="text-[10px] text-slate-500 whitespace-nowrap">{u.name}</div>
+                                        </td>
+                                        {daysInRange.map((d) => {
+                                          const v = cell.byDate[d.iso] ?? 0;
+                                          return (
+                                            <td key={d.iso} className={`px-2 py-1.5 text-center ${v ? "text-slate-900" : "text-slate-300"}`}>
+                                              {fixed ? (
+                                                v ? <span className="text-[11px] font-semibold text-indigo-600">〇</span> : <span className="text-slate-300">·</span>
+                                              ) : (
+                                                <span className="tabular-nums text-[11px] font-semibold">{v || "·"}</span>
+                                              )}
+                                            </td>
+                                          );
+                                        })}
+                                        <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-1.5 text-right">
+                                          <span className="tabular-nums text-[11px] font-semibold text-slate-900">{fixed ? `${cell.total}日` : cell.total}</span>
+                                        </td>
+                                      </tr>
                                     );
-                                  })}
-                                  <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-2 text-right">
-                                    <div className="flex items-center justify-end gap-3">
-                                      <div className="text-right">
-                                        <div className="tabular-nums font-semibold text-slate-900">
-                                          {t.tk}
-                                        </div>
-                                        <div className="tabular-nums font-semibold text-slate-900 mt-0.5">
-                                          {t.nk}
-                                        </div>
-                                      </div>
-                                      <div className="w-10 text-[10px] font-semibold text-slate-900 whitespace-nowrap">
-                                        {midDays}日
-                                      </div>
-                                    </div>
-                                  </td>
-                                </tr>
+                                  })
+                                )}
                                 {summaryCourses.length > 0 &&
                                   summaryCourses.map((sc) => {
                                     const shiftSet = courseShiftSets.get(sc.id) ?? new Set<string>();
                                     const shiftCountByDriver = courseShiftCounts.get(sc.id) ?? new Map<string, number>();
                                     const days = shiftCountByDriver.get(drv.id) ?? 0;
-                                    const hasAny = days > 0;
+                                    if (days === 0) return null; // 0シフトのコース行は非表示（すっきり表示）
                                     return (
                                       <tr
                                         key={`${drv.id}-${sc.id}`}
@@ -1512,7 +1552,7 @@ export default function SalesPage() {
                                         })}
                                         <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-1.5 text-right">
                                           <div className="tabular-nums text-[11px] font-semibold text-slate-900">
-                                            {hasAny ? `${days}日` : "0日"}
+                                            {days}日
                                           </div>
                                         </td>
                                       </tr>
