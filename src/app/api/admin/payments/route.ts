@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { loadAggregationData } from "@/server/aggregation/load";
+import { buildContext, buildContributions, sumBy } from "@/server/aggregation/compute";
 
 export const dynamic = "force-dynamic";
 
-function getMonthRange(monthParam: string | null): {
-  month: string;
-  startDate: string;
-  endDate: string;
-} {
+function getMonthRange(monthParam: string | null): { month: string; startDate: string; endDate: string } {
   let year: number;
   let month: number;
   const now = new Date();
@@ -26,20 +24,8 @@ function getMonthRange(monthParam: string | null): {
   }
   const mm = String(month).padStart(2, "0");
   const lastDay = new Date(year, month, 0).getDate();
-  return {
-    month: `${year}-${mm}`,
-    startDate: `${year}-${mm}-01`,
-    endDate: `${year}-${mm}-${String(lastDay).padStart(2, "0")}`,
-  };
+  return { month: `${year}-${mm}`, startDate: `${year}-${mm}-01`, endDate: `${year}-${mm}-${String(lastDay).padStart(2, "0")}` };
 }
-
-type CourseRate = {
-  course_id: string;
-  takuhaibin_driver_payout: number;
-  nekopos_driver_payout: number;
-  fixed_revenue: number;
-  fixed_profit: number;
-};
 
 export type DriverPaymentRow = {
   driverId: string;
@@ -54,6 +40,14 @@ export type DriverPaymentRow = {
   net: number;
 };
 
+// ============================================================
+// ドライバー別ペイメント（月次）。新モデル（集計エンジン）で算出。
+//   incomeLog  = 自動算出のドライバー支払（従量+固定）
+//   yamato/amazon/otherIncome = 自動算出のキャリア別支払
+//   adHocDeductions = -(台帳 payout_delta)  ※手当はマイナス控除＝加算
+//   fixedDeductions = driver_fixed_expenses（毎月の固定控除・従来どおり）
+//   net = incomeLog - fixedDeductions - adHocDeductions
+// ============================================================
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
@@ -69,134 +63,31 @@ export async function GET(req: NextRequest) {
     .order("name");
 
   if (driversError || !drivers?.length) {
-    return NextResponse.json({
-      month,
-      startDate,
-      endDate,
-      rows: [] as DriverPaymentRow[],
-    });
+    return NextResponse.json({ month, startDate, endDate, rows: [] as DriverPaymentRow[] });
   }
-
   const driverIds = drivers.map((d: { id: string }) => d.id);
 
-  // コース情報（キャリア判定用）
-  const { data: courses } = await supabase
-    .from("courses")
-    .select("id, name, carrier");
-  const courseMap = new Map<
-    string,
-    { id: string; name: string; carrier?: "YAMATO" | "AMAZON" | "OTHER" | null }
-  >();
-  (courses ?? []).forEach((c: any) => {
-    courseMap.set(c.id, {
-      id: c.id as string,
-      name: (c.name as string) ?? "",
-      carrier: (c.carrier as "YAMATO" | "AMAZON" | "OTHER" | null) ?? null,
-    });
-  });
+  // 自動算出は新モデル(v2)。手動調整(臨時手当/控除)は既存 driver_ad_hoc_expenses を直読み（ハイブリッド）
+  const data = await loadAggregationData(supabase, startDate, endDate);
+  const codeByCarrier = new Map(data.carriers.map((c) => [c.id, c.code]));
+  const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
+  const auto = buildContributions(data.reports, [], ctx);
 
-  // コース別単価（ドライバーへの支払額）
-  const { data: courseRates } = await supabase
-    .from("course_rates")
-    .select(
-      "course_id, takuhaibin_driver_payout, nekopos_driver_payout, fixed_revenue, fixed_profit",
-    );
-  const rateByCourse: Record<string, CourseRate> = {};
-  (courseRates ?? []).forEach((r) => {
-    rateByCourse[(r as any).course_id] = {
-      course_id: (r as any).course_id,
-      takuhaibin_driver_payout: Number((r as any).takuhaibin_driver_payout) || 0,
-      nekopos_driver_payout: Number((r as any).nekopos_driver_payout) || 0,
-      fixed_revenue: Number((r as any).fixed_revenue) || 0,
-      fixed_profit: Number((r as any).fixed_profit) || 0,
-    };
-  });
+  const autoPayoutByDriver = sumBy(auto, (c) => c.driverId);
 
-  // 対象期間のシフト
-  const { data: shifts } = await supabase
-    .from("shifts")
-    .select("shift_date, course_id, driver_id")
-    .gte("shift_date", startDate)
-    .lte("shift_date", endDate);
+  // キャリア別の自動支払
+  const incomeByDriverCarrier = new Map<string, { yamato: number; amazon: number; other: number }>();
+  for (const c of auto) {
+    if (!c.driverId) continue;
+    const cur = incomeByDriverCarrier.get(c.driverId) ?? { yamato: 0, amazon: 0, other: 0 };
+    const code = codeByCarrier.get(c.carrierId ?? "");
+    if (code === "AMAZON") cur.amazon += c.payout;
+    else if (code === "YAMATO") cur.yamato += c.payout;
+    else cur.other += c.payout;
+    incomeByDriverCarrier.set(c.driverId, cur);
+  }
 
-  // 承認済み日報
-  const { data: reports } = await supabase
-    .from("daily_reports")
-    .select(
-      "driver_id, report_date, takuhaibin_completed, nekopos_completed, approved_at",
-    )
-    .gte("report_date", startDate)
-    .lte("report_date", endDate)
-    .not("approved_at", "is", null);
-
-  type ReportRow = NonNullable<typeof reports>[number];
-  const reportMap = new Map<string, ReportRow>();
-  (reports ?? []).forEach((r) =>
-    reportMap.set(`${r.driver_id}:${r.report_date}`, r),
-  );
-
-  const incomeByDriver: Record<string, number> = {};
-  const yamatoByDriver: Record<string, number> = {};
-  const amazonByDriver: Record<string, number> = {};
-  const otherByDriver: Record<string, number> = {};
-  driverIds.forEach((id: string) => {
-    incomeByDriver[id] = 0;
-    yamatoByDriver[id] = 0;
-    amazonByDriver[id] = 0;
-    otherByDriver[id] = 0;
-  });
-
-  (shifts ?? []).forEach((s: any) => {
-    const driverId = s.driver_id as string | null;
-    const date = s.shift_date as string;
-    const courseId = s.course_id as string;
-    if (!driverId || !driverIds.includes(driverId)) return;
-    const rate = rateByCourse[courseId];
-    if (!rate) return;
-    const rep = reportMap.get(`${driverId}:${date}`);
-    if (!rep) return;
-
-    let payout = 0;
-    if (rate.fixed_revenue > 0) {
-      const driverPayout = rate.fixed_revenue - rate.fixed_profit;
-      if (driverPayout > 0) payout = driverPayout;
-    } else {
-      const tkComp = (rep.takuhaibin_completed as number | null) ?? 0;
-      const nkComp = (rep.nekopos_completed as number | null) ?? 0;
-      payout =
-        tkComp * rate.takuhaibin_driver_payout +
-        nkComp * rate.nekopos_driver_payout;
-    }
-
-    if (payout > 0) {
-      incomeByDriver[driverId] =
-        (incomeByDriver[driverId] ?? 0) + payout;
-
-      const course = courseMap.get(courseId);
-      const courseName = course?.name ?? "";
-      const carrier: "YAMATO" | "AMAZON" | "OTHER" =
-        (course?.carrier as "YAMATO" | "AMAZON" | "OTHER" | null) ??
-        (courseName.startsWith("ヤマト")
-          ? "YAMATO"
-          : courseName.startsWith("Amazon") ||
-            courseName.startsWith("アマゾン")
-          ? "AMAZON"
-          : "OTHER");
-
-      if (carrier === "AMAZON") {
-        amazonByDriver[driverId] =
-          (amazonByDriver[driverId] ?? 0) + payout;
-      } else if (carrier === "YAMATO") {
-        yamatoByDriver[driverId] =
-          (yamatoByDriver[driverId] ?? 0) + payout;
-      } else {
-        otherByDriver[driverId] =
-          (otherByDriver[driverId] ?? 0) + payout;
-      }
-    }
-  });
-
-  // 固定経費
+  // 固定控除（毎月）
   const { data: fixedRows } = await supabase
     .from("driver_fixed_expenses")
     .select("driver_id, amount")
@@ -204,61 +95,43 @@ export async function GET(req: NextRequest) {
     .eq("cycle", "MONTHLY")
     .lte("valid_from", endDate)
     .or(`valid_to.is.null,valid_to.gte.${startDate}`);
-
   const fixedByDriver: Record<string, number> = {};
-  driverIds.forEach((id: string) => {
-    fixedByDriver[id] = 0;
-  });
+  driverIds.forEach((id: string) => (fixedByDriver[id] = 0));
   (fixedRows ?? []).forEach((row: { driver_id: string; amount: number }) => {
-    const id = row.driver_id;
-    if (fixedByDriver[id] !== undefined) {
-      fixedByDriver[id] += Number(row.amount) || 0;
-    }
+    if (fixedByDriver[row.driver_id] !== undefined) fixedByDriver[row.driver_id] += Number(row.amount) || 0;
   });
 
-  // 臨時経費
+  // 臨時手当/控除（月次・既存テーブル）。amount 正=控除（net から減算）。
   const { data: adHocRows } = await supabase
     .from("driver_ad_hoc_expenses")
     .select("driver_id, amount")
     .in("driver_id", driverIds)
     .eq("month", month);
-
   const adHocByDriver: Record<string, number> = {};
-  driverIds.forEach((id: string) => {
-    adHocByDriver[id] = 0;
-  });
+  driverIds.forEach((id: string) => (adHocByDriver[id] = 0));
   (adHocRows ?? []).forEach((row: { driver_id: string; amount: number }) => {
-    const id = row.driver_id;
-    if (adHocByDriver[id] !== undefined) {
-      adHocByDriver[id] += Number(row.amount) || 0;
-    }
+    if (adHocByDriver[row.driver_id] !== undefined) adHocByDriver[row.driver_id] += Number(row.amount) || 0;
   });
 
-  const rows: DriverPaymentRow[] = drivers.map(
-    (d: { id: string; name: string; display_name: string | null }) => {
-      const incomeLog = incomeByDriver[d.id] ?? 0;
-      const fixedDeductions = fixedByDriver[d.id] ?? 0;
-      const adHocDeductions = adHocByDriver[d.id] ?? 0;
-      const net = incomeLog - fixedDeductions - adHocDeductions;
-      return {
-        driverId: d.id,
-        driverName: d.name,
-        displayName: d.display_name ?? null,
-        incomeLog,
-        yamatoIncome: yamatoByDriver[d.id] ?? 0,
-        amazonIncome: amazonByDriver[d.id] ?? 0,
-        otherIncome: otherByDriver[d.id] ?? 0,
-        fixedDeductions,
-        adHocDeductions,
-        net,
-      };
-    },
-  );
-
-  return NextResponse.json({
-    month,
-    startDate,
-    endDate,
-    rows,
+  const rows: DriverPaymentRow[] = drivers.map((d: { id: string; name: string; display_name: string | null }) => {
+    const incomeLog = autoPayoutByDriver.get(d.id)?.payout ?? 0;
+    const carrier = incomeByDriverCarrier.get(d.id) ?? { yamato: 0, amazon: 0, other: 0 };
+    const fixedDeductions = fixedByDriver[d.id] ?? 0;
+    const adHocDeductions = adHocByDriver[d.id] ?? 0;
+    const net = incomeLog - fixedDeductions - adHocDeductions;
+    return {
+      driverId: d.id,
+      driverName: d.name,
+      displayName: d.display_name ?? null,
+      incomeLog,
+      yamatoIncome: carrier.yamato,
+      amazonIncome: carrier.amazon,
+      otherIncome: carrier.other,
+      fixedDeductions,
+      adHocDeductions,
+      net,
+    };
   });
+
+  return NextResponse.json({ month, startDate, endDate, rows });
 }

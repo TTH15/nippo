@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { mirrorApprovalToV2 } from "@/server/aggregation/legacySync";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,13 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error(error);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+
+    // v2 へ承認状態をミラー（移行期の整合・best-effort）
+    try {
+      await mirrorApprovalToV2(driverId, date);
+    } catch (e) {
+      console.error("mirrorApprovalToV2 failed (non-fatal)", e);
     }
 
     return NextResponse.json({ ok: true });

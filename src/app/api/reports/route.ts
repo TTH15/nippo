@@ -3,6 +3,7 @@ import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
 import { bus, DailyReportSubmittedPayload } from "@/server/events/bus";
+import { syncLegacyReportToV2 } from "@/server/aggregation/legacySync";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +134,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (error) throw error;
+
+    // 新モデル(daily_reports_v2 + report_entries)へ同期（移行期の整合・best-effort）
+    try {
+      await syncLegacyReportToV2(data);
+    } catch (e) {
+      console.error("syncLegacyReportToV2 failed (non-fatal)", e);
+    }
 
     // Fetch driver name for event payload
     const { data: driver } = await supabase

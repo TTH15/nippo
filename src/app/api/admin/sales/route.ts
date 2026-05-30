@@ -1,52 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { loadAggregationData } from "@/server/aggregation/load";
+import { buildContext, buildContributions } from "@/server/aggregation/compute";
 
 export const dynamic = "force-dynamic";
 
-type CourseRate = {
-  course_id: string;
-  takuhaibin_revenue: number;
-  takuhaibin_profit: number;
-  nekopos_revenue: number;
-  nekopos_profit: number;
-  fixed_revenue: number;
-  fixed_profit: number;
-};
-
-type CourseRow = {
-  id: string;
-  name: string;
-  carrier?: "YAMATO" | "AMAZON" | "OTHER" | null;
-};
+// ============================================================
+// 売上アナリティクス（日別）。新モデル（daily_reports_v2 + report_entries +
+// course_unit_rates + course_fixed_rates + ledger_entries）を集計エンジンで読む。
+// レスポンス形・バケット仕様は旧実装と同一に保つ:
+//   yamato = 自動算出(YAMATO+その他キャリア), amazon = 自動算出(AMAZON),
+//   other  = 台帳(ledger)の売上, profit = 全利益(自動+台帳),
+//   yamato_profit/amazon_profit = 自動算出のキャリア別利益。
+// ============================================================
 
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
-
-  // DB から取得する生データの範囲（シード期間に合わせて十分広く取る）
-  const RAW_START = "2025-01-01";
-  const RAW_END = "2026-12-31";
 
   const url = req.nextUrl;
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
   const courseIdsParam = url.searchParams.get("course_ids");
   const driverIdParam = url.searchParams.get("driver_id");
-  const courseIds: string[] =
+  const courseIds = new Set(
     courseIdsParam && courseIdsParam.trim()
       ? courseIdsParam.split(",").map((id) => id.trim()).filter(Boolean)
-      : [];
+      : [],
+  );
   const driverId = driverIdParam?.trim() || "";
 
   let startDate: string;
   let endDate: string;
-
   if (startParam && endParam) {
     startDate = startParam;
     endDate = endParam;
   } else {
-    // 後方互換: start/end がない場合は従来どおり month から月初〜月末を計算
     const month = url.searchParams.get("month") || "";
     const [year, mon] = month
       ? month.split("-").map(Number)
@@ -56,154 +46,66 @@ export async function GET(req: NextRequest) {
     endDate = `${year}-${String(mon).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
   }
 
-  const { data: courseRates } = await supabase
-    .from("course_rates")
-    .select(
-      "course_id, takuhaibin_revenue, takuhaibin_profit, nekopos_revenue, nekopos_profit, fixed_revenue, fixed_profit",
-    );
+  // 自動算出は新モデル(v2)、手動調整(売上ログ)は既存 sales_log_entries を直接読む（ハイブリッド）
+  const data = await loadAggregationData(supabase, startDate, endDate);
+  const codeByCarrier = new Map(data.carriers.map((c) => [c.id, c.code]));
+  const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
+  const contribs = buildContributions(data.reports, [], ctx); // ledgerは使わず手動分は下で別途
 
-  const { data: courses } = await supabase
-    .from("courses")
-    .select("id, name, carrier");
-  const courseMap = new Map<string, CourseRow>();
-  (courses ?? []).forEach((c) => {
-    courseMap.set(c.id, c as CourseRow);
-  });
-  const rateByCourse = Object.fromEntries(
-    (courseRates ?? []).map((r) => [r.course_id, r as CourseRate]),
-  );
+  type Bucket = { yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number };
+  const dateMap = new Map<string, Bucket>();
+  const ensure = (d: string) => {
+    if (!dateMap.has(d)) dateMap.set(d, { yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
+    return dateMap.get(d)!;
+  };
 
-  const { data: shifts } = await supabase
-    .from("shifts")
-    .select("shift_date, course_id, driver_id")
-    .gte("shift_date", RAW_START)
-    .lte("shift_date", RAW_END);
-
-  // 売上集計には承認済みの日報のみを含める
-  const { data: reports } = await supabase
-    .from("daily_reports")
-    .select(
-      "driver_id, report_date, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned",
-    )
-    .gte("report_date", RAW_START)
-    .lte("report_date", RAW_END)
-    .not("approved_at", "is", null);
-
-  type ReportRow = NonNullable<typeof reports>[number];
-  const reportMap = new Map<string, ReportRow>();
-  reports?.forEach((r) => reportMap.set(`${r.driver_id}:${r.report_date}`, r));
-
-  const dateMap = new Map<
-    string,
-    { yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number }
-  >();
-
-  shifts?.forEach((s) => {
-    const date = s.shift_date;
-    // コースで絞り込み（指定がある場合のみ）
-    if (courseIds.length > 0 && !courseIds.includes(s.course_id)) return;
-    // ドライバーで絞り込み（指定がある場合のみ）
-    if (driverId && s.driver_id !== driverId) return;
-    // ユーザーが指定した範囲外の日付は集計対象にしない
-    if (date < startDate || date > endDate) return;
-    if (!dateMap.has(date))
-      dateMap.set(date, { yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
-    const entry = dateMap.get(date)!;
-    const rate = rateByCourse[s.course_id];
-    if (!rate) return;
-
-    const course = courseMap.get(s.course_id);
-    const courseName = course?.name ?? "";
-    const carrier: "YAMATO" | "AMAZON" | "OTHER" =
-      (course?.carrier as "YAMATO" | "AMAZON" | "OTHER" | null) ??
-      (courseName.startsWith("ヤマト")
-        ? "YAMATO"
-        : courseName.startsWith("Amazon") || courseName.startsWith("アマゾン")
-          ? "AMAZON"
-          : "OTHER");
-
-    // 売上計上はいずれも「承認済み日報があるシフト」のみ
-    const rep = reportMap.get(`${s.driver_id}:${date}`);
-    if (!rep) return;
-
-    // 1. 日当制コース（fixed_revenue > 0）: carrier に応じて Amazon or ヤマトに反映
-    if (rate.fixed_revenue > 0) {
-      if (carrier === "AMAZON") {
-        entry.amazon += rate.fixed_revenue;
-        entry.amazon_profit += rate.fixed_profit;
-      } else {
-        // ヤマト or その他はヤマト枠に計上
-        entry.yamato += rate.fixed_revenue;
-        entry.yamato_profit += rate.fixed_profit;
-      }
-      entry.profit += rate.fixed_profit;
-      return;
+  // 自動算出（reports × rates）
+  for (const c of contribs) {
+    if (c.date < startDate || c.date > endDate) continue;
+    if (courseIds.size > 0 && (!c.courseId || !courseIds.has(c.courseId))) continue;
+    if (driverId && c.driverId !== driverId) continue;
+    const e = ensure(c.date);
+    const code = codeByCarrier.get(c.carrierId ?? "");
+    if (code === "AMAZON") {
+      e.amazon += c.revenue;
+      e.amazon_profit += c.profit;
+    } else {
+      e.yamato += c.revenue;
+      e.yamato_profit += c.profit;
     }
-
-    // 2. 個数ベースのコース（宅急便 / ネコポス）
-    if (rate.takuhaibin_revenue > 0 || rate.nekopos_revenue > 0) {
-      const tkComp = rep.takuhaibin_completed ?? 0;
-      const nkComp = rep.nekopos_completed ?? 0;
-      const revenue =
-        tkComp * rate.takuhaibin_revenue + nkComp * rate.nekopos_revenue;
-      const profit =
-        tkComp * rate.takuhaibin_profit + nkComp * rate.nekopos_profit;
-
-      if (carrier === "AMAZON") {
-        entry.amazon += revenue;
-        entry.amazon_profit += profit;
-      } else {
-        entry.yamato += revenue;
-        entry.yamato_profit += profit;
-      }
-      entry.profit += profit;
-    }
-  });
-
-  // 選択期間内でデータが存在しない日も 0 として埋める
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && start <= end) {
-    const d = new Date(start);
-    while (d <= end) {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const iso = `${y}-${m}-${day}`;
-      if (!dateMap.has(iso)) {
-        dateMap.set(iso, { yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
-      }
-      d.setDate(d.getDate() + 1);
-    }
+    e.profit += c.profit;
   }
 
-  // 3. 売上ログ（sales_log_entries）
-  // - driver_id 指定時: そのドライバーに紐づくログのみ加算
-  // - driver_id 未指定（すべてのドライバー）: target_driver_id 未設定を含む全ログを加算
+  // 手動調整（売上ログ）: revenue→other, profit→profit（旧仕様踏襲）
   const logQuery = supabase
     .from("sales_log_entries")
     .select("log_date, revenue, profit, target_driver_id")
     .gte("log_date", startDate)
     .lte("log_date", endDate);
-  const { data: logRows } = driverId
-    ? await logQuery.eq("target_driver_id", driverId)
-    : await logQuery;
-
+  const { data: logRows } = driverId ? await logQuery.eq("target_driver_id", driverId) : await logQuery;
   (logRows ?? []).forEach((row: any) => {
     const date = row.log_date as string;
     if (!date || date < startDate || date > endDate) return;
+    const e = ensure(date);
     const revenue = Number(row.revenue) || 0;
-    const profit = Number(row.profit) || 0;
-    if (!dateMap.has(date)) {
-      dateMap.set(date, { yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
-    }
-    const entry = dateMap.get(date)!;
-    if (revenue > 0) entry.other += revenue;
-    entry.profit += profit;
+    if (revenue > 0) e.other += revenue;
+    e.profit += Number(row.profit) || 0;
   });
 
+  // 範囲内の空き日を 0 で埋める
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && start <= end) {
+    const d = new Date(start);
+    while (d <= end) {
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      ensure(iso);
+      d.setDate(d.getDate() + 1);
+    }
+  }
+
   const sortedDates = Array.from(dateMap.keys()).sort();
-  const data = sortedDates.map((date) => {
+  const out = sortedDates.map((date) => {
     const d = dateMap.get(date)!;
     const [, m, day] = date.split("-");
     return {
@@ -218,7 +120,7 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  const response = NextResponse.json({ startDate, endDate, data });
+  const response = NextResponse.json({ startDate, endDate, data: out });
   response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=600");
   return response;
 }
