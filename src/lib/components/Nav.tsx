@@ -147,12 +147,6 @@ export function Nav({ variant = "default" }: NavProps) {
                   >
                     <span>日別</span>
                   </Link>
-                  <Link
-                    href="/admin/monthly"
-                    className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                  >
-                    <span>月次</span>
-                  </Link>
                 </>
               )}
               <button

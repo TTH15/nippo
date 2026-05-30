@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
 export const dynamic = "force-dynamic";
 
@@ -58,20 +59,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  // 集計表には承認済みの日報のみを含める
-  let reportsQuery = supabase
-    .from("daily_reports")
-    .select(
-      "driver_id, report_date, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned",
-    )
-    .gte("report_date", startDate)
-    .lte("report_date", endDate)
-    .not("approved_at", "is", null);
-  if (driverId) reportsQuery = reportsQuery.eq("driver_id", driverId);
-  const { data: reports, error: rErr } = await reportsQuery;
-
-  if (rErr) {
-    console.error(rErr);
+  // 集計表には承認済みの日報のみを含める（v2 ソース・互換リーダー）。
+  // ※ Amazon 行の宅急便/ネコポス列は旧テーブルでは残骸が入っていたが、v2 では正しく 0。
+  let reports: ReportRow[];
+  try {
+    const rows = await loadLegacyDailyRows(supabase, {
+      start: startDate,
+      end: endDate,
+      driverId: driverId || undefined,
+    });
+    reports = rows
+      .filter((r) => r.approved_at != null)
+      .map((r) => ({
+        driver_id: r.driver_id,
+        report_date: r.report_date,
+        takuhaibin_completed: r.takuhaibin_completed,
+        takuhaibin_returned: r.takuhaibin_returned,
+        nekopos_completed: r.nekopos_completed,
+        nekopos_returned: r.nekopos_returned,
+      }));
+  } catch (e) {
+    console.error(e);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 

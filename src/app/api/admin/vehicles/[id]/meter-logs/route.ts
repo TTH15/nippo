@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
+import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
 export const dynamic = "force-dynamic";
 
@@ -46,21 +47,16 @@ export async function GET(
   if (startParam > endParam) [startParam, endParam] = [endParam, startParam];
 
   try {
-    const { data: rows, error } = await supabase
-      .from("daily_reports")
-      .select("report_date, meter_value, driver_id, submitted_at")
-      .eq("vehicle_id", vehicleId)
-      .gte("report_date", startParam)
-      .lte("report_date", endParam)
-      .not("meter_value", "is", null)
-      .is("rejected_at", null)
-      .order("report_date", { ascending: true })
-      .order("submitted_at", { ascending: true });
-
-    if (error) {
-      console.error("[admin/vehicles/:id/meter-logs] db error", error);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
+    // v2 ソース（互換リーダー）。meter_value あり・却下なし、日付→送信時刻 昇順。
+    const rows = (
+      await loadLegacyDailyRows(supabase, { start: startParam, end: endParam, vehicleId })
+    )
+      .filter((r) => r.meter_value != null && !r.rejected_at)
+      .sort(
+        (a, b) =>
+          a.report_date.localeCompare(b.report_date) ||
+          String(a.submitted_at ?? "").localeCompare(String(b.submitted_at ?? "")),
+      );
 
     const driverIds = Array.from(
       new Set((rows ?? []).map((r: any) => r?.driver_id).filter(Boolean))

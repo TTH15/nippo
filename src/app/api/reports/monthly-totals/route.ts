@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
 export const dynamic = "force-dynamic";
 
@@ -55,20 +56,18 @@ export async function GET(req: NextRequest) {
 
   const monthStart = reportDate.slice(0, 7) + "-01";
   const [y, m] = reportDate.slice(0, 7).split("-").map(Number);
-  const nextMonthStr = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`;
+  const monthEnd = `${reportDate.slice(0, 7)}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
 
-  // 当該勤務区分の月間合計
-  const { data: myRows, error: myErr } = await supabase
-    .from("daily_reports")
-    .select(
-      "carrier, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned, amazon_am_mochidashi, amazon_am_completed, amazon_pm_mochidashi, amazon_pm_completed, amazon_4_mochidashi, amazon_4_completed",
-    )
-    .eq("driver_identity_id", driverIdentityId)
-    .gte("report_date", monthStart)
-    .lt("report_date", nextMonthStr)
-    .is("rejected_at", null);
-
-  if (myErr) {
+  // 当該勤務区分の月間合計（v2 ソース・互換リーダー / 却下は除外）
+  let myRows: { carrier: string; [k: string]: unknown }[];
+  try {
+    const rows = await loadLegacyDailyRows(supabase, {
+      start: monthStart,
+      end: monthEnd,
+      driverIdentityId,
+    });
+    myRows = rows.filter((r) => !r.rejected_at);
+  } catch {
     return NextResponse.json({ error: "集計に失敗しました" }, { status: 500 });
   }
 
@@ -106,16 +105,11 @@ export async function GET(req: NextRequest) {
   });
 
   // 全勤務区分単位で集計 — ランキング算出用（表示値と整合させるため driver_identity_id 単位）
-  const { data: allRows, error: allErr } = await supabase
-    .from("daily_reports")
-    .select(
-      "driver_identity_id, carrier, takuhaibin_completed, nekopos_completed, amazon_am_completed, amazon_pm_completed, amazon_4_completed",
-    )
-    .gte("report_date", monthStart)
-    .lt("report_date", nextMonthStr)
-    .is("rejected_at", null);
-
-  if (allErr) {
+  let allRows: { driver_identity_id: string | null; carrier: string; [k: string]: unknown }[];
+  try {
+    const rows = await loadLegacyDailyRows(supabase, { start: monthStart, end: monthEnd });
+    allRows = rows.filter((r) => !r.rejected_at);
+  } catch {
     return NextResponse.json({ error: "順位集計に失敗しました" }, { status: 500 });
   }
 

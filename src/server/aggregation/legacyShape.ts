@@ -1,0 +1,173 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+// ============================================================
+// Phase9 移行ヘルパ: daily_reports_v2 + report_entries から
+// 旧 daily_reports と同じ「平坦行」を再構成して返す互換リーダー。
+//   legacySync.ts(old→v2) の逆マップ。旧テーブルを読まずに既存の読み手を
+//   v2 ソースへ差し替えるための橋渡し（読み手の下流ロジックは不変）。
+// 旧が source of truth の間は v2=mirror のため値が一致する(parity検証)。
+// ============================================================
+
+/** 旧 daily_reports 1行と同じ形（読み手が参照するカラムを網羅） */
+export type LegacyDailyRow = {
+  /** 旧 daily_reports.id（v2.legacy_report_id）。無ければ v2.id */
+  id: string;
+  driver_id: string;
+  driver_identity_id: string | null;
+  report_date: string;
+  carrier: string; // 'YAMATO' | 'AMAZON'
+  takuhaibin_completed: number;
+  takuhaibin_returned: number;
+  nekopos_completed: number;
+  nekopos_returned: number;
+  amazon_am_mochidashi: number;
+  amazon_am_completed: number;
+  amazon_pm_mochidashi: number;
+  amazon_pm_completed: number;
+  amazon_4_mochidashi: number;
+  amazon_4_completed: number;
+  vehicle_id: string | null;
+  meter_value: number | null;
+  submitted_at: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  rejected_at: string | null;
+  rejected_by: string | null;
+};
+
+const BIG = 100000;
+
+type Filters = {
+  start?: string;
+  end?: string;
+  driverId?: string;
+  driverIdentityId?: string;
+  vehicleId?: string;
+};
+
+/** report_entries の (unit code, field_key) → 旧カラム名 */
+const COLUMN_BY_UNIT_FIELD: Record<string, keyof LegacyDailyRow> = {
+  "TAKUHAIBIN:completed": "takuhaibin_completed",
+  "TAKUHAIBIN:returned": "takuhaibin_returned",
+  "NEKOPOS:completed": "nekopos_completed",
+  "NEKOPOS:returned": "nekopos_returned",
+  "AMAZON_DELIVERY:am_mochidashi": "amazon_am_mochidashi",
+  "AMAZON_DELIVERY:am_completed": "amazon_am_completed",
+  "AMAZON_DELIVERY:pm_mochidashi": "amazon_pm_mochidashi",
+  "AMAZON_DELIVERY:pm_completed": "amazon_pm_completed",
+  "AMAZON_DELIVERY:four_mochidashi": "amazon_4_mochidashi",
+  "AMAZON_DELIVERY:four_completed": "amazon_4_completed",
+};
+
+function zeroCounts() {
+  return {
+    takuhaibin_completed: 0,
+    takuhaibin_returned: 0,
+    nekopos_completed: 0,
+    nekopos_returned: 0,
+    amazon_am_mochidashi: 0,
+    amazon_am_completed: 0,
+    amazon_pm_mochidashi: 0,
+    amazon_pm_completed: 0,
+    amazon_4_mochidashi: 0,
+    amazon_4_completed: 0,
+  };
+}
+
+/**
+ * v2 から旧 daily_reports 互換の行を取得する。
+ * 旧の読み手の `.from("daily_reports").select(...)` 差し替え用。
+ */
+export async function loadLegacyDailyRows(
+  supabase: SupabaseClient,
+  filters: Filters,
+): Promise<LegacyDailyRow[]> {
+  let q = supabase
+    .from("daily_reports_v2")
+    .select(
+      "id, legacy_report_id, driver_id, identity_id, report_date, carrier_id, vehicle_id, meter_value, submitted_at, approved_at, approved_by, rejected_at, rejected_by",
+    )
+    .limit(BIG);
+  if (filters.start) q = q.gte("report_date", filters.start);
+  if (filters.end) q = q.lte("report_date", filters.end);
+  if (filters.driverId) q = q.eq("driver_id", filters.driverId);
+  if (filters.driverIdentityId) q = q.eq("identity_id", filters.driverIdentityId);
+  if (filters.vehicleId) q = q.eq("vehicle_id", filters.vehicleId);
+
+  const [{ data: reportRows, error: rErr }, { data: carrierRows }, { data: unitRows }] =
+    await Promise.all([
+      q,
+      supabase.from("carriers").select("id, code"),
+      supabase.from("units").select("id, code"),
+    ]);
+  if (rErr) throw rErr;
+  if (!reportRows?.length) return [];
+
+  const carrierCodeById = new Map<string, string>();
+  (carrierRows ?? []).forEach((c: { id: string; code: string | null }) =>
+    carrierCodeById.set(c.id, c.code ?? ""),
+  );
+  const unitCodeById = new Map<string, string>();
+  (unitRows ?? []).forEach((u: { id: string; code: string | null }) =>
+    unitCodeById.set(u.id, u.code ?? ""),
+  );
+
+  const ids = reportRows.map((r: { id: string }) => r.id);
+  const entriesByReport = new Map<string, { unitId: string; fieldKey: string; valueNum: number }[]>();
+  for (let i = 0; i < ids.length; i += 1000) {
+    const slice = ids.slice(i, i + 1000);
+    const { data: entRows } = await supabase
+      .from("report_entries")
+      .select("report_id, unit_id, field_key, value_num")
+      .in("report_id", slice)
+      .limit(BIG);
+    (entRows ?? []).forEach(
+      (e: { report_id: string; unit_id: string; field_key: string; value_num: number | null }) => {
+        const arr = entriesByReport.get(e.report_id) ?? [];
+        arr.push({ unitId: e.unit_id, fieldKey: e.field_key, valueNum: Number(e.value_num) || 0 });
+        entriesByReport.set(e.report_id, arr);
+      },
+    );
+  }
+
+  return reportRows.map(
+    (r: {
+      id: string;
+      legacy_report_id: string | null;
+      driver_id: string;
+      identity_id: string | null;
+      report_date: string;
+      carrier_id: string | null;
+      vehicle_id: string | null;
+      meter_value: number | null;
+      submitted_at: string | null;
+      approved_at: string | null;
+      approved_by: string | null;
+      rejected_at: string | null;
+      rejected_by: string | null;
+    }) => {
+      const counts = zeroCounts();
+      for (const e of entriesByReport.get(r.id) ?? []) {
+        const code = unitCodeById.get(e.unitId);
+        if (!code) continue;
+        const col = COLUMN_BY_UNIT_FIELD[`${code}:${e.fieldKey}`];
+        if (col) (counts as Record<string, number>)[col] += e.valueNum;
+      }
+      return {
+        id: r.legacy_report_id ?? r.id,
+        driver_id: r.driver_id,
+        driver_identity_id: r.identity_id,
+        report_date: r.report_date,
+        carrier: (r.carrier_id && carrierCodeById.get(r.carrier_id)) || "YAMATO",
+        ...counts,
+        vehicle_id: r.vehicle_id,
+        meter_value: r.meter_value,
+        submitted_at: r.submitted_at,
+        approved_at: r.approved_at,
+        approved_by: r.approved_by,
+        rejected_at: r.rejected_at,
+        rejected_by: r.rejected_by,
+      };
+    },
+  );
+}
