@@ -1033,7 +1033,7 @@ export default function ShiftsPage() {
         {loading ? (
           <div className="space-y-3">
             <Skeleton className="h-8 w-48" />
-            <div className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-x-auto">
+            <div className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-x-auto table-scroll">
               <table className="w-full text-sm min-w-[800px]">
                 <thead>
                   <tr className="border-b border-slate-200/95">
@@ -1066,7 +1066,7 @@ export default function ShiftsPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-x-auto">
+            <div className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-x-auto table-scroll">
               <table className="w-full text-sm min-w-[720px] border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/95">

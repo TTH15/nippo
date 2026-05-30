@@ -53,6 +53,53 @@ body {
   padding-bottom: var(--bottom-nav-safe-space);
 }
 
+/*
+ * 横長テーブルのスマホ向けスクロールコンテナ。
+ * - 慣性スクロール（iOS）
+ * - スクロール可能だと分かるよう薄いスクロールバーを常時表示
+ * - 右端のフェードでスクロール余地を示唆
+ */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.table-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225);
+  border-radius: 9999px;
+}
+.table-scroll::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+@media (min-width: 768px) {
+  /* デスクトップではスクロールバーを邪魔にしない */
+  .table-scroll::-webkit-scrollbar {
+    height: 8px;
+  }
+}
+.table-scroll-fade {
+  position: relative;
+}
+.table-scroll-fade::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1.5rem;
+  pointer-events: none;
+  background: linear-gradient(to left, rgb(255 255 255 / 0.9), rgb(255 255 255 / 0));
+}
+@media (min-width: 768px) {
+  .table-scroll-fade::after {
+    display: none;
+  }
+}
+
 /* Utility for number inputs — hide spinners */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {

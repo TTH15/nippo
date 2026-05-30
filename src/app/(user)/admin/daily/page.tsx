@@ -334,7 +334,7 @@ export default function AdminDailyPage() {
               ))}
             </div>
             <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-              <div className="overflow-x-auto -mx-2 md:mx-0">
+              <div className="overflow-x-auto table-scroll table-scroll-fade -mx-1 md:mx-0">
                 <table className="w-full text-sm min-w-[640px] md:min-w-0">
                 <thead className="bg-slate-50">
                   <tr className="border-b border-slate-200 text-left">
@@ -426,7 +426,7 @@ export default function AdminDailyPage() {
                       </h2>
                       {rows.length > 0 && (
                         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                          <div className="overflow-x-auto -mx-2 md:mx-0">
+                          <div className="overflow-x-auto table-scroll table-scroll-fade -mx-1 md:mx-0">
                             <table className="w-full text-sm table-fixed min-w-[860px] md:min-w-0">
                             <colgroup>
                               <col className="w-28" />
@@ -652,7 +652,7 @@ export default function AdminDailyPage() {
                       })()}
                     </h2>
                     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                      <div className="overflow-x-auto -mx-2 md:mx-0">
+                      <div className="overflow-x-auto table-scroll table-scroll-fade -mx-1 md:mx-0">
                         <table className="w-full text-sm table-fixed min-w-[720px] md:min-w-0">
                         <colgroup>
                           {/* 名前 */}

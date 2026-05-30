@@ -581,7 +581,7 @@ export default function InvoicesPage() {
                   ))}
                 </div>
               </div>
-              <div className="overflow-x-auto">
+              <div className="hidden md:block overflow-x-auto table-scroll table-scroll-fade">
                 <table className="w-full min-w-[860px] text-sm table-fixed">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50">
@@ -708,6 +708,112 @@ export default function InvoicesPage() {
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* モバイル：カード表示 */}
+              <div className="md:hidden divide-y divide-slate-100">
+                {loading ? (
+                  <div className="px-4 py-8 text-center text-slate-400 text-sm">読み込み中...</div>
+                ) : filtered.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-slate-400 text-sm">
+                    該当する請求書はありません
+                  </div>
+                ) : (
+                  filtered.map((inv) => {
+                    const s = statusLabel[inv.status];
+                    return (
+                      <div key={inv.id} className="p-3.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 text-slate-900 font-medium">
+                              <FontAwesomeIcon icon={faFileInvoice} className="text-slate-400 shrink-0" />
+                              <span className="truncate" title={inv.counterpartyName || inv.clientName}>
+                                {inv.counterpartyName || inv.clientName}
+                              </span>
+                            </div>
+                            <p className="mt-1 font-mono text-xs text-slate-500 break-all">
+                              {inv.invoiceNo || inv.id}
+                            </p>
+                          </div>
+                          {canWrite ? (
+                            <button
+                              type="button"
+                              title={inv.starred ? "スター解除" : "スターを付ける"}
+                              onClick={() => toggleStar(inv.id, !inv.starred)}
+                              className={`inline-flex items-center justify-center w-7 h-7 shrink-0 transition-colors ${inv.starred ? "text-amber-500" : "text-slate-300"
+                                }`}
+                            >
+                              <FontAwesomeIcon icon={faStar} className="w-4 h-4" />
+                            </button>
+                          ) : inv.starred ? (
+                            <span className="inline-flex items-center justify-center w-7 h-7 shrink-0 text-amber-500">
+                              <FontAwesomeIcon icon={faStar} className="w-4 h-4" />
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-2.5 flex items-end justify-between gap-2">
+                          <div className="text-xs text-slate-500">
+                            <span className="whitespace-nowrap">{inv.issueDate}</span>
+                            <span className="mx-1.5 text-slate-300">·</span>
+                            <span className="text-sm font-semibold text-slate-900 whitespace-nowrap">
+                              {fmt(inv.amount)}
+                            </span>
+                          </div>
+                          {canWrite ? (
+                            <select
+                              value={inv.status}
+                              disabled={updatingStatusId === inv.id}
+                              onChange={(e) =>
+                                void updateStatus(inv.id, e.target.value as SavedInvoice["status"])
+                              }
+                              className={`px-2 py-1 rounded text-xs font-medium border border-slate-200 ${s.cls}`}
+                            >
+                              <option value="draft">下書き</option>
+                              <option value="pending_approval">承認待ち</option>
+                              <option value="approved">承認済</option>
+                              <option value="paid">入金済</option>
+                            </select>
+                          ) : (
+                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.cls}`}>
+                              {s.text}
+                            </span>
+                          )}
+                        </div>
+
+                        {canWrite && (
+                          <div className="mt-3 flex items-center justify-end gap-2">
+                            {inv.status === "pending_approval" && (
+                              <a
+                                href={`/admin/invoices/${encodeURIComponent(inv.id)}/preview`}
+                                title="プレビュー"
+                                className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-200 text-slate-500 active:bg-slate-100"
+                              >
+                                <FontAwesomeIcon icon={faEye} className="w-4 h-4" />
+                              </a>
+                            )}
+                            <a
+                              href={`/admin/invoices/new?invoiceId=${encodeURIComponent(inv.id)}`}
+                              title="編集"
+                              className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-200 text-slate-500 active:bg-slate-100"
+                            >
+                              <FontAwesomeIcon icon={faPenToSquare} className="w-4 h-4" />
+                            </a>
+                            <button
+                              type="button"
+                              title="削除"
+                              disabled={deletingId === inv.id}
+                              onClick={() => void deleteInvoice(inv.id)}
+                              className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-rose-200 text-rose-500 active:bg-rose-50 disabled:opacity-50"
+                            >
+                              <FontAwesomeIcon icon={faTrashCan} className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>

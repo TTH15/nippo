@@ -693,7 +693,7 @@ function LogEntriesByDate({
               <div className="px-3 py-2 bg-slate-50 font-semibold text-slate-800 text-sm">
                 {dateLabel(dateIso)}
               </div>
-              <div className="overflow-x-auto -mx-2 md:mx-0">
+              <div className="overflow-x-auto table-scroll table-scroll-fade -mx-1 md:mx-0">
                 <table className="w-full text-xs table-fixed min-w-[800px] md:min-w-0">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">

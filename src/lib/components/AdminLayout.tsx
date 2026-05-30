@@ -59,6 +59,7 @@ const navItems: NavItem[] = [
     ],
   },
   { href: "/admin/vehicles", label: "車両", icon: faCar },
+  { href: "/admin/carriers", label: "キャリア", icon: faFolderTree },
   { href: "/admin/courses", label: "コース", icon: faRoute },
   { href: "/admin/counterparties", label: "取引先", icon: faBuilding },
   {
@@ -181,7 +182,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
       {/* モバイルヘッダー */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-white shadow-sm md:hidden">
+      <header className="sticky top-0 z-30 flex items-center justify-between gap-2 px-3 py-2.5 border-b border-slate-200 bg-white/95 backdrop-blur shadow-sm md:hidden">
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}
@@ -499,7 +500,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
         {/* Main content */}
         <main className="relative z-0 flex-1 overflow-auto">
-          <div className="p-4 md:p-6">{children}</div>
+          <div className="px-3 py-4 md:p-6">{children}</div>
         </main>
       </div>
     </div>

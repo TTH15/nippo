@@ -8,6 +8,7 @@ import { CustomSelect } from "@/lib/components/CustomSelect";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
+import { CourseRateEditor } from "@/lib/components/CourseRateEditor";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
@@ -86,6 +87,8 @@ export default function CoursesPage() {
   const [showModal, setShowModal] = useState(false);
   const [showRateModal, setShowRateModal] = useState(false);
   const [editingRate, setEditingRate] = useState<CourseRate | null>(null);
+  // 新モデルの単価エディタ（course_unit_rates + course_fixed_rates）
+  const [rateEditorCourse, setRateEditorCourse] = useState<{ id: string; name: string } | null>(null);
   const [rateForm, setRateForm] = useState(INITIAL_RATE_FORM);
   const [newCourse, setNewCourse] = useState<{
     name: string;
@@ -552,7 +555,7 @@ export default function CoursesPage() {
                       <td className="px-3 py-2 text-right">{r.fixed_profit > 0 ? `${r.fixed_profit}円` : "-"}</td>
                       <td className="px-3 py-2">
                         {canWrite && (
-                          <button onClick={() => openRateModal(r)} className="text-slate-600 hover:text-slate-900 text-xs">
+                          <button onClick={() => setRateEditorCourse({ id: r.course_id, name: (r.courses as { name?: string })?.name ?? "" })} className="text-slate-600 hover:text-slate-900 text-xs">
                             <FontAwesomeIcon icon={faPenToSquare} />
                           </button>
                         )}
@@ -1014,6 +1017,17 @@ export default function CoursesPage() {
         message={errorState?.message ?? ""}
         detail={errorState?.detail}
         onClose={() => setErrorState(null)}
+      />
+      <CourseRateEditor
+        open={!!rateEditorCourse}
+        courseId={rateEditorCourse?.id ?? null}
+        courseName={rateEditorCourse?.name ?? ""}
+        onClose={() => setRateEditorCourse(null)}
+        onSaved={() => {
+          setRateEditorCourse(null);
+          void load();
+        }}
+        onError={(msg) => setErrorState({ title: "単価設定", message: msg })}
       />
     </AdminLayout>
   );
