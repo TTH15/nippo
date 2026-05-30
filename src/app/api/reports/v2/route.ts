@@ -112,63 +112,8 @@ export async function POST(req: NextRequest) {
     savedReportIds.push(reportId);
   }
 
-  // --- 旧 daily_reports への同期（dual-write・単一シフト日のみ best-effort） ---
-  // 移行期に旧モデル参照画面（集計/支払）を壊さないため。多重シフト日は旧モデルで
-  // 表現できない(1日1件)ため同期しない＝新モデルのみで扱う。
-  if (driverIdentityId && items.length === 1) {
-    try {
-      const item = items[0];
-      const { data: course } = await supabase.from("courses").select("carrier_id").eq("id", item.courseId).maybeSingle();
-      let carrierCode: string | null = null;
-      if (course?.carrier_id) {
-        const { data: car } = await supabase.from("carriers").select("code").eq("id", course.carrier_id).maybeSingle();
-        carrierCode = (car as any)?.code ?? null;
-      }
-      if (carrierCode === "YAMATO" || carrierCode === "AMAZON") {
-        const unitIds = Array.from(new Set(item.entries.map((e) => e.unitId)));
-        const { data: us } = await supabase.from("units").select("id, code").in("id", unitIds);
-        const codeById = new Map<string, string | null>((us ?? []).map((u: any) => [u.id, u.code]));
-        const g = (unitCode: string, fieldKey: string) => {
-          const e = item.entries.find((x) => codeById.get(x.unitId) === unitCode && x.fieldKey === fieldKey);
-          return e && typeof e.valueNum === "number" ? e.valueNum : 0;
-        };
-        const legacy = {
-          driver_id: user.driverId,
-          driver_identity_id: driverIdentityId,
-          report_date: reportDate,
-          carrier: carrierCode,
-          takuhaibin_completed: g("TAKUHAIBIN", "completed"),
-          takuhaibin_returned: g("TAKUHAIBIN", "returned"),
-          nekopos_completed: g("NEKOPOS", "completed"),
-          nekopos_returned: g("NEKOPOS", "returned"),
-          amazon_am_mochidashi: g("AMAZON_DELIVERY", "am_mochidashi"),
-          amazon_am_completed: g("AMAZON_DELIVERY", "am_completed"),
-          amazon_pm_mochidashi: g("AMAZON_DELIVERY", "pm_mochidashi"),
-          amazon_pm_completed: g("AMAZON_DELIVERY", "pm_completed"),
-          amazon_4_mochidashi: g("AMAZON_DELIVERY", "four_mochidashi"),
-          amazon_4_completed: g("AMAZON_DELIVERY", "four_completed"),
-          vehicle_id: item.vehicleId ?? null,
-          meter_value: typeof item.meterValue === "number" ? item.meterValue : null,
-          submitted_at: nowIso,
-          approved_at: null,
-          approved_by: null,
-          rejected_at: null,
-          rejected_by: null,
-        };
-        const { data: oldExisting } = await supabase
-          .from("daily_reports")
-          .select("id")
-          .eq("driver_identity_id", driverIdentityId)
-          .eq("report_date", reportDate)
-          .is("rejected_at", null)
-          .maybeSingle();
-        if (oldExisting?.id) await supabase.from("daily_reports").update(legacy).eq("id", oldExisting.id);
-        else await supabase.from("daily_reports").insert(legacy);
-      }
-    } catch (e) {
-      console.error("legacy daily_reports sync failed (non-fatal)", e);
-    }
-  }
+  // Phase9 カットオーバー: v2 を source of truth とし、旧 daily_reports への
+  // dual-write は廃止（旧テーブルはバックアップとして凍結）。
 
   return NextResponse.json({ ok: true, reportIds: savedReportIds });
 }

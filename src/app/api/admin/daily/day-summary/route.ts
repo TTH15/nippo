@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
 export const dynamic = "force-dynamic";
 
@@ -77,20 +78,15 @@ export async function GET(req: NextRequest) {
       if (row.driver_id && plate) driverPreferredVehicle[row.driver_id] = plate;
     });
 
-    const { data: reportRows, error: reportsErr } = await supabase
-      .from("daily_reports")
-      .select(`
-        id, driver_id, report_date, takuhaibin_completed, takuhaibin_returned,
-        nekopos_completed, nekopos_returned, submitted_at, carrier, approved_at, rejected_at,
-        vehicle_id, meter_value,
-        amazon_am_mochidashi, amazon_am_completed, amazon_pm_mochidashi, amazon_pm_completed,
-        amazon_4_mochidashi, amazon_4_completed,
-        vehicles ( id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand )
-      `)
-      .eq("report_date", dateParam);
-
-    if (reportsErr) {
-      console.error("[admin/daily/day-summary] reports error", reportsErr);
+    let reportRows: Awaited<ReturnType<typeof loadLegacyDailyRows>>;
+    try {
+      reportRows = await loadLegacyDailyRows(
+        supabase,
+        { start: dateParam, end: dateParam },
+        { idSource: "v2", withVehicle: true },
+      );
+    } catch (e) {
+      console.error("[admin/daily/day-summary] reports error", e);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 

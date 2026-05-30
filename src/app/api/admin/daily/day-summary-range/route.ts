@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
+import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
 export const dynamic = "force-dynamic";
 
@@ -100,23 +101,17 @@ export async function GET(req: NextRequest) {
       if (row.driver_id && plate) driverPreferredVehicle[row.driver_id] = plate;
     });
 
-    const { data: reportRows, error: reportsErr } = await supabase
-      .from("daily_reports")
-      .select(`
-        id, driver_id, report_date, takuhaibin_completed, takuhaibin_returned,
-        nekopos_completed, nekopos_returned, submitted_at, carrier, approved_at, rejected_at,
-        vehicle_id, meter_value,
-        amazon_am_mochidashi, amazon_am_completed, amazon_pm_mochidashi, amazon_pm_completed,
-        amazon_4_mochidashi, amazon_4_completed,
-        vehicles ( id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand )
-      `)
-      .gte("report_date", startParam)
-      .lte("report_date", endParam)
+    let reportRows: Awaited<ReturnType<typeof loadLegacyDailyRows>>;
+    try {
+      const all = await loadLegacyDailyRows(
+        supabase,
+        { start: startParam, end: endParam },
+        { idSource: "v2", withVehicle: true },
+      );
       // 却下済みは同日に残るため、一覧は「未却下」を優先表示
-      .is("rejected_at", null);
-
-    if (reportsErr) {
-      console.error("[admin/daily/day-summary-range] reports error", reportsErr);
+      reportRows = all.filter((r) => !r.rejected_at);
+    } catch (e) {
+      console.error("[admin/daily/day-summary-range] reports error", e);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 

@@ -8,10 +8,22 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // 旧が source of truth の間は v2=mirror のため値が一致する(parity検証)。
 // ============================================================
 
+export type VehiclePlatePayload = {
+  id: string;
+  number_prefix: string | null;
+  number_class: string | null;
+  number_hiragana: string | null;
+  number_numeric: string | null;
+  manufacturer: string | null;
+  brand: string | null;
+};
+
 /** 旧 daily_reports 1行と同じ形（読み手が参照するカラムを網羅） */
 export type LegacyDailyRow = {
-  /** 旧 daily_reports.id（v2.legacy_report_id）。無ければ v2.id */
+  /** idSource により 旧 daily_reports.id(legacy) もしくは v2.id */
   id: string;
+  /** 車両 FK 埋め込み（withVehicle 時のみ）。day-summary 等の vehicles 参照互換 */
+  vehicles?: VehiclePlatePayload | null;
   driver_id: string;
   driver_identity_id: string | null;
   report_date: string;
@@ -43,6 +55,13 @@ type Filters = {
   driverId?: string;
   driverIdentityId?: string;
   vehicleId?: string;
+};
+
+type Options = {
+  /** id を v2 行のid にする（編集/承認を v2 へ向ける場合）。既定は legacy（旧id互換） */
+  idSource?: "legacy" | "v2";
+  /** vehicles プレート埋め込みを付与（day-summary 等） */
+  withVehicle?: boolean;
 };
 
 /** report_entries の (unit code, field_key) → 旧カラム名 */
@@ -81,6 +100,7 @@ function zeroCounts() {
 export async function loadLegacyDailyRows(
   supabase: SupabaseClient,
   filters: Filters,
+  options: Options = {},
 ): Promise<LegacyDailyRow[]> {
   let q = supabase
     .from("daily_reports_v2")
@@ -111,6 +131,25 @@ export async function loadLegacyDailyRows(
   (unitRows ?? []).forEach((u: { id: string; code: string | null }) =>
     unitCodeById.set(u.id, u.code ?? ""),
   );
+
+  // 車両プレート埋め込み（withVehicle 時）
+  const vehicleById = new Map<string, VehiclePlatePayload>();
+  if (options.withVehicle) {
+    const vIds = Array.from(
+      new Set(
+        reportRows
+          .map((r: { vehicle_id: string | null }) => r.vehicle_id)
+          .filter((v): v is string => Boolean(v)),
+      ),
+    );
+    if (vIds.length) {
+      const { data: vRows } = await supabase
+        .from("vehicles")
+        .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand")
+        .in("id", vIds);
+      (vRows ?? []).forEach((v: VehiclePlatePayload) => vehicleById.set(v.id, v));
+    }
+  }
 
   const ids = reportRows.map((r: { id: string }) => r.id);
   const entriesByReport = new Map<string, { unitId: string; fieldKey: string; valueNum: number }[]>();
@@ -154,7 +193,10 @@ export async function loadLegacyDailyRows(
         if (col) (counts as Record<string, number>)[col] += e.valueNum;
       }
       return {
-        id: r.legacy_report_id ?? r.id,
+        id: options.idSource === "v2" ? r.id : r.legacy_report_id ?? r.id,
+        ...(options.withVehicle
+          ? { vehicles: (r.vehicle_id && vehicleById.get(r.vehicle_id)) || null }
+          : {}),
         driver_id: r.driver_id,
         driver_identity_id: r.identity_id,
         report_date: r.report_date,

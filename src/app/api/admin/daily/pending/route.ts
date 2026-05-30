@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
 export const dynamic = "force-dynamic";
 
@@ -19,22 +20,15 @@ export async function GET(req: NextRequest) {
   if (isAuthError(user)) return user;
 
   try {
-    // 全件取得してから未承認（approved_at が null）のみに絞る（DB の null 判定の差を避ける）
-    const { data: allReports, error: reportErr } = await supabase
-      .from("daily_reports")
-      .select("*")
-      .order("report_date", { ascending: false })
-      .order("submitted_at", { ascending: false });
-
-    if (reportErr) {
-      console.error("[admin/daily/pending] reports error", reportErr);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
-
-    const rows = (allReports ?? []).filter(
-      (r: { approved_at?: string | null; rejected_at?: string | null }) =>
-        r.approved_at == null && r.rejected_at == null
+    // v2 ソース（互換リーダー）→ 未承認かつ未却下のみ。日付降順→送信時刻降順。
+    const all = (
+      await loadLegacyDailyRows(supabase, {}, { idSource: "v2", withVehicle: true })
+    ).sort(
+      (a, b) =>
+        b.report_date.localeCompare(a.report_date) ||
+        String(b.submitted_at ?? "").localeCompare(String(a.submitted_at ?? "")),
     );
+    const rows = all.filter((r) => r.approved_at == null && r.rejected_at == null);
     if (!rows.length) {
       return NextResponse.json({ groups: [], totalPending: 0 });
     }

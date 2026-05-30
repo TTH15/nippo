@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { todayJST } from "@/lib/date";
+import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
 export const dynamic = "force-dynamic";
 
@@ -28,19 +29,6 @@ export async function GET(req: NextRequest) {
     projectRef = "parse_error";
   }
 
-  // この日付のレコード件数だけを取得してログ出力
-  const { count: reportCountExact, error: countErr } = await supabase
-    .from("daily_reports")
-    .select("*", { count: "exact", head: true })
-    .gte("report_date", startDate)
-    .lt("report_date", endDate);
-
-  if (countErr) {
-    console.error("[admin/daily] count error", { projectRef, date, error: countErr });
-  } else {
-    console.log("[admin/daily] debug", { projectRef, date, reportCountExact });
-  }
-
   // DRIVERロールのみ取得するようフィルタを追加
   const { data: drivers, error: dErr } = await supabase
     .from("drivers")
@@ -50,16 +38,16 @@ export async function GET(req: NextRequest) {
 
   if (dErr) throw dErr;
 
-  // Reports for this date
-  const { data: reports, error: rErr } = await supabase
-    .from("daily_reports")
-    .select("*")
-    .gte("report_date", startDate)
-    .lt("report_date", endDate);
+  // Reports for this date（v2 ソース・互換リーダー）。endDate は排他のため当日のみ。
+  const reports = await loadLegacyDailyRows(
+    supabase,
+    { start: startDate, end: startDate },
+    { idSource: "v2", withVehicle: true },
+  );
+  const reportCountExact = reports.length;
+  console.log("[admin/daily] debug", { projectRef, date, reportCountExact });
 
-  if (rErr) throw rErr;
-
-  const reportMap = new Map(reports?.map((r) => [r.driver_id, r]));
+  const reportMap = new Map(reports.map((r) => [r.driver_id, r]));
 
   const result = (drivers ?? []).map((d) => ({
     driver: { id: d.id, name: d.name, display_name: d.display_name ?? null },

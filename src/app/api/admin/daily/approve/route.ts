@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
-import { mirrorApprovalToV2 } from "@/server/aggregation/legacySync";
 
 export const dynamic = "force-dynamic";
 
@@ -38,34 +37,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 承認時に「その日報に紐づくメーター値」を車両へ反映する（提出時点では反映しない）
-    const { data: report, error: reportErr } = await supabase
-      .from("daily_reports")
+    // 承認時に「その日報に紐づくメーター値」を車両へ反映する（提出時点では反映しない）。
+    // v2 は1日複数コース行があり得るため、未却下の各行のメーターを車両へ反映。
+    const { data: reportRows, error: reportErr } = await supabase
+      .from("daily_reports_v2")
       .select("vehicle_id, meter_value")
       .eq("driver_id", driverId)
       .eq("report_date", date)
-      // 却下済みが同日に残っていても、承認対象は「未却下」の日報のみ
-      .is("rejected_at", null)
-      .maybeSingle();
+      .is("rejected_at", null);
 
     if (reportErr) {
       console.error(reportErr);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    if (report?.vehicle_id && report.meter_value != null) {
-      const { error: vehicleErr } = await supabase
-        .from("vehicles")
-        .update({ current_mileage: Number(report.meter_value), updated_at: new Date().toISOString() })
-        .eq("id", report.vehicle_id);
-      if (vehicleErr) {
-        console.error(vehicleErr);
-        return NextResponse.json({ error: "DB error" }, { status: 500 });
+    for (const r of reportRows ?? []) {
+      if (r.vehicle_id && r.meter_value != null) {
+        const { error: vehicleErr } = await supabase
+          .from("vehicles")
+          .update({ current_mileage: Number(r.meter_value), updated_at: new Date().toISOString() })
+          .eq("id", r.vehicle_id);
+        if (vehicleErr) {
+          console.error(vehicleErr);
+          return NextResponse.json({ error: "DB error" }, { status: 500 });
+        }
       }
     }
 
+    // v2 を承認（同日同ドライバーの未却下行をまとめて）
     const { error } = await supabase
-      .from("daily_reports")
+      .from("daily_reports_v2")
       .update({
         approved_at: new Date().toISOString(),
         approved_by: user.driverId,
@@ -79,13 +80,6 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error(error);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
-
-    // v2 へ承認状態をミラー（移行期の整合・best-effort）
-    try {
-      await mirrorApprovalToV2(driverId, date);
-    } catch (e) {
-      console.error("mirrorApprovalToV2 failed (non-fatal)", e);
     }
 
     return NextResponse.json({ ok: true });

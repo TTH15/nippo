@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
 export const dynamic = "force-dynamic";
 
@@ -23,24 +24,18 @@ export async function GET(req: NextRequest) {
   const endParam = url.searchParams.get("end");
 
   try {
-    let query = supabase
-      .from("daily_reports")
-      .select("*")
-      .order("report_date", { ascending: false })
-      .order("submitted_at", { ascending: false });
-
-    if (startParam && endParam) {
-      query = query.gte("report_date", startParam).lte("report_date", endParam);
-    }
-
-    const { data: allReports, error: reportErr } = await query;
-
-    if (reportErr) {
-      console.error("[admin/daily/all] reports error", reportErr);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
-
-    const rows = allReports ?? [];
+    // v2 ソース（互換リーダー）。id は v2 行id。日付降順→送信時刻降順。
+    const rows = (
+      await loadLegacyDailyRows(
+        supabase,
+        startParam && endParam ? { start: startParam, end: endParam } : {},
+        { idSource: "v2", withVehicle: true },
+      )
+    ).sort(
+      (a, b) =>
+        b.report_date.localeCompare(a.report_date) ||
+        String(b.submitted_at ?? "").localeCompare(String(a.submitted_at ?? "")),
+    );
     if (!rows.length) {
       return NextResponse.json({ groups: [] });
     }

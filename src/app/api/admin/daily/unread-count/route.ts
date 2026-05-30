@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
+import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
 export const dynamic = "force-dynamic";
 
@@ -53,13 +54,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    const { data: reportRows, error: reportsErr } = await supabase
-      .from("daily_reports")
-      .select("report_date, driver_id, approved_at, rejected_at")
-      .gte("report_date", startParam)
-      .lte("report_date", endParam);
-    if (reportsErr) {
-      console.error("[admin/daily/unread-count] reports error", reportsErr);
+    let reportRows: { report_date: string; driver_id: string; approved_at: string | null; rejected_at: string | null }[];
+    try {
+      reportRows = await loadLegacyDailyRows(supabase, { start: startParam, end: endParam });
+    } catch (e) {
+      console.error("[admin/daily/unread-count] reports error", e);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
