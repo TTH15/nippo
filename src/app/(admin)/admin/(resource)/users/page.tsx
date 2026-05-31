@@ -127,6 +127,14 @@ function sortDrivers(list: Driver[]): Driver[] {
   });
 }
 
+function currentMonthStartStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+type LeaseForm = { enabled: boolean; mode: "MONTHLY" | "DAILY"; amount: string; validFrom: string };
+const EMPTY_LEASE: LeaseForm = { enabled: false, mode: "MONTHLY", amount: "", validFrom: currentMonthStartStr() };
+
 export default function UsersPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -153,6 +161,8 @@ export default function UsersPage() {
     bankHolder: "",
     licenseExpiryDate: "",
   });
+  const [leaseForm, setLeaseForm] = useState<LeaseForm>(EMPTY_LEASE);
+  const [leaseLoading, setLeaseLoading] = useState(false);
   const [postalLoading, setPostalLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [companyCode, setCompanyCode] = useState<string>(COMPANY_CODE);
@@ -252,15 +262,36 @@ export default function UsersPage() {
       bankHolder: "",
       licenseExpiryDate: "",
     });
+    setLeaseForm({ ...EMPTY_LEASE, validFrom: currentMonthStartStr() });
     setShowModal(true);
   };
 
   const openEdit = async (d: Driver) => {
     if (!canWrite) return;
     setOpeningEditId(d.id);
+    setLeaseLoading(true);
     try {
-      const res = await apiFetch<{ driver: Driver }>(`/api/admin/users/${d.id}`);
+      const [res, leaseRes] = await Promise.all([
+        apiFetch<{ driver: Driver }>(`/api/admin/users/${d.id}`),
+        apiFetch<{ lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null }>(
+          `/api/admin/driver-lease?driver_id=${encodeURIComponent(d.id)}`,
+        ).catch(() => ({ lease: null })),
+      ]);
       const full = res.driver;
+      const lease = leaseRes.lease;
+      setLeaseForm(
+        lease
+          ? {
+              enabled: true,
+              mode: lease.mode === "DAILY" ? "DAILY" : "MONTHLY",
+              amount: String(lease.amount ?? ""),
+              validFrom:
+                lease.valid_from && /^\d{4}-\d{2}-\d{2}$/.test(lease.valid_from)
+                  ? lease.valid_from
+                  : currentMonthStartStr(),
+            }
+          : { ...EMPTY_LEASE, validFrom: currentMonthStartStr() },
+      );
       setEditingDriver(full);
       const { institution, branch } = parseBankName(full.bank_name || "");
       const { type, number, typeOther } = parseBankNo(full.bank_no || "");
@@ -298,6 +329,7 @@ export default function UsersPage() {
       });
     } finally {
       setOpeningEditId(null);
+      setLeaseLoading(false);
     }
   };
 
@@ -401,6 +433,7 @@ export default function UsersPage() {
         (v): v is NonNullable<typeof v> => v !== null,
       );
 
+      let savedDriverId = editingDriver?.id ?? "";
       if (editingDriver) {
         await apiFetch(`/api/admin/users/${editingDriver.id}`, {
           method: "PUT",
@@ -493,7 +526,27 @@ export default function UsersPage() {
           driver_identities: nextIdentities,
         };
         setDrivers((prev) => sortDrivers([...prev, newDriver]));
+        savedDriverId = created.driver.id;
       }
+
+      // リース設定（専用概念）。enabled=false / 金額0 で解除。
+      if (savedDriverId) {
+        try {
+          await apiFetch("/api/admin/driver-lease", {
+            method: "PUT",
+            body: JSON.stringify({
+              driver_id: savedDriverId,
+              enabled: leaseForm.enabled,
+              mode: leaseForm.mode,
+              amount: leaseForm.enabled ? parseInt(leaseForm.amount, 10) || 0 : 0,
+              valid_from: leaseForm.validFrom || currentMonthStartStr(),
+            }),
+          });
+        } catch (leaseErr) {
+          console.error("[users] lease save error", leaseErr);
+        }
+      }
+
       setShowModal(false);
     } catch (e) {
       console.error(e);
@@ -876,6 +929,96 @@ export default function UsersPage() {
                     className="w-full h-11"
                   />
                 </div>
+              </div>
+
+              <div className="pt-4 mt-4 border-t border-slate-200">
+                <h3 className="text-sm font-semibold text-slate-700 mb-1">リース</h3>
+                <p className="text-xs text-slate-500 mb-3">
+                  車両リース代をこのドライバーの日当（日次報酬）から自動控除します。月額＝毎月一定額／日割り＝日額×稼働日数。
+                </p>
+                {leaseLoading ? (
+                  <p className="text-xs text-slate-400">読み込み中…</p>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      {[
+                        { v: false, label: "リースなし" },
+                        { v: true, label: "リースあり" },
+                      ].map((o) => (
+                        <button
+                          key={String(o.v)}
+                          type="button"
+                          onClick={() => setLeaseForm((f) => ({ ...f, enabled: o.v }))}
+                          className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
+                            leaseForm.enabled === o.v
+                              ? "bg-slate-800 text-white border-slate-800"
+                              : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
+                          }`}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {leaseForm.enabled && (
+                      <>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1.5">課金方式</label>
+                          <div className="flex gap-2">
+                            {[
+                              { v: "MONTHLY" as const, label: "月額（毎月一定額）" },
+                              { v: "DAILY" as const, label: "日割り（日額×稼働日数）" },
+                            ].map((o) => (
+                              <button
+                                key={o.v}
+                                type="button"
+                                onClick={() => setLeaseForm((f) => ({ ...f, mode: o.v }))}
+                                className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
+                                  leaseForm.mode === o.v
+                                    ? "bg-slate-800 text-white border-slate-800"
+                                    : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
+                                }`}
+                              >
+                                {o.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">
+                              {leaseForm.mode === "DAILY" ? "日額（円 / 1稼働日）" : "月額（円 / 月）"}
+                            </label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={leaseForm.amount}
+                              onChange={(e) =>
+                                setLeaseForm((f) => ({ ...f, amount: e.target.value.replace(/\D/g, "") }))
+                              }
+                              placeholder={leaseForm.mode === "DAILY" ? "1400" : "35000"}
+                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">適用開始月</label>
+                            <input
+                              type="month"
+                              value={leaseForm.validFrom.slice(0, 7)}
+                              onChange={(e) =>
+                                setLeaseForm((f) => ({
+                                  ...f,
+                                  validFrom: e.target.value ? `${e.target.value}-01` : currentMonthStartStr(),
+                                }))
+                              }
+                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                            />
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="pt-4 mt-4 border-t border-slate-200">

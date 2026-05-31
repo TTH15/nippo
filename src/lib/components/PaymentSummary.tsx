@@ -4,6 +4,7 @@ interface PaymentSummaryProps {
   income: number;
   companyExpenses: number;
   customExpenses: number;
+  leaseExpenses?: number;
   selectedDate: Date;
 }
 
@@ -15,9 +16,10 @@ export function PaymentSummary({
   income,
   companyExpenses,
   customExpenses,
+  leaseExpenses = 0,
   selectedDate,
 }: PaymentSummaryProps) {
-  const total = income - companyExpenses - customExpenses;
+  const total = income - companyExpenses - customExpenses - leaseExpenses;
 
   const now = new Date();
   const isCurrentMonth =
@@ -48,12 +50,20 @@ export function PaymentSummary({
             -{formatCurrency(companyExpenses)}円
           </p>
         </div>
-        <div className="col-span-2">
+        <div className={leaseExpenses > 0 ? "" : "col-span-2"}>
           <p className="text-sm text-slate-600 mb-1">自由経費</p>
           <p className="text-lg font-semibold text-orange-500">
             -{formatCurrency(customExpenses)}円
           </p>
         </div>
+        {leaseExpenses > 0 && (
+          <div>
+            <p className="text-sm text-slate-600 mb-1">リース</p>
+            <p className="text-lg font-semibold text-orange-500">
+              -{formatCurrency(leaseExpenses)}円
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

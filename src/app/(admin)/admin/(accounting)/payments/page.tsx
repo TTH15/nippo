@@ -20,6 +20,7 @@ type DriverPaymentRow = {
   otherIncome: number;
   fixedDeductions: number;
   adHocDeductions: number;
+  leaseDeductions: number;
   net: number;
 };
 
@@ -72,6 +73,7 @@ type DriverRewardsSummary = {
   variableDeductions: number;
   fixedDeductions: number;
   optionalDeductions?: number;
+  leaseDeductions?: number;
   net: number;
   logDetails: RewardLogDetail[];
   dailyIncomeDetails?: RewardLogDetail[];
@@ -291,6 +293,8 @@ export default function PaymentsPage() {
       const breakdown = await apiFetch<{
         lines: Array<{ title: string; qty: number; unitPrice: number; amount: number }>;
         total: number;
+        leaseDeductions?: number;
+        leaseMode?: "MONTHLY" | "DAILY" | null;
       }>(
         `/api/admin/payments/driver-breakdown?driver_id=${encodeURIComponent(
           row.driverId,
@@ -344,8 +348,12 @@ export default function PaymentsPage() {
           qty: 1,
           price: Math.abs(Number(x.amount) || 0),
         }));
+      const leaseDeductLines =
+        (Number(breakdown.leaseDeductions) || 0) > 0
+          ? [{ title: "リース代", qty: 1, price: Number(breakdown.leaseDeductions) || 0 }]
+          : [];
       mainLines = [...mainLines, ...fixedAllowanceLines, ...adHocAllowanceLines];
-      deductLines = [...fixedDeductLines, ...adHocDeductLines];
+      deductLines = [...fixedDeductLines, ...adHocDeductLines, ...leaseDeductLines];
       const computedTotal = Math.max(
         0,
         mainLines.reduce((sum, x) => sum + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) -
@@ -583,7 +591,7 @@ export default function PaymentsPage() {
               </thead>
               <tbody>
                 {rows.map((row) => {
-                  const totalDeductions = row.fixedDeductions + row.adHocDeductions;
+                  const totalDeductions = row.fixedDeductions + row.adHocDeductions + (row.leaseDeductions ?? 0);
                   const isOpen = expandedDriverId === row.driverId;
                   const cacheKey = `${row.driverId}:${monthStr}`;
                   const reward = rewardsCache[cacheKey];
@@ -631,6 +639,9 @@ export default function PaymentsPage() {
                           <br />
                           控除: 固定 {formatYen(-row.fixedDeductions)}／臨時{" "}
                           {formatYen(-row.adHocDeductions)}
+                          {(row.leaseDeductions ?? 0) > 0 && (
+                            <>／リース {formatYen(-row.leaseDeductions)}</>
+                          )}
                         </td>
                         <td className="py-2.5 px-4 text-right">
                           <div className="inline-flex items-center gap-2">
@@ -708,6 +719,14 @@ export default function PaymentsPage() {
                                           {(reward.data.optionalDeductions ?? 0).toLocaleString("ja-JP")}円
                                         </span>
                                       </span>
+                                      {(reward.data.leaseDeductions ?? 0) > 0 && (
+                                        <span>
+                                          リース控除:{" "}
+                                          <span className="font-semibold text-slate-900">
+                                            {(reward.data.leaseDeductions ?? 0).toLocaleString("ja-JP")}円
+                                          </span>
+                                        </span>
+                                      )}
                                       <span>
                                         手取り見込み:{" "}
                                         <span className="font-semibold text-slate-900">
@@ -768,7 +787,8 @@ export default function PaymentsPage() {
               {getDisplayName({ name: modalDriver.driverName, display_name: modalDriver.displayName })} {yearMonth.year}年{yearMonth.month}月 経費
             </h2>
             <p className="text-xs text-slate-500 mb-1">
-              収入 {formatYen(modalDriver.incomeLog)} − 固定 {formatYen(modalDriver.fixedDeductions)} − 臨時 {formatYen(modalDriver.adHocDeductions)} ＝ 暫定 {formatYen(modalDriver.net)}
+              収入 {formatYen(modalDriver.incomeLog)} − 固定 {formatYen(modalDriver.fixedDeductions)} − 臨時 {formatYen(modalDriver.adHocDeductions)}
+              {(modalDriver.leaseDeductions ?? 0) > 0 && <> − リース {formatYen(modalDriver.leaseDeductions)}</>} ＝ 暫定 {formatYen(modalDriver.net)}
             </p>
             <p className="text-xs text-slate-500 mb-4">
               報酬内訳: ヤマト {formatYen(modalDriver.yamatoIncome)}／Amazon {formatYen(modalDriver.amazonIncome)}／その他 {formatYen(modalDriver.otherIncome)}
@@ -823,6 +843,14 @@ export default function PaymentsPage() {
                             {(rewardSummary.optionalDeductions ?? 0).toLocaleString("ja-JP")}円
                           </span>
                         </span>
+                        {(rewardSummary.leaseDeductions ?? 0) > 0 && (
+                          <span>
+                            リース控除:{" "}
+                            <span className="font-semibold text-slate-900">
+                              {(rewardSummary.leaseDeductions ?? 0).toLocaleString("ja-JP")}円
+                            </span>
+                          </span>
+                        )}
                         <span>
                           手取り見込み:{" "}
                           <span className="font-semibold text-slate-900">

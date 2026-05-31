@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
-import { buildContext, buildContributions, sumBy } from "@/server/aggregation/compute";
+import { buildContext, buildContributions, sumBy, isCountableReport } from "@/server/aggregation/compute";
+import { loadDriverLeases, leaseDeductionForRange } from "@/server/billing/driverLease";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export type DriverPaymentRow = {
   otherIncome: number;
   fixedDeductions: number;
   adHocDeductions: number;
+  leaseDeductions: number;
   net: number;
 };
 
@@ -101,6 +103,16 @@ export async function GET(req: NextRequest) {
     if (fixedByDriver[row.driver_id] !== undefined) fixedByDriver[row.driver_id] += Number(row.amount) || 0;
   });
 
+  // リース控除（driver_leases・専用概念）。稼働日数=承認 report のユニーク日付数。
+  const workedDaysByDriver = new Map<string, Set<string>>();
+  for (const r of data.reports) {
+    if (!r.driverId || !isCountableReport(r)) continue;
+    const set = workedDaysByDriver.get(r.driverId) ?? new Set<string>();
+    set.add(r.reportDate);
+    workedDaysByDriver.set(r.driverId, set);
+  }
+  const leaseByDriver = await loadDriverLeases(supabase, driverIds, startDate, endDate);
+
   // 臨時手当/控除（月次・既存テーブル）。amount 正=控除（net から減算）。
   const { data: adHocRows } = await supabase
     .from("driver_ad_hoc_expenses")
@@ -118,7 +130,11 @@ export async function GET(req: NextRequest) {
     const carrier = incomeByDriverCarrier.get(d.id) ?? { yamato: 0, amazon: 0, other: 0 };
     const fixedDeductions = fixedByDriver[d.id] ?? 0;
     const adHocDeductions = adHocByDriver[d.id] ?? 0;
-    const net = incomeLog - fixedDeductions - adHocDeductions;
+    const leaseDeductions = leaseDeductionForRange(
+      leaseByDriver.get(d.id) ?? null,
+      workedDaysByDriver.get(d.id)?.size ?? 0,
+    );
+    const net = incomeLog - fixedDeductions - adHocDeductions - leaseDeductions;
     return {
       driverId: d.id,
       driverName: d.name,
@@ -129,6 +145,7 @@ export async function GET(req: NextRequest) {
       otherIncome: carrier.other,
       fixedDeductions,
       adHocDeductions,
+      leaseDeductions,
       net,
     };
   });

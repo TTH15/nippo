@@ -7,6 +7,7 @@ import { computeEventScores } from "@/server/events/score";
 import { normalizeScoringRuleSet } from "@/server/events/types";
 import type { EventTeam, EventMember, ManualPointEntry, ScoringReport } from "@/server/events/types";
 import { loadSubmitScreenConfig } from "@/server/submitScreen/config";
+import { loadDriverLease, leaseDailyRate } from "@/server/billing/driverLease";
 import { getDisplayName } from "@/lib/displayName";
 
 export const dynamic = "force-dynamic";
@@ -32,9 +33,11 @@ export async function GET(req: NextRequest) {
   const rateByCourseUnit = new Map(dayData.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
   const fixedByCourse = new Map(dayData.fixedRates.map((r) => [r.courseId, r]));
   let todayReward = 0;
+  let hasTodayReport = false;
   for (const r of dayData.reports) {
     if (r.driverId !== driverId || r.reportDate !== date || r.rejectedAt) continue;
     if (!r.courseId) continue;
+    hasTodayReport = true;
     for (const e of r.entries) {
       const unit = unitById.get(e.unitId);
       const billable = unit?.fields.find((x) => x.fieldKey === e.fieldKey)?.isBillable;
@@ -47,6 +50,11 @@ export async function GET(req: NextRequest) {
       todayReward += fx.fixedPayout;
     }
   }
+
+  // リース控除（DAILY のみ日当に反映）。当日に稼働(report)があれば日額を1回控除。MONTHLY は月次概念のため日次には反映しない。
+  const lease = await loadDriverLease(supabase, driverId, date, date);
+  const leaseToday = hasTodayReport ? leaseDailyRate(lease) : 0;
+  todayReward -= leaseToday;
 
   // --- ランキング ---
   let ranking: unknown = null;
@@ -132,5 +140,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ date, todayReward: Math.round(todayReward), ranking });
+  return NextResponse.json({ date, todayReward: Math.round(todayReward), leaseToday, ranking });
 }

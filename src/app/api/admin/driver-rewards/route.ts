@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { computeDriverAutoPayout } from "@/server/billing/driverPayout";
+import { loadDriverLease, leaseDailyRate, leaseDeductionForRange } from "@/server/billing/driverLease";
 
 export const dynamic = "force-dynamic";
 
@@ -77,12 +78,24 @@ export async function GET(req: NextRequest) {
   // 自動算出の報酬は v2 集計モデル（/api/me/rewards・admin/payments と一致）
   const autoPayout = await computeDriverAutoPayout(supabase, driverId, startDate, endDate);
   const calculatedIncome = autoPayout.total;
-  const dailyIncomeDetails: RewardLogDetail[] = autoPayout.days.map((d) => ({
-    log_date: d.date,
-    type_name: "日報",
-    content: d.content,
-    amount: d.payout,
-  }));
+
+  // リース控除（driver_leases）。DAILY は日当（日次明細）へ反映。
+  const lease = await loadDriverLease(supabase, driverId, startDate, endDate);
+  const dailyRate = leaseDailyRate(lease);
+  const workedDays = new Set(autoPayout.days.map((d) => d.date)).size;
+  const leaseDeductions = leaseDeductionForRange(lease, workedDays);
+
+  const seenLeaseDate = new Set<string>();
+  const dailyIncomeDetails: RewardLogDetail[] = autoPayout.days.map((d) => {
+    let amount = d.payout;
+    let content = d.content;
+    if (dailyRate > 0 && !seenLeaseDate.has(d.date)) {
+      seenLeaseDate.add(d.date);
+      amount -= dailyRate;
+      content = `${d.content}（リース −${dailyRate.toLocaleString("ja-JP")}円）`;
+    }
+    return { log_date: d.date, type_name: "日報", content, amount };
+  });
 
   // 報酬調整（臨時経費）: amount は +控除 / -手当（報酬加算）
   const { data: adHocRows, error: adHocError } = await supabase
@@ -170,7 +183,7 @@ export async function GET(req: NextRequest) {
   });
 
   const totalIncome = calculatedIncome + rewardAdjustments;
-  const net = totalIncome - fixedDeductions - optionalDeductions;
+  const net = totalIncome - fixedDeductions - optionalDeductions - leaseDeductions;
 
   return NextResponse.json({
     month,
@@ -182,6 +195,8 @@ export async function GET(req: NextRequest) {
     variableDeductions,
     fixedDeductions,
     optionalDeductions,
+    leaseDeductions,
+    leaseDetail: lease ? { mode: lease.mode, amount: lease.amount, total: leaseDeductions, days: workedDays } : null,
     net,
     logDetails,
     dailyIncomeDetails,

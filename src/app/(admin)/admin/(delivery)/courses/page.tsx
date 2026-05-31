@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus } from "@fortawesome/free-solid-svg-icons";
+import {
+  faPlus,
+  faPenToSquare,
+  faGripVertical,
+  faCat,
+  faTruck,
+} from "@fortawesome/free-solid-svg-icons";
+import { faAmazon } from "@fortawesome/free-brands-svg-icons";
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -12,7 +20,6 @@ import { CourseRateEditor } from "@/lib/components/CourseRateEditor";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
-import { faPenToSquare, faGripVertical } from "@fortawesome/free-solid-svg-icons";
 
 type CourseCarrier = "YAMATO" | "AMAZON" | "OTHER";
 type Course = {
@@ -29,19 +36,7 @@ type Course = {
 };
 
 type InvoiceAddress = { id: string; name: string };
-type CourseRate = {
-  id: string;
-  course_id: string;
-  takuhaibin_revenue: number;
-  takuhaibin_profit: number;
-  takuhaibin_driver_payout: number;
-  nekopos_revenue: number;
-  nekopos_profit: number;
-  nekopos_driver_payout: number;
-  fixed_revenue: number;
-  fixed_profit: number;
-  courses: { id: string; name: string; color: string } | null;
-};
+type Carrier = { id: string; name: string; code: string | null };
 type Driver = {
   id: string;
   name: string;
@@ -62,14 +57,14 @@ function driverHasCourse(d: Driver, courseId: string): boolean {
   return (d.driver_courses ?? []).some((dc) => dc.course_id === courseId);
 }
 
-const INITIAL_RATE_FORM = {
-  takuhaibin_revenue: 160,
-  takuhaibin_driver_payout: 150,
-  nekopos_revenue: 40,
-  nekopos_driver_payout: 30,
-  fixed_revenue: 0,
-  fixed_profit: 0,
-};
+/** キャリアのアイコン（ヤマト=ネコ / Amazon=Amazonロゴ / その他=トラック） */
+function carrierIcon(code: string | null): IconDefinition {
+  if (code === "YAMATO") return faCat;
+  if (code === "AMAZON") return faAmazon;
+  return faTruck;
+}
+
+const NO_CARRIER_KEY = "__none__";
 
 const COLORS = [
   "#3b82f6", "#2563eb", "#0ea5e9", "#06b6d4", "#14b8a6",
@@ -78,13 +73,32 @@ const COLORS = [
   "#6366f1", "#4f46e5", "#64748b", "#475569", "#334155",
 ];
 
+type CourseFormState = {
+  name: string;
+  color: string;
+  max_drivers: string;
+  carrierId: string;
+  summary_title: string;
+  principal_invoice_address_id: string;
+  counterparty_invoice_address_id: string;
+};
+
+const EMPTY_COURSE_FORM: CourseFormState = {
+  name: "",
+  color: COLORS[0],
+  max_drivers: "1",
+  carrierId: "",
+  summary_title: "",
+  principal_invoice_address_id: "",
+  counterparty_invoice_address_id: "",
+};
+
 export default function CoursesPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [rates, setRates] = useState<CourseRate[]>([]);
   const [invoiceAddresses, setInvoiceAddresses] = useState<InvoiceAddress[]>([]);
-  const [carriers, setCarriers] = useState<{ id: string; name: string; code: string | null }[]>([]);
+  const [carriers, setCarriers] = useState<Carrier[]>([]);
   // 選択キャリアから旧 carrier テキスト(YAMATO/AMAZON/OTHER)を導出（移行期の互換用）
   const legacyCarrierOf = (carrierId: string): CourseCarrier => {
     const code = carriers.find((c) => c.id === carrierId)?.code;
@@ -92,46 +106,11 @@ export default function CoursesPage() {
   };
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [showRateModal, setShowRateModal] = useState(false);
-  const [editingRate, setEditingRate] = useState<CourseRate | null>(null);
   // 新モデルの単価エディタ（course_unit_rates + course_fixed_rates）
   const [rateEditorCourse, setRateEditorCourse] = useState<{ id: string; name: string } | null>(null);
-  const [rateForm, setRateForm] = useState(INITIAL_RATE_FORM);
-  const [newCourse, setNewCourse] = useState<{
-    name: string;
-    color: string;
-    max_drivers: string;
-    carrierId: string;
-    summary_title: string;
-    principal_invoice_address_id: string;
-    counterparty_invoice_address_id: string;
-  }>({
-    name: "",
-    color: COLORS[0],
-    max_drivers: "1",
-    carrierId: "",
-    summary_title: "",
-    principal_invoice_address_id: "",
-    counterparty_invoice_address_id: "",
-  });
+  const [newCourse, setNewCourse] = useState<CourseFormState>(EMPTY_COURSE_FORM);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
-  const [editForm, setEditForm] = useState<{
-    name: string;
-    color: string;
-    max_drivers: string;
-    carrierId: string;
-    summary_title: string;
-    principal_invoice_address_id: string;
-    counterparty_invoice_address_id: string;
-  }>({
-    name: "",
-    color: COLORS[0],
-    max_drivers: "1",
-    carrierId: "",
-    summary_title: "",
-    principal_invoice_address_id: "",
-    counterparty_invoice_address_id: "",
-  });
+  const [editForm, setEditForm] = useState<CourseFormState>(EMPTY_COURSE_FORM);
 
   const principalNameById = useMemo(() => {
     return new Map(invoiceAddresses.map((a) => [a.id, a.name]));
@@ -148,31 +127,52 @@ export default function CoursesPage() {
     detail?: string;
   } | null>(null);
   const [reordering, setReordering] = useState(false);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const [initialLoaded, setInitialLoaded] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
-  const sortRatesByCourses = (nextRates: CourseRate[], courseList: Course[]) => {
-    const indexByCourseId = new Map(courseList.map((c, idx) => [c.id, idx]));
-    return [...nextRates].sort((a, b) => {
-      const ai = indexByCourseId.get(a.course_id) ?? Number.MAX_SAFE_INTEGER;
-      const bi = indexByCourseId.get(b.course_id) ?? Number.MAX_SAFE_INTEGER;
-      if (ai !== bi) return ai - bi;
-      return (a.id || "").localeCompare(b.id || "");
+  // キャリア別にコースをグルーピング（カラム=キャリアマスタ順、未設定は末尾）
+  const carrierGroups = useMemo(() => {
+    const byCarrier = new Map<string, Course[]>();
+    for (const c of courses) {
+      const key = c.carrier_id ?? NO_CARRIER_KEY;
+      const arr = byCarrier.get(key) ?? [];
+      arr.push(c);
+      byCarrier.set(key, arr);
+    }
+    const groups: { key: string; name: string; code: string | null; courses: Course[] }[] = [];
+    const consumed = new Set<string>();
+    carriers.forEach((cr) => {
+      const arr = byCarrier.get(cr.id);
+      if (arr && arr.length) {
+        groups.push({ key: cr.id, name: cr.name, code: cr.code, courses: arr });
+        consumed.add(cr.id);
+      }
     });
-  };
+    // マスタに無い carrier_id（想定外）も拾う
+    for (const [key, arr] of byCarrier) {
+      if (key === NO_CARRIER_KEY || consumed.has(key)) continue;
+      groups.push({ key, name: "不明なキャリア", code: null, courses: arr });
+    }
+    const none = byCarrier.get(NO_CARRIER_KEY);
+    if (none && none.length) {
+      groups.push({ key: NO_CARRIER_KEY, name: "キャリア未設定", code: null, courses: none });
+    }
+    return groups;
+  }, [courses, carriers]);
 
   const reorderCourses = async (newOrder: Course[]) => {
     if (!canWrite) return;
+    const prev = courses;
     setReordering(true);
+    setCourses(newOrder); // 楽観的反映
     try {
       await apiFetch("/api/admin/courses", {
         method: "PATCH",
         body: JSON.stringify({ order: newOrder.map((c) => c.id) }),
       });
-      setCourses(newOrder);
-      setRates((prev) => sortRatesByCourses(prev, newOrder));
     } catch (e) {
       console.error(e);
+      setCourses(prev); // 巻き戻し
       const reason = e instanceof Error ? e.message : "";
       setErrorState({
         title: "並べ替えに失敗しました",
@@ -184,55 +184,40 @@ export default function CoursesPage() {
     }
   };
 
-  const handleCourseDragStart = (e: React.DragEvent, index: number) => {
-    if (!canWrite) return;
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", String(index));
-    e.dataTransfer.setData("application/json", JSON.stringify({ index }));
-  };
-
-  const handleCourseDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverIndex(index);
-  };
-
-  const handleCourseDragLeave = () => {
-    setDragOverIndex(null);
-  };
-
-  const handleCourseDrop = (e: React.DragEvent, targetIndex: number) => {
-    e.preventDefault();
-    setDragOverIndex(null);
-    if (!canWrite) return;
-    const srcIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
-    if (Number.isNaN(srcIndex) || srcIndex === targetIndex) return;
-    const newOrder = [...courses];
-    const [removed] = newOrder.splice(srcIndex, 1);
-    newOrder.splice(targetIndex, 0, removed);
-    reorderCourses(newOrder);
-  };
-
-  const handleCourseDragEnd = () => {
-    setDragOverIndex(null);
+  // グループ内での並べ替え。グローバル順序のスロットを維持したまま入れ替える。
+  const reorderWithinGroup = (groupCourses: Course[], srcId: string, targetId: string) => {
+    if (srcId === targetId) return;
+    const arr = [...groupCourses];
+    const from = arr.findIndex((c) => c.id === srcId);
+    const to = arr.findIndex((c) => c.id === targetId);
+    if (from < 0 || to < 0 || from === to) return;
+    const [moved] = arr.splice(from, 1);
+    arr.splice(to, 0, moved);
+    const ids = new Set(arr.map((c) => c.id));
+    const slots: number[] = [];
+    courses.forEach((c, i) => {
+      if (ids.has(c.id)) slots.push(i);
+    });
+    const next = [...courses];
+    slots.forEach((slotIdx, k) => {
+      next[slotIdx] = arr[k];
+    });
+    void reorderCourses(next);
   };
 
   const load = async () => {
     setLoading(true);
     try {
-      const [coursesRes, usersRes, ratesRes, invoiceAddressesRes, carriersRes] = await Promise.all([
+      const [coursesRes, usersRes, invoiceAddressesRes, carriersRes] = await Promise.all([
         apiFetch<{ courses: Course[] }>("/api/admin/courses"),
         apiFetch<{ drivers: Driver[] }>("/api/admin/users"),
-        apiFetch<{ rates: CourseRate[] }>("/api/admin/course-rates"),
         apiFetch<{ addresses: InvoiceAddress[] }>("/api/admin/invoice-addresses"),
-        apiFetch<{ carriers: { id: string; name: string; code: string | null }[] }>("/api/admin/carriers"),
+        apiFetch<{ carriers: Carrier[] }>("/api/admin/carriers"),
       ]);
       setCourses(coursesRes.courses);
       setDrivers(usersRes.drivers.filter((d) => d.role === "DRIVER"));
-      setRates(sortRatesByCourses(ratesRes.rates ?? [], coursesRes.courses));
       setInvoiceAddresses(invoiceAddressesRes.addresses ?? []);
       setCarriers((carriersRes.carriers ?? []).map((c) => ({ id: c.id, name: c.name, code: c.code ?? null })));
-      setInitialLoaded(true);
     } catch (e) {
       console.error(e);
     } finally {
@@ -266,38 +251,8 @@ export default function CoursesPage() {
       const createdCourse: Course = res.course;
       const nextCourses = [...courses, createdCourse].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
       setCourses(nextCourses);
-      setRates((prev) =>
-        sortRatesByCourses(
-          [
-            ...prev,
-            {
-              id: `local-${createdCourse.id}`,
-              course_id: createdCourse.id,
-              takuhaibin_revenue: INITIAL_RATE_FORM.takuhaibin_revenue,
-              takuhaibin_driver_payout: INITIAL_RATE_FORM.takuhaibin_driver_payout,
-              takuhaibin_profit:
-                INITIAL_RATE_FORM.takuhaibin_revenue - INITIAL_RATE_FORM.takuhaibin_driver_payout,
-              nekopos_revenue: INITIAL_RATE_FORM.nekopos_revenue,
-              nekopos_driver_payout: INITIAL_RATE_FORM.nekopos_driver_payout,
-              nekopos_profit: INITIAL_RATE_FORM.nekopos_revenue - INITIAL_RATE_FORM.nekopos_driver_payout,
-              fixed_revenue: INITIAL_RATE_FORM.fixed_revenue,
-              fixed_profit: INITIAL_RATE_FORM.fixed_profit,
-              courses: { id: createdCourse.id, name: createdCourse.name, color: createdCourse.color },
-            },
-          ],
-          nextCourses,
-        ),
-      );
       setShowModal(false);
-      setNewCourse({
-        name: "",
-        color: COLORS[0],
-        max_drivers: "1",
-        carrierId: "",
-        summary_title: "",
-        principal_invoice_address_id: "",
-        counterparty_invoice_address_id: "",
-      });
+      setNewCourse(EMPTY_COURSE_FORM);
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -323,8 +278,8 @@ export default function CoursesPage() {
       max_drivers: String(Math.max(1, course.max_drivers ?? 1)),
       carrierId: course.carrier_id ?? "",
       summary_title: course.summary_title ?? "",
-        principal_invoice_address_id: course.principal_invoice_address_id ?? "",
-        counterparty_invoice_address_id: course.counterparty_invoice_address_id ?? "",
+      principal_invoice_address_id: course.principal_invoice_address_id ?? "",
+      counterparty_invoice_address_id: course.counterparty_invoice_address_id ?? "",
     });
     setShowEditModal(true);
   };
@@ -359,18 +314,6 @@ export default function CoursesPage() {
         counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
       };
       setCourses((prev) => prev.map((c) => (c.id === editingCourse.id ? updatedCourse : c)));
-      setRates((prev) =>
-        prev.map((r) =>
-          r.course_id === editingCourse.id
-            ? {
-                ...r,
-                courses: r.courses
-                  ? { ...r.courses, name: updatedCourse.name, color: updatedCourse.color }
-                  : { id: updatedCourse.id, name: updatedCourse.name, color: updatedCourse.color },
-              }
-            : r,
-        ),
-      );
       setShowEditModal(false);
       setEditingCourse(null);
     } catch (e) {
@@ -381,87 +324,6 @@ export default function CoursesPage() {
         message:
           "サーバーでエラーが発生したため、コース情報を保存できませんでした。\n\n" +
           "入力内容（コース名の重複など）を確認し、もう一度保存してください。\n" +
-          "同じエラーが続く場合は、システム管理者に連絡してください。",
-        detail: reason || undefined,
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const openRateModal = (r: CourseRate) => {
-    if (!canWrite) return;
-    setEditingRate(r);
-    setRateForm({
-      takuhaibin_revenue: r.takuhaibin_revenue,
-      takuhaibin_driver_payout: r.takuhaibin_driver_payout,
-      nekopos_revenue: r.nekopos_revenue,
-      nekopos_driver_payout: r.nekopos_driver_payout,
-      fixed_revenue: r.fixed_revenue,
-      fixed_profit: r.fixed_profit,
-    });
-    setShowRateModal(true);
-  };
-
-  const saveRate = async () => {
-    if (!canWrite) return;
-    if (!editingRate) return;
-    setSaving(true);
-    try {
-      const res = await apiFetch<{ rate: Partial<CourseRate> }>("/api/admin/course-rates", {
-        method: "PATCH",
-        body: JSON.stringify({ course_id: editingRate.course_id, ...rateForm }),
-      });
-      const nextRate = res.rate;
-      setRates((prev) =>
-        prev.map((r) =>
-          r.course_id === editingRate.course_id
-            ? {
-                ...r,
-                takuhaibin_revenue:
-                  typeof nextRate.takuhaibin_revenue === "number"
-                    ? nextRate.takuhaibin_revenue
-                    : rateForm.takuhaibin_revenue,
-                takuhaibin_driver_payout:
-                  typeof nextRate.takuhaibin_driver_payout === "number"
-                    ? nextRate.takuhaibin_driver_payout
-                    : rateForm.takuhaibin_driver_payout,
-                takuhaibin_profit:
-                  typeof nextRate.takuhaibin_profit === "number"
-                    ? nextRate.takuhaibin_profit
-                    : rateForm.takuhaibin_revenue - rateForm.takuhaibin_driver_payout,
-                nekopos_revenue:
-                  typeof nextRate.nekopos_revenue === "number"
-                    ? nextRate.nekopos_revenue
-                    : rateForm.nekopos_revenue,
-                nekopos_driver_payout:
-                  typeof nextRate.nekopos_driver_payout === "number"
-                    ? nextRate.nekopos_driver_payout
-                    : rateForm.nekopos_driver_payout,
-                nekopos_profit:
-                  typeof nextRate.nekopos_profit === "number"
-                    ? nextRate.nekopos_profit
-                    : rateForm.nekopos_revenue - rateForm.nekopos_driver_payout,
-                fixed_revenue:
-                  typeof nextRate.fixed_revenue === "number"
-                    ? nextRate.fixed_revenue
-                    : rateForm.fixed_revenue,
-                fixed_profit:
-                  typeof nextRate.fixed_profit === "number" ? nextRate.fixed_profit : rateForm.fixed_profit,
-              }
-            : r,
-        ),
-      );
-      setShowRateModal(false);
-      setEditingRate(null);
-    } catch (e) {
-      console.error(e);
-      const reason = e instanceof Error ? e.message : "";
-      setErrorState({
-        title: "単価設定の保存に失敗しました",
-        message:
-          "サーバーでエラーが発生したため、単価設定を保存できませんでした。\n\n" +
-          "入力した金額に不正な値がないか確認し、もう一度保存してください。\n" +
           "同じエラーが続く場合は、システム管理者に連絡してください。",
         detail: reason || undefined,
       });
@@ -485,7 +347,6 @@ export default function CoursesPage() {
             method: "DELETE",
           });
           setCourses((prev) => prev.filter((c) => c.id !== courseId));
-          setRates((prev) => prev.filter((r) => r.course_id !== courseId));
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";
@@ -503,10 +364,92 @@ export default function CoursesPage() {
     });
   };
 
-  useEffect(() => {
-    if (!initialLoaded || courses.length === 0) return;
-    setRates((prev) => sortRatesByCourses(prev, courses));
-  }, [courses, initialLoaded]);
+  const renderCourseRow = (course: Course, group: { key: string; courses: Course[] }) => {
+    const assignedDrivers = getDriversForCourse(course.id);
+    const isDragOver = dragOverId === course.id;
+    return (
+      <div
+        key={course.id}
+        draggable={canWrite && !reordering}
+        onDragStart={(e) => {
+          if (!canWrite) return;
+          e.dataTransfer.effectAllowed = "move";
+          setDraggingId(course.id);
+        }}
+        onDragOver={(e) => {
+          if (!draggingId || !group.courses.some((c) => c.id === draggingId)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          setDragOverId(course.id);
+        }}
+        onDragLeave={() => setDragOverId(null)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOverId(null);
+          if (!canWrite || !draggingId) return;
+          reorderWithinGroup(group.courses, draggingId, course.id);
+          setDraggingId(null);
+        }}
+        onDragEnd={() => {
+          setDraggingId(null);
+          setDragOverId(null);
+        }}
+        className={`bg-white rounded border border-slate-200 p-4 border-l-4 transition-all ${
+          canWrite && !reordering ? "cursor-grab active:cursor-grabbing" : ""
+        } ${isDragOver ? "ring-2 ring-slate-400 ring-offset-2" : ""}`}
+        style={{ borderLeftColor: course.color }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          {canWrite && !reordering && (
+            <div className="shrink-0 text-slate-400 hover:text-slate-600 touch-none" title="ドラッグして並べ替え">
+              <FontAwesomeIcon icon={faGripVertical} className="w-4 h-4" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <h3 className="font-medium text-slate-900">{course.name}</h3>
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {assignedDrivers.length > 0 ? (
+                assignedDrivers.map((d) => (
+                  <span key={d.id} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded">
+                    {getDisplayName(d)}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-slate-400">担当ドライバー未設定</span>
+              )}
+              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[11px] rounded">
+                元請:{" "}
+                {course.principal_invoice_address_id
+                  ? principalNameById.get(course.principal_invoice_address_id) ?? "未設定"
+                  : "未設定"}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="w-5 h-5 rounded-full shrink-0" style={{ backgroundColor: course.color }} />
+            {canWrite && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setRateEditorCourse({ id: course.id, name: course.name })}
+                  className="text-xs text-slate-500 hover:text-slate-800 transition-colors px-1.5 py-0.5 rounded border border-slate-200"
+                >
+                  単価
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openEditCourse(course)}
+                  className="text-xs text-slate-500 hover:text-slate-800 transition-colors"
+                >
+                  <FontAwesomeIcon icon={faPenToSquare} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <AdminLayout>
@@ -525,10 +468,8 @@ export default function CoursesPage() {
         </div>
 
         <p className="text-sm text-slate-500 mb-4">
-          ドライバーとコースの紐付けは「ユーザー管理」で行います
+          コースはキャリアごとに整理されています。ドライバーとの紐付けは「ユーザー管理」、リース代は各ドライバーの設定で行います。
         </p>
-
-        {/* 旧・横長の単価テーブルは廃止。単価は各コース行の「単価」ボタン（新エディタ）から編集する。 */}
 
         {loading ? (
           <div className="space-y-2">
@@ -544,90 +485,27 @@ export default function CoursesPage() {
               </div>
             ))}
           </div>
+        ) : carrierGroups.length === 0 ? (
+          <p className="text-sm text-slate-400">コースがまだありません。「新規追加」から作成してください。</p>
         ) : (
-          <div className="space-y-2">
-            {courses.map((course, index) => {
-              const assignedDrivers = getDriversForCourse(course.id);
-              const isDragOver = dragOverIndex === index;
-              return (
-                <div
-                  key={course.id}
-                  draggable={canWrite && !reordering}
-                  onDragStart={(e) => handleCourseDragStart(e, index)}
-                  onDragOver={(e) => handleCourseDragOver(e, index)}
-                  onDragLeave={handleCourseDragLeave}
-                  onDrop={(e) => handleCourseDrop(e, index)}
-                  onDragEnd={handleCourseDragEnd}
-                  className={`bg-white rounded border border-slate-200 p-4 border-l-4 transition-all ${
-                    canWrite && !reordering ? "cursor-grab active:cursor-grabbing" : ""
-                  } ${isDragOver ? "ring-2 ring-slate-400 ring-offset-2" : ""}`}
-                  style={{ borderLeftColor: course.color }}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    {canWrite && !reordering && (
-                      <div
-                        className="shrink-0 text-slate-400 hover:text-slate-600 touch-none"
-                        title="ドラッグして並べ替え"
-                      >
-                        <FontAwesomeIcon icon={faGripVertical} className="w-4 h-4" />
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-medium text-slate-900">{course.name}</h3>
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {assignedDrivers.length > 0 ? (
-                          assignedDrivers.map((d) => (
-                            <span
-                              key={d.id}
-                              className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded"
-                            >
-                              {getDisplayName(d)}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-xs text-slate-400">担当ドライバー未設定</span>
-                        )}
-                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[11px] rounded">
-                          元請:{" "}
-                          {course.principal_invoice_address_id
-                            ? principalNameById.get(course.principal_invoice_address_id) ?? "未設定"
-                            : "未設定"}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <div
-                        className="w-5 h-5 rounded-full shrink-0"
-                        style={{ backgroundColor: course.color }}
-                      />
-                      {canWrite && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setRateEditorCourse({ id: course.id, name: course.name })}
-                            className="text-xs text-slate-500 hover:text-slate-800 transition-colors px-1.5 py-0.5 rounded border border-slate-200"
-                          >
-                            単価
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openEditCourse(course)}
-                            className="text-xs text-slate-500 hover:text-slate-800 transition-colors"
-                          >
-                            <FontAwesomeIcon icon={faPenToSquare} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
+          <div className="space-y-6">
+            {carrierGroups.map((group) => (
+              <section key={group.key}>
+                <div className="flex items-center gap-2 mb-2 px-0.5">
+                  <FontAwesomeIcon icon={carrierIcon(group.code)} className="w-4 h-4 text-slate-500" />
+                  <h2 className="text-sm font-semibold text-slate-700">{group.name}</h2>
+                  <span className="text-xs text-slate-400">{group.courses.length}コース</span>
                 </div>
-              );
-            })}
+                <div className="space-y-2">
+                  {group.courses.map((course) => renderCourseRow(course, group))}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Modal */}
+      {/* 新規コース追加モーダル */}
       {showModal && canWrite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-5">
@@ -650,7 +528,7 @@ export default function CoursesPage() {
                   type="text"
                   value={newCourse.summary_title}
                   onChange={(e) => setNewCourse((f) => ({ ...f, summary_title: e.target.value }))}
-                  placeholder="例: 横大路、Amazon 昼"
+                  placeholder="例: 横大路、ミッドナイト"
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
                 <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
@@ -692,9 +570,10 @@ export default function CoursesPage() {
                   type="text"
                   value={newCourse.name}
                   onChange={(e) => setNewCourse((f) => ({ ...f, name: e.target.value }))}
-                  placeholder="例: ヤマトD"
+                  placeholder="例: 横大路（キャリアは上で選択）"
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
+                <p className="mt-1 text-xs text-slate-500">キャリアはグループで表示されるため、コース名に「ヤマト」「Amazon」を含める必要はありません。</p>
               </div>
 
               <div>
@@ -784,7 +663,7 @@ export default function CoursesPage() {
                   type="text"
                   value={editForm.summary_title}
                   onChange={(e) => setEditForm((f) => ({ ...f, summary_title: e.target.value }))}
-                  placeholder="例: 横大路、Amazon 昼"
+                  placeholder="例: 横大路、ミッドナイト"
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
                 <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
@@ -911,62 +790,6 @@ export default function CoursesPage() {
         </div>
       )}
 
-      {/* 単価編集モーダル */}
-      {showRateModal && editingRate && canWrite && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-5 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">
-              単価設定 - {(editingRate.courses as { name?: string })?.name ?? ""}
-            </h2>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-2 text-sm">
-                <div>
-                  <label className="block text-slate-600 mb-1">宅急便 売上(円)</label>
-                  <input type="number" value={rateForm.takuhaibin_revenue} onChange={(e) => setRateForm((f) => ({ ...f, takuhaibin_revenue: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
-                </div>
-                <div>
-                  <label className="block text-slate-600 mb-1">宅急便 支払(円)</label>
-                  <input type="number" value={rateForm.takuhaibin_driver_payout} onChange={(e) => setRateForm((f) => ({ ...f, takuhaibin_driver_payout: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
-                </div>
-                <div>
-                  <label className="block text-slate-600 mb-1">宅急便 利益(円)</label>
-                  <div className="w-full px-2 py-1.5 border rounded bg-slate-50 text-right">
-                    {rateForm.takuhaibin_revenue - rateForm.takuhaibin_driver_payout}円
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-slate-600 mb-1">ネコポス 売上(円)</label>
-                  <input type="number" value={rateForm.nekopos_revenue} onChange={(e) => setRateForm((f) => ({ ...f, nekopos_revenue: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
-                </div>
-                <div>
-                  <label className="block text-slate-600 mb-1">ネコポス 支払(円)</label>
-                  <input type="number" value={rateForm.nekopos_driver_payout} onChange={(e) => setRateForm((f) => ({ ...f, nekopos_driver_payout: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
-                </div>
-                <div>
-                  <label className="block text-slate-600 mb-1">ネコポス 利益(円)</label>
-                  <div className="w-full px-2 py-1.5 border rounded bg-slate-50 text-right">
-                    {rateForm.nekopos_revenue - rateForm.nekopos_driver_payout}円
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-slate-600 mb-1">固定 売上(円)</label>
-                  <input type="number" value={rateForm.fixed_revenue} onChange={(e) => setRateForm((f) => ({ ...f, fixed_revenue: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" placeholder="Amazon等" />
-                </div>
-                <div>
-                  <label className="block text-slate-600 mb-1">固定 利益(円)</label>
-                  <input type="number" value={rateForm.fixed_profit} onChange={(e) => setRateForm((f) => ({ ...f, fixed_profit: Number(e.target.value) || 0 }))} className="w-full px-2 py-1.5 border rounded" />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-6">
-              <button onClick={() => { setShowRateModal(false); setEditingRate(null); }} className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800">キャンセル</button>
-              <button onClick={saveRate} disabled={saving} className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
-            </div>
-          </div>
-        </div>
-      )}
       <ConfirmDialog
         open={!!confirmState}
         message={confirmState?.message ?? ""}

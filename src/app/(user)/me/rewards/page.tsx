@@ -37,6 +37,7 @@ type RewardsSummary = {
   variableDeductions: number;
   fixedDeductions: number;
   optionalDeductions?: number;
+  leaseDeductions?: number;
   net: number;
   logDetails: RewardLogDetail[];
   dailyIncomeDetails?: RewardLogDetail[];
@@ -230,6 +231,7 @@ export default function MeRewardsPage() {
             income={rewards.incomeLog}
             companyExpenses={rewards.fixedDeductions}
             customExpenses={rewards.optionalDeductions ?? 0}
+            leaseExpenses={rewards.leaseDeductions ?? 0}
             selectedDate={new Date(rewardMonth.year, rewardMonth.month - 1, 1)}
           />
 

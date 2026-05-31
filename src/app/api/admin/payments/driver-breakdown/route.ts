@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { computeDriverAutoPayout } from "@/server/billing/driverPayout";
+import { loadDriverLease, leaseDeductionForRange } from "@/server/billing/driverLease";
 
 export const dynamic = "force-dynamic";
 
@@ -57,12 +58,19 @@ export async function GET(req: NextRequest) {
   }));
   const total = autoPayout.total;
 
+  // リース控除（driver_leases）。lines は gross のまま・控除は別フィールドで返す。
+  const lease = await loadDriverLease(supabase, driverId, startDate, endDate);
+  const workedDays = new Set(autoPayout.days.map((d) => d.date)).size;
+  const leaseDeductions = leaseDeductionForRange(lease, workedDays);
+
   return NextResponse.json({
     month,
     startDate,
     endDate,
     lines,
     total,
+    leaseDeductions,
+    leaseMode: lease?.mode ?? null,
   });
 }
 
