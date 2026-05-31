@@ -91,7 +91,7 @@ type DaySummary = {
   date: string;
   drivers: { id: string; name: string; display_name: string | null }[];
   shiftDriverIds: string[];
-  reportsByDriver: Record<string, DaySummaryReport>;
+  reportsByDriver: Record<string, DaySummaryReport[]>;
   driverPreferredVehicle?: Record<string, VehiclePlatePayload>;
 };
 
@@ -390,9 +390,10 @@ export default function AdminDailyPage() {
                 const withActionable = filteredSummaries.map((s) => {
                   const actionable = s.drivers.filter((d) => {
                     const hasShift = s.shiftDriverIds.includes(d.id);
-                    const report = s.reportsByDriver[d.id];
-                    if (!hasShift || report?.approved_at || report?.rejected_at) return false;
-                    return true; // unsubmitted or pending
+                    const reps = s.reportsByDriver[d.id] ?? [];
+                    if (!hasShift) return false;
+                    if (reps.length === 0) return true; // 未提出
+                    return reps.some((r) => !r.approved_at && !r.rejected_at); // 未承認が1件でもあれば対応要
                   }).length;
                   return { summary: s, actionable };
                 });
@@ -407,14 +408,14 @@ export default function AdminDailyPage() {
                 const renderDayTable = (summary: DaySummary, actionableCount: number) => {
                   const baseRows = summary.drivers.map((driver) => {
                     const hasShift = summary.shiftDriverIds.includes(driver.id);
-                    const report = summary.reportsByDriver[driver.id];
+                    const reps = summary.reportsByDriver[driver.id] ?? [];
                     let status: Status = "off";
                     if (!hasShift) status = "off";
-                    else if (!report) status = "unsubmitted";
-                    else if (report.approved_at) status = "approved";
-                    else if (report.rejected_at) status = "off";
+                    else if (reps.length === 0) status = "unsubmitted";
+                    else if (reps.every((r) => r.approved_at)) status = "approved";
+                    else if (reps.every((r) => r.rejected_at)) status = "off";
                     else status = "pending";
-                    return { driver, report: report ?? null, status };
+                    return { driver, reps, status };
                   });
                   const isToday = summary.date === businessToday;
                   const rows = isToday
@@ -465,85 +466,92 @@ export default function AdminDailyPage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {rows.map(({ driver, report, status }) => {
+                              {rows.map(({ driver, reps, status }) => {
                                 const isGray = status === "off" || status === "approved";
-                                const entry: Entry = {
+                                const stack = reps.length > 1;
+                                const stackCls = stack ? "flex flex-col gap-2 items-center" : "";
+                                const driverEntry: Entry = {
                                   driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
-                                  report: report as ReportData ?? { report_date: summary.date, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" },
+                                  report: { report_date: summary.date, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" } as ReportData,
                                 };
-                                if (report) (entry.report as ReportData).id = report.id;
-                                const carrier = report?.carrier || "YAMATO";
-                                const vehiclePlate = report?.vehicle_plate ?? null;
+                                const repEntry = (r: DaySummaryReport): Entry => ({
+                                  driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
+                                  report: { ...(r as unknown as ReportData), id: r.id },
+                                });
+                                const dash = <span className="inline-block w-full text-center text-slate-400 text-xs">—</span>;
+                                const carrierBadge = (r: DaySummaryReport) => (
+                                  <span
+                                    className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${
+                                      isGray
+                                        ? "bg-slate-200 text-slate-600"
+                                        : r.carrier === "AMAZON"
+                                          ? "bg-violet-100 text-violet-700"
+                                          : "bg-emerald-100 text-emerald-700"
+                                    }`}
+                                  >
+                                    {r.carrier === "AMAZON" ? "Amazon" : "ヤマト"}
+                                  </span>
+                                );
+                                const reportContent = (r: DaySummaryReport) =>
+                                  r.carrier === "AMAZON" ? (
+                                    <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
+                                      {r.amazon_am_completed ? <span><span className="text-slate-500 text-xs">午前</span> <span className="font-semibold tabular-nums">{r.amazon_am_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
+                                      {r.amazon_pm_completed ? <span><span className="text-slate-500 text-xs">午後</span> <span className="font-semibold tabular-nums">{r.amazon_pm_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
+                                      {r.amazon_4_completed ? <span><span className="text-slate-500 text-xs">4便</span> <span className="font-semibold tabular-nums">{r.amazon_4_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
+                                    </div>
+                                  ) : (
+                                    <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
+                                      <span><span className="text-slate-500 text-xs">宅急便</span> <span className="font-semibold tabular-nums">{r.takuhaibin_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
+                                      <span><span className="text-slate-500 text-xs">ネコポス</span> <span className="font-semibold tabular-nums">{r.nekopos_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
+                                    </div>
+                                  );
                                 return (
                                   <tr key={`${driver.id}-${summary.date}`} className={`border-b border-slate-100 ${isGray ? "bg-slate-100 text-slate-500" : "hover:bg-slate-50"}`}>
-                                    <td className="py-3 px-3 font-medium">{getDisplayName(driver)}</td>
+                                    <td className="py-3 px-3 font-medium align-middle">{getDisplayName(driver)}</td>
                                     <td className="py-3 px-2 text-center align-middle">
-                                      {report ? (
-                                        <span
-                                          className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${isGray
-                                            ? "bg-slate-200 text-slate-600"
-                                            : carrier === "AMAZON"
-                                              ? "bg-violet-100 text-violet-700"
-                                              : "bg-emerald-100 text-emerald-700"
-                                            }`}
-                                        >
-                                          {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
-                                        </span>
-                                      ) : (
-                                        <span className="inline-block w-full text-center text-slate-400 text-xs">—</span>
-                                      )}
+                                      {reps.length === 0 ? dash : <div className={stackCls}>{reps.map((r) => <span key={r.id}>{carrierBadge(r)}</span>)}</div>}
                                     </td>
                                     <td className="py-2 px-2 align-middle text-center">
-                                      {vehiclePlate && (vehiclePlate.number_prefix || vehiclePlate.number_hiragana || vehiclePlate.number_numeric) ? (
-                                        <VehiclePlate vehicle={vehiclePlate} compact className="max-w-[150px] mx-auto" />
-                                      ) : (
-                                        <span className="inline-block w-full text-center text-xs text-slate-400">—</span>
+                                      {reps.length === 0 ? dash : (
+                                        <div className={stackCls}>
+                                          {reps.map((r) =>
+                                            r.vehicle_plate && (r.vehicle_plate.number_prefix || r.vehicle_plate.number_hiragana || r.vehicle_plate.number_numeric) ? (
+                                              <VehiclePlate key={r.id} vehicle={r.vehicle_plate} compact className="max-w-[150px] mx-auto" />
+                                            ) : (
+                                              <span key={r.id} className="text-xs text-slate-400">—</span>
+                                            ),
+                                          )}
+                                        </div>
                                       )}
                                     </td>
-                                    <td className="py-3 px-2 text-center text-xs tabular-nums">
-                                      {report?.meter_value != null ? (
-                                        <span className="tabular-nums">
-                                          {report.meter_value.toLocaleString()}
-                                          <span className="text-[10px] text-slate-500 ml-1">km</span>
-                                        </span>
-                                      ) : (
-                                        <span className="inline-block w-full text-center text-slate-400 text-xs">—</span>
+                                    <td className="py-3 px-2 text-center text-xs tabular-nums align-middle">
+                                      {reps.length === 0 ? dash : (
+                                        <div className={stackCls}>
+                                          {reps.map((r) =>
+                                            r.meter_value != null ? (
+                                              <span key={r.id} className="tabular-nums">{r.meter_value.toLocaleString()}<span className="text-[10px] text-slate-500 ml-1">km</span></span>
+                                            ) : (
+                                              <span key={r.id} className="text-slate-400 text-xs">—</span>
+                                            ),
+                                          )}
+                                        </div>
                                       )}
                                     </td>
                                     <td className="py-3 px-2 text-left align-middle">
                                       {status === "unsubmitted" && <span className="text-red-600 align-middle font-semibold">日報が未提出です</span>}
-                                      {status === "off" && <span className="text-slate-500 align-middle">休み</span>}
-                                      {status === "approved" && (report ? (carrier === "YAMATO" ? (
-                                        <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
-                                          <span><span className="text-slate-500 text-xs">宅急便</span> <span className="font-semibold tabular-nums">{report.takuhaibin_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
-                                          <span><span className="text-slate-500 text-xs">ネコポス</span> <span className="font-semibold tabular-nums">{report.nekopos_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
+                                      {status === "off" && reps.length === 0 && <span className="text-slate-500 align-middle">休み</span>}
+                                      {reps.length > 0 && (
+                                        <div className={stack ? "flex flex-col gap-2" : ""}>
+                                          {reps.map((r) => <div key={r.id}>{reportContent(r)}</div>)}
                                         </div>
-                                      ) : (
-                                        <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
-                                          {report.amazon_am_completed ? <span><span className="text-slate-500 text-xs">午前</span> <span className="font-semibold tabular-nums">{report.amazon_am_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
-                                          {report.amazon_pm_completed ? <span><span className="text-slate-500 text-xs">午後</span> <span className="font-semibold tabular-nums">{report.amazon_pm_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
-                                          {report.amazon_4_completed ? <span><span className="text-slate-500 text-xs">4便</span> <span className="font-semibold tabular-nums">{report.amazon_4_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
-                                        </div>
-                                      )) : (<span>—</span>))}
-                                      {status === "pending" && report && (carrier === "YAMATO" ? (
-                                        <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
-                                          <span><span className="text-slate-500 text-xs">宅急便</span> <span className="font-semibold tabular-nums">{report.takuhaibin_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
-                                          <span><span className="text-slate-500 text-xs">ネコポス</span> <span className="font-semibold tabular-nums">{report.nekopos_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
-                                        </div>
-                                      ) : (
-                                        <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
-                                          {report.amazon_am_completed ? <span><span className="text-slate-500 text-xs">午前</span> <span className="font-semibold tabular-nums">{report.amazon_am_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
-                                          {report.amazon_pm_completed ? <span><span className="text-slate-500 text-xs">午後</span> <span className="font-semibold tabular-nums">{report.amazon_pm_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
-                                          {report.amazon_4_completed ? <span><span className="text-slate-500 text-xs">4便</span> <span className="font-semibold tabular-nums">{report.amazon_4_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
-                                        </div>
-                                      ))}
+                                      )}
                                     </td>
                                     <td className="py-3 px-2 text-center align-middle">
                                       {status === "approved" && <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700"><FontAwesomeIcon icon={faCircleCheck} className="mr-1" />承認済み</span>}
                                       {status === "pending" && canWrite && (
                                         <div className="flex items-center justify-center gap-2">
-                                          <button type="button" onClick={() => handleApprove(entry, summary.date)} className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-800 text-white hover:bg-slate-700">承認</button>
-                                          <button type="button" onClick={() => handleReject(entry, summary.date)} className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">却下</button>
+                                          <button type="button" onClick={() => handleApprove(driverEntry, summary.date)} className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-800 text-white hover:bg-slate-700">承認</button>
+                                          <button type="button" onClick={() => handleReject(driverEntry, summary.date)} className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">却下</button>
                                         </div>
                                       )}
                                       {status === "pending" && !canWrite && <span className="text-slate-400 text-xs">未承認</span>}
@@ -552,17 +560,23 @@ export default function AdminDailyPage() {
                                     </td>
                                     {canWrite && (
                                       <td className="py-3 px-2 text-center align-middle">
-                                        {report && (status === "pending" || status === "approved") && (
-                                          <button type="button" onClick={() => openEdit(entry)} className="text-sm text-slate-600 hover:text-slate-900 underline">
-                                            <FontAwesomeIcon icon={faPenToSquare} />
-                                          </button>
+                                        {(status === "pending" || status === "approved") && reps.length > 0 && (
+                                          <div className={stackCls}>
+                                            {reps.map((r) => (
+                                              <button key={r.id} type="button" onClick={() => openEdit(repEntry(r))} className="text-sm text-slate-600 hover:text-slate-900 underline">
+                                                <FontAwesomeIcon icon={faPenToSquare} />
+                                              </button>
+                                            ))}
+                                          </div>
                                         )}
                                       </td>
                                     )}
                                     <td className="py-3 px-3 text-right text-xs text-slate-400 align-middle">
-                                      {report?.submitted_at ? (
-                                        <span className="tabular-nums">{new Date(report.submitted_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}</span>
-                                      ) : "—"}
+                                      {reps.length === 0 ? "—" : (
+                                        <div className={stack ? "flex flex-col gap-2 items-end" : ""}>
+                                          {reps.map((r) => <span key={r.id} className="tabular-nums">{r.submitted_at ? new Date(r.submitted_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "—"}</span>)}
+                                        </div>
+                                      )}
                                     </td>
                                   </tr>
                                 );

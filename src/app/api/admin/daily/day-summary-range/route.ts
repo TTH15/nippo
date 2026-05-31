@@ -122,7 +122,9 @@ export async function GET(req: NextRequest) {
       if (!date || !driverId) return;
       if (!reportsByDateDriver.has(date)) reportsByDateDriver.set(date, new Map());
       const veh = r.vehicles;
-      reportsByDateDriver.get(date)!.set(driverId, {
+      // 1日複数シフト（複数コース）対応: ドライバーごとに配列で保持
+      const arr = reportsByDateDriver.get(date)!.get(driverId) ?? [];
+      arr.push({
         id: r.id,
         driver_id: r.driver_id,
         report_date: r.report_date,
@@ -144,6 +146,7 @@ export async function GET(req: NextRequest) {
         amazon_4_mochidashi: r.amazon_4_mochidashi != null ? Number(r.amazon_4_mochidashi) : 0,
         amazon_4_completed: r.amazon_4_completed != null ? Number(r.amazon_4_completed) : 0,
       });
+      reportsByDateDriver.get(date)!.set(driverId, arr);
     });
 
     const dates: string[] = [];
