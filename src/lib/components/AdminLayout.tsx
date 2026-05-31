@@ -22,6 +22,7 @@ import {
   faMoneyBill1Wave,
   faBuilding,
   faTrophy,
+  faMobileScreenButton,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { apiFetch, clearAuth, getStoredDriver } from "@/lib/api";
@@ -58,7 +59,14 @@ const navItems: NavItem[] = [
       { href: "/admin/adjustments", label: "調整履歴", icon: faListUl },
     ],
   },
-  { href: "/admin/events", label: "イベント", icon: faTrophy },
+  {
+    label: "イベント",
+    icon: faTrophy,
+    children: [
+      { href: "/admin/events", label: "チーム戦", icon: faTrophy },
+      { href: "/admin/submit-screen", label: "送信後画面", icon: faMobileScreenButton },
+    ],
+  },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
