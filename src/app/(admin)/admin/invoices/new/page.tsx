@@ -1,0 +1,61 @@
+"use client";
+
+import { AdminLayout } from "@/lib/components/AdminLayout";
+import { Suspense, useEffect, useState } from "react";
+import { getStoredDriver } from "@/lib/api";
+import { canAdminWrite } from "@/lib/authz";
+import { useSearchParams } from "next/navigation";
+
+function InvoiceNewPageContent() {
+  const [canWrite, setCanWrite] = useState(false);
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+  }, []);
+
+  const iframeSrc = (() => {
+    const qs = searchParams?.toString();
+    if (!qs) return "/invoice/index.html";
+    return `/invoice/index.html?${qs}`;
+  })();
+
+  if (!canWrite) {
+    return (
+      <AdminLayout>
+        <div className="bg-white border border-slate-200 rounded-lg p-6">
+          <p className="text-sm text-slate-700">
+            閲覧専用アカウントでは利用できません。
+          </p>
+          <a
+            href="/admin/invoices"
+            className="inline-block mt-4 text-sm text-slate-700 underline hover:text-slate-900"
+          >
+            請求書一覧へ戻る
+          </a>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  return (
+    <AdminLayout>
+      <div className="-m-6">
+        <iframe
+          src={iframeSrc}
+          className="w-full border-0"
+          style={{ height: "calc(100vh - 0px)" }}
+          title="請求書作成"
+        />
+      </div>
+    </AdminLayout>
+  );
+}
+
+export default function InvoiceNewPage() {
+  return (
+    <Suspense fallback={null}>
+      <InvoiceNewPageContent />
+    </Suspense>
+  );
+}

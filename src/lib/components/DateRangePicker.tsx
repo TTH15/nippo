@@ -3,7 +3,7 @@ import { DateRangeDualPicker } from "@/lib/components/DateRangeDualPicker";
 import { startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { motion } from "motion/react";
 
-type RangePreset = "current_month" | "six_months" | "one_year" | "custom";
+type RangePreset = "last_month" | "current_month" | "six_months" | "one_year" | "custom";
 
 export type DateRangeValue = {
   startDate?: Date;
@@ -26,6 +26,10 @@ export function DateRangePicker({ value, onChange, hideSixMonths }: DateRangePic
 
     if (preset !== "custom") {
       switch (preset) {
+        case "last_month":
+          startDate = startOfMonth(subMonths(today, 1));
+          endDate = endOfMonth(subMonths(today, 1));
+          break;
         case "current_month":
           startDate = startOfMonth(today);
           endDate = endOfMonth(today);
@@ -56,6 +60,7 @@ export function DateRangePicker({ value, onChange, hideSixMonths }: DateRangePic
   };
 
   const presets = [
+    { value: "last_month", label: "先月" },
     { value: "current_month", label: "今月" },
     ...(hideSixMonths ? [] : [{ value: "six_months" as const, label: "半年" as const }]),
     { value: "one_year", label: "1年" },

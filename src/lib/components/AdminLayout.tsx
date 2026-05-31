@@ -7,9 +7,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faChartLine,
+  faChartColumn,
   faUsers,
   faCar,
   faRoute,
+  faTruck,
   faFileInvoice,
   faAddressBook,
   faCalendar,
@@ -33,7 +35,7 @@ type NavItem =
 
 const navItems: NavItem[] = [
   { href: "/admin", label: "ダッシュボード", icon: faChartLine },
-  { href: "/admin/sales", label: "売上", icon: faMoneyBill1Wave },
+  { href: "/admin/sales", label: "売上", icon: faChartColumn },
   { href: "/admin/daily", label: "報告", icon: faFileLines },
   { href: "/admin/shifts", label: "シフト", icon: faCalendar },
   {
@@ -42,7 +44,7 @@ const navItems: NavItem[] = [
     children: [
       { href: "/admin/users", label: "ドライバー", icon: faUsers },
       { href: "/admin/vehicles", label: "車両", icon: faCar },
-      { href: "/admin/carriers", label: "キャリア", icon: faRoute },
+      { href: "/admin/carriers", label: "キャリア", icon: faTruck },
       { href: "/admin/courses", label: "コース", icon: faRoute },
       { href: "/admin/counterparties", label: "取引先", icon: faBuilding },
     ],

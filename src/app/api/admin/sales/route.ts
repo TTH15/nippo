@@ -52,12 +52,38 @@ export async function GET(req: NextRequest) {
   const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
   const contribs = buildContributions(data.reports, [], ctx); // ledgerは使わず手動分は下で別途
 
-  type Bucket = { yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number };
+  // キャリア名（グラフの動的系列・凡例用）
+  const { data: carrierRows } = await supabase.from("carriers").select("id, code, name, sort_order");
+  const carrierMetaById = new Map<string, { name: string; sort: number }>();
+  (carrierRows ?? []).forEach(
+    (c: { id: string; name: string | null; code: string | null; sort_order: number | null }) =>
+      carrierMetaById.set(c.id, { name: c.name || c.code || "その他", sort: Number(c.sort_order) || 0 }),
+  );
+
+  type Bucket = {
+    yamato: number;
+    amazon: number;
+    other: number;
+    yamato_profit: number;
+    amazon_profit: number;
+    profit: number;
+    byCarrier: Record<string, number>; // carrierId -> revenue（動的系列）
+  };
   const dateMap = new Map<string, Bucket>();
   const ensure = (d: string) => {
-    if (!dateMap.has(d)) dateMap.set(d, { yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0 });
+    if (!dateMap.has(d))
+      dateMap.set(d, {
+        yamato: 0,
+        amazon: 0,
+        other: 0,
+        yamato_profit: 0,
+        amazon_profit: 0,
+        profit: 0,
+        byCarrier: {},
+      });
     return dateMap.get(d)!;
   };
+  const seenCarriers = new Set<string>();
 
   // 自動算出（reports × rates）
   for (const c of contribs) {
@@ -74,6 +100,9 @@ export async function GET(req: NextRequest) {
       e.yamato_profit += c.profit;
     }
     e.profit += c.profit;
+    const cid = c.carrierId ?? "unknown";
+    e.byCarrier[cid] = (e.byCarrier[cid] ?? 0) + c.revenue;
+    if (c.revenue !== 0) seenCarriers.add(cid);
   }
 
   // 手動調整（売上ログ）: revenue→other, profit→profit（旧仕様踏襲）
@@ -104,11 +133,23 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // 動的キャリア系列のメタ（revenue があったキャリアのみ・sort_order 順）
+  const crKey = (id: string) => `cr_${id.replace(/-/g, "")}`;
+  const carriersMeta = Array.from(seenCarriers)
+    .map((id) => ({
+      id,
+      key: crKey(id),
+      name: id === "unknown" ? "未設定" : carrierMetaById.get(id)?.name ?? "その他",
+      sort: id === "unknown" ? 9999 : carrierMetaById.get(id)?.sort ?? 9998,
+    }))
+    .sort((a, b) => a.sort - b.sort)
+    .map(({ id, key, name }) => ({ id, key, name }));
+
   const sortedDates = Array.from(dateMap.keys()).sort();
   const out = sortedDates.map((date) => {
     const d = dateMap.get(date)!;
     const [, m, day] = date.split("-");
-    return {
+    const row: Record<string, unknown> = {
       iso: date,
       date: `${Number(m)}/${Number(day)}`,
       yamato: d.yamato,
@@ -118,9 +159,12 @@ export async function GET(req: NextRequest) {
       amazon_profit: d.amazon_profit,
       profit: d.profit,
     };
+    // 動的キャリア別 revenue を平坦キーで載せる（グラフ系列用）
+    for (const c of carriersMeta) row[c.key] = d.byCarrier[c.id] ?? 0;
+    return row;
   });
 
-  const response = NextResponse.json({ startDate, endDate, data: out });
+  const response = NextResponse.json({ startDate, endDate, data: out, carriers: carriersMeta });
   response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=600");
   return response;
 }
