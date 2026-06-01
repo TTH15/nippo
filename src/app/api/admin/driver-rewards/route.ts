@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { computeDriverAutoPayout } from "@/server/billing/driverPayout";
-import { loadDriverLease, leaseDailyRate, leaseDeductionForRange } from "@/server/billing/driverLease";
+import { loadDriverLease, loadCourseDailyLease, computeLeaseDeduction, leaseDailyRateForCourse } from "@/server/billing/driverLease";
 
 export const dynamic = "force-dynamic";
 
@@ -79,20 +79,28 @@ export async function GET(req: NextRequest) {
   const autoPayout = await computeDriverAutoPayout(supabase, driverId, startDate, endDate);
   const calculatedIncome = autoPayout.total;
 
-  // リース控除（driver_leases）。DAILY は日当（日次明細）へ反映。
-  const lease = await loadDriverLease(supabase, driverId, startDate, endDate);
-  const dailyRate = leaseDailyRate(lease);
-  const workedDays = new Set(autoPayout.days.map((d) => d.date)).size;
-  const leaseDeductions = leaseDeductionForRange(lease, workedDays);
+  // リース控除（driver_leases）。DAILY はコース日額(courses.daily_lease)由来で日当へ反映。
+  const [lease, courseDailyLease] = await Promise.all([
+    loadDriverLease(supabase, driverId, startDate, endDate),
+    loadCourseDailyLease(supabase),
+  ]);
+  const perDay = autoPayout.days.map((d) => ({ date: d.date, courseId: d.courseId }));
+  const leaseDeductions = computeLeaseDeduction(lease, perDay, courseDailyLease);
 
+  const maxRateByDate = new Map<string, number>();
+  for (const d of autoPayout.days) {
+    const rate = leaseDailyRateForCourse(lease, d.courseId, courseDailyLease);
+    maxRateByDate.set(d.date, Math.max(maxRateByDate.get(d.date) ?? 0, rate));
+  }
   const seenLeaseDate = new Set<string>();
   const dailyIncomeDetails: RewardLogDetail[] = autoPayout.days.map((d) => {
     let amount = d.payout;
     let content = d.content;
-    if (dailyRate > 0 && !seenLeaseDate.has(d.date)) {
+    const rate = maxRateByDate.get(d.date) ?? 0;
+    if (rate > 0 && !seenLeaseDate.has(d.date)) {
       seenLeaseDate.add(d.date);
-      amount -= dailyRate;
-      content = `${d.content}（リース −${dailyRate.toLocaleString("ja-JP")}円）`;
+      amount -= rate;
+      content = `${d.content}（リース −${rate.toLocaleString("ja-JP")}円）`;
     }
     return { log_date: d.date, type_name: "日報", content, amount };
   });
@@ -196,7 +204,7 @@ export async function GET(req: NextRequest) {
     fixedDeductions,
     optionalDeductions,
     leaseDeductions,
-    leaseDetail: lease ? { mode: lease.mode, amount: lease.amount, total: leaseDeductions, days: workedDays } : null,
+    leaseDetail: lease ? { mode: lease.mode, total: leaseDeductions } : null,
     net,
     logDetails,
     dailyIncomeDetails,

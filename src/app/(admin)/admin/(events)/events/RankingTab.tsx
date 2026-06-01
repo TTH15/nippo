@@ -13,7 +13,19 @@ import type {
   ManualPointRow,
 } from "./types";
 
-const medal = (i: number) => (i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`);
+// 順位表示（rank は 1 始まり）。同点は同順位、メダルは上位3順位に付与。
+const medalForRank = (rank: number) =>
+  rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}`;
+
+// 得点降順に整列済みの配列から、同点は同順位（標準競技順位 1,1,3,…）を割り当てる。
+function tieRanks(items: { total: number }[]): number[] {
+  const ranks: number[] = [];
+  items.forEach((it, i) => {
+    if (i > 0 && it.total === items[i - 1].total) ranks.push(ranks[i - 1]);
+    else ranks.push(i + 1);
+  });
+  return ranks;
+}
 
 export function RankingTab({
   eventId,
@@ -52,6 +64,10 @@ export function RankingTab({
     () => drivers.filter((d) => memberDriverIds.has(d.id)),
     [drivers, memberDriverIds],
   );
+
+  // 同点は同順位で表示（並び自体は API 側で決定的に整列済み）
+  const teamRanks = useMemo(() => tieRanks(ranking?.teams ?? []), [ranking]);
+  const indivRanks = useMemo(() => tieRanks(ranking?.individuals ?? []), [ranking]);
 
   const nameOf = useCallback(
     (id: string) => {
@@ -181,7 +197,7 @@ export function RankingTab({
                   <div key={t.teamId} className="rounded-lg border border-slate-200 bg-white p-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-lg w-7 text-center">{medal(i)}</span>
+                        <span className="text-lg w-7 text-center">{medalForRank(teamRanks[i])}</span>
                         <span
                           className="inline-block h-3 w-3 rounded-full shrink-0"
                           style={{ background: t.color }}
@@ -237,7 +253,7 @@ export function RankingTab({
                 ranking!.individuals.map((d, i) => (
                   <div key={d.driverId} className="flex items-center justify-between px-3 py-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-6 text-center text-sm">{medal(i)}</span>
+                      <span className="w-6 text-center text-sm">{medalForRank(indivRanks[i])}</span>
                       <span className="text-sm text-slate-800 truncate">{nameOf(d.driverId)}</span>
                       <span className="text-[11px] text-slate-400 shrink-0">
                         {teamName(d.teamId)}

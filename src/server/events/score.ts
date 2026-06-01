@@ -113,8 +113,12 @@ export function computeEventScores(input: ComputeEventScoresInput): EventScoreRe
   }
 
   const sortedTeams = [...teams].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sortOrderByTeam = new Map(sortedTeams.map((t) => [t.id, t.sortOrder]));
   const teamScores: TeamScore[] = sortedTeams.map((team) => {
-    const ms = (byTeam.get(team.id) ?? []).slice().sort((a, b) => b.total - a.total);
+    // メンバーは得点降順。同点はドライバーID昇順で決定的に（リロードしても不変）。
+    const ms = (byTeam.get(team.id) ?? [])
+      .slice()
+      .sort((a, b) => b.total - a.total || a.driverId.localeCompare(b.driverId));
     const memberPoints = ms.reduce((s, m) => s + m.total, 0);
     const teamManualPoints = manualByTeam.get(team.id) ?? 0;
     return {
@@ -127,9 +131,18 @@ export function computeEventScores(input: ComputeEventScoresInput): EventScoreRe
       members: ms,
     };
   });
-  teamScores.sort((a, b) => b.total - a.total);
+  // チームは得点降順。同点は sortOrder 昇順→teamId 昇順で決定的に。
+  teamScores.sort(
+    (a, b) =>
+      b.total - a.total ||
+      (sortOrderByTeam.get(a.teamId) ?? 0) - (sortOrderByTeam.get(b.teamId) ?? 0) ||
+      a.teamId.localeCompare(b.teamId),
+  );
 
-  const individuals = driverScores.slice().sort((a, b) => b.total - a.total);
+  // 個人は得点降順。同点はドライバーID昇順で決定的に（members の取得順に依存しない）。
+  const individuals = driverScores
+    .slice()
+    .sort((a, b) => b.total - a.total || a.driverId.localeCompare(b.driverId));
 
   return { teams: teamScores, individuals };
 }

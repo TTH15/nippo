@@ -63,6 +63,7 @@ export async function PUT(req: NextRequest) {
       : [],
     period: "current_month",
     showRanking: body.showRanking !== false,
+    teamRankingVisibleToDrivers: body.teamRankingVisibleToDrivers === true,
   };
 
   try {

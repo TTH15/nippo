@@ -25,6 +25,7 @@ export async function PUT(
       max_drivers,
       carrier: carrierRaw,
       summary_title: summaryTitle,
+      daily_lease: dailyLeaseRaw,
       principal_invoice_address_id: principalInvoiceAddressIdRaw,
       counterparty_invoice_address_id: counterpartyInvoiceAddressIdRaw,
     } = body as {
@@ -33,6 +34,7 @@ export async function PUT(
       max_drivers?: number;
       carrier?: string;
       summary_title?: string | null;
+      daily_lease?: number | null;
       principal_invoice_address_id?: string | null;
       counterparty_invoice_address_id?: string | null;
     };
@@ -57,6 +59,9 @@ export async function PUT(
     }
     if (summaryTitle !== undefined) {
       updates.summary_title = typeof summaryTitle === "string" && summaryTitle.trim() !== "" ? summaryTitle.trim() : null;
+    }
+    if (dailyLeaseRaw !== undefined) {
+      updates.daily_lease = Math.max(0, Math.trunc(Number(dailyLeaseRaw) || 0));
     }
 
     if (principalInvoiceAddressIdRaw !== undefined) {

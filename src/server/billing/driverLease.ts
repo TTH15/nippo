@@ -1,12 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ============================================================
-// ドライバーのリース控除（専用概念 driver_leases）を集計する共有ロジック。
-//   MONTHLY: 毎月一定額をフラット控除（稼働日数に依らない）
-//   DAILY:   日額 × 稼働日数 を控除（日当＝日次報酬に反映）
+// ドライバーのリース控除（専用概念 driver_leases）。
+//   MONTHLY: 毎月一定額をフラット控除（driver_leases.amount・稼働日数に依らない）
+//   DAILY:   その日に走ったコースの日額リース代(courses.daily_lease)を稼働日ごとに控除
+//            ＝金額はドライバーでなく「コース」が正。複数コース日は最大日額を1回。
 // リースは course_unit_rates / course_fixed_rates（コース単価＝gross）とは別レイヤー。
 // computeDriverAutoPayout は gross のまま保ち、各 consumer がリースを控除する。
-// ※ 車両 vehicles.lease_cost（会社の回収）とは無関係。
+// 同額は使用車両(daily_reports_v2.vehicle_id)の初期費用回収へ自動計上（vehicle recovery v2）。
+// ※ 車両 vehicles.lease_cost（会社の回収レート）とは無関係。
 // ============================================================
 
 export type DriverLease = { mode: "MONTHLY" | "DAILY"; amount: number } | null;
@@ -22,7 +24,8 @@ function normalize(row: LeaseRow): DriverLease {
   const mode = row.mode === "DAILY" ? "DAILY" : row.mode === "MONTHLY" ? "MONTHLY" : null;
   if (!mode) return null;
   const amount = Number(row.amount) || 0;
-  if (amount <= 0) return null;
+  // MONTHLY は金額必須。DAILY は金額をコース側に持つため amount 不問。
+  if (mode === "MONTHLY" && amount <= 0) return null;
   return { mode, amount };
 }
 
@@ -71,14 +74,44 @@ export async function loadDriverLease(
   return map.get(driverId) ?? null;
 }
 
-/** 日割り表示用の日額。DAILY なら日額、MONTHLY/null は 0（日次には反映しない） */
-export function leaseDailyRate(lease: DriverLease): number {
-  return lease?.mode === "DAILY" ? lease.amount : 0;
+/** コースID -> 日額リース代(円/稼働日) */
+export async function loadCourseDailyLease(supabase: SupabaseClient): Promise<Map<string, number>> {
+  const { data } = await supabase.from("courses").select("id, daily_lease");
+  const m = new Map<string, number>();
+  (data ?? []).forEach((c: { id: string; daily_lease: number | null }) => {
+    m.set(String(c.id), Math.max(0, Number(c.daily_lease) || 0));
+  });
+  return m;
 }
 
-/** 期間のリース控除合計。MONTHLY=月額(有効なら) / DAILY=日額×稼働日数 */
-export function leaseDeductionForRange(lease: DriverLease, workedDays: number): number {
+/**
+ * 期間のリース控除合計。
+ *   MONTHLY: amount（有効なら定額）
+ *   DAILY:   ユニーク稼働日ごとに「その日のコース日額（複数コース日は最大）」を合算
+ */
+export function computeLeaseDeduction(
+  lease: DriverLease,
+  perDay: { date: string; courseId: string | null }[],
+  courseDailyLease: Map<string, number>,
+): number {
   if (!lease) return 0;
   if (lease.mode === "MONTHLY") return lease.amount;
-  return lease.amount * Math.max(0, workedDays);
+  const byDate = new Map<string, number>();
+  for (const d of perDay) {
+    const rate = d.courseId ? courseDailyLease.get(d.courseId) ?? 0 : 0;
+    byDate.set(d.date, Math.max(byDate.get(d.date) ?? 0, rate));
+  }
+  let sum = 0;
+  for (const v of byDate.values()) sum += v;
+  return sum;
+}
+
+/** 日次表示用: DAILY ならそのコースの日額、それ以外は 0 */
+export function leaseDailyRateForCourse(
+  lease: DriverLease,
+  courseId: string | null,
+  courseDailyLease: Map<string, number>,
+): number {
+  if (lease?.mode !== "DAILY" || !courseId) return 0;
+  return courseDailyLease.get(courseId) ?? 0;
 }

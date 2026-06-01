@@ -934,7 +934,7 @@ export default function UsersPage() {
               <div className="pt-4 mt-4 border-t border-slate-200">
                 <h3 className="text-sm font-semibold text-slate-700 mb-1">リース</h3>
                 <p className="text-xs text-slate-500 mb-3">
-                  車両リース代をこのドライバーの日当（日次報酬）から自動控除します。月額＝毎月一定額／日割り＝日額×稼働日数。
+                  車両リース代をこのドライバーの日当（日次報酬）から自動控除します。月額＝毎月一定額／日割り＝走ったコースの日額リース代×稼働日数（日額の金額はコース側で設定）。
                 </p>
                 {leaseLoading ? (
                   <p className="text-xs text-slate-400">読み込み中…</p>
@@ -967,7 +967,7 @@ export default function UsersPage() {
                           <div className="flex gap-2">
                             {[
                               { v: "MONTHLY" as const, label: "月額（毎月一定額）" },
-                              { v: "DAILY" as const, label: "日割り（日額×稼働日数）" },
+                              { v: "DAILY" as const, label: "日割り（コース日額×稼働日数）" },
                             ].map((o) => (
                               <button
                                 key={o.v}
@@ -985,21 +985,27 @@ export default function UsersPage() {
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">
-                              {leaseForm.mode === "DAILY" ? "日額（円 / 1稼働日）" : "月額（円 / 月）"}
-                            </label>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              value={leaseForm.amount}
-                              onChange={(e) =>
-                                setLeaseForm((f) => ({ ...f, amount: e.target.value.replace(/\D/g, "") }))
-                              }
-                              placeholder={leaseForm.mode === "DAILY" ? "1400" : "35000"}
-                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                            />
-                          </div>
+                          {leaseForm.mode === "MONTHLY" ? (
+                            <div>
+                              <label className="block text-xs font-medium text-slate-600 mb-1">月額（円 / 月）</label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={leaseForm.amount}
+                                onChange={(e) =>
+                                  setLeaseForm((f) => ({ ...f, amount: e.target.value.replace(/\D/g, "") }))
+                                }
+                                placeholder="35000"
+                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                              />
+                            </div>
+                          ) : (
+                            <div className="col-span-1 flex items-end">
+                              <p className="text-xs text-slate-500">
+                                日額の金額は<strong>コースの「日額リース代」</strong>を使用します（コース管理で設定）。
+                              </p>
+                            </div>
+                          )}
                           <div>
                             <label className="block text-xs font-medium text-slate-600 mb-1">適用開始月</label>
                             <input

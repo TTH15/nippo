@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
@@ -16,7 +16,7 @@ import { CustomSelect } from "@/lib/components/CustomSelect";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
-import { CourseRateEditor } from "@/lib/components/CourseRateEditor";
+import { CourseRateEditor, type CourseRateEditorHandle } from "@/lib/components/CourseRateEditor";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
@@ -31,6 +31,7 @@ type Course = {
   carrier?: CourseCarrier | null;
   carrier_id?: string | null;
   summary_title?: string | null;
+  daily_lease?: number | null;
   principal_invoice_address_id?: string | null;
   counterparty_invoice_address_id?: string | null;
 };
@@ -79,6 +80,7 @@ type CourseFormState = {
   max_drivers: string;
   carrierId: string;
   summary_title: string;
+  daily_lease: string;
   principal_invoice_address_id: string;
   counterparty_invoice_address_id: string;
 };
@@ -89,6 +91,7 @@ const EMPTY_COURSE_FORM: CourseFormState = {
   max_drivers: "1",
   carrierId: "",
   summary_title: "",
+  daily_lease: "",
   principal_invoice_address_id: "",
   counterparty_invoice_address_id: "",
 };
@@ -106,8 +109,8 @@ export default function CoursesPage() {
   };
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  // 新モデルの単価エディタ（course_unit_rates + course_fixed_rates）
-  const [rateEditorCourse, setRateEditorCourse] = useState<{ id: string; name: string } | null>(null);
+  // 編集モーダルに埋め込む単価エディタ（保存時に ref 経由で course-billing を保存）
+  const billingRef = useRef<CourseRateEditorHandle>(null);
   const [newCourse, setNewCourse] = useState<CourseFormState>(EMPTY_COURSE_FORM);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [editForm, setEditForm] = useState<CourseFormState>(EMPTY_COURSE_FORM);
@@ -244,6 +247,7 @@ export default function CoursesPage() {
           carrier_id: newCourse.carrierId || null,
           carrier: legacyCarrierOf(newCourse.carrierId),
           summary_title: newCourse.summary_title.trim() ? newCourse.summary_title.trim() : null,
+          daily_lease: Math.max(0, parseInt(newCourse.daily_lease, 10) || 0),
           principal_invoice_address_id: newCourse.principal_invoice_address_id || null,
           counterparty_invoice_address_id: newCourse.counterparty_invoice_address_id || null,
         }),
@@ -278,6 +282,7 @@ export default function CoursesPage() {
       max_drivers: String(Math.max(1, course.max_drivers ?? 1)),
       carrierId: course.carrier_id ?? "",
       summary_title: course.summary_title ?? "",
+      daily_lease: course.daily_lease != null && Number(course.daily_lease) > 0 ? String(course.daily_lease) : "",
       principal_invoice_address_id: course.principal_invoice_address_id ?? "",
       counterparty_invoice_address_id: course.counterparty_invoice_address_id ?? "",
     });
@@ -289,6 +294,7 @@ export default function CoursesPage() {
     if (!editForm.name.trim()) return;
     setSaving(true);
     try {
+      const dailyLease = Math.max(0, parseInt(editForm.daily_lease, 10) || 0);
       await apiFetch(`/api/admin/courses/${editingCourse.id}`, {
         method: "PUT",
         body: JSON.stringify({
@@ -298,10 +304,13 @@ export default function CoursesPage() {
           carrier_id: editForm.carrierId || null,
           carrier: legacyCarrierOf(editForm.carrierId),
           summary_title: editForm.summary_title.trim() ? editForm.summary_title.trim() : null,
+          daily_lease: dailyLease,
           principal_invoice_address_id: editForm.principal_invoice_address_id || null,
           counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
         }),
       });
+      // 単価（course-billing）も保存
+      await billingRef.current?.save();
       const updatedCourse: Course = {
         ...editingCourse,
         name: editForm.name.trim(),
@@ -310,6 +319,7 @@ export default function CoursesPage() {
         carrier: legacyCarrierOf(editForm.carrierId),
         carrier_id: editForm.carrierId || null,
         summary_title: editForm.summary_title.trim() ? editForm.summary_title.trim() : null,
+        daily_lease: dailyLease,
         principal_invoice_address_id: editForm.principal_invoice_address_id || null,
         counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
       };
@@ -428,22 +438,14 @@ export default function CoursesPage() {
           <div className="flex items-center gap-3 shrink-0">
             <div className="w-5 h-5 rounded-full shrink-0" style={{ backgroundColor: course.color }} />
             {canWrite && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setRateEditorCourse({ id: course.id, name: course.name })}
-                  className="text-xs text-slate-500 hover:text-slate-800 transition-colors px-1.5 py-0.5 rounded border border-slate-200"
-                >
-                  単価
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openEditCourse(course)}
-                  className="text-xs text-slate-500 hover:text-slate-800 transition-colors"
-                >
-                  <FontAwesomeIcon icon={faPenToSquare} />
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => openEditCourse(course)}
+                className="text-xs text-slate-500 hover:text-slate-800 transition-colors px-1.5 py-0.5 rounded border border-slate-200"
+              >
+                <FontAwesomeIcon icon={faPenToSquare} className="mr-1" />
+                編集・単価
+              </button>
             )}
           </div>
         </div>
@@ -593,6 +595,20 @@ export default function CoursesPage() {
               </div>
 
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">日額リース代（円/稼働日）</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={newCourse.daily_lease}
+                  onChange={(e) => setNewCourse((f) => ({ ...f, daily_lease: e.target.value.replace(/\D/g, "") }))}
+                  placeholder="0"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                <p className="mt-1 text-xs text-slate-500">日額リースのドライバーがこのコースを走った日に、日当から控除し車両回収へ自動計上します。単価は作成後の編集で設定できます。</p>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">色</label>
                 <div className="flex flex-wrap gap-2 mb-2">
                   {COLORS.map((c) => (
@@ -640,121 +656,153 @@ export default function CoursesPage() {
         </div>
       )}
 
-      {/* コース編集モーダル */}
+      {/* コース編集モーダル（横長2カラム・単価設定統合） */}
       {showEditModal && editingCourse && canWrite && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-sm p-5">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">コース編集</h2>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">キャリア</label>
-                <CustomSelect
-                  options={carriers.map((c) => ({ value: c.id, label: c.name }))}
-                  value={editForm.carrierId}
-                  onChange={(v) => setEditForm((f) => ({ ...f, carrierId: v }))}
-                  clearable={false}
-                  size="sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">略記（集計・シフト表示用）</label>
-                <input
-                  type="text"
-                  value={editForm.summary_title}
-                  onChange={(e) => setEditForm((f) => ({ ...f, summary_title: e.target.value }))}
-                  placeholder="例: 横大路、ミッドナイト"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-                <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">元請け（請求元）</label>
-                <CustomSelect
-                  options={[
-                    { value: "", label: "未設定" },
-                    ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
-                  ]}
-                  value={editForm.principal_invoice_address_id}
-                  onChange={(v) => setEditForm((f) => ({ ...f, principal_invoice_address_id: v }))}
-                  clearable={false}
-                  size="sm"
-                  disabled={invoiceAddresses.length === 0}
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                  請求書作成システムで「請求元」として利用します（アドレス帳に登録済みの法人から選択）。
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">取引先（請求先）</label>
-                <CustomSelect
-                  options={[
-                    { value: "", label: "未設定" },
-                    ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
-                  ]}
-                  value={editForm.counterparty_invoice_address_id}
-                  onChange={(v) => setEditForm((f) => ({ ...f, counterparty_invoice_address_id: v }))}
-                  clearable={false}
-                  size="sm"
-                  disabled={invoiceAddresses.length === 0}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
-                <input
-                  type="text"
-                  value={editForm.name}
-                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">色</label>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setEditForm((f) => ({ ...f, color: c }))}
-                      className={`w-7 h-7 rounded-full border-2 transition-all ${editForm.color === c ? "border-slate-900 scale-110" : "border-transparent"
-                        }`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-slate-500">または</span>
-                  <input
-                    type="color"
-                    value={editForm.color}
-                    onChange={(e) => setEditForm((f) => ({ ...f, color: e.target.value }))}
-                    className="w-9 h-9 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
-                    title="好きな色を選択"
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+              {/* 左カラム: 基本情報 */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">キャリア</label>
+                  <CustomSelect
+                    options={carriers.map((c) => ({ value: c.id, label: c.name }))}
+                    value={editForm.carrierId}
+                    onChange={(v) => setEditForm((f) => ({ ...f, carrierId: v }))}
+                    clearable={false}
+                    size="sm"
                   />
-                  <span className="text-xs text-slate-500">好きな色を選択</span>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">略記（集計・シフト表示用）</label>
+                  <input
+                    type="text"
+                    value={editForm.summary_title}
+                    onChange={(e) => setEditForm((f) => ({ ...f, summary_title: e.target.value }))}
+                    placeholder="例: 横大路、ミッドナイト"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">未入力の場合はコース名を表示します。</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">元請け（請求元）</label>
+                  <CustomSelect
+                    options={[
+                      { value: "", label: "未設定" },
+                      ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
+                    ]}
+                    value={editForm.principal_invoice_address_id}
+                    onChange={(v) => setEditForm((f) => ({ ...f, principal_invoice_address_id: v }))}
+                    clearable={false}
+                    size="sm"
+                    disabled={invoiceAddresses.length === 0}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">取引先（請求先）</label>
+                  <CustomSelect
+                    options={[
+                      { value: "", label: "未設定" },
+                      ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
+                    ]}
+                    value={editForm.counterparty_invoice_address_id}
+                    onChange={(v) => setEditForm((f) => ({ ...f, counterparty_invoice_address_id: v }))}
+                    clearable={false}
+                    size="sm"
+                    disabled={invoiceAddresses.length === 0}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">1日あたりの最大人数</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={editForm.max_drivers}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, "");
+                      setEditForm((f) => ({ ...f, max_drivers: v }));
+                    }}
+                    placeholder="1"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">色</label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setEditForm((f) => ({ ...f, color: c }))}
+                        className={`w-7 h-7 rounded-full border-2 transition-all ${editForm.color === c ? "border-slate-900 scale-110" : "border-transparent"
+                          }`}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-xs text-slate-500">または</span>
+                    <input
+                      type="color"
+                      value={editForm.color}
+                      onChange={(e) => setEditForm((f) => ({ ...f, color: e.target.value }))}
+                      className="w-9 h-9 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
+                      title="好きな色を選択"
+                    />
+                    <span className="text-xs text-slate-500">好きな色を選択</span>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">1日あたりの最大人数</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={editForm.max_drivers}
-                  onChange={(e) => {
-                    const v = e.target.value.replace(/\D/g, "");
-                    setEditForm((f) => ({ ...f, max_drivers: v }));
-                  }}
-                  placeholder="1"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
+              {/* 右カラム: 日額リース＋単価設定 */}
+              <div className="space-y-4 md:border-l md:border-slate-100 md:pl-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">日額リース代（円/稼働日）</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={editForm.daily_lease}
+                    onChange={(e) => setEditForm((f) => ({ ...f, daily_lease: e.target.value.replace(/\D/g, "") }))}
+                    placeholder="0"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">日額リースのドライバーがこのコースを走った日に、日当から控除し、使用車両の初期費用回収へ自動計上します。</p>
+                </div>
+                <div className="pt-2 border-t border-slate-100">
+                  <CourseRateEditor
+                    ref={billingRef}
+                    courseId={editingCourse.id}
+                    onError={(msg) => setErrorState({ title: "単価設定", message: msg })}
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 mt-6">
-              <div className="flex justify-end gap-2">
+            <div className="flex items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-200">
+              <button
+                onClick={() => {
+                  deleteCourse(editingCourse.id, editingCourse.name);
+                  setShowEditModal(false);
+                  setEditingCourse(null);
+                }}
+                className="px-4 py-2 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50 transition-colors"
+              >
+                削除
+              </button>
+              <div className="flex gap-2">
                 <button
                   onClick={() => {
                     setShowEditModal(false);
@@ -770,19 +818,6 @@ export default function CoursesPage() {
                   className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
                 >
                   {saving ? "保存中..." : "保存"}
-                </button>
-              </div>
-
-              <div className="pt-3 border-t border-slate-200">
-                <button
-                  onClick={() => {
-                    deleteCourse(editingCourse.id, editingCourse.name);
-                    setShowEditModal(false);
-                    setEditingCourse(null);
-                  }}
-                  className="w-full px-4 py-2 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50 transition-colors"
-                >
-                  削除
                 </button>
               </div>
             </div>
@@ -803,17 +838,6 @@ export default function CoursesPage() {
         message={errorState?.message ?? ""}
         detail={errorState?.detail}
         onClose={() => setErrorState(null)}
-      />
-      <CourseRateEditor
-        open={!!rateEditorCourse}
-        courseId={rateEditorCourse?.id ?? null}
-        courseName={rateEditorCourse?.name ?? ""}
-        onClose={() => setRateEditorCourse(null)}
-        onSaved={() => {
-          setRateEditorCourse(null);
-          void load();
-        }}
-        onError={(msg) => setErrorState({ title: "単価設定", message: msg })}
       />
     </AdminLayout>
   );

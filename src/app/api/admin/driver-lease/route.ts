@@ -122,13 +122,14 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  // 解除（enabled=false / 金額0）の場合はここで終了＝リース無し
-  if (body.enabled === false || !body.amount || Number(body.amount) <= 0) {
+  const mode: "MONTHLY" | "DAILY" = body.mode === "DAILY" ? "DAILY" : "MONTHLY";
+  const amount = Math.max(0, Math.trunc(Number(body.amount) || 0));
+
+  // 解除（enabled=false）/ 月額で金額0 の場合はここで終了＝リース無し。
+  // 日額は金額をコース(daily_lease)が持つため amount=0 でも有効。
+  if (body.enabled === false || (mode === "MONTHLY" && amount <= 0)) {
     return NextResponse.json({ lease: null });
   }
-
-  const mode: "MONTHLY" | "DAILY" = body.mode === "DAILY" ? "DAILY" : "MONTHLY";
-  const amount = Math.trunc(Number(body.amount));
 
   const { data, error } = await supabase
     .from("driver_leases")

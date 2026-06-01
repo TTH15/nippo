@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import {
+  loadDailyLeaseByVehicleMonth,
+  buildVehicleRecovery,
+  currentYm,
+} from "@/server/billing/vehicleRecovery";
 
 export const dynamic = "force-dynamic";
 
@@ -69,10 +74,45 @@ export async function GET(req: NextRequest) {
     collectedByVehicle.get(r.vehicle_id)![r.month] = r.collected_at;
   });
 
-  const vehiclesWithRecovery = (vehicles ?? []).map((v: { id: string; [key: string]: unknown }) => ({
-    ...v,
-    recovery_collected: collectedByVehicle.get(v.id) ?? {},
-  }));
+  // 回収v2: 繰越＋自動カレンダー月＋日額自動計上＋手動行 から回収済み額を算出
+  const [{ data: manualRows }, dailyMap] = vehicleIds.length > 0
+    ? await Promise.all([
+        supabase
+          .from("vehicle_recovery_entries")
+          .select("id, vehicle_id, ym, lease, insurance, note")
+          .in("vehicle_id", vehicleIds),
+        loadDailyLeaseByVehicleMonth(supabase),
+      ])
+    : [{ data: [] as any[] }, new Map<string, Map<string, number>>()] as const;
+  const manualByVehicle = new Map<string, any[]>();
+  (manualRows ?? []).forEach((m: any) => {
+    const arr = manualByVehicle.get(m.vehicle_id) ?? [];
+    arr.push({
+      id: String(m.id),
+      vehicle_id: String(m.vehicle_id),
+      ym: String(m.ym),
+      lease: Number(m.lease) || 0,
+      insurance: Number(m.insurance) || 0,
+      note: m.note ?? null,
+    });
+    manualByVehicle.set(m.vehicle_id, arr);
+  });
+  const nowYm = currentYm();
+
+  const vehiclesWithRecovery = (vehicles ?? []).map((v: { id: string; [key: string]: unknown }) => {
+    const rec = buildVehicleRecovery(
+      v as any,
+      dailyMap.get(v.id) ?? new Map<string, number>(),
+      manualByVehicle.get(v.id) ?? [],
+      nowYm,
+    );
+    return {
+      ...v,
+      recovery_collected: collectedByVehicle.get(v.id) ?? {},
+      recovered_amount: rec.recovered,
+      remaining_amount: rec.remaining,
+    };
+  });
 
   return NextResponse.json({ vehicles: vehiclesWithRecovery });
 }
@@ -100,6 +140,8 @@ export async function POST(req: NextRequest) {
       purchaseCostItems = [],
       leaseCost = 35000,
       monthlyInsurance = 0,
+      recoveryStartMonth = null,
+      recoveryCarryover = null,
       imageUrl = null,
       nextShakenDate,
       jibaisekiRenewalMonth = null,
@@ -132,6 +174,11 @@ export async function POST(req: NextRequest) {
         purchase_cost_items: normalizedItems.length > 0 ? normalizedItems : null,
         lease_cost: leaseCost,
         monthly_insurance: monthlyInsurance,
+        recovery_start_month:
+          recoveryStartMonth && /^\d{4}-\d{2}/.test(String(recoveryStartMonth))
+            ? `${String(recoveryStartMonth).slice(0, 7)}-01`
+            : null,
+        recovery_carryover: recoveryCarryover != null ? Math.max(0, Math.trunc(Number(recoveryCarryover) || 0)) : 0,
         image_url: imageUrl && String(imageUrl).trim() ? String(imageUrl).trim() : null,
         next_shaken_date: nextShakenDate && String(nextShakenDate).trim() ? String(nextShakenDate).trim() : null,
         jibaiseki_renewal_month:

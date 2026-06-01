@@ -3,7 +3,7 @@ import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { buildContext, buildContributions, sumBy, isCountableReport } from "@/server/aggregation/compute";
-import { loadDriverLeases, leaseDeductionForRange } from "@/server/billing/driverLease";
+import { loadDriverLeases, loadCourseDailyLease, computeLeaseDeduction } from "@/server/billing/driverLease";
 
 export const dynamic = "force-dynamic";
 
@@ -103,15 +103,18 @@ export async function GET(req: NextRequest) {
     if (fixedByDriver[row.driver_id] !== undefined) fixedByDriver[row.driver_id] += Number(row.amount) || 0;
   });
 
-  // リース控除（driver_leases・専用概念）。稼働日数=承認 report のユニーク日付数。
-  const workedDaysByDriver = new Map<string, Set<string>>();
+  // リース控除（driver_leases・専用概念）。DAILYはコース日額(courses.daily_lease)由来。
+  const perDayByDriver = new Map<string, { date: string; courseId: string | null }[]>();
   for (const r of data.reports) {
     if (!r.driverId || !isCountableReport(r)) continue;
-    const set = workedDaysByDriver.get(r.driverId) ?? new Set<string>();
-    set.add(r.reportDate);
-    workedDaysByDriver.set(r.driverId, set);
+    const arr = perDayByDriver.get(r.driverId) ?? [];
+    arr.push({ date: r.reportDate, courseId: r.courseId });
+    perDayByDriver.set(r.driverId, arr);
   }
-  const leaseByDriver = await loadDriverLeases(supabase, driverIds, startDate, endDate);
+  const [leaseByDriver, courseDailyLease] = await Promise.all([
+    loadDriverLeases(supabase, driverIds, startDate, endDate),
+    loadCourseDailyLease(supabase),
+  ]);
 
   // 臨時手当/控除（月次・既存テーブル）。amount 正=控除（net から減算）。
   const { data: adHocRows } = await supabase
@@ -130,9 +133,10 @@ export async function GET(req: NextRequest) {
     const carrier = incomeByDriverCarrier.get(d.id) ?? { yamato: 0, amazon: 0, other: 0 };
     const fixedDeductions = fixedByDriver[d.id] ?? 0;
     const adHocDeductions = adHocByDriver[d.id] ?? 0;
-    const leaseDeductions = leaseDeductionForRange(
+    const leaseDeductions = computeLeaseDeduction(
       leaseByDriver.get(d.id) ?? null,
-      workedDaysByDriver.get(d.id)?.size ?? 0,
+      perDayByDriver.get(d.id) ?? [],
+      courseDailyLease,
     );
     const net = incomeLog - fixedDeductions - adHocDeductions - leaseDeductions;
     return {

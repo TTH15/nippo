@@ -1,0 +1,66 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { apiFetch, getStoredDriver } from "@/lib/api";
+import type { TeamStatus } from "@/lib/components/TeamPointsBadge";
+
+const medal = (rank: number) => (rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}`);
+
+/**
+ * /me 上部の自チームポイントカード。
+ * 既定は自チームのポイントのみ。運営が順位公開ONなら全チーム順位も表示。
+ */
+export function TeamPointsCard() {
+  const [status, setStatus] = useState<TeamStatus | null>(null);
+
+  useEffect(() => {
+    if (!getStoredDriver()) return;
+    (async () => {
+      try {
+        setStatus(await apiFetch<TeamStatus>("/api/me/team-status"));
+      } catch {
+        setStatus(null);
+      }
+    })();
+  }, []);
+
+  if (!status?.active || !status.myTeam) return null;
+  const t = status.myTeam;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-lg">🏆</span>
+        <span className="text-sm font-semibold text-slate-800">{status.eventName ?? "チーム戦"}</span>
+      </div>
+      <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="inline-block h-3.5 w-3.5 rounded-full shrink-0" style={{ background: t.color }} />
+          <span className="font-semibold text-slate-800 truncate">{t.name}</span>
+          <span className="text-[11px] text-slate-500 shrink-0">あなたのチーム</span>
+        </div>
+        <span className="text-xl font-extrabold text-slate-900 tabular-nums">{t.points.toLocaleString("ja-JP")} pt</span>
+      </div>
+
+      {status.rankingVisible && status.teams && status.teams.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {status.teams.map((row) => (
+            <div
+              key={row.teamId}
+              className={`flex items-center justify-between rounded-lg px-3 py-1.5 text-sm ${
+                row.teamId === t.id ? "bg-slate-100 ring-1 ring-slate-300" : "bg-slate-50"
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-6 text-center">{medal(row.rank)}</span>
+                <span className="inline-block h-3 w-3 rounded-full shrink-0" style={{ background: row.color }} />
+                <span className="font-medium text-slate-700 truncate">{row.name}</span>
+              </div>
+              <span className="font-bold tabular-nums text-slate-900">{row.total.toLocaleString("ja-JP")} pt</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

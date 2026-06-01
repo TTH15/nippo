@@ -7,7 +7,7 @@ import { computeEventScores } from "@/server/events/score";
 import { normalizeScoringRuleSet } from "@/server/events/types";
 import type { EventTeam, EventMember, ManualPointEntry, ScoringReport } from "@/server/events/types";
 import { loadSubmitScreenConfig } from "@/server/submitScreen/config";
-import { loadDriverLease, leaseDailyRate } from "@/server/billing/driverLease";
+import { loadDriverLease, loadCourseDailyLease, leaseDailyRateForCourse } from "@/server/billing/driverLease";
 import { getDisplayName } from "@/lib/displayName";
 
 export const dynamic = "force-dynamic";
@@ -32,12 +32,17 @@ export async function GET(req: NextRequest) {
   const unitById = new Map(dayData.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(dayData.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
   const fixedByCourse = new Map(dayData.fixedRates.map((r) => [r.courseId, r]));
+  // リース控除（DAILY のみ日当に反映）。当日コースの日額リース代(courses.daily_lease)を1回控除。
+  const [lease, courseDailyLease] = await Promise.all([
+    loadDriverLease(supabase, driverId, date, date),
+    loadCourseDailyLease(supabase),
+  ]);
+
   let todayReward = 0;
-  let hasTodayReport = false;
+  let leaseToday = 0; // 当日コースの最大日額（DAILY時）
   for (const r of dayData.reports) {
     if (r.driverId !== driverId || r.reportDate !== date || r.rejectedAt) continue;
     if (!r.courseId) continue;
-    hasTodayReport = true;
     for (const e of r.entries) {
       const unit = unitById.get(e.unitId);
       const billable = unit?.fields.find((x) => x.fieldKey === e.fieldKey)?.isBillable;
@@ -49,15 +54,13 @@ export async function GET(req: NextRequest) {
     if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
       todayReward += fx.fixedPayout;
     }
+    leaseToday = Math.max(leaseToday, leaseDailyRateForCourse(lease, r.courseId, courseDailyLease));
   }
-
-  // リース控除（DAILY のみ日当に反映）。当日に稼働(report)があれば日額を1回控除。MONTHLY は月次概念のため日次には反映しない。
-  const lease = await loadDriverLease(supabase, driverId, date, date);
-  const leaseToday = hasTodayReport ? leaseDailyRate(lease) : 0;
   todayReward -= leaseToday;
 
   // --- ランキング ---
   let ranking: unknown = null;
+  let todayPoints = 0; // 当日の自分の日報で獲得した採点ポイント（カウントアップ用）
   if (config.showRanking) {
     // 開催中(active)かつ期間内のチーム戦イベント
     const { data: ev } = await supabase
@@ -89,16 +92,51 @@ export async function GET(req: NextRequest) {
         rejectedAt: r.rejectedAt,
         entries: r.entries.map((e) => ({ unitId: e.unitId, fieldKey: e.fieldKey, valueNum: e.valueNum })),
       }));
-      const result = computeEventScores({ scoringRule: normalizeScoringRuleSet(ev.scoring_rule), teams, members, reports, manualEntries });
+      const rule = normalizeScoringRuleSet(ev.scoring_rule);
+      const result = computeEventScores({ scoringRule: rule, teams, members, reports, manualEntries });
       const nameById = new Map<string, string>();
       (drv ?? []).forEach((d) => nameById.set(d.id, getDisplayName(d)));
       const myTeamId = members.find((m) => m.driverId === driverId)?.teamId ?? null;
+      const myTeamScore = myTeamId ? result.teams.find((t) => t.teamId === myTeamId) ?? null : null;
+      const myTeam = myTeamScore
+        ? { id: myTeamScore.teamId, name: myTeamScore.name, color: myTeamScore.color, total: myTeamScore.total }
+        : null;
+
+      // 当日の自分の日報（未承認含む・却下除外）を採点ルールでスコア化＝今日獲得ポイント
+      const ruleFieldSets = rule.rules.map((r) => new Set(r.fields.map((f) => `${f.unitId}|${f.fieldKey}`)));
+      for (const r of dayData.reports) {
+        if (r.driverId !== driverId || r.reportDate !== date || r.rejectedAt) continue;
+        for (const e of r.entries) {
+          const key = `${e.unitId}|${e.fieldKey}`;
+          rule.rules.forEach((rl, i) => {
+            if (ruleFieldSets[i].has(key)) todayPoints += (e.valueNum ?? 0) * rl.pointsPer;
+          });
+        }
+      }
+
+      const rankingVisible = config.teamRankingVisibleToDrivers;
+      // 同点は同順位（並びは score.ts 側で決定的に整列済み）
+      const tieRanks = (items: { total: number }[]): number[] => {
+        const ranks: number[] = [];
+        items.forEach((it, i) => ranks.push(i > 0 && it.total === items[i - 1].total ? ranks[i - 1] : i + 1));
+        return ranks;
+      };
+      const topIndividuals = result.individuals.slice(0, 10);
+      const teamRanks = tieRanks(result.teams);
+      const indivRanks = tieRanks(topIndividuals);
       ranking = {
         mode: "team",
         eventName: ev.name,
         myTeamId,
-        teams: result.teams.map((t, i) => ({ rank: i + 1, teamId: t.teamId, name: t.name, color: t.color, total: t.total })),
-        individuals: result.individuals.slice(0, 10).map((d, i) => ({ rank: i + 1, name: nameById.get(d.driverId) ?? "—", total: d.total, isMe: d.driverId === driverId })),
+        myTeam,
+        rankingVisible,
+        // 順位非公開なら順位/他チーム/個人MVPは返さない（自チームポイントのみ）
+        teams: rankingVisible
+          ? result.teams.map((t, i) => ({ rank: teamRanks[i], teamId: t.teamId, name: t.name, color: t.color, total: t.total }))
+          : [],
+        individuals: rankingVisible
+          ? topIndividuals.map((d, i) => ({ rank: indivRanks[i], name: nameById.get(d.driverId) ?? "—", total: d.total, isMe: d.driverId === driverId }))
+          : [],
       };
     } else {
       // 個人ランキング（運営設定の指標・対象・今月）
@@ -125,9 +163,18 @@ export async function GET(req: NextRequest) {
       if (targetSet.size > 0 && !targetSet.has(driverId)) {
         // 自分が対象外なら除外（ランキングに出さない）
       }
-      const sorted = [...byDriver.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([id, value], i) => ({ rank: i + 1, name: nameById.get(id) ?? "—", value, isMe: id === driverId }));
+      // 得点降順、同点は driverId 昇順で決定的に整列 → 同点は同順位を付与
+      const ordered = [...byDriver.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      const sorted = ordered.map(([id, value], i) => ({
+        rank: i > 0 && value === ordered[i - 1][1] ? -1 : i + 1, // 後で前順位に揃える
+        name: nameById.get(id) ?? "—",
+        value,
+        isMe: id === driverId,
+      }));
+      // 同点を前の順位へ揃える
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].rank === -1) sorted[i].rank = sorted[i - 1].rank;
+      }
       const myRank = sorted.find((x) => x.isMe) ?? null;
       ranking = {
         mode: "personal",
@@ -140,5 +187,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ date, todayReward: Math.round(todayReward), leaseToday, ranking });
+  return NextResponse.json({ date, todayReward: Math.round(todayReward), leaseToday, todayPoints, ranking });
 }

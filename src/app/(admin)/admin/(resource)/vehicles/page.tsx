@@ -21,23 +21,9 @@ import { todayJST } from "@/lib/date";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
+import { VehicleRecoveryDetail } from "./VehicleRecoveryDetail";
 
 const DEFAULT_LEASE_COST = 35000; // 月々リース代（デフォルト）
-
-type RecoveryTableRow = {
-  /** API vehicle_recovery_collected.month（1以上） */
-  month: number;
-  leaseStr: string;
-  insuranceStr: string;
-  collected: boolean;
-  collected_at?: string;
-};
-
-function parseMoneyInput(s: string): number {
-  const t = s.replace(/[^\d]/g, "");
-  if (t === "") return 0;
-  return Math.max(0, parseInt(t, 10));
-}
 
 type Driver = {
   id: string;
@@ -72,8 +58,12 @@ type Vehicle = {
   jibaiseki_renewal_month?: string | null; // YYYY-MM
   created_at: string;
   vehicle_drivers?: VehicleDriver[];
-  /** 回収済みマーク: month -> collected_at (ISO日付文字列) */
+  /** 回収済みマーク: month -> collected_at (ISO日付文字列)。旧モデル（未使用・温存） */
   recovery_collected?: Record<number, string>;
+  recovery_start_month?: string | null; // YYYY-MM-01
+  recovery_carryover?: number | null;   // 繰越(移行済み)回収額
+  recovered_amount?: number;            // サーバ算出（回収v2）
+  remaining_amount?: number;            // サーバ算出（回収v2）
 };
 
 type MeterLog = {
@@ -106,6 +96,8 @@ export default function VehiclesPage() {
     purchaseCostItems: [emptyPurchaseItem()],
     leaseCost: String(DEFAULT_LEASE_COST),
     monthlyInsurance: "",
+    recoveryStartMonth: "",
+    recoveryCarryover: "",
     imageDataUrl: "",
     nextShakenDate: "",
     jibaisekiRenewalMonth: "",
@@ -119,11 +111,6 @@ export default function VehiclesPage() {
     type: "meter" | "recovery";
     vehicle: Vehicle;
   } | null>(null);
-  const [recoveryTable, setRecoveryTable] = useState<{
-    vehicleId: string;
-    rows: RecoveryTableRow[];
-  } | null>(null);
-  const [recoverySavingMonth, setRecoverySavingMonth] = useState<number | null>(null);
   const [meterTab, setMeterTab] = useState<"table" | "graph">("table");
   const [meterRange, setMeterRange] = useState<{ start: string; end: string } | null>(null);
   const [meterLogs, setMeterLogs] = useState<MeterLog[]>([]);
@@ -239,6 +226,8 @@ export default function VehiclesPage() {
       purchaseCostItems: [emptyPurchaseItem()],
       leaseCost: String(DEFAULT_LEASE_COST),
       monthlyInsurance: "",
+      recoveryStartMonth: "",
+      recoveryCarryover: "",
       imageDataUrl: "",
       nextShakenDate: "",
       jibaisekiRenewalMonth: "",
@@ -279,6 +268,11 @@ export default function VehiclesPage() {
           ? String(v.lease_cost)
           : String(DEFAULT_LEASE_COST),
       monthlyInsurance: v.monthly_insurance ? String(v.monthly_insurance) : "",
+      recoveryStartMonth:
+        v.recovery_start_month && /^\d{4}-\d{2}/.test(String(v.recovery_start_month))
+          ? String(v.recovery_start_month).slice(0, 7)
+          : "",
+      recoveryCarryover: v.recovery_carryover != null ? String(v.recovery_carryover) : "",
       imageDataUrl: v.image_url || "",
       nextShakenDate: shaken && typeof shaken === "string" ? shaken.slice(0, 10) : "",
       jibaisekiRenewalMonth:
@@ -331,6 +325,8 @@ export default function VehiclesPage() {
         purchaseCostItems: normalizedItems,
         leaseCost: toIntOrNull(form.leaseCost) ?? DEFAULT_LEASE_COST,
         monthlyInsurance: toIntOrNull(form.monthlyInsurance),
+        recoveryStartMonth: form.recoveryStartMonth.trim() || null,
+        recoveryCarryover: toIntOrNull(form.recoveryCarryover) ?? 0,
         imageUrl: form.imageDataUrl.trim() || null,
         nextShakenDate: form.nextShakenDate.trim() || null,
         jibaisekiRenewalMonth: form.jibaisekiRenewalMonth.trim() || null,
@@ -438,17 +434,14 @@ export default function VehiclesPage() {
     return lease - (v.monthly_insurance || 0);
   };
 
-  // 回収済み金額（マークされた月数 × 月々回収額）
+  // 回収済み金額（回収v2: サーバ算出。繰越＋自動カレンダー月＋日額自動＋手動行）
   const getRecoveredAmount = (v: Vehicle) => {
-    const collected = v.recovery_collected ?? {};
-    const monthsCollected = Object.keys(collected).filter((k) => collected[Number(k)]).length;
-    return monthsCollected * getMonthlyRecovery(v);
+    return v.recovered_amount ?? 0;
   };
 
-  // 回収まで残り月数
+  // 回収まで残り月数（残額 ÷ 月々回収レート）
   const getRemainingMonths = (v: Vehicle) => {
-    const recovered = getRecoveredAmount(v);
-    const remaining = (v.purchase_cost || 0) - recovered;
+    const remaining = v.remaining_amount ?? Math.max((v.purchase_cost || 0) - getRecoveredAmount(v), 0);
     const monthly = getMonthlyRecovery(v);
     if (monthly <= 0) return null;
     return Math.ceil(remaining / monthly);
@@ -499,143 +492,15 @@ export default function VehiclesPage() {
 
   const openRecoveryDetail = (v: Vehicle) => {
     setOpenDetail({ type: "recovery", vehicle: v });
-    setRecoveryTable((prev) => {
-      if (prev?.vehicleId === v.id) {
-        const coll = v.recovery_collected ?? {};
-        return {
-          vehicleId: v.id,
-          rows: prev.rows.map((r) => ({
-            ...r,
-            collected: !!coll[r.month],
-            collected_at: coll[r.month],
-          })),
-        };
-      }
-      const baseLease = v.lease_cost ?? DEFAULT_LEASE_COST;
-      const baseInsurance = v.monthly_insurance || 0;
-      const collected = v.recovery_collected ?? {};
-      const rows: RecoveryTableRow[] = Array.from({ length: 1 }, (_x, i) => {
-        const month = i + 1;
-        const collectedAt = collected[month];
-        return {
-          month,
-          leaseStr: String(baseLease),
-          insuranceStr: String(baseInsurance),
-          collected: !!collectedAt,
-          collected_at: collectedAt,
-        };
-      });
-      return { vehicleId: v.id, rows };
-    });
   };
 
-  const addRecoveryRow = () => {
-    if (!openDetail || openDetail.type !== "recovery") return;
-    const v = openDetail.vehicle;
-    setRecoveryTable((prev) => {
-      if (!prev || prev.vehicleId !== v.id) return prev;
-      const nextMonth = Math.max(...prev.rows.map((r) => r.month), 0) + 1;
-      const baseLease = v.lease_cost ?? DEFAULT_LEASE_COST;
-      const baseInsurance = v.monthly_insurance || 0;
-      return {
-        ...prev,
-        rows: [
-          ...prev.rows,
-          {
-            month: nextMonth,
-            leaseStr: String(baseLease),
-            insuranceStr: String(baseInsurance),
-            collected: false,
-          },
-        ],
-      };
-    });
-  };
-
-  const removeRecoveryRow = async (idx: number) => {
-    if (!openDetail || openDetail.type !== "recovery" || !recoveryTable) return;
-    const v = openDetail.vehicle;
-    if (recoveryTable.vehicleId !== v.id) return;
-    if (recoveryTable.rows.length <= 1) return;
-    const row = recoveryTable.rows[idx];
-    if (row.collected && canWrite) {
-      try {
-        await apiFetch(`/api/admin/vehicles/${v.id}/recovery-collected`, {
-          method: "PUT",
-          body: JSON.stringify({ month: row.month, collected: false }),
-        });
-        const newCollected = { ...(v.recovery_collected ?? {}) };
-        delete newCollected[row.month];
-        setVehicles((prev) =>
-          prev.map((veh) =>
-            veh.id === v.id ? { ...veh, recovery_collected: newCollected } : veh,
-          ),
-        );
-        setOpenDetail((d) =>
-          d && d.type === "recovery" && d.vehicle.id === v.id
-            ? { ...d, vehicle: { ...d.vehicle, recovery_collected: newCollected } }
-            : d,
-        );
-      } catch (e) {
-        console.error(e);
-        return;
-      }
-    }
-    setRecoveryTable((prev) => {
-      if (!prev || prev.vehicleId !== v.id) return prev;
-      const rows = prev.rows.filter((_, i) => i !== idx);
-      return { ...prev, rows };
-    });
-  };
-
-  const saveRecoveryRowLease = async (row: RecoveryTableRow) => {
-    if (!canWrite || !openDetail || openDetail.type !== "recovery") return;
-    const vehicleId = openDetail.vehicle.id;
-    const leaseCost = parseMoneyInput(row.leaseStr);
-    const monthlyInsurance = parseMoneyInput(row.insuranceStr);
-    setRecoverySavingMonth(row.month);
-    try {
-      await apiFetch(`/api/admin/vehicles/${vehicleId}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          leaseCost,
-          monthlyInsurance,
-        }),
-      });
-      setVehicles((prev) =>
-        prev.map((veh) =>
-          veh.id === vehicleId
-            ? {
-                ...veh,
-                lease_cost: leaseCost,
-                monthly_insurance: monthlyInsurance,
-              }
-            : veh
-        )
-      );
-      setOpenDetail((d) =>
-        d && d.type === "recovery" && d.vehicle.id === vehicleId
-          ? {
-              ...d,
-              vehicle: {
-                ...d.vehicle,
-                lease_cost: leaseCost,
-                monthly_insurance: monthlyInsurance,
-              },
-            }
-          : d
-      );
-    } catch (e) {
-      console.error(e);
-      setErrorState({
-        title: "リース代の保存に失敗しました",
-        message:
-          "回収テーブルの値を車両情報へ保存できませんでした。\n\n時間をおいて再度お試しください。",
-        detail: e instanceof Error ? e.message : undefined,
-      });
-    } finally {
-      setRecoverySavingMonth(null);
-    }
+  // 回収詳細で recovered/remaining が変わったら一覧へ同期（手動行の追加/削除時）
+  const syncRecovered = (vehicleId: string, recovered: number, remaining: number) => {
+    setVehicles((prev) =>
+      prev.map((veh) =>
+        veh.id === vehicleId ? { ...veh, recovered_amount: recovered, remaining_amount: remaining } : veh,
+      ),
+    );
   };
 
   // 元の配列順に基づく安定したナンバーを割り当て（廃車も含めて変動しない）
@@ -1417,6 +1282,29 @@ export default function VehiclesPage() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">回収開始月</label>
+                    <input
+                      type="month"
+                      value={form.recoveryStartMonth}
+                      onChange={(e) => setForm((f) => ({ ...f, recoveryStartMonth: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">初期費用回収のカレンダー月の起点</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">繰越（移行済み回収）(円)</label>
+                    <input
+                      type="number"
+                      value={form.recoveryCarryover}
+                      onChange={(e) => setForm((f) => ({ ...f, recoveryCarryover: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">過去に回収済みの累計（旧データから移行）</p>
+                  </div>
+                </div>
+
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-sm font-medium text-slate-700">車両画像</label>
@@ -1586,7 +1474,7 @@ export default function VehiclesPage() {
       {/* 詳細モーダル（メーター / 初期費用回収） */}
       {openDetail && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-xl max-h-[90vh] overflow-y-auto">
+          <div className={`bg-white rounded-lg shadow-lg w-full max-h-[90vh] overflow-y-auto ${openDetail.type === "recovery" ? "max-w-3xl" : "max-w-xl"}`}>
             <div className="p-5">
               {openDetail.type === "meter" && (
                 <>
@@ -1878,225 +1766,13 @@ export default function VehiclesPage() {
               )}
 
               {openDetail.type === "recovery" && (
-                <>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-slate-900">初期費用回収の詳細</h2>
-                    <button
-                      type="button"
-                      onClick={() => setOpenDetail(null)}
-                      className="text-slate-400 hover:text-slate-700 transition-colors text-sm"
-                    >
-                      閉じる
-                    </button>
-                  </div>
-                  <div className="text-sm text-slate-700 mb-3">
-                    <div className="font-medium mb-1">
-                      {openDetail.vehicle.manufacturer} {openDetail.vehicle.brand}
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      リース代と保険料を月ごとに調整して、回収ペースをシミュレーションできます
-                      （各行の「保存」で車両のリース代/保険料へ反映できます）。行の追加・削除で期間を変えられます。
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <button
-                      type="button"
-                      onClick={addRecoveryRow}
-                      disabled={
-                        !recoveryTable ||
-                        recoveryTable.vehicleId !== openDetail.vehicle.id
-                      }
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <FontAwesomeIcon icon={faPlus} className="w-3 h-3" />
-                      行を追加
-                    </button>
-                    <span className="text-[11px] text-slate-400">
-                      回収チェックは「月次」番号で保存されます（必要なだけ行を追加できます）
-                    </span>
-                  </div>
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="min-h-[420px] max-h-[520px] overflow-y-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="px-2 py-2 text-left text-slate-600">月</th>
-                          <th className="px-2 py-2 text-right text-slate-600">リース代</th>
-                          <th className="px-2 py-2 text-right text-slate-600">保険料</th>
-                          <th className="px-2 py-2 text-right text-slate-600">月回収額</th>
-                          <th className="px-2 py-2 text-right text-slate-600">累計回収額</th>
-                          <th className="px-2 py-2 w-[120px] text-center text-slate-600">操作</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(() => {
-                          const table =
-                            recoveryTable && recoveryTable.vehicleId === openDetail.vehicle.id
-                              ? recoveryTable
-                              : null;
-                          if (!table) return null;
-                          let cumulative = 0;
-                          return table.rows.map((row, idx) => {
-                            const leaseNum = parseMoneyInput(row.leaseStr);
-                            const insNum = parseMoneyInput(row.insuranceStr);
-                            const monthlyRecovery = Math.max(leaseNum - insNum, 0);
-                            cumulative += monthlyRecovery;
-                            return (
-                              <tr
-                                key={`${row.month}-${idx}`}
-                                className={`${idx % 2 === 0 ? "bg-white" : "bg-slate-50"} ${row.collected ? "opacity-75" : ""}`}
-                              >
-                                <td className="px-2 py-1.5 text-left text-slate-700">
-                                  <label className="inline-flex items-center gap-2 cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={row.collected}
-                                      disabled={!canWrite}
-                                      onChange={async () => {
-                                        if (!canWrite) return;
-                                        const nextCollected = !row.collected;
-                                        const collectedAt = nextCollected
-                                          ? todayJST()  // 日本時間の日付（YYYY-MM-DD）
-                                          : undefined;
-                                        try {
-                                            await apiFetch(
-                                              `/api/admin/vehicles/${openDetail.vehicle.id}/recovery-collected`,
-                                              {
-                                                method: "PUT",
-                                                body: JSON.stringify({
-                                                  month: row.month,
-                                                  collected: nextCollected,
-                                                }),
-                                              }
-                                            );
-                                        } catch (e) {
-                                          console.error(e);
-                                          return;
-                                        }
-                                        setRecoveryTable((prev) => {
-                                          if (!prev || prev.vehicleId !== openDetail.vehicle.id)
-                                            return prev;
-                                          const rows = prev.rows.map((r, i) =>
-                                            i === idx
-                                              ? {
-                                                  ...r,
-                                                  collected: nextCollected,
-                                                  collected_at: collectedAt,
-                                                }
-                                              : r
-                                          );
-                                          return { ...prev, rows };
-                                        });
-                                        const newCollected: Record<number, string> = {
-                                          ...(openDetail.vehicle.recovery_collected ?? {}),
-                                        };
-                                        if (nextCollected) {
-                                          newCollected[row.month] = collectedAt!;
-                                        } else {
-                                          delete newCollected[row.month];
-                                        }
-                                        setVehicles((prev) =>
-                                          prev.map((veh) =>
-                                            veh.id !== openDetail.vehicle.id
-                                              ? veh
-                                              : { ...veh, recovery_collected: newCollected }
-                                          )
-                                        );
-                                        setOpenDetail((d) =>
-                                          d && d.vehicle.id === openDetail.vehicle.id
-                                            ? {
-                                                ...d,
-                                                vehicle: {
-                                                  ...d.vehicle,
-                                                  recovery_collected: newCollected,
-                                                },
-                                              }
-                                            : d
-                                        );
-                                      }}
-                                      className="rounded border-slate-300 text-slate-900 focus:ring-slate-400"
-                                    />
-                                    {row.month}ヶ月目
-                                    {row.collected && row.collected_at && (
-                                      <span className="text-[10px] text-slate-500">
-                                        ({row.collected_at.split("-").map((x, i) => (i === 0 ? x : parseInt(x, 10))).join("/")})
-                                      </span>
-                                    )}
-                                  </label>
-                                </td>
-                                <td className="px-2 py-1.5 text-right align-middle">
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    className="w-24 px-1.5 py-0.5 text-right border border-slate-200 rounded text-xs tabular-nums"
-                                    value={row.leaseStr}
-                                    onChange={(e) => {
-                                      const leaseStr = e.target.value;
-                                      setRecoveryTable((prev) => {
-                                        if (!prev || prev.vehicleId !== openDetail.vehicle.id) return prev;
-                                        const rows = prev.rows.map((r, i) =>
-                                          i === idx ? { ...r, leaseStr } : r
-                                        );
-                                        return { ...prev, rows };
-                                      });
-                                    }}
-                                  />
-                                </td>
-                                <td className="px-2 py-1.5 text-right align-middle">
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    className="w-24 px-1.5 py-0.5 text-right border border-slate-200 rounded text-xs tabular-nums"
-                                    value={row.insuranceStr}
-                                    onChange={(e) => {
-                                      const insuranceStr = e.target.value;
-                                      setRecoveryTable((prev) => {
-                                        if (!prev || prev.vehicleId !== openDetail.vehicle.id) return prev;
-                                        const rows = prev.rows.map((r, i) =>
-                                          i === idx ? { ...r, insuranceStr } : r
-                                        );
-                                        return { ...prev, rows };
-                                      });
-                                    }}
-                                  />
-                                </td>
-                                <td className="px-2 py-1.5 text-right text-slate-800">
-                                  {fmt(monthlyRecovery)}円
-                                </td>
-                                <td className="px-2 py-1.5 text-right text-slate-800">
-                                  {fmt(cumulative)}円
-                                </td>
-                                <td className="px-1 py-1.5 text-center align-middle">
-                                  <div className="inline-flex items-center gap-1">
-                                    <button
-                                      type="button"
-                                      title="この行のリース代/保険料を車両情報に保存"
-                                      disabled={!canWrite || recoverySavingMonth === row.month}
-                                      onClick={() => void saveRecoveryRowLease(row)}
-                                      className="px-2 py-1 rounded border border-slate-200 bg-white text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                                    >
-                                      {recoverySavingMonth === row.month ? "保存中..." : "保存"}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      title="この行を削除"
-                                      disabled={table.rows.length <= 1}
-                                      onClick={() => void removeRecoveryRow(idx)}
-                                      className="inline-flex items-center justify-center w-8 h-8 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:text-slate-400 disabled:hover:bg-transparent"
-                                    >
-                                      <FontAwesomeIcon icon={faTrash} className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          });
-                        })()}
-                      </tbody>
-                    </table>
-                    </div>
-                  </div>
-                </>
+                <VehicleRecoveryDetail
+                  vehicleId={openDetail.vehicle.id}
+                  title={`${openDetail.vehicle.manufacturer ?? ""} ${openDetail.vehicle.brand ?? ""}`.trim()}
+                  canWrite={canWrite}
+                  onClose={() => setOpenDetail(null)}
+                  onRecoveredChange={(rec, rem) => syncRecovered(openDetail.vehicle.id, rec, rem)}
+                />
               )}
             </div>
           </div>

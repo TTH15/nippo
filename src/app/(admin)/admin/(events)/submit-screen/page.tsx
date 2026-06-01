@@ -19,6 +19,7 @@ type Config = {
   targetDriverIds: string[];
   period: string;
   showRanking: boolean;
+  teamRankingVisibleToDrivers: boolean;
 };
 
 const fkid = (unitId: string, fieldKey: string) => `${unitId}|${fieldKey}`;
@@ -123,6 +124,24 @@ export default function SubmitScreenConfigPage() {
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${cfg.showRanking ? "bg-emerald-600" : "bg-slate-300"}`}
               >
                 <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${cfg.showRanking ? "translate-x-5" : "translate-x-1"}`} />
+              </button>
+            </label>
+
+            <label className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-4">
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-slate-700">ドライバーにチーム順位を公開する</span>
+                <span className="block text-xs text-slate-500 mt-0.5">
+                  OFF（既定）の場合、ドライバーには自チームのポイントのみ表示し、順位・他チーム・個人MVPは見せません。
+                </span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={cfg.teamRankingVisibleToDrivers}
+                onClick={() => canWrite && setCfg({ ...cfg, teamRankingVisibleToDrivers: !cfg.teamRankingVisibleToDrivers })}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${cfg.teamRankingVisibleToDrivers ? "bg-emerald-600" : "bg-slate-300"}`}
+              >
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${cfg.teamRankingVisibleToDrivers ? "translate-x-5" : "translate-x-1"}`} />
               </button>
             </label>
 

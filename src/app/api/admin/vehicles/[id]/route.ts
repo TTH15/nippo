@@ -61,6 +61,8 @@ export async function PUT(
       purchaseCostItems,
       leaseCost,
       monthlyInsurance,
+      recoveryStartMonth,
+      recoveryCarryover,
       imageUrl,
       nextShakenDate,
       jibaisekiRenewalMonth,
@@ -94,6 +96,15 @@ export async function PUT(
     }
     if (leaseCost !== undefined) updates.lease_cost = leaseCost;
     if (monthlyInsurance !== undefined) updates.monthly_insurance = monthlyInsurance;
+    if (recoveryStartMonth !== undefined) {
+      updates.recovery_start_month =
+        recoveryStartMonth && /^\d{4}-\d{2}/.test(String(recoveryStartMonth))
+          ? `${String(recoveryStartMonth).slice(0, 7)}-01`
+          : null;
+    }
+    if (recoveryCarryover !== undefined) {
+      updates.recovery_carryover = Math.max(0, Math.trunc(Number(recoveryCarryover) || 0));
+    }
     if (imageUrl !== undefined) updates.image_url = imageUrl && String(imageUrl).trim() ? String(imageUrl).trim() : null;
     if (nextShakenDate !== undefined) updates.next_shaken_date = nextShakenDate && String(nextShakenDate).trim() ? String(nextShakenDate).trim() : null;
     if (jibaisekiRenewalMonth !== undefined) {

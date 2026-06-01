@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
       carrier: carrierRaw,
       carrier_id: carrierIdRaw,
       summary_title: summaryTitle,
+      daily_lease: dailyLeaseRaw,
       principal_invoice_address_id: principalInvoiceAddressIdRaw,
       counterparty_invoice_address_id: counterpartyInvoiceAddressIdRaw,
     } = body as {
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
       carrier?: string;
       carrier_id?: string | null;
       summary_title?: string | null;
+      daily_lease?: number | null;
       principal_invoice_address_id?: string | null;
       counterparty_invoice_address_id?: string | null;
     };
@@ -121,6 +123,9 @@ export async function POST(req: NextRequest) {
     };
     if (summaryTitle !== undefined) {
       insertRow.summary_title = typeof summaryTitle === "string" && summaryTitle.trim() !== "" ? summaryTitle.trim() : null;
+    }
+    if (dailyLeaseRaw !== undefined) {
+      insertRow.daily_lease = Math.max(0, Math.trunc(Number(dailyLeaseRaw) || 0));
     }
     const { data: course, error } = await supabase
       .from("courses")

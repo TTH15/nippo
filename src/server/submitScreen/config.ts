@@ -13,6 +13,8 @@ export type SubmitScreenConfig = {
   targetDriverIds: string[];
   period: "current_month";
   showRanking: boolean;
+  /** ドライバーにチーム順位を公開するか（false=自チームのポイントのみ） */
+  teamRankingVisibleToDrivers: boolean;
 };
 
 export function defaultSubmitScreenConfig(): SubmitScreenConfig {
@@ -22,6 +24,7 @@ export function defaultSubmitScreenConfig(): SubmitScreenConfig {
     targetDriverIds: [],
     period: "current_month",
     showRanking: true,
+    teamRankingVisibleToDrivers: false,
   };
 }
 
@@ -40,9 +43,10 @@ function normalizeFields(raw: unknown): MetricField[] {
 /** 設定を取得（行が無い/テーブル未作成なら既定値）。 */
 export async function loadSubmitScreenConfig(supabase: SupabaseClient): Promise<SubmitScreenConfig> {
   try {
+    // select("*") にして 065 未適用でも安全（新カラムが無ければ undefined → 既定）
     const { data, error } = await supabase
       .from("submit_screen_config")
-      .select("metric_label, metric_fields, target_driver_ids, period, show_ranking")
+      .select("*")
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -55,6 +59,7 @@ export async function loadSubmitScreenConfig(supabase: SupabaseClient): Promise<
         : [],
       period: "current_month",
       showRanking: data.show_ranking !== false,
+      teamRankingVisibleToDrivers: data.team_ranking_visible_to_drivers === true,
     };
   } catch {
     return defaultSubmitScreenConfig();
@@ -77,6 +82,7 @@ export async function saveSubmitScreenConfig(
     target_driver_ids: cfg.targetDriverIds,
     period: "current_month",
     show_ranking: cfg.showRanking,
+    team_ranking_visible_to_drivers: cfg.teamRankingVisibleToDrivers,
     updated_at: new Date().toISOString(),
   };
   if (existing?.id) {

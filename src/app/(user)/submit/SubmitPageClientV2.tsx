@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/lib/components/Skeleton";
+import { CountUp } from "@/lib/components/CountUp";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { apiFetch } from "@/lib/api";
@@ -27,10 +28,17 @@ type TeamRanking = {
   mode: "team";
   eventName: string;
   myTeamId: string | null;
+  myTeam?: { id: string; name: string; color: string; total: number } | null;
+  rankingVisible?: boolean;
   teams: { rank: number; teamId: string; name: string; color: string; total: number }[];
   individuals: { rank: number; name: string; total: number; isMe: boolean }[];
 };
-type SubmitScreen = { date: string; todayReward: number; ranking: PersonalRanking | TeamRanking | null };
+type SubmitScreen = {
+  date: string;
+  todayReward: number;
+  todayPoints?: number;
+  ranking: PersonalRanking | TeamRanking | null;
+};
 
 type DriverIdentity = { id: string; slot: number; driverCode: string; officeCode: string; label?: string };
 type Vehicle = {
@@ -130,10 +138,10 @@ export default function SubmitPageClientV2() {
           });
         });
         setValues(init);
-        // 既定車両: 既存report の車両 > その日のシフト割当車両。メーターは既存report のみ。
+        // 既定車両: その日のシフト割当車両を最優先 > 既存report の車両。メーターは既存report のみ。
         const withExisting = list.find((s) => s.existing);
         const existingVid = withExisting?.existing?.vehicleId ?? null;
-        const defaultVid = existingVid || res.shiftVehicleId || null;
+        const defaultVid = res.shiftVehicleId || existingVid || null;
         setVehicleId(defaultVid);
         if (withExisting?.existing?.meterValue != null) setMeter(String(withExisting.existing.meterValue));
         else setMeter("");
@@ -480,12 +488,49 @@ function PostSubmitView({ data, onClose }: { data: SubmitScreen; onClose: () => 
       {/* 今日の報酬見込み */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center">
         <div className="text-xs text-slate-500">今日の報酬（見込み）</div>
-        <div className="mt-1 text-3xl font-bold text-brand-900 tabular-nums">{yen(data.todayReward)}</div>
+        <CountUp
+          value={data.todayReward}
+          durationMs={900}
+          prefix="¥"
+          className="mt-1 block text-3xl font-bold text-brand-900 tabular-nums"
+        />
         <div className="mt-1 text-[11px] text-slate-400">承認後に確定します</div>
       </div>
 
-      {/* ランキング */}
-      {r && r.mode === "team" && (
+      {/* 今日獲得ポイント（チーム戦・採点ルールあり） */}
+      {r && r.mode === "team" && (data.todayPoints ?? 0) > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center">
+          <div className="text-xs text-amber-700">今日のチーム獲得ポイント</div>
+          <CountUp
+            value={data.todayPoints ?? 0}
+            durationMs={900}
+            prefix="+"
+            suffix=" pt"
+            className="mt-1 block text-3xl font-extrabold text-amber-500 tabular-nums"
+          />
+        </div>
+      )}
+
+      {/* 自チームのポイント（順位非公開時はこれのみ） */}
+      {r && r.mode === "team" && r.rankingVisible === false && r.myTeam && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">🏆</span>
+            <span className="text-sm font-semibold text-slate-800">{r.eventName}</span>
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 ring-1 ring-slate-300">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="inline-block h-3 w-3 rounded-full shrink-0" style={{ background: r.myTeam.color }} />
+              <span className="font-semibold text-slate-800 truncate">{r.myTeam.name}</span>
+              <span className="text-[10px] text-slate-500">(あなたのチーム)</span>
+            </div>
+            <span className="font-bold tabular-nums text-slate-900">{r.myTeam.total} pt</span>
+          </div>
+        </div>
+      )}
+
+      {/* ランキング（順位公開時のみ） */}
+      {r && r.mode === "team" && r.rankingVisible !== false && (
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-lg">🏆</span>

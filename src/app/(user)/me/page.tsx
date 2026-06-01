@@ -6,6 +6,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { apiFetch } from "@/lib/api";
 import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
+import { TeamPointsCard } from "@/lib/components/TeamPointsCard";
 
 type Profile = {
   name: string;
@@ -508,6 +509,10 @@ function MePageContent() {
     <div className="max-w-2xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-bold text-slate-900">マイページ</h1>
+      </div>
+
+      <div className="mb-6">
+        <TeamPointsCard />
       </div>
 
       <section className="mb-10">
