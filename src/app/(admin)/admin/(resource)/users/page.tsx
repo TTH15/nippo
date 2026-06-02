@@ -934,94 +934,81 @@ export default function UsersPage() {
               <div className="pt-4 mt-4 border-t border-slate-200">
                 <h3 className="text-sm font-semibold text-slate-700 mb-1">リース</h3>
                 <p className="text-xs text-slate-500 mb-3">
-                  車両リース代をこのドライバーの日当（日次報酬）から自動控除します。月額＝毎月一定額／日割り＝走ったコースの日額リース代×稼働日数（日額の金額はコース側で設定）。
+                  リース方式を選びます。<strong>月額</strong>＝毎月固定額を日当から控除（コースの日額リース代は免除）。
+                  <strong>日毎</strong>＝走ったコースの日額リース代×稼働日数を日当から控除（金額はコース側で設定）。
                 </p>
                 {leaseLoading ? (
                   <p className="text-xs text-slate-400">読み込み中…</p>
                 ) : (
                   <div className="space-y-3">
                     <div className="flex gap-2">
-                      {[
-                        { v: false, label: "リースなし" },
-                        { v: true, label: "リースあり" },
-                      ].map((o) => (
-                        <button
-                          key={String(o.v)}
-                          type="button"
-                          onClick={() => setLeaseForm((f) => ({ ...f, enabled: o.v }))}
-                          className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
-                            leaseForm.enabled === o.v
-                              ? "bg-slate-800 text-white border-slate-800"
-                              : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
-                          }`}
-                        >
-                          {o.label}
-                        </button>
-                      ))}
+                      {([
+                        { key: "NONE", label: "リースなし" },
+                        { key: "MONTHLY", label: "月額" },
+                        { key: "DAILY", label: "日毎" },
+                      ] as const).map((o) => {
+                        const active = o.key === "NONE" ? !leaseForm.enabled : leaseForm.enabled && leaseForm.mode === o.key;
+                        return (
+                          <button
+                            key={o.key}
+                            type="button"
+                            onClick={() =>
+                              setLeaseForm((f) =>
+                                o.key === "NONE"
+                                  ? { ...f, enabled: false }
+                                  : { ...f, enabled: true, mode: o.key },
+                              )
+                            }
+                            className={`px-4 py-1.5 rounded text-sm font-medium border transition-colors ${
+                              active
+                                ? "bg-slate-800 text-white border-slate-800"
+                                : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
+                            }`}
+                          >
+                            {o.label}
+                          </button>
+                        );
+                      })}
                     </div>
 
                     {leaseForm.enabled && (
-                      <>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1.5">課金方式</label>
-                          <div className="flex gap-2">
-                            {[
-                              { v: "MONTHLY" as const, label: "月額（毎月一定額）" },
-                              { v: "DAILY" as const, label: "日割り（コース日額×稼働日数）" },
-                            ].map((o) => (
-                              <button
-                                key={o.v}
-                                type="button"
-                                onClick={() => setLeaseForm((f) => ({ ...f, mode: o.v }))}
-                                className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
-                                  leaseForm.mode === o.v
-                                    ? "bg-slate-800 text-white border-slate-800"
-                                    : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
-                                }`}
-                              >
-                                {o.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          {leaseForm.mode === "MONTHLY" ? (
-                            <div>
-                              <label className="block text-xs font-medium text-slate-600 mb-1">月額（円 / 月）</label>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={leaseForm.amount}
-                                onChange={(e) =>
-                                  setLeaseForm((f) => ({ ...f, amount: e.target.value.replace(/\D/g, "") }))
-                                }
-                                placeholder="35000"
-                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                              />
-                            </div>
-                          ) : (
-                            <div className="col-span-1 flex items-end">
-                              <p className="text-xs text-slate-500">
-                                日額の金額は<strong>コースの「日額リース代」</strong>を使用します（コース管理で設定）。
-                              </p>
-                            </div>
-                          )}
+                      <div className="grid grid-cols-2 gap-3">
+                        {leaseForm.mode === "MONTHLY" ? (
                           <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">適用開始月</label>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">月額（円 / 月・固定）</label>
                             <input
-                              type="month"
-                              value={leaseForm.validFrom.slice(0, 7)}
+                              type="text"
+                              inputMode="numeric"
+                              value={leaseForm.amount}
                               onChange={(e) =>
-                                setLeaseForm((f) => ({
-                                  ...f,
-                                  validFrom: e.target.value ? `${e.target.value}-01` : currentMonthStartStr(),
-                                }))
+                                setLeaseForm((f) => ({ ...f, amount: e.target.value.replace(/\D/g, "") }))
                               }
+                              placeholder="35000"
                               className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                             />
                           </div>
+                        ) : (
+                          <div className="col-span-1 flex items-end">
+                            <p className="text-xs text-slate-500">
+                              日額の金額は<strong>コースの「日額リース代」</strong>を使用します（コース管理で設定）。
+                            </p>
+                          </div>
+                        )}
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">適用開始月</label>
+                          <input
+                            type="month"
+                            value={leaseForm.validFrom.slice(0, 7)}
+                            onChange={(e) =>
+                              setLeaseForm((f) => ({
+                                ...f,
+                                validFrom: e.target.value ? `${e.target.value}-01` : currentMonthStartStr(),
+                              }))
+                            }
+                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                          />
                         </div>
-                      </>
+                      </div>
                     )}
                   </div>
                 )}
