@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch } from "@/lib/api";
+import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 
 type RecoveryMonth = {
   ym: string;
@@ -166,11 +167,13 @@ export function VehicleRecoveryDetail({
             <div className="flex flex-wrap items-end gap-2 mb-3 p-3 rounded-lg border border-slate-200 bg-slate-50">
               <div>
                 <label className="block text-[11px] text-slate-500 mb-1">対象月</label>
-                <input
-                  type="month"
-                  value={newYm}
-                  onChange={(e) => setNewYm(e.target.value)}
-                  className="px-2 py-1.5 text-xs border border-slate-200 rounded"
+                <MonthYearPicker
+                  value={
+                    /^\d{4}-\d{2}/.test(newYm)
+                      ? { year: Number(newYm.slice(0, 4)), month: Number(newYm.slice(5, 7)) }
+                      : undefined
+                  }
+                  onChange={({ year, month }) => setNewYm(`${year}-${String(month).padStart(2, "0")}`)}
                 />
               </div>
               <div>

@@ -14,6 +14,7 @@ import { canAdminWrite } from "@/lib/authz";
 import { faPenToSquare, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
+import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 
@@ -996,16 +997,17 @@ export default function UsersPage() {
                         )}
                         <div>
                           <label className="block text-xs font-medium text-slate-600 mb-1">適用開始月</label>
-                          <input
-                            type="month"
-                            value={leaseForm.validFrom.slice(0, 7)}
-                            onChange={(e) =>
+                          <MonthYearPicker
+                            value={{
+                              year: Number(leaseForm.validFrom.slice(0, 4)) || new Date().getFullYear(),
+                              month: Number(leaseForm.validFrom.slice(5, 7)) || new Date().getMonth() + 1,
+                            }}
+                            onChange={({ year, month }) =>
                               setLeaseForm((f) => ({
                                 ...f,
-                                validFrom: e.target.value ? `${e.target.value}-01` : currentMonthStartStr(),
+                                validFrom: `${year}-${String(month).padStart(2, "0")}-01`,
                               }))
                             }
-                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                           />
                         </div>
                       </div>

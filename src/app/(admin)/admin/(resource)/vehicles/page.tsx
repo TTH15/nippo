@@ -1285,11 +1285,15 @@ export default function VehiclesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">回収開始月</label>
-                    <input
-                      type="month"
-                      value={form.recoveryStartMonth}
-                      onChange={(e) => setForm((f) => ({ ...f, recoveryStartMonth: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    <MonthYearPicker
+                      value={
+                        /^\d{4}-\d{2}/.test(form.recoveryStartMonth)
+                          ? { year: Number(form.recoveryStartMonth.slice(0, 4)), month: Number(form.recoveryStartMonth.slice(5, 7)) }
+                          : undefined
+                      }
+                      onChange={({ year, month }) =>
+                        setForm((f) => ({ ...f, recoveryStartMonth: `${year}-${String(month).padStart(2, "0")}` }))
+                      }
                     />
                     <p className="text-xs text-slate-500 mt-1">初期費用回収のカレンダー月の起点</p>
                   </div>

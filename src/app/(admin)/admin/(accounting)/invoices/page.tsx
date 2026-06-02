@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan, faEye, faStar } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
 
@@ -827,11 +828,13 @@ export default function InvoicesPage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-slate-600 mb-1">対象月フォルダ</label>
-                <input
-                  type="month"
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="w-full border border-slate-200 rounded px-3 py-2 text-sm"
+                <MonthYearPicker
+                  value={
+                    /^\d{4}-\d{2}/.test(selectedMonth)
+                      ? { year: Number(selectedMonth.slice(0, 4)), month: Number(selectedMonth.slice(5, 7)) }
+                      : undefined
+                  }
+                  onChange={({ year, month }) => setSelectedMonth(`${year}-${String(month).padStart(2, "0")}`)}
                 />
               </div>
               <div>
