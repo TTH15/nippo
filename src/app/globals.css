@@ -127,3 +127,29 @@ input[type="number"] {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* ===== ゲーミフィケーション: ボーナス演出アニメーション ===== */
+@keyframes bonusFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes bonusPop {
+  0% { opacity: 0; transform: scale(0.8) translateY(8px); }
+  60% { opacity: 1; transform: scale(1.04) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes bonusEmoji {
+  0% { transform: scale(0.4) rotate(-12deg); opacity: 0; }
+  50% { transform: scale(1.25) rotate(8deg); opacity: 1; }
+  75% { transform: scale(0.95) rotate(-4deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+.bonus-overlay-fade { animation: bonusFade 200ms ease-out both; }
+.bonus-overlay-pop { animation: bonusPop 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.bonus-overlay-icon { animation: bonusEmoji 700ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both; transform-origin: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bonus-overlay-fade,
+  .bonus-overlay-pop,
+  .bonus-overlay-icon { animation: none; }
+}

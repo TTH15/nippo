@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faTrophy } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import type { TeamStatus } from "@/lib/components/TeamPointsBadge";
-
-const medal = (rank: number) => (rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}`);
 
 /**
  * /me 上部の自チームポイントカード。
@@ -30,7 +30,7 @@ export function TeamPointsCard() {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg">🏆</span>
+        <FontAwesomeIcon icon={faTrophy} className="h-4 w-4 text-amber-500" />
         <span className="text-sm font-semibold text-slate-800">{status.eventName ?? "チーム戦"}</span>
       </div>
       <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
@@ -52,7 +52,13 @@ export function TeamPointsCard() {
               }`}
             >
               <div className="flex items-center gap-2 min-w-0">
-                <span className="w-6 text-center">{medal(row.rank)}</span>
+                <span
+                  className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums ${
+                    row.teamId === t.id ? "bg-slate-800 text-white" : "bg-slate-200 text-slate-600"
+                  }`}
+                >
+                  {row.rank}
+                </span>
                 <span className="inline-block h-3 w-3 rounded-full shrink-0" style={{ background: row.color }} />
                 <span className="font-medium text-slate-700 truncate">{row.name}</span>
               </div>

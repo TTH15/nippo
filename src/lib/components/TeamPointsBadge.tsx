@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, getStoredDriver } from "@/lib/api";
-import { CountUp } from "@/lib/components/CountUp";
+import { BonusOverlay } from "@/lib/components/BonusOverlay";
 
 export type TeamStatus = {
   active: boolean;
@@ -69,33 +69,5 @@ export function TeamPointsBadge() {
         <BonusOverlay points={status.pendingBonus.points} onClose={ackBonus} />
       )}
     </>
-  );
-}
-
-function BonusOverlay({ points, onClose }: { points: number; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
-      <div
-        className="w-full max-w-xs rounded-3xl bg-white p-7 text-center shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="text-5xl mb-2">🎉</div>
-        <h2 className="text-base font-semibold text-slate-900">ボーナスポイントが付与されました</h2>
-        <CountUp
-          value={points}
-          durationMs={1000}
-          prefix="+"
-          suffix=" pt"
-          className="mt-3 block text-4xl font-extrabold text-amber-500 tabular-nums"
-        />
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-6 w-full rounded-xl bg-slate-800 py-3 text-sm font-semibold text-white hover:bg-slate-900"
-        >
-          やった！
-        </button>
-      </div>
-    </div>
   );
 }
