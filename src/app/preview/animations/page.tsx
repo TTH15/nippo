@@ -25,7 +25,8 @@ export default function AnimationsPreviewPage() {
     <div className="min-h-screen bg-slate-100 py-8 px-4">
       <div className="max-w-md mx-auto space-y-6">
         <div>
-          <h1 className="text-lg font-bold text-slate-900">アニメーション プレビュー</h1>
+          <a href="/preview" className="text-xs text-slate-500 hover:text-slate-800">← プレビュー一覧</a>
+          <h1 className="text-lg font-bold text-slate-900 mt-1">アニメーション プレビュー</h1>
           <p className="text-xs text-slate-500 mt-1">
             送信後のカウントアップとボーナス演出を調整用に表示します（モックデータ・開発専用）。
           </p>
