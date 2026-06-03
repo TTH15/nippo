@@ -58,6 +58,8 @@ export default function SubmitPageClientV2() {
   const [unlinkedVehicles, setUnlinkedVehicles] = useState<Vehicle[]>([]);
   const [showOtherVehicles, setShowOtherVehicles] = useState(false);
   const [vehicleId, setVehicleId] = useState<string | null>(null);
+  // その日のシフトで割り当てられた車両（先頭サジェスト用）。廃車はサーバ側でnull化済み。
+  const [shiftVehicleId, setShiftVehicleId] = useState<string | null>(null);
   const [meter, setMeter] = useState<string>("");
 
   const [postSubmit, setPostSubmit] = useState<SubmitScreen | null>(null);
@@ -118,6 +120,7 @@ export default function SubmitPageClientV2() {
         const withExisting = list.find((s) => s.existing);
         const existingVid = withExisting?.existing?.vehicleId ?? null;
         const defaultVid = res.shiftVehicleId || existingVid || null;
+        setShiftVehicleId(res.shiftVehicleId ?? null);
         setVehicleId(defaultVid);
         if (withExisting?.existing?.meterValue != null) setMeter(String(withExisting.existing.meterValue));
         else setMeter("");
@@ -239,6 +242,16 @@ export default function SubmitPageClientV2() {
                 if (!cards.some((c) => c.id === v.id)) cards.push(v);
               }
             }
+            // その日のシフト割当車両を先頭にサジェスト（廃車はサーバ側で除外済み）
+            const shiftVehicle = shiftVehicleId ? allById.get(shiftVehicleId) : null;
+            if (shiftVehicle) {
+              if (!cards.some((c) => c.id === shiftVehicle.id)) cards.push(shiftVehicle);
+              const idx = cards.findIndex((c) => c.id === shiftVehicle.id);
+              if (idx > 0) {
+                const [moved] = cards.splice(idx, 1);
+                cards.unshift(moved);
+              }
+            }
             const hasMoreOthers = unlinkedVehicles.some((v) => !cards.some((c) => c.id === v.id));
             return (
               <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
@@ -254,9 +267,11 @@ export default function SubmitPageClientV2() {
                     <div className="w-[180px] mx-auto">
                       <VehiclePlate vehicle={v} selected={vehicleId === v.id} className="w-full max-w-[180px]" />
                     </div>
-                    {!linkedIds.has(v.id) && (
+                    {v.id === shiftVehicleId ? (
+                      <div className="text-[10px] text-brand-600 font-medium text-center leading-none mt-0.5">シフト車両</div>
+                    ) : !linkedIds.has(v.id) ? (
                       <div className="text-[10px] text-slate-400 text-center leading-none mt-0.5">他の車両</div>
-                    )}
+                    ) : null}
                   </button>
                 ))}
                 {/* 他の車両を選択（未紐付け車両を展開） */}

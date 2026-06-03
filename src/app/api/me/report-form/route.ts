@@ -26,9 +26,18 @@ export async function GET(req: NextRequest) {
     .eq("shift_date", date)
     .order("slot");
 
-  // その日にシフトで割り当てられた車両（先頭の非nullを既定車両として返す）
-  const shiftVehicleId =
+  // その日にシフトで割り当てられた車両（先頭の非nullを既定車両として返す）。
+  // 廃車(is_disposed)は選べないため既定車両からも除外する。
+  let shiftVehicleId: string | null =
     (shiftRows ?? []).map((s: any) => s.vehicle_id).find((v: string | null) => !!v) ?? null;
+  if (shiftVehicleId) {
+    const { data: shiftVehicle } = await supabase
+      .from("vehicles")
+      .select("is_disposed")
+      .eq("id", shiftVehicleId)
+      .maybeSingle();
+    if (shiftVehicle?.is_disposed) shiftVehicleId = null;
+  }
 
   const courseIds = Array.from(new Set((shiftRows ?? []).map((s: any) => s.course_id).filter(Boolean)));
   if (courseIds.length === 0) {

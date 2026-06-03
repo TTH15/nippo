@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
       .select(
         "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, last_oil_change_mileage, oil_change_interval, is_ev",
       )
+      .eq("is_disposed", false)
       .order("manufacturer")
       .order("brand");
 
@@ -54,6 +55,7 @@ export async function GET(req: NextRequest) {
       "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, last_oil_change_mileage, oil_change_interval, is_ev",
     )
     .in("id", vehicleIds)
+    .eq("is_disposed", false)
     .order("manufacturer")
     .order("brand");
 
