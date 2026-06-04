@@ -152,7 +152,23 @@ export function OtherReportsContent() {
             {tab === "pending" ? "未承認のその他報告はありません。" : "承認済みのその他報告はありません。"}
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <>
+          {/* スマホ: カード表示 */}
+          <div className="md:hidden space-y-2">
+            {entries.map(({ driver, report }) => (
+              <MiscReportCard
+                key={`card-${report.id}`}
+                driver={driver}
+                report={report}
+                tab={tab}
+                canWrite={canWrite}
+                onApprove={() => handleAction(report.id, "approve")}
+                onReject={() => handleAction(report.id, "reject")}
+              />
+            ))}
+          </div>
+          {/* PC: テーブル表示 */}
+          <div className="hidden md:block bg-white rounded-lg border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[840px]">
                 <thead className="bg-slate-50">
@@ -231,15 +247,94 @@ export function OtherReportsContent() {
                 </tbody>
               </table>
             </div>
-            <div ref={loadMoreRef} className="h-6" />
-            {hasMore && (
-              <div className="px-4 py-2 text-xs text-slate-500 border-t border-slate-100">
-                さらに読み込み中...
-              </div>
-            )}
           </div>
+          <div ref={loadMoreRef} className="h-6" />
+          {hasMore && (
+            <div className="py-2 text-center text-xs text-slate-500">さらに読み込み中...</div>
+          )}
+          </>
         )}
       </div>
     </>
+  );
+}
+
+/** スマホ用カード（その他報告 1件）。 */
+function MiscReportCard({
+  driver,
+  report,
+  tab,
+  canWrite,
+  onApprove,
+  onReject,
+}: {
+  driver: { id: string; name: string; display_name: string | null };
+  report: MiscReport;
+  tab: "pending" | "approved";
+  canWrite: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  const submittedTime = new Date(report.submitted_at).toLocaleTimeString("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold text-slate-900">{getDisplayName(driver)}</span>
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600">
+          {reportKindLabel(report.report_kind)}
+        </span>
+      </div>
+
+      <div className="mt-1.5 text-xs text-slate-500 tabular-nums">
+        {report.report_date} {report.report_time}
+        {report.location ? <span className="ml-2 text-slate-600">{report.location}</span> : null}
+      </div>
+
+      <div className="mt-2 flex items-center gap-2">
+        {report.vehicles ? (
+          <VehiclePlate vehicle={report.vehicles} compact className="max-w-[150px]" />
+        ) : (
+          <span className="text-xs text-slate-400">車両 —</span>
+        )}
+        {report.odometer_km != null && (
+          <span className="text-xs tabular-nums text-slate-600">{report.odometer_km.toLocaleString()} km</span>
+        )}
+      </div>
+
+      {report.description?.trim() && (
+        <p className="mt-2 whitespace-pre-wrap break-words text-[13px] text-slate-700">{report.description}</p>
+      )}
+
+      <div className="mt-2.5 flex items-center justify-between gap-2">
+        <span className="text-[11px] text-slate-400 tabular-nums">{submittedTime} 送信</span>
+        {tab === "approved" ? (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+            承認済み
+          </span>
+        ) : canWrite ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onApprove}
+              className="px-4 py-1.5 rounded-full text-[12px] font-semibold bg-slate-800 text-white hover:bg-slate-700"
+            >
+              承認
+            </button>
+            <button
+              type="button"
+              onClick={onReject}
+              className="px-4 py-1.5 rounded-full text-[12px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+            >
+              却下
+            </button>
+          </div>
+        ) : (
+          <span className="text-slate-400 text-xs">未承認</span>
+        )}
+      </div>
+    </div>
   );
 }

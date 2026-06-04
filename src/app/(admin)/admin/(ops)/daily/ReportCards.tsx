@@ -1,0 +1,271 @@
+"use client";
+
+// 日報報告ページのスマホ用カード表示部品。
+// PC はテーブル（page.tsx 内）、スマホ（< md）はこのカード群で表示する。
+
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCircleCheck, faPenToSquare } from "@fortawesome/free-solid-svg-icons";
+import { VehiclePlate } from "@/lib/components/VehiclePlate";
+import { getDisplayName } from "@/lib/displayName";
+
+type DriverLike = { id: string; name: string; display_name?: string | null };
+
+type VehiclePlatePayload = {
+  id: string;
+  number_prefix?: string | null;
+  number_class?: string | null;
+  number_hiragana?: string | null;
+  number_numeric?: string | null;
+  manufacturer?: string | null;
+  brand?: string | null;
+};
+
+type ReportLike = {
+  id?: string;
+  carrier?: string | null;
+  takuhaibin_completed?: number;
+  nekopos_completed?: number;
+  amazon_am_completed?: number;
+  amazon_pm_completed?: number;
+  amazon_4_completed?: number;
+  submitted_at?: string;
+  meter_value?: number | null;
+  vehicle_plate?: VehiclePlatePayload | null;
+};
+
+const fmtTime = (s?: string) =>
+  s ? new Date(s).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "—";
+
+export function CarrierBadge({ carrier, muted }: { carrier?: string | null; muted?: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${
+        muted
+          ? "bg-slate-200 text-slate-600"
+          : carrier === "AMAZON"
+            ? "bg-violet-100 text-violet-700"
+            : "bg-emerald-100 text-emerald-700"
+      }`}
+    >
+      {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
+    </span>
+  );
+}
+
+/** 配送内容（宅急便/ネコポス または Amazon 午前/午後/4便）。 */
+export function ReportContent({ r }: { r: ReportLike }) {
+  if (r.carrier === "AMAZON") {
+    const am = r.amazon_am_completed ?? 0;
+    const pm = r.amazon_pm_completed ?? 0;
+    const four = r.amazon_4_completed ?? 0;
+    if (am === 0 && pm === 0 && four === 0) return <span className="text-slate-400 text-xs">—</span>;
+    return (
+      <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        {am > 0 && <Metric label="午前" value={am} />}
+        {pm > 0 && <Metric label="午後" value={pm} />}
+        {four > 0 && <Metric label="4便" value={four} />}
+      </div>
+    );
+  }
+  return (
+    <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+      <Metric label="宅急便" value={r.takuhaibin_completed ?? 0} />
+      <Metric label="ネコポス" value={r.nekopos_completed ?? 0} />
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <span>
+      <span className="text-slate-500 text-xs">{label}</span>{" "}
+      <span className="font-semibold tabular-nums">{value}</span>
+      <span className="text-slate-500 text-xs"> 個</span>
+    </span>
+  );
+}
+
+function hasPlate(p?: VehiclePlatePayload | null): p is VehiclePlatePayload {
+  return !!p && !!(p.number_prefix || p.number_hiragana || p.number_numeric);
+}
+
+function CardShell({ muted, children }: { muted?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={`rounded-lg border p-3 ${muted ? "border-slate-200 bg-slate-50" : "border-slate-200 bg-white"}`}>
+      {children}
+    </div>
+  );
+}
+
+/** 未承認タブ用カード（ドライバー単位・reps 配列）。 */
+export function PendingDriverCard({
+  driver,
+  reps,
+  status,
+  canWrite,
+  onApprove,
+  onReject,
+  onEdit,
+}: {
+  driver: DriverLike;
+  reps: ReportLike[];
+  status: "off" | "unsubmitted" | "approved" | "pending";
+  canWrite: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+  onEdit: (rep: ReportLike) => void;
+}) {
+  const muted = status === "off" || status === "approved";
+  return (
+    <CardShell muted={muted}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold text-slate-900">{getDisplayName(driver)}</span>
+        {status === "approved" && (
+          <span className="inline-flex items-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+            <FontAwesomeIcon icon={faCircleCheck} className="mr-1" />
+            承認済み
+          </span>
+        )}
+        {status === "unsubmitted" && <span className="text-red-600 text-xs font-semibold">日報が未提出です</span>}
+        {status === "off" && reps.length === 0 && <span className="text-slate-500 text-xs">休み</span>}
+      </div>
+
+      {reps.length > 0 && (
+        <div className="mt-2 space-y-2.5">
+          {reps.map((r) => (
+            <div key={r.id} className="border-t border-slate-100 pt-2 first:border-t-0 first:pt-0">
+              <div className="flex items-center justify-between gap-2">
+                <CarrierBadge carrier={r.carrier} muted={muted} />
+                <span className="text-[11px] text-slate-400 tabular-nums">{fmtTime(r.submitted_at)} 送信</span>
+              </div>
+              <div className="mt-1.5 flex items-center gap-2">
+                {hasPlate(r.vehicle_plate) ? (
+                  <VehiclePlate vehicle={r.vehicle_plate} compact className="max-w-[150px]" />
+                ) : (
+                  <span className="text-xs text-slate-400">車両 —</span>
+                )}
+                {r.meter_value != null && (
+                  <span className="text-xs tabular-nums text-slate-600">
+                    {r.meter_value.toLocaleString()}
+                    <span className="text-[10px] text-slate-500 ml-0.5">km</span>
+                  </span>
+                )}
+              </div>
+              <div className="mt-1.5 flex items-center justify-between gap-2">
+                <ReportContent r={r} />
+                {canWrite && (status === "pending" || status === "approved") && (
+                  <button
+                    type="button"
+                    onClick={() => onEdit(r)}
+                    className="shrink-0 text-slate-500 hover:text-slate-900"
+                    aria-label="編集"
+                  >
+                    <FontAwesomeIcon icon={faPenToSquare} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {status === "pending" && canWrite && (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onApprove}
+            className="py-2 rounded-lg text-[13px] font-semibold bg-slate-800 text-white hover:bg-slate-700"
+          >
+            承認
+          </button>
+          <button
+            type="button"
+            onClick={onReject}
+            className="py-2 rounded-lg text-[13px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+          >
+            却下
+          </button>
+        </div>
+      )}
+    </CardShell>
+  );
+}
+
+/** すべてタブ用カード（報告単位）。 */
+export function AllReportCard({
+  driver,
+  report,
+  approved,
+  rejected,
+  canWrite,
+  showEdit,
+  onApprove,
+  onReject,
+  onEdit,
+}: {
+  driver: DriverLike;
+  report: ReportLike;
+  approved: boolean;
+  rejected: boolean;
+  canWrite: boolean;
+  showEdit: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+  onEdit: () => void;
+}) {
+  return (
+    <CardShell>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold text-slate-900">{getDisplayName(driver)}</span>
+        <CarrierBadge carrier={report.carrier} />
+      </div>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <ReportContent r={report} />
+        <span className="text-[11px] text-slate-400 tabular-nums shrink-0">{fmtTime(report.submitted_at)} 送信</span>
+      </div>
+      <div className="mt-2.5 flex items-center justify-between gap-2">
+        <div>
+          {approved ? (
+            <span className="inline-flex items-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+              <FontAwesomeIcon icon={faCircleCheck} className="mr-1" />
+              承認済み
+            </span>
+          ) : rejected ? (
+            <span className="inline-flex items-center px-2 h-6 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-700">
+              却下
+            </span>
+          ) : canWrite ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onApprove}
+                className="px-4 py-1.5 rounded-full text-[12px] font-semibold bg-slate-800 text-white hover:bg-slate-700"
+              >
+                承認
+              </button>
+              <button
+                type="button"
+                onClick={onReject}
+                className="px-4 py-1.5 rounded-full text-[12px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+              >
+                却下
+              </button>
+            </div>
+          ) : (
+            <span className="text-slate-400 text-xs">未承認</span>
+          )}
+        </div>
+        {showEdit && canWrite && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="shrink-0 text-slate-500 hover:text-slate-900"
+            aria-label="編集"
+          >
+            <FontAwesomeIcon icon={faPenToSquare} />
+          </button>
+        )}
+      </div>
+    </CardShell>
+  );
+}

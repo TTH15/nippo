@@ -17,6 +17,7 @@ import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { reportDateDefaultJST } from "@/lib/date";
 import type { SelectOption } from "@/lib/components/CustomSelect";
 import { OtherReportsContent } from "../misc-reports/others/OtherReportsContent";
+import { PendingDriverCard, AllReportCard } from "./ReportCards";
 
 const EditReportModal = dynamic(() => import("./EditReportModal"), {
   ssr: false,
@@ -440,7 +441,33 @@ export default function AdminDailyPage() {
                         })()}
                       </h2>
                       {rows.length > 0 && (
-                        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                        <>
+                        {/* スマホ: カード表示 */}
+                        <div className="md:hidden space-y-2">
+                          {rows.map(({ driver, reps, status }) => {
+                            const driverEntry: Entry = {
+                              driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
+                              report: { report_date: summary.date, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" } as ReportData,
+                            };
+                            return (
+                              <PendingDriverCard
+                                key={`card-${driver.id}-${summary.date}`}
+                                driver={driver}
+                                reps={reps}
+                                status={status}
+                                canWrite={canWrite}
+                                onApprove={() => handleApprove(driverEntry, summary.date)}
+                                onReject={() => handleReject(driverEntry, summary.date)}
+                                onEdit={(r) => openEdit({
+                                  driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
+                                  report: { ...(r as unknown as ReportData), id: r.id },
+                                })}
+                              />
+                            );
+                          })}
+                        </div>
+                        {/* PC: テーブル表示 */}
+                        <div className="hidden md:block bg-white rounded-lg border border-slate-200 overflow-hidden">
                           <div className="overflow-x-auto table-scroll table-scroll-fade -mx-1 md:mx-0">
                             <table className="w-full text-sm table-fixed min-w-[860px] md:min-w-0">
                             <colgroup>
@@ -585,6 +612,7 @@ export default function AdminDailyPage() {
                             </table>
                           </div>
                         </div>
+                        </>
                       )}
                     </div>
                   );
@@ -679,7 +707,25 @@ export default function AdminDailyPage() {
                         )
                       })()}
                     </h2>
-                    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                    {/* スマホ: カード表示 */}
+                    <div className="md:hidden space-y-2">
+                      {group.entries.map((e) => (
+                        <AllReportCard
+                          key={`card-${e.driver.id}-${group.date}-${e.report.id ?? ""}`}
+                          driver={e.driver}
+                          report={e.report}
+                          approved={isApproved(e.report)}
+                          rejected={isRejected(e.report)}
+                          canWrite={canWrite}
+                          showEdit={tab === "all"}
+                          onApprove={() => handleApprove(e, group.date)}
+                          onReject={() => handleReject(e, group.date)}
+                          onEdit={() => openEdit(e)}
+                        />
+                      ))}
+                    </div>
+                    {/* PC: テーブル表示 */}
+                    <div className="hidden md:block bg-white rounded-lg border border-slate-200 overflow-hidden">
                       <div className="overflow-x-auto table-scroll table-scroll-fade -mx-1 md:mx-0">
                         <table className="w-full text-sm table-fixed min-w-[720px] md:min-w-0">
                         <colgroup>
