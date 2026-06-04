@@ -5,7 +5,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faXmark, faLock } from "@fortawesome/free-solid-svg-icons";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 
 type ShiftRequest = {
@@ -14,6 +14,16 @@ type ShiftRequest = {
   request_date: string;
   request_type: string;
 };
+
+type HalfInfo = {
+  half: "FIRST" | "SECOND";
+  deadline: string; // YYYY-MM-DD
+  closed: boolean;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+};
+
+type MonthDeadlines = { firstHalf: HalfInfo; secondHalf: HalfInfo };
 
 type MeShiftVehicle = {
   id: string;
@@ -77,6 +87,7 @@ export default function ShiftsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedOffDates, setSelectedOffDates] = useState<Set<string>>(new Set());
+  const [deadlines, setDeadlines] = useState<MonthDeadlines | null>(null);
   const [errorState, setErrorState] = useState<{
     title: string;
     message: string;
@@ -110,15 +121,29 @@ export default function ShiftsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch<{ requests: ShiftRequest[] }>(`/api/shifts/requests?month=${monthStr}`);
+      const [res, dl] = await Promise.all([
+        apiFetch<{ requests: ShiftRequest[] }>(`/api/shifts/requests?month=${monthStr}`),
+        apiFetch<MonthDeadlines>(`/api/shifts/deadlines?month=${monthStr}`).catch(() => null),
+      ]);
       setRequests(res.requests);
       setSelectedOffDates(new Set((res.requests ?? []).map((r) => r.request_date)));
+      setDeadlines(dl);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
   };
+
+  // 指定日が締切済み半月に属するか（API値を信頼。締切情報が無ければロックしない）。
+  const halfFor = (dateStr: string): HalfInfo | null => {
+    if (!deadlines) return null;
+    const { firstHalf, secondHalf } = deadlines;
+    if (dateStr >= firstHalf.startDate && dateStr <= firstHalf.endDate) return firstHalf;
+    if (dateStr >= secondHalf.startDate && dateStr <= secondHalf.endDate) return secondHalf;
+    return null;
+  };
+  const isLockedDate = (dateStr: string): boolean => halfFor(dateStr)?.closed ?? false;
 
   useEffect(() => {
     if (subTab === "request") {
@@ -169,6 +194,7 @@ export default function ShiftsPage() {
 
   const toggleOffDay = (date: Date) => {
     const dateStr = getDateStr(date);
+    if (isLockedDate(dateStr)) return; // 締切済み半月は変更不可
     setSelectedOffDates((prev) => {
       const next = new Set(prev);
       if (next.has(dateStr)) next.delete(dateStr);
@@ -191,7 +217,7 @@ export default function ShiftsPage() {
     setSaving(true);
     try {
       const offDates = Array.from(selectedOffDates)
-        .filter((d) => d.startsWith(monthStr))
+        .filter((d) => d.startsWith(monthStr) && !isLockedDate(d))
         .sort();
       await apiFetch("/api/shifts/requests", {
         method: "POST",
@@ -271,6 +297,38 @@ export default function ShiftsPage() {
               </button>
             </div>
 
+            {deadlines && (
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                {([deadlines.firstHalf, deadlines.secondHalf] as HalfInfo[]).map((h) => {
+                  const label = h.half === "FIRST" ? "前半 (1〜15)" : "後半 (16〜末)";
+                  const [, dm, dd] = h.deadline.split("-").map(Number);
+                  return (
+                    <div
+                      key={h.half}
+                      className={`rounded border px-3 py-2 text-xs ${
+                        h.closed
+                          ? "border-slate-200 bg-slate-50 text-slate-400"
+                          : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      }`}
+                    >
+                      <div className="font-medium text-slate-600">{label}</div>
+                      <div className="mt-0.5">
+                        締切 {dm}/{dd}
+                        {h.closed ? (
+                          <span className="ml-1 inline-flex items-center gap-1 font-semibold text-slate-500">
+                            <FontAwesomeIcon icon={faLock} className="w-2.5 h-2.5" />
+                            受付終了
+                          </span>
+                        ) : (
+                          <span className="ml-1 font-semibold text-emerald-700">受付中</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {loading ? (
               <div className="bg-white rounded border border-slate-200 p-3">
                 <div className="grid grid-cols-7 gap-1 mb-1">
@@ -301,25 +359,29 @@ export default function ShiftsPage() {
                     <div key={`empty-${i}`} className="aspect-square" />
                   ))}
                   {days.map((date) => {
+                    const dateStr = getDateStr(date);
                     const isPast = date < today;
+                    const locked = isLockedDate(dateStr);
                     const isOff = isOffDay(date);
                     const dayOfWeek = date.getDay();
                     const isToday = date.toDateString() === today.toDateString();
+                    const disabled = isPast || locked;
                     return (
                       <button
-                        key={getDateStr(date)}
+                        key={dateStr}
                         onClick={(e) => {
-                          if (!isPast) {
+                          if (!disabled) {
                             toggleOffDay(date);
                             (e.currentTarget as HTMLElement).blur();
                           }
                         }}
-                        disabled={isPast}
+                        disabled={disabled}
+                        title={locked ? "締切を過ぎたため変更できません" : undefined}
                         className={`
                           aspect-square rounded flex flex-col items-center justify-center text-sm font-medium
                           transition-colors relative outline-none focus:outline-none
-                          ${isPast ? "opacity-30 cursor-not-allowed" : "cursor-pointer hover:bg-slate-100"}
-                          ${isOff ? "bg-red-100 border border-red-300" : "bg-slate-50"}
+                          ${locked ? "opacity-60 cursor-not-allowed bg-slate-100" : isPast ? "opacity-30 cursor-not-allowed" : "cursor-pointer hover:bg-slate-100"}
+                          ${isOff ? "bg-red-100 border border-red-300" : locked ? "" : "bg-slate-50"}
                           ${isToday ? "ring-2 ring-slate-400" : ""}
                         `}
                       >
@@ -330,6 +392,9 @@ export default function ShiftsPage() {
                           <span className="text-red-500 font-bold absolute">
                             <FontAwesomeIcon icon={faXmark} className="w-4 h-4" />
                           </span>
+                        )}
+                        {locked && !isOff && (
+                          <FontAwesomeIcon icon={faLock} className="w-2.5 h-2.5 text-slate-400 absolute bottom-1" />
                         )}
                       </button>
                     );

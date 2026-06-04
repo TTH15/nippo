@@ -61,6 +61,8 @@ export default function SubmitPageClientV2() {
   // その日のシフトで割り当てられた車両（先頭サジェスト用）。廃車はサーバ側でnull化済み。
   const [shiftVehicleId, setShiftVehicleId] = useState<string | null>(null);
   const [meter, setMeter] = useState<string>("");
+  // 走行距離(メーター)の必須エラーを送信試行時に表示するフラグ
+  const [meterRequiredError, setMeterRequiredError] = useState(false);
 
   const [postSubmit, setPostSubmit] = useState<SubmitScreen | null>(null);
 
@@ -145,6 +147,15 @@ export default function SubmitPageClientV2() {
   const meterNum = useMemo(() => (meter.trim() ? Number(meter) : null), [meter]);
 
   async function submit() {
+    // 走行距離は必須（車両選択あり & 非EV のとき）。未入力なら送信しない。
+    const selVehicle = [...vehicles, ...unlinkedVehicles].find((v) => v.id === vehicleId) ?? null;
+    const meterRequired = !!selVehicle && !selVehicle.is_ev;
+    if (meterRequired && meter.trim() === "") {
+      setMeterRequiredError(true);
+      setMessage({ kind: "err", text: "走行距離を入力してください" });
+      return;
+    }
+
     setSubmitting(true);
     setMessage(null);
     try {
@@ -313,25 +324,33 @@ export default function SubmitPageClientV2() {
           const prevKm = sel.current_mileage ?? 0;
           const placeholder = prevKm > 0 ? `前回: ${prevKm.toLocaleString("ja-JP")} km` : "例: 14567";
           const invalid = meter !== "" && prevKm > 0 && Number(meter) <= prevKm;
+          const missing = meterRequiredError && meter.trim() === "";
           return (
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">メーター数値（km）</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                走行距離（km）<span className="text-red-500 ml-0.5">*</span>
+              </label>
               <input
                 type="number"
                 inputMode="numeric"
                 min="0"
                 placeholder={placeholder}
                 value={meter}
-                onChange={(e) => setMeter(e.target.value.replace(/\D/g, ""))}
+                onChange={(e) => {
+                  setMeter(e.target.value.replace(/\D/g, ""));
+                  if (meterRequiredError) setMeterRequiredError(false);
+                }}
                 className={`w-full py-3 px-4 text-lg font-mono border rounded-xl focus:outline-none focus:ring-2 ${
-                  invalid ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-brand-500"
+                  invalid || missing ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-brand-500"
                 }`}
               />
-              {invalid && (
+              {missing ? (
+                <p className="mt-1 text-xs text-red-500">！走行距離を入力してください</p>
+              ) : invalid ? (
                 <p className="mt-1 text-xs text-red-500">
                   前回（{prevKm.toLocaleString("ja-JP")} km）より大きい値を入力してください
                 </p>
-              )}
+              ) : null}
             </div>
           );
         })()}
