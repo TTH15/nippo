@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { getCompany } from "@/config/companies";
+import { ServiceWorkerRegister } from "@/lib/components/ServiceWorkerRegister";
 
 const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   icons: {
     icon: company.faviconPath,
-    apple: company.faviconPath,
+    apple: "/logo/icon-192.png",
   },
   appleWebApp: {
     capable: true,
@@ -40,7 +41,10 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <ServiceWorkerRegister />
+        {children}
+      </body>
     </html>
   );
 }
