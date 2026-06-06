@@ -573,11 +573,12 @@ export default function PaymentsPage() {
           <p className="text-sm text-slate-500">ドライバーが登録されていません</p>
         ) : (
           <div className="bg-white rounded border border-slate-200 overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[760px] md:min-w-0">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="py-2.5 px-2 text-left font-medium text-slate-600 w-10"></th>
-                  <th className="py-2.5 px-4 text-left font-medium text-slate-600">名前</th>
+                  <th className="sticky left-0 z-20 bg-slate-50 py-2.5 px-2 text-left font-medium text-slate-600 w-10"></th>
+                  <th className="sticky left-10 z-20 bg-slate-50 py-2.5 px-4 text-left font-medium text-slate-600">名前</th>
                   <th className="py-2.5 px-4 text-right font-medium text-slate-600">支払額</th>
                   <th className="py-2.5 px-4 text-right font-medium text-slate-600">報酬</th>
                   <th className="py-2.5 px-4 text-right text-xs font-medium text-slate-600">
@@ -603,7 +604,7 @@ export default function PaymentsPage() {
                           isOpen ? "bg-slate-50" : "hover:bg-slate-50"
                         }`}
                       >
-                        <td className="py-2.5 px-2 align-middle">
+                        <td className={`sticky left-0 z-10 py-2.5 px-2 align-middle ${isOpen ? "bg-slate-50" : "bg-white"}`}>
                           <button
                             type="button"
                             onClick={() => {
@@ -617,7 +618,7 @@ export default function PaymentsPage() {
                             <span className="text-sm">{isOpen ? "▾" : "▸"}</span>
                           </button>
                         </td>
-                        <td className="py-2.5 px-4 font-medium text-slate-800 whitespace-nowrap">
+                        <td className={`sticky left-10 z-10 py-2.5 px-4 font-medium text-slate-800 whitespace-nowrap ${isOpen ? "bg-slate-50" : "bg-white"}`}>
                           {getDisplayName({
                             name: row.driverName,
                             display_name: row.displayName,
@@ -775,6 +776,7 @@ export default function PaymentsPage() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>

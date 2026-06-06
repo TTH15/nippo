@@ -64,14 +64,14 @@ export function DateRangeDualPicker({
     : undefined;
 
   return (
-    <div className="flex gap-4 items-center flex-wrap">
-      <div>
+    <div className="flex gap-2 sm:gap-4 items-end">
+      <div className="flex-1 min-w-0 sm:flex-none">
         <label className="text-xs text-slate-400 mb-1 block">開始日</label>
         <Popover open={startOpen} onOpenChange={setStartOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
-              className="w-[180px] justify-start text-left font-normal"
+              className="w-full sm:w-[180px] justify-start text-left font-normal"
             >
               <CalendarIcon className="mr-2 h-4 w-4" />
               {value?.startDate
@@ -100,15 +100,15 @@ export function DateRangeDualPicker({
         </Popover>
       </div>
 
-      <div className="text-slate-400">〜</div>
+      <div className="text-slate-400 pb-2 shrink-0">〜</div>
 
-      <div>
+      <div className="flex-1 min-w-0 sm:flex-none">
         <label className="text-xs text-slate-400 mb-1 block">終了日</label>
         <Popover open={endOpen} onOpenChange={setEndOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
-              className="w-[180px] justify-start text-left font-normal"
+              className="w-full sm:w-[180px] justify-start text-left font-normal"
             >
               <CalendarIcon className="mr-2 h-4 w-4" />
               {value?.endDate

@@ -696,7 +696,66 @@ function LogEntriesByDate({
               <div className="px-3 py-2 bg-slate-50 font-semibold text-slate-800 text-sm">
                 {dateLabel(dateIso)}
               </div>
-              <div className="overflow-x-auto table-scroll table-scroll-fade -mx-1 md:mx-0">
+              {/* スマホ: カード表示 */}
+              <div className="md:hidden divide-y divide-slate-100">
+                {rows.map((row, rowIdx) => {
+                  if (row.kind === "calculated") {
+                    return (
+                      <div key={`mcalc-${dateIso}-${rowIdx}`} className="px-3 py-2.5 bg-slate-50/40">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-medium text-slate-800">{row.type_name}</span>
+                          <span className="text-[10px] text-slate-400">自動</span>
+                        </div>
+                        {row.content && <div className="mt-0.5 text-xs text-slate-500">{row.content}</div>}
+                        <div className="mt-1 flex items-center gap-4 text-xs">
+                          <span className="text-slate-500">売上 <span className="tabular-nums font-medium text-slate-900">{fmt(row.revenue)}</span></span>
+                          <span className="text-slate-500">利益 <span className={`tabular-nums font-medium ${row.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmtSigned(row.profit)}</span></span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  const r = row.entry;
+                  const saving = savingId === r.id;
+                  const counterparty = r.counterparty_invoice_address_id
+                    ? invoiceAddressById[r.counterparty_invoice_address_id] ?? null
+                    : null;
+                  return (
+                    <div key={`m-${r.id}`} className="px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-slate-800">{r.type_name}</span>
+                        {canWrite &&
+                          (saving ? (
+                            <span className="text-[10px] text-slate-400">保存中...</span>
+                          ) : (
+                            <div className="flex items-center gap-4">
+                              <button type="button" onClick={() => onEdit(r)} className="text-slate-400 hover:text-slate-800" title="編集">
+                                <FontAwesomeIcon icon={faPenToSquare} className="w-4 h-4" />
+                              </button>
+                              <button type="button" onClick={() => handleDelete(r)} className="text-slate-400 hover:text-red-600" title="削除">
+                                <FontAwesomeIcon icon={faTrashCan} className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                      {r.content && <div className="mt-0.5 text-sm text-slate-700">{r.content}</div>}
+                      <div className="mt-1 flex items-center gap-4 text-xs">
+                        <span className="text-slate-500">売上 <span className="tabular-nums font-medium text-slate-900">{fmt(r.revenue)}</span></span>
+                        <span className="text-slate-500">利益 <span className={`tabular-nums font-medium ${r.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmtSigned(r.profit)}</span></span>
+                      </div>
+                      {(r.target_driver_name || r.vehicle_label || counterparty) && (
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+                          {r.target_driver_name && <span>対象 {r.target_driver_name}</span>}
+                          {r.vehicle_label && <span>車両 {r.vehicle_label}</span>}
+                          {counterparty && <span>取引先 {counterparty}</span>}
+                        </div>
+                      )}
+                      {r.memo && <div className="mt-0.5 text-[11px] text-slate-400">{r.memo}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* PC: テーブル表示 */}
+              <div className="hidden md:block overflow-x-auto table-scroll table-scroll-fade -mx-1 md:mx-0">
                 <table className="w-full text-xs table-fixed min-w-[800px] md:min-w-0">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
@@ -1290,7 +1349,7 @@ export default function SalesPage() {
   return (
     <AdminLayout>
       <div className="w-full">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-4">
           <div>
             <h1 className="text-xl font-bold text-slate-900">売上</h1>
           </div>
@@ -1359,7 +1418,7 @@ export default function SalesPage() {
               onChange={setSelectedCourseIds}
             />
             <span className="text-xs text-slate-500">対象ドライバー</span>
-            <div className="w-56">
+            <div className="w-full sm:w-56">
               <CustomSelect
                 size="sm"
                 value={selectedDriverId}
@@ -1377,8 +1436,8 @@ export default function SalesPage() {
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row items-start gap-6">
-          <div className="flex-1 min-w-0">
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-start gap-6">
+          <div className="w-full min-w-0 lg:flex-1">
             {tab === "analytics" && (
               <>
                 {loadingAnalytics ? (

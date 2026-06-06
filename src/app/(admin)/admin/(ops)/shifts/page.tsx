@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties } from "react";
 import { isJapanPublicHolidayYmd } from "@/lib/japanHolidays";
+import { todayJST } from "@/lib/date";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -103,7 +104,14 @@ const EX_CELL_GAP = 4;
 const EX_CELL_CONTENT_H = EX_COURSE_H + EX_CELL_GAP + EX_PLATE_H;
 
 /** 祝日・日曜＝赤系、土曜＝青系（祝日は土曜より優先） */
-function shiftDayTone(dateStr: string): { header: string; body: string } {
+function shiftDayTone(dateStr: string, todayStr?: string): { header: string; body: string } {
+  // 「今日」は曜日・祝日より優先してやんわり強調（PC/モバイル共通）。
+  if (todayStr && dateStr.trim() === todayStr) {
+    return {
+      header: "text-amber-900 bg-amber-100/90 font-semibold",
+      body: "bg-amber-50/60",
+    };
+  }
   if (isJapanPublicHolidayYmd(dateStr)) {
     return {
       header: "text-red-700 bg-red-50/90",
@@ -406,6 +414,9 @@ export default function ShiftsPage() {
         : getSecondHalfDates(yearMonth.year, yearMonth.month),
     [yearMonth.year, yearMonth.month, period],
   );
+
+  // 一覧で「今日」をやんわり強調するための基準日（JST）。
+  const today = todayJST();
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (displayDates.length === 0) return;
@@ -879,18 +890,18 @@ export default function ShiftsPage() {
     <AdminLayout>
       <div className="max-w-full">
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-          <div>
+          <div className="w-full md:w-auto">
             <h1 className="text-xl font-bold text-slate-900">シフト管理</h1>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="hidden md:block text-xs text-slate-500 mt-1">
               列幅は固定で略記が「…」省略されます（ホバーで詳細）。上部でコース、下部で車両（ナンバー）を指定します。「車両管理」でドライバーと車両を紐付けた車だけ選べます。
             </p>
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap w-full md:w-auto">
+            <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => switchPeriod("first")}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium transition-colors ${
                   period === "first"
                     ? "bg-slate-800 text-white"
                     : "text-slate-600 hover:bg-slate-50"
@@ -901,7 +912,7 @@ export default function ShiftsPage() {
               <button
                 type="button"
                 onClick={() => switchPeriod("second")}
-                className={`px-4 py-2 text-sm font-medium transition-colors border-l border-slate-300 ${
+                className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium transition-colors border-l border-slate-300 ${
                   period === "second"
                     ? "bg-slate-800 text-white"
                     : "text-slate-600 hover:bg-slate-50"
@@ -1007,7 +1018,7 @@ export default function ShiftsPage() {
                       ドライバー
                     </th>
                     {displayDates.map((date) => {
-                      const tone = shiftDayTone(date);
+                      const tone = shiftDayTone(date, today);
                       return (
                         <th
                           key={date}
@@ -1029,7 +1040,7 @@ export default function ShiftsPage() {
                           <span className="font-medium text-slate-800">{getDisplayName(driver)}</span>
                         </td>
                         {displayDates.map((date) => {
-                          const tone = shiftDayTone(date);
+                          const tone = shiftDayTone(date, today);
                           const off = isDriverOffDay(driver.id, date);
                           const placements = findDriverPlacementsOnDate(localShifts, date, driver.id);
                           const assignedCourses = placements
@@ -1194,7 +1205,7 @@ export default function ShiftsPage() {
                     </td>
                     {displayDates.map((date) => {
                       const names = getOffDriverNamesOnDate(date);
-                      const tone = shiftDayTone(date);
+                      const tone = shiftDayTone(date, today);
                       return (
                         <td
                           key={`off-${date}`}

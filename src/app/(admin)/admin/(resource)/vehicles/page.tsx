@@ -533,9 +533,9 @@ export default function VehiclesPage() {
         {loading ? (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-white rounded-lg border border-slate-200 p-6">
-                <div className="flex gap-8">
-                  <div className="flex-shrink-0 w-64 space-y-4">
+              <div key={i} className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
+                <div className="flex flex-col md:flex-row gap-5 md:gap-8">
+                  <div className="flex-shrink-0 w-full md:w-64 space-y-4">
                     <div className="flex items-center gap-2">
                       <Skeleton className="h-6 w-20" />
                       <Skeleton className="h-5 w-16" />
@@ -577,7 +577,7 @@ export default function VehiclesPage() {
               return (
                 <div
                   key={v.id}
-                  className={`rounded-lg border p-8 shadow-sm relative ${
+                  className={`rounded-lg border p-4 sm:p-6 md:p-8 shadow-sm relative ${
                     v.is_disposed
                       ? "bg-red-50 border-red-200"
                       : "bg-white border-slate-200"
@@ -695,7 +695,7 @@ export default function VehiclesPage() {
                     )}
                   </div>
 
-                  <div className="flex gap-8">
+                  <div className="flex flex-col md:flex-row gap-5 md:gap-8">
                     {/* 左側: ナンバープレート、写真 */}
                     <div className="flex-shrink-0 w-full max-w-[240px] space-y-4">
                       {/* ナンバープレート */}
