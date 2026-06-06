@@ -2,22 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
-import { isCountableReport } from "@/server/aggregation/compute";
-import { computeEventScores } from "@/server/events/score";
-import { normalizeScoringRuleSet } from "@/server/events/types";
-import type { EventTeam, EventMember, ManualPointEntry, ScoringReport } from "@/server/events/types";
 import { loadSubmitScreenConfig } from "@/server/submitScreen/config";
+import { resolveBlocks, normalizeBlocks, defaultBlocksFromConfig } from "@/server/submitScreen/blocks";
 import { loadDriverLease, loadCourseDailyLease, leaseDailyRateForCourse } from "@/server/billing/driverLease";
-import { getDisplayName } from "@/lib/displayName";
 
 export const dynamic = "force-dynamic";
-
-function monthRange(dateStr: string) {
-  const [y, m] = dateStr.slice(0, 7).split("-").map(Number);
-  const last = new Date(y, m, 0).getDate();
-  const mm = String(m).padStart(2, "0");
-  return { start: `${y}-${mm}-01`, end: `${y}-${mm}-${String(last).padStart(2, "0")}` };
-}
 
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
@@ -58,170 +47,19 @@ export async function GET(req: NextRequest) {
   }
   todayReward -= leaseToday;
 
-  // --- ランキング ---
-  let ranking: unknown = null;
-  let todayPoints = 0; // 当日の自分の日報で獲得した採点ポイント（カウントアップ用）
-  if (config.showRanking && config.rankingSource !== "none") {
-    // 表示ソースに応じて連動イベントを決める。
-    //   individual … イベントを使わず常に個人ランキング
-    //   event       … 指定イベントを期間に関係なく使用
-    //   auto        … 期間内の active イベントを自動検出
-    type EvRow = {
-      id: string;
-      name: string;
-      starts_on: string | null;
-      ends_on: string | null;
-      scoring_rule: unknown;
-      team_ranking_visible_to_drivers?: boolean;
-    };
-    const evCols = "id, name, starts_on, ends_on, scoring_rule, team_ranking_visible_to_drivers";
-    let ev: EvRow | null = null;
-    if (config.rankingSource === "individual") {
-      ev = null;
-    } else if (config.rankingSource === "event") {
-      if (config.linkedEventId) {
-        const { data } = await supabase.from("events").select(evCols).eq("id", config.linkedEventId).maybeSingle();
-        // 採点は期間集計に依存するため、期間が無いイベントは個人ランキングへフォールバック。
-        ev = data && data.starts_on && data.ends_on ? (data as EvRow) : null;
-      }
-    } else {
-      const { data } = await supabase
-        .from("events")
-        .select(evCols)
-        .eq("status", "active")
-        .lte("starts_on", date)
-        .gte("ends_on", date)
-        .order("starts_on", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      ev = (data as EvRow) ?? null;
-    }
-
-    if (ev && ev.starts_on && ev.ends_on) {
-      // チーム戦ランキング
-      const [{ data: teamRows }, { data: memberRows }, { data: pointRows }, { data: drv }] =
-        await Promise.all([
-          supabase.from("event_teams").select("id, name, color, sort_order").eq("event_id", ev.id).order("sort_order"),
-          supabase.from("event_team_members").select("team_id, driver_id").eq("event_id", ev.id),
-          supabase.from("event_point_entries").select("team_id, driver_id, points, reason, entry_date").eq("event_id", ev.id).eq("source", "manual"),
-          supabase.from("drivers").select("id, name, display_name"),
-        ]);
-      const teams: EventTeam[] = (teamRows ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color, sortOrder: t.sort_order }));
-      const members: EventMember[] = (memberRows ?? []).map((m) => ({ driverId: m.driver_id, teamId: m.team_id }));
-      const manualEntries: ManualPointEntry[] = (pointRows ?? []).map((p) => ({ teamId: p.team_id, driverId: p.driver_id, points: Number(p.points) || 0, reason: p.reason, entryDate: p.entry_date }));
-      const aggData = await loadAggregationData(supabase, ev.starts_on, ev.ends_on);
-      const reports: ScoringReport[] = aggData.reports.map((r) => ({
-        driverId: r.driverId,
-        approvedAt: r.approvedAt,
-        rejectedAt: r.rejectedAt,
-        entries: r.entries.map((e) => ({ unitId: e.unitId, fieldKey: e.fieldKey, valueNum: e.valueNum })),
-      }));
-      const rule = normalizeScoringRuleSet(ev.scoring_rule);
-      const result = computeEventScores({ scoringRule: rule, teams, members, reports, manualEntries });
-      const nameById = new Map<string, string>();
-      (drv ?? []).forEach((d) => nameById.set(d.id, getDisplayName(d)));
-      const myTeamId = members.find((m) => m.driverId === driverId)?.teamId ?? null;
-      const myTeamScore = myTeamId ? result.teams.find((t) => t.teamId === myTeamId) ?? null : null;
-      const myTeam = myTeamScore
-        ? { id: myTeamScore.teamId, name: myTeamScore.name, color: myTeamScore.color, total: myTeamScore.total }
-        : null;
-
-      // 当日の自分の日報（未承認含む・却下除外）を採点ルールでスコア化＝今日獲得ポイント
-      const ruleFieldSets = rule.rules.map((r) => new Set(r.fields.map((f) => `${f.unitId}|${f.fieldKey}`)));
-      for (const r of dayData.reports) {
-        if (r.driverId !== driverId || r.reportDate !== date || r.rejectedAt) continue;
-        for (const e of r.entries) {
-          const key = `${e.unitId}|${e.fieldKey}`;
-          rule.rules.forEach((rl, i) => {
-            if (ruleFieldSets[i].has(key)) todayPoints += (e.valueNum ?? 0) * rl.pointsPer;
-          });
-        }
-      }
-
-      // イベント毎の公開設定を優先（067未適用ならグローバル設定にフォールバック）。
-      const rankingVisible =
-        typeof ev.team_ranking_visible_to_drivers === "boolean"
-          ? ev.team_ranking_visible_to_drivers
-          : config.teamRankingVisibleToDrivers;
-      // 同点は同順位（並びは score.ts 側で決定的に整列済み）
-      const tieRanks = (items: { total: number }[]): number[] => {
-        const ranks: number[] = [];
-        items.forEach((it, i) => ranks.push(i > 0 && it.total === items[i - 1].total ? ranks[i - 1] : i + 1));
-        return ranks;
-      };
-      const topIndividuals = result.individuals.slice(0, 10);
-      const teamRanks = tieRanks(result.teams);
-      const indivRanks = tieRanks(topIndividuals);
-      ranking = {
-        mode: "team",
-        eventName: ev.name,
-        myTeamId,
-        myTeam,
-        rankingVisible,
-        // 順位非公開なら順位/他チーム/個人MVPは返さない（自チームポイントのみ）
-        teams: rankingVisible
-          ? result.teams.map((t, i) => ({ rank: teamRanks[i], teamId: t.teamId, name: t.name, color: t.color, total: t.total }))
-          : [],
-        individuals: rankingVisible
-          ? topIndividuals.map((d, i) => ({ rank: indivRanks[i], name: nameById.get(d.driverId) ?? "—", total: d.total, isMe: d.driverId === driverId }))
-          : [],
-      };
-    } else {
-      // 個人ランキング（運営設定の指標・対象・今月）
-      const { start, end } = monthRange(date);
-      const monthData = await loadAggregationData(supabase, start, end);
-      const fieldSet = new Set(config.metricFields.map((f) => `${f.unitId}|${f.fieldKey}`));
-      const targetSet = new Set(config.targetDriverIds);
-      const byDriver = new Map<string, number>();
-      if (fieldSet.size > 0) {
-        for (const r of monthData.reports) {
-          if (!isCountableReport(r)) continue;
-          if (targetSet.size > 0 && !targetSet.has(r.driverId)) continue;
-          let v = byDriver.get(r.driverId) ?? 0;
-          for (const e of r.entries) {
-            if (fieldSet.has(`${e.unitId}|${e.fieldKey}`)) v += e.valueNum ?? 0;
-          }
-          byDriver.set(r.driverId, v);
-        }
-      }
-      const { data: drv } = await supabase.from("drivers").select("id, name, display_name");
-      const nameById = new Map<string, string>();
-      (drv ?? []).forEach((d) => nameById.set(d.id, getDisplayName(d)));
-      // 対象に自分が含まれない場合でも自分の値は出す
-      if (targetSet.size > 0 && !targetSet.has(driverId)) {
-        // 自分が対象外なら除外（ランキングに出さない）
-      }
-      // 得点降順、同点は driverId 昇順で決定的に整列 → 同点は同順位を付与
-      const ordered = [...byDriver.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-      const sorted = ordered.map(([id, value], i) => ({
-        rank: i > 0 && value === ordered[i - 1][1] ? -1 : i + 1, // 後で前順位に揃える
-        name: nameById.get(id) ?? "—",
-        value,
-        isMe: id === driverId,
-      }));
-      // 同点を前の順位へ揃える
-      for (let i = 1; i < sorted.length; i++) {
-        if (sorted[i].rank === -1) sorted[i].rank = sorted[i - 1].rank;
-      }
-      const myRank = sorted.find((x) => x.isMe) ?? null;
-      ranking = {
-        mode: "personal",
-        metricLabel: config.metricLabel,
-        ranking: sorted.slice(0, 10),
-        myRank,
-        total: sorted.length,
-        configured: fieldSet.size > 0,
-      };
-    }
-  }
+  // --- 送信後画面のブロックを解決 ---
+  // blocks 未設定なら従来フラット設定から既定ブロックを導出（後方互換）。
+  const blocks =
+    config.blocks && config.blocks.length > 0 ? normalizeBlocks(config.blocks) : defaultBlocksFromConfig(config);
+  const resolvedBlocks = await resolveBlocks(supabase, blocks, {
+    driverId,
+    date,
+    todayReward: Math.round(todayReward),
+  });
 
   return NextResponse.json({
     date,
     todayReward: Math.round(todayReward),
-    leaseToday,
-    todayPoints,
-    ranking,
-    thanksTitle: config.thanksTitle,
-    thanksMessage: config.thanksMessage,
+    blocks: resolvedBlocks,
   });
 }

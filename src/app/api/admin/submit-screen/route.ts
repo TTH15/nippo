@@ -8,6 +8,7 @@ import {
   normalizeRankingSource,
   type SubmitScreenConfig,
 } from "@/server/submitScreen/config";
+import { normalizeBlocks } from "@/server/submitScreen/blocks";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,7 @@ export async function PUT(req: NextRequest) {
     thanksMessage: typeof body.thanksMessage === "string" ? body.thanksMessage.trim().slice(0, 300) : "",
     showRanking: rankingSource !== "none",
     teamRankingVisibleToDrivers: body.teamRankingVisibleToDrivers === true,
+    blocks: Array.isArray(body.blocks) ? normalizeBlocks(body.blocks) : null,
   };
 
   try {

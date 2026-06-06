@@ -7,78 +7,69 @@
 
 import { useState } from "react";
 import { PostSubmitView, type SubmitScreen } from "@/lib/components/PostSubmitView";
+import type { ResolvedBlock } from "@/lib/submitScreenBlocks";
 
-type Scenario = "team_hidden" | "team_ranked" | "personal" | "none";
+type Scenario = "team_hidden" | "team_ranked" | "team_and_count" | "personal" | "none";
 
 const SCENARIOS: { key: Scenario; label: string }[] = [
   { key: "team_hidden", label: "チーム戦・順位非公開" },
   { key: "team_ranked", label: "チーム戦・順位公開" },
+  { key: "team_and_count", label: "チームpt＋個人個数" },
   { key: "personal", label: "個人ランキング" },
   { key: "none", label: "イベントなし" },
 ];
 
 function buildData(s: Scenario, reward: number, todayPoints: number, teamTotal: number): SubmitScreen {
-  const base = { date: "2026-06-03", todayReward: reward };
-  if (s === "none") return { ...base, ranking: null };
-  if (s === "personal") {
-    return {
-      ...base,
-      ranking: {
-        mode: "personal",
-        metricLabel: "完了個数",
-        ranking: [
-          { rank: 1, name: "木下", value: 1820, isMe: false },
-          { rank: 2, name: "廣瀬", value: 1640, isMe: false },
-          { rank: 3, name: "日笠", value: 1510, isMe: true },
-          { rank: 4, name: "梶原", value: 1390, isMe: false },
-          { rank: 5, name: "坂田", value: 1180, isMe: false },
-        ],
-        myRank: { rank: 3, name: "日笠", value: 1510, isMe: true },
-        total: 12,
-        configured: true,
-      },
-    };
-  }
-  const myTeam = { id: "t1", name: "次期幹部", color: "#3b82f6", total: teamTotal };
-  if (s === "team_hidden") {
-    return {
-      ...base,
-      todayPoints,
-      ranking: {
-        mode: "team",
-        eventName: "6月チーム戦",
-        myTeamId: "t1",
-        myTeam,
-        rankingVisible: false,
-        teams: [],
-        individuals: [],
-      },
-    };
-  }
-  // team_ranked
-  return {
-    ...base,
-    todayPoints,
-    ranking: {
-      mode: "team",
-      eventName: "6月チーム戦",
-      myTeamId: "t1",
-      myTeam,
-      rankingVisible: true,
-      teams: [
-        { rank: 1, teamId: "t2", name: "名称未設定", color: "#ef4444", total: teamTotal + 120 },
-        { rank: 2, teamId: "t1", name: "次期幹部", color: "#3b82f6", total: teamTotal },
-        { rank: 3, teamId: "t3", name: "誤配ゼロ", color: "#22c55e", total: teamTotal - 80 },
-      ],
-      individuals: [
-        { rank: 1, name: "梶原", total: 540, isMe: false },
-        { rank: 2, name: "勝政", total: 480, isMe: false },
-        { rank: 3, name: "日笠", total: 430, isMe: true },
-        { rank: 4, name: "廣瀬", total: 390, isMe: false },
-        { rank: 5, name: "坂田", total: 360, isMe: false },
-      ],
-    },
+  const greeting: ResolvedBlock = { id: "g", type: "greeting", title: "お疲れさまでした", message: "" };
+  const rewardBlock: ResolvedBlock = { id: "r", type: "today_reward", todayReward: reward };
+  const countBlock: ResolvedBlock = { id: "c", type: "personal_count", label: "今月の完了個数", value: 1510 };
+  const personalRanking: ResolvedBlock = {
+    id: "pr",
+    type: "personal_ranking",
+    label: "今月の完了個数ランキング",
+    configured: true,
+    ranking: [
+      { rank: 1, name: "木下", value: 1820, isMe: false },
+      { rank: 2, name: "廣瀬", value: 1640, isMe: false },
+      { rank: 3, name: "日笠", value: 1510, isMe: true },
+      { rank: 4, name: "梶原", value: 1390, isMe: false },
+      { rank: 5, name: "坂田", value: 1180, isMe: false },
+    ],
+    myRank: { rank: 3, name: "日笠", value: 1510, isMe: true },
+    total: 12,
   };
+  const myTeam = { id: "t1", name: "次期幹部", color: "#3b82f6", total: teamTotal };
+  const eventBlock = (visible: boolean): ResolvedBlock => ({
+    id: "ev",
+    type: "event_points",
+    eventName: "6月チーム戦",
+    myTeamId: "t1",
+    myTeam,
+    todayPoints,
+    showRanking: visible,
+    rankingVisible: visible,
+    teams: visible
+      ? [
+          { rank: 1, teamId: "t2", name: "名称未設定", color: "#ef4444", total: teamTotal + 120 },
+          { rank: 2, teamId: "t1", name: "次期幹部", color: "#3b82f6", total: teamTotal },
+          { rank: 3, teamId: "t3", name: "誤配ゼロ", color: "#22c55e", total: teamTotal - 80 },
+        ]
+      : [],
+    individuals: visible
+      ? [
+          { rank: 1, name: "梶原", total: 540, isMe: false },
+          { rank: 2, name: "勝政", total: 480, isMe: false },
+          { rank: 3, name: "日笠", total: 430, isMe: true },
+        ]
+      : [],
+  });
+
+  const base = { date: "2026-06-03", todayReward: reward };
+  if (s === "none") return { ...base, blocks: [greeting, rewardBlock] };
+  if (s === "personal") return { ...base, blocks: [greeting, rewardBlock, countBlock, personalRanking] };
+  if (s === "team_and_count") return { ...base, blocks: [greeting, rewardBlock, eventBlock(false), countBlock] };
+  if (s === "team_hidden") return { ...base, blocks: [greeting, rewardBlock, eventBlock(false)] };
+  return { ...base, blocks: [greeting, rewardBlock, eventBlock(true)] };
 }
 
 export default function PostSubmitPreviewPage() {
@@ -89,7 +80,7 @@ export default function PostSubmitPreviewPage() {
   const [playKey, setPlayKey] = useState(0);
 
   const data = buildData(scenario, reward, todayPoints, teamTotal);
-  const isTeam = scenario === "team_hidden" || scenario === "team_ranked";
+  const isTeam = scenario === "team_hidden" || scenario === "team_ranked" || scenario === "team_and_count";
 
   return (
     <div className="min-h-screen bg-slate-100 py-8 px-4">

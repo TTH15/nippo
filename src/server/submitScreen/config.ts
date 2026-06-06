@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SubmitBlock } from "./blocks";
 
 // ============================================================
 // 送信後画面（今日の報酬見込み＋ランキング）の設定アクセス。
@@ -33,6 +34,8 @@ export type SubmitScreenConfig = {
   showRanking: boolean;
   /** ドライバーにチーム順位を公開するか（false=自チームのポイントのみ）。グローバル既定。 */
   teamRankingVisibleToDrivers: boolean;
+  /** 送信後画面のブロック構成。null=従来フラット設定から導出。 */
+  blocks: SubmitBlock[] | null;
 };
 
 export function defaultSubmitScreenConfig(): SubmitScreenConfig {
@@ -47,6 +50,7 @@ export function defaultSubmitScreenConfig(): SubmitScreenConfig {
     thanksMessage: "",
     showRanking: true,
     teamRankingVisibleToDrivers: false,
+    blocks: null,
   };
 }
 
@@ -91,6 +95,7 @@ export async function loadSubmitScreenConfig(supabase: SupabaseClient): Promise<
       thanksMessage: typeof data.thanks_message === "string" ? data.thanks_message : "",
       showRanking: rankingSource !== "none",
       teamRankingVisibleToDrivers: data.team_ranking_visible_to_drivers === true,
+      blocks: Array.isArray(data.blocks) ? (data.blocks as SubmitBlock[]) : null,
     };
   } catch {
     return defaultSubmitScreenConfig();
@@ -119,6 +124,7 @@ export async function saveSubmitScreenConfig(
     // 後方互換: ranking_source から show_ranking を導出して保存。
     show_ranking: cfg.rankingSource !== "none",
     team_ranking_visible_to_drivers: cfg.teamRankingVisibleToDrivers,
+    blocks: cfg.blocks,
     updated_at: new Date().toISOString(),
   };
   if (existing?.id) {
