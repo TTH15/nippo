@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { loadActiveReportKinds } from "@/server/reportKinds/config";
 
 export const dynamic = "force-dynamic";
-
-const REPORT_KINDS = ["oil_change", "repair", "expense", "other"] as const;
-type ReportKind = (typeof REPORT_KINDS)[number];
 
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
@@ -16,10 +14,7 @@ export async function POST(req: NextRequest) {
     const reportDate = String(body.reportDate ?? "");
     const reportTime = String(body.reportTime ?? "");
     const location = String(body.location ?? "").trim();
-    const rawKind = String(body.reportKind ?? "oil_change");
-    const reportKind: ReportKind = REPORT_KINDS.includes(rawKind as ReportKind)
-      ? (rawKind as ReportKind)
-      : "oil_change";
+    const rawKind = String(body.reportKind ?? "");
     const description = String(body.description ?? "").trim();
     const expenseAmountRaw = body.expenseAmount;
     const expenseAmount =
@@ -33,31 +28,38 @@ export async function POST(req: NextRequest) {
         : Number(odometerRaw);
     const vehicleId = String(body.vehicleId ?? "");
 
+    // 報告種別マスタ（設定）から該当種別を引く。
+    const kinds = await loadActiveReportKinds(supabase);
+    const kind = kinds.find((k) => k.key === rawKind) ?? kinds[0];
+    if (!kind) {
+      return NextResponse.json({ error: "報告種別が設定されていません" }, { status: 400 });
+    }
+
     if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
       return NextResponse.json({ error: "reportDate is invalid" }, { status: 400 });
     }
     if (!/^\d{2}:\d{2}$/.test(reportTime)) {
       return NextResponse.json({ error: "reportTime is invalid" }, { status: 400 });
     }
-    if (!location) {
+    if (kind.usesLocation && !location) {
       return NextResponse.json({ error: "location is required" }, { status: 400 });
     }
     if (!vehicleId) {
       return NextResponse.json({ error: "vehicleId is required" }, { status: 400 });
     }
 
-    if (reportKind === "oil_change") {
+    // 種別が使うフィールドに応じてバリデーション。
+    if (kind.usesOdometer) {
       if (odometerKm == null || !Number.isInteger(odometerKm) || odometerKm < 0) {
         return NextResponse.json({ error: "odometerKm must be non-negative integer" }, { status: 400 });
       }
-    } else {
-      if (description.length < 1) {
-        return NextResponse.json({ error: "description is required" }, { status: 400 });
-      }
-      if (reportKind === "expense") {
-        if (expenseAmount == null || !Number.isInteger(expenseAmount) || expenseAmount <= 0) {
-          return NextResponse.json({ error: "expenseAmount must be positive integer" }, { status: 400 });
-        }
+    }
+    if (kind.usesDescription && kind.descriptionRequired && description.length < 1) {
+      return NextResponse.json({ error: "description is required" }, { status: 400 });
+    }
+    if (kind.usesAmount) {
+      if (expenseAmount == null || !Number.isInteger(expenseAmount) || expenseAmount <= 0) {
+        return NextResponse.json({ error: "expenseAmount must be positive integer" }, { status: 400 });
       }
     }
 
@@ -73,11 +75,11 @@ export async function POST(req: NextRequest) {
         report_date: reportDate,
         report_time: reportTime,
         occurred_at: occurredAt.toISOString(),
-        location,
-        odometer_km: reportKind === "oil_change" ? odometerKm : null,
-        report_kind: reportKind,
-        description: reportKind === "oil_change" ? "" : description,
-        expense_amount: reportKind === "expense" ? expenseAmount : null,
+        location: kind.usesLocation ? location : "",
+        odometer_km: kind.usesOdometer ? odometerKm : null,
+        report_kind: kind.key,
+        description: kind.usesDescription ? description : "",
+        expense_amount: kind.usesAmount ? expenseAmount : null,
         vehicle_id: vehicleId,
         submitted_at: new Date().toISOString(),
       })

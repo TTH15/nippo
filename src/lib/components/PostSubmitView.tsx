@@ -32,6 +32,9 @@ export type SubmitScreen = {
   todayReward: number;
   todayPoints?: number;
   ranking: PersonalRanking | TeamRanking | null;
+  /** 運営が設定する送信後メッセージ。 */
+  thanksTitle?: string;
+  thanksMessage?: string;
 };
 
 function RankBadge({ rank, highlight }: { rank: number; highlight?: boolean }) {
@@ -55,7 +58,12 @@ export function PostSubmitView({ data, onClose }: { data: SubmitScreen; onClose:
         <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 mb-2">
           <FontAwesomeIcon icon={faCheck} className="h-5 w-5" />
         </div>
-        <h1 className="text-lg font-semibold text-slate-900">日報を送信しました</h1>
+        <h1 className="text-lg font-semibold text-slate-900">
+          {data.thanksTitle?.trim() || "日報を送信しました"}
+        </h1>
+        {data.thanksMessage?.trim() && (
+          <p className="mt-1.5 text-sm text-slate-600 whitespace-pre-wrap">{data.thanksMessage}</p>
+        )}
       </div>
 
       {/* 今日の報酬見込み */}

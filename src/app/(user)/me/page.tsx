@@ -31,6 +31,17 @@ type Vehicle = {
   brand?: string | null;
 };
 
+type ReportKindOption = {
+  key: string;
+  label: string;
+  usesLocation: boolean;
+  usesOdometer: boolean;
+  usesDescription: boolean;
+  usesAmount: boolean;
+  descriptionRequired: boolean;
+  descriptionLabel: string | null;
+};
+
 function MePageContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get("tab");
@@ -45,7 +56,8 @@ function MePageContent() {
   const [reportTime, setReportTime] = useState(defaultTime);
   const [reportLocation, setReportLocation] = useState("");
   const [odometerKm, setOdometerKm] = useState("");
-  const [reportKind, setReportKind] = useState<"oil_change" | "repair" | "expense" | "other">("oil_change");
+  const [reportKinds, setReportKinds] = useState<ReportKindOption[]>([]);
+  const [reportKind, setReportKind] = useState<string>("");
   const [reportDescription, setReportDescription] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
@@ -68,6 +80,20 @@ function MePageContent() {
       .catch(() => { })
       .finally(() => setProfileLoading(false));
   }, []);
+
+  // 報告種別（設定マスタ）を取得。先頭を既定選択に。
+  useEffect(() => {
+    if (!isReport) return;
+    apiFetch<{ kinds: ReportKindOption[] }>("/api/me/report-kinds")
+      .then((res) => {
+        const kinds = res.kinds ?? [];
+        setReportKinds(kinds);
+        setReportKind((prev) => prev || kinds[0]?.key || "");
+      })
+      .catch(() => { });
+  }, [isReport]);
+
+  const currentKind = reportKinds.find((k) => k.key === reportKind) ?? null;
 
   useEffect(() => {
     if (!isReport) return;
@@ -162,24 +188,26 @@ function MePageContent() {
     const kilometer = Number(odometerKm);
     const desc = reportDescription.trim();
     const expenseYen = Number(expenseAmount);
-    if (!location) {
+    const kind = currentKind;
+    if (!kind) {
+      setReportMessage({ type: "error", text: "報告の種類を選択してください" });
+      return;
+    }
+    if (kind.usesLocation && !location) {
       setReportMessage({ type: "error", text: "場所を入力してください" });
       return;
     }
-    if (reportKind === "oil_change") {
-      if (!Number.isInteger(kilometer) || kilometer < 0) {
-        setReportMessage({ type: "error", text: "交換時走行距離は0以上の整数で入力してください" });
-        return;
-      }
-    } else {
-      if (desc.length < 1) {
-        setReportMessage({ type: "error", text: "内容を入力してください" });
-        return;
-      }
-      if (reportKind === "expense" && (!Number.isInteger(expenseYen) || expenseYen <= 0)) {
-        setReportMessage({ type: "error", text: "経費金額は1円以上の整数で入力してください" });
-        return;
-      }
+    if (kind.usesOdometer && (!Number.isInteger(kilometer) || kilometer < 0)) {
+      setReportMessage({ type: "error", text: "交換時走行距離は0以上の整数で入力してください" });
+      return;
+    }
+    if (kind.usesDescription && kind.descriptionRequired && desc.length < 1) {
+      setReportMessage({ type: "error", text: `${kind.descriptionLabel || "内容"}を入力してください` });
+      return;
+    }
+    if (kind.usesAmount && (!Number.isInteger(expenseYen) || expenseYen <= 0)) {
+      setReportMessage({ type: "error", text: "経費金額は1円以上の整数で入力してください" });
+      return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || !/^\d{2}:\d{2}$/.test(reportTime)) {
       setReportMessage({ type: "error", text: "日付・時間の形式が不正です" });
@@ -196,11 +224,11 @@ function MePageContent() {
         body: JSON.stringify({
           reportDate,
           reportTime,
-          location,
+          location: kind.usesLocation ? location : "",
           reportKind,
-          description: reportKind === "oil_change" ? "" : desc,
-          odometerKm: reportKind === "oil_change" ? kilometer : null,
-          expenseAmount: reportKind === "expense" ? expenseYen : null,
+          description: kind.usesDescription ? desc : "",
+          odometerKm: kind.usesOdometer ? kilometer : null,
+          expenseAmount: kind.usesAmount ? expenseYen : null,
           vehicleId: selectedVehicleId,
         }),
       });
@@ -250,20 +278,13 @@ function MePageContent() {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">報告の種類</label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {(
-                  [
-                    { id: "oil_change" as const, label: "オイル交換" },
-                    { id: "repair" as const, label: "修理" },
-                    { id: "expense" as const, label: "経費報告" },
-                    { id: "other" as const, label: "その他" },
-                  ] as const
-                ).map((opt) => (
+                {reportKinds.map((opt) => (
                   <button
-                    key={opt.id}
+                    key={opt.key}
                     type="button"
-                    onClick={() => setReportKind(opt.id)}
+                    onClick={() => setReportKind(opt.key)}
                     className={`py-2 rounded-lg text-xs font-semibold border transition-colors ${
-                      reportKind === opt.id
+                      reportKind === opt.key
                         ? "bg-slate-900 text-white border-slate-900"
                         : "bg-white text-slate-700 border-slate-200 hover:border-slate-400"
                     }`}
@@ -353,21 +374,23 @@ function MePageContent() {
                 />
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">場所</label>
-              <input
-                type="text"
-                value={reportLocation}
-                onChange={(e) => setReportLocation(e.target.value)}
-                className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
-                placeholder={
-                  reportKind === "oil_change"
-                    ? "例: ○○サービスエリア"
-                    : "例: 整備工場名・現場住所など"
-                }
-              />
-            </div>
-            {reportKind === "oil_change" ? (
+            {currentKind?.usesLocation && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">場所</label>
+                <input
+                  type="text"
+                  value={reportLocation}
+                  onChange={(e) => setReportLocation(e.target.value)}
+                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
+                  placeholder={
+                    currentKind?.usesOdometer
+                      ? "例: ○○サービスエリア"
+                      : "例: 整備工場名・現場住所など"
+                  }
+                />
+              </div>
+            )}
+            {currentKind?.usesOdometer && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">交換時走行距離 (km)</label>
                 <input
@@ -381,9 +404,10 @@ function MePageContent() {
                   placeholder="例: 123456"
                 />
               </div>
-            ) : (
+            )}
+            {currentKind?.usesDescription && (
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">内容</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">{currentKind?.descriptionLabel || "内容"}</label>
                 <textarea
                   value={reportDescription}
                   onChange={(e) => setReportDescription(e.target.value)}
@@ -393,7 +417,7 @@ function MePageContent() {
                 />
               </div>
             )}
-            {reportKind === "expense" && (
+            {currentKind?.usesAmount && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">経費金額 (円)</label>
                 <input

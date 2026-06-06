@@ -17,6 +17,7 @@ type MiscReport = {
   report_kind?: string;
   description?: string | null;
   odometer_km: number | null;
+  expense_amount?: number | null;
   submitted_at: string;
   approved_at: string | null;
   rejected_at: string | null;
@@ -38,27 +39,22 @@ type Entry = {
 type OilChangePage = { entries: Entry[]; nextCursor: string | null; hasMore: boolean };
 const PAGE_SIZE = 30;
 
-function reportKindLabel(kind: string | undefined): string {
-  switch (kind) {
-    case "repair":
-      return "修理";
-    case "one_off":
-      return "単発案件";
-    case "expense":
-      return "経費報告";
-    case "other":
-      return "その他";
-    case "oil_change":
-    default:
-      return "オイル交換";
-  }
-}
+type ReportKindInfo = { key: string; label: string; usesAmount: boolean; usesOdometer: boolean };
 
 export function OtherReportsContent() {
   const [tab, setTab] = useState<"pending" | "approved">("pending");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const canWrite = canAdminWrite(getStoredDriver()?.role);
+
+  // 報告種別マスタ（ラベル・使用フィールドの解決用）。
+  const [kindByKey, setKindByKey] = useState<Map<string, ReportKindInfo>>(new Map());
+  useEffect(() => {
+    apiFetch<{ kinds: ReportKindInfo[] }>("/api/admin/report-kinds")
+      .then((res) => setKindByKey(new Map((res.kinds ?? []).map((k) => [k.key, k]))))
+      .catch(() => { });
+  }, []);
+  const kindLabel = (key: string | undefined) => (key ? kindByKey.get(key)?.label ?? key : "—");
 
   const getKey = (pageIndex: number, previousPageData: OilChangePage | null) => {
     if (previousPageData && !previousPageData.hasMore) return null;
@@ -160,6 +156,8 @@ export function OtherReportsContent() {
                 key={`card-${report.id}`}
                 driver={driver}
                 report={report}
+                kindLabel={kindLabel(report.report_kind)}
+                showsAmount={kindByKey.get(report.report_kind ?? "")?.usesAmount === true}
                 tab={tab}
                 canWrite={canWrite}
                 onApprove={() => handleAction(report.id, "approve")}
@@ -187,10 +185,12 @@ export function OtherReportsContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map(({ driver, report }) => (
+                  {entries.map(({ driver, report }) => {
+                    const showsAmount = kindByKey.get(report.report_kind ?? "")?.usesAmount === true && report.expense_amount != null;
+                    return (
                     <tr key={report.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="py-3 px-4 font-medium">{getDisplayName(driver)}</td>
-                      <td className="py-3 px-3 text-sm">{reportKindLabel(report.report_kind)}</td>
+                      <td className="py-3 px-3 text-sm">{kindLabel(report.report_kind)}</td>
                       <td className="py-3 px-3 tabular-nums">{report.report_date} {report.report_time}</td>
                       <td className="py-3 px-3 text-center">
                         {report.vehicles ? (
@@ -201,9 +201,14 @@ export function OtherReportsContent() {
                       </td>
                       <td className="py-3 px-3">{report.location}</td>
                       <td className="py-3 px-3 text-sm text-slate-700 max-w-[200px]">
+                        {showsAmount && (
+                          <div className="font-semibold text-slate-900 tabular-nums">
+                            ¥{report.expense_amount!.toLocaleString()}
+                          </div>
+                        )}
                         {report.description?.trim() ? (
                           <span className="whitespace-pre-wrap break-words">{report.description}</span>
-                        ) : (
+                        ) : showsAmount ? null : (
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
@@ -243,7 +248,8 @@ export function OtherReportsContent() {
                         })}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -263,6 +269,8 @@ export function OtherReportsContent() {
 function MiscReportCard({
   driver,
   report,
+  kindLabel,
+  showsAmount,
   tab,
   canWrite,
   onApprove,
@@ -270,6 +278,8 @@ function MiscReportCard({
 }: {
   driver: { id: string; name: string; display_name: string | null };
   report: MiscReport;
+  kindLabel: string;
+  showsAmount: boolean;
   tab: "pending" | "approved";
   canWrite: boolean;
   onApprove: () => void;
@@ -284,7 +294,7 @@ function MiscReportCard({
       <div className="flex items-center justify-between gap-2">
         <span className="font-semibold text-slate-900">{getDisplayName(driver)}</span>
         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600">
-          {reportKindLabel(report.report_kind)}
+          {kindLabel}
         </span>
       </div>
 
@@ -303,6 +313,12 @@ function MiscReportCard({
           <span className="text-xs tabular-nums text-slate-600">{report.odometer_km.toLocaleString()} km</span>
         )}
       </div>
+
+      {showsAmount && report.expense_amount != null && (
+        <div className="mt-2 text-sm font-semibold text-slate-900 tabular-nums">
+          金額 ¥{report.expense_amount.toLocaleString()}
+        </div>
+      )}
 
       {report.description?.trim() && (
         <p className="mt-2 whitespace-pre-wrap break-words text-[13px] text-slate-700">{report.description}</p>

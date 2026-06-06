@@ -61,19 +61,43 @@ export async function GET(req: NextRequest) {
   // --- ランキング ---
   let ranking: unknown = null;
   let todayPoints = 0; // 当日の自分の日報で獲得した採点ポイント（カウントアップ用）
-  if (config.showRanking) {
-    // 開催中(active)かつ期間内のチーム戦イベント
-    const { data: ev } = await supabase
-      .from("events")
-      .select("id, name, starts_on, ends_on, scoring_rule")
-      .eq("status", "active")
-      .lte("starts_on", date)
-      .gte("ends_on", date)
-      .order("starts_on", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  if (config.showRanking && config.rankingSource !== "none") {
+    // 表示ソースに応じて連動イベントを決める。
+    //   individual … イベントを使わず常に個人ランキング
+    //   event       … 指定イベントを期間に関係なく使用
+    //   auto        … 期間内の active イベントを自動検出
+    type EvRow = {
+      id: string;
+      name: string;
+      starts_on: string | null;
+      ends_on: string | null;
+      scoring_rule: unknown;
+      team_ranking_visible_to_drivers?: boolean;
+    };
+    const evCols = "id, name, starts_on, ends_on, scoring_rule, team_ranking_visible_to_drivers";
+    let ev: EvRow | null = null;
+    if (config.rankingSource === "individual") {
+      ev = null;
+    } else if (config.rankingSource === "event") {
+      if (config.linkedEventId) {
+        const { data } = await supabase.from("events").select(evCols).eq("id", config.linkedEventId).maybeSingle();
+        // 採点は期間集計に依存するため、期間が無いイベントは個人ランキングへフォールバック。
+        ev = data && data.starts_on && data.ends_on ? (data as EvRow) : null;
+      }
+    } else {
+      const { data } = await supabase
+        .from("events")
+        .select(evCols)
+        .eq("status", "active")
+        .lte("starts_on", date)
+        .gte("ends_on", date)
+        .order("starts_on", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      ev = (data as EvRow) ?? null;
+    }
 
-    if (ev) {
+    if (ev && ev.starts_on && ev.ends_on) {
       // チーム戦ランキング
       const [{ data: teamRows }, { data: memberRows }, { data: pointRows }, { data: drv }] =
         await Promise.all([
@@ -114,7 +138,11 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      const rankingVisible = config.teamRankingVisibleToDrivers;
+      // イベント毎の公開設定を優先（067未適用ならグローバル設定にフォールバック）。
+      const rankingVisible =
+        typeof ev.team_ranking_visible_to_drivers === "boolean"
+          ? ev.team_ranking_visible_to_drivers
+          : config.teamRankingVisibleToDrivers;
       // 同点は同順位（並びは score.ts 側で決定的に整列済み）
       const tieRanks = (items: { total: number }[]): number[] => {
         const ranks: number[] = [];
@@ -187,5 +215,13 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ date, todayReward: Math.round(todayReward), leaseToday, todayPoints, ranking });
+  return NextResponse.json({
+    date,
+    todayReward: Math.round(todayReward),
+    leaseToday,
+    todayPoints,
+    ranking,
+    thanksTitle: config.thanksTitle,
+    thanksMessage: config.thanksMessage,
+  });
 }

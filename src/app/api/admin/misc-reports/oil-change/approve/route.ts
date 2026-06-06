@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { loadReportKinds } from "@/server/reportKinds/config";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +42,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    // 種別の能力(capability)で承認時の特別処理を決める（ハードコードを廃止）。
+    const reportKinds = await loadReportKinds(supabase);
+    const kind = reportKinds.find((k) => k.key === report?.report_kind) ?? null;
+    const capability = kind?.capability ?? "none";
+
     if (
-      report?.report_kind === "oil_change" &&
+      capability === "oil_mileage" &&
       report?.vehicle_id &&
       report.odometer_km != null
     ) {
@@ -60,7 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (
-      report?.report_kind === "expense" &&
+      capability === "expense" &&
       report?.driver_id &&
       report?.report_date &&
       report?.expense_amount != null
@@ -71,19 +77,32 @@ export async function POST(req: NextRequest) {
         const rawTitle = String(report.description ?? "").trim();
         const title = rawTitle ? `経費報告: ${rawTitle}` : "経費報告";
         const name = title.length > 200 ? title.slice(0, 200) : title;
-        const { error: adHocErr } = await supabase
+        const payload = {
+          driver_id: report.driver_id,
+          month,
+          name,
+          // ペイメントでは控除(+)を差し引く設計のため、加算は負値で保持する
+          amount: -amountYen,
+          misc_report_id: id,
+          updated_at: new Date().toISOString(),
+        };
+        // misc_report_id の一意制約は「部分ユニークインデックス(WHERE misc_report_id IS NOT NULL)」
+        // のため PostgREST の onConflict upsert が一致せずエラー(42P10)になる。
+        // 既存行を引いてから update / insert する手動 upsert にする。
+        const { data: existingAdHoc, error: findAdHocErr } = await supabase
           .from("driver_ad_hoc_expenses")
-          .upsert({
-            driver_id: report.driver_id,
-            month,
-            name,
-            // ペイメントでは控除(+)を差し引く設計のため、加算は負値で保持する
-            amount: -amountYen,
-            misc_report_id: id,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: "misc_report_id" });
+          .select("id")
+          .eq("misc_report_id", id)
+          .maybeSingle();
+        if (findAdHocErr) {
+          console.error("[admin/misc-reports/oil-change/approve] ad hoc find error", findAdHocErr);
+          return NextResponse.json({ error: "DB error" }, { status: 500 });
+        }
+        const { error: adHocErr } = existingAdHoc
+          ? await supabase.from("driver_ad_hoc_expenses").update(payload).eq("id", existingAdHoc.id)
+          : await supabase.from("driver_ad_hoc_expenses").insert(payload);
         if (adHocErr) {
-          console.error("[admin/misc-reports/oil-change/approve] ad hoc insert error", adHocErr);
+          console.error("[admin/misc-reports/oil-change/approve] ad hoc upsert error", adHocErr);
           return NextResponse.json({ error: "DB error" }, { status: 500 });
         }
       }
