@@ -600,23 +600,22 @@ export default function PaymentsPage() {
                     <>
                       <tr
                         key={row.driverId}
-                        className={`border-b border-slate-100 last:border-b-0 ${
+                        onClick={() => {
+                          const next = isOpen ? null : row.driverId;
+                          setExpandedDriverId(next);
+                          if (!isOpen) void ensureRewardsLoaded(row.driverId);
+                        }}
+                        className={`cursor-pointer border-b border-slate-100 last:border-b-0 ${
                           isOpen ? "bg-slate-50" : "hover:bg-slate-50"
                         }`}
                       >
                         <td className={`sticky left-0 z-10 py-2.5 px-2 align-middle ${isOpen ? "bg-slate-50" : "bg-white"}`}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = isOpen ? null : row.driverId;
-                              setExpandedDriverId(next);
-                              if (!isOpen) void ensureRewardsLoaded(row.driverId);
-                            }}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded hover:bg-slate-100 text-slate-500"
-                            title={isOpen ? "詳細を閉じる" : "詳細を見る"}
+                          <span
+                            className="inline-flex items-center justify-center w-8 h-8 rounded text-slate-400"
+                            aria-hidden
                           >
                             <span className="text-sm">{isOpen ? "▾" : "▸"}</span>
-                          </button>
+                          </span>
                         </td>
                         <td className={`sticky left-10 z-10 py-2.5 px-4 font-medium text-slate-800 whitespace-nowrap ${isOpen ? "bg-slate-50" : "bg-white"}`}>
                           {getDisplayName({
@@ -650,20 +649,26 @@ export default function PaymentsPage() {
                               <button
                                 type="button"
                                 disabled={creatingInvoiceFor === row.driverId}
-                                onClick={() => void createIncomingInvoiceFromDriver(row)}
-                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void createIncomingInvoiceFromDriver(row);
+                                }}
+                                className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors disabled:opacity-50"
                                 title="自社へ請求の請求書を作成"
                               >
-                                <FontAwesomeIcon icon={faFileInvoice} className="w-3.5 h-3.5" />
+                                <FontAwesomeIcon icon={faFileInvoice} className="w-4 h-4" />
                               </button>
                             )}
                             <button
                               type="button"
-                              onClick={() => openModal(row)}
-                              className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openModal(row);
+                              }}
+                              className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
                               title="経費を編集"
                             >
-                              <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
+                              <FontAwesomeIcon icon={faPenToSquare} className="w-4 h-4" />
                             </button>
                           </div>
                         </td>

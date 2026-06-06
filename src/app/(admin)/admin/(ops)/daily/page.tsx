@@ -577,8 +577,8 @@ export default function AdminDailyPage() {
                                       {status === "approved" && <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700"><FontAwesomeIcon icon={faCircleCheck} className="mr-1" />承認済み</span>}
                                       {status === "pending" && canWrite && (
                                         <div className="flex items-center justify-center gap-2">
-                                          <button type="button" onClick={() => handleApprove(driverEntry, summary.date)} className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-800 text-white hover:bg-slate-700">承認</button>
-                                          <button type="button" onClick={() => handleReject(driverEntry, summary.date)} className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">却下</button>
+                                          <button type="button" onClick={() => handleApprove(driverEntry, summary.date)} className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700">承認</button>
+                                          <button type="button" onClick={() => handleReject(driverEntry, summary.date)} className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">却下</button>
                                         </div>
                                       )}
                                       {status === "pending" && !canWrite && <span className="text-slate-400 text-xs">未承認</span>}
@@ -840,14 +840,14 @@ export default function AdminDailyPage() {
                                       <button
                                         type="button"
                                         onClick={() => handleApprove(e, group.date)}
-                                        className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-800 text-white hover:bg-slate-700"
+                                        className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700"
                                       >
                                         承認
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => handleReject(e, group.date)}
-                                        className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                        className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
                                       >
                                         却下
                                       </button>

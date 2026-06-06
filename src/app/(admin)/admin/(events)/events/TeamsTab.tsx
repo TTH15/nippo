@@ -84,6 +84,7 @@ export function TeamsTab({
   const [editColor, setEditColor] = useState(TEAM_COLORS[7]);
   const [dragDriverId, setDragDriverId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null); // teamId or "unassigned"
+  const [pickFor, setPickFor] = useState<DriverRow | null>(null); // タップ割当の対象ドライバー
 
   const teamByDriver = useMemo(() => {
     const m = new Map<string, string>();
@@ -218,20 +219,26 @@ export function TeamsTab({
         }
       : {};
 
+  // タップで「チーム選択」オーバーレイを開く（ドラッグはデスクトップ向けに併存）。
   const driverChip = (d: DriverRow, opts?: { onRemove?: () => void }) => (
     <span
       key={d.id}
       {...dragProps(d.id)}
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs select-none ${
-        canWrite ? "cursor-grab active:cursor-grabbing" : ""
+      onClick={canWrite ? () => setPickFor(d) : undefined}
+      title={canWrite ? "タップでチームを選択" : undefined}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs select-none ${
+        canWrite ? "cursor-pointer active:bg-slate-200" : ""
       } ${opts?.onRemove ? "bg-slate-100 text-slate-700" : "bg-white border border-slate-200 text-slate-600"}`}
     >
       {getDisplayName(d)}
       {canWrite && opts?.onRemove && (
         <button
           type="button"
-          onClick={opts.onRemove}
-          className="text-slate-400 hover:text-rose-600 leading-none"
+          onClick={(e) => {
+            e.stopPropagation();
+            opts.onRemove?.();
+          }}
+          className="-mr-1 flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:text-rose-600 hover:bg-white leading-none"
           title="外す"
         >
           ×
@@ -379,9 +386,60 @@ export function TeamsTab({
           <div className="flex flex-wrap gap-1.5">{unassigned.map((d) => driverChip(d))}</div>
         )}
         <p className="text-[11px] text-slate-400 mt-2">
-          ※ 未所属ドライバーは採点・ランキングに含まれません。
+          ※ 未所属ドライバーは採点・ランキングに含まれません。ドライバーをタップしてチームを選べます。
         </p>
       </div>
+
+      {/* タップ割当: ドライバーをタップ→チーム選択（ドラッグできない端末向け） */}
+      {pickFor && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          onClick={() => setPickFor(null)}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 text-sm font-semibold text-slate-800">「{getDisplayName(pickFor)}」をチームへ</div>
+            <div className="space-y-1.5">
+              {teams.map((t) => {
+                const current = teamByDriver.get(pickFor.id) === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      assign(pickFor.id, t.id);
+                      setPickFor(null);
+                    }}
+                    className={`flex w-full items-center gap-2 rounded-xl border px-3 py-3 text-left text-sm ${current ? "border-slate-800 bg-slate-50" : "border-slate-200 hover:bg-slate-50"}`}
+                  >
+                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: t.color }} />
+                    <span className="font-medium text-slate-800">{t.name}</span>
+                    {current && <span className="ml-auto text-[11px] text-slate-500">現在</span>}
+                  </button>
+                );
+              })}
+              {teamByDriver.get(pickFor.id) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    unassign(pickFor.id);
+                    setPickFor(null);
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-3 text-left text-sm text-slate-500 hover:bg-slate-50"
+                >
+                  未所属に戻す
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPickFor(null)}
+              className="mt-3 w-full rounded-xl bg-slate-100 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-200"
+            >
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

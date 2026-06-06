@@ -1428,7 +1428,7 @@ export default function ShiftsPage() {
                         const tone = shiftDayTone(date, today);
                         const dd = Number(date.split("-")[2]);
                         return (
-                          <th key={date} className={`w-8 min-w-8 px-0.5 py-1.5 text-center font-medium border-b border-slate-200/95 ${tone.header}`}>
+                          <th key={date} className={`w-10 min-w-10 px-0.5 py-1.5 text-center font-medium border-b border-slate-200/95 ${tone.header}`}>
                             {dd}
                           </th>
                         );
@@ -1453,7 +1453,7 @@ export default function ShiftsPage() {
                                 onClick={() => toggleVehicleLoan(v.id, date)}
                                 title={on ? "貸出中（タップで解除）" : "タップで貸出中に"}
                                 className={cn(
-                                  "w-7 h-7 rounded-md border text-[10px] font-semibold transition-colors disabled:opacity-50",
+                                  "w-9 h-9 rounded-md border text-[11px] font-semibold transition-colors disabled:opacity-50",
                                   on
                                     ? "bg-indigo-600 border-indigo-600 text-white"
                                     : "border-slate-200 bg-white text-slate-300 hover:border-slate-300",

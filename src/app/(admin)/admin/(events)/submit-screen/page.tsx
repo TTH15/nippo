@@ -337,15 +337,15 @@ function BlockRow({
         </button>
         <span className="text-sm font-medium text-slate-800 flex-1 min-w-0 truncate">{BLOCK_LABEL[block.type]}</span>
         {canWrite && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button type="button" onClick={() => onMove(-1)} disabled={index === 0} className="w-7 h-7 rounded border border-slate-200 text-slate-500 disabled:opacity-30 hover:bg-slate-50">↑</button>
-            <button type="button" onClick={() => onMove(1)} disabled={index === count - 1} className="w-7 h-7 rounded border border-slate-200 text-slate-500 disabled:opacity-30 hover:bg-slate-50">↓</button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button type="button" onClick={() => onMove(-1)} disabled={index === 0} aria-label="上へ" className="h-9 w-9 rounded-lg border border-slate-200 text-slate-500 disabled:opacity-30 hover:bg-slate-50">↑</button>
+            <button type="button" onClick={() => onMove(1)} disabled={index === count - 1} aria-label="下へ" className="h-9 w-9 rounded-lg border border-slate-200 text-slate-500 disabled:opacity-30 hover:bg-slate-50">↓</button>
             {hasConfig && (
-              <button type="button" onClick={onToggleExpand} className="px-2 h-7 rounded border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">
+              <button type="button" onClick={onToggleExpand} className="h-9 px-3 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">
                 {expanded ? "閉じる" : "設定"}
               </button>
             )}
-            <button type="button" onClick={onRemove} className="w-7 h-7 rounded border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200">×</button>
+            <button type="button" onClick={onRemove} aria-label="削除" className="h-9 w-9 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200">×</button>
           </div>
         )}
       </div>

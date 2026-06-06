@@ -155,9 +155,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     startHideTimer();
   };
 
+  // クリックはフライアウトのトグル（タッチでも開ける）。ホバーは従来どおり補助的に開く。
   const handleParentClick = (item: Extract<NavItem, { children: NavChild[] }>) => {
-    router.push(item.children[0].href);
-    setOpenMenu(null);
+    clearHideTimer();
+    setOpenMenu((cur) => (cur === item.label ? null : item.label));
   };
 
   const totalMiscUnreadCount = dailyUnreadCount + otherUnreadCount;

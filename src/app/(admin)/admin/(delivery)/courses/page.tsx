@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
-  faPenToSquare,
+  faChevronRight,
   faGripVertical,
   faCat,
   faTruck,
@@ -380,11 +380,14 @@ export default function CoursesPage() {
     return (
       <div
         key={course.id}
-        draggable={canWrite && !reordering}
-        onDragStart={(e) => {
-          if (!canWrite) return;
-          e.dataTransfer.effectAllowed = "move";
-          setDraggingId(course.id);
+        onClick={() => canWrite && openEditCourse(course)}
+        role={canWrite ? "button" : undefined}
+        tabIndex={canWrite ? 0 : undefined}
+        onKeyDown={(e) => {
+          if (canWrite && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            openEditCourse(course);
+          }
         }}
         onDragOver={(e) => {
           if (!draggingId || !group.courses.some((c) => c.id === draggingId)) return;
@@ -400,18 +403,29 @@ export default function CoursesPage() {
           reorderWithinGroup(group.courses, draggingId, course.id);
           setDraggingId(null);
         }}
-        onDragEnd={() => {
-          setDraggingId(null);
-          setDragOverId(null);
-        }}
-        className={`bg-white rounded border border-slate-200 p-4 border-l-4 transition-all ${
-          canWrite && !reordering ? "cursor-grab active:cursor-grabbing" : ""
+        className={`bg-white rounded-lg border border-slate-200 p-4 border-l-4 transition-all ${
+          canWrite ? "cursor-pointer hover:border-slate-300 hover:shadow-sm active:bg-slate-50" : ""
         } ${isDragOver ? "ring-2 ring-slate-400 ring-offset-2" : ""}`}
         style={{ borderLeftColor: course.color }}
       >
         <div className="flex items-center justify-between gap-3">
           {canWrite && !reordering && (
-            <div className="shrink-0 text-slate-400 hover:text-slate-600 touch-none" title="ドラッグして並べ替え">
+            <div
+              draggable
+              onClick={(e) => e.stopPropagation()}
+              onDragStart={(e) => {
+                e.stopPropagation();
+                e.dataTransfer.effectAllowed = "move";
+                setDraggingId(course.id);
+              }}
+              onDragEnd={() => {
+                setDraggingId(null);
+                setDragOverId(null);
+              }}
+              className="shrink-0 -m-2 flex h-11 w-9 items-center justify-center text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing touch-none"
+              title="ドラッグして並べ替え"
+              aria-label="ドラッグして並べ替え"
+            >
               <FontAwesomeIcon icon={faGripVertical} className="w-4 h-4" />
             </div>
           )}
@@ -435,18 +449,12 @@ export default function CoursesPage() {
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="w-5 h-5 rounded-full shrink-0" style={{ backgroundColor: course.color }} />
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: course.color }} />
             {canWrite && (
-              <button
-                type="button"
-                onClick={() => openEditCourse(course)}
-                className="text-xs text-slate-500 hover:text-slate-800 transition-colors px-1.5 py-0.5 rounded border border-slate-200"
-              >
-                <FontAwesomeIcon icon={faPenToSquare} className="mr-1" />
-                編集・単価
-              </button>
+              <span className="hidden sm:inline text-[11px] text-slate-400">編集・単価</span>
             )}
+            {canWrite && <FontAwesomeIcon icon={faChevronRight} className="w-3.5 h-3.5 text-slate-300" />}
           </div>
         </div>
       </div>

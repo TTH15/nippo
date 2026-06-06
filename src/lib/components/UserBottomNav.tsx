@@ -16,7 +16,7 @@ const TABS = [
   { href: "/shifts", label: "シフト", icon: faCalendarDays },
   { href: "/submit", label: "日報送信", icon: faPaperPlane },
   { href: "/me/rewards", label: "報酬", icon: faGift },
-  { href: "/me?tab=report", label: "報告", icon: faFileCirclePlus },
+  { href: "/report", label: "報告", icon: faFileCirclePlus },
 ] as const;
 
 export function UserBottomNav() {
@@ -25,11 +25,13 @@ export function UserBottomNav() {
   const tabParam = searchParams?.get("tab");
 
   const checkActive = (href: string) => {
-    if (href === "/me?tab=report") {
-      return pathname === "/me" && tabParam === "report";
-    }
     if (href === "/me") {
+      // /me は「マイページ」。旧 ?tab=report 経由は「報告」扱いで除外。
       return pathname === "/me" && tabParam !== "report";
+    }
+    if (href === "/report") {
+      // 新ページ /report と、後方互換の /me?tab=report の両方を active に。
+      return pathname === "/report" || (pathname === "/me" && tabParam === "report");
     }
     if (href === "/me/rewards") {
       return pathname === "/me/rewards";

@@ -11,7 +11,7 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite } from "@/lib/authz";
-import { faPenToSquare, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { faChevronRight, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -697,7 +697,19 @@ export default function UsersPage() {
               const coursesOfDriver = allIdentityCourses(d);
               const licenseStatus = getLicenseStatus(d.license_expiry_date);
               return (
-                <div key={d.id} className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm">
+                <div
+                  key={d.id}
+                  onClick={() => canWrite && void openEdit(d)}
+                  role={canWrite ? "button" : undefined}
+                  tabIndex={canWrite ? 0 : undefined}
+                  onKeyDown={(e) => {
+                    if (canWrite && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      void openEdit(d);
+                    }
+                  }}
+                  className={`bg-white rounded-lg border border-slate-200 p-4 shadow-sm ${canWrite ? "cursor-pointer hover:border-slate-300 hover:shadow-md transition-shadow active:bg-slate-50" : ""}`}
+                >
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div>
                       <div className="text-xs text-slate-500 tabular-nums">No.{d.list_no ?? index + 1}</div>
@@ -727,20 +739,21 @@ export default function UsersPage() {
                     )}
                   </div>
                   {canWrite && (
-                    <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-100">
                       <button
-                        onClick={() => void openEdit(d)}
-                        disabled={openingEditId === d.id}
-                        className="text-sm text-slate-500 hover:text-slate-800 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteDriver(d.id, d.name);
+                        }}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                        title="削除"
                       >
-                        {openingEditId === d.id ? "..." : <FontAwesomeIcon icon={faPenToSquare} />}
+                        <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
                       </button>
-                      <button
-                        onClick={() => deleteDriver(d.id, d.name)}
-                        className="text-sm text-red-500 hover:text-red-700 transition-colors"
-                      >
-                        <FontAwesomeIcon icon={faTrash} />
-                      </button>
+                      <span className="inline-flex items-center gap-1.5 pl-1 text-xs text-slate-400">
+                        {openingEditId === d.id ? "開いています…" : "編集"}
+                        <FontAwesomeIcon icon={faChevronRight} className="h-3.5 w-3.5 text-slate-300" />
+                      </span>
                     </div>
                   )}
                 </div>

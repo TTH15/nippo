@@ -189,23 +189,21 @@ export default function CounterpartiesPage() {
                     return (
                       <Fragment key={r.id}>
                         <tr
-                          className={`border-b border-slate-100 hover:bg-slate-50/80 ${
+                          onClick={() => openRow(r)}
+                          className={`cursor-pointer border-b border-slate-100 hover:bg-slate-50/80 ${
                             r.courseCount === 0 ? "opacity-60" : ""
                           }`}
                         >
                           <td className={`sticky left-0 z-10 px-1 py-2 text-center ${open ? "bg-slate-50" : "bg-white"}`}>
-                            <button
-                              type="button"
-                              onClick={() => openRow(r)}
-                              className="p-2 rounded text-slate-500 hover:bg-slate-100"
-                              aria-expanded={open}
-                              title="明細"
+                            <span
+                              className="inline-flex items-center justify-center w-8 h-8 rounded text-slate-400"
+                              aria-hidden
                             >
                               <FontAwesomeIcon
                                 icon={open ? faChevronDown : faChevronRight}
                                 className="w-3 h-3"
                               />
-                            </button>
+                            </span>
                           </td>
                           <td className={`sticky left-10 z-10 px-3 py-2 font-medium text-slate-900 ${open ? "bg-slate-50" : "bg-white"}`}>{r.name}</td>
                           <td className="px-3 py-2 text-right tabular-nums text-slate-700">
@@ -227,7 +225,8 @@ export default function CounterpartiesPage() {
                             {canWrite ? (
                               <button
                                 type="button"
-                                onClick={async () => {
+                                onClick={async (e) => {
+                                  e.stopPropagation();
                                   setCreateInvoiceError(null);
                                   try {
                                     const res = await apiFetch<{ month: string; issueDate: string; dueDate: string; invoiceNo: string; tableData: { main: { title: string; qty: number; price: number }[]; deduct: { title: string; qty: number; price: number }[] } }>(

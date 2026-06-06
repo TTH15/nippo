@@ -7,6 +7,8 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faTrashCan, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 
 type Capability = "none" | "oil_mileage" | "expense";
 type ReportKind = {
@@ -170,7 +172,16 @@ export default function ReportKindsPage() {
             {kinds.map((k) => (
               <div
                 key={k.id}
-                className={`rounded-lg border bg-white p-3 ${k.isActive ? "border-slate-200" : "border-slate-200 opacity-60"}`}
+                onClick={() => canWrite && openEdit(k)}
+                role={canWrite ? "button" : undefined}
+                tabIndex={canWrite ? 0 : undefined}
+                onKeyDown={(e) => {
+                  if (canWrite && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
+                    openEdit(k);
+                  }
+                }}
+                className={`rounded-lg border bg-white p-3 ${k.isActive ? "border-slate-200" : "border-slate-200 opacity-60"} ${canWrite ? "cursor-pointer hover:border-slate-300 hover:shadow-sm active:bg-slate-50" : ""}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -195,21 +206,19 @@ export default function ReportKindsPage() {
                     </div>
                   </div>
                   {canWrite && (
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
-                        onClick={() => openEdit(k)}
-                        className="px-2.5 py-1 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteTarget(k);
+                        }}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+                        title="削除"
                       >
-                        編集
+                        <FontAwesomeIcon icon={faTrashCan} className="h-3.5 w-3.5" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(k)}
-                        className="px-2.5 py-1 text-xs rounded border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
-                      >
-                        削除
-                      </button>
+                      <FontAwesomeIcon icon={faChevronRight} className="h-3.5 w-3.5 text-slate-300" />
                     </div>
                   )}
                 </div>

@@ -42,10 +42,11 @@ type ReportKindOption = {
   descriptionLabel: string | null;
 };
 
-function MePageContent() {
+export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get("tab");
-  const isReport = tabParam === "report";
+  // 独立ページ /report からは forceReport で報告フォームを表示。
+  const isReport = forceReport || tabParam === "report";
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
