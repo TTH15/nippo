@@ -86,7 +86,10 @@ function makeBlock(type: BlockType): SubmitBlock {
 }
 
 // 設定ブロック → サンプルデータでプレビュー描画用に解決。
-function previewResolve(blocks: SubmitBlock[]): ResolvedBlock[] {
+// 実在ドライバー名を使ってよりリアルに見せる（数値はサンプル）。
+function previewResolve(blocks: SubmitBlock[], driverNames: string[]): ResolvedBlock[] {
+  const names = driverNames.length >= 3 ? driverNames : [...driverNames, "佐藤", "鈴木", "田中"];
+  const [n1, n2, n3] = names;
   const out: ResolvedBlock[] = [];
   for (const b of blocks) {
     if (!b.enabled) continue;
@@ -108,7 +111,7 @@ function previewResolve(blocks: SubmitBlock[]): ResolvedBlock[] {
               { rank: 2, teamId: "t1", name: "自チーム", color: "#3b82f6", total: 2090 },
             ]
           : [],
-        individuals: b.showRanking ? [{ rank: 1, name: "山田", total: 540, isMe: true }] : [],
+        individuals: b.showRanking ? [{ rank: 1, name: n1, total: 540, isMe: true }] : [],
       });
     else if (b.type === "personal_count")
       out.push({ id: b.id, type: "personal_count", label: b.label || "今月の個数", value: 1510 });
@@ -119,11 +122,11 @@ function previewResolve(blocks: SubmitBlock[]): ResolvedBlock[] {
         label: b.label || "個人ランキング",
         configured: b.metricFields.length > 0,
         ranking: [
-          { rank: 1, name: "木下", value: 1820, isMe: false },
-          { rank: 2, name: "日笠", value: 1510, isMe: true },
-          { rank: 3, name: "梶原", value: 1390, isMe: false },
+          { rank: 1, name: n1, value: 1820, isMe: false },
+          { rank: 2, name: n2, value: 1510, isMe: true },
+          { rank: 3, name: n3, value: 1390, isMe: false },
         ],
-        myRank: { rank: 2, name: "日笠", value: 1510, isMe: true },
+        myRank: { rank: 2, name: n2, value: 1510, isMe: true },
         total: 12,
       });
   }
@@ -165,7 +168,10 @@ export default function SubmitScreenBuilderPage() {
     load();
   }, [load]);
 
-  const preview = useMemo(() => previewResolve(blocks), [blocks]);
+  const preview = useMemo(
+    () => previewResolve(blocks, drivers.map((d) => getDisplayName(d))),
+    [blocks, drivers],
+  );
 
   const update = (id: string, patch: Partial<SubmitBlock>) =>
     setBlocks((bs) => bs.map((b) => (b.id === id ? ({ ...b, ...patch } as SubmitBlock) : b)));

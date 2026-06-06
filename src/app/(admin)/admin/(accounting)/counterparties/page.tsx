@@ -193,7 +193,7 @@ export default function CounterpartiesPage() {
                             r.courseCount === 0 ? "opacity-60" : ""
                           }`}
                         >
-                          <td className="px-1 py-2 text-center">
+                          <td className={`sticky left-0 z-10 px-1 py-2 text-center ${open ? "bg-slate-50" : "bg-white"}`}>
                             <button
                               type="button"
                               onClick={() => openRow(r)}
@@ -207,7 +207,7 @@ export default function CounterpartiesPage() {
                               />
                             </button>
                           </td>
-                          <td className="px-3 py-2 font-medium text-slate-900">{r.name}</td>
+                          <td className={`sticky left-10 z-10 px-3 py-2 font-medium text-slate-900 ${open ? "bg-slate-50" : "bg-white"}`}>{r.name}</td>
                           <td className="px-3 py-2 text-right tabular-nums text-slate-700">
                             {r.courseCount}
                           </td>

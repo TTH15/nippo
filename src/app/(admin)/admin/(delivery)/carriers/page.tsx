@@ -126,7 +126,7 @@ export default function CarriersPage() {
         </p>
 
         {loading ? (
-          <div className="grid grid-cols-3 gap-4"><Skeleton className="h-64 w-full" /><div className="col-span-2"><Skeleton className="h-64 w-full" /></div></div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4"><Skeleton className="h-64 w-full" /><div className="md:col-span-2"><Skeleton className="h-64 w-full" /></div></div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* 左: キャリア一覧 */}
@@ -196,7 +196,7 @@ export default function CarriersPage() {
                         {u.fields.length === 0 ? (
                           <p className="text-xs text-slate-400 mb-2">報告項目がありません。</p>
                         ) : (
-                          <div className="grid grid-cols-2 gap-2 mb-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
                             {u.fields.map((f) => (
                               <div key={f.id} className="rounded border border-slate-200 px-2.5 py-2 group relative">
                                 <div className="text-[11px] text-slate-500 mb-1 flex items-center gap-1">
@@ -206,7 +206,7 @@ export default function CarriersPage() {
                                 </div>
                                 <PreviewInput type={f.input_type} />
                                 {canWrite && (
-                                  <div className="absolute top-1 right-1 hidden group-hover:flex items-center gap-2 bg-white/90 rounded px-1">
+                                  <div className="absolute top-1 right-1 flex sm:hidden sm:group-hover:flex items-center gap-2 bg-white/90 rounded px-1">
                                     <button title="編集" onClick={() => setFieldModal({ mode: "edit", unitId: u.id, field: f, draft: { label: f.label, inputType: f.input_type, groupLabel: f.group_label ?? "", isBillable: f.is_billable, required: f.required } })} className="text-slate-400 hover:text-slate-700 text-[11px]"><FontAwesomeIcon icon={faPenToSquare} /></button>
                                     <button title="削除" onClick={() => askDelete(`項目「${f.label}」を削除しますか？`, () => apiFetch(`/api/admin/unit-fields/${f.id}`, { method: "DELETE" }))} className="text-slate-400 hover:text-red-600 text-[11px]"><FontAwesomeIcon icon={faTrash} /></button>
                                   </div>

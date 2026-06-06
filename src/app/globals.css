@@ -153,3 +153,23 @@ input[type="number"] {
   .bonus-overlay-pop,
   .bonus-overlay-icon { animation: none; }
 }
+
+/* 送信後画面（PostSubmitView）の段階的フェードイン */
+@keyframes psvReveal {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+.psv-reveal { animation: psvReveal 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* 達成シールのやわらかな脈動 */
+@keyframes psvSeal {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.psv-seal { animation: psvSeal 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .psv-reveal,
+  .psv-seal { animation: none; }
+}
