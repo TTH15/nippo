@@ -146,11 +146,11 @@ export default function CounterpartiesPage() {
 
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[800px]">
+            <table className="w-full text-sm min-w-[800px] md:min-w-0">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="text-left px-3 py-3 font-medium text-slate-600 w-10" />
-                  <th className="text-left px-3 py-3 font-medium text-slate-600">取引先（請求先）</th>
+                  <th className="sticky left-0 z-20 bg-slate-50 text-left px-3 py-3 font-medium text-slate-600 w-10" />
+                  <th className="sticky left-10 z-20 bg-slate-50 text-left px-3 py-3 font-medium text-slate-600">取引先（請求先）</th>
                   <th className="text-right px-3 py-3 font-medium text-slate-600">コース数</th>
                   <th className="text-right px-3 py-3 font-medium text-slate-600">月次純額</th>
                   <th className="text-left px-3 py-3 font-medium text-slate-600">メモ</th>

@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
     .from("shifts")
     .select(
       `
-      id, shift_date, course_id, slot, driver_id, vehicle_id,
+      id, shift_date, course_id, slot, driver_id, vehicle_id, uses_external_vehicle,
       drivers (id, name, display_name)
     `,
     )
@@ -51,6 +51,13 @@ export async function GET(req: NextRequest) {
     })) ?? [];
 
   const { data: vehicleLinks } = await supabase.from("vehicle_drivers").select("driver_id, vehicle_id");
+
+  // 期間内の車両貸出中（その日付は紐付け不可）
+  const { data: vehicleLoans } = await supabase
+    .from("vehicle_loans")
+    .select("vehicle_id, loan_date, note")
+    .gte("loan_date", startDate)
+    .lte("loan_date", endDate);
 
   // Get drivers with their course assignments
   const { data: drivers } = await supabase
@@ -78,6 +85,7 @@ export async function GET(req: NextRequest) {
     requests: requests ?? [],
     vehicles: fleet ?? [],
     vehicle_driver_links: vehicleLinks ?? [],
+    vehicle_loans: vehicleLoans ?? [],
   });
 }
 
@@ -89,13 +97,15 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { shiftDate, courseId, driverId, slot, vehicleId } = body as {
+    const { shiftDate, courseId, driverId, slot, vehicleId, usesExternalVehicle } = body as {
       shiftDate?: string;
       courseId?: string;
       driverId?: string | null;
       slot?: number;
       /** 明示的に null で車両のみクリアすることも許可 */
       vehicleId?: string | null;
+      /** 他社の車両を利用するフラグ */
+      usesExternalVehicle?: boolean;
     };
 
     if (!shiftDate || !courseId) {
@@ -108,6 +118,25 @@ export async function POST(req: NextRequest) {
     if ("vehicleId" in body) {
       resolvedVehicleId = vehicleId && typeof vehicleId === "string" ? vehicleId : null;
     }
+    // 他社車両フラグが立っているときは自社フリート車両をクリアする。
+    const external = usesExternalVehicle === true;
+    if (external) resolvedVehicleId = null;
+
+    // 貸出中の車両はその日付に紐付け不可。
+    if (resolvedVehicleId) {
+      const { data: loan } = await supabase
+        .from("vehicle_loans")
+        .select("id")
+        .eq("vehicle_id", resolvedVehicleId)
+        .eq("loan_date", shiftDate)
+        .maybeSingle();
+      if (loan) {
+        return NextResponse.json(
+          { error: "この車両は同日が貸出中のため、シフトに紐付けできません。" },
+          { status: 409 },
+        );
+      }
+    }
 
     const upsertRow: Record<string, unknown> = {
       shift_date: shiftDate,
@@ -118,6 +147,9 @@ export async function POST(req: NextRequest) {
     };
     if (resolvedVehicleId !== undefined) {
       upsertRow.vehicle_id = resolvedVehicleId;
+    }
+    if ("usesExternalVehicle" in body) {
+      upsertRow.uses_external_vehicle = external;
     }
 
     // Upsert

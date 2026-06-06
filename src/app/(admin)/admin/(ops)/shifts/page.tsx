@@ -164,7 +164,10 @@ function ShiftVehiclePlatePicker({
   linkedPlates,
   otherPlates,
   takenBy,
+  loanedIds,
+  isExternal,
   onChange,
+  onSelectExternal,
   disabled,
   dirty,
   title,
@@ -175,7 +178,12 @@ function ShiftVehiclePlatePicker({
   otherPlates: VehiclePlateData[];
   /** その日すでに他ドライバーが使用中の車両 id → 使用者名 */
   takenBy?: Map<string, string>;
+  /** その日貸出中の車両 id（紐付け不可） */
+  loanedIds?: Set<string>;
+  /** 他社車両を利用フラグ */
+  isExternal?: boolean;
   onChange: (id: string | null) => void;
+  onSelectExternal?: () => void;
   disabled?: boolean;
   dirty?: boolean;
   title?: string;
@@ -184,14 +192,15 @@ function ShiftVehiclePlatePicker({
 
   const row = (v: VehiclePlateData) => {
     const selected = valueId === v.id;
+    const isLoaned = loanedIds?.has(v.id) ?? false;
     const takenByName = !selected ? takenBy?.get(v.id) : undefined;
-    const isTaken = Boolean(takenByName);
+    const isTaken = Boolean(takenByName) || isLoaned;
     return (
       <button
         key={v.id}
         type="button"
         disabled={isTaken}
-        title={isTaken ? `${takenByName} さんが使用中` : undefined}
+        title={isLoaned ? "貸出中" : takenByName ? `${takenByName} さんが使用中` : undefined}
         className={cn(
           "w-full rounded-md p-0.5 flex flex-col items-center gap-0.5 transition-colors",
           isTaken
@@ -209,7 +218,7 @@ function ShiftVehiclePlatePicker({
         <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
         {isTaken ? (
           <span className="text-[9px] font-medium text-rose-500 leading-none pb-0.5">
-            {takenByName} さん使用中
+            {isLoaned ? "貸出中" : `${takenByName} さん使用中`}
           </span>
         ) : null}
       </button>
@@ -232,6 +241,8 @@ function ShiftVehiclePlatePicker({
           <div className="flex-1 min-w-0 flex justify-center [&_.plate-font-hiragana]:tracking-tight">
             {valueId && displayVehicle ? (
               <VehiclePlate vehicle={displayVehicle} compact className="!max-w-none w-full min-w-0 pointer-events-none" />
+            ) : isExternal ? (
+              <span className="text-[10px] font-semibold text-indigo-600 py-0.5">他社車両</span>
             ) : (
               <span className="text-[10px] text-slate-400 font-medium py-0.5">車両なし</span>
             )}
@@ -244,12 +255,12 @@ function ShiftVehiclePlatePicker({
         sideOffset={4}
         className="w-auto min-w-[12rem] max-w-[min(20rem,calc(100vw-1.5rem))] p-0 max-h-[min(22rem,70vh)] overflow-y-auto border-slate-200/90 shadow-lg"
       >
-        <div className="p-1.5 pb-0">
+        <div className="p-1.5 pb-0 flex flex-col gap-0.5">
           <button
             type="button"
             className={cn(
               "w-full text-left text-[11px] py-2 px-2 rounded-md transition-colors",
-              !valueId ? "bg-slate-100/90 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-50",
+              !valueId && !isExternal ? "bg-slate-100/90 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-50",
             )}
             onClick={() => {
               onChange(null);
@@ -258,6 +269,21 @@ function ShiftVehiclePlatePicker({
           >
             車両なし
           </button>
+          {onSelectExternal && (
+            <button
+              type="button"
+              className={cn(
+                "w-full text-left text-[11px] py-2 px-2 rounded-md transition-colors",
+                isExternal ? "bg-indigo-50 font-medium text-indigo-700" : "text-slate-600 hover:bg-slate-50",
+              )}
+              onClick={() => {
+                onSelectExternal();
+                setOpen(false);
+              }}
+            >
+              他社車両を利用
+            </button>
+          )}
         </div>
         {linkedPlates.length > 0 && (
           <div className="flex flex-col gap-0.5 px-1.5 pb-1.5">
@@ -311,6 +337,7 @@ type Shift = {
   driver_id: string | null;
   drivers: { id: string; name: string; display_name?: string | null } | null;
   vehicle_id?: string | null;
+  uses_external_vehicle?: boolean;
   /** FK vehicle_id のネスト（0〜1台） */
   vehicles?: VehiclePlateData | VehiclePlateData[] | null;
 };
@@ -378,6 +405,10 @@ export default function ShiftsPage() {
   const [localVehicleByDriverDay, setLocalVehicleByDriverDay] = useState<Map<string, string | null>>(
     new Map(),
   );
+  // 他社車両フラグの即時反映用ローカル上書き（driver×day → boolean）。
+  const [localExternalByDriverDay, setLocalExternalByDriverDay] = useState<Map<string, boolean>>(new Map());
+  // 車両の日毎の貸出中（{vehicle_id, loan_date}）。
+  const [vehicleLoans, setVehicleLoans] = useState<{ vehicle_id: string; loan_date: string }[]>([]);
   const [fleetVehicles, setFleetVehicles] = useState<VehiclePlateData[]>([]);
   const [vehicleLinks, setVehicleLinks] = useState<{ driver_id: string; vehicle_id: string }[]>([]);
 
@@ -432,6 +463,7 @@ export default function ShiftsPage() {
         requests: ShiftRequest[];
         vehicles?: VehiclePlateData[];
         vehicle_driver_links?: { driver_id: string; vehicle_id: string }[];
+        vehicle_loans?: { vehicle_id: string; loan_date: string }[];
       }>(`/api/admin/shifts?start=${start}&end=${end}`);
       setCourses(res.courses);
       setDrivers(res.drivers);
@@ -439,8 +471,10 @@ export default function ShiftsPage() {
       setRequests(res.requests);
       setFleetVehicles(Array.isArray(res.vehicles) ? res.vehicles : []);
       setVehicleLinks(res.vehicle_driver_links ?? []);
+      setVehicleLoans(res.vehicle_loans ?? []);
       setLocalShifts(new Map());
       setLocalVehicleByDriverDay(new Map());
+      setLocalExternalByDriverDay(new Map());
     } catch (e) {
       console.error(e);
     } finally {
@@ -574,6 +608,28 @@ export default function ShiftsPage() {
     return row?.vehicle_id ?? null;
   };
 
+  // その日に貸出中の車両 id（date → Set<vehicle_id>）。
+  const loanedByDate = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const l of vehicleLoans) {
+      if (!m.has(l.loan_date)) m.set(l.loan_date, new Set());
+      m.get(l.loan_date)!.add(l.vehicle_id);
+    }
+    return m;
+  }, [vehicleLoans]);
+
+  // 他社車両フラグの現在値（ローカル上書き優先）。
+  const getCurrentExternalForDriverOnDate = (date: string, driverId: string): boolean => {
+    const dk = driverDayVehicleKey(date, driverId);
+    if (localExternalByDriverDay.has(dk)) return localExternalByDriverDay.get(dk) === true;
+    const placement = findDriverPlacementOnDate(localShifts, date, driverId);
+    if (!placement) return false;
+    const row = shifts.find(
+      (s) => s.shift_date === date && s.course_id === placement.courseId && s.slot === placement.slot,
+    );
+    return row?.uses_external_vehicle === true;
+  };
+
   /** その日に車両がすでに割り当てられているドライバー（vehicle_id → driver_id[]） */
   const vehicleHoldersByDate = useMemo(() => {
     const byDate = new Map<string, Map<string, string[]>>();
@@ -611,6 +667,13 @@ export default function ShiftsPage() {
   const setVehicleForDriverOnDate = (date: string, driverId: string, vehicleId: string | null) => {
     if (!canWrite) return;
     if (vehicleId) {
+      if (loanedByDate.get(date)?.has(vehicleId)) {
+        setErrorState({
+          title: "車両を割り当てできません",
+          message: "この車両は同じ日が貸出中のため、シフトに紐付けできません。",
+        });
+        return;
+      }
       const holder = getOtherVehicleHolderName(date, vehicleId, driverId);
       if (holder) {
         setErrorState({
@@ -620,14 +683,52 @@ export default function ShiftsPage() {
         return;
       }
     }
-    setLocalVehicleByDriverDay((prev) => {
-      const next = new Map(prev);
-      next.set(driverDayVehicleKey(date, driverId), vehicleId);
-      return next;
-    });
+    const dk = driverDayVehicleKey(date, driverId);
+    setLocalVehicleByDriverDay((prev) => new Map(prev).set(dk, vehicleId));
+    // 車両を選んだら他社車両フラグは解除する。
+    setLocalExternalByDriverDay((prev) => new Map(prev).set(dk, false));
     // 車両は1日1台。当該ドライバーの全コース行へ同じ車両を即時保存
     for (const p of findDriverPlacementsOnDate(localShifts, date, driverId)) {
-      persistOne(date, p.courseId, p.slot, driverId, vehicleId);
+      persistOne(date, p.courseId, p.slot, driverId, vehicleId, false);
+    }
+  };
+
+  const isVehicleLoaned = (vehicleId: string, date: string) => loanedByDate.get(date)?.has(vehicleId) ?? false;
+
+  /** 車両の日毎の貸出中をトグル（楽観更新＋失敗時リロード）。 */
+  const toggleVehicleLoan = async (vehicleId: string, date: string) => {
+    if (!canWrite) return;
+    const loaned = !isVehicleLoaned(vehicleId, date);
+    setVehicleLoans((prev) =>
+      loaned
+        ? [...prev, { vehicle_id: vehicleId, loan_date: date }]
+        : prev.filter((l) => !(l.vehicle_id === vehicleId && l.loan_date === date)),
+    );
+    setAutoSaving((n) => n + 1);
+    try {
+      await apiFetch("/api/admin/shifts/vehicle-loans", {
+        method: "POST",
+        body: JSON.stringify({ vehicleId, date, loaned }),
+      });
+    } catch (e) {
+      setErrorState({
+        title: "貸出設定に失敗しました",
+        message: e instanceof Error ? e.message : "もう一度お試しください。",
+      });
+      void load({ silent: true });
+    } finally {
+      setAutoSaving((n) => Math.max(0, n - 1));
+    }
+  };
+
+  /** 他社車両フラグの設定（ON時は自社車両をクリア）。 */
+  const setExternalForDriverOnDate = (date: string, driverId: string, external: boolean) => {
+    if (!canWrite) return;
+    const dk = driverDayVehicleKey(date, driverId);
+    setLocalExternalByDriverDay((prev) => new Map(prev).set(dk, external));
+    if (external) setLocalVehicleByDriverDay((prev) => new Map(prev).set(dk, null));
+    for (const p of findDriverPlacementsOnDate(localShifts, date, driverId)) {
+      persistOne(date, p.courseId, p.slot, driverId, external ? null : getCurrentVehicleForDriverOnDate(date, driverId), external);
     }
   };
 
@@ -743,12 +844,13 @@ export default function ShiftsPage() {
     slot: number,
     driverId: string | null,
     vehicleId: string | null,
+    usesExternal?: boolean,
   ) => {
     if (!canWrite) return;
     setAutoSaving((n) => n + 1);
     apiFetch("/api/admin/shifts", {
       method: "POST",
-      body: JSON.stringify({ shiftDate: date, courseId, slot, driverId, vehicleId }),
+      body: JSON.stringify({ shiftDate: date, courseId, slot, driverId, vehicleId, usesExternalVehicle: usesExternal ?? false }),
     })
       .catch((e) => {
         console.error(e);
@@ -1069,6 +1171,7 @@ export default function ShiftsPage() {
                               : null;
 
                           const currentVid = getCurrentVehicleForDriverOnDate(date, driver.id);
+                          const currentExternal = getCurrentExternalForDriverOnDate(date, driver.id);
                           const hoverVehiclePlate: VehiclePlateData | null = (() => {
                             if (!currentVid) return null;
                             const fromFleet = fleetById.get(currentVid);
@@ -1184,7 +1287,10 @@ export default function ShiftsPage() {
                                           }
                                           return m;
                                         })()}
+                                        loanedIds={loanedByDate.get(date)}
+                                        isExternal={currentExternal}
                                         onChange={(id) => setVehicleForDriverOnDate(date, driver.id, id)}
+                                        onSelectExternal={() => setExternalForDriverOnDate(date, driver.id, true)}
                                         disabled={!canWrite}
                                         dirty={dirty}
                                         title={vehicleTitle}
@@ -1302,6 +1408,66 @@ export default function ShiftsPage() {
                 <span className="text-slate-500">
                   車両は紐づけ一覧を優先表示し、「他の車両を追加」からマスタ上のその他の車両も選べます。
                 </span>
+              </div>
+            </div>
+
+            {/* 車両の貸出中（日毎） */}
+            <div className="bg-white rounded-lg border border-slate-200/95 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+              <h3 className="text-sm font-medium text-slate-700 mb-1">車両の貸出中（日毎）</h3>
+              <p className="text-[11px] text-slate-500 mb-3">
+                貸出中にした日は、その車両をシフトに紐付けできません（セルをタップで切替・「貸」=貸出中）。
+              </p>
+              <div className="overflow-x-auto table-scroll">
+                <table className="text-xs border-collapse">
+                  <thead>
+                    <tr>
+                      <th className="sticky left-0 z-10 bg-white px-2 py-1.5 text-left min-w-[7.5rem] border-r border-b border-slate-200/95 font-medium text-slate-600">
+                        車両
+                      </th>
+                      {displayDates.map((date) => {
+                        const tone = shiftDayTone(date, today);
+                        const dd = Number(date.split("-")[2]);
+                        return (
+                          <th key={date} className={`w-8 min-w-8 px-0.5 py-1.5 text-center font-medium border-b border-slate-200/95 ${tone.header}`}>
+                            {dd}
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...fleetVehicles]
+                      .sort((a, b) => formatPlateOneLine(a).localeCompare(formatPlateOneLine(b), "ja"))
+                      .map((v) => (
+                      <tr key={v.id} className="border-t border-slate-100">
+                        <td className="sticky left-0 z-10 bg-white px-2 py-1 border-r border-slate-200/95">
+                          <VehiclePlate vehicle={v} compact className="max-w-[7rem] pointer-events-none" />
+                        </td>
+                        {displayDates.map((date) => {
+                          const on = isVehicleLoaned(v.id, date);
+                          return (
+                            <td key={date} className="px-0.5 py-0.5 text-center">
+                              <button
+                                type="button"
+                                disabled={!canWrite}
+                                onClick={() => toggleVehicleLoan(v.id, date)}
+                                title={on ? "貸出中（タップで解除）" : "タップで貸出中に"}
+                                className={cn(
+                                  "w-7 h-7 rounded-md border text-[10px] font-semibold transition-colors disabled:opacity-50",
+                                  on
+                                    ? "bg-indigo-600 border-indigo-600 text-white"
+                                    : "border-slate-200 bg-white text-slate-300 hover:border-slate-300",
+                                )}
+                              >
+                                {on ? "貸" : ""}
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
