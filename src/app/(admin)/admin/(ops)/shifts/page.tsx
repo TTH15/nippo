@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { isJapanPublicHolidayYmd } from "@/lib/japanHolidays";
 import { todayJST } from "@/lib/date";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -20,7 +20,7 @@ import {
 } from "@/lib/components/VehiclePlate";
 import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
 import { cn } from "@/lib/ui/utils";
-import { Settings } from "lucide-react";
+import { ChevronDown, Settings } from "lucide-react";
 import ShiftDeadlineSettingsModal from "./ShiftDeadlineSettingsModal";
 
 type Course = {
@@ -270,6 +270,41 @@ function VehicleOptionList({
   );
 }
 
+/**
+ * 折りたたみ可能なセクション（閲覧＝サマリのみ／開く＝中身）。
+ * 二次情報（凡例・車両貸出表など）を既定で畳んで画面の情報密度を下げる。
+ */
+function CollapsibleSection({
+  title,
+  hint,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details
+      open={defaultOpen}
+      className="group rounded-lg border border-slate-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] [&_summary::-webkit-details-marker]:hidden"
+    >
+      <summary className="flex cursor-pointer list-none select-none items-center justify-between gap-3 px-4 py-3">
+        <div className="min-w-0">
+          <span className="text-sm font-medium text-slate-700">{title}</span>
+          {hint ? <span className="ml-2 text-[11px] text-slate-400">{hint}</span> : null}
+        </div>
+        <ChevronDown
+          className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180"
+          aria-hidden
+        />
+      </summary>
+      <div className="border-t border-slate-200/80 p-4">{children}</div>
+    </details>
+  );
+}
+
 /** シフト一覧の「日」列・セルの共通幅（コース名・ナンバーが省略されにくいよう少し広め） */
 const SHIFT_COL_WIDTH_CLASS =
   "w-[6.5rem] min-w-[6.5rem] max-w-[6.5rem] box-border";
@@ -407,6 +442,8 @@ export default function ShiftsPage() {
   // 編集中のセル（date×driverId）。null＝全セル閲覧モード。
   // クリックで開いた1セルだけが編集UI（ポップオーバー）を表示する。
   const [editingCell, setEditingCell] = useState<{ date: string; driverId: string } | null>(null);
+  // 未割当セルのポップオーバーを開いている日付（null＝閉）。
+  const [unassignedOpenDate, setUnassignedOpenDate] = useState<string | null>(null);
 
   const displayDates = useMemo(
     () =>
@@ -871,6 +908,21 @@ export default function ShiftsPage() {
       .filter((d) => !assignedOnDate.has(d.id))
       .map((d) => getDisplayName(d))
       .sort();
+  };
+
+  /** その日に未割当（いずれのコースにも入っていない）ドライバー実体。表示名でソート。 */
+  const getUnassignedDriversOnDate = (date: string): Driver[] => {
+    const assignedOnDate = new Set<string>();
+    courses.forEach((course) => {
+      const maxSlots = Math.max(1, course.max_drivers ?? 1);
+      for (let slot = 1; slot <= maxSlots; slot++) {
+        const driverId = getCurrentDriverId(date, course.id, slot);
+        if (driverId) assignedOnDate.add(driverId);
+      }
+    });
+    return driversWithCourses
+      .filter((d) => !assignedOnDate.has(d.id))
+      .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), "ja"));
   };
 
   /** 「＋コース」追加用: このドライバーがまだ入っていない＆定員に空きがあるコース */
@@ -1393,21 +1445,97 @@ export default function ShiftsPage() {
                   })}
                   <tr className="border-t border-slate-200 bg-slate-50/93">
                     <td className="sticky left-0 z-10 py-2 px-3 text-xs font-medium text-slate-600 bg-slate-50 border-r border-slate-200/95">
+                      <span className="block text-[10px] font-normal text-slate-400 leading-none">タップで一覧</span>
                       未割当
                     </td>
                     {displayDates.map((date) => {
-                      const names = getOffDriverNamesOnDate(date);
+                      const unassigned = getUnassignedDriversOnDate(date);
                       const tone = shiftDayTone(date, today);
+                      const isOpen = unassignedOpenDate === date;
+                      if (unassigned.length === 0) {
+                        return (
+                          <td
+                            key={`off-${date}`}
+                            className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-center text-[11px] text-slate-400 align-middle ${tone.body}`}
+                          >
+                            —
+                          </td>
+                        );
+                      }
                       return (
                         <td
                           key={`off-${date}`}
-                          className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-[11px] text-slate-600 align-top overflow-hidden ${tone.body}`}
+                          className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-0.5 py-0.5 align-top ${tone.body}`}
                         >
-                          {names.length > 0 ? (
-                            <span className="line-clamp-4 break-words">{names.join("・")}</span>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
+                          <Popover
+                            open={isOpen}
+                            onOpenChange={(o) => setUnassignedOpenDate(o ? date : null)}
+                          >
+                            {/* 閲覧: 人数のみ。クリックで全員＋その場割当 */}
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className={cn(
+                                  "flex min-h-[2.25rem] w-full flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-center transition-colors",
+                                  canWrite ? "cursor-pointer hover:bg-white/70 hover:ring-1 hover:ring-slate-300" : "cursor-default",
+                                  isOpen && "bg-white ring-2 ring-slate-400",
+                                )}
+                                title="未割当ドライバーの一覧"
+                              >
+                                <span className="text-[13px] font-bold tabular-nums text-slate-700 leading-none">
+                                  {unassigned.length}
+                                </span>
+                                <span className="line-clamp-1 break-all text-[10px] text-slate-500 leading-tight">
+                                  {getDisplayName(unassigned[0])}
+                                  {unassigned.length > 1 ? ` 他${unassigned.length - 1}` : ""}
+                                </span>
+                              </button>
+                            </PopoverTrigger>
+                            {isOpen ? (
+                              <PopoverContent
+                                align="start"
+                                sideOffset={6}
+                                className="w-64 space-y-2 border-slate-200/90 p-3 shadow-lg"
+                              >
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <span className="text-xs font-semibold text-slate-800">未割当 {unassigned.length}人</span>
+                                  <span className="shrink-0 text-[11px] text-slate-500">{formatDate(date)}</span>
+                                </div>
+                                <div className="max-h-72 space-y-1.5 overflow-y-auto">
+                                  {unassigned.map((d) => {
+                                    const addable = getAddableCoursesForDriverOnDate(date, d.id);
+                                    return (
+                                      <div
+                                        key={d.id}
+                                        className="rounded-md border border-slate-200/90 px-2 py-1.5"
+                                      >
+                                        <span className="text-[12px] font-medium text-slate-800">{getDisplayName(d)}</span>
+                                        {canWrite ? (
+                                          addable.length > 0 ? (
+                                            <div className="mt-1 flex flex-wrap gap-1">
+                                              {addable.map((c) => (
+                                                <button
+                                                  key={c.id}
+                                                  type="button"
+                                                  onClick={() => addDriverToCourseOnDate(date, d.id, c.id)}
+                                                  className="inline-flex items-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100"
+                                                  title={`${getDisplayName(d)} を ${courseShiftLabel(c)} に割り当て`}
+                                                >
+                                                  ＋{courseShiftLabel(c)}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <span className="ml-1 text-[10px] text-slate-400">空きコースなし</span>
+                                          )
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </PopoverContent>
+                            ) : null}
+                          </Popover>
                         </td>
                       );
                     })}
@@ -1416,8 +1544,11 @@ export default function ShiftsPage() {
               </table>
             </div>
 
-            <div className="bg-white rounded-lg border border-slate-200/95 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-              <h3 className="text-sm font-medium text-slate-700 mb-3">この期間の希望休（一覧）</h3>
+            <CollapsibleSection
+              title="この期間の希望休（一覧）"
+              hint={`${requests.length} 件`}
+              defaultOpen
+            >
               <div className="flex flex-wrap gap-x-6 gap-y-2">
                 {driversWithCourses.map((driver) => {
                   const driverReqs = getDriverRequests(driver.id);
@@ -1471,35 +1602,39 @@ export default function ShiftsPage() {
                   <p className="text-sm text-slate-400">この期間の希望休はありません</p>
                 )}
               </div>
-            </div>
+            </CollapsibleSection>
 
-            <div className="flex flex-wrap gap-6 text-xs text-slate-500">
-              <div className="flex items-center gap-1.5">
-                <div className="w-8 h-6 rounded border border-slate-200 bg-slate-50" />
-                <span>コース未登録のドライバーはこの表に含まれません</span>
+            <CollapsibleSection title="凡例・表の見かた">
+              <div className="flex flex-wrap gap-6 text-xs text-slate-500">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-8 h-6 rounded border border-slate-200 bg-slate-50" />
+                  <span>コース未登録のドライバーはこの表に含まれません</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-8 h-6 rounded border border-dashed border-slate-200 bg-white" />
+                  <span>未割当のセル（＋）。タップで割当できます</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-8 h-6 rounded border border-slate-300 bg-gradient-to-br from-slate-100 to-slate-200" />
+                  <span>割当済（コース色＝そのコース。略記／正式名は編集パネルと同じ）</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-8 h-6 rounded border border-amber-400 bg-amber-50" />
+                  <span>未保存の変更</span>
+                </div>
+                <div className="flex items-center gap-1.5 basis-full md:basis-auto">
+                  <span className="text-slate-500">
+                    車両は紐づけ一覧を優先表示し、「その他の車両」からマスタ上のその他の車両も選べます。
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-8 h-6 rounded border border-dashed border-slate-200 bg-white" />
-                <span>未割当（プルダウンで選択）</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-8 h-6 rounded border border-slate-300 bg-gradient-to-br from-slate-100 to-slate-200" />
-                <span>割当済（コース色はコントロール周りの背景・略記／正式名はプルダウンと同じ）</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-8 h-6 rounded border border-amber-400 bg-amber-50" />
-                <span>未保存の変更</span>
-              </div>
-              <div className="flex items-center gap-1.5 basis-full md:basis-auto">
-                <span className="text-slate-500">
-                  車両は紐づけ一覧を優先表示し、「他の車両を追加」からマスタ上のその他の車両も選べます。
-                </span>
-              </div>
-            </div>
+            </CollapsibleSection>
 
-            {/* 車両の貸出中（日毎） */}
-            <div className="bg-white rounded-lg border border-slate-200/95 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-              <h3 className="text-sm font-medium text-slate-700 mb-1">車両の貸出中（日毎）</h3>
+            {/* 車両の貸出中（日毎）— 二次情報なので既定で折りたたみ */}
+            <CollapsibleSection
+              title="車両の貸出中（日毎）"
+              hint={`この期間 ${vehicleLoans.filter((l) => displayDates.includes(l.loan_date)).length} 件`}
+            >
               <p className="text-[11px] text-slate-500 mb-3">
                 貸出中にした日は、その車両をシフトに紐付けできません（セルをタップで切替・「貸」=貸出中）。
               </p>
@@ -1555,7 +1690,7 @@ export default function ShiftsPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
+            </CollapsibleSection>
           </div>
         )}
 
