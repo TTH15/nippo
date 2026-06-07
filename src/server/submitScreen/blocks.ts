@@ -190,10 +190,14 @@ export async function resolveBlocks(
       const resolved = await resolveEventBlock(supabase, b, ctx);
       if (resolved) out.push(resolved);
     } else if (b.type === "personal_count") {
+      // 対象ドライバー指定がある場合、含まれない人にはブロック自体を出さない（空=全員）。
+      if (b.targetDriverIds.length > 0 && !b.targetDriverIds.includes(ctx.driverId)) continue;
       const data = await monthData();
       const value = sumMyMetrics(data, ctx.driverId, b);
       out.push({ id: b.id, type: "personal_count", label: b.label, value });
     } else if (b.type === "personal_ranking") {
+      // 対象ドライバー指定がある場合、含まれない人にはブロック自体を出さない（空=全員）。
+      if (b.targetDriverIds.length > 0 && !b.targetDriverIds.includes(ctx.driverId)) continue;
       const data = await monthData();
       const names = await driverNames();
       out.push({ id: b.id, type: "personal_ranking", label: b.label, ...computePersonalRanking(data, b, ctx.driverId, names) });
@@ -218,6 +222,9 @@ async function resolveEventBlock(
   ]);
   const teams: EventTeam[] = (teamRows ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color, sortOrder: t.sort_order }));
   const members: EventMember[] = (memberRows ?? []).map((m) => ({ driverId: m.driver_id, teamId: m.team_id }));
+  // イベントのチーム未所属者にはブロック自体を出さない（重い集計の前に早期判定）。
+  const myTeamId = members.find((m) => m.driverId === ctx.driverId)?.teamId ?? null;
+  if (!myTeamId) return null;
   const manualEntries: ManualPointEntry[] = (pointRows ?? []).map((p) => ({ teamId: p.team_id, driverId: p.driver_id, points: Number(p.points) || 0, reason: p.reason, entryDate: p.entry_date }));
   const aggData = await loadAggregationData(supabase, ev.starts_on, ev.ends_on);
   const reports: ScoringReport[] = aggData.reports.map((r) => ({
@@ -230,8 +237,7 @@ async function resolveEventBlock(
   const result = computeEventScores({ scoringRule: rule, teams, members, reports, manualEntries });
   const nameById = new Map<string, string>();
   (drv ?? []).forEach((d) => nameById.set(d.id, getDisplayName(d)));
-  const myTeamId = members.find((m) => m.driverId === ctx.driverId)?.teamId ?? null;
-  const myTeamScore = myTeamId ? result.teams.find((t) => t.teamId === myTeamId) ?? null : null;
+  const myTeamScore = result.teams.find((t) => t.teamId === myTeamId) ?? null;
 
   // 当日の自分の日報を採点ルールでスコア化＝今日の獲得ポイント（カウントアップ用）。
   let todayPoints = 0;
