@@ -256,14 +256,14 @@ function VehicleOptionList({
       {linkedPlates.length > 0 && (
         <div className="flex flex-col gap-0.5">
           <p className="px-1 text-[10px] font-medium text-slate-500">紐づけ車両</p>
-          {linkedPlates.map((v) => row(v))}
+          <div className="grid grid-cols-2 gap-1">{linkedPlates.map((v) => row(v))}</div>
         </div>
       )}
       {otherPlates.length > 0 && (
         <div className="border-t border-slate-200/80 pt-1.5">
           <p className="px-1 pb-1 text-[10px] font-semibold text-slate-600">その他の車両</p>
           <p className="px-1 pb-1 text-[9px] leading-snug text-slate-500">全社マスタ・未紐づけ含む</p>
-          <div className="flex flex-col gap-0.5 max-h-44 overflow-y-auto">{otherPlates.map((v) => row(v))}</div>
+          <div className="grid max-h-52 grid-cols-2 gap-1 overflow-y-auto">{otherPlates.map((v) => row(v))}</div>
         </div>
       )}
     </div>
@@ -307,7 +307,15 @@ function CollapsibleSection({
 
 /** シフト一覧の「日」列・セルの共通幅（コース名・ナンバーが省略されにくいよう少し広め） */
 const SHIFT_COL_WIDTH_CLASS =
-  "w-[6.5rem] min-w-[6.5rem] max-w-[6.5rem] box-border";
+  "w-[7.25rem] min-w-[7.25rem] max-w-[7.25rem] box-border";
+
+/**
+ * 「今日」の列を罫線で強調するための inset 影。
+ * border-collapse の影響を受けず左右に太い縦罫を引く（用途別に上端・下端も付与）。
+ */
+const TODAY_RULE_SIDES = "shadow-[inset_3px_0_0_#f59e0b,inset_-3px_0_0_#f59e0b]";
+const TODAY_RULE_TOP = "shadow-[inset_3px_0_0_#f59e0b,inset_-3px_0_0_#f59e0b,inset_0_3px_0_#f59e0b]";
+const TODAY_RULE_BOTTOM = "shadow-[inset_3px_0_0_#f59e0b,inset_-3px_0_0_#f59e0b,inset_0_-3px_0_#f59e0b]";
 
 type Driver = {
   id: string;
@@ -1165,11 +1173,20 @@ export default function ShiftsPage() {
                     {displayDates.map((date) => {
                       const tone = shiftDayTone(date, today);
                       const count = workingCountByDate.get(date) ?? 0;
+                      const isToday = date.trim() === today;
                       return (
                         <th
                           key={date}
-                          className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-center font-medium overflow-hidden align-top ${tone.header}`}
+                          className={cn(
+                            `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-center font-medium overflow-hidden align-top ${tone.header}`,
+                            isToday && TODAY_RULE_TOP,
+                          )}
                         >
+                          {isToday ? (
+                            <span className="mb-0.5 inline-block rounded-full bg-amber-500 px-1.5 py-px text-[9px] font-bold leading-none text-white">
+                              TODAY
+                            </span>
+                          ) : null}
                           <span
                             className={`block leading-none mb-1 text-[11px] font-bold tabular-nums ${count > 0 ? "text-slate-700" : "text-slate-300"}`}
                             title={`稼働 ${count} 人`}
@@ -1265,18 +1282,19 @@ export default function ShiftsPage() {
 
                           const isEditing =
                             editingCell?.date === date && editingCell?.driverId === driver.id;
+                          const isToday = date.trim() === today;
 
                           return (
                             <td
                               key={`${driver.id}-${date}`}
-                              className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-0.5 py-0.5 ${
-                                off
-                                  ? "align-middle bg-amber-50"
-                                  : `align-top ${tone.body}`
-                              }`}
+                              className={cn(
+                                `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-1`,
+                                off ? "align-middle bg-amber-50" : `align-top ${tone.body}`,
+                                isToday && TODAY_RULE_SIDES,
+                              )}
                             >
                               {off ? (
-                                <div className="flex min-h-[2.75rem] items-center justify-center">
+                                <div className="flex min-h-[3.25rem] items-center justify-center">
                                   <span className="text-[12px] font-semibold text-amber-900">希望休</span>
                                 </div>
                               ) : (
@@ -1293,8 +1311,9 @@ export default function ShiftsPage() {
                                       disabled={!canWrite}
                                       title={canWrite ? "クリックして編集" : vehicleTitle}
                                       className={cn(
-                                        "group flex min-h-[2.75rem] w-full flex-col gap-0.5 rounded-md px-0.5 py-0.5 text-left transition-colors",
-                                        canWrite && !isEditing && "hover:bg-white/70 hover:ring-1 hover:ring-slate-300",
+                                        "group flex min-h-[3.25rem] w-full flex-col gap-1 rounded-lg px-1.5 py-1.5 text-left transition-colors",
+                                        hasAny ? "border border-slate-200/80 bg-white/65" : "border border-transparent",
+                                        canWrite && !isEditing && "hover:border-slate-300 hover:bg-white",
                                         canWrite ? "cursor-pointer" : "cursor-default",
                                         isEditing && "bg-white ring-2 ring-slate-400",
                                         dirty && !isEditing && "ring-2 ring-amber-400",
@@ -1306,7 +1325,7 @@ export default function ShiftsPage() {
                                             <span
                                               key={course.id}
                                               title={courseAbbrevTooltip(course)}
-                                              className="flex h-6 w-full min-w-0 items-center overflow-hidden rounded-[6px] px-1"
+                                              className="flex h-6 w-full min-w-0 items-center overflow-hidden rounded-[6px] px-1.5"
                                               style={courseCellSurface(course.color)}
                                             >
                                               <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-slate-900">
@@ -1314,7 +1333,7 @@ export default function ShiftsPage() {
                                               </span>
                                             </span>
                                           ))}
-                                          <span className="flex w-full min-w-0 items-center justify-center">
+                                          <span className="mt-0.5 flex w-full min-w-0 items-center justify-center">
                                             {currentVid && hoverVehiclePlate ? (
                                               <VehiclePlate
                                                 vehicle={hoverVehiclePlate}
@@ -1329,7 +1348,7 @@ export default function ShiftsPage() {
                                           </span>
                                         </>
                                       ) : (
-                                        <span className="flex flex-1 items-center justify-center text-sm text-slate-300 group-hover:text-slate-400">
+                                        <span className="flex flex-1 items-center justify-center text-base text-slate-300 group-hover:text-slate-400">
                                           {canWrite ? "＋" : "—"}
                                         </span>
                                       )}
@@ -1341,78 +1360,81 @@ export default function ShiftsPage() {
                                     <PopoverContent
                                       align="start"
                                       sideOffset={6}
-                                      className="w-64 space-y-3 border-slate-200/90 p-3 shadow-lg"
+                                      className="w-[min(36rem,calc(100vw-1.5rem))] space-y-3 border-slate-200/90 p-4 shadow-lg"
                                     >
-                                      <div className="flex items-baseline justify-between gap-2">
-                                        <span className="truncate text-xs font-semibold text-slate-800">
+                                      <div className="flex items-baseline justify-between gap-2 border-b border-slate-200/70 pb-2">
+                                        <span className="truncate text-sm font-semibold text-slate-800">
                                           {getDisplayName(driver)}
                                         </span>
                                         <span className="shrink-0 text-[11px] text-slate-500">{formatDate(date)}</span>
                                       </div>
 
-                                      {/* コース */}
-                                      <div className="space-y-1.5">
-                                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">コース</p>
-                                        {assignedCourses.length > 0 ? (
-                                          <div className="flex flex-col gap-1">
-                                            {assignedCourses.map((course) => (
-                                              <div
-                                                key={course.id}
-                                                title={courseAbbrevTooltip(course)}
-                                                className="flex h-7 items-center gap-1 rounded-[6px] px-1.5"
-                                                style={courseCellSurface(course.color)}
-                                              >
-                                                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-slate-900">
-                                                  {courseShiftLabel(course)}
-                                                </span>
-                                                <button
-                                                  type="button"
-                                                  onClick={() => removeDriverFromCourseOnDate(date, driver.id, course.id)}
-                                                  className="shrink-0 px-0.5 text-[13px] leading-none text-slate-500 hover:text-rose-600"
-                                                  title="このコースを外す"
-                                                  aria-label="このコースを外す"
+                                      {/* 横長: 左にコース・右に車両を並べて縦スクロールを抑える */}
+                                      <div className={cn("grid gap-4", hasAny ? "grid-cols-2" : "grid-cols-1")}>
+                                        {/* コース */}
+                                        <div className="space-y-1.5">
+                                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">コース</p>
+                                          {assignedCourses.length > 0 ? (
+                                            <div className="flex flex-col gap-1">
+                                              {assignedCourses.map((course) => (
+                                                <div
+                                                  key={course.id}
+                                                  title={courseAbbrevTooltip(course)}
+                                                  className="flex h-7 items-center gap-1 rounded-[6px] px-1.5"
+                                                  style={courseCellSurface(course.color)}
                                                 >
-                                                  ×
+                                                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-slate-900">
+                                                    {courseShiftLabel(course)}
+                                                  </span>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => removeDriverFromCourseOnDate(date, driver.id, course.id)}
+                                                    className="shrink-0 px-0.5 text-[13px] leading-none text-slate-500 hover:text-rose-600"
+                                                    title="このコースを外す"
+                                                    aria-label="このコースを外す"
+                                                  >
+                                                    ×
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <p className="text-[11px] text-slate-400">未割当</p>
+                                          )}
+                                          {addable.length > 0 ? (
+                                            <div className="flex flex-wrap gap-1 pt-0.5">
+                                              {addable.map((c) => (
+                                                <button
+                                                  key={c.id}
+                                                  type="button"
+                                                  onClick={() => addDriverToCourseOnDate(date, driver.id, c.id)}
+                                                  className="inline-flex items-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-1.5 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100"
+                                                >
+                                                  ＋{courseShiftLabel(c)}
                                                 </button>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        ) : (
-                                          <p className="text-[11px] text-slate-400">未割当</p>
-                                        )}
-                                        {addable.length > 0 ? (
-                                          <div className="flex flex-wrap gap-1 pt-0.5">
-                                            {addable.map((c) => (
-                                              <button
-                                                key={c.id}
-                                                type="button"
-                                                onClick={() => addDriverToCourseOnDate(date, driver.id, c.id)}
-                                                className="inline-flex items-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-1.5 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100"
-                                              >
-                                                ＋{courseShiftLabel(c)}
-                                              </button>
-                                            ))}
+                                              ))}
+                                            </div>
+                                          ) : null}
+                                        </div>
+
+                                        {/* 車両（コース割当がある時のみ選択可能） */}
+                                        {hasAny ? (
+                                          <div className="space-y-1.5 border-l border-slate-200/70 pl-4">
+                                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">車両</p>
+                                            <VehicleOptionList
+                                              valueId={currentVid}
+                                              isExternal={currentExternal}
+                                              linkedPlates={linkedPlates}
+                                              otherPlates={otherPlates}
+                                              takenBy={takenByMap}
+                                              loanedIds={loanedByDate.get(date)}
+                                              onChange={(id) => setVehicleForDriverOnDate(date, driver.id, id)}
+                                              onSelectExternal={() => setExternalForDriverOnDate(date, driver.id, true)}
+                                              disabled={!canWrite}
+                                            />
                                           </div>
                                         ) : null}
                                       </div>
-
-                                      {/* 車両（コース割当がある時のみ選択可能） */}
-                                      {hasAny ? (
-                                        <div className="space-y-1.5 border-t border-slate-200/80 pt-2.5">
-                                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">車両</p>
-                                          <VehicleOptionList
-                                            valueId={currentVid}
-                                            isExternal={currentExternal}
-                                            linkedPlates={linkedPlates}
-                                            otherPlates={otherPlates}
-                                            takenBy={takenByMap}
-                                            loanedIds={loanedByDate.get(date)}
-                                            onChange={(id) => setVehicleForDriverOnDate(date, driver.id, id)}
-                                            onSelectExternal={() => setExternalForDriverOnDate(date, driver.id, true)}
-                                            disabled={!canWrite}
-                                          />
-                                        </div>
-                                      ) : null}
 
                                       {/* 保存状態 */}
                                       <div className="flex items-center justify-between border-t border-slate-200/80 pt-2.5">
@@ -1452,11 +1474,15 @@ export default function ShiftsPage() {
                       const unassigned = getUnassignedDriversOnDate(date);
                       const tone = shiftDayTone(date, today);
                       const isOpen = unassignedOpenDate === date;
+                      const isToday = date.trim() === today;
                       if (unassigned.length === 0) {
                         return (
                           <td
                             key={`off-${date}`}
-                            className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-center text-[11px] text-slate-400 align-middle ${tone.body}`}
+                            className={cn(
+                              `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-center text-[11px] text-slate-400 align-middle ${tone.body}`,
+                              isToday && TODAY_RULE_BOTTOM,
+                            )}
                           >
                             —
                           </td>
@@ -1465,7 +1491,10 @@ export default function ShiftsPage() {
                       return (
                         <td
                           key={`off-${date}`}
-                          className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-0.5 py-0.5 align-top ${tone.body}`}
+                          className={cn(
+                            `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-0.5 py-0.5 align-top ${tone.body}`,
+                            isToday && TODAY_RULE_BOTTOM,
+                          )}
                         >
                           <Popover
                             open={isOpen}
