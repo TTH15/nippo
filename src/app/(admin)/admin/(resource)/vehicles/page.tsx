@@ -1358,7 +1358,7 @@ export default function VehiclesPage() {
                             e.stopPropagation();
                             setForm((f) => ({ ...f, imageDataUrl: "" }));
                           }}
-                          className="absolute top-3 right-3 inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/90 border border-slate-200 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600 hover:bg-white"
+                          className="absolute top-3 right-3 inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/90 border border-slate-200 text-slate-500 shadow-sm transition-colors hover:text-red-600 hover:bg-white"
                           title="画像を削除"
                         >
                           <FontAwesomeIcon icon={faTrash} className="w-4 h-4" />

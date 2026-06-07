@@ -727,11 +727,11 @@ function LogEntriesByDate({
                           (saving ? (
                             <span className="text-[10px] text-slate-400">保存中...</span>
                           ) : (
-                            <div className="flex items-center gap-4">
-                              <button type="button" onClick={() => onEdit(r)} className="text-slate-400 hover:text-slate-800" title="編集">
+                            <div className="flex items-center gap-1.5">
+                              <button type="button" onClick={() => onEdit(r)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100" title="編集">
                                 <FontAwesomeIcon icon={faPenToSquare} className="w-4 h-4" />
                               </button>
-                              <button type="button" onClick={() => handleDelete(r)} className="text-slate-400 hover:text-red-600" title="削除">
+                              <button type="button" onClick={() => handleDelete(r)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50" title="削除">
                                 <FontAwesomeIcon icon={faTrashCan} className="w-4 h-4" />
                               </button>
                             </div>
@@ -815,11 +815,11 @@ function LogEntriesByDate({
                             {saving ? (
                               <span className="text-slate-400 text-[10px]">保存中...</span>
                             ) : (
-                              <div className="flex items-center justify-end gap-2">
+                              <div className="flex items-center justify-end gap-1">
                                 <button
                                   type="button"
                                   onClick={() => onEdit(r)}
-                                  className="text-slate-400 hover:text-slate-800 text-[11px]"
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:text-slate-800 hover:bg-slate-100"
                                   title="編集"
                                 >
                                   <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5" />
@@ -827,7 +827,7 @@ function LogEntriesByDate({
                                 <button
                                   type="button"
                                   onClick={() => handleDelete(r)}
-                                  className="text-slate-400 hover:text-red-600 text-[11px]"
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50"
                                   title="削除"
                                 >
                                   <FontAwesomeIcon icon={faTrashCan} className="w-3.5 h-3.5" />

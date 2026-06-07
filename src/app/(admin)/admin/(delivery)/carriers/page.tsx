@@ -198,18 +198,31 @@ export default function CarriersPage() {
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
                             {u.fields.map((f) => (
-                              <div key={f.id} className="rounded border border-slate-200 px-2.5 py-2 group relative">
-                                <div className="text-[11px] text-slate-500 mb-1 flex items-center gap-1">
+                              <div
+                                key={f.id}
+                                onClick={canWrite ? () => setFieldModal({ mode: "edit", unitId: u.id, field: f, draft: { label: f.label, inputType: f.input_type, groupLabel: f.group_label ?? "", isBillable: f.is_billable, required: f.required } }) : undefined}
+                                role={canWrite ? "button" : undefined}
+                                className={`rounded-lg border border-slate-200 px-2.5 py-2 relative ${canWrite ? "cursor-pointer hover:border-slate-300 active:bg-slate-50" : ""}`}
+                              >
+                                <div className="text-[11px] text-slate-500 mb-1 flex items-center gap-1 pr-7">
                                   {f.group_label && <span className="text-[10px] px-1 rounded bg-indigo-50 text-indigo-600">{f.group_label}</span>}
                                   {f.label}{f.required && <span className="text-red-500">*</span>}
                                   {f.is_billable && <span className="text-[9px] px-1 rounded bg-emerald-50 text-emerald-600 ml-auto">課金</span>}
                                 </div>
-                                <PreviewInput type={f.input_type} />
+                                <div className="pointer-events-none">
+                                  <PreviewInput type={f.input_type} />
+                                </div>
                                 {canWrite && (
-                                  <div className="absolute top-1 right-1 flex sm:hidden sm:group-hover:flex items-center gap-2 bg-white/90 rounded px-1">
-                                    <button title="編集" onClick={() => setFieldModal({ mode: "edit", unitId: u.id, field: f, draft: { label: f.label, inputType: f.input_type, groupLabel: f.group_label ?? "", isBillable: f.is_billable, required: f.required } })} className="text-slate-400 hover:text-slate-700 text-[11px]"><FontAwesomeIcon icon={faPenToSquare} /></button>
-                                    <button title="削除" onClick={() => askDelete(`項目「${f.label}」を削除しますか？`, () => apiFetch(`/api/admin/unit-fields/${f.id}`, { method: "DELETE" }))} className="text-slate-400 hover:text-red-600 text-[11px]"><FontAwesomeIcon icon={faTrash} /></button>
-                                  </div>
+                                  <button
+                                    title="削除"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      askDelete(`項目「${f.label}」を削除しますか？`, () => apiFetch(`/api/admin/unit-fields/${f.id}`, { method: "DELETE" }));
+                                    }}
+                                    className="absolute top-1 right-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-300 hover:text-red-600 hover:bg-red-50"
+                                  >
+                                    <FontAwesomeIcon icon={faTrash} className="w-3 h-3" />
+                                  </button>
                                 )}
                               </div>
                             ))}

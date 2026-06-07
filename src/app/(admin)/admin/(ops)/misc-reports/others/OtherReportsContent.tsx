@@ -225,14 +225,14 @@ export function OtherReportsContent() {
                             <button
                               type="button"
                               onClick={() => handleAction(report.id, "approve")}
-                              className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-800 text-white hover:bg-slate-700"
+                              className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700"
                             >
                               承認
                             </button>
                             <button
                               type="button"
                               onClick={() => handleAction(report.id, "reject")}
-                              className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+                              className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
                             >
                               却下
                             </button>

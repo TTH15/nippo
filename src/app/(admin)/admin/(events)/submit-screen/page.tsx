@@ -480,7 +480,7 @@ function BlockConfig({
                             type="button"
                             disabled={!canWrite}
                             onClick={() => toggleField(u.id, f.field_key)}
-                            className={`px-1.5 py-0.5 rounded text-[11px] border ${on ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"}`}
+                            className={`px-2.5 py-1.5 rounded-md text-[11px] border ${on ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"}`}
                           >
                             {f.group_label ? `${f.group_label} ` : ""}
                             {f.label}
@@ -505,7 +505,7 @@ function BlockConfig({
                   type="button"
                   disabled={!canWrite}
                   onClick={() => toggleCarrier(c.id)}
-                  className={`px-2 py-1 rounded text-[11px] border ${on ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"}`}
+                  className={`px-3 py-1.5 rounded-md text-[11px] border ${on ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"}`}
                 >
                   {c.name}
                 </button>
@@ -527,7 +527,7 @@ function BlockConfig({
                     type="button"
                     disabled={!canWrite}
                     onClick={() => toggleDriver(d.id)}
-                    className={`px-1.5 py-1 rounded text-[11px] border text-left ${on ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"}`}
+                    className={`px-2.5 py-1.5 rounded-md text-[11px] border text-left ${on ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200"}`}
                   >
                     {getDisplayName(d)}
                   </button>
