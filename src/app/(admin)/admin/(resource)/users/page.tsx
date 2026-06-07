@@ -11,6 +11,7 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite } from "@/lib/authz";
+import { Button } from "@/lib/ui/button";
 import { faChevronRight, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
@@ -657,13 +658,10 @@ export default function UsersPage() {
             </p>
           </div>
           {canWrite && (
-            <button
-              onClick={openNew}
-              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-            >
+            <Button variant="default" size="default" onClick={openNew}>
               <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
               新規追加
-            </button>
+            </Button>
           )}
         </div>
 

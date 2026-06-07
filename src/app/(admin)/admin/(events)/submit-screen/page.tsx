@@ -8,6 +8,7 @@ import { PostSubmitView } from "@/lib/components/PostSubmitView";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
 import { getDisplayName } from "@/lib/displayName";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import type { SubmitBlock, ResolvedBlock, BlockType, MetricField } from "@/lib/submitScreenBlocks";
 
 type FieldRow = { id: string; field_key: string; label: string; group_label: string | null };
@@ -412,19 +413,17 @@ function BlockConfig({
           ))}
         </div>
         {block.source === "event" && (
-          <select
+          <CustomSelect
             value={block.eventId ?? ""}
-            onChange={(e) => onUpdate({ eventId: e.target.value || null })}
+            onChange={(v) => onUpdate({ eventId: v || null })}
             disabled={!canWrite}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-slate-400"
-          >
-            <option value="">イベントを選択…</option>
-            {events.map((ev) => (
-              <option key={ev.id} value={ev.id}>
-                {ev.name}（{ev.status === "active" ? "開催中" : ev.status === "closed" ? "終了" : "下書き"}）
-              </option>
-            ))}
-          </select>
+            clearable={false}
+            placeholder="イベントを選択…"
+            options={events.map((ev) => ({
+              value: ev.id,
+              label: `${ev.name}（${ev.status === "active" ? "開催中" : ev.status === "closed" ? "終了" : "下書き"}）`,
+            }))}
+          />
         )}
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input

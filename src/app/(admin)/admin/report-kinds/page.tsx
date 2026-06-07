@@ -7,8 +7,10 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
+import { Button } from "@/lib/ui/button";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrashCan, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 
 type Capability = "none" | "oil_mileage" | "expense";
 type ReportKind = {
@@ -17,6 +19,7 @@ type ReportKind = {
   label: string;
   sortOrder: number;
   isActive: boolean;
+  usesVehicle: boolean;
   usesLocation: boolean;
   usesOdometer: boolean;
   usesDescription: boolean;
@@ -32,6 +35,7 @@ type FormState = {
   label: string;
   sortOrder: number;
   isActive: boolean;
+  usesVehicle: boolean;
   usesLocation: boolean;
   usesOdometer: boolean;
   usesDescription: boolean;
@@ -53,6 +57,7 @@ const emptyForm = (sortOrder: number): FormState => ({
   label: "",
   sortOrder,
   isActive: true,
+  usesVehicle: true,
   usesLocation: true,
   usesOdometer: false,
   usesDescription: true,
@@ -132,6 +137,7 @@ export default function ReportKindsPage() {
 
   const fieldChips = (k: ReportKind) =>
     [
+      k.usesVehicle && "車両",
       k.usesLocation && "場所",
       k.usesOdometer && "走行距離",
       k.usesDescription && (k.descriptionLabel || "内容"),
@@ -149,13 +155,9 @@ export default function ReportKindsPage() {
             </p>
           </div>
           {canWrite && (
-            <button
-              type="button"
-              onClick={openNew}
-              className="shrink-0 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded-lg hover:bg-slate-700"
-            >
+            <Button type="button" variant="default" size="default" onClick={openNew} className="shrink-0">
               新規追加
-            </button>
+            </Button>
           )}
         </div>
 
@@ -262,6 +264,7 @@ export default function ReportKindsPage() {
                 <div className="text-xs font-medium text-slate-600 mb-1.5">使う入力項目</div>
                 <div className="grid grid-cols-2 gap-2">
                   {[
+                    { key: "usesVehicle" as const, label: "車両" },
                     { key: "usesLocation" as const, label: "場所" },
                     { key: "usesOdometer" as const, label: "走行距離" },
                     { key: "usesDescription" as const, label: "内容（自由記述）" },
@@ -305,15 +308,17 @@ export default function ReportKindsPage() {
 
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">承認時の動作</label>
-                <select
+                <CustomSelect
                   value={form.capability}
-                  onChange={(e) => setForm({ ...form, capability: e.target.value as Capability })}
-                  className="w-full max-w-xs px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-slate-400"
-                >
-                  <option value="none">なし</option>
-                  <option value="oil_mileage">車両の前回オイル交換距離を更新（走行距離が必要）</option>
-                  <option value="expense">臨時経費に連携しペイメント算入（金額が必要）</option>
-                </select>
+                  onChange={(v) => setForm({ ...form, capability: v as Capability })}
+                  clearable={false}
+                  className="max-w-md"
+                  options={[
+                    { value: "none", label: "なし" },
+                    { value: "oil_mileage", label: "車両の前回オイル交換距離を更新（走行距離が必要）" },
+                    { value: "expense", label: "臨時経費に連携しペイメント算入（金額が必要）" },
+                  ]}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">

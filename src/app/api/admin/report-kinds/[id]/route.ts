@@ -21,6 +21,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   if ("sortOrder" in body && Number.isFinite(Number(body.sortOrder))) updates.sort_order = Math.trunc(Number(body.sortOrder));
   if ("isActive" in body) updates.is_active = body.isActive === true;
+  if ("usesVehicle" in body) updates.uses_vehicle = body.usesVehicle === true;
   if ("usesLocation" in body) updates.uses_location = body.usesLocation === true;
   if ("usesOdometer" in body) updates.uses_odometer = body.usesOdometer === true;
   if ("usesDescription" in body) updates.uses_description = body.usesDescription === true;
@@ -33,15 +34,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // 能力とフィールドの整合性チェック（更新後の値で判定）。
   const { data: current, error: curErr } = await supabase
     .from("report_kinds")
-    .select("uses_odometer, uses_amount, capability")
+    .select("uses_odometer, uses_amount, uses_vehicle, capability")
     .eq("id", id)
     .maybeSingle();
   if (curErr || !current) return NextResponse.json({ error: "種別が見つかりません。" }, { status: 404 });
   const nextCap = (updates.capability as string) ?? current.capability;
   const nextOdo = "uses_odometer" in updates ? (updates.uses_odometer as boolean) : current.uses_odometer;
   const nextAmt = "uses_amount" in updates ? (updates.uses_amount as boolean) : current.uses_amount;
+  const nextVeh = "uses_vehicle" in updates ? (updates.uses_vehicle as boolean) : current.uses_vehicle;
   if (nextCap === "oil_mileage" && !nextOdo)
     return NextResponse.json({ error: "「車両距離更新」には走行距離フィールドが必要です。" }, { status: 400 });
+  if (nextCap === "oil_mileage" && !nextVeh)
+    return NextResponse.json({ error: "「車両距離更新」には車両の選択が必要です。" }, { status: 400 });
   if (nextCap === "expense" && !nextAmt)
     return NextResponse.json({ error: "「経費連携」には金額フィールドが必要です。" }, { status: 400 });
 

@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan, faEye, faStar } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
 
@@ -37,6 +38,18 @@ const statusLabel: Record<SavedInvoice["status"], { text: string; cls: string }>
 };
 
 const fmt = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
+
+const statusOptions: { value: SavedInvoice["status"]; label: string }[] = [
+  { value: "draft", label: "下書き" },
+  { value: "pending_approval", label: "承認待ち" },
+  { value: "approved", label: "承認済" },
+  { value: "paid", label: "入金済" },
+];
+
+const directionOptions: { value: "outgoing" | "incoming"; label: string }[] = [
+  { value: "outgoing", label: "自社が請求" },
+  { value: "incoming", label: "自社に請求" },
+];
 
 type FinderState = {
   selectedMonth?: string;
@@ -650,17 +663,14 @@ export default function InvoicesPage() {
                             <td className="px-3 py-3 text-right font-medium text-slate-900 whitespace-nowrap">{fmt(inv.amount)}</td>
                             <td className="px-3 py-3 text-center">
                               {canWrite ? (
-                                <select
+                                <CustomSelect
+                                  options={statusOptions}
                                   value={inv.status}
                                   disabled={updatingStatusId === inv.id}
-                                  onChange={(e) => void updateStatus(inv.id, e.target.value as SavedInvoice["status"])}
-                                  className={`px-2 py-1 rounded text-xs font-medium border border-slate-200 ${s.cls}`}
-                                >
-                                  <option value="draft">下書き</option>
-                                  <option value="pending_approval">承認待ち</option>
-                                  <option value="approved">承認済</option>
-                                  <option value="paid">入金済</option>
-                                </select>
+                                  onChange={(v) => void updateStatus(inv.id, v as SavedInvoice["status"])}
+                                  clearable={false}
+                                  size="sm"
+                                />
                               ) : (
                                 <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.cls}`}>
                                   {s.text}
@@ -762,19 +772,15 @@ export default function InvoicesPage() {
                             </span>
                           </div>
                           {canWrite ? (
-                            <select
+                            <CustomSelect
+                              options={statusOptions}
                               value={inv.status}
                               disabled={updatingStatusId === inv.id}
-                              onChange={(e) =>
-                                void updateStatus(inv.id, e.target.value as SavedInvoice["status"])
-                              }
-                              className={`px-2 py-1 rounded text-xs font-medium border border-slate-200 ${s.cls}`}
-                            >
-                              <option value="draft">下書き</option>
-                              <option value="pending_approval">承認待ち</option>
-                              <option value="approved">承認済</option>
-                              <option value="paid">入金済</option>
-                            </select>
+                              onChange={(v) => void updateStatus(inv.id, v as SavedInvoice["status"])}
+                              clearable={false}
+                              size="sm"
+                              className="w-28"
+                            />
                           ) : (
                             <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.cls}`}>
                               {s.text}
@@ -839,14 +845,13 @@ export default function InvoicesPage() {
               </div>
               <div>
                 <label className="block text-xs text-slate-600 mb-1">請求方向フォルダ</label>
-                <select
+                <CustomSelect
+                  options={directionOptions}
                   value={selectedDirection}
-                  onChange={(e) => setSelectedDirection(e.target.value as "outgoing" | "incoming")}
-                  className="w-full border border-slate-200 rounded px-3 py-2 text-sm"
-                >
-                  <option value="outgoing">自社が請求</option>
-                  <option value="incoming">自社に請求</option>
-                </select>
+                  onChange={(v) => setSelectedDirection(v as "outgoing" | "incoming")}
+                  clearable={false}
+                  size="default"
+                />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">

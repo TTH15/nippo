@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 
 type BillingType = "PER_PIECE" | "FIXED";
 type InputType = "INT" | "TEXT" | "TIME" | "BOOL";
@@ -360,9 +361,13 @@ function FieldModal({ mode, initial, onSave, onClose }: { mode: "create" | "edit
     <ModalShell title={`報告項目を${mode === "create" ? "追加" : "編集"}`} onClose={onClose} onSave={() => onSave(d)}>
       <LabeledField label="項目名（ドライバー画面の表示）"><input value={d.label} onChange={(e) => set({ label: e.target.value })} className="w-full px-2 py-1.5 border border-slate-300 rounded" placeholder="例: 完了個数" /></LabeledField>
       <LabeledField label="入力タイプ">
-        <select value={d.inputType} onChange={(e) => set({ inputType: e.target.value as InputType })} className="w-full px-2 py-1.5 border border-slate-300 rounded">
-          {(["INT", "TEXT", "TIME", "BOOL"] as InputType[]).map((t) => <option key={t} value={t}>{INPUT_TYPE_LABEL[t]}</option>)}
-        </select>
+        <CustomSelect
+          size="sm"
+          clearable={false}
+          value={d.inputType}
+          onChange={(value) => set({ inputType: value as InputType })}
+          options={(["INT", "TEXT", "TIME", "BOOL"] as InputType[]).map((t) => ({ value: t, label: INPUT_TYPE_LABEL[t] }))}
+        />
       </LabeledField>
       <LabeledField label="グループ見出し（任意・例: 午前/午後）"><input value={d.groupLabel} onChange={(e) => set({ groupLabel: e.target.value })} className="w-full px-2 py-1.5 border border-slate-300 rounded" placeholder="空欄でOK" /></LabeledField>
       <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" checked={d.isBillable} onChange={(e) => set({ isBillable: e.target.checked })} />この数を売上・報酬の計算に使う（課金数量）</label>

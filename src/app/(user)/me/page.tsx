@@ -34,6 +34,7 @@ type Vehicle = {
 type ReportKindOption = {
   key: string;
   label: string;
+  usesVehicle: boolean;
   usesLocation: boolean;
   usesOdometer: boolean;
   usesDescription: boolean;
@@ -214,7 +215,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       setReportMessage({ type: "error", text: "日付・時間の形式が不正です" });
       return;
     }
-    if (!selectedVehicleId) {
+    if (kind.usesVehicle && !selectedVehicleId) {
       setReportMessage({ type: "error", text: "車両を選択してください" });
       return;
     }
@@ -230,10 +231,10 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
           description: kind.usesDescription ? desc : "",
           odometerKm: kind.usesOdometer ? kilometer : null,
           expenseAmount: kind.usesAmount ? expenseYen : null,
-          vehicleId: selectedVehicleId,
+          vehicleId: kind.usesVehicle ? selectedVehicleId : null,
         }),
       });
-      await saveVehiclePreference(selectedVehicleId);
+      if (kind.usesVehicle && selectedVehicleId) await saveVehiclePreference(selectedVehicleId);
       setReportMessage({ type: "ok", text: "報告を送信しました" });
       setReportLocation("");
       setOdometerKm("");
@@ -295,7 +296,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
                 ))}
               </div>
             </div>
-            {vehiclesLoading ? (
+            {currentKind?.usesVehicle && (vehiclesLoading ? (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">実施車両</label>
                 <div className="flex gap-2 overflow-x-auto pb-2">
@@ -354,7 +355,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
                   </div>
                 )}
               </div>
-            )}
+            ))}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="min-w-0">
                 <label className="block text-sm font-medium text-slate-700 mb-1">日付</label>

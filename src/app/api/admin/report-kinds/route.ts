@@ -34,8 +34,12 @@ export async function POST(req: NextRequest) {
   const usesOdometer = body.usesOdometer === true;
   const usesAmount = body.usesAmount === true;
   // 能力に必要なフィールドの整合性を担保する。
+  const usesVehicle = body.usesVehicle !== false;
   if (capability === "oil_mileage" && !usesOdometer) {
     return NextResponse.json({ error: "「車両距離更新」には走行距離フィールドが必要です。" }, { status: 400 });
+  }
+  if (capability === "oil_mileage" && !usesVehicle) {
+    return NextResponse.json({ error: "「車両距離更新」には車両の選択が必要です。" }, { status: 400 });
   }
   if (capability === "expense" && !usesAmount) {
     return NextResponse.json({ error: "「経費連携」には金額フィールドが必要です。" }, { status: 400 });
@@ -46,6 +50,7 @@ export async function POST(req: NextRequest) {
     label,
     sort_order: Number.isFinite(Number(body.sortOrder)) ? Math.trunc(Number(body.sortOrder)) : 999,
     is_active: body.isActive !== false,
+    uses_vehicle: usesVehicle,
     uses_location: body.usesLocation !== false,
     uses_odometer: usesOdometer,
     uses_description: body.usesDescription !== false,

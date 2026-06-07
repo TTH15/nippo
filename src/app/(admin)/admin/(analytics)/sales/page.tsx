@@ -6,6 +6,7 @@ import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare, faRotateRi
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
+import { Button } from "@/lib/ui/button";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
@@ -1644,16 +1645,18 @@ export default function SalesPage() {
               <>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                   {canWrite && (
-                    <button
+                    <Button
                       type="button"
+                      variant="default"
+                      size="default"
                       onClick={() => {
                         setLogEditingEntry(null);
                         setLogModalOpen(true);
                       }}
-                      className="shrink-0 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors"
+                      className="shrink-0"
                     >
                       新規追加
-                    </button>
+                    </Button>
                   )}
                 </div>
                 <LogEntryModal

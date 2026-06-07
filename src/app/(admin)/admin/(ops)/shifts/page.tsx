@@ -1037,14 +1037,16 @@ export default function ShiftsPage() {
               {generating ? "生成中..." : "叩き台を生成"}
             </button>
             <div className="flex items-center gap-2">
-              <select
+              <CustomSelect
+                options={[
+                  { value: "png", label: "画像（PNG）" },
+                  { value: "pdf", label: "PDF" },
+                ]}
                 value={exportFormat}
-                onChange={(e) => setExportFormat(e.target.value === "pdf" ? "pdf" : "png")}
-                className="h-9 px-2 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
-              >
-                <option value="png">画像（PNG）</option>
-                <option value="pdf">PDF</option>
-              </select>
+                onChange={(v) => setExportFormat(v === "pdf" ? "pdf" : "png")}
+                clearable={false}
+                size="sm"
+              />
               <button
                 type="button"
                 onClick={handleExport}

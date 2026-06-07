@@ -21,6 +21,8 @@ import { todayJST } from "@/lib/date";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
+import { Button } from "@/lib/ui/button";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import { VehicleRecoveryDetail } from "./VehicleRecoveryDetail";
 
 const DEFAULT_LEASE_COST = 35000; // 月々リース代（デフォルト）
@@ -520,13 +522,10 @@ export default function VehiclesPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">車両管理</h1>
           {canWrite && (
-            <button
-              onClick={openNew}
-              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-            >
+            <Button variant="default" size="default" onClick={openNew}>
               <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
               新規追加
-            </button>
+            </Button>
           )}
         </div>
 
@@ -1158,21 +1157,23 @@ export default function VehiclesPage() {
                         {form.purchaseCostItems.map((item, idx) => (
                           <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                             <td className="px-2 py-2 align-middle">
-                              <select
+                              <CustomSelect
+                                size="sm"
+                                clearable={false}
                                 value={item.sign}
-                                onChange={(e) =>
+                                onChange={(value) =>
                                   setForm((f) => ({
                                     ...f,
                                     purchaseCostItems: f.purchaseCostItems.map((row, i) =>
-                                      i === idx ? { ...row, sign: e.target.value === "-" ? "-" : "+" } : row
+                                      i === idx ? { ...row, sign: value === "-" ? "-" : "+" } : row
                                     ),
                                   }))
                                 }
-                                className="w-full h-9 px-2 border border-slate-200 rounded bg-white"
-                              >
-                                <option value="+">+</option>
-                                <option value="-">-</option>
-                              </select>
+                                options={[
+                                  { value: "+", label: "+" },
+                                  { value: "-", label: "-" },
+                                ]}
+                              />
                             </td>
                             <td className="px-2 py-2 align-middle">
                               <input

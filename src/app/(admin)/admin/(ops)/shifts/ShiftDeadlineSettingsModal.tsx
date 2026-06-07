@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import {
   DEFAULT_DEADLINE_CONFIG,
   computeDeadline,
@@ -219,31 +220,29 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                             className="w-20 px-2 py-1 text-sm border border-slate-200 rounded disabled:bg-slate-50"
                           />
                           <span className="text-xs text-slate-500">年</span>
-                          <select
+                          <CustomSelect
                             disabled={!canWrite}
-                            value={o.targetMonth}
-                            onChange={(e) =>
-                              updateOverride(o._key, { targetMonth: Number(e.target.value) })
+                            value={String(o.targetMonth)}
+                            onChange={(v) =>
+                              updateOverride(o._key, { targetMonth: Number(v) })
                             }
-                            className="px-2 py-1 text-sm border border-slate-200 rounded disabled:bg-slate-50"
-                          >
-                            {MONTHS.map((m) => (
-                              <option key={m} value={m}>
-                                {m}月
-                              </option>
-                            ))}
-                          </select>
-                          <select
+                            options={MONTHS.map((m) => ({ value: String(m), label: `${m}月` }))}
+                            clearable={false}
+                            size="sm"
+                          />
+                          <CustomSelect
                             disabled={!canWrite}
                             value={o.half}
-                            onChange={(e) =>
-                              updateOverride(o._key, { half: e.target.value as Half })
+                            onChange={(v) =>
+                              updateOverride(o._key, { half: v as Half })
                             }
-                            className="px-2 py-1 text-sm border border-slate-200 rounded disabled:bg-slate-50"
-                          >
-                            <option value="FIRST">前半</option>
-                            <option value="SECOND">後半</option>
-                          </select>
+                            options={[
+                              { value: "FIRST", label: "前半" },
+                              { value: "SECOND", label: "後半" },
+                            ]}
+                            clearable={false}
+                            size="sm"
+                          />
                           <div className="flex items-center gap-1">
                             <span className="text-xs text-slate-500">締切</span>
                             <input

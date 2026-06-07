@@ -13,6 +13,7 @@ export type ReportKind = {
   label: string;
   sortOrder: number;
   isActive: boolean;
+  usesVehicle: boolean;
   usesLocation: boolean;
   usesOdometer: boolean;
   usesDescription: boolean;
@@ -36,6 +37,7 @@ export function defaultReportKinds(): ReportKind[] {
     label: "",
     sortOrder: 0,
     isActive: true,
+    usesVehicle: true,
     usesLocation: true,
     usesOdometer: false,
     usesDescription: true,
@@ -59,6 +61,7 @@ type Row = {
   label: string;
   sort_order: number;
   is_active: boolean;
+  uses_vehicle: boolean;
   uses_location: boolean;
   uses_odometer: boolean;
   uses_description: boolean;
@@ -75,6 +78,8 @@ function fromRow(r: Row): ReportKind {
     label: r.label,
     sortOrder: Number(r.sort_order) || 0,
     isActive: r.is_active !== false,
+    // uses_vehicle（071）未適用なら既定 true（現行＝車両必須）。
+    usesVehicle: r.uses_vehicle !== false,
     usesLocation: r.uses_location !== false,
     usesOdometer: r.uses_odometer === true,
     usesDescription: r.uses_description !== false,

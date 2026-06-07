@@ -20,6 +20,7 @@ import { CourseRateEditor, type CourseRateEditorHandle } from "@/lib/components/
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
+import { Button } from "@/lib/ui/button";
 
 type CourseCarrier = "YAMATO" | "AMAZON" | "OTHER";
 type Course = {
@@ -467,13 +468,10 @@ export default function CoursesPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">コース管理</h1>
           {canWrite && (
-            <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-            >
+            <Button variant="default" size="default" onClick={() => setShowModal(true)}>
               <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
               新規追加
-            </button>
+            </Button>
           )}
         </div>
 

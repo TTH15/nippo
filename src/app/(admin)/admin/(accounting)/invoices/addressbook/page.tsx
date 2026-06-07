@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { canAdminWrite } from "@/lib/authz";
+import { Button } from "@/lib/ui/button";
 
 type Address = {
   id: string;
@@ -186,12 +187,9 @@ export default function AddressBookPage() {
             <h1 className="text-xl font-bold text-slate-900">法人アドレス帳</h1>
           </div>
           {canWrite && (
-            <button
-              onClick={openNew}
-              className="px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-            >
+            <Button variant="default" size="default" onClick={openNew}>
               新規追加
-            </button>
+            </Button>
           )}
         </div>
 

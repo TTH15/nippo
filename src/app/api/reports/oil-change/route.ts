@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     if (kind.usesLocation && !location) {
       return NextResponse.json({ error: "location is required" }, { status: 400 });
     }
-    if (!vehicleId) {
+    if (kind.usesVehicle && !vehicleId) {
       return NextResponse.json({ error: "vehicleId is required" }, { status: 400 });
     }
 
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
         report_kind: kind.key,
         description: kind.usesDescription ? description : "",
         expense_amount: kind.usesAmount ? expenseAmount : null,
-        vehicle_id: vehicleId,
+        vehicle_id: kind.usesVehicle ? vehicleId : null,
         submitted_at: new Date().toISOString(),
       })
       .select("*")
