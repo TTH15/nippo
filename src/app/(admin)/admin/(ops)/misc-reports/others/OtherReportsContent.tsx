@@ -7,6 +7,8 @@ import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import useSWRInfinite from "swr/infinite";
+import { getAnswerValue, formatAnswer } from "@/server/reportKinds/answers";
+import type { ReportField } from "@/server/reportKinds/fields";
 
 type MiscReport = {
   id: string;
@@ -18,6 +20,8 @@ type MiscReport = {
   description?: string | null;
   odometer_km: number | null;
   expense_amount?: number | null;
+  answers?: Record<string, unknown> | null;
+  attachments?: { fieldId: string; path: string; name: string; mime: string; size: number; url?: string | null }[] | null;
   submitted_at: string;
   approved_at: string | null;
   rejected_at: string | null;
@@ -39,7 +43,50 @@ type Entry = {
 type OilChangePage = { entries: Entry[]; nextCursor: string | null; hasMore: boolean };
 const PAGE_SIZE = 30;
 
-type ReportKindInfo = { key: string; label: string; usesAmount: boolean; usesOdometer: boolean };
+type ReportKindInfo = { key: string; label: string; fields: ReportField[] };
+
+/** 報告の動的フィールドを「ラベル: 値」で描画。file 型は添付（署名URL）リンクで表示。 */
+function ReportAnswers({ report, fields }: { report: MiscReport; fields: ReportField[] }) {
+  const atts = report.attachments ?? [];
+  type AnsRow =
+    | { f: ReportField; text: string; files?: undefined }
+    | { f: ReportField; files: NonNullable<MiscReport["attachments"]>; text?: undefined };
+  const rows = fields
+    .map((f): AnsRow | null => {
+      if (f.type === "file") {
+        const mine = atts.filter((a) => a.fieldId === f.id);
+        return mine.length ? { f, files: mine } : null;
+      }
+      const text = formatAnswer(f, getAnswerValue(report, f));
+      return text && text !== "—" ? { f, text } : null;
+    })
+    .filter((r): r is AnsRow => r !== null);
+  if (rows.length === 0) return <span className="text-slate-400">—</span>;
+  return (
+    <div className="space-y-0.5">
+      {rows.map((r) => (
+        <div key={r.f.id} className="text-[13px]">
+          <span className="text-slate-400 text-xs mr-1.5">{r.f.label}</span>
+          {r.files ? (
+            <span className="inline-flex flex-wrap gap-2 align-top">
+              {r.files.map((a) =>
+                a.url ? (
+                  <a key={a.path} href={a.url} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline underline-offset-2">
+                    {a.name}
+                  </a>
+                ) : (
+                  <span key={a.path} className="text-slate-500">{a.name}</span>
+                ),
+              )}
+            </span>
+          ) : (
+            <span className="text-slate-800 whitespace-pre-wrap break-words">{r.text}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function OtherReportsContent() {
   const [tab, setTab] = useState<"pending" | "approved">("pending");
@@ -157,7 +204,7 @@ export function OtherReportsContent() {
                 driver={driver}
                 report={report}
                 kindLabel={kindLabel(report.report_kind)}
-                showsAmount={kindByKey.get(report.report_kind ?? "")?.usesAmount === true}
+                fields={kindByKey.get(report.report_kind ?? "")?.fields ?? []}
                 tab={tab}
                 canWrite={canWrite}
                 onApprove={() => handleAction(report.id, "approve")}
@@ -175,9 +222,7 @@ export function OtherReportsContent() {
                     <th className="py-3 px-3 font-semibold text-slate-600">種別</th>
                     <th className="py-3 px-3 font-semibold text-slate-600">日時</th>
                     <th className="py-3 px-3 font-semibold text-slate-600 text-center min-w-[160px]">車両</th>
-                    <th className="py-3 px-3 font-semibold text-slate-600">場所</th>
-                    <th className="py-3 px-3 font-semibold text-slate-600">内容</th>
-                    <th className="py-3 px-3 font-semibold text-slate-600 text-right">走行距離</th>
+                    <th className="py-3 px-3 font-semibold text-slate-600 min-w-[220px]">内容</th>
                     <th className="py-3 px-3 font-semibold text-slate-600 text-center">
                       {tab === "pending" ? "承認" : "ステータス"}
                     </th>
@@ -186,36 +231,22 @@ export function OtherReportsContent() {
                 </thead>
                 <tbody>
                   {entries.map(({ driver, report }) => {
-                    const showsAmount = kindByKey.get(report.report_kind ?? "")?.usesAmount === true && report.expense_amount != null;
                     return (
                     <tr key={report.id} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-3 px-4 font-medium">{getDisplayName(driver)}</td>
-                      <td className="py-3 px-3 text-sm">{kindLabel(report.report_kind)}</td>
-                      <td className="py-3 px-3 tabular-nums">{report.report_date} {report.report_time}</td>
-                      <td className="py-3 px-3 text-center">
+                      <td className="py-3 px-4 font-medium align-top">{getDisplayName(driver)}</td>
+                      <td className="py-3 px-3 text-sm align-top">{kindLabel(report.report_kind)}</td>
+                      <td className="py-3 px-3 tabular-nums align-top">{report.report_date} {report.report_time}</td>
+                      <td className="py-3 px-3 text-center align-top">
                         {report.vehicles ? (
                           <VehiclePlate vehicle={report.vehicles} compact className="max-w-[150px] mx-auto" />
                         ) : (
                           <span className="text-slate-400 text-xs">—</span>
                         )}
                       </td>
-                      <td className="py-3 px-3">{report.location}</td>
-                      <td className="py-3 px-3 text-sm text-slate-700 max-w-[200px]">
-                        {showsAmount && (
-                          <div className="font-semibold text-slate-900 tabular-nums">
-                            ¥{report.expense_amount!.toLocaleString()}
-                          </div>
-                        )}
-                        {report.description?.trim() ? (
-                          <span className="whitespace-pre-wrap break-words">{report.description}</span>
-                        ) : showsAmount ? null : (
-                          <span className="text-slate-400">—</span>
-                        )}
+                      <td className="py-3 px-3 text-slate-700 max-w-[320px] align-top">
+                        <ReportAnswers report={report} fields={kindByKey.get(report.report_kind ?? "")?.fields ?? []} />
                       </td>
-                      <td className="py-3 px-3 text-right tabular-nums">
-                        {report.odometer_km != null ? `${report.odometer_km.toLocaleString()} km` : "—"}
-                      </td>
-                      <td className="py-3 px-3 text-center">
+                      <td className="py-3 px-3 text-center align-top">
                         {tab === "approved" ? (
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
                             承認済み
@@ -270,7 +301,7 @@ function MiscReportCard({
   driver,
   report,
   kindLabel,
-  showsAmount,
+  fields,
   tab,
   canWrite,
   onApprove,
@@ -279,7 +310,7 @@ function MiscReportCard({
   driver: { id: string; name: string; display_name: string | null };
   report: MiscReport;
   kindLabel: string;
-  showsAmount: boolean;
+  fields: ReportField[];
   tab: "pending" | "approved";
   canWrite: boolean;
   onApprove: () => void;
@@ -300,29 +331,17 @@ function MiscReportCard({
 
       <div className="mt-1.5 text-xs text-slate-500 tabular-nums">
         {report.report_date} {report.report_time}
-        {report.location ? <span className="ml-2 text-slate-600">{report.location}</span> : null}
       </div>
 
-      <div className="mt-2 flex items-center gap-2">
-        {report.vehicles ? (
+      {report.vehicles && (
+        <div className="mt-2">
           <VehiclePlate vehicle={report.vehicles} compact className="max-w-[150px]" />
-        ) : (
-          <span className="text-xs text-slate-400">車両 —</span>
-        )}
-        {report.odometer_km != null && (
-          <span className="text-xs tabular-nums text-slate-600">{report.odometer_km.toLocaleString()} km</span>
-        )}
-      </div>
-
-      {showsAmount && report.expense_amount != null && (
-        <div className="mt-2 text-sm font-semibold text-slate-900 tabular-nums">
-          金額 ¥{report.expense_amount.toLocaleString()}
         </div>
       )}
 
-      {report.description?.trim() && (
-        <p className="mt-2 whitespace-pre-wrap break-words text-[13px] text-slate-700">{report.description}</p>
-      )}
+      <div className="mt-2">
+        <ReportAnswers report={report} fields={fields} />
+      </div>
 
       <div className="mt-2.5 flex items-center justify-between gap-2">
         <span className="text-[11px] text-slate-400 tabular-nums">{submittedTime} 送信</span>

@@ -7,6 +7,8 @@ import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { apiFetch } from "@/lib/api";
 import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 import { TeamPointsCard } from "@/lib/components/TeamPointsCard";
+import { DynamicField, ReportFileInput, type DynamicFieldValue } from "@/lib/components/report/DynamicField";
+import { validateAnswers, type ReportField, type AnswerAttachment } from "@/server/reportKinds/fields";
 
 type Profile = {
   name: string;
@@ -34,13 +36,8 @@ type Vehicle = {
 type ReportKindOption = {
   key: string;
   label: string;
-  usesVehicle: boolean;
-  usesLocation: boolean;
-  usesOdometer: boolean;
-  usesDescription: boolean;
-  usesAmount: boolean;
-  descriptionRequired: boolean;
-  descriptionLabel: string | null;
+  vehicleMode: "required" | "optional" | "none";
+  fields: ReportField[];
 };
 
 export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
@@ -56,12 +53,11 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const defaultTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const [reportDate, setReportDate] = useState(defaultDate);
   const [reportTime, setReportTime] = useState(defaultTime);
-  const [reportLocation, setReportLocation] = useState("");
-  const [odometerKm, setOdometerKm] = useState("");
   const [reportKinds, setReportKinds] = useState<ReportKindOption[]>([]);
   const [reportKind, setReportKind] = useState<string>("");
-  const [reportDescription, setReportDescription] = useState("");
-  const [expenseAmount, setExpenseAmount] = useState("");
+  // 動的フォームの回答（fieldId → value）。種別切替時にリセット。
+  const [answers, setAnswers] = useState<Record<string, DynamicFieldValue>>({});
+  const [attachments, setAttachments] = useState<AnswerAttachment[]>([]);
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportMessage, setReportMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -96,6 +92,12 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   }, [isReport]);
 
   const currentKind = reportKinds.find((k) => k.key === reportKind) ?? null;
+
+  // 種別を切り替えたら回答・添付をリセット。
+  useEffect(() => {
+    setAnswers({});
+    setAttachments([]);
+  }, [reportKind]);
 
   useEffect(() => {
     if (!isReport) return;
@@ -186,37 +188,25 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const handleMiscReportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setReportMessage(null);
-    const location = reportLocation.trim();
-    const kilometer = Number(odometerKm);
-    const desc = reportDescription.trim();
-    const expenseYen = Number(expenseAmount);
     const kind = currentKind;
     if (!kind) {
       setReportMessage({ type: "error", text: "報告の種類を選択してください" });
-      return;
-    }
-    if (kind.usesLocation && !location) {
-      setReportMessage({ type: "error", text: "場所を入力してください" });
-      return;
-    }
-    if (kind.usesOdometer && (!Number.isInteger(kilometer) || kilometer < 0)) {
-      setReportMessage({ type: "error", text: "交換時走行距離は0以上の整数で入力してください" });
-      return;
-    }
-    if (kind.usesDescription && kind.descriptionRequired && desc.length < 1) {
-      setReportMessage({ type: "error", text: `${kind.descriptionLabel || "内容"}を入力してください` });
-      return;
-    }
-    if (kind.usesAmount && (!Number.isInteger(expenseYen) || expenseYen <= 0)) {
-      setReportMessage({ type: "error", text: "経費金額は1円以上の整数で入力してください" });
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || !/^\d{2}:\d{2}$/.test(reportTime)) {
       setReportMessage({ type: "error", text: "日付・時間の形式が不正です" });
       return;
     }
-    if (kind.usesVehicle && !selectedVehicleId) {
+    if (kind.vehicleMode === "required" && !selectedVehicleId) {
       setReportMessage({ type: "error", text: "車両を選択してください" });
+      return;
+    }
+    // 動的フィールドの検証（サーバと同一ロジック）。
+    const attachmentsByField: Record<string, number> = {};
+    attachments.forEach((a) => (attachmentsByField[a.fieldId] = (attachmentsByField[a.fieldId] ?? 0) + 1));
+    const result = validateAnswers(kind.fields, answers, attachmentsByField);
+    if (!result.ok) {
+      setReportMessage({ type: "error", text: result.message });
       return;
     }
     setReportSubmitting(true);
@@ -226,20 +216,16 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
         body: JSON.stringify({
           reportDate,
           reportTime,
-          location: kind.usesLocation ? location : "",
           reportKind,
-          description: kind.usesDescription ? desc : "",
-          odometerKm: kind.usesOdometer ? kilometer : null,
-          expenseAmount: kind.usesAmount ? expenseYen : null,
-          vehicleId: kind.usesVehicle ? selectedVehicleId : null,
+          answers,
+          attachments,
+          vehicleId: kind.vehicleMode === "none" ? null : selectedVehicleId,
         }),
       });
-      if (kind.usesVehicle && selectedVehicleId) await saveVehiclePreference(selectedVehicleId);
+      if (kind.vehicleMode !== "none" && selectedVehicleId) await saveVehiclePreference(selectedVehicleId);
       setReportMessage({ type: "ok", text: "報告を送信しました" });
-      setReportLocation("");
-      setOdometerKm("");
-      setReportDescription("");
-      setExpenseAmount("");
+      setAnswers({});
+      setAttachments([]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "報告の送信に失敗しました";
       setReportMessage({ type: "error", text: msg });
@@ -296,7 +282,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
                 ))}
               </div>
             </div>
-            {currentKind?.usesVehicle && (vehiclesLoading ? (
+            {currentKind?.vehicleMode !== "none" && (vehiclesLoading ? (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">実施車両</label>
                 <div className="flex gap-2 overflow-x-auto pb-2">
@@ -376,64 +362,24 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
                 />
               </div>
             </div>
-            {currentKind?.usesLocation && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">場所</label>
-                <input
-                  type="text"
-                  value={reportLocation}
-                  onChange={(e) => setReportLocation(e.target.value)}
-                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
-                  placeholder={
-                    currentKind?.usesOdometer
-                      ? "例: ○○サービスエリア"
-                      : "例: 整備工場名・現場住所など"
-                  }
-                />
-              </div>
-            )}
-            {currentKind?.usesOdometer && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">交換時走行距離 (km)</label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  step={1}
-                  value={odometerKm}
-                  onChange={(e) => setOdometerKm(e.target.value)}
-                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
-                  placeholder="例: 123456"
-                />
-              </div>
-            )}
-            {currentKind?.usesDescription && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">{currentKind?.descriptionLabel || "内容"}</label>
-                <textarea
-                  value={reportDescription}
-                  onChange={(e) => setReportDescription(e.target.value)}
-                  rows={4}
-                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none text-sm resize-y min-h-[96px]"
-                  placeholder="実施内容・依頼内容・金額の目安など、管理者が判断できるよう具体的に記入してください"
-                />
-              </div>
-            )}
-            {currentKind?.usesAmount && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">経費金額 (円)</label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  step={1}
-                  value={expenseAmount}
-                  onChange={(e) => setExpenseAmount(e.target.value)}
-                  className="w-full py-2.5 px-3 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
-                  placeholder="例: 3500"
-                />
-              </div>
-            )}
+            {(currentKind?.fields ?? []).map((f) => (
+              <DynamicField
+                key={f.id}
+                field={f}
+                value={answers[f.id]}
+                onChange={(v) => setAnswers((prev) => ({ ...prev, [f.id]: v }))}
+                fileSlot={
+                  f.type === "file" ? (
+                    <ReportFileInput
+                      fieldId={f.id}
+                      files={attachments.filter((a) => a.fieldId === f.id)}
+                      onAdd={(a) => setAttachments((prev) => [...prev, a])}
+                      onRemove={(path) => setAttachments((prev) => prev.filter((a) => a.path !== path))}
+                    />
+                  ) : undefined
+                }
+              />
+            ))}
             {reportMessage && (
               <p className={`text-sm ${reportMessage.type === "ok" ? "text-green-600" : "text-red-600"}`}>
                 {reportMessage.text}

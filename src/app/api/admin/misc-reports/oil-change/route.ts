@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { normalizeAttachments } from "@/server/reportKinds/fields";
+import { signAttachments } from "@/server/reportKinds/attachments";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +64,14 @@ export async function GET(req: NextRequest) {
     (pagedDrivers ?? []).forEach((d: { id: string; name: string; display_name: string | null }) => {
       pagedDriverMap.set(d.id, { id: d.id, name: d.name, display_name: d.display_name ?? null });
     });
+
+    // 添付に短時間の署名URLを付与（閲覧用）。
+    await Promise.all(
+      pagedRows.map(async (r: Record<string, unknown>) => {
+        const atts = normalizeAttachments(r.attachments);
+        if (atts.length > 0) r.attachments = await signAttachments(supabase, atts);
+      }),
+    );
 
     const pagedEntries: Entry[] = [];
     pagedRows.forEach((r: Record<string, unknown> & { driver_id: string }) => {

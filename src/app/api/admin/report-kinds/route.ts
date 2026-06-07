@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { loadReportKinds, normalizeCapability } from "@/server/reportKinds/config";
+import { normalizeFields, validateKindFields, type VehicleMode } from "@/server/reportKinds/fields";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,11 @@ export async function GET(req: NextRequest) {
 
 const KEY_RE = /^[a-z][a-z0-9_]*$/;
 
-// POST: 種別を追加。
+function normVehicleMode(raw: unknown): VehicleMode {
+  return raw === "optional" || raw === "none" ? raw : "required";
+}
+
+// POST: 種別を追加（フォームビルダー: fields/vehicleMode）。
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
@@ -31,33 +36,21 @@ export async function POST(req: NextRequest) {
   }
 
   const capability = normalizeCapability(body.capability);
-  const usesOdometer = body.usesOdometer === true;
-  const usesAmount = body.usesAmount === true;
-  // 能力に必要なフィールドの整合性を担保する。
-  const usesVehicle = body.usesVehicle !== false;
-  if (capability === "oil_mileage" && !usesOdometer) {
-    return NextResponse.json({ error: "「車両距離更新」には走行距離フィールドが必要です。" }, { status: 400 });
-  }
-  if (capability === "oil_mileage" && !usesVehicle) {
-    return NextResponse.json({ error: "「車両距離更新」には車両の選択が必要です。" }, { status: 400 });
-  }
-  if (capability === "expense" && !usesAmount) {
-    return NextResponse.json({ error: "「経費連携」には金額フィールドが必要です。" }, { status: 400 });
-  }
+  const vehicleMode = normVehicleMode(body.vehicleMode);
+  const fields = normalizeFields(body.fields);
+  const check = validateKindFields(fields, vehicleMode, capability);
+  if (!check.ok) return NextResponse.json({ error: check.message }, { status: 400 });
 
   const row = {
     key,
     label,
     sort_order: Number.isFinite(Number(body.sortOrder)) ? Math.trunc(Number(body.sortOrder)) : 999,
     is_active: body.isActive !== false,
-    uses_vehicle: usesVehicle,
-    uses_location: body.usesLocation !== false,
-    uses_odometer: usesOdometer,
-    uses_description: body.usesDescription !== false,
-    uses_amount: usesAmount,
-    description_required: body.descriptionRequired !== false,
-    description_label: typeof body.descriptionLabel === "string" && body.descriptionLabel.trim() ? body.descriptionLabel.trim() : null,
     capability,
+    fields,
+    vehicle_mode: vehicleMode,
+    // 後方互換の uses_* は fields から最小限導出（fromRow は fields を優先するため表示には未使用）。
+    uses_vehicle: vehicleMode !== "none",
   };
 
   const { data, error } = await supabase.from("report_kinds").insert(row).select("*").maybeSingle();
@@ -65,7 +58,7 @@ export async function POST(req: NextRequest) {
     console.error("[admin/report-kinds] insert error", error);
     const dup = error.code === "23505";
     return NextResponse.json(
-      { error: dup ? "そのキーは既に使われています。" : "保存に失敗しました（migration 068 未適用の可能性）。" },
+      { error: dup ? "そのキーは既に使われています。" : "保存に失敗しました（migration 068/072 未適用の可能性）。" },
       { status: dup ? 400 : 500 },
     );
   }

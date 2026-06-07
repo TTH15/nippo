@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { loadReportKinds } from "@/server/reportKinds/config";
+import { getRoleValue, getAnswerValue } from "@/server/reportKinds/answers";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
 
     const { data: report, error: reportErr } = await supabase
       .from("oil_change_reports")
-      .select("driver_id, report_date, report_kind, description, expense_amount, vehicle_id, odometer_km")
+      .select("driver_id, report_date, report_kind, description, expense_amount, vehicle_id, odometer_km, answers")
       .eq("id", id)
       .maybeSingle();
 
@@ -42,20 +43,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    // 種別の能力(capability)で承認時の特別処理を決める（ハードコードを廃止）。
+    // 種別の能力(capability)で承認時の特別処理を決める。値は role フィールド(answers)から解決。
     const reportKinds = await loadReportKinds(supabase);
     const kind = reportKinds.find((k) => k.key === report?.report_kind) ?? null;
     const capability = kind?.capability ?? "none";
+    const fields = kind?.fields ?? [];
+    const odometerValue = report ? getRoleValue(report, fields, "odometer") : null;
+    const amountValue = report ? getRoleValue(report, fields, "amount") : null;
 
     if (
       capability === "oil_mileage" &&
       report?.vehicle_id &&
-      report.odometer_km != null
+      odometerValue != null
     ) {
       const { error: vehicleErr } = await supabase
         .from("vehicles")
         .update({
-          last_oil_change_mileage: Number(report.odometer_km),
+          last_oil_change_mileage: Math.trunc(odometerValue),
           updated_at: new Date().toISOString(),
         })
         .eq("id", report.vehicle_id);
@@ -69,12 +73,16 @@ export async function POST(req: NextRequest) {
       capability === "expense" &&
       report?.driver_id &&
       report?.report_date &&
-      report?.expense_amount != null
+      amountValue != null
     ) {
       const month = String(report.report_date).slice(0, 7);
-      const amountYen = Math.trunc(Number(report.expense_amount) || 0);
+      const amountYen = Math.trunc(amountValue || 0);
       if (month.match(/^\d{4}-\d{2}$/) && amountYen > 0) {
-        const rawTitle = String(report.description ?? "").trim();
+        // 経費タイトル: amount以外のテキスト系フィールドの回答 → 無ければ description。
+        const textField = fields.find((f) => (f.type === "short_text" || f.type === "long_text"));
+        const rawTitle = String(
+          (textField && report ? getAnswerValue(report, textField) : "") || report.description || "",
+        ).trim();
         const title = rawTitle ? `経費報告: ${rawTitle}` : "経費報告";
         const name = title.length > 200 ? title.slice(0, 200) : title;
         const payload = {

@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { normalizeCapability } from "@/server/reportKinds/config";
+import { normalizeFields, validateKindFields, type VehicleMode } from "@/server/reportKinds/fields";
 
 export const dynamic = "force-dynamic";
+
+function normVehicleMode(raw: unknown): VehicleMode {
+  return raw === "optional" || raw === "none" ? raw : "required";
+}
 
 // PATCH: 種別を更新（key は不変＝既存報告との対応を保つ）。
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -21,33 +26,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   if ("sortOrder" in body && Number.isFinite(Number(body.sortOrder))) updates.sort_order = Math.trunc(Number(body.sortOrder));
   if ("isActive" in body) updates.is_active = body.isActive === true;
-  if ("usesVehicle" in body) updates.uses_vehicle = body.usesVehicle === true;
-  if ("usesLocation" in body) updates.uses_location = body.usesLocation === true;
-  if ("usesOdometer" in body) updates.uses_odometer = body.usesOdometer === true;
-  if ("usesDescription" in body) updates.uses_description = body.usesDescription === true;
-  if ("usesAmount" in body) updates.uses_amount = body.usesAmount === true;
-  if ("descriptionRequired" in body) updates.description_required = body.descriptionRequired === true;
-  if ("descriptionLabel" in body)
-    updates.description_label = typeof body.descriptionLabel === "string" && body.descriptionLabel.trim() ? body.descriptionLabel.trim() : null;
   if ("capability" in body) updates.capability = normalizeCapability(body.capability);
+  if ("vehicleMode" in body) updates.vehicle_mode = normVehicleMode(body.vehicleMode);
+  if ("fields" in body) updates.fields = normalizeFields(body.fields);
 
-  // 能力とフィールドの整合性チェック（更新後の値で判定）。
+  // 現在値（不足分の補完用）。
   const { data: current, error: curErr } = await supabase
     .from("report_kinds")
-    .select("uses_odometer, uses_amount, uses_vehicle, capability")
+    .select("capability, vehicle_mode, fields")
     .eq("id", id)
     .maybeSingle();
   if (curErr || !current) return NextResponse.json({ error: "種別が見つかりません。" }, { status: 404 });
-  const nextCap = (updates.capability as string) ?? current.capability;
-  const nextOdo = "uses_odometer" in updates ? (updates.uses_odometer as boolean) : current.uses_odometer;
-  const nextAmt = "uses_amount" in updates ? (updates.uses_amount as boolean) : current.uses_amount;
-  const nextVeh = "uses_vehicle" in updates ? (updates.uses_vehicle as boolean) : current.uses_vehicle;
-  if (nextCap === "oil_mileage" && !nextOdo)
-    return NextResponse.json({ error: "「車両距離更新」には走行距離フィールドが必要です。" }, { status: 400 });
-  if (nextCap === "oil_mileage" && !nextVeh)
-    return NextResponse.json({ error: "「車両距離更新」には車両の選択が必要です。" }, { status: 400 });
-  if (nextCap === "expense" && !nextAmt)
-    return NextResponse.json({ error: "「経費連携」には金額フィールドが必要です。" }, { status: 400 });
+
+  // fields/vehicle_mode/capability の整合性チェック（更新後の値で判定）。
+  const nextCap = (updates.capability as "none" | "oil_mileage" | "expense") ?? normalizeCapability(current.capability);
+  const nextVeh = (updates.vehicle_mode as VehicleMode) ?? normVehicleMode(current.vehicle_mode);
+  const nextFields = "fields" in updates ? (updates.fields as ReturnType<typeof normalizeFields>) : normalizeFields(current.fields);
+  if ("fields" in updates || "vehicleMode" in body || "capability" in body) {
+    const check = validateKindFields(nextFields, nextVeh, nextCap);
+    if (!check.ok) return NextResponse.json({ error: check.message }, { status: 400 });
+  }
+
+  // 後方互換: uses_vehicle を vehicle_mode から同期。
+  if ("vehicleMode" in body) updates.uses_vehicle = nextVeh !== "none";
 
   const { data, error } = await supabase.from("report_kinds").update(updates).eq("id", id).select("*").maybeSingle();
   if (error) {
