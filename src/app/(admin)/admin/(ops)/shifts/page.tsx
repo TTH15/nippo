@@ -1182,11 +1182,6 @@ export default function ShiftsPage() {
                             isToday && TODAY_RULE_TOP,
                           )}
                         >
-                          {isToday ? (
-                            <span className="mb-0.5 inline-block rounded-full bg-amber-500 px-1.5 py-px text-[9px] font-bold leading-none text-white">
-                              TODAY
-                            </span>
-                          ) : null}
                           <span
                             className={`block leading-none mb-1 text-[11px] font-bold tabular-nums ${count > 0 ? "text-slate-700" : "text-slate-300"}`}
                             title={`稼働 ${count} 人`}
@@ -1312,8 +1307,7 @@ export default function ShiftsPage() {
                                       title={canWrite ? "クリックして編集" : vehicleTitle}
                                       className={cn(
                                         "group flex min-h-[3.25rem] w-full flex-col gap-1 rounded-lg px-1.5 py-1.5 text-left transition-colors",
-                                        hasAny ? "border border-slate-200/80 bg-white/65" : "border border-transparent",
-                                        canWrite && !isEditing && "hover:border-slate-300 hover:bg-white",
+                                        canWrite && !isEditing && "hover:bg-white/70",
                                         canWrite ? "cursor-pointer" : "cursor-default",
                                         isEditing && "bg-white ring-2 ring-slate-400",
                                         dirty && !isEditing && "ring-2 ring-amber-400",
