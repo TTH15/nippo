@@ -20,7 +20,7 @@ import {
 } from "@/lib/components/VehiclePlate";
 import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
 import { cn } from "@/lib/ui/utils";
-import { ChevronDown, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import ShiftDeadlineSettingsModal from "./ShiftDeadlineSettingsModal";
 
 type Course = {
@@ -158,38 +158,35 @@ function exportDayChrome(dateStr: string): { headBg: string; headColor: string; 
   return { headBg: "#f9fafb", headColor: "#6b7280" };
 }
 
-function ShiftVehiclePlatePicker({
+/**
+ * シフトセル編集ポップオーバー内の「車両選択」インライン一覧。
+ * 入れ子ポップオーバーを避けるため、車両なし／他社車両／紐づけ／その他を
+ * その場のボタン列として表示する（選択しても親の編集ポップオーバーは閉じない）。
+ */
+function VehicleOptionList({
   valueId,
-  displayVehicle,
+  isExternal,
   linkedPlates,
   otherPlates,
   takenBy,
   loanedIds,
-  isExternal,
   onChange,
   onSelectExternal,
   disabled,
-  dirty,
-  title,
 }: {
   valueId: string | null;
-  displayVehicle: VehiclePlateData | null;
+  /** 他社車両を利用フラグ */
+  isExternal?: boolean;
   linkedPlates: VehiclePlateData[];
   otherPlates: VehiclePlateData[];
   /** その日すでに他ドライバーが使用中の車両 id → 使用者名 */
   takenBy?: Map<string, string>;
   /** その日貸出中の車両 id（紐付け不可） */
   loanedIds?: Set<string>;
-  /** 他社車両を利用フラグ */
-  isExternal?: boolean;
   onChange: (id: string | null) => void;
   onSelectExternal?: () => void;
   disabled?: boolean;
-  dirty?: boolean;
-  title?: string;
 }) {
-  const [open, setOpen] = useState(false);
-
   const row = (v: VehiclePlateData) => {
     const selected = valueId === v.id;
     const isLoaned = loanedIds?.has(v.id) ?? false;
@@ -199,7 +196,7 @@ function ShiftVehiclePlatePicker({
       <button
         key={v.id}
         type="button"
-        disabled={isTaken}
+        disabled={disabled || isTaken}
         title={isLoaned ? "貸出中" : takenByName ? `${takenByName} さんが使用中` : undefined}
         className={cn(
           "w-full rounded-md p-0.5 flex flex-col items-center gap-0.5 transition-colors",
@@ -212,7 +209,6 @@ function ShiftVehiclePlatePicker({
         onClick={() => {
           if (isTaken) return;
           onChange(v.id);
-          setOpen(false);
         }}
       >
         <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
@@ -226,80 +222,51 @@ function ShiftVehiclePlatePicker({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
+    <div className="flex flex-col gap-1">
+      <div className="flex gap-1">
         <button
           type="button"
           disabled={disabled}
-          title={title}
           className={cn(
-            "w-full flex items-center gap-0.5 rounded-lg px-0.5 py-0.5 min-h-0 border transition-colors text-left",
-            disabled && "opacity-50 cursor-not-allowed",
-            dirty ? "border-amber-300/80 bg-amber-50/50" : "border-slate-200/90 bg-white hover:border-slate-300/90",
+            "flex-1 text-center text-[11px] py-1.5 px-2 rounded-md border transition-colors",
+            !valueId && !isExternal
+              ? "bg-slate-100 border-slate-300 font-medium text-slate-900"
+              : "border-slate-200 text-slate-600 hover:bg-slate-50",
           )}
+          onClick={() => onChange(null)}
         >
-          <div className="flex-1 min-w-0 flex justify-center [&_.plate-font-hiragana]:tracking-tight">
-            {valueId && displayVehicle ? (
-              <VehiclePlate vehicle={displayVehicle} compact className="!max-w-none w-full min-w-0 pointer-events-none" />
-            ) : isExternal ? (
-              <span className="text-[10px] font-semibold text-indigo-600 py-0.5">他社車両</span>
-            ) : (
-              <span className="text-[10px] text-slate-400 font-medium py-0.5">車両なし</span>
-            )}
-          </div>
-          <ChevronDown className="h-3 w-3 text-slate-400 shrink-0 self-center mr-0.5" aria-hidden />
+          車両なし
         </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={4}
-        className="w-auto min-w-[12rem] max-w-[min(20rem,calc(100vw-1.5rem))] p-0 max-h-[min(22rem,70vh)] overflow-y-auto border-slate-200/90 shadow-lg"
-      >
-        <div className="p-1.5 pb-0 flex flex-col gap-0.5">
+        {onSelectExternal && (
           <button
             type="button"
+            disabled={disabled}
             className={cn(
-              "w-full text-left text-[11px] py-2 px-2 rounded-md transition-colors",
-              !valueId && !isExternal ? "bg-slate-100/90 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-50",
+              "flex-1 text-center text-[11px] py-1.5 px-2 rounded-md border transition-colors",
+              isExternal
+                ? "bg-indigo-50 border-indigo-300 font-medium text-indigo-700"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50",
             )}
-            onClick={() => {
-              onChange(null);
-              setOpen(false);
-            }}
+            onClick={() => onSelectExternal()}
           >
-            車両なし
+            他社車両
           </button>
-          {onSelectExternal && (
-            <button
-              type="button"
-              className={cn(
-                "w-full text-left text-[11px] py-2 px-2 rounded-md transition-colors",
-                isExternal ? "bg-indigo-50 font-medium text-indigo-700" : "text-slate-600 hover:bg-slate-50",
-              )}
-              onClick={() => {
-                onSelectExternal();
-                setOpen(false);
-              }}
-            >
-              他社車両を利用
-            </button>
-          )}
+        )}
+      </div>
+      {linkedPlates.length > 0 && (
+        <div className="flex flex-col gap-0.5">
+          <p className="px-1 text-[10px] font-medium text-slate-500">紐づけ車両</p>
+          {linkedPlates.map((v) => row(v))}
         </div>
-        {linkedPlates.length > 0 && (
-          <div className="flex flex-col gap-0.5 px-1.5 pb-1.5">
-            <p className="px-1 text-[10px] font-medium text-slate-500">紐づけ車両</p>
-            {linkedPlates.map((v) => row(v))}
-          </div>
-        )}
-        {otherPlates.length > 0 && (
-          <div className="border-t border-slate-200/80 bg-slate-50/40 px-1.5 py-1.5">
-            <p className="px-1 pb-1.5 text-[10px] font-semibold text-slate-600">他の車両を追加</p>
-            <p className="px-1 pb-1.5 text-[9px] leading-snug text-slate-500">その他の車両（全社マスタ・未紐づけ含む）</p>
-            <div className="flex flex-col gap-0.5">{otherPlates.map((v) => row(v))}</div>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
+      )}
+      {otherPlates.length > 0 && (
+        <div className="border-t border-slate-200/80 pt-1.5">
+          <p className="px-1 pb-1 text-[10px] font-semibold text-slate-600">その他の車両</p>
+          <p className="px-1 pb-1 text-[9px] leading-snug text-slate-500">全社マスタ・未紐づけ含む</p>
+          <div className="flex flex-col gap-0.5 max-h-44 overflow-y-auto">{otherPlates.map((v) => row(v))}</div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -437,6 +404,9 @@ export default function ShiftsPage() {
   const [exporting, setExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<"png" | "pdf">("png");
   const exportRef = useRef<HTMLDivElement | null>(null);
+  // 編集中のセル（date×driverId）。null＝全セル閲覧モード。
+  // クリックで開いた1セルだけが編集UI（ポップオーバー）を表示する。
+  const [editingCell, setEditingCell] = useState<{ date: string; driverId: string } | null>(null);
 
   const displayDates = useMemo(
     () =>
@@ -1013,7 +983,7 @@ export default function ShiftsPage() {
           <div className="w-full md:w-auto">
             <h1 className="text-xl font-bold text-slate-900">シフト管理</h1>
             <p className="hidden md:block text-xs text-slate-500 mt-1">
-              列幅は固定で略記が「…」省略されます（ホバーで詳細）。上部でコース、下部で車両（ナンバー）を指定します。「車両管理」でドライバーと車両を紐付けた車だけ選べます。
+              セルをクリックすると、そのセルだけ編集パネルが開きコース・車両を指定できます（変更は自動保存）。「車両管理」でドライバーと車両を紐付けた車が候補の先頭に出ます。
             </p>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap w-full md:w-auto">
@@ -1183,10 +1153,6 @@ export default function ShiftsPage() {
                           const dirty = isDateDriverDirty(date, driver.id);
 
                           const addable = getAddableCoursesForDriverOnDate(date, driver.id);
-                          const addOptions = addable.map((c) => ({
-                            value: c.id,
-                            label: courseShiftLabel(c),
-                          }));
 
                           const prow =
                             placement
@@ -1219,7 +1185,7 @@ export default function ShiftsPage() {
                               .map((l) => l.vehicle_id),
                           );
                           const sortedFleet = [...fleetVehicles].sort(byPlateLine);
-                          let linkedPlates = sortedFleet.filter((v) => linkedIds.has(v.id));
+                          const linkedPlates = sortedFleet.filter((v) => linkedIds.has(v.id));
                           let otherPlates = sortedFleet.filter((v) => !linkedIds.has(v.id));
 
                           if (currentVid && hoverVehiclePlate && !sortedFleet.some((v) => v.id === currentVid)) {
@@ -1228,6 +1194,25 @@ export default function ShiftsPage() {
 
                           const vehicleTitle =
                             hoverVehiclePlate && currentVid ? formatPlateOneLine(hoverVehiclePlate) : undefined;
+
+                          // その日すでに他ドライバーが使用中の車両 id → 使用者名
+                          const takenByMap = (() => {
+                            const m = new Map<string, string>();
+                            const holders = vehicleHoldersByDate.get(date);
+                            if (holders) {
+                              for (const [vid, ids] of holders) {
+                                const other = ids.find((id) => id !== driver.id);
+                                if (other) {
+                                  const od = drivers.find((d) => d.id === other);
+                                  m.set(vid, od ? getDisplayName(od) : "別のドライバー");
+                                }
+                              }
+                            }
+                            return m;
+                          })();
+
+                          const isEditing =
+                            editingCell?.date === date && editingCell?.driverId === driver.id;
 
                           return (
                             <td
@@ -1243,89 +1228,162 @@ export default function ShiftsPage() {
                                   <span className="text-[12px] font-semibold text-amber-900">希望休</span>
                                 </div>
                               ) : (
-                                <div className="flex flex-col gap-1">
-                                  {/* コース欄: 割当チップ + その下に「＋」追加ボタン */}
-                                  <div className="flex flex-col gap-0.5">
-                                    {assignedCourses.map((course) => (
-                                      <div
-                                        key={course.id}
-                                        title={courseAbbrevTooltip(course)}
-                                        className={cn(
-                                          "flex items-center gap-0.5 h-6 min-w-0 w-full shrink-0 overflow-hidden rounded-[6px] px-1",
-                                          dirty && "outline outline-2 -outline-offset-2 outline-amber-400",
-                                        )}
-                                        style={courseCellSurface(course.color)}
-                                      >
-                                        <span className="flex-1 min-w-0 truncate text-[11px] font-semibold text-slate-900 leading-tight">
-                                          {courseShiftLabel(course)}
+                                <Popover
+                                  open={isEditing}
+                                  onOpenChange={(o) =>
+                                    setEditingCell(o ? { date, driverId: driver.id } : null)
+                                  }
+                                >
+                                  {/* 閲覧: 結果だけを静的表示。クリックで編集ポップオーバーが開く */}
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      type="button"
+                                      disabled={!canWrite}
+                                      title={canWrite ? "クリックして編集" : vehicleTitle}
+                                      className={cn(
+                                        "group flex min-h-[2.75rem] w-full flex-col gap-0.5 rounded-md px-0.5 py-0.5 text-left transition-colors",
+                                        canWrite && !isEditing && "hover:bg-white/70 hover:ring-1 hover:ring-slate-300",
+                                        canWrite ? "cursor-pointer" : "cursor-default",
+                                        isEditing && "bg-white ring-2 ring-slate-400",
+                                        dirty && !isEditing && "ring-2 ring-amber-400",
+                                      )}
+                                    >
+                                      {hasAny ? (
+                                        <>
+                                          {assignedCourses.map((course) => (
+                                            <span
+                                              key={course.id}
+                                              title={courseAbbrevTooltip(course)}
+                                              className="flex h-6 w-full min-w-0 items-center overflow-hidden rounded-[6px] px-1"
+                                              style={courseCellSurface(course.color)}
+                                            >
+                                              <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-slate-900">
+                                                {courseShiftLabel(course)}
+                                              </span>
+                                            </span>
+                                          ))}
+                                          <span className="flex w-full min-w-0 items-center justify-center">
+                                            {currentVid && hoverVehiclePlate ? (
+                                              <VehiclePlate
+                                                vehicle={hoverVehiclePlate}
+                                                compact
+                                                className="!max-w-none w-full min-w-0 pointer-events-none"
+                                              />
+                                            ) : currentExternal ? (
+                                              <span className="py-0.5 text-[10px] font-semibold text-indigo-600">他社車両</span>
+                                            ) : (
+                                              <span className="py-0.5 text-[10px] font-medium text-slate-400">車両なし</span>
+                                            )}
+                                          </span>
+                                        </>
+                                      ) : (
+                                        <span className="flex flex-1 items-center justify-center text-sm text-slate-300 group-hover:text-slate-400">
+                                          {canWrite ? "＋" : "—"}
                                         </span>
-                                        {canWrite ? (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              removeDriverFromCourseOnDate(date, driver.id, course.id)
-                                            }
-                                            className="shrink-0 leading-none text-[13px] text-slate-500 hover:text-rose-600 px-0.5"
-                                            title="このコースを外す"
-                                            aria-label="このコースを外す"
-                                          >
-                                            ×
-                                          </button>
+                                      )}
+                                    </button>
+                                  </PopoverTrigger>
+
+                                  {/* 編集: 開いた1セルだけ。コース・車両・保存状態を表示 */}
+                                  {isEditing && canWrite ? (
+                                    <PopoverContent
+                                      align="start"
+                                      sideOffset={6}
+                                      className="w-64 space-y-3 border-slate-200/90 p-3 shadow-lg"
+                                    >
+                                      <div className="flex items-baseline justify-between gap-2">
+                                        <span className="truncate text-xs font-semibold text-slate-800">
+                                          {getDisplayName(driver)}
+                                        </span>
+                                        <span className="shrink-0 text-[11px] text-slate-500">{formatDate(date)}</span>
+                                      </div>
+
+                                      {/* コース */}
+                                      <div className="space-y-1.5">
+                                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">コース</p>
+                                        {assignedCourses.length > 0 ? (
+                                          <div className="flex flex-col gap-1">
+                                            {assignedCourses.map((course) => (
+                                              <div
+                                                key={course.id}
+                                                title={courseAbbrevTooltip(course)}
+                                                className="flex h-7 items-center gap-1 rounded-[6px] px-1.5"
+                                                style={courseCellSurface(course.color)}
+                                              >
+                                                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-slate-900">
+                                                  {courseShiftLabel(course)}
+                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => removeDriverFromCourseOnDate(date, driver.id, course.id)}
+                                                  className="shrink-0 px-0.5 text-[13px] leading-none text-slate-500 hover:text-rose-600"
+                                                  title="このコースを外す"
+                                                  aria-label="このコースを外す"
+                                                >
+                                                  ×
+                                                </button>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <p className="text-[11px] text-slate-400">未割当</p>
+                                        )}
+                                        {addable.length > 0 ? (
+                                          <div className="flex flex-wrap gap-1 pt-0.5">
+                                            {addable.map((c) => (
+                                              <button
+                                                key={c.id}
+                                                type="button"
+                                                onClick={() => addDriverToCourseOnDate(date, driver.id, c.id)}
+                                                className="inline-flex items-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-1.5 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100"
+                                              >
+                                                ＋{courseShiftLabel(c)}
+                                              </button>
+                                            ))}
+                                          </div>
                                         ) : null}
                                       </div>
-                                    ))}
-                                    {canWrite && addOptions.length > 0 ? (
-                                      <div className="h-6 min-w-0 w-full shrink-0 overflow-hidden rounded-[6px] border border-dashed border-slate-300 bg-slate-50/80 [&_button]:h-full [&_button]:min-h-0 [&_button]:rounded-[5px] [&_button]:border-0 [&_button]:bg-transparent [&_button]:shadow-none [&_button]:justify-center">
-                                        <CustomSelect
-                                          options={addOptions}
-                                          value=""
-                                          onChange={(v) => {
-                                            if (v) addDriverToCourseOnDate(date, driver.id, v);
-                                          }}
-                                          placeholder="＋"
-                                          clearable={false}
-                                          disabled={!canWrite}
-                                          size="xs"
-                                        />
-                                      </div>
-                                    ) : null}
-                                  </div>
 
-                                  {/* 車両欄 */}
-                                  {hasAny ? (
-                                    <div className="min-w-0 w-full shrink-0 overflow-hidden">
-                                      <ShiftVehiclePlatePicker
-                                        valueId={currentVid}
-                                        displayVehicle={
-                                          currentVid && hoverVehiclePlate ? hoverVehiclePlate : null
-                                        }
-                                        linkedPlates={linkedPlates}
-                                        otherPlates={otherPlates}
-                                        takenBy={(() => {
-                                          const m = new Map<string, string>();
-                                          const holders = vehicleHoldersByDate.get(date);
-                                          if (holders) {
-                                            for (const [vid, ids] of holders) {
-                                              const other = ids.find((id) => id !== driver.id);
-                                              if (other) {
-                                                const od = drivers.find((d) => d.id === other);
-                                                m.set(vid, od ? getDisplayName(od) : "別のドライバー");
-                                              }
-                                            }
-                                          }
-                                          return m;
-                                        })()}
-                                        loanedIds={loanedByDate.get(date)}
-                                        isExternal={currentExternal}
-                                        onChange={(id) => setVehicleForDriverOnDate(date, driver.id, id)}
-                                        onSelectExternal={() => setExternalForDriverOnDate(date, driver.id, true)}
-                                        disabled={!canWrite}
-                                        dirty={dirty}
-                                        title={vehicleTitle}
-                                      />
-                                    </div>
+                                      {/* 車両（コース割当がある時のみ選択可能） */}
+                                      {hasAny ? (
+                                        <div className="space-y-1.5 border-t border-slate-200/80 pt-2.5">
+                                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">車両</p>
+                                          <VehicleOptionList
+                                            valueId={currentVid}
+                                            isExternal={currentExternal}
+                                            linkedPlates={linkedPlates}
+                                            otherPlates={otherPlates}
+                                            takenBy={takenByMap}
+                                            loanedIds={loanedByDate.get(date)}
+                                            onChange={(id) => setVehicleForDriverOnDate(date, driver.id, id)}
+                                            onSelectExternal={() => setExternalForDriverOnDate(date, driver.id, true)}
+                                            disabled={!canWrite}
+                                          />
+                                        </div>
+                                      ) : null}
+
+                                      {/* 保存状態 */}
+                                      <div className="flex items-center justify-between border-t border-slate-200/80 pt-2.5">
+                                        <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                                          <span
+                                            className={cn(
+                                              "inline-block h-2 w-2 rounded-full",
+                                              autoSaving > 0 ? "bg-amber-400 animate-pulse" : "bg-emerald-500",
+                                            )}
+                                          />
+                                          {autoSaving > 0 ? "保存中…" : "✓ 保存済み"}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingCell(null)}
+                                          className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                                        >
+                                          完了
+                                        </button>
+                                      </div>
+                                    </PopoverContent>
                                   ) : null}
-                                </div>
+                                </Popover>
                               )}
                             </td>
                           );
