@@ -553,6 +553,24 @@ export default function ShiftsPage() {
     return requests.some((r) => r.driver_id === driverId && r.request_date === date);
   };
 
+  // その日の稼働人数（いずれかのコースに割り当てられた重複排除ドライバー数）。
+  const workingCountByDate = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const date of displayDates) {
+      const set = new Set<string>();
+      for (const course of courses) {
+        const maxSlots = Math.max(1, course.max_drivers ?? 1);
+        for (let slot = 1; slot <= maxSlots; slot++) {
+          const did = getCurrentDriverId(date, course.id, slot);
+          if (did) set.add(did);
+        }
+      }
+      m.set(date, set.size);
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayDates, courses, localShifts, shifts]);
+
   /** バッチ更新用: Map を重ねて効いている driverId を返す */
   const getEffectiveIdFromMap = (
     localMap: Map<string, string | null>,
@@ -1118,16 +1136,24 @@ export default function ShiftsPage() {
               <table className="w-full text-sm min-w-[720px] border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/95">
-                    <th className="sticky left-0 z-20 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-slate-200/95">
+                    <th className="sticky left-0 z-20 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-slate-200/95 align-bottom">
+                      <span className="block text-[10px] font-normal text-slate-400 leading-none">上段＝稼働人数</span>
                       ドライバー
                     </th>
                     {displayDates.map((date) => {
                       const tone = shiftDayTone(date, today);
+                      const count = workingCountByDate.get(date) ?? 0;
                       return (
                         <th
                           key={date}
                           className={`${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-center font-medium overflow-hidden align-top ${tone.header}`}
                         >
+                          <span
+                            className={`block leading-none mb-1 text-[11px] font-bold tabular-nums ${count > 0 ? "text-slate-700" : "text-slate-300"}`}
+                            title={`稼働 ${count} 人`}
+                          >
+                            稼働 {count}
+                          </span>
                           <span className="line-clamp-2 leading-tight break-words" title={formatDate(date)}>
                             {formatDate(date)}
                           </span>
