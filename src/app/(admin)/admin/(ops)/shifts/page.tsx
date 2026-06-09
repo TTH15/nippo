@@ -22,6 +22,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
 import { cn } from "@/lib/ui/utils";
 import { ChevronDown, Settings } from "lucide-react";
 import ShiftDeadlineSettingsModal from "./ShiftDeadlineSettingsModal";
+import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
+import { drawShiftPdf, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
 
 type Course = {
   id: string;
@@ -977,18 +979,71 @@ export default function ShiftsPage() {
     return newV !== oldV;
   };
 
+  // ベクターPDF用に、エクスポート表の内容を素データへ変換（描画ロジックと分離）。
+  const buildShiftPdfData = (): ShiftPdfData => {
+    const rows = driversWithCourses.map((driver) => {
+      const cells: ExCell[] = displayDates.map((date) => {
+        if (isDriverOffDay(driver.id, date)) return { kind: "off" };
+        const placements = findDriverPlacementsOnDate(localShifts, date, driver.id);
+        const exCourses = placements
+          .map((p) => courses.find((c) => c.id === p.courseId))
+          .filter((c): c is Course => Boolean(c))
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+        const chrome = exportDayChrome(date);
+        if (exCourses.length === 0) return { kind: "designated", bg: chrome.cellBg };
+        const placement = placements[0] ?? null;
+        const exVid = getCurrentVehicleForDriverOnDate(date, driver.id);
+        const prow = placement
+          ? shifts.find(
+              (s) => s.shift_date === date && s.course_id === placement.courseId && s.slot === placement.slot,
+            )
+          : null;
+        const exPlate: VehiclePlateData | null = (() => {
+          if (!exVid) return null;
+          const f = fleetById.get(exVid);
+          if (f) return f;
+          return prow?.vehicle_id === exVid ? normalizeShiftVehiclesEmbed(prow).vehicles ?? null : null;
+        })();
+        return {
+          kind: "courses",
+          bg: chrome.cellBg,
+          plate: exPlate ? formatPlateOneLine(exPlate) : "",
+          courses: exCourses.map((c) => ({ label: courseShiftLabel(c), color: c.color })),
+        };
+      });
+      return { name: getDisplayName(driver), cells };
+    });
+    return {
+      title: `シフト表（${yearMonth.year}年${yearMonth.month}月 ${period === "first" ? "前半" : "後半"}）`,
+      dateLabels: displayDates.map((d) => formatDate(d)),
+      dayChrome: displayDates.map((d) => exportDayChrome(d)),
+      rows,
+      offLabel: "未割当",
+      offRow: displayDates.map((d) => getOffDriverNamesOnDate(d).join("、")),
+    };
+  };
+
   const handleExport = async (format: "png" | "pdf") => {
     if (exporting) return;
-    const root = exportRef.current;
-    if (!root) return;
     try {
       setExporting(true);
+      const fileBase = `shifts_${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}_${period}`;
+
+      if (format === "pdf") {
+        // ベクターPDF（jsPDF で表を再描画。日本語フォントを埋め込む）。
+        const { jsPDF } = await import("jspdf");
+        const pdf = new jsPDF("landscape", "pt", "a4");
+        const fontName = await registerJapaneseFont(pdf);
+        drawShiftPdf(pdf, buildShiftPdfData(), fontName);
+        pdf.save(`${fileBase}.pdf`);
+        return;
+      }
+
+      // PNG は従来どおりエクスポート用DOMを html2canvas で画像化。
+      const root = exportRef.current;
+      if (!root) return;
       const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(root, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-      });
+      const canvas = await html2canvas(root, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
 
       const targetWidth = 2400;
       const targetHeight = 1400;
@@ -1002,29 +1057,11 @@ export default function ShiftsPage() {
       const scale = Math.min(targetWidth / canvas.width, targetHeight / canvas.height);
       const renderWidth = canvas.width * scale;
       const renderHeight = canvas.height * scale;
-      const offsetX = (targetWidth - renderWidth) / 2;
-      const offsetY = (targetHeight - renderHeight) / 2;
-      ctx.drawImage(canvas, offsetX, offsetY, renderWidth, renderHeight);
-      const dataUrl = fitted.toDataURL("image/png");
-
-      if (format === "png") {
-        const a = document.createElement("a");
-        a.href = dataUrl;
-        a.download = `shifts_${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}_${period}.png`;
-        a.click();
-      } else {
-        const { jsPDF } = await import("jspdf");
-        const pdf = new jsPDF("landscape", "pt", "a4");
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const pdfScale = Math.min(pageWidth / targetWidth, pageHeight / targetHeight);
-        const pdfWidth = targetWidth * pdfScale;
-        const pdfHeight = targetHeight * pdfScale;
-        const pdfX = (pageWidth - pdfWidth) / 2;
-        const pdfY = (pageHeight - pdfHeight) / 2;
-        pdf.addImage(dataUrl, "PNG", pdfX, pdfY, pdfWidth, pdfHeight);
-        pdf.save(`shifts_${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}_${period}.pdf`);
-      }
+      ctx.drawImage(canvas, (targetWidth - renderWidth) / 2, (targetHeight - renderHeight) / 2, renderWidth, renderHeight);
+      const a = document.createElement("a");
+      a.href = fitted.toDataURL("image/png");
+      a.download = `${fileBase}.png`;
+      a.click();
     } catch (e) {
       console.error(e);
       setErrorState({
