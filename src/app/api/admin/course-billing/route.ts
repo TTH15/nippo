@@ -12,21 +12,30 @@ export const dynamic = "force-dynamic";
 // ============================================================
 
 // GET: ?course_id=... → そのコースのキャリア配下 unit と現単価
+//      ?carrier_id=... → コース未作成（新規作成）向け。キャリア配下 unit のみ（単価は空）。
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   const courseId = req.nextUrl.searchParams.get("course_id") ?? "";
-  if (!courseId) return NextResponse.json({ error: "course_id が必要です" }, { status: 400 });
+  const carrierIdParam = req.nextUrl.searchParams.get("carrier_id") ?? "";
+  if (!courseId && !carrierIdParam) {
+    return NextResponse.json({ error: "course_id または carrier_id が必要です" }, { status: 400 });
+  }
 
-  const { data: course } = await supabase
-    .from("courses")
-    .select("id, name, carrier_id")
-    .eq("id", courseId)
-    .maybeSingle();
-  if (!course) return NextResponse.json({ error: "コースが見つかりません" }, { status: 404 });
-
-  const carrierId = (course as any).carrier_id as string | null;
+  // 既存コース: コースからキャリアを引く。新規作成: パラメータのキャリアをそのまま使う。
+  let carrierId: string | null = carrierIdParam || null;
+  let courseName = "";
+  if (courseId) {
+    const { data: course } = await supabase
+      .from("courses")
+      .select("id, name, carrier_id")
+      .eq("id", courseId)
+      .maybeSingle();
+    if (!course) return NextResponse.json({ error: "コースが見つかりません" }, { status: 404 });
+    carrierId = (course as any).carrier_id as string | null;
+    courseName = (course as any).name ?? "";
+  }
 
   const [{ data: units }, { data: unitRates }, { data: fixed }] = await Promise.all([
     carrierId
@@ -36,20 +45,25 @@ export async function GET(req: NextRequest) {
           .eq("carrier_id", carrierId)
           .order("sort_order")
       : Promise.resolve({ data: [] as any[] }),
-    supabase
-      .from("course_unit_rates")
-      .select("unit_id, revenue_per_unit, profit_per_unit, payout_per_unit")
-      .eq("course_id", courseId),
-    supabase
-      .from("course_fixed_rates")
-      .select("fixed_revenue, fixed_profit, fixed_payout")
-      .eq("course_id", courseId)
-      .maybeSingle(),
+    // 新規作成（course_id 無し）では既存単価は無いので空。
+    courseId
+      ? supabase
+          .from("course_unit_rates")
+          .select("unit_id, revenue_per_unit, profit_per_unit, payout_per_unit")
+          .eq("course_id", courseId)
+      : Promise.resolve({ data: [] as any[] }),
+    courseId
+      ? supabase
+          .from("course_fixed_rates")
+          .select("fixed_revenue, fixed_profit, fixed_payout")
+          .eq("course_id", courseId)
+          .maybeSingle()
+      : Promise.resolve({ data: null as any }),
   ]);
 
   return NextResponse.json({
-    courseId,
-    courseName: (course as any).name ?? "",
+    courseId: courseId || null,
+    courseName,
     carrierId,
     units: units ?? [],
     unitRates: unitRates ?? [],

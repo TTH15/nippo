@@ -26,35 +26,54 @@ type LoadResponse = {
 };
 
 export type CourseRateEditorHandle = {
-  /** 親モーダルの保存時に呼ぶ。course-billing を保存する。 */
-  save: () => Promise<void>;
+  /**
+   * 親モーダルの保存時に呼ぶ。course-billing を保存する。
+   * 新規作成時はコース作成後に得た id を overrideCourseId で渡す。
+   */
+  save: (overrideCourseId?: string) => Promise<void>;
 };
 
 /**
  * コース課金（新モデル）の埋め込みフォーム。
  * 従量(course_unit_rates) を unit ごとに、固定(日当, course_fixed_rates) をコース単位で編集。
  * コース編集モーダルの右カラムに埋め込み、保存は ref 経由で親が呼ぶ。
+ *
+ * 既存コース: courseId を渡す（単価をロード）。
+ * 新規作成:   courseId=null + carrierId を渡す（キャリア配下 unit を空単価でロード）。
+ *             保存はコース作成後に save(newCourseId) で行う。
  */
 export const CourseRateEditor = forwardRef<
   CourseRateEditorHandle,
   {
     courseId: string | null;
+    carrierId?: string | null;
     onError: (msg: string) => void;
   }
->(function CourseRateEditor({ courseId, onError }, ref) {
+>(function CourseRateEditor({ courseId, carrierId, onError }, ref) {
   const [loading, setLoading] = useState(true);
   const [units, setUnits] = useState<Unit[]>([]);
   const [carrierMissing, setCarrierMissing] = useState(false);
   const [rates, setRates] = useState<Record<string, UnitRate>>({});
   const [fixed, setFixed] = useState<Fixed>({ fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 });
 
+  // 作成モード（courseId 無し）でキャリア未選択なら、まだ何も読まない。
+  const createModeNoCarrier = !courseId && !carrierId;
+
   useEffect(() => {
-    if (!courseId) return;
+    if (createModeNoCarrier) {
+      setUnits([]);
+      setRates({});
+      setFixed({ fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 });
+      setCarrierMissing(false);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const res = await apiFetch<LoadResponse>(`/api/admin/course-billing?course_id=${courseId}`);
+        const qs = courseId ? `course_id=${courseId}` : `carrier_id=${carrierId}`;
+        const res = await apiFetch<LoadResponse>(`/api/admin/course-billing?${qs}`);
         if (cancelled) return;
         setCarrierMissing(!res.carrierId);
         setUnits(res.units ?? []);
@@ -83,17 +102,18 @@ export const CourseRateEditor = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, [courseId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [courseId, carrierId, createModeNoCarrier]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(
     ref,
     () => ({
-      async save() {
-        if (!courseId) return;
+      async save(overrideCourseId?: string) {
+        const id = overrideCourseId ?? courseId;
+        if (!id) return;
         await apiFetch("/api/admin/course-billing", {
           method: "PUT",
           body: JSON.stringify({
-            course_id: courseId,
+            course_id: id,
             unitRates: Object.values(rates),
             fixed,
           }),
@@ -114,7 +134,11 @@ export const CourseRateEditor = forwardRef<
         <p className="text-[11px] text-slate-500 mt-0.5">従量（個数×単価）と固定（日当）は加算されます。両方0なら計上なし。</p>
       </div>
 
-      {loading ? (
+      {createModeNoCarrier ? (
+        <div className="rounded bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+          左で「キャリア」を選択すると、そのキャリアの単価設定が表示されます。
+        </div>
+      ) : loading ? (
         <p className="text-slate-400 text-xs">読み込み中…</p>
       ) : (
         <>

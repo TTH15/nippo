@@ -112,6 +112,7 @@ export default function CoursesPage() {
   const [showModal, setShowModal] = useState(false);
   // 編集モーダルに埋め込む単価エディタ（保存時に ref 経由で course-billing を保存）
   const billingRef = useRef<CourseRateEditorHandle>(null);
+  const createBillingRef = useRef<CourseRateEditorHandle>(null);
   const [newCourse, setNewCourse] = useState<CourseFormState>(EMPTY_COURSE_FORM);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [editForm, setEditForm] = useState<CourseFormState>(EMPTY_COURSE_FORM);
@@ -254,6 +255,8 @@ export default function CoursesPage() {
         }),
       });
       const createdCourse: Course = res.course;
+      // 作成直後に、埋め込み単価フォームの内容を新コースID宛に保存。
+      await createBillingRef.current?.save(createdCourse.id);
       const nextCourses = [...courses, createdCourse].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
       setCourses(nextCourses);
       setShowModal(false);
@@ -516,131 +519,142 @@ export default function CoursesPage() {
       {/* 新規コース追加モーダル */}
       {showModal && canWrite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-sm max-h-[90vh] overflow-y-auto p-5">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">新規コース追加</h2>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">キャリア</label>
-                <CustomSelect
-                  options={carriers.map((c) => ({ value: c.id, label: c.name }))}
-                  value={newCourse.carrierId}
-                  onChange={(v) => setNewCourse((f) => ({ ...f, carrierId: v }))}
-                  clearable={false}
-                  size="sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">略記（集計・シフト表示用）</label>
-                <input
-                  type="text"
-                  value={newCourse.summary_title}
-                  onChange={(e) => setNewCourse((f) => ({ ...f, summary_title: e.target.value }))}
-                  placeholder="例: 横大路、ミッドナイト"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-                <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">元請け（請求元）</label>
-                <CustomSelect
-                  options={[
-                    { value: "", label: "未設定" },
-                    ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
-                  ]}
-                  value={newCourse.principal_invoice_address_id}
-                  onChange={(v) => setNewCourse((f) => ({ ...f, principal_invoice_address_id: v }))}
-                  clearable={false}
-                  size="sm"
-                  disabled={invoiceAddresses.length === 0}
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                  請求書作成システムで「請求元」として利用します（アドレス帳に登録済みの法人から選択）。
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">取引先（請求先）</label>
-                <CustomSelect
-                  options={[
-                    { value: "", label: "未設定" },
-                    ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
-                  ]}
-                  value={newCourse.counterparty_invoice_address_id}
-                  onChange={(v) => setNewCourse((f) => ({ ...f, counterparty_invoice_address_id: v }))}
-                  clearable={false}
-                  size="sm"
-                  disabled={invoiceAddresses.length === 0}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
-                <input
-                  type="text"
-                  value={newCourse.name}
-                  onChange={(e) => setNewCourse((f) => ({ ...f, name: e.target.value }))}
-                  placeholder="例: 横大路（キャリアは上で選択）"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-                <p className="mt-1 text-xs text-slate-500">キャリアはグループで表示されるため、コース名に「ヤマト」「Amazon」を含める必要はありません。</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">1日あたりの最大人数</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={newCourse.max_drivers}
-                  onChange={(e) => {
-                    const v = e.target.value.replace(/\D/g, "");
-                    setNewCourse((f) => ({ ...f, max_drivers: v }));
-                  }}
-                  placeholder="1"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">日額リース代（円/稼働日）</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={newCourse.daily_lease}
-                  onChange={(e) => setNewCourse((f) => ({ ...f, daily_lease: e.target.value.replace(/\D/g, "") }))}
-                  placeholder="0"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-                <p className="mt-1 text-xs text-slate-500">日額リースのドライバーがこのコースを走った日に、日当から控除し車両回収へ自動計上します。単価は作成後の編集で設定できます。</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">色</label>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setNewCourse((f) => ({ ...f, color: c }))}
-                      className={`w-7 h-7 rounded-full border-2 transition-all ${newCourse.color === c ? "border-slate-900 scale-110" : "border-transparent"
-                        }`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-slate-500">または</span>
-                  <input
-                    type="color"
-                    value={newCourse.color}
-                    onChange={(e) => setNewCourse((f) => ({ ...f, color: e.target.value }))}
-                    className="w-9 h-9 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
-                    title="好きな色を選択"
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+              {/* 左カラム: 基本情報 */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">キャリア</label>
+                  <CustomSelect
+                    options={carriers.map((c) => ({ value: c.id, label: c.name }))}
+                    value={newCourse.carrierId}
+                    onChange={(v) => setNewCourse((f) => ({ ...f, carrierId: v }))}
+                    clearable={false}
+                    size="sm"
                   />
-                  <span className="text-xs text-slate-500">好きな色を選択</span>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
+                  <input
+                    type="text"
+                    value={newCourse.name}
+                    onChange={(e) => setNewCourse((f) => ({ ...f, name: e.target.value }))}
+                    placeholder="例: 横大路（キャリアは上で選択）"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">キャリアはグループで表示されるため、コース名に「ヤマト」「Amazon」を含める必要はありません。</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">略記（集計・シフト表示用）</label>
+                  <input
+                    type="text"
+                    value={newCourse.summary_title}
+                    onChange={(e) => setNewCourse((f) => ({ ...f, summary_title: e.target.value }))}
+                    placeholder="例: 横大路、ミッドナイト"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">元請け（請求元）</label>
+                  <CustomSelect
+                    options={[
+                      { value: "", label: "未設定" },
+                      ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
+                    ]}
+                    value={newCourse.principal_invoice_address_id}
+                    onChange={(v) => setNewCourse((f) => ({ ...f, principal_invoice_address_id: v }))}
+                    clearable={false}
+                    size="sm"
+                    disabled={invoiceAddresses.length === 0}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    請求書作成システムで「請求元」として利用します（アドレス帳に登録済みの法人から選択）。
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">取引先（請求先）</label>
+                  <CustomSelect
+                    options={[
+                      { value: "", label: "未設定" },
+                      ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
+                    ]}
+                    value={newCourse.counterparty_invoice_address_id}
+                    onChange={(v) => setNewCourse((f) => ({ ...f, counterparty_invoice_address_id: v }))}
+                    clearable={false}
+                    size="sm"
+                    disabled={invoiceAddresses.length === 0}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">1日あたりの最大人数</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={newCourse.max_drivers}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, "");
+                      setNewCourse((f) => ({ ...f, max_drivers: v }));
+                    }}
+                    placeholder="1"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">色</label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setNewCourse((f) => ({ ...f, color: c }))}
+                        className={`w-7 h-7 rounded-full border-2 transition-all ${newCourse.color === c ? "border-slate-900 scale-110" : "border-transparent"
+                          }`}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-xs text-slate-500">または</span>
+                    <input
+                      type="color"
+                      value={newCourse.color}
+                      onChange={(e) => setNewCourse((f) => ({ ...f, color: e.target.value }))}
+                      className="w-9 h-9 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
+                      title="好きな色を選択"
+                    />
+                    <span className="text-xs text-slate-500">好きな色を選択</span>
+                  </div>
                 </div>
               </div>
 
+              {/* 右カラム: 日額リース＋単価設定 */}
+              <div className="space-y-4 md:border-l md:border-slate-100 md:pl-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">日額リース代（円/稼働日）</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={newCourse.daily_lease}
+                    onChange={(e) => setNewCourse((f) => ({ ...f, daily_lease: e.target.value.replace(/\D/g, "") }))}
+                    placeholder="0"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">日額リースのドライバーがこのコースを走った日に、日当から控除し、使用車両の初期費用回収へ自動計上します。</p>
+                </div>
+                <div className="pt-2 border-t border-slate-100">
+                  <CourseRateEditor
+                    ref={createBillingRef}
+                    courseId={null}
+                    carrierId={newCourse.carrierId || null}
+                    onError={(msg) => setErrorState({ title: "単価設定", message: msg })}
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 mt-6">
