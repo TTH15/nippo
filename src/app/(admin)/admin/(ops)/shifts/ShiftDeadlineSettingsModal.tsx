@@ -74,14 +74,17 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
     setLoading(true);
     apiFetch<{ rules: RuleFull[]; drivers: DriverInfo[] }>("/api/admin/shift-deadlines")
       .then((res) => {
-        setDrivers(res.drivers ?? []);
+        const ds = res.drivers ?? [];
+        setDrivers(ds);
+        // 実ドライバー以外（管理者・閲覧専用など、一覧に出ないID）は割り当てから除外。
+        const validIds = new Set(ds.map((d) => d.id));
         setRules(
           (res.rules ?? []).map((r) => ({
             _key: nextKey(),
             name: r.name,
             periods: (r.periods ?? []).map((p) => ({ ...p, _key: nextKey() })),
             overrides: (r.overrides ?? []).map((o) => ({ ...o, _key: nextKey() })),
-            driverIds: r.driverIds ?? [],
+            driverIds: (r.driverIds ?? []).filter((id) => validIds.has(id)),
           })),
         );
       })

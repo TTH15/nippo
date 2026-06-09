@@ -20,8 +20,9 @@ import {
 } from "@/lib/components/VehiclePlate";
 import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
 import { cn } from "@/lib/ui/utils";
-import { ChevronDown, Settings } from "lucide-react";
+import { ChevronDown, Settings, Clock } from "lucide-react";
 import ShiftDeadlineSettingsModal from "./ShiftDeadlineSettingsModal";
+import ShiftSlotsSettingsModal from "./ShiftSlotsSettingsModal";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
 
@@ -402,6 +403,7 @@ type Period = "first" | "second";
 export default function ShiftsPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [deadlineModalOpen, setDeadlineModalOpen] = useState(false);
+  const [slotsModalOpen, setSlotsModalOpen] = useState(false);
   const [yearMonth, setYearMonth] = useState(currentYearMonth());
   // デフォルトは「今日」を含む期間（1〜15日=前半 / 16日〜=後半）
   const [period, setPeriod] = useState<Period>(() => (new Date().getDate() >= 16 ? "second" : "first"));
@@ -1137,6 +1139,14 @@ export default function ShiftsPage() {
                 </>
               )}
             </div>
+            <button
+              type="button"
+              onClick={() => setSlotsModalOpen(true)}
+              title="希望休の便（時間帯）設定"
+              className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+            >
+              <Clock className="w-4 h-4" />
+            </button>
             <button
               type="button"
               onClick={() => setDeadlineModalOpen(true)}
@@ -2045,6 +2055,11 @@ export default function ShiftsPage() {
         open={deadlineModalOpen}
         canWrite={canWrite}
         onClose={() => setDeadlineModalOpen(false)}
+      />
+      <ShiftSlotsSettingsModal
+        open={slotsModalOpen}
+        canWrite={canWrite}
+        onClose={() => setSlotsModalOpen(false)}
       />
     </AdminLayout>
   );
