@@ -118,3 +118,90 @@ export function monthHalves(
   };
   return { firstHalf: build("FIRST"), secondHalf: build("SECOND") };
 }
+
+// ============================================================
+// ルール＋柔軟な提出期間（migration 075）。
+//   ルール = 名前 ＋ 「提出期間」のリスト。各期間 = 日範囲＋締切(オフセット,日)。
+//   割り当て済みドライバーはルールの期間で締切判定。未割り当て＝ルールなし＝常にオープン。
+// ============================================================
+
+/** 1つの提出期間（日範囲＋締切）。 */
+export type RulePeriod = {
+  seq: number;
+  startDay: number; // 1-31
+  endDay: number; // 1-31（月末超過は実行時に当月末へクランプ）
+  deadlineMonthOffset: number; // 前月=-1, 当月=0, 翌月=1
+  deadlineDay: number; // 1-28 目安
+};
+
+/** ルール固有の期間例外（年×月×period の締切上書き）。 */
+export type RulePeriodOverride = {
+  targetYear: number;
+  targetMonth: number; // 1-12
+  periodSeq: number;
+  deadlineDate: string; // "YYYY-MM-DD"
+  note?: string | null;
+};
+
+/** 締切ルール。 */
+export type DeadlineRule = {
+  id: string;
+  name: string;
+  periods: RulePeriod[];
+  overrides: RulePeriodOverride[];
+};
+
+/** 解決後の提出期間の状態（ドライバー向け）。 */
+export type PeriodStatus = {
+  seq: number;
+  label: string; // "1〜15" 等
+  deadline: string; // "YYYY-MM-DD"
+  closed: boolean;
+  startDate: string; // "YYYY-MM-DD"
+  endDate: string; // "YYYY-MM-DD"
+};
+
+/** 期間の締切日 "YYYY-MM-DD"。期間例外があれば最優先。 */
+export function rulePeriodDeadline(
+  period: RulePeriod,
+  overrides: RulePeriodOverride[],
+  year: number,
+  month: number,
+): string {
+  const ov = overrides.find(
+    (o) => o.targetYear === year && o.targetMonth === month && o.periodSeq === period.seq,
+  );
+  if (ov) return ov.deadlineDate;
+  const { year: dy, month: dm } = shiftMonth(year, month, period.deadlineMonthOffset);
+  return `${dy}-${pad(dm)}-${pad(period.deadlineDay)}`;
+}
+
+/**
+ * 対象月(1-12)の、ルールの各提出期間の状態。
+ * rule=null（未割り当て）や期間が無い場合は空配列＝常にオープン（どの日もロックしない）。
+ */
+export function monthPeriods(
+  rule: DeadlineRule | null,
+  year: number,
+  month: number,
+  todayStr: string,
+): PeriodStatus[] {
+  if (!rule || rule.periods.length === 0) return [];
+  const last = lastDayOfMonth(year, month);
+  const mm = pad(month);
+  return [...rule.periods]
+    .sort((a, b) => a.seq - b.seq)
+    .map((p) => {
+      const start = Math.max(1, Math.min(p.startDay, last));
+      const end = Math.max(start, Math.min(p.endDay, last));
+      const deadline = rulePeriodDeadline(p, rule.overrides, year, month);
+      return {
+        seq: p.seq,
+        label: `${start}〜${end}`,
+        deadline,
+        closed: isClosed(deadline, todayStr),
+        startDate: `${year}-${mm}-${pad(start)}`,
+        endDate: `${year}-${mm}-${pad(end)}`,
+      };
+    });
+}

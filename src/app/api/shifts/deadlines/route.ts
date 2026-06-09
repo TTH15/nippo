@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
-import { loadDeadlineConfig, loadDeadlineOverrides } from "@/server/shiftDeadline/config";
-import { monthHalves } from "@/lib/shiftDeadline";
+import { loadDriverRule } from "@/server/shiftDeadline/config";
+import { monthPeriods } from "@/lib/shiftDeadline";
 import { todayJST } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
-// GET: 指定月(YYYY-MM)の前半・後半の締切とロック状態を返す（ドライバー用）。
+// GET: 指定月(YYYY-MM)の、そのドライバーの提出期間と締切・ロック状態を返す。
+//   ルール未割り当ては periods=[] ＝ 常に提出可。
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
@@ -20,11 +21,7 @@ export async function GET(req: NextRequest) {
   const year = Number(m[1]);
   const mon = Number(m[2]);
 
-  const [config, overrides] = await Promise.all([
-    loadDeadlineConfig(supabase),
-    loadDeadlineOverrides(supabase),
-  ]);
-
-  const { firstHalf, secondHalf } = monthHalves(config, overrides, year, mon, todayJST());
-  return NextResponse.json({ firstHalf, secondHalf });
+  const rule = await loadDriverRule(supabase, user.driverId);
+  const periods = monthPeriods(rule, year, mon, todayJST());
+  return NextResponse.json({ periods, ruleName: rule?.name ?? null });
 }

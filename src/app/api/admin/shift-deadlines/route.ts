@@ -1,95 +1,97 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
-import {
-  loadDeadlineConfig,
-  saveDeadlineConfig,
-  loadDeadlineOverrides,
-  saveDeadlineOverrides,
-  defaultDeadlineConfig,
-} from "@/server/shiftDeadline/config";
-import type { DeadlineConfig, DeadlineOverride, Half } from "@/lib/shiftDeadline";
+import { loadAllRules, saveRules, type DeadlineRuleInput } from "@/server/shiftDeadline/config";
+import type { RulePeriod, RulePeriodOverride } from "@/lib/shiftDeadline";
 
 export const dynamic = "force-dynamic";
 
-// GET: 既定ルール + 期間例外
-export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
-  if (isAuthError(user)) return user;
-
-  const [config, overrides] = await Promise.all([
-    loadDeadlineConfig(supabase),
-    loadDeadlineOverrides(supabase),
-  ]);
-  return NextResponse.json({ config, overrides });
-}
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const toInt = (v: unknown, fallback: number): number => {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
 };
+const clampDay = (d: number) => (d < 1 ? 1 : d > 28 ? 28 : d); // 締切日は1-28（月末ズレ防止）
+const clampRange = (d: number) => (d < 1 ? 1 : d > 31 ? 31 : d);
+const clampOffset = (o: number) => (o < -2 ? -2 : o > 2 ? 2 : o);
 
-const HALVES: Half[] = ["FIRST", "SECOND"];
+// GET: ルール一覧 + ドライバー一覧
+export async function GET(req: NextRequest) {
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  if (isAuthError(user)) return user;
 
-// PUT: 既定ルール + 期間例外を保存
+  const [rules, { data: drivers }] = await Promise.all([
+    loadAllRules(supabase),
+    supabase.from("drivers").select("id, name, display_name").order("name"),
+  ]);
+  return NextResponse.json({ rules, drivers: drivers ?? [] });
+}
+
+// PUT: ルールを全置換で保存
 export async function PUT(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
 
   const body = await req.json().catch(() => ({}));
-  const base = defaultDeadlineConfig();
+  const rawRules = Array.isArray(body.rules) ? body.rules : [];
 
-  // 既定ルール: v1 は締切日(前月◯日/当月◯日)のみ可変。半月境界・オフセットは既定固定。
-  const rawConfig = (body.config ?? {}) as Record<string, unknown>;
-  const config: DeadlineConfig = {
-    firstHalfEndDay: base.firstHalfEndDay,
-    firstHalfDeadlineMonthOffset: base.firstHalfDeadlineMonthOffset,
-    firstHalfDeadlineDay: clampDay(toInt(rawConfig.firstHalfDeadlineDay, base.firstHalfDeadlineDay)),
-    secondHalfDeadlineMonthOffset: base.secondHalfDeadlineMonthOffset,
-    secondHalfDeadlineDay: clampDay(
-      toInt(rawConfig.secondHalfDeadlineDay, base.secondHalfDeadlineDay),
-    ),
-  };
+  const rules: DeadlineRuleInput[] = [];
+  for (const r of rawRules as Record<string, unknown>[]) {
+    const name = typeof r.name === "string" && r.name.trim() ? r.name.trim() : "ルール";
 
-  // 期間例外
-  const rawOverrides = Array.isArray(body.overrides) ? body.overrides : [];
-  const seen = new Set<string>();
-  const overrides: DeadlineOverride[] = [];
-  for (const o of rawOverrides as Record<string, unknown>[]) {
-    const targetYear = toInt(o.targetYear, 0);
-    const targetMonth = toInt(o.targetMonth, 0);
-    const half = o.half as Half;
-    const deadlineDate = typeof o.deadlineDate === "string" ? o.deadlineDate : "";
-    if (targetYear < 2000 || targetMonth < 1 || targetMonth > 12) continue;
-    if (!HALVES.includes(half)) continue;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(deadlineDate)) continue;
-    const key = `${targetYear}-${targetMonth}-${half}`;
-    if (seen.has(key)) continue; // UNIQUE 制約と整合
-    seen.add(key);
-    overrides.push({
-      targetYear,
-      targetMonth,
-      half,
-      deadlineDate,
-      note: typeof o.note === "string" && o.note.trim() ? o.note.trim() : null,
-    });
+    const rawPeriods = Array.isArray(r.periods) ? r.periods : [];
+    const periods: Omit<RulePeriod, "seq">[] = [];
+    for (const p of rawPeriods as Record<string, unknown>[]) {
+      const startDay = clampRange(toInt(p.startDay, 1));
+      const endDay = clampRange(toInt(p.endDay, 31));
+      periods.push({
+        startDay,
+        endDay: Math.max(startDay, endDay),
+        deadlineMonthOffset: clampOffset(toInt(p.deadlineMonthOffset, -1)),
+        deadlineDay: clampDay(toInt(p.deadlineDay, 23)),
+      });
+    }
+
+    const rawOverrides = Array.isArray(r.overrides) ? r.overrides : [];
+    const seenOv = new Set<string>();
+    const overrides: RulePeriodOverride[] = [];
+    for (const o of rawOverrides as Record<string, unknown>[]) {
+      const targetYear = toInt(o.targetYear, 0);
+      const targetMonth = toInt(o.targetMonth, 0);
+      const periodSeq = toInt(o.periodSeq, -1);
+      const deadlineDate = typeof o.deadlineDate === "string" ? o.deadlineDate : "";
+      if (targetYear < 2000 || targetMonth < 1 || targetMonth > 12) continue;
+      if (periodSeq < 0 || periodSeq >= periods.length) continue; // 存在する期間のみ
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(deadlineDate)) continue;
+      const key = `${targetYear}-${targetMonth}-${periodSeq}`;
+      if (seenOv.has(key)) continue;
+      seenOv.add(key);
+      overrides.push({
+        targetYear,
+        targetMonth,
+        periodSeq,
+        deadlineDate,
+        note: typeof o.note === "string" && o.note.trim() ? o.note.trim() : null,
+      });
+    }
+
+    const rawDriverIds = Array.isArray(r.driverIds) ? r.driverIds : [];
+    const driverIds = (rawDriverIds as unknown[]).filter(
+      (d): d is string => typeof d === "string" && UUID_RE.test(d),
+    );
+
+    rules.push({ name, periods, overrides, driverIds });
   }
 
   try {
-    await saveDeadlineConfig(supabase, config);
-    await saveDeadlineOverrides(supabase, overrides);
+    await saveRules(supabase, rules);
   } catch (e) {
     console.error(e);
     return NextResponse.json(
-      { error: "保存に失敗しました（migration 066 未適用の可能性）" },
+      { error: "保存に失敗しました（migration 075 未適用の可能性）" },
       { status: 500 },
     );
   }
-  return NextResponse.json({ ok: true, config, overrides });
-}
-
-function clampDay(d: number): number {
-  if (d < 1) return 1;
-  if (d > 28) return 28; // 月末安全（締切日は1-28に制限）
-  return d;
+  return NextResponse.json({ ok: true });
 }

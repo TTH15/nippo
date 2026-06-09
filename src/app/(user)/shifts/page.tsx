@@ -15,15 +15,14 @@ type ShiftRequest = {
   request_type: string;
 };
 
-type HalfInfo = {
-  half: "FIRST" | "SECOND";
+type PeriodInfo = {
+  seq: number;
+  label: string; // "1〜15" 等
   deadline: string; // YYYY-MM-DD
   closed: boolean;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
 };
-
-type MonthDeadlines = { firstHalf: HalfInfo; secondHalf: HalfInfo };
 
 type MeShiftVehicle = {
   id: string;
@@ -87,7 +86,7 @@ export default function ShiftsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedOffDates, setSelectedOffDates] = useState<Set<string>>(new Set());
-  const [deadlines, setDeadlines] = useState<MonthDeadlines | null>(null);
+  const [periods, setPeriods] = useState<PeriodInfo[]>([]);
   const [errorState, setErrorState] = useState<{
     title: string;
     message: string;
@@ -123,11 +122,11 @@ export default function ShiftsPage() {
     try {
       const [res, dl] = await Promise.all([
         apiFetch<{ requests: ShiftRequest[] }>(`/api/shifts/requests?month=${monthStr}`),
-        apiFetch<MonthDeadlines>(`/api/shifts/deadlines?month=${monthStr}`).catch(() => null),
+        apiFetch<{ periods: PeriodInfo[] }>(`/api/shifts/deadlines?month=${monthStr}`).catch(() => null),
       ]);
       setRequests(res.requests);
       setSelectedOffDates(new Set((res.requests ?? []).map((r) => r.request_date)));
-      setDeadlines(dl);
+      setPeriods(dl?.periods ?? []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -135,15 +134,12 @@ export default function ShiftsPage() {
     }
   };
 
-  // 指定日が締切済み半月に属するか（API値を信頼。締切情報が無ければロックしない）。
-  const halfFor = (dateStr: string): HalfInfo | null => {
-    if (!deadlines) return null;
-    const { firstHalf, secondHalf } = deadlines;
-    if (dateStr >= firstHalf.startDate && dateStr <= firstHalf.endDate) return firstHalf;
-    if (dateStr >= secondHalf.startDate && dateStr <= secondHalf.endDate) return secondHalf;
+  // 指定日が属する提出期間（API値を信頼）。どの期間にも属さない＝ロックしない（常に提出可）。
+  const periodFor = (dateStr: string): PeriodInfo | null => {
+    for (const p of periods) if (dateStr >= p.startDate && dateStr <= p.endDate) return p;
     return null;
   };
-  const isLockedDate = (dateStr: string): boolean => halfFor(dateStr)?.closed ?? false;
+  const isLockedDate = (dateStr: string): boolean => periodFor(dateStr)?.closed ?? false;
 
   useEffect(() => {
     if (subTab === "request") {
@@ -297,24 +293,23 @@ export default function ShiftsPage() {
               </button>
             </div>
 
-            {deadlines && (
+            {periods.length > 0 && (
               <div className="mb-4 grid grid-cols-2 gap-2">
-                {([deadlines.firstHalf, deadlines.secondHalf] as HalfInfo[]).map((h) => {
-                  const label = h.half === "FIRST" ? "前半 (1〜15)" : "後半 (16〜末)";
-                  const [, dm, dd] = h.deadline.split("-").map(Number);
+                {periods.map((p) => {
+                  const [, dm, dd] = p.deadline.split("-").map(Number);
                   return (
                     <div
-                      key={h.half}
+                      key={p.seq}
                       className={`rounded border px-3 py-2 text-xs ${
-                        h.closed
+                        p.closed
                           ? "border-slate-200 bg-slate-50 text-slate-400"
                           : "border-emerald-200 bg-emerald-50 text-emerald-800"
                       }`}
                     >
-                      <div className="font-medium text-slate-600">{label}</div>
+                      <div className="font-medium text-slate-600">{p.label}日</div>
                       <div className="mt-0.5">
                         締切 {dm}/{dd}
-                        {h.closed ? (
+                        {p.closed ? (
                           <span className="ml-1 inline-flex items-center gap-1 font-semibold text-slate-500">
                             <FontAwesomeIcon icon={faLock} className="w-2.5 h-2.5" />
                             受付終了
