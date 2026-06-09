@@ -23,7 +23,7 @@ import { cn } from "@/lib/ui/utils";
 import { ChevronDown, Settings } from "lucide-react";
 import ShiftDeadlineSettingsModal from "./ShiftDeadlineSettingsModal";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
-import { drawShiftPdf, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
+import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
 
 type Course = {
   id: string;
@@ -1039,27 +1039,10 @@ export default function ShiftsPage() {
         return;
       }
 
-      // PNG は従来どおりエクスポート用DOMを html2canvas で画像化。
-      const root = exportRef.current;
-      if (!root) return;
-      const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(root, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
-
-      const targetWidth = 2400;
-      const targetHeight = 1400;
-      const fitted = document.createElement("canvas");
-      fitted.width = targetWidth;
-      fitted.height = targetHeight;
-      const ctx = fitted.getContext("2d");
-      if (!ctx) throw new Error("Canvas context unavailable");
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, targetWidth, targetHeight);
-      const scale = Math.min(targetWidth / canvas.width, targetHeight / canvas.height);
-      const renderWidth = canvas.width * scale;
-      const renderHeight = canvas.height * scale;
-      ctx.drawImage(canvas, (targetWidth - renderWidth) / 2, (targetHeight - renderHeight) / 2, renderWidth, renderHeight);
+      // PNG も PDF と同じ描画ロジックで高精細に生成（html2canvas は使わず、見た目を完全一致）。
+      const canvas = await renderShiftCanvas(buildShiftPdfData());
       const a = document.createElement("a");
-      a.href = fitted.toDataURL("image/png");
+      a.href = canvas.toDataURL("image/png");
       a.download = `${fileBase}.png`;
       a.click();
     } catch (e) {

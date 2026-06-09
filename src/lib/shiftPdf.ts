@@ -1,6 +1,6 @@
-// シフト表のベクターPDF描画（jsPDF）。
-//   コンポーネント側でプリビルドした ShiftPdfData を受け取り、A4横1ページに収めて描く。
-//   画像化(html2canvas)を介さないので軽量・くっきり・文字選択可。日本語は登録済みフォント前提。
+// シフト表の描画（jsPDF=ベクターPDF / Canvas=高精細PNG の共通ロジック）。
+//   コンポーネント側でプリビルドした ShiftPdfData を、A4横の座標空間(pt)で1枚に収めて描く。
+//   レンダラを抽象化し、PDFとPNGで同一レイアウト・同一見た目にする。
 import type { jsPDF } from "jspdf";
 
 export type ExCellCourse = { label: string; color: string }; // color = "#rrggbb"
@@ -20,6 +20,17 @@ export type ShiftPdfData = {
   offRow: string[]; // 日付ごとの未割当ドライバー名（"、"連結済み）
 };
 
+type RGB = [number, number, number];
+type Align = "left" | "center";
+type Baseline = "middle" | "alphabetic";
+
+/** PDF / Canvas 共通の描画プリミティブ。座標・寸法は pt（A4横=842x595）。 */
+export interface ShiftRenderer {
+  rect(x: number, y: number, w: number, h: number, fill: RGB | null, stroke: RGB | null, lineW: number): void;
+  roundedRect(x: number, y: number, w: number, h: number, r: number, fill: RGB | null, stroke: RGB | null, lineW: number): void;
+  text(str: string, x: number, y: number, sizePt: number, color: RGB, align: Align, baseline: Baseline): void;
+}
+
 // --- 設計上の寸法（px相当。最後に scale でページptへ写像）---
 const DRIVER_COL = 150;
 const DATE_COL = 120;
@@ -32,14 +43,15 @@ const PLATE_H = 15;
 const CELL_GAP = 3;
 const OFF_LINE_H = 13;
 const OFF_MAX_LINES = 5;
-const BASE_CONTENT_H = COURSE_H + CELL_GAP + PLATE_H; // 1コース＋ナンバー相当（行の最小高）
+const BASE_CONTENT_H = COURSE_H + CELL_GAP + PLATE_H;
 
-// フォントサイズ（px相当）
 const F_HEADER = 11;
 const F_NAME = 12;
 const F_COURSE = 11.5;
 const F_PLATE = 9;
 const F_OFF = 9;
+
+const GRID: RGB = [226, 232, 240];
 
 const isWide = (ch: string) => /[　-ヿ㐀-鿿＀-￯]/.test(ch);
 function estWidth(text: string, fontPx: number): number {
@@ -65,7 +77,6 @@ function wrapText(text: string, maxW: number, fontPx: number, maxLines: number):
       cur += ch;
     }
   }
-  // 残り（最終行）。溢れる場合は省略記号で詰める。
   const consumed = lines.join("").length;
   let rest = cur + text.slice(consumed + cur.length);
   if (lines.length >= maxLines - 1 && estWidth(rest, fontPx) > maxW) rest = fitText(rest, maxW, fontPx);
@@ -73,7 +84,6 @@ function wrapText(text: string, maxW: number, fontPx: number, maxLines: number):
   return lines.length ? lines : [""];
 }
 
-type RGB = [number, number, number];
 function parseColor(str: string | undefined, fallback: RGB = [255, 255, 255]): RGB {
   if (!str) return fallback;
   const s = str.trim();
@@ -89,7 +99,6 @@ function parseColor(str: string | undefined, fallback: RGB = [255, 255, 255]): R
     const parts = m[1].split(",").map((x) => parseFloat(x.trim()));
     const [r, g, b] = parts;
     const a = parts.length > 3 ? parts[3] : 1;
-    // 白の上に alpha 合成。
     return [
       Math.round(255 * (1 - a) + r * a),
       Math.round(255 * (1 - a) + g * a),
@@ -116,11 +125,8 @@ function cellContentHeight(cell: ExCell): number {
   return BASE_CONTENT_H;
 }
 
-/** ShiftPdfData を pdf に1ページで描画する。fontName は登録済み日本語フォント名。 */
-export function drawShiftPdf(pdf: jsPDF, data: ShiftPdfData, fontName: string): void {
-  pdf.setFont(fontName, "normal");
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
+/** A4横の座標空間で表を1枚に収めて描画（レンダラ非依存）。 */
+export function drawShiftTable(r: ShiftRenderer, data: ShiftPdfData, pageW: number, pageH: number): void {
   const margin = 22;
   const titleSize = 13;
   const titleH = 22;
@@ -131,9 +137,7 @@ export function drawShiftPdf(pdf: jsPDF, data: ShiftPdfData, fontName: string): 
   const N = data.dateLabels.length;
   const designW = DRIVER_COL + N * DATE_COL;
 
-  // 行の高さ（設計px）。
   const rowH = data.rows.map((row) => PAD_V * 2 + Math.max(...row.cells.map(cellContentHeight), BASE_CONTENT_H));
-  // 未割当行の高さ（名前を date 幅で折り返した行数から）。
   const offInnerW = DATE_COL - PAD_X * 2;
   const offLines = data.offRow.map((names) => (names ? wrapText(names, offInnerW, F_OFF, OFF_MAX_LINES).length : 1));
   const offRowH = PAD_V * 2 + Math.max(1, ...offLines) * OFF_LINE_H;
@@ -145,54 +149,34 @@ export function drawShiftPdf(pdf: jsPDF, data: ShiftPdfData, fontName: string): 
   const tableX = margin + (usableW - designW * scale) / 2;
   const tableY = tableTop + (usableH - designH * scale) / 2;
 
-  // 列のX（設計px起点）。
-  const colX: number[] = [0];
-  colX.push(DRIVER_COL);
+  const colX: number[] = [0, DRIVER_COL];
   for (let j = 1; j <= N; j++) colX.push(colX[colX.length - 1] + DATE_COL);
-  const colWDesign = (j: number) => (j === 0 ? DRIVER_COL : DATE_COL);
-
   const px = (dx: number) => tableX + S(dx);
   const py = (dy: number) => tableY + S(dy);
 
-  // タイトル。
-  pdf.setTextColor(17, 24, 39);
-  pdf.setFontSize(titleSize);
-  pdf.text(data.title, margin, margin + titleSize);
+  // タイトル
+  r.text(data.title, margin, margin + titleSize, titleSize, [17, 24, 39], "left", "alphabetic");
 
-  // --- ヘッダ行 ---
+  const cellRect = (cx: number, cy: number, cw: number, ch: number, fill: RGB) =>
+    r.rect(px(cx), py(cy), S(cw), S(ch), fill, GRID, 0.4);
+
+  // ヘッダ行
   let y = 0;
-  const drawCellRect = (cx: number, cy: number, cw: number, ch: number, fill: RGB) => {
-    pdf.setFillColor(fill[0], fill[1], fill[2]);
-    pdf.setDrawColor(226, 232, 240);
-    pdf.setLineWidth(0.4);
-    pdf.rect(px(cx), py(cy), S(cw), S(ch), "FD");
-  };
-
-  // ドライバー見出し
-  drawCellRect(0, y, DRIVER_COL, HEADER_H, [249, 250, 251]);
-  pdf.setTextColor(107, 114, 128);
-  pdf.setFontSize(F_HEADER * scale);
-  pdf.text("ドライバー", px(PAD_X), py(y + HEADER_H / 2), { baseline: "middle" });
-  // 日付見出し
+  cellRect(0, y, DRIVER_COL, HEADER_H, [249, 250, 251]);
+  r.text("ドライバー", px(PAD_X), py(y + HEADER_H / 2), F_HEADER * scale, [107, 114, 128], "left", "middle");
   for (let j = 0; j < N; j++) {
     const ch = data.dayChrome[j] ?? { headBg: "#f9fafb", headColor: "#6b7280" };
-    drawCellRect(colX[j + 1], y, DATE_COL, HEADER_H, parseColor(ch.headBg, [249, 250, 251]));
-    const hc = parseColor(ch.headColor, [107, 114, 128]);
-    pdf.setTextColor(hc[0], hc[1], hc[2]);
-    pdf.setFontSize(F_HEADER * scale);
+    cellRect(colX[j + 1], y, DATE_COL, HEADER_H, parseColor(ch.headBg, [249, 250, 251]));
     const label = fitText(data.dateLabels[j], DATE_COL - PAD_X * 2, F_HEADER);
-    pdf.text(label, px(colX[j + 1] + DATE_COL / 2), py(y + HEADER_H / 2), { align: "center", baseline: "middle" });
+    r.text(label, px(colX[j + 1] + DATE_COL / 2), py(y + HEADER_H / 2), F_HEADER * scale, parseColor(ch.headColor, [107, 114, 128]), "center", "middle");
   }
   y += HEADER_H;
 
-  // --- ドライバー行 ---
+  // ドライバー行
   data.rows.forEach((row, ri) => {
     const h = rowH[ri];
-    // 名前セル
-    drawCellRect(0, y, DRIVER_COL, h, [255, 255, 255]);
-    pdf.setTextColor(17, 24, 39);
-    pdf.setFontSize(F_NAME * scale);
-    pdf.text(fitText(row.name, DRIVER_COL - PAD_X * 2, F_NAME), px(PAD_X), py(y + h / 2), { baseline: "middle" });
+    cellRect(0, y, DRIVER_COL, h, [255, 255, 255]);
+    r.text(fitText(row.name, DRIVER_COL - PAD_X * 2, F_NAME), px(PAD_X), py(y + h / 2), F_NAME * scale, [17, 24, 39], "left", "middle");
 
     row.cells.forEach((cell, j) => {
       const cx = colX[j + 1];
@@ -201,71 +185,152 @@ export function drawShiftPdf(pdf: jsPDF, data: ShiftPdfData, fontName: string): 
         cell.kind === "off"
           ? ([255, 251, 235] as RGB)
           : parseColor(("bg" in cell ? cell.bg : undefined) ?? chrome?.cellBg, [255, 255, 255]);
-      drawCellRect(cx, y, DATE_COL, h, bg);
+      cellRect(cx, y, DATE_COL, h, bg);
 
       if (cell.kind === "off") {
-        pdf.setTextColor(146, 64, 14);
-        pdf.setFontSize(F_COURSE * scale);
-        pdf.text("希望休", px(cx + DATE_COL / 2), py(y + h / 2), { align: "center", baseline: "middle" });
+        r.text("希望休", px(cx + DATE_COL / 2), py(y + h / 2), F_COURSE * scale, [146, 64, 14], "center", "middle");
         return;
       }
       if (cell.kind === "designated") {
-        pdf.setTextColor(148, 163, 184);
-        pdf.setFontSize(F_COURSE * scale);
-        pdf.text("指定休", px(cx + DATE_COL / 2), py(y + h / 2), { align: "center", baseline: "middle" });
+        r.text("指定休", px(cx + DATE_COL / 2), py(y + h / 2), F_COURSE * scale, [148, 163, 184], "center", "middle");
         return;
       }
-      // courses
       const content = cellContentHeight(cell);
-      let by = y + (h - content) / 2; // セル内で縦中央寄せ
+      let by = y + (h - content) / 2;
       const innerW = DATE_COL - PAD_X * 2;
       cell.courses.forEach((c) => {
-        const fill = mix(c.color, 0.44);
-        const stroke = mix(c.color, 0.72);
-        pdf.setFillColor(fill[0], fill[1], fill[2]);
-        pdf.setDrawColor(stroke[0], stroke[1], stroke[2]);
-        pdf.setLineWidth(Math.max(0.5, S(1.5)));
-        pdf.roundedRect(px(cx + PAD_X), py(by), S(innerW), S(COURSE_H), S(5), S(5), "FD");
-        pdf.setTextColor(15, 23, 42);
-        pdf.setFontSize(F_COURSE * scale);
-        pdf.text(fitText(c.label, innerW - PAD_X, F_COURSE), px(cx + DATE_COL / 2), py(by + COURSE_H / 2), {
-          align: "center",
-          baseline: "middle",
-        });
+        r.roundedRect(px(cx + PAD_X), py(by), S(innerW), S(COURSE_H), S(5), mix(c.color, 0.44), mix(c.color, 0.72), Math.max(0.5, S(1.5)));
+        r.text(fitText(c.label, innerW - PAD_X, F_COURSE), px(cx + DATE_COL / 2), py(by + COURSE_H / 2), F_COURSE * scale, [15, 23, 42], "center", "middle");
         by += COURSE_H + COURSE_GAP;
       });
       if (cell.plate) {
         by += -COURSE_GAP + CELL_GAP;
-        pdf.setTextColor(71, 85, 105);
-        pdf.setFontSize(F_PLATE * scale);
-        pdf.text(fitText(cell.plate, innerW, F_PLATE), px(cx + DATE_COL / 2), py(by + PLATE_H / 2), {
-          align: "center",
-          baseline: "middle",
-        });
+        r.text(fitText(cell.plate, innerW, F_PLATE), px(cx + DATE_COL / 2), py(by + PLATE_H / 2), F_PLATE * scale, [71, 85, 105], "center", "middle");
       }
     });
     y += h;
   });
 
-  // --- 未割当行 ---
-  drawCellRect(0, y, DRIVER_COL, offRowH, [249, 250, 251]);
-  pdf.setTextColor(75, 85, 99);
-  pdf.setFontSize(F_NAME * scale);
-  pdf.text(data.offLabel, px(PAD_X), py(y + offRowH / 2), { baseline: "middle" });
+  // 未割当行
+  cellRect(0, y, DRIVER_COL, offRowH, [249, 250, 251]);
+  r.text(data.offLabel, px(PAD_X), py(y + offRowH / 2), F_NAME * scale, [75, 85, 99], "left", "middle");
   for (let j = 0; j < N; j++) {
     const cx = colX[j + 1];
-    const chrome = data.dayChrome[j];
-    drawCellRect(cx, y, DATE_COL, offRowH, parseColor(chrome?.cellBg, [255, 255, 255]));
+    cellRect(cx, y, DATE_COL, offRowH, parseColor(data.dayChrome[j]?.cellBg, [255, 255, 255]));
     const names = data.offRow[j] ?? "";
     if (!names) continue;
     const lines = wrapText(names, offInnerW, F_OFF, OFF_MAX_LINES);
-    pdf.setTextColor(100, 116, 139);
-    pdf.setFontSize(F_OFF * scale);
     const totalH = lines.length * OFF_LINE_H;
     let ly = y + (offRowH - totalH) / 2 + OFF_LINE_H / 2;
     for (const line of lines) {
-      pdf.text(line, px(cx + DATE_COL / 2), py(ly), { align: "center", baseline: "middle" });
+      r.text(line, px(cx + DATE_COL / 2), py(ly), F_OFF * scale, [100, 116, 139], "center", "middle");
       ly += OFF_LINE_H;
     }
   }
+}
+
+// === jsPDF アダプタ ===
+function jsPdfRenderer(pdf: jsPDF, fontName: string): ShiftRenderer {
+  pdf.setFont(fontName, "normal");
+  return {
+    rect(x, y, w, h, fill, stroke, lineW) {
+      if (fill) pdf.setFillColor(fill[0], fill[1], fill[2]);
+      if (stroke) {
+        pdf.setDrawColor(stroke[0], stroke[1], stroke[2]);
+        pdf.setLineWidth(lineW);
+      }
+      pdf.rect(x, y, w, h, fill && stroke ? "FD" : fill ? "F" : "S");
+    },
+    roundedRect(x, y, w, h, rad, fill, stroke, lineW) {
+      if (fill) pdf.setFillColor(fill[0], fill[1], fill[2]);
+      if (stroke) {
+        pdf.setDrawColor(stroke[0], stroke[1], stroke[2]);
+        pdf.setLineWidth(lineW);
+      }
+      pdf.roundedRect(x, y, w, h, rad, rad, fill && stroke ? "FD" : fill ? "F" : "S");
+    },
+    text(str, x, y, sizePt, color, align, baseline) {
+      pdf.setTextColor(color[0], color[1], color[2]);
+      pdf.setFontSize(sizePt);
+      pdf.text(str, x, y, { align, baseline });
+    },
+  };
+}
+
+/** ベクターPDF（jsPDF）に描画。fontName は登録済み日本語フォント名。 */
+export function drawShiftPdf(pdf: jsPDF, data: ShiftPdfData, fontName: string): void {
+  drawShiftTable(jsPdfRenderer(pdf, fontName), data, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
+}
+
+// === Canvas アダプタ（PNG用）===
+const rgbCss = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
+function canvasRenderer(ctx: CanvasRenderingContext2D, fontFamily: string): ShiftRenderer {
+  return {
+    rect(x, y, w, h, fill, stroke, lineW) {
+      if (fill) {
+        ctx.fillStyle = rgbCss(fill);
+        ctx.fillRect(x, y, w, h);
+      }
+      if (stroke) {
+        ctx.strokeStyle = rgbCss(stroke);
+        ctx.lineWidth = lineW;
+        ctx.strokeRect(x, y, w, h);
+      }
+    },
+    roundedRect(x, y, w, h, rad, fill, stroke, lineW) {
+      ctx.beginPath();
+      const r = Math.min(rad, w / 2, h / 2);
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+      if (fill) {
+        ctx.fillStyle = rgbCss(fill);
+        ctx.fill();
+      }
+      if (stroke) {
+        ctx.strokeStyle = rgbCss(stroke);
+        ctx.lineWidth = lineW;
+        ctx.stroke();
+      }
+    },
+    text(str, x, y, sizePt, color, align, baseline) {
+      ctx.fillStyle = rgbCss(color);
+      ctx.font = `${sizePt}px ${fontFamily}`;
+      ctx.textAlign = align;
+      ctx.textBaseline = baseline === "middle" ? "middle" : "alphabetic";
+      ctx.fillText(str, x, y);
+    },
+  };
+}
+
+/** PDFと同一レイアウトで高精細PNGを描く Canvas を返す。フォントは PDF と同じものを読み込む。 */
+export async function renderShiftCanvas(data: ShiftPdfData): Promise<HTMLCanvasElement> {
+  const pageW = 842;
+  const pageH = 595; // A4横(pt) — PDFと同じ比率
+  const dpr = 3; // 高精細化
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(pageW * dpr);
+  canvas.height = Math.round(pageH * dpr);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas context unavailable");
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, pageW, pageH);
+
+  // PDFと同じフォントを Canvas にも読み込む（見た目を一致させる）。失敗時は既定フォントで描画。
+  let family = "'Hiragino Sans', 'Noto Sans JP', 'Yu Gothic', sans-serif";
+  try {
+    const face = new FontFace("ShiftJP", "url(/fonts/SawarabiGothic-Regular.ttf)");
+    await face.load();
+    (document as Document & { fonts: FontFaceSet }).fonts.add(face);
+    family = "ShiftJP, " + family;
+  } catch {
+    // フォント読み込み失敗時はシステムフォントで続行。
+  }
+
+  drawShiftTable(canvasRenderer(ctx, family), data, pageW, pageH);
+  return canvas;
 }
