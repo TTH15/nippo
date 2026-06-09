@@ -224,9 +224,9 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                     </div>
 
                     {/* 提出期間 */}
-                    <div className="mb-3">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs font-medium text-slate-600">提出期間</span>
+                    <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 mb-2.5">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-slate-700">提出期間</span>
                         {canWrite && (
                           <div className="flex items-center gap-1">
                             {PRESETS.map((p, i) => (
@@ -244,7 +244,7 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                       </div>
                       <div className="space-y-1.5">
                         {rule.periods.map((p) => (
-                          <div key={p._key} className="flex flex-wrap items-center gap-1.5 text-sm">
+                          <div key={p._key} className="flex flex-wrap items-center gap-1.5 text-sm bg-white rounded border border-slate-200 px-2 py-1.5">
                             <input
                               type="number"
                               min={1}
@@ -252,7 +252,7 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                               disabled={!canWrite}
                               value={p.startDay}
                               onChange={(e) => updatePeriod(rule, p._key, { startDay: Number(e.target.value) || 1 })}
-                              className="w-14 px-2 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
+                              className="w-12 px-1.5 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
                             />
                             <span className="text-slate-400">〜</span>
                             <input
@@ -262,9 +262,11 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                               disabled={!canWrite}
                               value={p.endDay}
                               onChange={(e) => updatePeriod(rule, p._key, { endDay: Number(e.target.value) || 1 })}
-                              className="w-14 px-2 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
+                              className="w-12 px-1.5 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
                             />
-                            <span className="text-xs text-slate-500">日 → 締切</span>
+                            <span className="text-xs text-slate-500">日</span>
+                            <span className="mx-1 text-slate-300">｜</span>
+                            <span className="text-xs text-slate-500">締切</span>
                             <CustomSelect
                               disabled={!canWrite}
                               value={String(p.deadlineMonthOffset)}
@@ -272,6 +274,7 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                               options={OFFSETS}
                               clearable={false}
                               size="sm"
+                              className="w-20"
                             />
                             <input
                               type="number"
@@ -280,7 +283,7 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                               disabled={!canWrite}
                               value={p.deadlineDay}
                               onChange={(e) => updatePeriod(rule, p._key, { deadlineDay: Number(e.target.value) || 1 })}
-                              className="w-14 px-2 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
+                              className="w-12 px-1.5 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
                             />
                             <span className="text-xs text-slate-500">日まで</span>
                             {canWrite && rule.periods.length > 1 && (
@@ -307,9 +310,9 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                     </div>
 
                     {/* 期間例外 */}
-                    <div className="mb-3">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs font-medium text-slate-600">期間例外（GW等）</span>
+                    <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 mb-2.5">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-slate-700">期間例外（GW等）</span>
                         {canWrite && (
                           <button
                             type="button"
@@ -341,6 +344,7 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                                 options={MONTHS.map((m) => ({ value: String(m), label: `${m}月` }))}
                                 clearable={false}
                                 size="sm"
+                                className="w-20"
                               />
                               <CustomSelect
                                 disabled={!canWrite}
@@ -349,6 +353,7 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                                 options={rule.periods.map((p, i) => ({ value: String(i), label: `${p.startDay}〜${p.endDay}日` }))}
                                 clearable={false}
                                 size="sm"
+                                className="w-28"
                               />
                               <input
                                 type="date"
@@ -373,22 +378,30 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                     </div>
 
                     {/* 対象ドライバー */}
-                    <div>
-                      <span className="text-xs font-medium text-slate-600">
+                    <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3">
+                      <span className="text-xs font-semibold text-slate-700">
                         対象ドライバー（{rule.driverIds.length}人）
                       </span>
-                      <div className="mt-1.5 max-h-32 overflow-y-auto rounded border border-slate-200 p-2 grid grid-cols-2 gap-x-3 gap-y-1">
-                        {drivers.map((d) => (
-                          <label key={d.id} className="flex items-center gap-1.5 text-xs text-slate-700">
-                            <input
-                              type="checkbox"
+                      <p className="text-[11px] text-slate-400 mt-0.5 mb-2">名前をタップで割り当て（選択中は濃色）。1人は1ルールのみ。</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {drivers.map((d) => {
+                          const on = rule.driverIds.includes(d.id);
+                          return (
+                            <button
+                              key={d.id}
+                              type="button"
                               disabled={!canWrite}
-                              checked={rule.driverIds.includes(d.id)}
-                              onChange={() => toggleDriver(rule._key, d.id)}
-                            />
-                            <span className="truncate">{driverName(d)}</span>
-                          </label>
-                        ))}
+                              onClick={() => toggleDriver(rule._key, d.id)}
+                              className={`px-2.5 py-1 text-xs rounded-full border transition-colors disabled:opacity-50 ${
+                                on
+                                  ? "bg-slate-800 border-slate-800 text-white"
+                                  : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+                              }`}
+                            >
+                              {driverName(d)}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
