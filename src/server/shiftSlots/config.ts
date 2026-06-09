@@ -5,17 +5,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 //   便マスタ（キャリア別）＋ ドライバー割り当て。テーブル未作成でも空で安全に動く。
 // ============================================================
 
-export type RequestSlot = { id: string; carrierId: string; name: string; sortOrder: number; active: boolean };
+export type RequestSlot = { id: string; name: string; sortOrder: number; active: boolean };
 export type SlotFull = RequestSlot & { driverIds: string[] };
 export type SlotInput = {
   id: string | null;
-  carrierId: string;
   name: string;
   active: boolean;
   driverIds: string[];
 };
 /** ドライバーが使う便（画面表示用）。 */
-export type DriverSlot = { id: string; name: string; carrierId: string };
+export type DriverSlot = { id: string; name: string };
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 
@@ -30,11 +29,11 @@ export async function loadDriverSlots(supabase: SupabaseClient, driverId: string
     if (ids.length === 0) return [];
     const { data: slots } = await supabase
       .from("shift_request_slots")
-      .select("id, name, carrier_id")
+      .select("id, name")
       .in("id", ids)
       .eq("active", true)
       .order("sort_order");
-    return (slots ?? []).map((s) => ({ id: String(s.id), name: s.name ?? "", carrierId: String(s.carrier_id) }));
+    return (slots ?? []).map((s) => ({ id: String(s.id), name: s.name ?? "" }));
   } catch {
     return [];
   }
@@ -44,12 +43,11 @@ export async function loadDriverSlots(supabase: SupabaseClient, driverId: string
 export async function loadAllSlots(supabase: SupabaseClient): Promise<SlotFull[]> {
   try {
     const [{ data: slots }, { data: asg }] = await Promise.all([
-      supabase.from("shift_request_slots").select("id, carrier_id, name, sort_order, active").order("sort_order"),
+      supabase.from("shift_request_slots").select("id, name, sort_order, active").order("sort_order"),
       supabase.from("driver_request_slots").select("driver_id, slot_id"),
     ]);
     return (slots ?? []).map((s) => ({
       id: String(s.id),
-      carrierId: String(s.carrier_id),
       name: s.name ?? "",
       sortOrder: Number(s.sort_order) || 0,
       active: s.active !== false,
@@ -75,12 +73,12 @@ export async function saveSlots(supabase: SupabaseClient, slots: SlotInput[]): P
     if (id) {
       await supabase
         .from("shift_request_slots")
-        .update({ carrier_id: s.carrierId, name: s.name, sort_order: i, active: s.active, updated_at: now })
+        .update({ name: s.name, sort_order: i, active: s.active, updated_at: now })
         .eq("id", id);
     } else {
       const { data } = await supabase
         .from("shift_request_slots")
-        .insert({ carrier_id: s.carrierId, name: s.name, sort_order: i, active: s.active, updated_at: now })
+        .insert({ name: s.name, sort_order: i, active: s.active, updated_at: now })
         .select("id")
         .single();
       id = (data?.id as string | undefined) ?? null;

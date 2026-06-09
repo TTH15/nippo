@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import { CustomSelect } from "@/lib/components/CustomSelect";
 
 // ============================================================
 // 希望休の「便（時間帯）」設定モーダル。
@@ -19,9 +18,8 @@ interface Props {
 }
 
 type DriverInfo = { id: string; name: string; display_name: string | null };
-type CarrierInfo = { id: string; name: string };
-type SlotRow = { _key: string; id: string | null; carrierId: string; name: string; active: boolean; driverIds: string[] };
-type SlotFull = { id: string; carrierId: string; name: string; sortOrder: number; active: boolean; driverIds: string[] };
+type SlotRow = { _key: string; id: string | null; name: string; active: boolean; driverIds: string[] };
+type SlotFull = { id: string; name: string; sortOrder: number; active: boolean; driverIds: string[] };
 
 const driverName = (d: DriverInfo) => d.display_name || d.name;
 let keySeq = 0;
@@ -30,7 +28,6 @@ const nextKey = () => `s-${keySeq++}`;
 export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embedded = false }: Props) {
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [drivers, setDrivers] = useState<DriverInfo[]>([]);
-  const [carriers, setCarriers] = useState<CarrierInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,15 +36,13 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
     if (!open && !embedded) return;
     setError(null);
     setLoading(true);
-    apiFetch<{ slots: SlotFull[]; drivers: DriverInfo[]; carriers: CarrierInfo[] }>("/api/admin/shift-slots")
+    apiFetch<{ slots: SlotFull[]; drivers: DriverInfo[] }>("/api/admin/shift-slots")
       .then((res) => {
         setDrivers(res.drivers ?? []);
-        setCarriers(res.carriers ?? []);
         setSlots(
           (res.slots ?? []).map((s) => ({
             _key: nextKey(),
             id: s.id,
-            carrierId: s.carrierId,
             name: s.name,
             active: s.active,
             driverIds: s.driverIds ?? [],
@@ -63,10 +58,7 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
   const patch = (key: string, p: Partial<SlotRow>) =>
     setSlots((prev) => prev.map((s) => (s._key === key ? { ...s, ...p } : s)));
   const addSlot = () =>
-    setSlots((prev) => [
-      ...prev,
-      { _key: nextKey(), id: null, carrierId: carriers[0]?.id ?? "", name: "", active: true, driverIds: [] },
-    ]);
+    setSlots((prev) => [...prev, { _key: nextKey(), id: null, name: "", active: true, driverIds: [] }]);
   const removeSlot = (key: string) => setSlots((prev) => prev.filter((s) => s._key !== key));
   const toggleDriver = (key: string, driverId: string) =>
     setSlots((prev) =>
@@ -77,7 +69,6 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
       }),
     );
 
-  const carrierName = (id: string) => carriers.find((c) => c.id === id)?.name ?? "—";
   const assignedSet = new Set(slots.flatMap((s) => s.driverIds));
   const unassigned = drivers.filter((d) => !assignedSet.has(d.id));
 
@@ -89,8 +80,8 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
         method: "PUT",
         body: JSON.stringify({
           slots: slots
-            .filter((s) => s.carrierId && s.name.trim())
-            .map((s) => ({ id: s.id, carrierId: s.carrierId, name: s.name.trim(), active: s.active, driverIds: s.driverIds })),
+            .filter((s) => s.name.trim())
+            .map((s) => ({ id: s.id, name: s.name.trim(), active: s.active, driverIds: s.driverIds })),
         }),
       });
       onClose();
@@ -109,7 +100,7 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
             <h2 className="text-lg font-semibold text-slate-900 mb-1">希望休の便（時間帯）設定</h2>
           )}
           <p className="text-xs text-slate-500 mb-4">
-            キャリア別に便（午前便・午後便・4便など）を作り、便ごとに「使うドライバー」を割り当てます。
+            便（午前便・午後便・4便など）を作り、便ごとに「使うドライバー」を割り当てます。
             どの便にも割り当てられていない人は、これまで通り「全休」だけを出せます（タップは増えません）。
           </p>
 
@@ -119,23 +110,12 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
 
           {loading ? (
             <p className="text-sm text-slate-500 py-8 text-center">読み込み中…</p>
-          ) : carriers.length === 0 ? (
-            <p className="text-sm text-slate-500 py-8 text-center">キャリアが未登録です。先にキャリアを作成してください。</p>
           ) : (
             <>
               <div className="space-y-4">
                 {slots.map((slot) => (
                   <div key={slot._key} className="rounded-lg border border-slate-200 p-3">
                     <div className="flex flex-wrap items-center gap-2 mb-3">
-                      <CustomSelect
-                        disabled={!canWrite}
-                        value={slot.carrierId}
-                        onChange={(v) => patch(slot._key, { carrierId: v })}
-                        options={carriers.map((c) => ({ value: c.id, label: c.name }))}
-                        clearable={false}
-                        size="sm"
-                        className="w-32"
-                      />
                       <input
                         type="text"
                         disabled={!canWrite}
@@ -169,7 +149,7 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
                         この便を使うドライバー（{slot.driverIds.length}人）
                       </span>
                       <p className="text-[11px] text-slate-400 mt-0.5 mb-2">
-                        名前をタップで割り当て（選択中は濃色）。{carrierName(slot.carrierId)}の便です。
+                        名前をタップで割り当て（選択中は濃色）。
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {drivers.map((d) => {

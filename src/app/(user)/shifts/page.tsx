@@ -16,7 +16,7 @@ type ShiftRequest = {
   slot_id: string | null;
 };
 
-type DriverSlot = { id: string; name: string; carrierId: string };
+type DriverSlot = { id: string; name: string };
 
 const ALL = "ALL"; // 全休を表すキー
 
