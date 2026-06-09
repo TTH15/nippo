@@ -14,6 +14,8 @@ interface Props {
   open: boolean;
   canWrite: boolean;
   onClose: () => void;
+  /** 親モーダル（タブ）に埋め込む場合はオーバーレイ/カードを描かない。 */
+  embedded?: boolean;
 }
 
 type DriverInfo = { id: string; name: string; display_name: string | null };
@@ -25,7 +27,7 @@ const driverName = (d: DriverInfo) => d.display_name || d.name;
 let keySeq = 0;
 const nextKey = () => `s-${keySeq++}`;
 
-export default function ShiftSlotsSettingsModal({ open, canWrite, onClose }: Props) {
+export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embedded = false }: Props) {
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [drivers, setDrivers] = useState<DriverInfo[]>([]);
   const [carriers, setCarriers] = useState<CarrierInfo[]>([]);
@@ -34,7 +36,7 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose }: Pro
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open && !embedded) return;
     setError(null);
     setLoading(true);
     apiFetch<{ slots: SlotFull[]; drivers: DriverInfo[]; carriers: CarrierInfo[] }>("/api/admin/shift-slots")
@@ -54,9 +56,9 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose }: Pro
       })
       .catch((e) => setError(e instanceof Error ? e.message : "読み込みに失敗しました"))
       .finally(() => setLoading(false));
-  }, [open]);
+  }, [open, embedded]);
 
-  if (!open) return null;
+  if (!open && !embedded) return null;
 
   const patch = (key: string, p: Partial<SlotRow>) =>
     setSlots((prev) => prev.map((s) => (s._key === key ? { ...s, ...p } : s)));
@@ -100,10 +102,12 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose }: Pro
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-1">希望休の便（時間帯）設定</h2>
+    <div className={embedded ? "" : "fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"}>
+      <div className={embedded ? "" : "bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto"}>
+        <div className={embedded ? "" : "p-6"}>
+          {!embedded && (
+            <h2 className="text-lg font-semibold text-slate-900 mb-1">希望休の便（時間帯）設定</h2>
+          )}
           <p className="text-xs text-slate-500 mb-4">
             キャリア別に便（午前便・午後便・4便など）を作り、便ごとに「使うドライバー」を割り当てます。
             どの便にも割り当てられていない人は、これまで通り「全休」だけを出せます（タップは増えません）。

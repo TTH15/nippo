@@ -13,7 +13,12 @@ type ShiftRequest = {
   driver_id: string;
   request_date: string;
   request_type: string;
+  slot_id: string | null;
 };
+
+type DriverSlot = { id: string; name: string; carrierId: string };
+
+const ALL = "ALL"; // 全休を表すキー
 
 type PeriodInfo = {
   seq: number;
@@ -85,7 +90,10 @@ export default function ShiftsPage() {
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [selectedOffDates, setSelectedOffDates] = useState<Set<string>>(new Set());
+  // 希望休の選択。date → { "ALL"（全休） or slotId } の集合。
+  const [off, setOff] = useState<Map<string, Set<string>>>(new Map());
+  const [slots, setSlots] = useState<DriverSlot[]>([]);
+  const [pickerDate, setPickerDate] = useState<string | null>(null);
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);
   const [errorState, setErrorState] = useState<{
     title: string;
@@ -121,11 +129,19 @@ export default function ShiftsPage() {
     setLoading(true);
     try {
       const [res, dl] = await Promise.all([
-        apiFetch<{ requests: ShiftRequest[] }>(`/api/shifts/requests?month=${monthStr}`),
+        apiFetch<{ requests: ShiftRequest[]; slots: DriverSlot[] }>(`/api/shifts/requests?month=${monthStr}`),
         apiFetch<{ periods: PeriodInfo[] }>(`/api/shifts/deadlines?month=${monthStr}`).catch(() => null),
       ]);
-      setRequests(res.requests);
-      setSelectedOffDates(new Set((res.requests ?? []).map((r) => r.request_date)));
+      setRequests(res.requests ?? []);
+      setSlots(res.slots ?? []);
+      const m = new Map<string, Set<string>>();
+      (res.requests ?? []).forEach((r) => {
+        const key = r.slot_id ?? ALL;
+        const s = m.get(r.request_date) ?? new Set<string>();
+        s.add(key);
+        m.set(r.request_date, s);
+      });
+      setOff(m);
       setPeriods(dl?.periods ?? []);
     } catch (e) {
       console.error(e);
@@ -184,40 +200,60 @@ export default function ShiftsPage() {
     return `${y}-${m}-${d}`;
   };
 
-  const isOffDay = (date: Date) => {
-    return selectedOffDates.has(getDateStr(date));
-  };
+  const dayOff = (dateStr: string): Set<string> => off.get(dateStr) ?? new Set<string>();
+  const isWholeDayOff = (dateStr: string) => dayOff(dateStr).has(ALL);
+  const hasAnyOff = (dateStr: string) => dayOff(dateStr).size > 0;
 
-  const toggleOffDay = (date: Date) => {
-    const dateStr = getDateStr(date);
-    if (isLockedDate(dateStr)) return; // 締切済み半月は変更不可
-    setSelectedOffDates((prev) => {
-      const next = new Set(prev);
-      if (next.has(dateStr)) next.delete(dateStr);
-      else next.add(dateStr);
+  // 全休/便キーをトグル（全休と便は排他）。
+  const toggleOffKey = (dateStr: string, key: string) => {
+    setOff((prev) => {
+      const next = new Map(prev);
+      const s = new Set(next.get(dateStr) ?? []);
+      if (key === ALL) {
+        if (s.has(ALL)) s.delete(ALL);
+        else {
+          s.clear();
+          s.add(ALL);
+        }
+      } else {
+        s.delete(ALL);
+        if (s.has(key)) s.delete(key);
+        else s.add(key);
+      }
+      if (s.size === 0) next.delete(dateStr);
+      else next.set(dateStr, s);
       return next;
     });
   };
 
+  const toggleOffDay = (date: Date) => {
+    const dateStr = getDateStr(date);
+    if (isLockedDate(dateStr)) return; // 締切済み期間は変更不可
+    if (slots.length === 0) toggleOffKey(dateStr, ALL); // 便なし＝全休トグル
+    else setPickerDate(dateStr); // 便あり＝ピッカーを開く
+  };
+
   const hasChanges = useMemo(() => {
-    const serverSet = new Set(requests.map((r) => r.request_date));
-    if (selectedOffDates.size !== serverSet.size) return true;
-    for (const d of selectedOffDates) {
-      if (!serverSet.has(d)) return true;
-    }
+    const serverKeys = new Set(requests.map((r) => `${r.request_date}#${r.slot_id ?? ALL}`));
+    const curKeys: string[] = [];
+    off.forEach((set, d) => set.forEach((k) => curKeys.push(`${d}#${k}`)));
+    if (curKeys.length !== serverKeys.size) return true;
+    for (const k of curKeys) if (!serverKeys.has(k)) return true;
     return false;
-  }, [requests, selectedOffDates]);
+  }, [requests, off]);
 
   const submitOffDates = async () => {
     if (!hasChanges) return;
     setSaving(true);
     try {
-      const offDates = Array.from(selectedOffDates)
-        .filter((d) => d.startsWith(monthStr) && !isLockedDate(d))
-        .sort();
+      const offEntries: { date: string; slotId: string | null }[] = [];
+      off.forEach((set, d) => {
+        if (!d.startsWith(monthStr) || isLockedDate(d)) return;
+        set.forEach((k) => offEntries.push({ date: d, slotId: k === ALL ? null : k }));
+      });
       await apiFetch("/api/shifts/requests", {
         method: "POST",
-        body: JSON.stringify({ month: monthStr, offDates }),
+        body: JSON.stringify({ month: monthStr, offEntries }),
       });
       await load();
     } catch (e) {
@@ -357,7 +393,8 @@ export default function ShiftsPage() {
                     const dateStr = getDateStr(date);
                     const isPast = date < today;
                     const locked = isLockedDate(dateStr);
-                    const isOff = isOffDay(date);
+                    const whole = isWholeDayOff(dateStr);
+                    const partial = !whole && hasAnyOff(dateStr);
                     const dayOfWeek = date.getDay();
                     const isToday = date.toDateString() === today.toDateString();
                     const disabled = isPast || locked;
@@ -376,19 +413,24 @@ export default function ShiftsPage() {
                           aspect-square rounded flex flex-col items-center justify-center text-sm font-medium
                           transition-colors relative outline-none focus:outline-none
                           ${locked ? "opacity-60 cursor-not-allowed bg-slate-100" : isPast ? "opacity-30 cursor-not-allowed" : "cursor-pointer hover:bg-slate-100"}
-                          ${isOff ? "bg-red-100 border border-red-300" : locked ? "" : "bg-slate-50"}
+                          ${whole ? "bg-red-100 border border-red-300" : partial ? "bg-red-50 border border-red-300" : locked ? "" : "bg-slate-50"}
                           ${isToday ? "ring-2 ring-slate-400" : ""}
                         `}
                       >
                         <span className={dayOfWeek === 0 ? "text-red-500" : dayOfWeek === 6 ? "text-blue-500" : "text-slate-700"}>
                           {date.getDate()}
                         </span>
-                        {isOff && (
+                        {whole && (
                           <span className="text-red-500 font-bold absolute">
                             <FontAwesomeIcon icon={faXmark} className="w-4 h-4" />
                           </span>
                         )}
-                        {locked && !isOff && (
+                        {partial && (
+                          <span className="absolute bottom-0.5 text-[9px] font-bold text-red-500 leading-none">
+                            便{dayOff(dateStr).size}
+                          </span>
+                        )}
+                        {locked && !whole && !partial && (
                           <FontAwesomeIcon icon={faLock} className="w-2.5 h-2.5 text-slate-400 absolute bottom-1" />
                         )}
                       </button>
@@ -403,8 +445,16 @@ export default function ShiftsPage() {
                 <div className="w-4 h-4 bg-red-100 border border-red-300 rounded flex items-center justify-center">
                   <span className="text-red-500 text-[10px] font-bold">×</span>
                 </div>
-                <span>希望休</span>
+                <span>全休</span>
               </div>
+              {slots.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-4 h-4 bg-red-50 border border-red-300 rounded flex items-center justify-center">
+                    <span className="text-red-500 text-[8px] font-bold">便</span>
+                  </div>
+                  <span>便のみ希望（タップで選択）</span>
+                </div>
+              )}
             </div>
 
             {!loading && hasChanges && (
@@ -420,30 +470,91 @@ export default function ShiftsPage() {
               </div>
             )}
 
-            {selectedOffDates.size > 0 && (
-              <div className="mt-4 bg-slate-50 rounded border border-slate-200 p-3">
-                <h3 className="text-sm font-medium text-slate-700 mb-2">
-                  {monthNames[viewDate.month]}の希望休: {selectedOffDates.size}日
-                </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {Array.from(selectedOffDates)
-                    .filter((d) => d.startsWith(monthStr))
-                    .sort()
-                    .map((dateStr) => {
+            {(() => {
+              const dates = [...off.keys()].filter((d) => d.startsWith(monthStr)).sort();
+              if (dates.length === 0) return null;
+              const slotName = (id: string) => slots.find((s) => s.id === id)?.name ?? "便";
+              return (
+                <div className="mt-4 bg-slate-50 rounded border border-slate-200 p-3">
+                  <h3 className="text-sm font-medium text-slate-700 mb-2">
+                    {monthNames[viewDate.month]}の希望休: {dates.length}日
+                  </h3>
+                  <div className="flex flex-col gap-1">
+                    {dates.map((dateStr) => {
                       const [y, m, d] = dateStr.split("-").map(Number);
                       const localDate = new Date(y, m - 1, d);
+                      const set = dayOff(dateStr);
+                      const detail = set.has(ALL) ? "全休" : [...set].map(slotName).join("・");
                       return (
-                        <span
-                          key={dateStr}
-                          className="px-2 py-0.5 bg-white border border-slate-200 text-slate-600 text-xs rounded"
-                        >
-                          {localDate.getMonth() + 1}/{localDate.getDate()}({dayNames[localDate.getDay()]})
-                        </span>
+                        <div key={dateStr} className="flex items-center gap-2 text-xs">
+                          <span className="px-2 py-0.5 bg-white border border-slate-200 text-slate-600 rounded tabular-nums">
+                            {localDate.getMonth() + 1}/{localDate.getDate()}({dayNames[localDate.getDay()]})
+                          </span>
+                          <span className="text-slate-500">{detail}</span>
+                        </div>
                       );
                     })}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
+
+            {/* 便ピッカー */}
+            {pickerDate && (() => {
+              const [y, m, d] = pickerDate.split("-").map(Number);
+              const localDate = new Date(y, m - 1, d);
+              const set = dayOff(pickerDate);
+              return (
+                <div
+                  className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4"
+                  onClick={() => setPickerDate(null)}
+                >
+                  <div className="bg-white rounded-xl shadow-lg w-full max-w-xs p-4" onClick={(e) => e.stopPropagation()}>
+                    <h3 className="text-sm font-semibold text-slate-900 mb-1">
+                      {localDate.getMonth() + 1}/{localDate.getDate()}({dayNames[localDate.getDay()]}) の希望休
+                    </h3>
+                    <p className="text-xs text-slate-500 mb-3">全休、または休みたい便を選んでください。</p>
+                    <button
+                      type="button"
+                      onClick={() => toggleOffKey(pickerDate, ALL)}
+                      className={`w-full px-3 py-2 rounded-lg border text-sm font-medium mb-2 ${
+                        set.has(ALL)
+                          ? "bg-red-100 border-red-300 text-red-700"
+                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      全休（1日休み）
+                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      {slots.map((s) => {
+                        const on = set.has(s.id);
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => toggleOffKey(pickerDate, s.id)}
+                            className={`px-3 py-2 rounded-lg border text-sm font-medium ${
+                              on
+                                ? "bg-red-100 border-red-300 text-red-700"
+                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                            }`}
+                          >
+                            {s.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPickerDate(null)}
+                      className="mt-4 w-full py-2 bg-slate-800 text-white text-sm font-medium rounded-lg"
+                    >
+                      決定
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
 

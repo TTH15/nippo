@@ -15,6 +15,8 @@ interface Props {
   open: boolean;
   canWrite: boolean;
   onClose: () => void;
+  /** 親モーダル（タブ）に埋め込む場合はオーバーレイ/カードを描かない。 */
+  embedded?: boolean;
 }
 
 type DriverInfo = { id: string; name: string; display_name: string | null };
@@ -61,7 +63,7 @@ const PRESETS: { label: string; periods: Omit<RulePeriod, "seq">[] }[] = [
 
 const mkPeriod = (p: Omit<RulePeriod, "seq">, seq: number): PeriodRow => ({ ...p, seq, _key: nextKey() });
 
-export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: Props) {
+export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, embedded = false }: Props) {
   const [rules, setRules] = useState<RuleRow[]>([]);
   const [drivers, setDrivers] = useState<DriverInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -69,7 +71,7 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open && !embedded) return;
     setError(null);
     setLoading(true);
     apiFetch<{ rules: RuleFull[]; drivers: DriverInfo[] }>("/api/admin/shift-deadlines")
@@ -90,9 +92,9 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
       })
       .catch((e) => setError(e instanceof Error ? e.message : "読み込みに失敗しました"))
       .finally(() => setLoading(false));
-  }, [open]);
+  }, [open, embedded]);
 
-  if (!open) return null;
+  if (!open && !embedded) return null;
 
   const now = new Date();
   const patchRule = (key: string, patch: Partial<RuleRow>) =>
@@ -185,10 +187,12 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-1">希望休 提出締切の設定</h2>
+    <div className={embedded ? "" : "fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"}>
+      <div className={embedded ? "" : "bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto"}>
+        <div className={embedded ? "" : "p-6"}>
+          {!embedded && (
+            <h2 className="text-lg font-semibold text-slate-900 mb-1">希望休 提出締切の設定</h2>
+          )}
           <p className="text-xs text-slate-500 mb-4">
             締切「ルール」を作り、ドライバーを割り当てます。ルールは提出期間（月1回・半月・旬・任意）を自由に設定でき、各期間に締切を決めます。
             どのルールにも割り当てられていない人は常に提出可です。
