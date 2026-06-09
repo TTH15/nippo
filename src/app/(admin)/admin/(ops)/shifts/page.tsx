@@ -193,28 +193,36 @@ function VehicleOptionList({
     const selected = valueId === v.id;
     const isLoaned = loanedIds?.has(v.id) ?? false;
     const takenByName = !selected ? takenBy?.get(v.id) : undefined;
-    const isTaken = Boolean(takenByName) || isLoaned;
+    // 他ドライバー使用中はクリック可（確認後に重複割り当て）。貸出中のみ不可。
     return (
       <button
         key={v.id}
         type="button"
-        disabled={disabled || isTaken}
-        title={isLoaned ? "貸出中" : takenByName ? `${takenByName} さんが使用中` : undefined}
+        disabled={disabled || isLoaned}
+        title={
+          isLoaned
+            ? "貸出中"
+            : takenByName
+              ? `${takenByName} さんが使用中（クリックで重複割り当ての確認）`
+              : undefined
+        }
         className={cn(
           "w-full rounded-md p-0.5 flex flex-col items-center gap-0.5 transition-colors",
-          isTaken
+          isLoaned
             ? "opacity-45 cursor-not-allowed"
-            : selected
-              ? "bg-slate-100/95 ring-1 ring-slate-400/40"
-              : "hover:bg-slate-50/90",
+            : takenByName
+              ? "opacity-60 hover:bg-slate-50/90"
+              : selected
+                ? "bg-slate-100/95 ring-1 ring-slate-400/40"
+                : "hover:bg-slate-50/90",
         )}
         onClick={() => {
-          if (isTaken) return;
+          if (isLoaned) return;
           onChange(v.id);
         }}
       >
         <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
-        {isTaken ? (
+        {isLoaned || takenByName ? (
           <span className="text-[9px] font-medium text-rose-500 leading-none pb-0.5">
             {isLoaned ? "貸出中" : `${takenByName} さん使用中`}
           </span>
@@ -699,25 +707,8 @@ export default function ShiftsPage() {
     return od ? getDisplayName(od) : "別のドライバー";
   };
 
-  const setVehicleForDriverOnDate = (date: string, driverId: string, vehicleId: string | null) => {
-    if (!canWrite) return;
-    if (vehicleId) {
-      if (loanedByDate.get(date)?.has(vehicleId)) {
-        setErrorState({
-          title: "車両を割り当てできません",
-          message: "この車両は同じ日が貸出中のため、シフトに紐付けできません。",
-        });
-        return;
-      }
-      const holder = getOtherVehicleHolderName(date, vehicleId, driverId);
-      if (holder) {
-        setErrorState({
-          title: "車両を割り当てできません",
-          message: `この車両は同じ日に ${holder} さんへすでに割り当てられています。1台の車両を同じ日に複数人へ割り当てることはできません。`,
-        });
-        return;
-      }
-    }
+  // 実際の割り当て反映（競合チェックは呼び出し側）。
+  const applyVehicleForDriverOnDate = (date: string, driverId: string, vehicleId: string | null) => {
     const dk = driverDayVehicleKey(date, driverId);
     setLocalVehicleByDriverDay((prev) => new Map(prev).set(dk, vehicleId));
     // 車両を選んだら他社車両フラグは解除する。
@@ -726,6 +717,32 @@ export default function ShiftsPage() {
     for (const p of findDriverPlacementsOnDate(localShifts, date, driverId)) {
       persistOne(date, p.courseId, p.slot, driverId, vehicleId, false);
     }
+  };
+
+  const setVehicleForDriverOnDate = (date: string, driverId: string, vehicleId: string | null) => {
+    if (!canWrite) return;
+    if (vehicleId) {
+      // 貸出中は割り当て不可（従来通り）。
+      if (loanedByDate.get(date)?.has(vehicleId)) {
+        setErrorState({
+          title: "車両を割り当てできません",
+          message: "この車両は同じ日が貸出中のため、シフトに紐付けできません。",
+        });
+        return;
+      }
+      // 他ドライバーと重複する場合は、ブロックせず確認（OKなら重複割り当て）。
+      const holder = getOtherVehicleHolderName(date, vehicleId, driverId);
+      if (holder) {
+        setConfirmState({
+          message:
+            `この車両は同じ日に ${holder} さんへ割り当て済みです。重複して割り当てますか？\n` +
+            `（時間帯を分けて同じ車両を使う場合などに使用してください）`,
+          onConfirm: () => applyVehicleForDriverOnDate(date, driverId, vehicleId),
+        });
+        return;
+      }
+    }
+    applyVehicleForDriverOnDate(date, driverId, vehicleId);
   };
 
   const isVehicleLoaned = (vehicleId: string, date: string) => loanedByDate.get(date)?.has(vehicleId) ?? false;

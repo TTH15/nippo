@@ -506,7 +506,7 @@ export default function ShiftsPage() {
               const set = dayOff(pickerDate);
               return (
                 <div
-                  className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4"
+                  className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
                   onClick={() => setPickerDate(null)}
                 >
                   <div className="bg-white rounded-xl shadow-lg w-full max-w-xs p-4" onClick={(e) => e.stopPropagation()}>
