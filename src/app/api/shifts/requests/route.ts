@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
-import { loadDeadlineConfig, loadDeadlineOverrides, loadDriverDeadline } from "@/server/shiftDeadline/config";
+import { loadDeadlineConfig, loadDeadlineOverrides } from "@/server/shiftDeadline/config";
 import { monthHalves } from "@/lib/shiftDeadline";
 import { todayJST } from "@/lib/date";
 
@@ -57,13 +57,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "invalid month" }, { status: 400 });
       }
 
-      // サーバ側で締切を再計算（クライアント送信値は信用しない）。個別締切も反映。
-      const [config, overrides, driver] = await Promise.all([
+      // サーバ側で締切を再計算（クライアント送信値は信用しない）
+      const [config, overrides] = await Promise.all([
         loadDeadlineConfig(supabase),
         loadDeadlineOverrides(supabase),
-        loadDriverDeadline(supabase, user.driverId),
       ]);
-      const { firstHalf, secondHalf } = monthHalves(config, overrides, year, mon, todayJST(), driver);
+      const { firstHalf, secondHalf } = monthHalves(config, overrides, year, mon, todayJST());
 
       // 開いている半月の区間だけを対象にする
       const openRanges: { start: string; end: string }[] = [];
@@ -117,12 +116,11 @@ export async function POST(req: NextRequest) {
     // 締切済み半月の変更は拒否（一括パスと同じ防御）
     {
       const [year, mon, day] = date.split("-").map(Number);
-      const [config, overrides, driver] = await Promise.all([
+      const [config, overrides] = await Promise.all([
         loadDeadlineConfig(supabase),
         loadDeadlineOverrides(supabase),
-        loadDriverDeadline(supabase, user.driverId),
       ]);
-      const { firstHalf, secondHalf } = monthHalves(config, overrides, year, mon, todayJST(), driver);
+      const { firstHalf, secondHalf } = monthHalves(config, overrides, year, mon, todayJST());
       const target = day <= config.firstHalfEndDay ? firstHalf : secondHalf;
       if (target.closed) {
         return NextResponse.json(

@@ -70,49 +70,24 @@ function shiftMonth(year: number, month: number, offset: number): { year: number
   return { year: dy, month: dm };
 }
 
-/** ルール（既定 or ドライバー個別）から締切日を計算（offset+day）。 */
-function deadlineFromConfig(config: DeadlineConfig, year: number, month: number, half: Half): string {
-  const offset =
-    half === "FIRST" ? config.firstHalfDeadlineMonthOffset : config.secondHalfDeadlineMonthOffset;
-  const day = half === "FIRST" ? config.firstHalfDeadlineDay : config.secondHalfDeadlineDay;
-  const { year: dy, month: dm } = shiftMonth(year, month, offset);
-  return `${dy}-${pad(dm)}-${pad(day)}`;
-}
-
-/** ドライバー個別の締切設定。rule=個別既定ルール（null=全体に従う）、overrides=個別期間例外。 */
-export type DriverDeadline = {
-  rule: DeadlineConfig | null;
-  overrides: DeadlineOverride[];
-};
-
-/**
- * 対象 年×月×半月 の締切日 "YYYY-MM-DD"。
- * 優先順位: 個別期間例外 > 個別既定ルール > 全体期間例外 > 全体既定ルール。
- */
+/** 対象 年×月×半月 の締切日 "YYYY-MM-DD"。override 最優先。 */
 export function computeDeadline(
   config: DeadlineConfig,
   overrides: DeadlineOverride[],
   year: number,
   month: number,
   half: Half,
-  driver?: DriverDeadline | null,
 ): string {
-  // 1. ドライバー個別の期間例外
-  if (driver?.overrides?.length) {
-    const dov = driver.overrides.find(
-      (o) => o.targetYear === year && o.targetMonth === month && o.half === half,
-    );
-    if (dov) return dov.deadlineDate;
-  }
-  // 2. ドライバー個別の既定ルール
-  if (driver?.rule) return deadlineFromConfig(driver.rule, year, month, half);
-  // 3. 全体の期間例外
   const ov = overrides.find(
     (o) => o.targetYear === year && o.targetMonth === month && o.half === half,
   );
   if (ov) return ov.deadlineDate;
-  // 4. 全体の既定ルール
-  return deadlineFromConfig(config, year, month, half);
+
+  const offset =
+    half === "FIRST" ? config.firstHalfDeadlineMonthOffset : config.secondHalfDeadlineMonthOffset;
+  const day = half === "FIRST" ? config.firstHalfDeadlineDay : config.secondHalfDeadlineDay;
+  const { year: dy, month: dm } = shiftMonth(year, month, offset);
+  return `${dy}-${pad(dm)}-${pad(day)}`;
 }
 
 /** 締切超過か。締切当日は入力可（inclusive）= todayStr > deadline で closed。 */
@@ -128,17 +103,16 @@ export type HalfStatus = {
   endDate: string;
 };
 
-/** 対象月(1-12)の前半・後半それぞれの締切・ロック状態・日付範囲。driver を渡すと個別設定を反映。 */
+/** 対象月(1-12)の前半・後半それぞれの締切・ロック状態・日付範囲。 */
 export function monthHalves(
   config: DeadlineConfig,
   overrides: DeadlineOverride[],
   year: number,
   month: number,
   todayStr: string,
-  driver?: DriverDeadline | null,
 ): { firstHalf: HalfStatus; secondHalf: HalfStatus } {
   const build = (half: Half): HalfStatus => {
-    const deadline = computeDeadline(config, overrides, year, month, half, driver);
+    const deadline = computeDeadline(config, overrides, year, month, half);
     const { start, end } = halfRange(year, month, half, config.firstHalfEndDay);
     return { half, deadline, closed: isClosed(deadline, todayStr), startDate: start, endDate: end };
   };
