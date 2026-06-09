@@ -24,6 +24,11 @@ interface Props {
 }
 
 type OverrideRow = DeadlineOverride & { _key: string };
+type DriverInfo = { id: string; name: string; display_name: string | null };
+type DriverRule = { firstHalfDeadlineDay: number; secondHalfDeadlineDay: number };
+type DriverOverrideRow = DeadlineOverride & { driverId: string; _key: string };
+
+const driverName = (d: DriverInfo) => d.display_name || d.name;
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 const formatMd = (ymd: string) => {
@@ -37,6 +42,10 @@ const nextKey = () => `ov-${keySeq++}`;
 export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: Props) {
   const [config, setConfig] = useState<DeadlineConfig>({ ...DEFAULT_DEADLINE_CONFIG });
   const [overrides, setOverrides] = useState<OverrideRow[]>([]);
+  const [drivers, setDrivers] = useState<DriverInfo[]>([]);
+  const [driverRules, setDriverRules] = useState<Record<string, DriverRule>>({});
+  const [driverOverrides, setDriverOverrides] = useState<DriverOverrideRow[]>([]);
+  const [selectedDriverId, setSelectedDriverId] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,10 +54,23 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
     if (!open) return;
     setError(null);
     setLoading(true);
-    apiFetch<{ config: DeadlineConfig; overrides: DeadlineOverride[] }>("/api/admin/shift-deadlines")
+    apiFetch<{
+      config: DeadlineConfig;
+      overrides: DeadlineOverride[];
+      driverRules: Record<string, DeadlineConfig>;
+      driverOverrides: (DeadlineOverride & { driverId: string })[];
+      drivers: DriverInfo[];
+    }>("/api/admin/shift-deadlines")
       .then((res) => {
         setConfig({ ...DEFAULT_DEADLINE_CONFIG, ...res.config });
         setOverrides((res.overrides ?? []).map((o) => ({ ...o, _key: nextKey() })));
+        setDrivers(res.drivers ?? []);
+        const dr: Record<string, DriverRule> = {};
+        for (const [id, c] of Object.entries(res.driverRules ?? {})) {
+          dr[id] = { firstHalfDeadlineDay: c.firstHalfDeadlineDay, secondHalfDeadlineDay: c.secondHalfDeadlineDay };
+        }
+        setDriverRules(dr);
+        setDriverOverrides((res.driverOverrides ?? []).map((o) => ({ ...o, _key: nextKey() })));
       })
       .catch((e) => setError(e instanceof Error ? e.message : "読み込みに失敗しました"))
       .finally(() => setLoading(false));
@@ -78,9 +100,53 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
     setOverrides((prev) => prev.filter((o) => o._key !== key));
   };
 
+  // --- ドライバーごと ---
+  const toggleDriverRule = (on: boolean) => {
+    if (!selectedDriverId) return;
+    setDriverRules((prev) => {
+      const next = { ...prev };
+      if (on) {
+        next[selectedDriverId] = {
+          firstHalfDeadlineDay: config.firstHalfDeadlineDay,
+          secondHalfDeadlineDay: config.secondHalfDeadlineDay,
+        };
+      } else {
+        delete next[selectedDriverId];
+      }
+      return next;
+    });
+  };
+  const updateDriverRule = (patch: Partial<DriverRule>) => {
+    if (!selectedDriverId) return;
+    setDriverRules((prev) => ({ ...prev, [selectedDriverId]: { ...prev[selectedDriverId], ...patch } }));
+  };
+  const addDriverOverride = () => {
+    if (!selectedDriverId) return;
+    setDriverOverrides((prev) => [
+      ...prev,
+      {
+        _key: nextKey(),
+        driverId: selectedDriverId,
+        targetYear: now.getFullYear(),
+        targetMonth: now.getMonth() + 1,
+        half: "FIRST",
+        deadlineDate: "",
+        note: null,
+      },
+    ]);
+  };
+  const updateDriverOverride = (key: string, patch: Partial<DeadlineOverride>) => {
+    setDriverOverrides((prev) => prev.map((o) => (o._key === key ? { ...o, ...patch } : o)));
+  };
+  const removeDriverOverride = (key: string) => {
+    setDriverOverrides((prev) => prev.filter((o) => o._key !== key));
+  };
+  const thisDriverOverrides = driverOverrides.filter((o) => o.driverId === selectedDriverId);
+
   const save = async () => {
     // 締切日が空の例外は除外
     const valid = overrides.filter((o) => /^\d{4}-\d{2}-\d{2}$/.test(o.deadlineDate));
+    const validDriverOv = driverOverrides.filter((o) => /^\d{4}-\d{2}-\d{2}$/.test(o.deadlineDate));
     setSaving(true);
     setError(null);
     try {
@@ -92,6 +158,15 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
             secondHalfDeadlineDay: config.secondHalfDeadlineDay,
           },
           overrides: valid.map((o) => ({
+            targetYear: o.targetYear,
+            targetMonth: o.targetMonth,
+            half: o.half,
+            deadlineDate: o.deadlineDate,
+            note: o.note ?? null,
+          })),
+          driverRules,
+          driverOverrides: validDriverOv.map((o) => ({
+            driverId: o.driverId,
             targetYear: o.targetYear,
             targetMonth: o.targetMonth,
             half: o.half,
@@ -270,6 +345,158 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose }: 
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </section>
+
+              {/* ドライバーごとの設定 */}
+              <section className="mt-6 border-t border-slate-100 pt-5">
+                <h3 className="text-sm font-medium text-slate-700 mb-1">ドライバーごとの設定</h3>
+                <p className="text-[11px] text-slate-400 mb-3">
+                  特定のドライバーだけ締切を変えられます。優先順位は「ドライバー個別の例外 ＞ ドライバー個別の既定 ＞ 全体の例外 ＞ 全体の既定」です。
+                </p>
+                <CustomSelect
+                  value={selectedDriverId}
+                  onChange={(v) => setSelectedDriverId(v)}
+                  options={[
+                    { value: "", label: "ドライバーを選択…" },
+                    ...drivers.map((d) => ({
+                      value: d.id,
+                      label: driverName(d) + (driverRules[d.id] || driverOverrides.some((o) => o.driverId === d.id) ? "（設定あり）" : ""),
+                    })),
+                  ]}
+                  clearable={false}
+                  size="sm"
+                />
+
+                {selectedDriverId && (
+                  <div className="mt-3 space-y-4">
+                    {/* 個別の既定ルール */}
+                    <div className="rounded border border-slate-200 p-3">
+                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          disabled={!canWrite}
+                          checked={!!driverRules[selectedDriverId]}
+                          onChange={(e) => toggleDriverRule(e.target.checked)}
+                        />
+                        この人の既定締切を個別に設定する
+                      </label>
+                      {driverRules[selectedDriverId] ? (
+                        <div className="grid grid-cols-2 gap-4 mt-3">
+                          <div className="flex items-center gap-2 text-sm text-slate-800">
+                            <span className="text-xs text-slate-500">前半</span>
+                            <span>前月</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={28}
+                              disabled={!canWrite}
+                              value={driverRules[selectedDriverId].firstHalfDeadlineDay}
+                              onChange={(e) => updateDriverRule({ firstHalfDeadlineDay: Number(e.target.value) || 0 })}
+                              className="w-16 px-2 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
+                            />
+                            <span>日</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-slate-800">
+                            <span className="text-xs text-slate-500">後半</span>
+                            <span>当月</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={28}
+                              disabled={!canWrite}
+                              value={driverRules[selectedDriverId].secondHalfDeadlineDay}
+                              onChange={(e) => updateDriverRule({ secondHalfDeadlineDay: Number(e.target.value) || 0 })}
+                              className="w-16 px-2 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
+                            />
+                            <span>日</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-400 mt-2">
+                          未設定: 全体の既定（前月{config.firstHalfDeadlineDay}日 / 当月{config.secondHalfDeadlineDay}日）に従います。
+                        </p>
+                      )}
+                    </div>
+
+                    {/* 個別の期間例外 */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-medium text-slate-600">この人の期間例外</h4>
+                        {canWrite && (
+                          <button
+                            type="button"
+                            onClick={addDriverOverride}
+                            className="px-2.5 py-1 text-xs font-medium rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                          >
+                            ＋ 例外を追加
+                          </button>
+                        )}
+                      </div>
+                      {thisDriverOverrides.length === 0 ? (
+                        <p className="text-xs text-slate-400 py-3 text-center bg-slate-50 rounded">
+                          この人の例外はありません。
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {thisDriverOverrides.map((o) => (
+                            <div
+                              key={o._key}
+                              className="flex flex-wrap items-center gap-2 rounded border border-slate-200 p-2"
+                            >
+                              <input
+                                type="number"
+                                min={2000}
+                                disabled={!canWrite}
+                                value={o.targetYear}
+                                onChange={(e) => updateDriverOverride(o._key, { targetYear: Number(e.target.value) || 0 })}
+                                className="w-20 px-2 py-1 text-sm border border-slate-200 rounded disabled:bg-slate-50"
+                              />
+                              <span className="text-xs text-slate-500">年</span>
+                              <CustomSelect
+                                disabled={!canWrite}
+                                value={String(o.targetMonth)}
+                                onChange={(v) => updateDriverOverride(o._key, { targetMonth: Number(v) })}
+                                options={MONTHS.map((m) => ({ value: String(m), label: `${m}月` }))}
+                                clearable={false}
+                                size="sm"
+                              />
+                              <CustomSelect
+                                disabled={!canWrite}
+                                value={o.half}
+                                onChange={(v) => updateDriverOverride(o._key, { half: v as Half })}
+                                options={[
+                                  { value: "FIRST", label: "前半" },
+                                  { value: "SECOND", label: "後半" },
+                                ]}
+                                clearable={false}
+                                size="sm"
+                              />
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-slate-500">締切</span>
+                                <input
+                                  type="date"
+                                  disabled={!canWrite}
+                                  value={o.deadlineDate}
+                                  onChange={(e) => updateDriverOverride(o._key, { deadlineDate: e.target.value })}
+                                  className="px-2 py-1 text-sm border border-slate-200 rounded disabled:bg-slate-50"
+                                />
+                              </div>
+                              {canWrite && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeDriverOverride(o._key)}
+                                  className="ml-auto px-2 py-1 text-xs text-rose-600 hover:text-rose-800"
+                                >
+                                  削除
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </section>

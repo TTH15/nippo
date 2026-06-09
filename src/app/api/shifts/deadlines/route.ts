@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
-import { loadDeadlineConfig, loadDeadlineOverrides } from "@/server/shiftDeadline/config";
+import { loadDeadlineConfig, loadDeadlineOverrides, loadDriverDeadline } from "@/server/shiftDeadline/config";
 import { monthHalves } from "@/lib/shiftDeadline";
 import { todayJST } from "@/lib/date";
 
@@ -20,11 +20,12 @@ export async function GET(req: NextRequest) {
   const year = Number(m[1]);
   const mon = Number(m[2]);
 
-  const [config, overrides] = await Promise.all([
+  const [config, overrides, driver] = await Promise.all([
     loadDeadlineConfig(supabase),
     loadDeadlineOverrides(supabase),
+    loadDriverDeadline(supabase, user.driverId),
   ]);
 
-  const { firstHalf, secondHalf } = monthHalves(config, overrides, year, mon, todayJST());
+  const { firstHalf, secondHalf } = monthHalves(config, overrides, year, mon, todayJST(), driver);
   return NextResponse.json({ firstHalf, secondHalf });
 }
