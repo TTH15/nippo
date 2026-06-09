@@ -76,6 +76,32 @@ export async function POST(req: NextRequest) {
     const odometerKm = roleNumber(kind.fields, answers, "odometer") ?? (typeof answers.f_odometer === "number" ? answers.f_odometer : null);
     const expenseAmount = roleNumber(kind.fields, answers, "amount") ?? (typeof answers.f_amount === "number" ? answers.f_amount : null);
 
+    // 走行距離の誤入力ガード（オイル交換系）。
+    //   入力した走行距離が車両の現在登録より大幅(>=100km)に大きい場合、ドライバーへ確認を促す。
+    //   confirmed:true で再送されたら通す（=「正しいですか？」に「はい」）。
+    if (kind.capability === "oil_mileage" && vehicleId && odometerKm != null && body.confirmed !== true) {
+      const { data: veh } = await supabase
+        .from("vehicles")
+        .select("current_mileage")
+        .eq("id", vehicleId)
+        .maybeSingle();
+      const current = veh ? Number(veh.current_mileage) || 0 : 0;
+      const diff = Math.trunc(odometerKm) - current;
+      // current が 0（基準なし）の車両は判定しない（誤検知回避）。
+      if (current > 0 && diff >= 100) {
+        return NextResponse.json({
+          needsConfirm: true,
+          currentMileage: current,
+          odometer: Math.trunc(odometerKm),
+          diff,
+          message:
+            `入力した走行距離 ${Math.trunc(odometerKm).toLocaleString()} km は、` +
+            `現在の登録 ${current.toLocaleString()} km より ${diff.toLocaleString()} km 大きいです。\n` +
+            `入力に間違いはありませんか？`,
+        });
+      }
+    }
+
     const { data, error } = await supabase
       .from("oil_change_reports")
       .insert({

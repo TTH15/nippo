@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch } from "@/lib/api";
 import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 import { TeamPointsCard } from "@/lib/components/TeamPointsCard";
@@ -60,6 +61,8 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const [attachments, setAttachments] = useState<AnswerAttachment[]>([]);
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportMessage, setReportMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  // 走行距離が現在登録より大幅に大きい時の確認メッセージ（サーバが needsConfirm を返したら表示）。
+  const [odometerConfirm, setOdometerConfirm] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [unlinkedVehicles, setUnlinkedVehicles] = useState<Vehicle[]>([]);
   const [vehiclesLoading, setVehiclesLoading] = useState(false);
@@ -185,8 +188,8 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     }
   };
 
-  const handleMiscReportSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleMiscReportSubmit = async (e?: React.FormEvent, confirmed = false) => {
+    e?.preventDefault();
     setReportMessage(null);
     const kind = currentKind;
     if (!kind) {
@@ -211,7 +214,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     }
     setReportSubmitting(true);
     try {
-      await apiFetch("/api/reports/oil-change", {
+      const res = await apiFetch<{ ok?: boolean; needsConfirm?: boolean; message?: string }>("/api/reports/oil-change", {
         method: "POST",
         body: JSON.stringify({
           reportDate,
@@ -220,8 +223,15 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
           answers,
           attachments,
           vehicleId: kind.vehicleMode === "none" ? null : selectedVehicleId,
+          confirmed,
         }),
       });
+      // 走行距離が現在登録より大幅に大きい → ドライバーへ確認（はいで再送）。
+      if (res?.needsConfirm && !confirmed) {
+        setOdometerConfirm(res.message ?? "入力した走行距離が現在の登録より大きいです。間違いはありませんか？");
+        setReportSubmitting(false);
+        return;
+      }
       if (kind.vehicleMode !== "none" && selectedVehicleId) await saveVehiclePreference(selectedVehicleId);
       setReportMessage({ type: "ok", text: "報告を送信しました" });
       setAnswers({});
@@ -472,6 +482,19 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
             </div>
           )}
         </section>
+
+        <ConfirmDialog
+          open={!!odometerConfirm}
+          title="走行距離の確認"
+          message={odometerConfirm ?? ""}
+          confirmLabel="はい、この距離で送信"
+          cancelLabel="修正する"
+          onConfirm={() => {
+            setOdometerConfirm(null);
+            void handleMiscReportSubmit(undefined, true);
+          }}
+          onClose={() => setOdometerConfirm(null)}
+        />
       </div>
     );
   }

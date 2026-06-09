@@ -102,6 +102,7 @@ export default function AdminDailyPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [approveWarnings, setApproveWarnings] = useState<string[]>([]);
   const [editingEntry, setEditingEntry] = useState<{ entry: Entry; groupDate: string } | null>(null);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [savingEdit, setSavingEdit] = useState(false);
@@ -158,10 +159,11 @@ export default function AdminDailyPage() {
 
   const handleApprove = async (e: Entry, groupDate: string) => {
     try {
-      await apiFetch("/api/admin/daily/approve", {
+      const res = await apiFetch<{ ok?: boolean; warnings?: string[] }>("/api/admin/daily/approve", {
         method: "POST",
         body: JSON.stringify({ driverId: e.driver.id, date: groupDate }),
       });
+      setApproveWarnings(res?.warnings ?? []);
       if (tab === "pending") {
         load("pending");
       } else {
@@ -378,6 +380,23 @@ export default function AdminDailyPage() {
             {fetchError && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 mb-4">
                 日報の取得に失敗しました: {fetchError}
+              </div>
+            )}
+            {approveWarnings.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 mb-4 flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <p className="font-medium">承認しましたが、車両の走行距離について注意があります：</p>
+                  {approveWarnings.map((w, i) => (
+                    <p key={i}>・{w}</p>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setApproveWarnings([])}
+                  className="shrink-0 text-amber-600 hover:text-amber-800 text-xs"
+                >
+                  閉じる
+                </button>
               </div>
             )}
 

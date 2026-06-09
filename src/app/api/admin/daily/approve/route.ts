@@ -51,16 +51,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    // 車両ごとに、その日の最大メーター値を採用（複数コース行の last-row-wins を排除）。
+    const maxMeterByVehicle = new Map<string, number>();
     for (const r of reportRows ?? []) {
       if (r.vehicle_id && r.meter_value != null) {
+        const v = Number(r.meter_value);
+        if (!Number.isFinite(v)) continue;
+        maxMeterByVehicle.set(r.vehicle_id, Math.max(maxMeterByVehicle.get(r.vehicle_id) ?? -Infinity, v));
+      }
+    }
+
+    // 走行距離は前進のみ更新。現在登録より小さければ更新せず警告（巻き戻り＝誤入力の疑い）。
+    const warnings: string[] = [];
+    for (const [vehicleId, meter] of maxMeterByVehicle) {
+      const { data: veh } = await supabase
+        .from("vehicles")
+        .select("current_mileage")
+        .eq("id", vehicleId)
+        .maybeSingle();
+      const current = veh ? Number(veh.current_mileage) || 0 : 0;
+      if (meter >= current) {
         const { error: vehicleErr } = await supabase
           .from("vehicles")
-          .update({ current_mileage: Number(r.meter_value), updated_at: new Date().toISOString() })
-          .eq("id", r.vehicle_id);
+          .update({ current_mileage: meter, updated_at: new Date().toISOString() })
+          .eq("id", vehicleId);
         if (vehicleErr) {
           console.error(vehicleErr);
           return NextResponse.json({ error: "DB error" }, { status: 500 });
         }
+      } else {
+        warnings.push(
+          `メーター値 ${meter.toLocaleString()} km が現在の登録 ${current.toLocaleString()} km より小さいため、` +
+          `車両の走行距離は更新しませんでした（巻き戻りの可能性）。`,
+        );
       }
     }
 
@@ -82,7 +105,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, warnings });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

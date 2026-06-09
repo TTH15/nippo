@@ -56,12 +56,23 @@ export async function POST(req: NextRequest) {
       report?.vehicle_id &&
       odometerValue != null
     ) {
+      const odo = Math.trunc(odometerValue);
+      const { data: veh } = await supabase
+        .from("vehicles")
+        .select("current_mileage")
+        .eq("id", report.vehicle_id)
+        .maybeSingle();
+      const current = veh ? Number(veh.current_mileage) || 0 : 0;
+      const update: Record<string, unknown> = {
+        last_oil_change_mileage: odo,
+        updated_at: new Date().toISOString(),
+      };
+      // 「前回オイル交換 ≤ 現在走行距離」を保つ。
+      // オイル交換が日報より先に報告された場合は、現在走行距離もその値まで引き上げる。
+      if (odo > current) update.current_mileage = odo;
       const { error: vehicleErr } = await supabase
         .from("vehicles")
-        .update({
-          last_oil_change_mileage: Math.trunc(odometerValue),
-          updated_at: new Date().toISOString(),
-        })
+        .update(update)
         .eq("id", report.vehicle_id);
       if (vehicleErr) {
         console.error("[admin/misc-reports/oil-change/approve] vehicle update error", vehicleErr);

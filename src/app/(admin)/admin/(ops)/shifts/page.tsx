@@ -445,7 +445,7 @@ export default function ShiftsPage() {
     detail?: string;
   } | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [exportFormat, setExportFormat] = useState<"png" | "pdf">("png");
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement | null>(null);
   // 編集中のセル（date×driverId）。null＝全セル閲覧モード。
   // クリックで開いた1セルだけが編集UI（ポップオーバー）を表示する。
@@ -977,7 +977,7 @@ export default function ShiftsPage() {
     return newV !== oldV;
   };
 
-  const handleExport = async () => {
+  const handleExport = async (format: "png" | "pdf") => {
     if (exporting) return;
     const root = exportRef.current;
     if (!root) return;
@@ -1007,7 +1007,7 @@ export default function ShiftsPage() {
       ctx.drawImage(canvas, offsetX, offsetY, renderWidth, renderHeight);
       const dataUrl = fitted.toDataURL("image/png");
 
-      if (exportFormat === "png") {
+      if (format === "png") {
         const a = document.createElement("a");
         a.href = dataUrl;
         a.download = `shifts_${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}_${period}.png`;
@@ -1084,25 +1084,38 @@ export default function ShiftsPage() {
             >
               {generating ? "生成中..." : "叩き台を生成"}
             </button>
-            <div className="flex items-center gap-2">
-              <CustomSelect
-                options={[
-                  { value: "png", label: "画像（PNG）" },
-                  { value: "pdf", label: "PDF" },
-                ]}
-                value={exportFormat}
-                onChange={(v) => setExportFormat(v === "pdf" ? "pdf" : "png")}
-                clearable={false}
-                size="sm"
-              />
+            <div className="relative">
               <button
                 type="button"
-                onClick={handleExport}
+                onClick={() => setExportMenuOpen((o) => !o)}
                 disabled={exporting || loading}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
               >
                 {exporting ? "エクスポート中..." : "エクスポート"}
+                {!exporting && <ChevronDown className="w-3.5 h-3.5" />}
               </button>
+              {exportMenuOpen && !exporting && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setExportMenuOpen(false)} />
+                  <div className="absolute right-0 z-20 mt-1 w-40 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                    <p className="px-3 pb-1 pt-0.5 text-[10px] font-medium text-slate-400">ダウンロード形式</p>
+                    <button
+                      type="button"
+                      onClick={() => { setExportMenuOpen(false); void handleExport("png"); }}
+                      className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                    >
+                      画像（PNG）
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setExportMenuOpen(false); void handleExport("pdf"); }}
+                      className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                    >
+                      PDF
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
             <button
               type="button"
@@ -1905,10 +1918,12 @@ export default function ShiftsPage() {
                                 style={{
                                   boxSizing: "border-box",
                                   borderRadius: "6px",
-                                  padding: "0 6px",
+                                  // html2canvas は大きい line-height だと文字を下寄りに描くため、
+                                  // line-height は小さくし、上下 padding で中央に寄せる（padding は正しく描ける）。
+                                  padding: "7px 6px",
                                   marginTop: ci === 0 ? 0 : `${EX_CELL_GAP}px`,
                                   height: `${EX_COURSE_H}px`,
-                                  lineHeight: `${EX_COURSE_H}px`,
+                                  lineHeight: "18px",
                                   fontSize: "13px",
                                   fontWeight: 700,
                                   color: "#0f172a",
@@ -1928,7 +1943,9 @@ export default function ShiftsPage() {
                                 boxSizing: "border-box",
                                 marginTop: `${EX_CELL_GAP}px`,
                                 height: `${EX_PLATE_H}px`,
-                                lineHeight: `${EX_PLATE_H}px`,
+                                // 上記と同じ理由（html2canvas の縦位置対策）。
+                                padding: "4px 0",
+                                lineHeight: "12px",
                                 fontSize: "11px",
                                 fontWeight: 600,
                                 color: "#475569",

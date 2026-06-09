@@ -45,6 +45,14 @@ const PAGE_SIZE = 30;
 
 type ReportKindInfo = { key: string; label: string; fields: ReportField[] };
 
+/** 「M/D HH:MM」形式。日付が異なる承認も追えるよう日付を含める。 */
+function fmtDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 /** 報告の動的フィールドを「ラベル: 値」で描画。file 型は添付（署名URL）リンクで表示。 */
 function ReportAnswers({ report, fields }: { report: MiscReport; fields: ReportField[] }) {
   const atts = report.attachments ?? [];
@@ -226,7 +234,9 @@ export function OtherReportsContent() {
                     <th className="py-3 px-3 font-semibold text-slate-600 text-center">
                       {tab === "pending" ? "承認" : "ステータス"}
                     </th>
-                    <th className="py-3 px-4 font-semibold text-slate-600 text-right">送信時刻</th>
+                    <th className="py-3 px-4 font-semibold text-slate-600 text-right whitespace-nowrap">
+                      {tab === "approved" ? "送信 / 承認" : "送信日時"}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -272,11 +282,11 @@ export function OtherReportsContent() {
                           <span className="text-slate-400 text-xs">未承認</span>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-right text-slate-500 tabular-nums">
-                        {new Date(report.submitted_at).toLocaleTimeString("ja-JP", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                      <td className="py-3 px-4 text-right text-slate-500 tabular-nums whitespace-nowrap align-top">
+                        <div>{fmtDateTime(report.submitted_at)}</div>
+                        {tab === "approved" && report.approved_at && (
+                          <div className="text-[11px] text-emerald-600">承認 {fmtDateTime(report.approved_at)}</div>
+                        )}
                       </td>
                     </tr>
                     );
@@ -316,10 +326,6 @@ function MiscReportCard({
   onApprove: () => void;
   onReject: () => void;
 }) {
-  const submittedTime = new Date(report.submitted_at).toLocaleTimeString("ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
       <div className="flex items-center justify-between gap-2">
@@ -344,7 +350,12 @@ function MiscReportCard({
       </div>
 
       <div className="mt-2.5 flex items-center justify-between gap-2">
-        <span className="text-[11px] text-slate-400 tabular-nums">{submittedTime} 送信</span>
+        <span className="text-[11px] text-slate-400 tabular-nums">
+          送信 {fmtDateTime(report.submitted_at)}
+          {tab === "approved" && report.approved_at && (
+            <span className="text-emerald-600"> / 承認 {fmtDateTime(report.approved_at)}</span>
+          )}
+        </span>
         {tab === "approved" ? (
           <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
             承認済み
