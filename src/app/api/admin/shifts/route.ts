@@ -71,18 +71,26 @@ export async function GET(req: NextRequest) {
     .eq("role", "DRIVER")
     .order("name");
 
-  // Get shift requests (希望休)
+  // Get shift requests (希望休)。slot_id（便。NULL=全休）も含む。
   const { data: requests } = await supabase
     .from("shift_requests")
     .select("*")
     .gte("request_date", startDate)
     .lte("request_date", endDate);
 
+  // 便（時間帯）マスタ（active のみ）。希望休の便名表示用。
+  const { data: slots } = await supabase
+    .from("shift_request_slots")
+    .select("id, name")
+    .eq("active", true)
+    .order("sort_order");
+
   return NextResponse.json({
     courses: courses ?? [],
     shifts: shifts ?? [],
     drivers: drivers ?? [],
     requests: requests ?? [],
+    slots: slots ?? [],
     vehicles: fleet ?? [],
     vehicle_driver_links: vehicleLinks ?? [],
     vehicle_loans: vehicleLoans ?? [],

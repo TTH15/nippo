@@ -372,7 +372,10 @@ type ShiftRequest = {
   driver_id: string;
   request_date: string;
   request_type: string;
+  slot_id: string | null; // 便（時間帯）。NULL=全休。
 };
+
+type RequestSlot = { id: string; name: string };
 
 /** 指定月の前半（1日〜15日）の日付リスト */
 function getFirstHalfDates(year: number, month: number): string[] {
@@ -417,6 +420,7 @@ export default function ShiftsPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
+  const [slots, setSlots] = useState<RequestSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [autoSaving, setAutoSaving] = useState(0);
   const [generating, setGenerating] = useState(false);
@@ -486,6 +490,7 @@ export default function ShiftsPage() {
         drivers: Driver[];
         shifts: Shift[];
         requests: ShiftRequest[];
+        slots?: RequestSlot[];
         vehicles?: VehiclePlateData[];
         vehicle_driver_links?: { driver_id: string; vehicle_id: string }[];
         vehicle_loans?: { vehicle_id: string; loan_date: string }[];
@@ -494,6 +499,7 @@ export default function ShiftsPage() {
       setDrivers(res.drivers);
       setShifts((res.shifts ?? []).map((s) => normalizeShiftVehiclesEmbed(s)));
       setRequests(res.requests);
+      setSlots(res.slots ?? []);
       setFleetVehicles(Array.isArray(res.vehicles) ? res.vehicles : []);
       setVehicleLinks(res.vehicle_driver_links ?? []);
       setVehicleLoans(res.vehicle_loans ?? []);
@@ -574,9 +580,19 @@ export default function ShiftsPage() {
     return shift?.driver_id ?? null;
   };
 
-  const isDriverOffDay = (driverId: string, date: string) => {
-    return requests.some((r) => r.driver_id === driverId && r.request_date === date);
-  };
+  // slot_id を便名に解決（NULL/不明＝「全休」）。
+  const slotName = (slotId: string | null): string =>
+    slotId == null ? "全休" : slots.find((s) => s.id === slotId)?.name ?? "便";
+
+  // 全休（slot_id=null）のみを「希望休」＝割当ブロック対象とする。便指定はブロックしない。
+  const isDriverOffDay = (driverId: string, date: string) =>
+    requests.some((r) => r.driver_id === driverId && r.request_date === date && r.slot_id == null);
+
+  // 便指定の休み希望（全休以外）の便名一覧（注記表示用）。
+  const getDriverSlotOffNames = (driverId: string, date: string): string[] =>
+    requests
+      .filter((r) => r.driver_id === driverId && r.request_date === date && r.slot_id != null)
+      .map((r) => slotName(r.slot_id));
 
   // その日の稼働人数（いずれかのコースに割り当てられた重複排除ドライバー数）。
   const workingCountByDate = useMemo(() => {
@@ -733,6 +749,9 @@ export default function ShiftsPage() {
       // 他ドライバーと重複する場合は、ブロックせず確認（OKなら重複割り当て）。
       const holder = getOtherVehicleHolderName(date, vehicleId, driverId);
       if (holder) {
+        // 選択ポップオーバーを閉じ、中央の確認モーダルだけを見せる（位置のズレ防止）。
+        setEditingCell(null);
+        setUnassignedOpenDate(null);
         setConfirmState({
           message:
             `この車両は同じ日に ${holder} さんへ割り当て済みです。重複して割り当てますか？\n` +
@@ -1256,6 +1275,8 @@ export default function ShiftsPage() {
                         {displayDates.map((date) => {
                           const tone = shiftDayTone(date, today);
                           const off = isDriverOffDay(driver.id, date);
+                          // 便指定の休み希望（全休でない場合のみ。割当はブロックせず注記表示）。
+                          const slotOffs = off ? [] : getDriverSlotOffNames(driver.id, date);
                           const placements = findDriverPlacementsOnDate(localShifts, date, driver.id);
                           const assignedCourses = placements
                             .map((p) => courses.find((c) => c.id === p.courseId))
@@ -1363,6 +1384,14 @@ export default function ShiftsPage() {
                                         dirty && !isEditing && "ring-2 ring-amber-400",
                                       )}
                                     >
+                                      {slotOffs.length > 0 && (
+                                        <span
+                                          className="w-full truncate rounded bg-amber-100 px-1 text-[9px] font-semibold leading-tight text-amber-800"
+                                          title={`${slotOffs.join("・")} 休み希望`}
+                                        >
+                                          {slotOffs.join("・")}休み希望
+                                        </span>
+                                      )}
                                       {hasAny ? (
                                         <>
                                           {assignedCourses.map((course) => (
@@ -1635,13 +1664,16 @@ export default function ShiftsPage() {
                             key={r.id}
                             className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs"
                           >
-                            <span className="mr-1">{formatDate(r.request_date)}</span>
+                            <span className="mr-1">
+                              {formatDate(r.request_date)}
+                              <span className="ml-1 text-slate-400">{slotName(r.slot_id)}</span>
+                            </span>
                             {canWrite && (
                               <button
                                 type="button"
                                 onClick={async () => {
                                   setConfirmState({
-                                    message: `${getDisplayName(driver)} の希望休（${formatDate(r.request_date)}）を解除しますか？`,
+                                    message: `${getDisplayName(driver)} の希望休（${formatDate(r.request_date)} ${slotName(r.slot_id)}）を解除しますか？`,
                                     onConfirm: async () => {
                                       try {
                                         await apiFetch(`/api/admin/shifts/requests/${r.id}`, {
