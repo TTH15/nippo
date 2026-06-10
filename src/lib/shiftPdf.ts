@@ -3,7 +3,7 @@
 //   レンダラを抽象化し、PDFとPNGで同一レイアウト・同一見た目にする。
 import type { jsPDF } from "jspdf";
 
-export type ExCellCourse = { label: string; color: string }; // color = "#rrggbb"
+export type ExCellCourse = { label: string; color: string; slotLabel?: string }; // color = "#rrggbb"
 export type ExCell =
   | { kind: "off" } // 希望休
   | { kind: "designated"; bg?: string } // 指定休
@@ -200,7 +200,9 @@ export function drawShiftTable(r: ShiftRenderer, data: ShiftPdfData, pageW: numb
       const innerW = DATE_COL - PAD_X * 2;
       cell.courses.forEach((c) => {
         r.roundedRect(px(cx + PAD_X), py(by), S(innerW), S(COURSE_H), S(5), mix(c.color, 0.44), mix(c.color, 0.72), Math.max(0.5, S(1.5)));
-        r.text(fitText(c.label, innerW - PAD_X, F_COURSE), px(cx + DATE_COL / 2), py(by + COURSE_H / 2), F_COURSE * scale, [15, 23, 42], "center", "middle");
+        // 時間帯（時刻 or 便名）があれば「コース｜時間帯」を1行に収める（セル高は不変）。
+        const courseText = c.slotLabel ? `${c.label}｜${c.slotLabel}` : c.label;
+        r.text(fitText(courseText, innerW - PAD_X, F_COURSE), px(cx + DATE_COL / 2), py(by + COURSE_H / 2), F_COURSE * scale, [15, 23, 42], "center", "middle");
         by += COURSE_H + COURSE_GAP;
       });
       if (cell.plate) {

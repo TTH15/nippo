@@ -5,18 +5,34 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 //   便マスタ（キャリア別）＋ ドライバー割り当て。テーブル未作成でも空で安全に動く。
 // ============================================================
 
-export type RequestSlot = { id: string; name: string; sortOrder: number; active: boolean };
+export type RequestSlot = {
+  id: string;
+  name: string;
+  startTime: string | null;
+  endTime: string | null;
+  sortOrder: number;
+  active: boolean;
+};
 export type SlotFull = RequestSlot & { driverIds: string[] };
 export type SlotInput = {
   id: string | null;
   name: string;
+  startTime: string | null;
+  endTime: string | null;
   active: boolean;
   driverIds: string[];
 };
 /** ドライバーが使う便（画面表示用）。 */
-export type DriverSlot = { id: string; name: string };
+export type DriverSlot = { id: string; name: string; startTime: string | null; endTime: string | null };
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+
+/** "" や undefined を null へ。"HH:MM" / "HH:MM:SS" はそのまま。 */
+const timeOrNull = (v: unknown): string | null => {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return /^\d{2}:\d{2}(:\d{2})?$/.test(t) ? t : null;
+};
 
 /** あるドライバーが使う便（active のみ・並び順）。未割り当てなら空＝全休のみ。 */
 export async function loadDriverSlots(supabase: SupabaseClient, driverId: string): Promise<DriverSlot[]> {
@@ -29,11 +45,16 @@ export async function loadDriverSlots(supabase: SupabaseClient, driverId: string
     if (ids.length === 0) return [];
     const { data: slots } = await supabase
       .from("shift_request_slots")
-      .select("id, name")
+      .select("id, name, start_time, end_time")
       .in("id", ids)
       .eq("active", true)
       .order("sort_order");
-    return (slots ?? []).map((s) => ({ id: String(s.id), name: s.name ?? "" }));
+    return (slots ?? []).map((s) => ({
+      id: String(s.id),
+      name: s.name ?? "",
+      startTime: timeOrNull(s.start_time),
+      endTime: timeOrNull(s.end_time),
+    }));
   } catch {
     return [];
   }
@@ -43,12 +64,17 @@ export async function loadDriverSlots(supabase: SupabaseClient, driverId: string
 export async function loadAllSlots(supabase: SupabaseClient): Promise<SlotFull[]> {
   try {
     const [{ data: slots }, { data: asg }] = await Promise.all([
-      supabase.from("shift_request_slots").select("id, name, sort_order, active").order("sort_order"),
+      supabase
+        .from("shift_request_slots")
+        .select("id, name, start_time, end_time, sort_order, active")
+        .order("sort_order"),
       supabase.from("driver_request_slots").select("driver_id, slot_id"),
     ]);
     return (slots ?? []).map((s) => ({
       id: String(s.id),
       name: s.name ?? "",
+      startTime: timeOrNull(s.start_time),
+      endTime: timeOrNull(s.end_time),
       sortOrder: Number(s.sort_order) || 0,
       active: s.active !== false,
       driverIds: (asg ?? []).filter((a) => a.slot_id === s.id).map((a) => String(a.driver_id)),
@@ -70,15 +96,20 @@ export async function saveSlots(supabase: SupabaseClient, slots: SlotInput[]): P
   for (let i = 0; i < slots.length; i++) {
     const s = slots[i];
     let id = s.id;
+    const fields = {
+      name: s.name,
+      start_time: timeOrNull(s.startTime),
+      end_time: timeOrNull(s.endTime),
+      sort_order: i,
+      active: s.active,
+      updated_at: now,
+    };
     if (id) {
-      await supabase
-        .from("shift_request_slots")
-        .update({ name: s.name, sort_order: i, active: s.active, updated_at: now })
-        .eq("id", id);
+      await supabase.from("shift_request_slots").update(fields).eq("id", id);
     } else {
       const { data } = await supabase
         .from("shift_request_slots")
-        .insert({ name: s.name, sort_order: i, active: s.active, updated_at: now })
+        .insert(fields)
         .select("id")
         .single();
       id = (data?.id as string | undefined) ?? null;

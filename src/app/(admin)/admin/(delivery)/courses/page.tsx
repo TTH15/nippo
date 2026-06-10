@@ -20,6 +20,7 @@ import { CourseRateEditor, type CourseRateEditorHandle } from "@/lib/components/
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
+import { slotDisplayLabel } from "@/lib/timeSlot";
 import { Button } from "@/lib/ui/button";
 
 type CourseCarrier = "YAMATO" | "AMAZON" | "OTHER";
@@ -35,8 +36,10 @@ type Course = {
   daily_lease?: number | null;
   principal_invoice_address_id?: string | null;
   counterparty_invoice_address_id?: string | null;
+  slot_id?: string | null;
 };
 
+type TimeSlot = { id: string; name: string; startTime: string | null; endTime: string | null };
 type InvoiceAddress = { id: string; name: string };
 type Carrier = { id: string; name: string; code: string | null };
 type Driver = {
@@ -68,6 +71,12 @@ function carrierIcon(code: string | null): IconDefinition {
 
 const NO_CARRIER_KEY = "__none__";
 
+/** 時間帯セレクトのラベル（便名＋時刻があれば併記）。 */
+function slotOptionLabel(s: TimeSlot): string {
+  const t = slotDisplayLabel(s);
+  return t === s.name ? s.name : `${s.name}（${t}）`;
+}
+
 const COLORS = [
   "#3b82f6", "#2563eb", "#0ea5e9", "#06b6d4", "#14b8a6",
   "#22c55e", "#84cc16", "#eab308", "#f59e0b", "#f97316",
@@ -84,6 +93,7 @@ type CourseFormState = {
   daily_lease: string;
   principal_invoice_address_id: string;
   counterparty_invoice_address_id: string;
+  slotId: string;
 };
 
 const EMPTY_COURSE_FORM: CourseFormState = {
@@ -95,6 +105,7 @@ const EMPTY_COURSE_FORM: CourseFormState = {
   daily_lease: "",
   principal_invoice_address_id: "",
   counterparty_invoice_address_id: "",
+  slotId: "",
 };
 
 export default function CoursesPage() {
@@ -103,6 +114,7 @@ export default function CoursesPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [invoiceAddresses, setInvoiceAddresses] = useState<InvoiceAddress[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
+  const [slots, setSlots] = useState<TimeSlot[]>([]);
   // 選択キャリアから旧 carrier テキスト(YAMATO/AMAZON/OTHER)を導出（移行期の互換用）
   const legacyCarrierOf = (carrierId: string): CourseCarrier => {
     const code = carriers.find((c) => c.id === carrierId)?.code;
@@ -213,14 +225,16 @@ export default function CoursesPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [coursesRes, usersRes, invoiceAddressesRes, carriersRes] = await Promise.all([
+      const [coursesRes, usersRes, invoiceAddressesRes, carriersRes, slotsRes] = await Promise.all([
         apiFetch<{ courses: Course[] }>("/api/admin/courses"),
         apiFetch<{ drivers: Driver[] }>("/api/admin/users"),
         apiFetch<{ addresses: InvoiceAddress[] }>("/api/admin/invoice-addresses"),
         apiFetch<{ carriers: Carrier[] }>("/api/admin/carriers"),
+        apiFetch<{ slots: TimeSlot[] }>("/api/admin/shift-slots").catch(() => ({ slots: [] as TimeSlot[] })),
       ]);
       setCourses(coursesRes.courses);
       setDrivers(usersRes.drivers.filter((d) => d.role === "DRIVER"));
+      setSlots(slotsRes.slots ?? []);
       setInvoiceAddresses(invoiceAddressesRes.addresses ?? []);
       setCarriers((carriersRes.carriers ?? []).map((c) => ({ id: c.id, name: c.name, code: c.code ?? null })));
     } catch (e) {
@@ -252,6 +266,7 @@ export default function CoursesPage() {
           daily_lease: Math.max(0, parseInt(newCourse.daily_lease, 10) || 0),
           principal_invoice_address_id: newCourse.principal_invoice_address_id || null,
           counterparty_invoice_address_id: newCourse.counterparty_invoice_address_id || null,
+          slot_id: newCourse.slotId || null,
         }),
       });
       const createdCourse: Course = res.course;
@@ -289,6 +304,7 @@ export default function CoursesPage() {
       daily_lease: course.daily_lease != null && Number(course.daily_lease) > 0 ? String(course.daily_lease) : "",
       principal_invoice_address_id: course.principal_invoice_address_id ?? "",
       counterparty_invoice_address_id: course.counterparty_invoice_address_id ?? "",
+      slotId: course.slot_id ?? "",
     });
     setShowEditModal(true);
   };
@@ -311,6 +327,7 @@ export default function CoursesPage() {
           daily_lease: dailyLease,
           principal_invoice_address_id: editForm.principal_invoice_address_id || null,
           counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
+          slot_id: editForm.slotId || null,
         }),
       });
       // 単価（course-billing）も保存
@@ -326,6 +343,7 @@ export default function CoursesPage() {
         daily_lease: dailyLease,
         principal_invoice_address_id: editForm.principal_invoice_address_id || null,
         counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
+        slot_id: editForm.slotId || null,
       };
       setCourses((prev) => prev.map((c) => (c.id === editingCourse.id ? updatedCourse : c)));
       setShowEditModal(false);
@@ -536,6 +554,20 @@ export default function CoursesPage() {
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">時間帯</label>
+                  <CustomSelect
+                    options={[
+                      { value: "", label: "終日（指定なし）" },
+                      ...slots.map((s) => ({ value: s.id, label: slotOptionLabel(s) })),
+                    ]}
+                    value={newCourse.slotId}
+                    onChange={(v) => setNewCourse((f) => ({ ...f, slotId: v }))}
+                    clearable={false}
+                    size="sm"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">このコースの時間帯（便）。1日に時間帯違いのコースを複数入れられます。時間帯は⚙️設定で作成。</p>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">コース名</label>
                   <input
                     type="text"
@@ -691,6 +723,19 @@ export default function CoursesPage() {
                     options={carriers.map((c) => ({ value: c.id, label: c.name }))}
                     value={editForm.carrierId}
                     onChange={(v) => setEditForm((f) => ({ ...f, carrierId: v }))}
+                    clearable={false}
+                    size="sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">時間帯</label>
+                  <CustomSelect
+                    options={[
+                      { value: "", label: "終日（指定なし）" },
+                      ...slots.map((s) => ({ value: s.id, label: slotOptionLabel(s) })),
+                    ]}
+                    value={editForm.slotId}
+                    onChange={(v) => setEditForm((f) => ({ ...f, slotId: v }))}
                     clearable={false}
                     size="sm"
                   />

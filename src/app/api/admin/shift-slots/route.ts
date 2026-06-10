@@ -27,6 +27,13 @@ export async function PUT(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const rawSlots = Array.isArray(body.slots) ? body.slots : [];
 
+  // "HH:MM"（or "HH:MM:SS"）のみ許可。それ以外は null。
+  const toTime = (v: unknown): string | null => {
+    if (typeof v !== "string") return null;
+    const t = v.trim();
+    return /^\d{2}:\d{2}(:\d{2})?$/.test(t) ? t : null;
+  };
+
   const slots: SlotInput[] = [];
   const seenNames = new Set<string>();
   for (const s of rawSlots as Record<string, unknown>[]) {
@@ -37,7 +44,14 @@ export async function PUT(req: NextRequest) {
     const driverIds = (Array.isArray(s.driverIds) ? s.driverIds : []).filter(
       (d): d is string => typeof d === "string" && UUID_RE.test(d),
     );
-    slots.push({ id, name, active: s.active !== false, driverIds });
+    let startTime = toTime(s.startTime);
+    let endTime = toTime(s.endTime);
+    // 両方ありで start>=end は不正として時刻を捨てる（日跨ぎ非対応）。
+    if (startTime && endTime && startTime >= endTime) {
+      startTime = null;
+      endTime = null;
+    }
+    slots.push({ id, name, startTime, endTime, active: s.active !== false, driverIds });
   }
 
   try {

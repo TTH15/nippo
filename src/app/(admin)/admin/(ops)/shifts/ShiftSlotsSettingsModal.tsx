@@ -18,8 +18,26 @@ interface Props {
 }
 
 type DriverInfo = { id: string; name: string; display_name: string | null };
-type SlotRow = { _key: string; id: string | null; name: string; active: boolean; driverIds: string[] };
-type SlotFull = { id: string; name: string; sortOrder: number; active: boolean; driverIds: string[] };
+type SlotRow = {
+  _key: string;
+  id: string | null;
+  name: string;
+  startTime: string;
+  endTime: string;
+  active: boolean;
+  driverIds: string[];
+};
+type SlotFull = {
+  id: string;
+  name: string;
+  startTime: string | null;
+  endTime: string | null;
+  sortOrder: number;
+  active: boolean;
+  driverIds: string[];
+};
+
+const hhmm = (t: string | null) => (t && t.length >= 5 ? t.slice(0, 5) : t ?? "");
 
 const driverName = (d: DriverInfo) => d.display_name || d.name;
 let keySeq = 0;
@@ -44,6 +62,8 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
             _key: nextKey(),
             id: s.id,
             name: s.name,
+            startTime: hhmm(s.startTime),
+            endTime: hhmm(s.endTime),
             active: s.active,
             driverIds: s.driverIds ?? [],
           })),
@@ -58,7 +78,10 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
   const patch = (key: string, p: Partial<SlotRow>) =>
     setSlots((prev) => prev.map((s) => (s._key === key ? { ...s, ...p } : s)));
   const addSlot = () =>
-    setSlots((prev) => [...prev, { _key: nextKey(), id: null, name: "", active: true, driverIds: [] }]);
+    setSlots((prev) => [
+      ...prev,
+      { _key: nextKey(), id: null, name: "", startTime: "", endTime: "", active: true, driverIds: [] },
+    ]);
   const removeSlot = (key: string) => setSlots((prev) => prev.filter((s) => s._key !== key));
   const toggleDriver = (key: string, driverId: string) =>
     setSlots((prev) =>
@@ -81,7 +104,14 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
         body: JSON.stringify({
           slots: slots
             .filter((s) => s.name.trim())
-            .map((s) => ({ id: s.id, name: s.name.trim(), active: s.active, driverIds: s.driverIds })),
+            .map((s) => ({
+              id: s.id,
+              name: s.name.trim(),
+              startTime: s.startTime || null,
+              endTime: s.endTime || null,
+              active: s.active,
+              driverIds: s.driverIds,
+            })),
         }),
       });
       onClose();
@@ -124,6 +154,23 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
                         placeholder="便名（例: 午後便）"
                         className="flex-1 min-w-[8rem] px-3 py-1.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-50"
                       />
+                      <div className="flex items-center gap-1" title="時刻は任意。空なら便名で表示">
+                        <input
+                          type="time"
+                          disabled={!canWrite}
+                          value={slot.startTime}
+                          onChange={(e) => patch(slot._key, { startTime: e.target.value })}
+                          className="px-2 py-1 text-sm border border-slate-200 rounded disabled:bg-slate-50"
+                        />
+                        <span className="text-xs text-slate-400">-</span>
+                        <input
+                          type="time"
+                          disabled={!canWrite}
+                          value={slot.endTime}
+                          onChange={(e) => patch(slot._key, { endTime: e.target.value })}
+                          className="px-2 py-1 text-sm border border-slate-200 rounded disabled:bg-slate-50"
+                        />
+                      </div>
                       <label className="flex items-center gap-1 text-xs text-slate-600">
                         <input
                           type="checkbox"

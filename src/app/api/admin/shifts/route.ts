@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
   // 便（時間帯）マスタ（active のみ）。希望休の便名表示用。
   const { data: slots } = await supabase
     .from("shift_request_slots")
-    .select("id, name")
+    .select("id, name, start_time, end_time")
     .eq("active", true)
     .order("sort_order");
 

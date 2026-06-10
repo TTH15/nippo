@@ -57,6 +57,10 @@ export async function PUT(
       const cid = (body as { carrier_id?: unknown }).carrier_id;
       updates.carrier_id = typeof cid === "string" && cid ? cid : null;
     }
+    if ("slot_id" in (body as Record<string, unknown>)) {
+      const sid = (body as { slot_id?: unknown }).slot_id;
+      updates.slot_id = typeof sid === "string" && sid ? sid : null;
+    }
     if (summaryTitle !== undefined) {
       updates.summary_title = typeof summaryTitle === "string" && summaryTitle.trim() !== "" ? summaryTitle.trim() : null;
     }

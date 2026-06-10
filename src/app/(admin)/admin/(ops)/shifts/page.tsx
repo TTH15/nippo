@@ -13,6 +13,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { canEditShifts } from "@/lib/authz";
+import { slotDisplayLabel } from "@/lib/timeSlot";
 import {
   formatPlateNumeric,
   VehiclePlate,
@@ -33,6 +34,7 @@ type Course = {
   max_drivers?: number | null;
   /** コース編集画面の「略記」。未設定時はコース名を表示 */
   summary_title?: string | null;
+  slot_id?: string | null;
 };
 
 /** シフト・エクスポートで見せる文言（略記優先・なければ正式名） */
@@ -375,7 +377,7 @@ type ShiftRequest = {
   slot_id: string | null; // 便（時間帯）。NULL=全休。
 };
 
-type RequestSlot = { id: string; name: string };
+type RequestSlot = { id: string; name: string; startTime: string | null; endTime: string | null };
 
 /** 指定月の前半（1日〜15日）の日付リスト */
 function getFirstHalfDates(year: number, month: number): string[] {
@@ -490,7 +492,7 @@ export default function ShiftsPage() {
         drivers: Driver[];
         shifts: Shift[];
         requests: ShiftRequest[];
-        slots?: RequestSlot[];
+        slots?: { id: string; name: string; start_time: string | null; end_time: string | null }[];
         vehicles?: VehiclePlateData[];
         vehicle_driver_links?: { driver_id: string; vehicle_id: string }[];
         vehicle_loans?: { vehicle_id: string; loan_date: string }[];
@@ -499,7 +501,14 @@ export default function ShiftsPage() {
       setDrivers(res.drivers);
       setShifts((res.shifts ?? []).map((s) => normalizeShiftVehiclesEmbed(s)));
       setRequests(res.requests);
-      setSlots(res.slots ?? []);
+      setSlots(
+        (res.slots ?? []).map((s) => ({
+          id: s.id,
+          name: s.name,
+          startTime: s.start_time ?? null,
+          endTime: s.end_time ?? null,
+        })),
+      );
       setFleetVehicles(Array.isArray(res.vehicles) ? res.vehicles : []);
       setVehicleLinks(res.vehicle_driver_links ?? []);
       setVehicleLoans(res.vehicle_loans ?? []);
@@ -580,9 +589,16 @@ export default function ShiftsPage() {
     return shift?.driver_id ?? null;
   };
 
-  // slot_id を便名に解決（NULL/不明＝「全休」）。
+  // slot_id を便名に解決（NULL/不明＝「全休」）。希望休一覧/注記用。
   const slotName = (slotId: string | null): string =>
     slotId == null ? "全休" : slots.find((s) => s.id === slotId)?.name ?? "便";
+
+  // コースの時間帯ラベル（時刻 or 便名）。終日(null)は null。
+  const slotLabelById = (slotId: string | null | undefined): string | null => {
+    if (!slotId) return null;
+    const s = slots.find((x) => x.id === slotId);
+    return s ? slotDisplayLabel(s) : null;
+  };
 
   // 全休（slot_id=null）のみを「希望休」＝割当ブロック対象とする。便指定はブロックしない。
   const isDriverOffDay = (driverId: string, date: string) =>
@@ -1044,7 +1060,11 @@ export default function ShiftsPage() {
           kind: "courses",
           bg: chrome.cellBg,
           plate: exPlate ? formatPlateOneLine(exPlate) : "",
-          courses: exCourses.map((c) => ({ label: courseShiftLabel(c), color: c.color })),
+          courses: exCourses.map((c) => ({
+            label: courseShiftLabel(c),
+            color: c.color,
+            slotLabel: slotLabelById(c.slot_id) ?? undefined,
+          })),
         };
       });
       return { name: getDisplayName(driver), cells };
@@ -1404,6 +1424,11 @@ export default function ShiftsPage() {
                                               <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-slate-900">
                                                 {courseShiftLabel(course)}
                                               </span>
+                                              {slotLabelById(course.slot_id) && (
+                                                <span className="ml-1 shrink-0 text-[9px] font-medium leading-tight text-slate-600">
+                                                  {slotLabelById(course.slot_id)}
+                                                </span>
+                                              )}
                                             </span>
                                           ))}
                                           <span className="mt-0.5 flex w-full min-w-0 items-center justify-center">

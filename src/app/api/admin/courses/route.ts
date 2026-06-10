@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
       daily_lease: dailyLeaseRaw,
       principal_invoice_address_id: principalInvoiceAddressIdRaw,
       counterparty_invoice_address_id: counterpartyInvoiceAddressIdRaw,
+      slot_id: slotIdRaw,
     } = body as {
       name?: string;
       color?: string;
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
       daily_lease?: number | null;
       principal_invoice_address_id?: string | null;
       counterparty_invoice_address_id?: string | null;
+      slot_id?: string | null;
     };
 
     if (!name || typeof name !== "string") {
@@ -120,6 +122,7 @@ export async function POST(req: NextRequest) {
       carrier_id: typeof carrierIdRaw === "string" && carrierIdRaw ? carrierIdRaw : null,
       principal_invoice_address_id: principalInvoiceAddressId,
       counterparty_invoice_address_id: counterpartyInvoiceAddressId,
+      slot_id: typeof slotIdRaw === "string" && slotIdRaw ? slotIdRaw : null,
     };
     if (summaryTitle !== undefined) {
       insertRow.summary_title = typeof summaryTitle === "string" && summaryTitle.trim() !== "" ? summaryTitle.trim() : null;
