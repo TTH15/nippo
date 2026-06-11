@@ -13,6 +13,45 @@ import type {
   ManualPointRow,
 } from "./types";
 
+// ランキングにポイント差分を即時反映（楽観的更新用）
+function applyPointDelta(
+  ranking: RankingResponse,
+  driverId: string | null,
+  teamId: string | null,
+  delta: number,
+): RankingResponse {
+  let individuals = ranking.individuals.map((d) =>
+    driverId && d.driverId === driverId
+      ? { ...d, manualPoints: d.manualPoints + delta, total: d.total + delta }
+      : d,
+  );
+  individuals = [...individuals].sort((a, b) => b.total - a.total);
+
+  let teams = ranking.teams.map((t) => {
+    if (teamId && t.teamId === teamId) {
+      return { ...t, teamManualPoints: t.teamManualPoints + delta, total: t.total + delta };
+    }
+    if (driverId) {
+      const idx = t.members.findIndex((m) => m.driverId === driverId);
+      if (idx >= 0) {
+        const newMembers = t.members.map((m, i) =>
+          i === idx ? { ...m, manualPoints: m.manualPoints + delta, total: m.total + delta } : m,
+        );
+        return {
+          ...t,
+          members: [...newMembers].sort((a, b) => b.total - a.total),
+          memberPoints: t.memberPoints + delta,
+          total: t.total + delta,
+        };
+      }
+    }
+    return t;
+  });
+  teams = [...teams].sort((a, b) => b.total - a.total);
+
+  return { ...ranking, teams, individuals };
+}
+
 // 順位表示（rank は 1 始まり）。同点は同順位、メダルは上位3順位に付与。
 const medalForRank = (rank: number) =>
   rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}`;
@@ -105,6 +144,20 @@ export function RankingTab({
     }
   }, [eventId, onError]);
 
+  // DB 書き込み後のバックグラウンド同期（ローディング表示なし）
+  const silentSync = useCallback(async () => {
+    try {
+      const [rk, mp] = await Promise.all([
+        apiFetch<RankingResponse>(`/api/admin/events/${eventId}/ranking`).catch(() => null),
+        apiFetch<{ entries: ManualPointRow[] }>(`/api/admin/events/${eventId}/points`),
+      ]);
+      if (rk) setRanking(rk);
+      setManual(mp.entries);
+    } catch {
+      // 楽観的更新済みなのでサイレントに無視
+    }
+  }, [eventId]);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -124,23 +177,60 @@ export function RankingTab({
       onError("入力エラー", "対象チームを選択してください。");
       return;
     }
+
+    // フォーム値をキャプチャ
+    const curType = targetType;
+    const curDriverId = driverId;
+    const curTeamId = teamId;
+    const curPoints = pts;
+    const curReason = reason.trim() || null;
+
+    // 楽観的更新：即座に UI に反映
+    const optimisticEntry: ManualPointRow = {
+      id: `optimistic-${Date.now()}`,
+      team_id: curType === "team" ? curTeamId : null,
+      driver_id: curType === "driver" ? curDriverId : null,
+      entry_date: null,
+      points: curPoints,
+      reason: curReason,
+      source: "manual",
+      created_at: new Date().toISOString(),
+    };
+    const prevManual = manual;
+    const prevRanking = ranking;
+    setManual((prev) => [...prev, optimisticEntry]);
+    if (ranking) {
+      setRanking(
+        applyPointDelta(
+          ranking,
+          curType === "driver" ? curDriverId : null,
+          curType === "team" ? curTeamId : null,
+          curPoints,
+        ),
+      );
+    }
+    setPoints("");
+    setReason("");
+    setDriverId("");
+    setTeamId("");
+
+    // バックグラウンドで DB 書き込み
     setSubmitting(true);
     try {
       await apiFetch(`/api/admin/events/${eventId}/points`, {
         method: "POST",
         body: JSON.stringify({
-          driverId: targetType === "driver" ? driverId : null,
-          teamId: targetType === "team" ? teamId : null,
-          points: pts,
-          reason: reason.trim() || null,
+          driverId: curType === "driver" ? curDriverId : null,
+          teamId: curType === "team" ? curTeamId : null,
+          points: curPoints,
+          reason: curReason,
         }),
       });
-      setPoints("");
-      setReason("");
-      setDriverId("");
-      setTeamId("");
-      await load();
+      silentSync();
     } catch (e) {
+      // ロールバック
+      setManual(prevManual);
+      setRanking(prevRanking);
       onError("加点に失敗しました", e instanceof Error ? e.message : "もう一度お試しください。");
     } finally {
       setSubmitting(false);
@@ -149,10 +239,21 @@ export function RankingTab({
 
   const deleteManual = (entry: ManualPointRow) => {
     onConfirm("この手動加点を削除しますか？", async () => {
+      // 楽観的削除
+      const prevManual = manual;
+      const prevRanking = ranking;
+      setManual((prev) => prev.filter((e) => e.id !== entry.id));
+      if (ranking) {
+        setRanking(applyPointDelta(ranking, entry.driver_id, entry.team_id, -entry.points));
+      }
+
       try {
         await apiFetch(`/api/admin/events/${eventId}/points/${entry.id}`, { method: "DELETE" });
-        await load();
+        silentSync();
       } catch (e) {
+        // ロールバック
+        setManual(prevManual);
+        setRanking(prevRanking);
         onError("削除に失敗しました", e instanceof Error ? e.message : "もう一度お試しください。");
       }
     });
