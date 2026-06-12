@@ -7,6 +7,7 @@ import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { PostSubmitView, type SubmitScreen } from "@/lib/components/PostSubmitView";
 import { apiFetch } from "@/lib/api";
 import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
+import { evaluateMeter } from "./submitFormUtils";
 
 // ============================================================
 // 動的日報フォーム（新モデル）。
@@ -147,12 +148,17 @@ export default function SubmitPageClientV2() {
   const meterNum = useMemo(() => (meter.trim() ? Number(meter) : null), [meter]);
 
   async function submit() {
-    // 走行距離は必須（車両選択あり & 非EV のとき）。未入力なら送信しない。
+    // 走行距離の妥当性（未入力・前回値以下）を判定。表示と同一ロジックで送信もブロックする。
     const selVehicle = [...vehicles, ...unlinkedVehicles].find((v) => v.id === vehicleId) ?? null;
-    const meterRequired = !!selVehicle && !selVehicle.is_ev;
-    if (meterRequired && meter.trim() === "") {
+    const meterState = evaluateMeter(meter, selVehicle);
+    if (!meterState.canSubmit) {
       setMeterRequiredError(true);
-      setMessage({ kind: "err", text: "走行距離を入力してください" });
+      setMessage({
+        kind: "err",
+        text: meterState.missing
+          ? "走行距離を入力してください"
+          : `走行距離は前回（${meterState.prevKm.toLocaleString("ja-JP")} km）より大きい値を入力してください`,
+      });
       return;
     }
 
@@ -321,10 +327,11 @@ export default function SubmitPageClientV2() {
           const sel =
             [...vehicles, ...unlinkedVehicles].find((v) => v.id === vehicleId) ?? null;
           if (!sel || sel.is_ev) return null;
-          const prevKm = sel.current_mileage ?? 0;
+          const meterState = evaluateMeter(meter, sel);
+          const prevKm = meterState.prevKm;
           const placeholder = prevKm > 0 ? `前回: ${prevKm.toLocaleString("ja-JP")} km` : "例: 14567";
-          const invalid = meter !== "" && prevKm > 0 && Number(meter) <= prevKm;
-          const missing = meterRequiredError && meter.trim() === "";
+          const invalid = meterState.belowPrev;
+          const missing = meterRequiredError && meterState.missing;
           return (
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">

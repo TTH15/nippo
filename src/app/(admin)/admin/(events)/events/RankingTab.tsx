@@ -12,59 +12,7 @@ import type {
   RankingResponse,
   ManualPointRow,
 } from "./types";
-
-// ランキングにポイント差分を即時反映（楽観的更新用）
-function applyPointDelta(
-  ranking: RankingResponse,
-  driverId: string | null,
-  teamId: string | null,
-  delta: number,
-): RankingResponse {
-  let individuals = ranking.individuals.map((d) =>
-    driverId && d.driverId === driverId
-      ? { ...d, manualPoints: d.manualPoints + delta, total: d.total + delta }
-      : d,
-  );
-  individuals = [...individuals].sort((a, b) => b.total - a.total);
-
-  let teams = ranking.teams.map((t) => {
-    if (teamId && t.teamId === teamId) {
-      return { ...t, teamManualPoints: t.teamManualPoints + delta, total: t.total + delta };
-    }
-    if (driverId) {
-      const idx = t.members.findIndex((m) => m.driverId === driverId);
-      if (idx >= 0) {
-        const newMembers = t.members.map((m, i) =>
-          i === idx ? { ...m, manualPoints: m.manualPoints + delta, total: m.total + delta } : m,
-        );
-        return {
-          ...t,
-          members: [...newMembers].sort((a, b) => b.total - a.total),
-          memberPoints: t.memberPoints + delta,
-          total: t.total + delta,
-        };
-      }
-    }
-    return t;
-  });
-  teams = [...teams].sort((a, b) => b.total - a.total);
-
-  return { ...ranking, teams, individuals };
-}
-
-// 順位表示（rank は 1 始まり）。同点は同順位、メダルは上位3順位に付与。
-const medalForRank = (rank: number) =>
-  rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}`;
-
-// 得点降順に整列済みの配列から、同点は同順位（標準競技順位 1,1,3,…）を割り当てる。
-function tieRanks(items: { total: number }[]): number[] {
-  const ranks: number[] = [];
-  items.forEach((it, i) => {
-    if (i > 0 && it.total === items[i - 1].total) ranks.push(ranks[i - 1]);
-    else ranks.push(i + 1);
-  });
-  return ranks;
-}
+import { applyPointDelta, medalForRank, tieRanks } from "./rankingUtils";
 
 export function RankingTab({
   eventId,

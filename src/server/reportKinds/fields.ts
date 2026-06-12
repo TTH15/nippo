@@ -170,6 +170,28 @@ type AnswerMap = Record<string, unknown>;
 const isEmpty = (v: unknown): boolean =>
   v === undefined || v === null || (typeof v === "string" && v.trim() === "") || (Array.isArray(v) && v.length === 0);
 
+/** YYYY-MM-DD が実在する日付か（形式 + カレンダー上の妥当性）。 */
+function isValidDateStr(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1) return false;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return d <= daysInMonth[mo - 1];
+}
+
+/** HH:MM が実在する時刻か（00:00〜23:59）。 */
+function isValidTimeStr(s: string): boolean {
+  const m = /^(\d{2}):(\d{2})$/.exec(s);
+  if (!m) return false;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  return h >= 0 && h <= 23 && mi >= 0 && mi <= 59;
+}
+
 export function validateAnswers(
   fields: ReportField[],
   answers: AnswerMap,
@@ -216,11 +238,11 @@ export function validateAnswers(
         break;
       }
       case "date": {
-        if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return { ok: false, fieldId: f.id, message: `「${f.label}」の日付が不正です。` };
+        if (typeof v !== "string" || !isValidDateStr(v)) return { ok: false, fieldId: f.id, message: `「${f.label}」の日付が不正です。` };
         break;
       }
       case "time": {
-        if (typeof v !== "string" || !/^\d{2}:\d{2}$/.test(v)) return { ok: false, fieldId: f.id, message: `「${f.label}」の時刻が不正です。` };
+        if (typeof v !== "string" || !isValidTimeStr(v)) return { ok: false, fieldId: f.id, message: `「${f.label}」の時刻が不正です。` };
         break;
       }
       case "bool": {

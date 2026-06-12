@@ -5,6 +5,8 @@ import { loadDriverRule } from "@/server/shiftDeadline/config";
 import { loadDriverSlots } from "@/server/shiftSlots/config";
 import { monthPeriods } from "@/lib/shiftDeadline";
 import { todayJST } from "@/lib/date";
+import { diffShiftRequests, type ExistingReq } from "@/server/shiftRequests/diff";
+import { insertShiftRequestLogs, fetchActorName, type ShiftLogRow } from "@/server/shiftRequests/log";
 
 export const dynamic = "force-dynamic";
 
@@ -89,34 +91,69 @@ export async function POST(req: NextRequest) {
         set.add(e.slotId);
         byDate.set(e.date, set);
       }
-      const finalRows: { driver_id: string; request_date: string; request_type: string; slot_id: string | null }[] = [];
+      // 希望(desired)を (date, slot) のキー集合に正規化（全休が含まれる日は全休のみ）。
+      const desired: { request_date: string; slot_id: string | null }[] = [];
       for (const [d, set] of byDate) {
-        const slotIds = set.has(null) ? [null] : [...set]; // 全休が含まれれば全休のみ
-        for (const slotId of slotIds) {
-          finalRows.push({ driver_id: user.driverId, request_date: d, request_type: "OFF", slot_id: slotId });
-        }
+        const slotIds = set.has(null) ? [null] : [...set];
+        for (const slotId of slotIds) desired.push({ request_date: d, slot_id: slotId });
       }
 
-      // 締切済み期間に入らない既存行を削除 → 入れ直し。
-      const { data: existing, error: exErr } = await supabase
+      // 既存行（締切済みは保護＝差分対象外）。差分方式で変更分だけ挿入/削除し、
+      // 変更なしの行は触らず created_at（初回提出時刻）を保持する。
+      const { data: existingRaw, error: exErr } = await supabase
         .from("shift_requests")
-        .select("request_date")
+        .select("id, request_date, slot_id")
         .eq("driver_id", user.driverId)
         .gte("request_date", monthStart)
         .lte("request_date", monthEnd);
       if (exErr) throw exErr;
-      const toDelete = (existing ?? []).map((e) => String(e.request_date)).filter((d) => !inClosed(d));
-      if (toDelete.length > 0) {
+      const existingOpen: ExistingReq[] = (existingRaw ?? [])
+        .map((e) => ({ id: String(e.id), request_date: String(e.request_date), slot_id: (e.slot_id as string | null) ?? null }))
+        .filter((e) => !inClosed(e.request_date));
+
+      const { toAdd, toRemove } = diffShiftRequests(existingOpen, desired);
+
+      if (toRemove.length > 0) {
         const { error: delErr } = await supabase
           .from("shift_requests")
           .delete()
-          .eq("driver_id", user.driverId)
-          .in("request_date", toDelete);
+          .in("id", toRemove.map((r) => r.id));
         if (delErr) throw delErr;
       }
-      if (finalRows.length > 0) {
-        const { error: insErr } = await supabase.from("shift_requests").insert(finalRows);
+      if (toAdd.length > 0) {
+        const { error: insErr } = await supabase.from("shift_requests").insert(
+          toAdd.map((r) => ({ driver_id: user.driverId, request_date: r.request_date, request_type: "OFF", slot_id: r.slot_id })),
+        );
         if (insErr) throw insErr;
+      }
+
+      // 変更履歴を記録（実変更分のみ）。ログ失敗は本処理を妨げない。
+      if (toAdd.length > 0 || toRemove.length > 0) {
+        const slotNameById = new Map(mySlots.map((s) => [s.id, s.name]));
+        const actorName = await fetchActorName(user.driverId);
+        const logs: ShiftLogRow[] = [
+          ...toAdd.map((r) => ({
+            driver_id: user.driverId,
+            request_date: r.request_date,
+            slot_id: r.slot_id,
+            slot_name: r.slot_id ? slotNameById.get(r.slot_id) ?? null : null,
+            action: "add" as const,
+            actor_type: "driver" as const,
+            actor_id: user.driverId,
+            actor_name: actorName,
+          })),
+          ...toRemove.map((r) => ({
+            driver_id: user.driverId,
+            request_date: r.request_date,
+            slot_id: r.slot_id,
+            slot_name: r.slot_id ? slotNameById.get(r.slot_id) ?? null : null,
+            action: "remove" as const,
+            actor_type: "driver" as const,
+            actor_id: user.driverId,
+            actor_name: actorName,
+          })),
+        ];
+        await insertShiftRequestLogs(logs);
       }
       return NextResponse.json({ ok: true });
     }

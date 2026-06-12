@@ -20,6 +20,7 @@ import {
   type VehiclePlateData,
 } from "@/lib/components/VehiclePlate";
 import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
+import { summarizeHistory, type ShiftLog } from "@/server/shiftRequests/diff";
 import { cn } from "@/lib/ui/utils";
 import { ChevronDown, Settings } from "lucide-react";
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
@@ -468,6 +469,10 @@ export default function ShiftsPage() {
   const [editingCell, setEditingCell] = useState<{ date: string; driverId: string } | null>(null);
   // 未割当セルのポップオーバーを開いている日付（null＝閉）。
   const [unassignedOpenDate, setUnassignedOpenDate] = useState<string | null>(null);
+  // 希望休セルをクリックして開く「日単位の管理モーダル」（driver×date）。
+  const [offModal, setOffModal] = useState<{ driverId: string; date: string } | null>(null);
+  const [offHistory, setOffHistory] = useState<ShiftLog[] | null>(null);
+  const [offHistoryLoading, setOffHistoryLoading] = useState(false);
 
   const displayDates = useMemo(
     () =>
@@ -952,8 +957,37 @@ export default function ShiftsPage() {
       .finally(() => setAutoSaving((n) => Math.max(0, n - 1)));
   };
 
-  const getDriverRequests = (driverId: string) => {
-    return requests.filter((r) => r.driver_id === driverId);
+  // 希望休セル → 日単位の管理モーダルを開き、その日の変更履歴を取得。
+  const openOffModal = (driverId: string, date: string) => {
+    setOffModal({ driverId, date });
+    setOffHistory(null);
+    setOffHistoryLoading(true);
+    apiFetch<{ logs: ShiftLog[] }>(
+      `/api/admin/shifts/requests/history?driverId=${encodeURIComponent(driverId)}&date=${encodeURIComponent(date)}`,
+    )
+      .then((d) => setOffHistory(d.logs ?? []))
+      .catch(() => setOffHistory([]))
+      .finally(() => setOffHistoryLoading(false));
+  };
+
+  // 希望休1件を解除（確認 → DELETE → 状態反映）。一覧/モーダル共通。
+  const deleteOffRequest = (driver: Driver, r: ShiftRequest) => {
+    setConfirmState({
+      message: `${getDisplayName(driver)} の希望休（${formatDate(r.request_date)} ${slotName(r.slot_id)}）を解除しますか？`,
+      onConfirm: async () => {
+        try {
+          await apiFetch(`/api/admin/shifts/requests/${r.id}`, { method: "DELETE" });
+          setRequests((prev) => prev.filter((x) => x.id !== r.id));
+        } catch (e) {
+          console.error(e);
+          setErrorState({
+            title: "希望休の解除に失敗しました",
+            message:
+              "サーバーでエラーが発生したため、希望休を解除できませんでした。もう一度お試しください。",
+          });
+        }
+      },
+    });
   };
 
   /** その日に休みの人（その日いずれのコースにも割り当てられていない人）の名前リスト（コース未登録ドライバーは対象外） */
@@ -1380,9 +1414,18 @@ export default function ShiftsPage() {
                               )}
                             >
                               {off ? (
-                                <div className="flex min-h-[3.25rem] items-center justify-center">
+                                <button
+                                  type="button"
+                                  disabled={!canWrite}
+                                  onClick={() => openOffModal(driver.id, date)}
+                                  title={canWrite ? "クリックして希望休を確認・解除" : undefined}
+                                  className={cn(
+                                    "flex min-h-[3.25rem] w-full items-center justify-center rounded-lg transition-colors",
+                                    canWrite ? "cursor-pointer hover:bg-amber-100" : "cursor-default",
+                                  )}
+                                >
                                   <span className="text-[12px] font-semibold text-amber-900">希望休</span>
-                                </div>
+                                </button>
                               ) : (
                                 <Popover
                                   open={isEditing}
@@ -1406,8 +1449,18 @@ export default function ShiftsPage() {
                                     >
                                       {slotOffs.length > 0 && (
                                         <span
-                                          className="w-full truncate rounded bg-amber-100 px-1 text-[9px] font-semibold leading-tight text-amber-800"
-                                          title={`${slotOffs.join("・")} 休み希望`}
+                                          role={canWrite ? "button" : undefined}
+                                          tabIndex={canWrite ? 0 : undefined}
+                                          onClick={
+                                            canWrite
+                                              ? (e) => {
+                                                  e.stopPropagation();
+                                                  openOffModal(driver.id, date);
+                                                }
+                                              : undefined
+                                          }
+                                          className="w-full truncate rounded bg-amber-100 px-1 text-[9px] font-semibold leading-tight text-amber-800 hover:bg-amber-200"
+                                          title={`${slotOffs.join("・")} 休み希望（クリックで確認・解除）`}
                                         >
                                           {slotOffs.join("・")}休み希望
                                         </span>
@@ -1671,68 +1724,7 @@ export default function ShiftsPage() {
               </table>
             </div>
 
-            <CollapsibleSection
-              title="この期間の希望休（一覧）"
-              hint={`${requests.length} 件`}
-              defaultOpen
-            >
-              <div className="flex flex-wrap gap-x-6 gap-y-2">
-                {driversWithCourses.map((driver) => {
-                  const driverReqs = getDriverRequests(driver.id);
-                  if (driverReqs.length === 0) return null;
-                  return (
-                    <div key={driver.id} className="flex items-center gap-2 text-sm">
-                      <span className="text-slate-700">{getDisplayName(driver)}:</span>
-                      <div className="flex gap-1 flex-wrap">
-                        {driverReqs.map((r) => (
-                          <span
-                            key={r.id}
-                            className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs"
-                          >
-                            <span className="mr-1">
-                              {formatDate(r.request_date)}
-                              <span className="ml-1 text-slate-400">{slotName(r.slot_id)}</span>
-                            </span>
-                            {canWrite && (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  setConfirmState({
-                                    message: `${getDisplayName(driver)} の希望休（${formatDate(r.request_date)} ${slotName(r.slot_id)}）を解除しますか？`,
-                                    onConfirm: async () => {
-                                      try {
-                                        await apiFetch(`/api/admin/shifts/requests/${r.id}`, {
-                                          method: "DELETE",
-                                        });
-                                        setRequests((prev) => prev.filter((x) => x.id !== r.id));
-                                      } catch (e) {
-                                        console.error(e);
-                                        setErrorState({
-                                          title: "希望休の解除に失敗しました",
-                                          message:
-                                            "サーバーでエラーが発生したため、希望休を解除できませんでした。もう一度お試しください。",
-                                        });
-                                      }
-                                    },
-                                  });
-                                }}
-                                className="ml-1 text-[11px] text-slate-400 hover:text-slate-800"
-                                title="希望休を解除"
-                              >
-                                ×
-                              </button>
-                            )}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-                {requests.length === 0 && (
-                  <p className="text-sm text-slate-400">この期間の希望休はありません</p>
-                )}
-              </div>
-            </CollapsibleSection>
+            {/* 希望休の一覧/解除は上のグリッドのセルクリック（管理モーダル）に集約。下部の一覧は廃止。 */}
 
             <CollapsibleSection title="凡例・表の見かた">
               <div className="flex flex-wrap gap-6 text-xs text-slate-500">
@@ -2101,6 +2093,99 @@ export default function ShiftsPage() {
           </div>
         </div>
       </div>
+      {/* 希望休 管理モーダル（セルクリックで開く。その日の希望休一覧＋削除＋変更履歴） */}
+      {offModal && (() => {
+        const driver = drivers.find((d) => d.id === offModal.driverId);
+        const dayReqs = requests.filter(
+          (r) => r.driver_id === offModal.driverId && r.request_date === offModal.date,
+        );
+        const summary = summarizeHistory(offHistory ?? []);
+        const fmtDateTime = (iso: string) => {
+          const d = new Date(iso);
+          return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        };
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onClick={() => setOffModal(null)}
+          >
+            <div
+              className="w-full max-w-sm rounded-xl bg-white p-4 shadow-lg"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-3 flex items-baseline justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  {driver ? getDisplayName(driver) : "ドライバー"} の希望休
+                </h3>
+                <span className="shrink-0 text-xs text-slate-500">{formatDate(offModal.date)}</span>
+              </div>
+
+              {/* その日の希望休（全休＋便）一覧と個別解除 */}
+              {dayReqs.length === 0 ? (
+                <p className="py-3 text-sm text-slate-400">この日の希望休はありません。</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {dayReqs.map((r) => (
+                    <div
+                      key={r.id}
+                      className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"
+                    >
+                      <span className="text-sm text-slate-700">{slotName(r.slot_id)}</span>
+                      {canWrite && driver && (
+                        <button
+                          type="button"
+                          onClick={() => deleteOffRequest(driver, r)}
+                          className="text-xs font-medium text-rose-500 hover:text-rose-700"
+                        >
+                          解除
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 変更履歴（最小表示：初回提出 / 最終変更） */}
+              <div className="mt-3 border-t border-slate-100 pt-2.5 text-xs text-slate-500">
+                {offHistoryLoading ? (
+                  <p>履歴を読み込み中…</p>
+                ) : !offHistory || offHistory.length === 0 ? (
+                  <p>変更履歴はまだありません。</p>
+                ) : (
+                  <div className="space-y-0.5">
+                    {summary.firstSubmittedAt && (
+                      <p>初回提出: {fmtDateTime(summary.firstSubmittedAt)}</p>
+                    )}
+                    {summary.lastChangedAt && (
+                      <p>
+                        最終変更: {fmtDateTime(summary.lastChangedAt)}
+                        {summary.lastActorName ? `（${summary.lastActorName}` : ""}
+                        {summary.lastActorName
+                          ? summary.lastActorType === "admin"
+                            ? "・運営）"
+                            : "・本人）"
+                          : ""}
+                      </p>
+                    )}
+                    {summary.changed && (
+                      <p className="text-amber-600">※ 初回提出から変更されています</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setOffModal(null)}
+                className="mt-4 w-full rounded-lg bg-slate-800 py-2 text-sm font-medium text-white"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       <ConfirmDialog
         open={!!confirmState}
         message={confirmState?.message ?? ""}

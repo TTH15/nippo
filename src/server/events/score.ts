@@ -23,6 +23,14 @@ function isCountable(r: ScoringReport): boolean {
   return r.approvedAt != null && r.rejectedAt == null;
 }
 
+/**
+ * 浮動小数の累積誤差を抑える（0.1+0.2=0.30000000000000004 等）。
+ * 小数ポイントは許可だが実用上6桁で十分。表示崩れ・同点判定のズレを防ぐ。
+ */
+function roundPoints(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
+}
+
 function fieldKeyOf(unitId: string, fieldKey: string): string {
   return `${unitId}|${fieldKey}`;
 }
@@ -89,17 +97,17 @@ export function computeEventScores(input: ComputeEventScoresInput): EventScoreRe
         ruleId: rule.id,
         label: rule.label,
         quantity,
-        points: rule.pointsPer * quantity,
+        points: roundPoints(rule.pointsPer * quantity),
       };
     });
-    const autoPoints = breakdown.reduce((s, b) => s + b.points, 0);
-    const manualPoints = manualByDriver.get(member.driverId) ?? 0;
+    const autoPoints = roundPoints(breakdown.reduce((s, b) => s + b.points, 0));
+    const manualPoints = roundPoints(manualByDriver.get(member.driverId) ?? 0);
     return {
       driverId: member.driverId,
       teamId: member.teamId,
       autoPoints,
       manualPoints,
-      total: autoPoints + manualPoints,
+      total: roundPoints(autoPoints + manualPoints),
       breakdown,
     };
   });
@@ -119,15 +127,15 @@ export function computeEventScores(input: ComputeEventScoresInput): EventScoreRe
     const ms = (byTeam.get(team.id) ?? [])
       .slice()
       .sort((a, b) => b.total - a.total || a.driverId.localeCompare(b.driverId));
-    const memberPoints = ms.reduce((s, m) => s + m.total, 0);
-    const teamManualPoints = manualByTeam.get(team.id) ?? 0;
+    const memberPoints = roundPoints(ms.reduce((s, m) => s + m.total, 0));
+    const teamManualPoints = roundPoints(manualByTeam.get(team.id) ?? 0);
     return {
       teamId: team.id,
       name: team.name,
       color: team.color,
       memberPoints,
       teamManualPoints,
-      total: memberPoints + teamManualPoints,
+      total: roundPoints(memberPoints + teamManualPoints),
       members: ms,
     };
   });
