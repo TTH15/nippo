@@ -11,6 +11,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { canEditShifts } from "@/lib/authz";
 import { slotDisplayLabel } from "@/lib/timeSlot";
@@ -424,7 +425,6 @@ export default function ShiftsPage() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [slots, setSlots] = useState<RequestSlot[]>([]);
-  const [loading, setLoading] = useState(true);
   const [autoSaving, setAutoSaving] = useState(0);
   const [generating, setGenerating] = useState(false);
 
@@ -485,52 +485,72 @@ export default function ShiftsPage() {
   // 一覧で「今日」をやんわり強調するための基準日（JST）。
   const today = todayJST();
 
-  const load = useCallback(async (opts?: { silent?: boolean }) => {
-    if (displayDates.length === 0) return;
-    const silent = opts?.silent === true;
-    if (!silent) setLoading(true);
+  // SWR で取得をキャッシュし、画面遷移をまたいで保持する（再訪時の点滅をなくす）。
+  // キーは期間（start〜end）依存。displayDates が未確定の間は取得しない。
+  const shiftsKey = useMemo(() => {
+    if (displayDates.length === 0) return null;
     const start = displayDates[0];
     const end = displayDates[displayDates.length - 1];
-    try {
-      const res = await apiFetch<{
-        courses: Course[];
-        drivers: Driver[];
-        shifts: Shift[];
-        requests: ShiftRequest[];
-        slots?: { id: string; name: string; start_time: string | null; end_time: string | null }[];
-        vehicles?: VehiclePlateData[];
-        vehicle_driver_links?: { driver_id: string; vehicle_id: string }[];
-        vehicle_loans?: { vehicle_id: string; loan_date: string }[];
-      }>(`/api/admin/shifts?start=${start}&end=${end}`);
-      setCourses(res.courses);
-      setDrivers(res.drivers);
-      setShifts((res.shifts ?? []).map((s) => normalizeShiftVehiclesEmbed(s)));
-      setRequests(res.requests);
-      setSlots(
-        (res.slots ?? []).map((s) => ({
-          id: s.id,
-          name: s.name,
-          startTime: s.start_time ?? null,
-          endTime: s.end_time ?? null,
-        })),
-      );
-      setFleetVehicles(Array.isArray(res.vehicles) ? res.vehicles : []);
-      setVehicleLinks(res.vehicle_driver_links ?? []);
-      setVehicleLoans(res.vehicle_loans ?? []);
-      setLocalShifts(new Map());
-      setLocalVehicleByDriverDay(new Map());
-      setLocalExternalByDriverDay(new Map());
-    } catch (e) {
-      console.error(e);
-    } finally {
-      if (!silent) setLoading(false);
-    }
+    return `/api/admin/shifts?start=${start}&end=${end}`;
   }, [displayDates]);
+
+  const {
+    data: shiftsData,
+    isInitialLoading,
+    mutate: mutateShifts,
+  } = useApi<{
+    courses: Course[];
+    drivers: Driver[];
+    shifts: Shift[];
+    requests: ShiftRequest[];
+    slots?: { id: string; name: string; start_time: string | null; end_time: string | null }[];
+    vehicles?: VehiclePlateData[];
+    vehicle_driver_links?: { driver_id: string; vehicle_id: string }[];
+    vehicle_loans?: { vehicle_id: string; loan_date: string }[];
+  }>(shiftsKey, {
+    // 日付グリッドで前期間のデータが新しい列に重なって見えるのを防ぐため、
+    // この画面では keepPreviousData を無効化（未訪問の期間切替時のみスケルトン）。
+    keepPreviousData: false,
+    // 編集中のフォーカス復帰で楽観更新（localShifts 等）が消えるのを防ぐため無効化。
+    revalidateOnFocus: false,
+  });
+
+  // 初回（キャッシュ未取得）のみスケルトン。再訪・キャッシュ済み期間切替では点滅しない。
+  const loading = isInitialLoading;
+
+  // SWR が取得した生データを既存の state に同期する。
+  // 楽観更新（localShifts 等）のオーバーレイはここでクリアし、サーバ最新で置き換える。
+  useEffect(() => {
+    if (!shiftsData) return;
+    setCourses(shiftsData.courses);
+    setDrivers(shiftsData.drivers);
+    setShifts((shiftsData.shifts ?? []).map((s) => normalizeShiftVehiclesEmbed(s)));
+    setRequests(shiftsData.requests);
+    setSlots(
+      (shiftsData.slots ?? []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        startTime: s.start_time ?? null,
+        endTime: s.end_time ?? null,
+      })),
+    );
+    setFleetVehicles(Array.isArray(shiftsData.vehicles) ? shiftsData.vehicles : []);
+    setVehicleLinks(shiftsData.vehicle_driver_links ?? []);
+    setVehicleLoans(shiftsData.vehicle_loans ?? []);
+    setLocalShifts(new Map());
+    setLocalVehicleByDriverDay(new Map());
+    setLocalExternalByDriverDay(new Map());
+  }, [shiftsData]);
+
+  // 書き込み後などに最新化したいときに呼ぶ（旧 load の代替）。引数(silent)は互換のため受けるが無視。
+  const load = useCallback(
+    (_opts?: { silent?: boolean }) => mutateShifts(),
+    [mutateShifts],
+  );
 
   useEffect(() => {
     setCanWrite(canEditShifts(getStoredDriver()?.role));
-    load();
-  }, [load]);
+  }, []);
 
   // 自動保存のため未保存確認は不要。そのまま切り替える。
   const handleYearMonthChange = (value: { year: number; month: number }) => {
