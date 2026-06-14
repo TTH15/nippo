@@ -7,6 +7,7 @@ import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 
@@ -127,7 +128,6 @@ export default function PaymentsPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [yearMonth, setYearMonth] = useState(() => currentYearMonth());
   const [rows, setRows] = useState<DriverPaymentRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [modalDriver, setModalDriver] = useState<DriverPaymentRow | null>(null);
   const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
   const [fixedLoading, setFixedLoading] = useState(false);
@@ -160,18 +160,29 @@ export default function PaymentsPage() {
   const lastDayOfMonth = new Date(yearMonth.year, yearMonth.month, 0).getDate();
   const monthEndDate = `${monthStr}-${String(lastDayOfMonth).padStart(2, "0")}`;
 
-  const loadPayments = useCallback(() => {
-    setLoading(true);
-    apiFetch<{ month: string; rows: DriverPaymentRow[] }>(`/api/admin/payments?month=${monthStr}`)
-      .then((res) => setRows(res.rows ?? []))
-      .catch(() => setRows([]))
-      .finally(() => setLoading(false));
-  }, [monthStr]);
+  // SWR で月別支払をキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
+  const {
+    data: paymentsData,
+    error: paymentsError,
+    isInitialLoading,
+    mutate: mutatePayments,
+  } = useApi<{ month: string; rows: DriverPaymentRow[] }>(`/api/admin/payments?month=${monthStr}`);
+  const loading = isInitialLoading;
+
+  useEffect(() => {
+    if (paymentsData) setRows(paymentsData.rows ?? []);
+  }, [paymentsData]);
+
+  useEffect(() => {
+    if (paymentsError) setRows([]);
+  }, [paymentsError]);
+
+  // 書き込み後の再取得（旧 loadPayments の代替）。
+  const loadPayments = useCallback(() => mutatePayments(), [mutatePayments]);
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
-    loadPayments();
-  }, [loadPayments]);
+  }, []);
 
   useEffect(() => {
     // 月を切り替えたら展開状態とキャッシュをクリア

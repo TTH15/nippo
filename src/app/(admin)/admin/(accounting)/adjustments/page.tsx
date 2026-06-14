@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
-import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 
 // 調整履歴（閲覧専用）。入力は「売上 > 売上調整」タブで行う。
 // データは売上ログ(sales_log_entries)を月単位で表示する。
@@ -33,22 +33,23 @@ export default function AdjustmentsPage() {
     return { month: `${y}-${mm}`, start: `${y}-${mm}-01`, end: `${y}-${mm}-${String(last).padStart(2, "0")}`, label: `${y}年${m}月` };
   }, [offset]);
 
-  const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<Entry[]>([]);
 
+  // SWR で月別の調整履歴をキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
+  const { data: logData, error: logError, isInitialLoading } = useApi<{ entries: Entry[] }>(
+    `/api/admin/sales/log?start=${start}&end=${end}`,
+  );
+  const loading = isInitialLoading;
+
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await apiFetch<{ entries: Entry[] }>(`/api/admin/sales/log?start=${start}&end=${end}`);
-        setEntries((res.entries ?? []).slice().sort((a, b) => b.log_date.localeCompare(a.log_date)));
-      } catch {
-        setEntries([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [start, end, month]);
+    if (logData) {
+      setEntries((logData.entries ?? []).slice().sort((a, b) => b.log_date.localeCompare(a.log_date)));
+    }
+  }, [logData]);
+
+  useEffect(() => {
+    if (logError) setEntries([]);
+  }, [logError]);
 
   const totalRevenue = entries.reduce((s, e) => s + (e.revenue || 0), 0);
   const totalProfit = entries.reduce((s, e) => s + (e.profit || 0), 0);

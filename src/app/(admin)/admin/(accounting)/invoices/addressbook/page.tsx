@@ -6,6 +6,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { canAdminWrite } from "@/lib/authz";
 import { Button } from "@/lib/ui/button";
 
@@ -32,7 +33,6 @@ const COMPANY_CODE = "AAA";
 export default function AddressBookPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [addresses, setAddresses] = useState<Address[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingAddress, setEditingAddress] = useState<Address | null>(null);
   const [form, setForm] = useState({
@@ -62,21 +62,17 @@ export default function AddressBookPage() {
     }
   }, []);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch<{ addresses: Address[] }>("/api/admin/invoice-addresses");
-      setAddresses(sortAddresses(res.addresses));
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // SWR で住所録をキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
+  // addresses は楽観更新（作成/編集/削除）で setAddresses するため state を維持し、
+  // 取得結果は同期エフェクトで流し込む。
+  const { data: addrData, isInitialLoading } = useApi<{ addresses: Address[] }>(
+    "/api/admin/invoice-addresses",
+  );
+  const loading = isInitialLoading;
 
   useEffect(() => {
-    load();
-  }, []);
+    if (addrData) setAddresses(sortAddresses(addrData.addresses));
+  }, [addrData]);
 
   const openNew = () => {
     if (!canWrite) return;

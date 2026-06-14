@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
@@ -9,6 +9,7 @@ import { CustomSelect } from "@/lib/components/CustomSelect";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
@@ -100,7 +101,6 @@ export default function AdminDailyPage() {
   const [reportTab, setReportTab] = useState<"daily" | "other">("daily");
   const [tab, setTab] = useState<Tab>("pending");
   const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [approveWarnings, setApproveWarnings] = useState<string[]>([]);
   const [editingEntry, setEditingEntry] = useState<{ entry: Entry; groupDate: string } | null>(null);
@@ -121,41 +121,60 @@ export default function AdminDailyPage() {
     return `${y}-${m}-${day}`;
   };
 
-  const load = (targetTab: Tab, range?: DateRangeValue): Promise<void> => {
-    setLoading(true);
-    setFetchError(null);
-    const cacheOpt = { cache: "no-store" as RequestCache };
-    if (targetTab === "pending") {
-      // 未承認タブは日付範囲指定なし。API 側のデフォルト（直近14日・未来除外）を使用
-      return apiFetch<{ days: DaySummary[] }>(`/api/admin/daily/day-summary-range`, cacheOpt)
-        .then((res) => setDaySummaries(res.days ?? []))
-        .catch((e) => {
-          console.error("[admin/daily] fetch error", e);
-          setFetchError(e instanceof Error ? e.message : "日報の取得に失敗しました");
-          setDaySummaries([]);
-        })
-        .finally(() => setLoading(false));
-    }
-    const start = range?.startDate ? toYmd(range.startDate) : "";
-    const end = range?.endDate ? toYmd(range.endDate) : "";
-    const query = start && end ? `?start=${start}&end=${end}` : "";
-    return apiFetch<{ groups: Group[] }>(`/api/admin/daily/all${query}`, cacheOpt)
-      .then((res) => setGroups(res.groups ?? []))
-      .catch((e) => {
-        console.error("[admin/daily] fetch error", e);
-        setFetchError(e instanceof Error ? e.message : "日報の取得に失敗しました");
-        setGroups([]);
-      })
-      .finally(() => setLoading(false));
-  };
+  // SWR でタブ別にキャッシュし、画面遷移をまたいで保持する（再訪時の点滅をなくす）。
+  // pending=日次サマリ範囲 / all=全件（日付範囲指定）。非アクティブなタブは取得しない。
+  const pendingKey = tab === "pending" ? "/api/admin/daily/day-summary-range" : null;
+  const allKey =
+    tab === "all"
+      ? `/api/admin/daily/all${
+          allDateRange?.startDate && allDateRange?.endDate
+            ? `?start=${toYmd(allDateRange.startDate)}&end=${toYmd(allDateRange.endDate)}`
+            : ""
+        }`
+      : null;
 
+  const pendingApi = useApi<{ days: DaySummary[] }>(pendingKey);
+  const allApi = useApi<{ groups: Group[] }>(allKey);
+
+  // 取得結果を既存 state に同期する（楽観更新の setGroups を温存するため state は維持）。
   useEffect(() => {
-    if (tab === "pending") {
-      load("pending");
-    } else {
-      load("all", allDateRange);
+    if (pendingApi.data) {
+      setDaySummaries(pendingApi.data.days ?? []);
+      setFetchError(null);
     }
-  }, [tab, allDateRange]);
+  }, [pendingApi.data]);
+  useEffect(() => {
+    if (pendingApi.error) {
+      setDaySummaries([]);
+      setFetchError(
+        pendingApi.error instanceof Error ? pendingApi.error.message : "日報の取得に失敗しました",
+      );
+    }
+  }, [pendingApi.error]);
+  useEffect(() => {
+    if (allApi.data) {
+      setGroups(allApi.data.groups ?? []);
+      setFetchError(null);
+    }
+  }, [allApi.data]);
+  useEffect(() => {
+    if (allApi.error) {
+      setGroups([]);
+      setFetchError(
+        allApi.error instanceof Error ? allApi.error.message : "日報の取得に失敗しました",
+      );
+    }
+  }, [allApi.error]);
+
+  // 初回（キャッシュ未取得）のみスケルトン。再訪・キャッシュ済みタブ切替では点滅しない。
+  const loading = tab === "pending" ? pendingApi.isInitialLoading : allApi.isInitialLoading;
+
+  // 書き込み後の再取得（旧 load の代替）。range はキーから導出するため引数では無視。
+  const load = useCallback(
+    (targetTab: Tab, _range?: DateRangeValue): Promise<unknown> =>
+      targetTab === "pending" ? pendingApi.mutate() : allApi.mutate(),
+    [pendingApi, allApi],
+  );
 
   const handleApprove = async (e: Entry, groupDate: string) => {
     try {

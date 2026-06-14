@@ -18,6 +18,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { CourseRateEditor, type CourseRateEditorHandle } from "@/lib/components/CourseRateEditor";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 import { slotDisplayLabel } from "@/lib/timeSlot";
@@ -120,7 +121,6 @@ export default function CoursesPage() {
     const code = carriers.find((c) => c.id === carrierId)?.code;
     return code === "YAMATO" || code === "AMAZON" ? code : "OTHER";
   };
-  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   // 編集モーダルに埋め込む単価エディタ（保存時に ref 経由で course-billing を保存）
   const billingRef = useRef<CourseRateEditorHandle>(null);
@@ -222,31 +222,56 @@ export default function CoursesPage() {
     void reorderCourses(next);
   };
 
-  const load = async () => {
-    setLoading(true);
-    try {
+  // SWR で5エンドポイントをまとめて1キーにキャッシュし、遷移をまたいで保持する。
+  // courses は楽観更新（reorder/作成/編集/削除）で setCourses するため state を維持し、
+  // 取得結果は同期エフェクトで流し込む。
+  const {
+    data: bundle,
+    isInitialLoading,
+  } = useApi<{
+    courses: Course[];
+    drivers: Driver[];
+    addresses: InvoiceAddress[];
+    carriers: { id: string; name: string; code: string | null }[];
+    slots: TimeSlot[];
+  }>("admin/courses:bundle", {
+    fetcher: async () => {
       const [coursesRes, usersRes, invoiceAddressesRes, carriersRes, slotsRes] = await Promise.all([
         apiFetch<{ courses: Course[] }>("/api/admin/courses"),
         apiFetch<{ drivers: Driver[] }>("/api/admin/users"),
         apiFetch<{ addresses: InvoiceAddress[] }>("/api/admin/invoice-addresses"),
         apiFetch<{ carriers: Carrier[] }>("/api/admin/carriers"),
-        apiFetch<{ slots: TimeSlot[] }>("/api/admin/shift-slots").catch(() => ({ slots: [] as TimeSlot[] })),
+        apiFetch<{ slots: TimeSlot[] }>("/api/admin/shift-slots").catch(() => ({
+          slots: [] as TimeSlot[],
+        })),
       ]);
-      setCourses(coursesRes.courses);
-      setDrivers(usersRes.drivers.filter((d) => d.role === "DRIVER"));
-      setSlots(slotsRes.slots ?? []);
-      setInvoiceAddresses(invoiceAddressesRes.addresses ?? []);
-      setCarriers((carriersRes.carriers ?? []).map((c) => ({ id: c.id, name: c.name, code: c.code ?? null })));
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
+      return {
+        courses: coursesRes.courses,
+        drivers: usersRes.drivers.filter((d) => d.role === "DRIVER"),
+        addresses: invoiceAddressesRes.addresses ?? [],
+        carriers: (carriersRes.carriers ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          code: c.code ?? null,
+        })),
+        slots: slotsRes.slots ?? [],
+      };
+    },
+  });
+
+  const loading = isInitialLoading;
+
+  useEffect(() => {
+    if (!bundle) return;
+    setCourses(bundle.courses);
+    setDrivers(bundle.drivers);
+    setInvoiceAddresses(bundle.addresses);
+    setCarriers(bundle.carriers);
+    setSlots(bundle.slots);
+  }, [bundle]);
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
-    load();
   }, []);
 
   const addCourse = async () => {

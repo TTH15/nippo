@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faPenToSquare, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -8,6 +8,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { canAdminWrite } from "@/lib/authz";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 
@@ -46,7 +47,6 @@ type FieldDraft = { label: string; inputType: InputType; groupLabel: string; isB
 export default function CarriersPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const [errorState, setErrorState] = useState<{ message: string } | null>(null);
@@ -59,22 +59,34 @@ export default function CarriersPage() {
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
-    void load();
   }, []);
 
-  async function load() {
-    setLoading(true);
-    try {
-      const res = await apiFetch<{ carriers: Carrier[] }>("/api/admin/carriers");
-      const list = res.carriers ?? [];
-      setCarriers(list);
-      setSelectedId((prev) => prev ?? list[0]?.id ?? null);
-    } catch (e) {
-      setErrorState({ message: e instanceof Error ? e.message : "読み込みに失敗しました" });
-    } finally {
-      setLoading(false);
+  // SWR でキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
+  const {
+    data: carriersData,
+    error: carriersError,
+    isInitialLoading,
+    mutate: mutateCarriers,
+  } = useApi<{ carriers: Carrier[] }>("/api/admin/carriers");
+  const loading = isInitialLoading;
+
+  useEffect(() => {
+    if (!carriersData) return;
+    const list = carriersData.carriers ?? [];
+    setCarriers(list);
+    setSelectedId((prev) => prev ?? list[0]?.id ?? null);
+  }, [carriersData]);
+
+  useEffect(() => {
+    if (carriersError) {
+      setErrorState({
+        message: carriersError instanceof Error ? carriersError.message : "読み込みに失敗しました",
+      });
     }
-  }
+  }, [carriersError]);
+
+  // 書き込み後の再取得（旧 load の代替）。
+  const load = useCallback(() => mutateCarriers(), [mutateCarriers]);
 
   const fail = (e: unknown) => setErrorState({ message: e instanceof Error ? e.message : "操作に失敗しました" });
   const selected = useMemo(() => carriers.find((c) => c.id === selectedId) ?? null, [carriers, selectedId]);

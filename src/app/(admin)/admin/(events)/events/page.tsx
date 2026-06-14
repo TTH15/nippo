@@ -6,6 +6,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { canAdminWrite } from "@/lib/authz";
 import { EventSettingsTab } from "./EventSettingsTab";
 import { TeamsTab } from "./TeamsTab";
@@ -28,8 +29,6 @@ export default function EventsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<EventDetailResponse | null>(null);
   const [tab, setTab] = useState<Tab>("settings");
-  const [loadingList, setLoadingList] = useState(true);
-  const [loadingDetail, setLoadingDetail] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -45,44 +44,70 @@ export default function EventsPage() {
     setConfirmState({ message, onConfirm: onOk });
   }, []);
 
-  const loadEvents = useCallback(async () => {
-    try {
-      const res = await apiFetch<{ events: EventListItem[] }>("/api/admin/events");
-      setEvents(res.events);
-      return res.events;
-    } catch (e) {
-      onError("読み込みに失敗しました", e instanceof Error ? e.message : "もう一度お試しください。");
-      return [];
-    } finally {
-      setLoadingList(false);
-    }
-  }, [onError]);
+  // SWR でイベント一覧をキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
+  const {
+    data: eventsData,
+    error: eventsError,
+    isInitialLoading: loadingList,
+    mutate: mutateEvents,
+  } = useApi<{ events: EventListItem[] }>("/api/admin/events");
 
+  useEffect(() => {
+    if (eventsData) setEvents(eventsData.events);
+  }, [eventsData]);
+
+  useEffect(() => {
+    if (eventsError) {
+      onError(
+        "読み込みに失敗しました",
+        eventsError instanceof Error ? eventsError.message : "もう一度お試しください。",
+      );
+    }
+  }, [eventsError, onError]);
+
+  // 書き込み後の一覧再取得（旧 loadEvents の代替）。
+  const loadEvents = useCallback(() => mutateEvents(), [mutateEvents]);
+
+  // 選択中イベントの詳細。detail は onMutate で局所更新するため state を維持し、
+  // 取得結果は同期エフェクトで流し込む。選択中に取得結果で上書きしないようフォーカス再検証は無効化。
+  const {
+    data: detailData,
+    error: detailError,
+    isInitialLoading: loadingDetail,
+    mutate: mutateDetail,
+  } = useApi<EventDetailResponse>(
+    selectedId ? `/api/admin/events/${selectedId}` : null,
+    { revalidateOnFocus: false },
+  );
+
+  useEffect(() => {
+    if (detailData !== undefined) setDetail(detailData ?? null);
+  }, [detailData]);
+
+  useEffect(() => {
+    if (detailError) {
+      onError(
+        "読み込みに失敗しました",
+        detailError instanceof Error ? detailError.message : "もう一度お試しください。",
+      );
+    }
+  }, [detailError, onError]);
+
+  // 書き込み後の詳細再取得（旧 loadDetail の代替）。id/opts は互換のため受けるが無視。
   const loadDetail = useCallback(
-    async (id: string, opts?: { silent?: boolean }) => {
-      if (!opts?.silent) setLoadingDetail(true);
-      try {
-        const res = await apiFetch<EventDetailResponse>(`/api/admin/events/${id}`);
-        setDetail(res);
-      } catch (e) {
-        onError("読み込みに失敗しました", e instanceof Error ? e.message : "もう一度お試しください。");
-      } finally {
-        setLoadingDetail(false);
-      }
-    },
-    [onError],
+    (_id?: string, _opts?: { silent?: boolean }) => mutateDetail(),
+    [mutateDetail],
   );
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
-    loadEvents();
-  }, [loadEvents]);
+  }, []);
 
   const selectEvent = (id: string) => {
     setSelectedId(id);
     setTab("settings");
     setDetail(null);
-    loadDetail(id);
+    // 詳細は selectedId をキーに SWR が自動取得する。
   };
 
   const createEvent = async () => {

@@ -6,6 +6,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { PostSubmitView } from "@/lib/components/PostSubmitView";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { canAdminWrite } from "@/lib/authz";
 import { getDisplayName } from "@/lib/displayName";
 import { CustomSelect } from "@/lib/components/CustomSelect";
@@ -136,7 +137,6 @@ function previewResolve(blocks: SubmitBlock[], driverNames: string[]): ResolvedB
 
 export default function SubmitScreenBuilderPage() {
   const [canWrite, setCanWrite] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
   const [carriers, setCarriers] = useState<CarrierRow[]>([]);
@@ -146,28 +146,47 @@ export default function SubmitScreenBuilderPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [error, setError] = useState<{ title: string; message: string } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch<{ config: Config; drivers: DriverRow[]; carriers: CarrierRow[]; events: EventRow[] }>(
-        "/api/admin/submit-screen",
-      );
-      setBaseConfig(res.config);
-      setDrivers(res.drivers ?? []);
-      setCarriers(res.carriers ?? []);
-      setEvents(res.events ?? []);
-      setBlocks(res.config.blocks && res.config.blocks.length > 0 ? res.config.blocks : defaultBlocks(res.config));
-    } catch (e) {
-      setError({ title: "読み込みに失敗しました", message: e instanceof Error ? e.message : "もう一度お試しください。" });
-    } finally {
-      setLoading(false);
+  // SWR でキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
+  const {
+    data: screenData,
+    error: screenError,
+    isInitialLoading,
+    mutate: mutateScreen,
+  } = useApi<{ config: Config; drivers: DriverRow[]; carriers: CarrierRow[]; events: EventRow[] }>(
+    "/api/admin/submit-screen",
+    // blocks を編集中（作業状態）に取得結果で上書きしないよう、フォーカス再検証は無効化。
+    { revalidateOnFocus: false },
+  );
+  const loading = isInitialLoading;
+
+  useEffect(() => {
+    if (!screenData) return;
+    setBaseConfig(screenData.config);
+    setDrivers(screenData.drivers ?? []);
+    setCarriers(screenData.carriers ?? []);
+    setEvents(screenData.events ?? []);
+    setBlocks(
+      screenData.config.blocks && screenData.config.blocks.length > 0
+        ? screenData.config.blocks
+        : defaultBlocks(screenData.config),
+    );
+  }, [screenData]);
+
+  useEffect(() => {
+    if (screenError) {
+      setError({
+        title: "読み込みに失敗しました",
+        message: screenError instanceof Error ? screenError.message : "もう一度お試しください。",
+      });
     }
-  }, []);
+  }, [screenError]);
+
+  // 書き込み後の再取得（旧 load の代替）。
+  const load = useCallback(() => mutateScreen(), [mutateScreen]);
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
-    load();
-  }, [load]);
+  }, []);
 
   const preview = useMemo(
     () => previewResolve(blocks, drivers.map((d) => getDisplayName(d))),

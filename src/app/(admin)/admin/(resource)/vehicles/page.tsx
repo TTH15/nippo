@@ -19,6 +19,7 @@ import { VehiclePlate, plateDigits } from "@/lib/components/VehiclePlate";
 import { format } from "date-fns";
 import { todayJST } from "@/lib/date";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 import { Button } from "@/lib/ui/button";
@@ -79,7 +80,6 @@ export default function VehiclesPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [form, setForm] = useState({
@@ -148,25 +148,35 @@ export default function VehiclesPage() {
       })
       .filter((x): x is VehicleDriver => x !== null);
 
-  const load = async () => {
-    setLoading(true);
-    try {
+  // SWR で vehicles + users をまとめてキャッシュし、遷移をまたいで保持する。
+  // vehicles は楽観更新（作成/編集/削除）で setVehicles するため state を維持し、
+  // 取得結果は同期エフェクトで流し込む。
+  const { data: bundle, isInitialLoading } = useApi<{
+    vehicles: Vehicle[];
+    drivers: Driver[];
+  }>("admin/vehicles:bundle", {
+    fetcher: async () => {
       const [vehiclesRes, driversRes] = await Promise.all([
         apiFetch<{ vehicles: Vehicle[] }>("/api/admin/vehicles"),
         apiFetch<{ drivers: Array<Driver & { role?: string }> }>("/api/admin/users"),
       ]);
-      setVehicles(sortVehicles(vehiclesRes.vehicles));
-      setDrivers(driversRes.drivers.filter((d) => !d.role || d.role === "DRIVER"));
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
+      return {
+        vehicles: sortVehicles(vehiclesRes.vehicles),
+        drivers: driversRes.drivers.filter((d) => !d.role || d.role === "DRIVER"),
+      };
+    },
+  });
+
+  const loading = isInitialLoading;
+
+  useEffect(() => {
+    if (!bundle) return;
+    setVehicles(bundle.vehicles);
+    setDrivers(bundle.drivers);
+  }, [bundle]);
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
-    load();
   }, []);
 
   const defaultRangeLast30Days = () => {

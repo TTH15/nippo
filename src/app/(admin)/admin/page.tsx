@@ -28,6 +28,7 @@ import {
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { todayJST, currentMonthJST } from "@/lib/date";
 
 const yen = (n: number) => `¥${(n || 0).toLocaleString("ja-JP")}`;
@@ -51,7 +52,6 @@ export default function AdminDashboardPage() {
     return { month, monthLabel: `${y}年${m}月`, today, start14 };
   }, []);
 
-  const [loading, setLoading] = useState(true);
   const [sales, setSales] = useState(0);
   const [profit, setProfit] = useState(0);
   const [trend, setTrend] = useState<DayBar[]>([]);
@@ -59,46 +59,53 @@ export default function AdminDashboardPage() {
   const [oilUnread, setOilUnread] = useState<number | null>(null);
   const [activeDrivers, setActiveDrivers] = useState<number | null>(null);
 
+  // SWR でダッシュボードの集計をまとめてキャッシュし、遷移をまたいで保持する。
+  const { data: dash, isInitialLoading } = useApi<{
+    sales: number;
+    profit: number;
+    trend: DayBar[];
+    dailyUnread: number | null;
+    oilUnread: number | null;
+    activeDrivers: number | null;
+  }>(`admin/dashboard:${month}:${start14}:${today}`, {
+    fetcher: async () => {
+      const [monthRes, trendRes, dailyRes, oilRes, shiftRes] = await Promise.all([
+        apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?month=${month}`).catch(() => ({ data: [] as SalesRow[] })),
+        apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?start=${start14}&end=${today}`).catch(() => ({ data: [] as SalesRow[] })),
+        apiFetch<{ unreadCount: number }>(`/api/admin/daily/unread-count`).catch(() => null),
+        apiFetch<{ unreadCount: number }>(`/api/admin/misc-reports/oil-change/unread-count`).catch(() => null),
+        apiFetch<{ shifts: { driver_id: string | null }[] }>(`/api/admin/shifts?start=${today}&end=${today}`).catch(() => ({ shifts: [] as { driver_id: string | null }[] })),
+      ]);
+      const monthRows = monthRes.data ?? [];
+      const trendRows = (trendRes.data ?? []).map((r) => ({
+        iso: r.iso,
+        label: r.date,
+        total: (r.yamato || 0) + (r.amazon || 0) + (r.other || 0),
+      }));
+      const uniqueDrivers = new Set(
+        (shiftRes.shifts ?? []).map((s) => s.driver_id).filter((id): id is string => !!id),
+      );
+      return {
+        sales: monthRows.reduce((s, r) => s + (r.yamato || 0) + (r.amazon || 0) + (r.other || 0), 0),
+        profit: monthRows.reduce((s, r) => s + (r.profit || 0), 0),
+        trend: trendRows,
+        dailyUnread: dailyRes ? Number(dailyRes.unreadCount) || 0 : null,
+        oilUnread: oilRes ? Number(oilRes.unreadCount) || 0 : null,
+        activeDrivers: uniqueDrivers.size,
+      };
+    },
+  });
+  const loading = isInitialLoading;
+
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      setLoading(true);
-      try {
-        const [monthRes, trendRes, dailyRes, oilRes, shiftRes] = await Promise.all([
-          apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?month=${month}`).catch(() => ({ data: [] as SalesRow[] })),
-          apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?start=${start14}&end=${today}`).catch(() => ({ data: [] as SalesRow[] })),
-          apiFetch<{ unreadCount: number }>(`/api/admin/daily/unread-count`).catch(() => null),
-          apiFetch<{ unreadCount: number }>(`/api/admin/misc-reports/oil-change/unread-count`).catch(() => null),
-          apiFetch<{ shifts: { driver_id: string | null }[] }>(`/api/admin/shifts?start=${today}&end=${today}`).catch(() => ({ shifts: [] as { driver_id: string | null }[] })),
-        ]);
-        if (!mounted) return;
-
-        const monthRows = monthRes.data ?? [];
-        setSales(monthRows.reduce((s, r) => s + (r.yamato || 0) + (r.amazon || 0) + (r.other || 0), 0));
-        setProfit(monthRows.reduce((s, r) => s + (r.profit || 0), 0));
-
-        const trendRows = (trendRes.data ?? []).map((r) => ({
-          iso: r.iso,
-          label: r.date,
-          total: (r.yamato || 0) + (r.amazon || 0) + (r.other || 0),
-        }));
-        setTrend(trendRows);
-
-        setDailyUnread(dailyRes ? Number(dailyRes.unreadCount) || 0 : null);
-        setOilUnread(oilRes ? Number(oilRes.unreadCount) || 0 : null);
-
-        const uniqueDrivers = new Set(
-          (shiftRes.shifts ?? []).map((s) => s.driver_id).filter((id): id is string => !!id)
-        );
-        setActiveDrivers(uniqueDrivers.size);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [month, start14, today]);
+    if (!dash) return;
+    setSales(dash.sales);
+    setProfit(dash.profit);
+    setTrend(dash.trend);
+    setDailyUnread(dash.dailyUnread);
+    setOilUnread(dash.oilUnread);
+    setActiveDrivers(dash.activeDrivers);
+  }, [dash]);
 
   const margin = sales > 0 ? Math.round((profit / sales) * 1000) / 10 : 0;
   const maxTrend = Math.max(1, ...trend.map((d) => d.total));

@@ -7,6 +7,7 @@ import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { canAdminWrite } from "@/lib/authz";
 
 type SavedInvoice = {
@@ -117,7 +118,6 @@ export default function InvoicesPage() {
   const initialFinderState = readFinderState();
   const [canWrite, setCanWrite] = useState(false);
   const [invoices, setInvoices] = useState<SavedInvoice[]>([]);
-  const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showCreatePicker, setShowCreatePicker] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -203,43 +203,52 @@ export default function InvoicesPage() {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-      const res = await apiFetch<{ invoices: SavedInvoice[] }>(
-        `/api/admin/invoices`,
-      );
-      setInvoices(res.invoices ?? []);
-    } catch (e) {
-      console.error(e);
-      setErrorMessage("請求書一覧の取得に失敗しました。migration未適用やDBエラーの可能性があります。");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // SWR で請求書一覧をキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
+  const {
+    data: invoicesData,
+    error: invoicesError,
+    isInitialLoading,
+    mutate: mutateInvoices,
+  } = useApi<{ invoices: SavedInvoice[] }>("/api/admin/invoices");
+  const loading = isInitialLoading;
 
-  const loadDrivers = useCallback(async () => {
-    try {
+  useEffect(() => {
+    if (invoicesData) {
+      setInvoices(invoicesData.invoices ?? []);
+      setErrorMessage(null);
+    }
+  }, [invoicesData]);
+
+  useEffect(() => {
+    if (invoicesError) {
+      setErrorMessage(
+        "請求書一覧の取得に失敗しました。migration未適用やDBエラーの可能性があります。",
+      );
+    }
+  }, [invoicesError]);
+
+  // 書き込み後の再取得（旧 load の代替）。
+  const load = useCallback(() => mutateInvoices(), [mutateInvoices]);
+
+  // ドライバ一覧（ページング全件取得）も SWR でキャッシュ。
+  const { data: driversData } = useApi<DriverFolder[]>("admin/invoices:drivers", {
+    fetcher: async () => {
       const all: DriverFolder[] = [];
       let cursor: string | null = "0";
       while (cursor !== null) {
         const res: { drivers: DriverFolder[]; nextCursor: string | null } = await apiFetch(
-          `/api/admin/users?limit=100&cursor=${encodeURIComponent(cursor)}`
+          `/api/admin/users?limit=100&cursor=${encodeURIComponent(cursor)}`,
         );
         all.push(...(res.drivers ?? []));
         cursor = res.nextCursor;
       }
-      setDrivers(all);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+      return all;
+    },
+  });
 
   useEffect(() => {
-    void load();
-    void loadDrivers();
-  }, [load, loadDrivers]);
+    if (driversData) setDrivers(driversData);
+  }, [driversData]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

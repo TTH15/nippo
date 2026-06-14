@@ -6,6 +6,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { canAdminWrite } from "@/lib/authz";
 import { Button } from "@/lib/ui/button";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -73,29 +74,40 @@ const emptyForm = (sortOrder: number): FormState => ({
 
 export default function ReportKindsPage() {
   const [canWrite, setCanWrite] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [kinds, setKinds] = useState<ReportKind[]>([]);
   const [form, setForm] = useState<FormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ReportKind | null>(null);
   const [error, setError] = useState<{ title: string; message: string } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch<{ kinds: ReportKind[] }>("/api/admin/report-kinds");
-      setKinds(res.kinds ?? []);
-    } catch (e) {
-      setError({ title: "読み込みに失敗しました", message: e instanceof Error ? e.message : "もう一度お試しください。" });
-    } finally {
-      setLoading(false);
+  // SWR でキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
+  const {
+    data: kindsData,
+    error: kindsError,
+    isInitialLoading,
+    mutate: mutateKinds,
+  } = useApi<{ kinds: ReportKind[] }>("/api/admin/report-kinds");
+  const loading = isInitialLoading;
+
+  useEffect(() => {
+    if (kindsData) setKinds(kindsData.kinds ?? []);
+  }, [kindsData]);
+
+  useEffect(() => {
+    if (kindsError) {
+      setError({
+        title: "読み込みに失敗しました",
+        message: kindsError instanceof Error ? kindsError.message : "もう一度お試しください。",
+      });
     }
-  }, []);
+  }, [kindsError]);
+
+  // 書き込み後の再取得（旧 load の代替）。
+  const load = useCallback(() => mutateKinds(), [mutateKinds]);
 
   useEffect(() => {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
-    load();
-  }, [load]);
+  }, []);
 
   const openNew = () => setForm(emptyForm((kinds.at(-1)?.sortOrder ?? 0) + 1));
   const openEdit = (k: ReportKind) => setForm({ ...k, fields: k.fields.map((f) => ({ ...f })) });

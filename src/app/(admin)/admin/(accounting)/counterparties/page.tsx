@@ -12,6 +12,7 @@ import {
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { canAdminWrite } from "@/lib/authz";
 import { CounterpartyBillingExpand } from "./CounterpartyBillingExpand";
 
@@ -44,7 +45,6 @@ function monthStrFromYm(y: number, m: number) {
 
 export default function CounterpartiesPage() {
   const [canWrite, setCanWrite] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return monthStrFromYm(d.getFullYear(), d.getMonth() + 1);
@@ -63,24 +63,27 @@ export default function CounterpartiesPage() {
     setCanWrite(canAdminWrite(getStoredDriver()?.role));
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch<{ month: string; rows: CounterpartySummaryRow[] }>(
-        `/api/admin/counterparties/summary?month=${encodeURIComponent(month)}`
-      );
-      setRows(res.rows ?? []);
-    } catch (e) {
-      console.error(e);
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [month]);
+  // SWR で月別サマリをキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
+  const {
+    data: summaryData,
+    error: summaryError,
+    isInitialLoading,
+    mutate: mutateSummary,
+  } = useApi<{ month: string; rows: CounterpartySummaryRow[] }>(
+    `/api/admin/counterparties/summary?month=${encodeURIComponent(month)}`,
+  );
+  const loading = isInitialLoading;
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (summaryData) setRows(summaryData.rows ?? []);
+  }, [summaryData]);
+
+  useEffect(() => {
+    if (summaryError) setRows([]);
+  }, [summaryError]);
+
+  // 書き込み後の再取得（旧 load の代替）。
+  const load = useCallback(() => mutateSummary(), [mutateSummary]);
 
   const saveNotes = async (id: string) => {
     if (!canWrite) return;
