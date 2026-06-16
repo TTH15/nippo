@@ -22,8 +22,14 @@ export function ConfirmDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg shadow-lg w-full max-w-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="px-5 pt-5 pb-3 border-b border-slate-200">
           <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
         </div>

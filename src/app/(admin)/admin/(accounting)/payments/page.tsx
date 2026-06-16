@@ -799,8 +799,8 @@ export default function PaymentsPage() {
 
       {/* 経費詳細モーダル */}
       {modalDriver && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto p-5">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={closeModal}>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-1">
               {getDisplayName({ name: modalDriver.driverName, display_name: modalDriver.displayName })} {yearMonth.year}年{yearMonth.month}月 経費
             </h2>

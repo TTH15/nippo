@@ -25,6 +25,11 @@ const EditReportModal = dynamic(() => import("./EditReportModal"), {
   loading: () => null,
 });
 
+const ProxyReportModal = dynamic(() => import("./ProxyReportModal"), {
+  ssr: false,
+  loading: () => null,
+});
+
 type ReportData = {
   id?: string;
   report_date: string;
@@ -109,6 +114,7 @@ export default function AdminDailyPage() {
   const [editSaveError, setEditSaveError] = useState<string | null>(null);
   const [allDateRange, setAllDateRange] = useState<DateRangeValue | undefined>(undefined);
   const [daySummaries, setDaySummaries] = useState<DaySummary[]>([]);
+  const [proxyTarget, setProxyTarget] = useState<{ driverId: string; driverName: string; date: string } | null>(null);
 
   const canWrite = canAdminWrite(getStoredDriver()?.role);
   const totalEntries = groups.reduce((sum, g) => sum + g.entries.length, 0);
@@ -225,6 +231,10 @@ export default function AdminDailyPage() {
           ? "rejected"
           : "",
     });
+  };
+
+  const openProxy = (driver: { id: string; name: string; display_name?: string | null }, date: string) => {
+    setProxyTarget({ driverId: driver.id, driverName: getDisplayName(driver), date });
   };
 
   const saveEdit = async () => {
@@ -500,6 +510,7 @@ export default function AdminDailyPage() {
                                   driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
                                   report: { ...(r as unknown as ReportData), id: r.id },
                                 })}
+                                onProxyEntry={() => openProxy(driver, summary.date)}
                               />
                             );
                           })}
@@ -633,6 +644,15 @@ export default function AdminDailyPage() {
                                               </button>
                                             ))}
                                           </div>
+                                        )}
+                                        {status === "unsubmitted" && (
+                                          <button
+                                            type="button"
+                                            onClick={() => openProxy(driver, summary.date)}
+                                            className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                          >
+                                            代理入力
+                                          </button>
                                         )}
                                       </td>
                                     )}
@@ -941,6 +961,18 @@ export default function AdminDailyPage() {
             setEditingEntry(null);
           }}
           onSave={saveEdit}
+        />
+      )}
+
+      {/* 代理入力モーダル（遅延読み込み） */}
+      {proxyTarget && (
+        <ProxyReportModal
+          target={proxyTarget}
+          onClose={() => setProxyTarget(null)}
+          onSaved={() => {
+            setProxyTarget(null);
+            load("pending");
+          }}
         />
       )}
       </>

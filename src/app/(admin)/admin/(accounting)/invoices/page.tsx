@@ -837,8 +837,8 @@ export default function InvoicesPage() {
       </div>
 
       {showCreatePicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white border border-slate-200 p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowCreatePicker(false)}>
+          <div className="w-full max-w-md rounded-lg bg-white border border-slate-200 p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-base font-semibold text-slate-900 mb-3">保存先フォルダを選択</h2>
             <div className="space-y-3">
               <div>

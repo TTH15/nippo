@@ -908,8 +908,8 @@ export default function VehiclesPage() {
 
       {/* 車両編集モーダル */}
       {showModal && canWrite && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">
                 {editingVehicle ? "車両情報編集" : "新規車両追加"}
@@ -1488,8 +1488,8 @@ export default function VehiclesPage() {
 
       {/* 詳細モーダル（メーター / 初期費用回収） */}
       {openDetail && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
-          <div className={`bg-white rounded-lg shadow-lg w-full max-h-[90vh] overflow-y-auto ${openDetail.type === "recovery" ? "max-w-3xl" : "max-w-xl"}`}>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4" onClick={() => setOpenDetail(null)}>
+          <div className={`bg-white rounded-lg shadow-lg w-full max-h-[90vh] overflow-y-auto ${openDetail.type === "recovery" ? "max-w-3xl" : "max-w-xl"}`} onClick={(e) => e.stopPropagation()}>
             <div className="p-5">
               {openDetail.type === "meter" && (
                 <>

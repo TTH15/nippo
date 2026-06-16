@@ -214,8 +214,14 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
   };
 
   return (
-    <div className={embedded ? "" : "fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"}>
-      <div className={embedded ? "" : "bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto"}>
+    <div
+      className={embedded ? "" : "fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"}
+      onClick={embedded ? undefined : onClose}
+    >
+      <div
+        className={embedded ? "" : "bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto"}
+        onClick={embedded ? undefined : (e) => e.stopPropagation()}
+      >
         <div className={embedded ? "" : "p-6"}>
           {!embedded && (
             <h2 className="text-lg font-semibold text-slate-900 mb-1">希望休 提出締切の設定</h2>

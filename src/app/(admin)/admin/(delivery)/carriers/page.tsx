@@ -294,8 +294,8 @@ function PreviewInput({ type }: { type: InputType }) {
 
 function PresetPicker({ onPick, onCustom, onClose }: { onPick: (p: Preset) => void; onCustom: () => void; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-5 pb-2 border-b border-slate-200">
           <h2 className="text-sm font-semibold text-slate-900">何を報告させますか？</h2>
           <p className="text-[11px] text-slate-500 mt-0.5">よく使う項目から選ぶか、カスタムで自由に作成できます。</p>
@@ -324,8 +324,8 @@ function PresetPicker({ onPick, onCustom, onClose }: { onPick: (p: Preset) => vo
 
 function ModalShell({ title, children, onClose, onSave }: { title: string; children: React.ReactNode; onClose: () => void; onSave: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-5 pb-3 border-b border-slate-200"><h2 className="text-sm font-semibold text-slate-900">{title}</h2></div>
         <div className="px-5 py-4 space-y-3 text-sm">{children}</div>
         <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">

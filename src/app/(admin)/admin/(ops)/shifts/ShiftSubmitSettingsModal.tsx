@@ -25,8 +25,8 @@ export default function ShiftSubmitSettingsModal({ open, canWrite, onClose }: Pr
   const [tab, setTab] = useState<Tab>("deadline");
   if (!open) return null;
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="p-6">
           <h2 className="text-lg font-semibold text-slate-900 mb-3">シフト提出の設定</h2>
           <div className="flex rounded-lg bg-slate-100 p-0.5 mb-2">

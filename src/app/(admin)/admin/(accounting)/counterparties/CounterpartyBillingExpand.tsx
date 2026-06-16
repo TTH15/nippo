@@ -736,8 +736,8 @@ export function CounterpartyBillingExpand({
       </div>
 
       {mergeOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setMergeOpen(null)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
             <h4 className="text-sm font-semibold text-slate-900">明細を統合</h4>
             <p className="text-xs text-slate-600">単価が一致する行を1つにまとめます。統合後の摘要を入力してください。</p>
             <input

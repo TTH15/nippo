@@ -561,8 +561,8 @@ export default function CoursesPage() {
 
       {/* 新規コース追加モーダル */}
       {showModal && canWrite && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">新規コース追加</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
@@ -735,8 +735,8 @@ export default function CoursesPage() {
 
       {/* コース編集モーダル（横長2カラム・単価設定統合） */}
       {showEditModal && editingCourse && canWrite && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowEditModal(false)}>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">コース編集</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">

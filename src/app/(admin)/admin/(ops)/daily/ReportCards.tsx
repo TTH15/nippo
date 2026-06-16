@@ -106,6 +106,7 @@ export function PendingDriverCard({
   onApprove,
   onReject,
   onEdit,
+  onProxyEntry,
 }: {
   driver: DriverLike;
   reps: ReportLike[];
@@ -114,6 +115,7 @@ export function PendingDriverCard({
   onApprove: () => void;
   onReject: () => void;
   onEdit: (rep: ReportLike) => void;
+  onProxyEntry?: () => void;
 }) {
   const muted = status === "off" || status === "approved";
   return (
@@ -126,7 +128,20 @@ export function PendingDriverCard({
             承認済み
           </span>
         )}
-        {status === "unsubmitted" && <span className="text-red-600 text-xs font-semibold">日報が未提出です</span>}
+        {status === "unsubmitted" && (
+          <div className="flex items-center gap-2">
+            <span className="text-red-600 text-xs font-semibold">日報が未提出です</span>
+            {canWrite && onProxyEntry && (
+              <button
+                type="button"
+                onClick={onProxyEntry}
+                className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
+              >
+                代理入力
+              </button>
+            )}
+          </div>
+        )}
         {status === "off" && reps.length === 0 && <span className="text-slate-500 text-xs">休み</span>}
       </div>
 
