@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 
 // ============================================================
 // 希望休の「便（時間帯）」設定モーダル。
@@ -44,36 +46,43 @@ let keySeq = 0;
 const nextKey = () => `s-${keySeq++}`;
 
 export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embedded = false }: Props) {
+  // SWR でキャッシュし、モーダルを開き直すたびのローディングをなくす。
+  const apiKey = open || embedded ? "/api/admin/shift-slots" : null;
+  const { data, isInitialLoading, error: loadError, refresh } =
+    useApi<{ slots: SlotFull[]; drivers: DriverInfo[] }>(apiKey);
+
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [drivers, setDrivers] = useState<DriverInfo[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [seeded, setSeeded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 削除確認中の便 key（確認ダイアログ用）。
+  const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open && !embedded) return;
-    setError(null);
-    setLoading(true);
-    apiFetch<{ slots: SlotFull[]; drivers: DriverInfo[] }>("/api/admin/shift-slots")
-      .then((res) => {
-        setDrivers(res.drivers ?? []);
-        setSlots(
-          (res.slots ?? []).map((s) => ({
-            _key: nextKey(),
-            id: s.id,
-            name: s.name,
-            startTime: hhmm(s.startTime),
-            endTime: hhmm(s.endTime),
-            active: s.active,
-            driverIds: s.driverIds ?? [],
-          })),
-        );
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "読み込みに失敗しました"))
-      .finally(() => setLoading(false));
-  }, [open, embedded]);
+  // 取得データを編集用 state に初期化（paint 前に行い、再オープン時のちらつきを防ぐ）。
+  useLayoutEffect(() => {
+    if (!data || seeded) return;
+    setDrivers(data.drivers ?? []);
+    setSlots(
+      (data.slots ?? []).map((s) => ({
+        _key: nextKey(),
+        id: s.id,
+        name: s.name,
+        startTime: hhmm(s.startTime),
+        endTime: hhmm(s.endTime),
+        active: s.active,
+        driverIds: s.driverIds ?? [],
+      })),
+    );
+    setSeeded(true);
+  }, [data, seeded]);
 
   if (!open && !embedded) return null;
+
+  // 初期化前（キャッシュ無しの初回取得中）のみローディング表示。再オープンは即表示。
+  const loading = !seeded && isInitialLoading;
+  const shownError =
+    error ?? (!seeded && loadError ? (loadError instanceof Error ? loadError.message : "読み込みに失敗しました") : null);
 
   const patch = (key: string, p: Partial<SlotRow>) =>
     setSlots((prev) => prev.map((s) => (s._key === key ? { ...s, ...p } : s)));
@@ -83,6 +92,7 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
       { _key: nextKey(), id: null, name: "", startTime: "", endTime: "", active: true, driverIds: [] },
     ]);
   const removeSlot = (key: string) => setSlots((prev) => prev.filter((s) => s._key !== key));
+  const confirmSlotName = slots.find((s) => s._key === confirmDeleteKey)?.name ?? "";
   const toggleDriver = (key: string, driverId: string) =>
     setSlots((prev) =>
       prev.map((s) => {
@@ -114,6 +124,8 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
             })),
         }),
       });
+      // 保存後はキャッシュを最新化（次に開いたとき保存内容を反映）。
+      await refresh();
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存に失敗しました");
@@ -123,6 +135,7 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
   };
 
   return (
+    <>
     <div
       className={embedded ? "" : "fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"}
       onClick={embedded ? undefined : onClose}
@@ -140,8 +153,8 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
             どの便にも割り当てられていない人は、これまで通り「全休」だけを出せます（タップは増えません）。
           </p>
 
-          {error && (
-            <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</div>
+          {shownError && (
+            <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{shownError}</div>
           )}
 
           {loading ? (
@@ -189,7 +202,7 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
                       {canWrite && (
                         <button
                           type="button"
-                          onClick={() => removeSlot(slot._key)}
+                          onClick={() => setConfirmDeleteKey(slot._key)}
                           className="px-2 py-1 text-xs text-rose-600 hover:text-rose-800"
                         >
                           削除
@@ -268,5 +281,18 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      open={confirmDeleteKey !== null}
+      title="便を削除"
+      message={`便「${confirmSlotName || "（名称未設定）"}」を削除しますか？この操作は保存すると確定します。`}
+      confirmLabel="削除"
+      cancelLabel="キャンセル"
+      onConfirm={() => {
+        if (confirmDeleteKey) removeSlot(confirmDeleteKey);
+      }}
+      onClose={() => setConfirmDeleteKey(null)}
+    />
+    </>
   );
 }

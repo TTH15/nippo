@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import type { DeadlineRule, RulePeriod, RulePeriodOverride } from "@/lib/shiftDeadline";
 
 // ============================================================
@@ -78,11 +80,19 @@ const dateToYmd = (d: Date | undefined): string => {
 };
 
 export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, embedded = false }: Props) {
+  // SWR でキャッシュし、モーダルを開き直すたびのローディングをなくす。
+  const apiKey = open || embedded ? "/api/admin/shift-deadlines" : null;
+  const { data, isInitialLoading, error: loadError, refresh } =
+    useApi<{ rules: RuleFull[]; drivers: DriverInfo[] }>(apiKey);
+
   const [rules, setRules] = useState<RuleRow[]>([]);
   const [drivers, setDrivers] = useState<DriverInfo[]>([]);
-  const [loading, setLoading] = useState(false);
+  // キャッシュ/取得済みデータから編集用ローカル state を一度だけ初期化したか。
+  const [seeded, setSeeded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 削除確認中のルール key（確認ダイアログ用）。
+  const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   // 折りたたみ編集: 展開中（編集モード）のルール key 集合。閲覧時はサマリのみ表示。
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExpand = (key: string) =>
@@ -93,31 +103,31 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
       return next;
     });
 
-  useEffect(() => {
-    if (!open && !embedded) return;
-    setError(null);
-    setLoading(true);
-    apiFetch<{ rules: RuleFull[]; drivers: DriverInfo[] }>("/api/admin/shift-deadlines")
-      .then((res) => {
-        const ds = res.drivers ?? [];
-        setDrivers(ds);
-        // 実ドライバー以外（管理者・閲覧専用など、一覧に出ないID）は割り当てから除外。
-        const validIds = new Set(ds.map((d) => d.id));
-        setRules(
-          (res.rules ?? []).map((r) => ({
-            _key: nextKey(),
-            name: r.name,
-            periods: (r.periods ?? []).map((p) => ({ ...p, _key: nextKey() })),
-            overrides: (r.overrides ?? []).map((o) => ({ ...o, _key: nextKey() })),
-            driverIds: (r.driverIds ?? []).filter((id) => validIds.has(id)),
-          })),
-        );
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "読み込みに失敗しました"))
-      .finally(() => setLoading(false));
-  }, [open, embedded]);
+  // 取得データを編集用 state に初期化（paint 前に行い、再オープン時のちらつきを防ぐ）。
+  useLayoutEffect(() => {
+    if (!data || seeded) return;
+    const ds = data.drivers ?? [];
+    setDrivers(ds);
+    // 実ドライバー以外（管理者・閲覧専用など、一覧に出ないID）は割り当てから除外。
+    const validIds = new Set(ds.map((d) => d.id));
+    setRules(
+      (data.rules ?? []).map((r) => ({
+        _key: nextKey(),
+        name: r.name,
+        periods: (r.periods ?? []).map((p) => ({ ...p, _key: nextKey() })),
+        overrides: (r.overrides ?? []).map((o) => ({ ...o, _key: nextKey() })),
+        driverIds: (r.driverIds ?? []).filter((id) => validIds.has(id)),
+      })),
+    );
+    setSeeded(true);
+  }, [data, seeded]);
 
   if (!open && !embedded) return null;
+
+  // 初期化前（キャッシュ無しの初回取得中）のみローディング表示。再オープンは即表示。
+  const loading = !seeded && isInitialLoading;
+  const shownError =
+    error ?? (!seeded && loadError ? (loadError instanceof Error ? loadError.message : "読み込みに失敗しました") : null);
 
   const now = new Date();
   const patchRule = (key: string, patch: Partial<RuleRow>) =>
@@ -133,6 +143,7 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
     setExpanded((prev) => new Set(prev).add(key));
   };
   const removeRule = (key: string) => setRules((prev) => prev.filter((r) => r._key !== key));
+  const confirmRuleName = rules.find((r) => r._key === confirmDeleteKey)?.name ?? "";
 
   const applyPreset = (ruleKey: string, presetIdx: number) =>
     patchRule(ruleKey, { periods: PRESETS[presetIdx].periods.map(mkPeriod), overrides: [] });
@@ -205,6 +216,8 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
           })),
         }),
       });
+      // 保存後はキャッシュを最新化（次に開いたとき保存内容を反映）。
+      await refresh();
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存に失敗しました");
@@ -214,6 +227,7 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
   };
 
   return (
+    <>
     <div
       className={embedded ? "" : "fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"}
       onClick={embedded ? undefined : onClose}
@@ -231,8 +245,8 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
             どのルールにも割り当てられていない人は常に提出可です。
           </p>
 
-          {error && (
-            <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</div>
+          {shownError && (
+            <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{shownError}</div>
           )}
 
           {loading ? (
@@ -300,7 +314,7 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
                         />
                         <button
                           type="button"
-                          onClick={() => removeRule(rule._key)}
+                          onClick={() => setConfirmDeleteKey(rule._key)}
                           className="px-2 py-1 text-xs text-rose-600 hover:text-rose-800"
                         >
                           削除
@@ -527,5 +541,18 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      open={confirmDeleteKey !== null}
+      title="ルールを削除"
+      message={`「${confirmRuleName}」を削除しますか？この操作は保存すると確定します。`}
+      confirmLabel="削除"
+      cancelLabel="キャンセル"
+      onConfirm={() => {
+        if (confirmDeleteKey) removeRule(confirmDeleteKey);
+      }}
+      onClose={() => setConfirmDeleteKey(null)}
+    />
+    </>
   );
 }
