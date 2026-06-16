@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { CustomSelect } from "@/lib/components/CustomSelect";
+import { DatePicker } from "@/lib/components/DatePicker";
+import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import type { DeadlineRule, RulePeriod, RulePeriodOverride } from "@/lib/shiftDeadline";
 
 // ============================================================
@@ -31,12 +33,14 @@ type RuleRow = {
 };
 type RuleFull = DeadlineRule & { sortOrder: number; driverIds: string[] };
 
-const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 const OFFSETS = [
   { value: "-1", label: "前月" },
   { value: "0", label: "当月" },
   { value: "1", label: "翌月" },
 ];
+// 締切月オフセット → サマリ表示用ラベル（CustomSelect は前月〜翌月だが ±2 も保存され得る）。
+const OFFSET_LABELS: Record<number, string> = { [-2]: "前々月", [-1]: "前月", 0: "当月", 1: "翌月", 2: "翌々月" };
+const offsetLabel = (o: number): string => OFFSET_LABELS[o] ?? `${Math.abs(o)}ヶ月${o < 0 ? "前" : "後"}`;
 const driverName = (d: DriverInfo) => d.display_name || d.name;
 
 let keySeq = 0;
@@ -63,12 +67,31 @@ const PRESETS: { label: string; periods: Omit<RulePeriod, "seq">[] }[] = [
 
 const mkPeriod = (p: Omit<RulePeriod, "seq">, seq: number): PeriodRow => ({ ...p, seq, _key: nextKey() });
 
+// 期間例外の日付（"YYYY-MM-DD" 文字列）と DatePicker（Date）の相互変換。
+const ymdToDate = (s: string): Date | undefined => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : undefined;
+};
+const dateToYmd = (d: Date | undefined): string => {
+  if (!d) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
 export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, embedded = false }: Props) {
   const [rules, setRules] = useState<RuleRow[]>([]);
   const [drivers, setDrivers] = useState<DriverInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 折りたたみ編集: 展開中（編集モード）のルール key 集合。閲覧時はサマリのみ表示。
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   useEffect(() => {
     if (!open && !embedded) return;
@@ -100,11 +123,15 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
   const patchRule = (key: string, patch: Partial<RuleRow>) =>
     setRules((prev) => prev.map((r) => (r._key === key ? { ...r, ...patch } : r)));
 
-  const addRule = () =>
+  const addRule = () => {
+    const key = nextKey();
     setRules((prev) => [
       ...prev,
-      { _key: nextKey(), name: "新しいルール", periods: PRESETS[1].periods.map(mkPeriod), overrides: [], driverIds: [] },
+      { _key: key, name: "新しいルール", periods: PRESETS[1].periods.map(mkPeriod), overrides: [], driverIds: [] },
     ]);
+    // 追加直後は編集モードで開く。
+    setExpanded((prev) => new Set(prev).add(key));
+  };
   const removeRule = (key: string) => setRules((prev) => prev.filter((r) => r._key !== key));
 
   const applyPreset = (ruleKey: string, presetIdx: number) =>
@@ -207,172 +234,137 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
           ) : (
             <>
               <div className="space-y-4">
-                {rules.map((rule) => (
-                  <div key={rule._key} className="rounded-lg border border-slate-200 p-3">
-                    {/* 名前 + 削除 */}
-                    <div className="flex items-center gap-2 mb-3">
-                      <input
-                        type="text"
-                        disabled={!canWrite}
-                        value={rule.name}
-                        onChange={(e) => patchRule(rule._key, { name: e.target.value })}
-                        placeholder="ルール名"
-                        className="flex-1 px-3 py-1.5 text-sm font-medium border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-50"
-                      />
-                      {canWrite && (
+                {rules.map((rule) => {
+                  const isEditing = canWrite && expanded.has(rule._key);
+
+                  // 閲覧モード: 読めるサマリだけを表示（既定）。
+                  if (!isEditing) {
+                    return (
+                      <div key={rule._key} className="rounded-lg border border-slate-200 p-3.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-slate-900 truncate">{rule.name}</span>
+                              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
+                                対象{rule.driverIds.length}人
+                              </span>
+                            </div>
+                            <ul className="mt-2 space-y-1">
+                              {rule.periods.map((p) => (
+                                <li key={p._key} className="flex items-baseline gap-2 text-sm">
+                                  <span className="w-[5.5rem] shrink-0 tabular-nums text-slate-500">
+                                    {p.startDay}〜{p.endDay}日分
+                                  </span>
+                                  <span className="text-slate-300">→</span>
+                                  <span className="font-medium text-slate-800">
+                                    {offsetLabel(p.deadlineMonthOffset)} {p.deadlineDay}日 締切
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                            {rule.overrides.length > 0 && (
+                              <p className="mt-2 text-[11px] text-amber-700">期間例外 {rule.overrides.length}件あり</p>
+                            )}
+                          </div>
+                          {canWrite && (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpand(rule._key)}
+                              className="shrink-0 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              編集
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // 編集モード: その行だけ展開して入力UIを表示。
+                  return (
+                    <div key={rule._key} className="rounded-lg border border-slate-300 bg-slate-50/40 p-3.5 ring-1 ring-slate-200">
+                      {/* 名前 + 削除 */}
+                      <div className="mb-3 flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={rule.name}
+                          onChange={(e) => patchRule(rule._key, { name: e.target.value })}
+                          placeholder="ルール名"
+                          className="flex-1 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        />
                         <button
                           type="button"
                           onClick={() => removeRule(rule._key)}
                           className="px-2 py-1 text-xs text-rose-600 hover:text-rose-800"
                         >
-                          ルール削除
+                          削除
                         </button>
-                      )}
-                    </div>
+                      </div>
 
-                    {/* 提出期間 */}
-                    <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 mb-2.5">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-slate-700">提出期間</span>
-                        {canWrite && (
+                      {/* 提出期間（1期間=1行） */}
+                      <div className="mb-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-slate-700">提出期間</span>
                           <div className="flex items-center gap-1">
                             {PRESETS.map((p, i) => (
                               <button
                                 key={p.label}
                                 type="button"
                                 onClick={() => applyPreset(rule._key, i)}
-                                className="px-2 py-0.5 text-[11px] rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                                className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
                               >
                                 {p.label}
                               </button>
                             ))}
                           </div>
-                        )}
-                      </div>
-                      <div className="space-y-1.5">
-                        {rule.periods.map((p) => (
-                          <div key={p._key} className="flex flex-wrap items-center gap-1.5 text-sm bg-white rounded border border-slate-200 px-2 py-1.5">
-                            <input
-                              type="number"
-                              min={1}
-                              max={31}
-                              disabled={!canWrite}
-                              value={p.startDay}
-                              onChange={(e) => updatePeriod(rule, p._key, { startDay: Number(e.target.value) || 1 })}
-                              className="w-12 px-1.5 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
-                            />
-                            <span className="text-slate-400">〜</span>
-                            <input
-                              type="number"
-                              min={1}
-                              max={31}
-                              disabled={!canWrite}
-                              value={p.endDay}
-                              onChange={(e) => updatePeriod(rule, p._key, { endDay: Number(e.target.value) || 1 })}
-                              className="w-12 px-1.5 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
-                            />
-                            <span className="text-xs text-slate-500">日</span>
-                            <span className="mx-1 text-slate-300">｜</span>
-                            <span className="text-xs text-slate-500">締切</span>
-                            <CustomSelect
-                              disabled={!canWrite}
-                              value={String(p.deadlineMonthOffset)}
-                              onChange={(v) => updatePeriod(rule, p._key, { deadlineMonthOffset: Number(v) })}
-                              options={OFFSETS}
-                              clearable={false}
-                              size="sm"
-                              className="w-20"
-                            />
-                            <input
-                              type="number"
-                              min={1}
-                              max={28}
-                              disabled={!canWrite}
-                              value={p.deadlineDay}
-                              onChange={(e) => updatePeriod(rule, p._key, { deadlineDay: Number(e.target.value) || 1 })}
-                              className="w-12 px-1.5 py-1 border border-slate-200 rounded text-center disabled:bg-slate-50"
-                            />
-                            <span className="text-xs text-slate-500">日まで</span>
-                            {canWrite && rule.periods.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => removePeriod(rule, p._key)}
-                                className="ml-auto px-1.5 py-1 text-xs text-rose-600 hover:text-rose-800"
-                              >
-                                ×
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      {canWrite && (
-                        <button
-                          type="button"
-                          onClick={() => addPeriod(rule)}
-                          className="mt-1.5 px-2 py-0.5 text-[11px] rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                        >
-                          ＋ 期間を追加
-                        </button>
-                      )}
-                    </div>
-
-                    {/* 期間例外 */}
-                    <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 mb-2.5">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-slate-700">期間例外（GW等）</span>
-                        {canWrite && (
-                          <button
-                            type="button"
-                            onClick={() => addOverride(rule)}
-                            className="px-2 py-0.5 text-[11px] rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                          >
-                            ＋ 例外
-                          </button>
-                        )}
-                      </div>
-                      {rule.overrides.length === 0 ? (
-                        <p className="text-[11px] text-slate-400">なし</p>
-                      ) : (
+                        </div>
                         <div className="space-y-1.5">
-                          {rule.overrides.map((o) => (
-                            <div key={o._key} className="flex flex-wrap items-center gap-1.5 text-sm">
+                          {rule.periods.map((p) => (
+                            <div
+                              key={p._key}
+                              className="flex flex-wrap items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                            >
                               <input
                                 type="number"
-                                min={2000}
-                                disabled={!canWrite}
-                                value={o.targetYear}
-                                onChange={(e) => updateOverride(rule, o._key, { targetYear: Number(e.target.value) || 0 })}
-                                className="w-20 px-2 py-1 border border-slate-200 rounded disabled:bg-slate-50"
+                                min={1}
+                                max={31}
+                                value={p.startDay}
+                                onChange={(e) => updatePeriod(rule, p._key, { startDay: Number(e.target.value) || 1 })}
+                                className="w-12 rounded border border-slate-200 px-1.5 py-1 text-center"
                               />
+                              <span className="text-slate-400">〜</span>
+                              <input
+                                type="number"
+                                min={1}
+                                max={31}
+                                value={p.endDay}
+                                onChange={(e) => updatePeriod(rule, p._key, { endDay: Number(e.target.value) || 1 })}
+                                className="w-12 rounded border border-slate-200 px-1.5 py-1 text-center"
+                              />
+                              <span className="text-xs text-slate-500">日分</span>
+                              <span className="mx-1 text-slate-300">｜</span>
+                              <span className="text-xs text-slate-500">締切</span>
                               <CustomSelect
-                                disabled={!canWrite}
-                                value={String(o.targetMonth)}
-                                onChange={(v) => updateOverride(rule, o._key, { targetMonth: Number(v) })}
-                                options={MONTHS.map((m) => ({ value: String(m), label: `${m}月` }))}
+                                value={String(p.deadlineMonthOffset)}
+                                onChange={(v) => updatePeriod(rule, p._key, { deadlineMonthOffset: Number(v) })}
+                                options={OFFSETS}
                                 clearable={false}
                                 size="sm"
                                 className="w-20"
                               />
-                              <CustomSelect
-                                disabled={!canWrite}
-                                value={String(o.periodSeq)}
-                                onChange={(v) => updateOverride(rule, o._key, { periodSeq: Number(v) })}
-                                options={rule.periods.map((p, i) => ({ value: String(i), label: `${p.startDay}〜${p.endDay}日` }))}
-                                clearable={false}
-                                size="sm"
-                                className="w-28"
-                              />
                               <input
-                                type="date"
-                                disabled={!canWrite}
-                                value={o.deadlineDate}
-                                onChange={(e) => updateOverride(rule, o._key, { deadlineDate: e.target.value })}
-                                className="px-2 py-1 text-sm border border-slate-200 rounded disabled:bg-slate-50"
+                                type="number"
+                                min={1}
+                                max={28}
+                                value={p.deadlineDay}
+                                onChange={(e) => updatePeriod(rule, p._key, { deadlineDay: Number(e.target.value) || 1 })}
+                                className="w-12 rounded border border-slate-200 px-1.5 py-1 text-center"
                               />
-                              {canWrite && (
+                              <span className="text-xs text-slate-500">日まで</span>
+                              {rule.periods.length > 1 && (
                                 <button
                                   type="button"
-                                  onClick={() => removeOverride(rule, o._key)}
+                                  onClick={() => removePeriod(rule, p._key)}
                                   className="ml-auto px-1.5 py-1 text-xs text-rose-600 hover:text-rose-800"
                                 >
                                   ×
@@ -381,38 +373,110 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
                             </div>
                           ))}
                         </div>
-                      )}
-                    </div>
+                        <button
+                          type="button"
+                          onClick={() => addPeriod(rule)}
+                          className="mt-1.5 rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
+                        >
+                          ＋ 期間を追加
+                        </button>
+                      </div>
 
-                    {/* 対象ドライバー */}
-                    <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3">
-                      <span className="text-xs font-semibold text-slate-700">
-                        対象ドライバー（{rule.driverIds.length}人）
-                      </span>
-                      <p className="text-[11px] text-slate-400 mt-0.5 mb-2">名前をタップで割り当て（選択中は濃色）。1人は1ルールのみ。</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {drivers.map((d) => {
-                          const on = rule.driverIds.includes(d.id);
-                          return (
+                      {/* 期間例外（既定で折りたたみ） */}
+                      <details className="mb-3 rounded-md border border-slate-200 bg-white [&_summary::-webkit-details-marker]:hidden" open={rule.overrides.length > 0}>
+                        <summary className="flex cursor-pointer select-none items-center justify-between px-3 py-2 text-xs font-semibold text-slate-700">
+                          <span>期間例外（GW等）{rule.overrides.length > 0 ? `・${rule.overrides.length}件` : ""}</span>
+                          <span className="text-[11px] font-normal text-slate-400">開閉</span>
+                        </summary>
+                        <div className="border-t border-slate-100 p-3">
+                          <div className="mb-2 flex justify-end">
                             <button
-                              key={d.id}
                               type="button"
-                              disabled={!canWrite}
-                              onClick={() => toggleDriver(rule._key, d.id)}
-                              className={`px-2.5 py-1 text-xs rounded-full border transition-colors disabled:opacity-50 ${
-                                on
-                                  ? "bg-slate-800 border-slate-800 text-white"
-                                  : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
-                              }`}
+                              onClick={() => addOverride(rule)}
+                              className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
                             >
-                              {driverName(d)}
+                              ＋ 例外
                             </button>
-                          );
-                        })}
+                          </div>
+                          {rule.overrides.length === 0 ? (
+                            <p className="text-[11px] text-slate-400">なし</p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {rule.overrides.map((o) => (
+                                <div key={o._key} className="flex flex-wrap items-center gap-1.5 text-sm">
+                                  <MonthYearPicker
+                                    value={{ year: o.targetYear, month: o.targetMonth }}
+                                    onChange={(v) => updateOverride(rule, o._key, { targetYear: v.year, targetMonth: v.month })}
+                                  />
+                                  <CustomSelect
+                                    value={String(o.periodSeq)}
+                                    onChange={(v) => updateOverride(rule, o._key, { periodSeq: Number(v) })}
+                                    options={rule.periods.map((p, i) => ({ value: String(i), label: `${p.startDay}〜${p.endDay}日` }))}
+                                    clearable={false}
+                                    size="sm"
+                                    className="w-28"
+                                  />
+                                  <span className="text-xs text-slate-500">締切</span>
+                                  <DatePicker
+                                    value={ymdToDate(o.deadlineDate)}
+                                    onChange={(d) => updateOverride(rule, o._key, { deadlineDate: dateToYmd(d) })}
+                                    placeholder="締切日を選択"
+                                    className="w-44"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeOverride(rule, o._key)}
+                                    className="ml-auto px-1.5 py-1 text-xs text-rose-600 hover:text-rose-800"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </details>
+
+                      {/* 対象ドライバー */}
+                      <div className="rounded-md border border-slate-200 bg-white p-3">
+                        <span className="text-xs font-semibold text-slate-700">
+                          対象ドライバー（{rule.driverIds.length}人）
+                        </span>
+                        <p className="mb-2 mt-0.5 text-[11px] text-slate-400">名前をタップで割り当て（選択中は濃色）。1人は1ルールのみ。</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {drivers.map((d) => {
+                            const on = rule.driverIds.includes(d.id);
+                            return (
+                              <button
+                                key={d.id}
+                                type="button"
+                                onClick={() => toggleDriver(rule._key, d.id)}
+                                className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                  on
+                                    ? "border-slate-800 bg-slate-800 text-white"
+                                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                {driverName(d)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* 編集を閉じる */}
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpand(rule._key)}
+                          className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          編集を閉じる
+                        </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {canWrite && (

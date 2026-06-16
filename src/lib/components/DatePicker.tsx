@@ -22,6 +22,8 @@ export interface DatePickerProps {
   fromDate?: Date;
   /** 選択可能な最大日付（この日まで選択可能） */
   toDate?: Date;
+  /** 無効化（押下不可・薄表示） */
+  disabled?: boolean;
 }
 
 export function DatePicker({
@@ -31,15 +33,17 @@ export function DatePicker({
   className,
   fromDate,
   toDate,
+  disabled,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
-  useBodyScrollLock(open);
+  useBodyScrollLock(open && !disabled);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open && !disabled} onOpenChange={(o) => !disabled && setOpen(o)}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
+          disabled={disabled}
           className={cn("justify-start text-left font-normal", className ?? "w-full")}
         >
           <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />

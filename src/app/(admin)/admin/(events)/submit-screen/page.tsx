@@ -10,7 +10,18 @@ import { useApi } from "@/lib/useApi";
 import { canAdminWrite } from "@/lib/authz";
 import { getDisplayName } from "@/lib/displayName";
 import { CustomSelect } from "@/lib/components/CustomSelect";
+import { DatePicker } from "@/lib/components/DatePicker";
 import type { SubmitBlock, ResolvedBlock, BlockType, MetricField } from "@/lib/submitScreenBlocks";
+
+// 注意バナーの期間（"YYYY-MM-DD" 文字列）と DatePicker（Date）の相互変換。
+const ymdToDate = (s: string | null | undefined): Date | undefined => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s ?? "");
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : undefined;
+};
+const dateToYmd = (d: Date | undefined): string | null => {
+  if (!d) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 type FieldRow = { id: string; field_key: string; label: string; group_label: string | null };
 type UnitRow = { id: string; name: string; code: string | null; fields: FieldRow[] };
@@ -298,23 +309,45 @@ export default function SubmitScreenBuilderPage() {
               <div className="flex flex-wrap gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">開始日（任意）</label>
-                  <input
-                    type="date"
-                    value={notice.startDate ?? ""}
-                    disabled={!canWrite || !notice.enabled}
-                    onChange={(e) => updateNotice({ startDate: e.target.value || null })}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <DatePicker
+                      value={ymdToDate(notice.startDate)}
+                      disabled={!canWrite || !notice.enabled}
+                      onChange={(d) => updateNotice({ startDate: dateToYmd(d) })}
+                      placeholder="下限なし"
+                      className="w-44"
+                    />
+                    {canWrite && notice.enabled && notice.startDate && (
+                      <button
+                        type="button"
+                        onClick={() => updateNotice({ startDate: null })}
+                        className="px-1.5 py-1 text-xs text-slate-400 hover:text-slate-600"
+                      >
+                        クリア
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">終了日（任意）</label>
-                  <input
-                    type="date"
-                    value={notice.endDate ?? ""}
-                    disabled={!canWrite || !notice.enabled}
-                    onChange={(e) => updateNotice({ endDate: e.target.value || null })}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <DatePicker
+                      value={ymdToDate(notice.endDate)}
+                      disabled={!canWrite || !notice.enabled}
+                      onChange={(d) => updateNotice({ endDate: dateToYmd(d) })}
+                      placeholder="上限なし"
+                      className="w-44"
+                    />
+                    {canWrite && notice.enabled && notice.endDate && (
+                      <button
+                        type="button"
+                        onClick={() => updateNotice({ endDate: null })}
+                        className="px-1.5 py-1 text-xs text-slate-400 hover:text-slate-600"
+                      >
+                        クリア
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
               <p className="text-[11px] text-slate-400">
