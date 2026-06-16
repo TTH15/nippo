@@ -18,6 +18,12 @@ import { evaluateMeter } from "./submitFormUtils";
 // 注: 旧 SubmitPageClient とは別ファイル。ルートは page.tsx で切替。
 // ============================================================
 
+// "YYYY-MM-DD" → "M月D日"
+function formatMonthDay(dateStr: string): string {
+  const [, m, d] = dateStr.split("-");
+  return `${Number(m)}月${Number(d)}日`;
+}
+
 type DriverIdentity = { id: string; slot: number; driverCode: string; officeCode: string; label?: string };
 type Vehicle = {
   id: string;
@@ -156,6 +162,12 @@ export default function SubmitPageClientV2() {
   const { data: noticeData } = useApi<{ notice: { message: string } | null }>("/api/me/form-notice");
   const formNotice = noticeData?.notice ?? null;
 
+  // シフト提出締切のリマインド（本人の締切ルールから自動算出。締切が近いときだけ返る）。
+  const { data: reminderData } = useApi<{
+    reminder: { deadline: string; daysLeft: number; label: string } | null;
+  }>("/api/me/shift-deadline-reminder");
+  const deadlineReminder = reminderData?.reminder ?? null;
+
   function setVal(courseId: string, unitId: string, fieldKey: string, v: string) {
     setValues((prev) => ({
       ...prev,
@@ -243,6 +255,25 @@ export default function SubmitPageClientV2() {
   return (
     <div className="max-w-md mx-auto px-4 py-6 space-y-5">
       <h1 className="text-lg font-semibold text-slate-900">日報入力</h1>
+
+      {deadlineReminder && (
+        <div
+          role="alert"
+          className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm ${
+            deadlineReminder.daysLeft <= 2
+              ? "border-amber-300 bg-amber-50 text-amber-900"
+              : "border-sky-200 bg-sky-50 text-sky-900"
+          }`}
+        >
+          <span aria-hidden className="shrink-0">🗓️</span>
+          <p className="leading-relaxed">
+            シフト提出は <span className="font-semibold">{formatMonthDay(deadlineReminder.deadline)}</span> まで
+            <span className="ml-1 font-semibold">
+              （{deadlineReminder.daysLeft === 0 ? "本日締切" : `あと${deadlineReminder.daysLeft}日`}）
+            </span>
+          </p>
+        </div>
+      )}
 
       {formNotice && (
         <div

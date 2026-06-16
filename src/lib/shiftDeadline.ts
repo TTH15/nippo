@@ -56,7 +56,7 @@ export function halfRange(
 }
 
 /** 月オフセットを足して年跨ぎを正規化（month は 1-12）。 */
-function shiftMonth(year: number, month: number, offset: number): { year: number; month: number } {
+export function shiftMonth(year: number, month: number, offset: number): { year: number; month: number } {
   let dm = month + offset;
   let dy = year;
   while (dm <= 0) {
@@ -204,4 +204,40 @@ export function monthPeriods(
         endDate: `${year}-${mm}-${pad(end)}`,
       };
     });
+}
+
+// ============================================================
+// 提出締切リマインド（日報送信ページ向け）。
+//   本人ルールの「これから来る一番近い未締切」を求め、締切まで何日かを返す。
+// ============================================================
+
+/** 2つの "YYYY-MM-DD" の日数差（to - from）。TZ非依存（UTC基準で日数のみ計算）。 */
+export function daysUntil(fromStr: string, toStr: string): number {
+  const [y1, m1, d1] = fromStr.split("-").map(Number);
+  const [y2, m2, d2] = toStr.split("-").map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86_400_000);
+}
+
+/**
+ * 本日(todayStr)以降で一番近い「まだ締め切られていない」提出期間を返す。
+ * 次月の期間でも締切が前月に来る場合があるため、当月から数ヶ月先まで走査する。
+ * ルール未割り当て（rule=null）や該当なしは null。
+ */
+export function upcomingDeadline(
+  rule: DeadlineRule | null,
+  todayStr: string,
+  monthsAhead = 2,
+): PeriodStatus | null {
+  if (!rule || rule.periods.length === 0) return null;
+  const [ty, tm] = todayStr.split("-").map(Number);
+  const candidates: PeriodStatus[] = [];
+  for (let i = 0; i <= monthsAhead; i++) {
+    const { year, month } = shiftMonth(ty, tm, i);
+    candidates.push(...monthPeriods(rule, year, month, todayStr));
+  }
+  // closed=false（= 締切が本日以降）のものを締切が近い順に。
+  const open = candidates
+    .filter((p) => !p.closed)
+    .sort((a, b) => a.deadline.localeCompare(b.deadline));
+  return open[0] ?? null;
 }
