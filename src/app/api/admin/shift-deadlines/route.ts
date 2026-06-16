@@ -30,8 +30,10 @@ export async function GET(req: NextRequest) {
 }
 
 // PUT: ルールを全置換で保存
+// 提出締切の設定はシフト管理の一部のため、閲覧専用アカウント(ADMIN_VIEWER)にも許可する
+// （フロントの canEditShifts と整合。他の管理機能は ADMIN のままにする）。
 export async function PUT(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   const body = await req.json().catch(() => ({}));
