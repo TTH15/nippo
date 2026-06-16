@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCalendarDays, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
@@ -265,7 +267,7 @@ export default function SubmitPageClientV2() {
               : "border-sky-200 bg-sky-50 text-sky-900"
           }`}
         >
-          <span aria-hidden className="shrink-0">🗓️</span>
+          <FontAwesomeIcon icon={faCalendarDays} aria-hidden className="shrink-0" />
           <p className="leading-relaxed">
             シフト提出は <span className="font-semibold">{formatMonthDay(deadlineReminder.deadline)}</span> まで
             <span className="ml-1 font-semibold">
@@ -280,7 +282,7 @@ export default function SubmitPageClientV2() {
           role="alert"
           className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900"
         >
-          <span aria-hidden className="mt-0.5 shrink-0 text-amber-500">⚠️</span>
+          <FontAwesomeIcon icon={faTriangleExclamation} aria-hidden className="mt-0.5 shrink-0 text-amber-500" />
           <p className="whitespace-pre-wrap leading-relaxed">{formNotice.message}</p>
         </div>
       )}
