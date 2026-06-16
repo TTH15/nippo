@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark, faLock } from "@fortawesome/free-solid-svg-icons";
@@ -88,7 +89,6 @@ export default function ShiftsPage() {
 
   const [viewDate, setViewDate] = useState(currentMonth);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // 希望休の選択。date → { "ALL"（全休） or slotId } の集合。
   const [off, setOff] = useState<Map<string, Set<string>>>(new Map());
@@ -103,7 +103,6 @@ export default function ShiftsPage() {
 
   const [shiftMonth, setShiftMonth] = useState(() => currentYearMonth());
   const [shifts, setShifts] = useState<MeShift[]>([]);
-  const [shiftsLoading, setShiftsLoading] = useState(false);
   const [shiftsError, setShiftsError] = useState<string | null>(null);
 
   const days = useMemo(() => getDaysInMonth(viewDate.year, viewDate.month), [viewDate]);
@@ -125,29 +124,49 @@ export default function ShiftsPage() {
     return m;
   }, [shifts]);
 
+  // 希望休タブ: requests + deadlines をまとめて SWR キャッシュ（月キー）。
+  // off は編集中の作業状態なので state を維持し、取得結果は同期エフェクトで流し込む。
+  // 編集中に取得結果で上書きしないようフォーカス再検証は無効化。
+  const {
+    data: reqData,
+    isInitialLoading: loading,
+    mutate: mutateReq,
+  } = useApi<{ requests: ShiftRequest[]; slots: DriverSlot[]; periods: PeriodInfo[] }>(
+    subTab === "request" ? `me/shift-request:${monthStr}` : null,
+    {
+      revalidateOnFocus: false,
+      fetcher: async () => {
+        const [res, dl] = await Promise.all([
+          apiFetch<{ requests: ShiftRequest[]; slots: DriverSlot[] }>(
+            `/api/shifts/requests?month=${monthStr}`,
+          ),
+          apiFetch<{ periods: PeriodInfo[] }>(`/api/shifts/deadlines?month=${monthStr}`).catch(
+            () => null,
+          ),
+        ]);
+        return { requests: res.requests ?? [], slots: res.slots ?? [], periods: dl?.periods ?? [] };
+      },
+    },
+  );
+
+  useEffect(() => {
+    if (!reqData) return;
+    setRequests(reqData.requests);
+    setSlots(reqData.slots);
+    const m = new Map<string, Set<string>>();
+    reqData.requests.forEach((r) => {
+      const key = r.slot_id ?? ALL;
+      const s = m.get(r.request_date) ?? new Set<string>();
+      s.add(key);
+      m.set(r.request_date, s);
+    });
+    setOff(m);
+    setPeriods(reqData.periods);
+  }, [reqData]);
+
+  // 書き込み後の再取得（旧 load の代替）。
   const load = async () => {
-    setLoading(true);
-    try {
-      const [res, dl] = await Promise.all([
-        apiFetch<{ requests: ShiftRequest[]; slots: DriverSlot[] }>(`/api/shifts/requests?month=${monthStr}`),
-        apiFetch<{ periods: PeriodInfo[] }>(`/api/shifts/deadlines?month=${monthStr}`).catch(() => null),
-      ]);
-      setRequests(res.requests ?? []);
-      setSlots(res.slots ?? []);
-      const m = new Map<string, Set<string>>();
-      (res.requests ?? []).forEach((r) => {
-        const key = r.slot_id ?? ALL;
-        const s = m.get(r.request_date) ?? new Set<string>();
-        s.add(key);
-        m.set(r.request_date, s);
-      });
-      setOff(m);
-      setPeriods(dl?.periods ?? []);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    await mutateReq();
   };
 
   // 指定日が属する提出期間（API値を信頼）。どの期間にも属さない＝ロックしない（常に提出可）。
@@ -157,27 +176,26 @@ export default function ShiftsPage() {
   };
   const isLockedDate = (dateStr: string): boolean => periodFor(dateStr)?.closed ?? false;
 
-  useEffect(() => {
-    if (subTab === "request") {
-      load();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthStr, subTab]);
+  // 確認タブ: 自分のシフトを SWR キャッシュ（月範囲キー）。表示専用。
+  const { start: shiftStart, end: shiftEnd } = getMonthDateRange(shiftMonth.year, shiftMonth.month);
+  const {
+    data: meShiftsData,
+    error: meShiftsError,
+    isInitialLoading: shiftsLoading,
+  } = useApi<{ shifts: MeShift[] }>(
+    subTab === "view" ? `/api/me/shifts?start=${shiftStart}&end=${shiftEnd}` : null,
+  );
 
   useEffect(() => {
-    if (subTab !== "view") return;
-    const { year, month } = shiftMonth;
-    setShiftsLoading(true);
-    setShiftsError(null);
-    const { start, end } = getMonthDateRange(year, month);
-    apiFetch<{ shifts: MeShift[] }>(`/api/me/shifts?start=${start}&end=${end}`)
-      .then((d) => setShifts(d.shifts ?? []))
-      .catch((e: unknown) => {
-        console.error(e);
-        setShiftsError("シフトの取得に失敗しました");
-      })
-      .finally(() => setShiftsLoading(false));
-  }, [shiftMonth, subTab]);
+    if (meShiftsData) {
+      setShifts(meShiftsData.shifts ?? []);
+      setShiftsError(null);
+    }
+  }, [meShiftsData]);
+
+  useEffect(() => {
+    if (meShiftsError) setShiftsError("シフトの取得に失敗しました");
+  }, [meShiftsError]);
 
   const prevMonth = () => {
     setViewDate((v) => {

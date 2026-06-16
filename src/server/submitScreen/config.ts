@@ -36,7 +36,51 @@ export type SubmitScreenConfig = {
   teamRankingVisibleToDrivers: boolean;
   /** 送信後画面のブロック構成。null=従来フラット設定から導出。 */
   blocks: SubmitBlock[] | null;
+  /** 送信フォーム上部の注意バナー（運営設定・期間指定）。 */
+  formNotice: FormNotice;
 };
+
+/** 送信フォーム上部の注意バナー設定。 */
+export type FormNotice = {
+  enabled: boolean;
+  message: string;
+  /** 表示開始日 "YYYY-MM-DD"（null=下限なし）。 */
+  startDate: string | null;
+  /** 表示終了日 "YYYY-MM-DD"（null=上限なし、当日を含む）。 */
+  endDate: string | null;
+};
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function normalizeDate(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  // DB の date は "YYYY-MM-DD"。timestamptz 等で来た場合も先頭10文字を採用。
+  const s = raw.slice(0, 10);
+  return DATE_RE.test(s) ? s : null;
+}
+
+export function defaultFormNotice(): FormNotice {
+  return { enabled: false, message: "", startDate: null, endDate: null };
+}
+
+export function normalizeFormNotice(raw: unknown): FormNotice {
+  const r = (raw ?? {}) as Partial<Record<keyof FormNotice, unknown>>;
+  return {
+    enabled: r.enabled === true,
+    message: typeof r.message === "string" ? r.message.slice(0, 500) : "",
+    startDate: normalizeDate(r.startDate),
+    endDate: normalizeDate(r.endDate),
+  };
+}
+
+/** 注意バナーを指定日に表示すべきか（enabled かつ期間内、message 非空）。 */
+export function isFormNoticeActiveOn(notice: FormNotice, dateStr: string): boolean {
+  if (!notice.enabled) return false;
+  if (!notice.message.trim()) return false;
+  if (notice.startDate && dateStr < notice.startDate) return false;
+  if (notice.endDate && dateStr > notice.endDate) return false;
+  return true;
+}
 
 export function defaultSubmitScreenConfig(): SubmitScreenConfig {
   return {
@@ -51,6 +95,7 @@ export function defaultSubmitScreenConfig(): SubmitScreenConfig {
     showRanking: true,
     teamRankingVisibleToDrivers: false,
     blocks: null,
+    formNotice: defaultFormNotice(),
   };
 }
 
@@ -96,6 +141,13 @@ export async function loadSubmitScreenConfig(supabase: SupabaseClient): Promise<
       showRanking: rankingSource !== "none",
       teamRankingVisibleToDrivers: data.team_ranking_visible_to_drivers === true,
       blocks: Array.isArray(data.blocks) ? (data.blocks as SubmitBlock[]) : null,
+      // 081 未適用なら各カラム undefined → 既定（無効）。
+      formNotice: normalizeFormNotice({
+        enabled: data.form_notice_enabled,
+        message: data.form_notice_message,
+        startDate: data.form_notice_start,
+        endDate: data.form_notice_end,
+      }),
     };
   } catch {
     return defaultSubmitScreenConfig();
@@ -125,6 +177,10 @@ export async function saveSubmitScreenConfig(
     show_ranking: cfg.rankingSource !== "none",
     team_ranking_visible_to_drivers: cfg.teamRankingVisibleToDrivers,
     blocks: cfg.blocks,
+    form_notice_enabled: cfg.formNotice.enabled,
+    form_notice_message: cfg.formNotice.message,
+    form_notice_start: cfg.formNotice.startDate,
+    form_notice_end: cfg.formNotice.endDate,
     updated_at: new Date().toISOString(),
   };
   if (existing?.id) {

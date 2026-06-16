@@ -3,9 +3,9 @@
 import { SWRConfig } from "swr";
 import { swrFetcher } from "@/lib/swr";
 
-// 管理画面共通のデータ取得プロバイダ。
-// (admin)/layout.tsx に設置し、管理画面のページ間遷移をまたいで
-// キャッシュ・設定を共有する（= 再訪時の点滅をなくす）。
+// データ取得プロバイダ（管理画面・ドライバー画面 共通）。
+// (admin)/layout.tsx と (user)/layout.tsx に設置し、各グループのページ間遷移を
+// またいでキャッシュ・設定を共有する（= 再訪時の点滅をなくす）。
 //
 // グローバル設定は意図的に最小限にする:
 // - fetcher: useApi が fetcher 指定なしで使えるようにする共通取得関数

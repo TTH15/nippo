@@ -6,6 +6,7 @@ import {
   saveSubmitScreenConfig,
   defaultSubmitScreenConfig,
   normalizeRankingSource,
+  normalizeFormNotice,
   type SubmitScreenConfig,
 } from "@/server/submitScreen/config";
 import { normalizeBlocks } from "@/server/submitScreen/blocks";
@@ -77,6 +78,7 @@ export async function PUT(req: NextRequest) {
     showRanking: rankingSource !== "none",
     teamRankingVisibleToDrivers: body.teamRankingVisibleToDrivers === true,
     blocks: Array.isArray(body.blocks) ? normalizeBlocks(body.blocks) : null,
+    formNotice: normalizeFormNotice(body.formNotice),
   };
 
   try {
@@ -84,7 +86,7 @@ export async function PUT(req: NextRequest) {
   } catch (e) {
     console.error(e);
     return NextResponse.json(
-      { error: "保存に失敗しました（migration 061/067 未適用の可能性）" },
+      { error: "保存に失敗しました（migration 061/067/081 未適用の可能性）" },
       { status: 500 },
     );
   }

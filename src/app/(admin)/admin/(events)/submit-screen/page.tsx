@@ -17,6 +17,13 @@ type UnitRow = { id: string; name: string; code: string | null; fields: FieldRow
 type CarrierRow = { id: string; name: string; units: UnitRow[] };
 type DriverRow = { id: string; name: string; display_name: string | null };
 type EventRow = { id: string; name: string; status: string; starts_on: string | null; ends_on: string | null };
+type FormNotice = {
+  enabled: boolean;
+  message: string;
+  startDate: string | null;
+  endDate: string | null;
+};
+
 type Config = {
   thanksTitle: string;
   thanksMessage: string;
@@ -27,6 +34,7 @@ type Config = {
   targetDriverIds: string[];
   teamRankingVisibleToDrivers: boolean;
   blocks: SubmitBlock[] | null;
+  formNotice: FormNotice;
 };
 
 const fkid = (unitId: string, fieldKey: string) => `${unitId}|${fieldKey}`;
@@ -211,6 +219,10 @@ export default function SubmitScreenBuilderPage() {
     setExpandedId(b.id);
   };
 
+  const notice = baseConfig?.formNotice ?? null;
+  const updateNotice = (patch: Partial<FormNotice>) =>
+    setBaseConfig((c) => (c ? { ...c, formNotice: { ...c.formNotice, ...patch } } : c));
+
   const save = async () => {
     if (!baseConfig || !canWrite) return;
     setSaving(true);
@@ -248,6 +260,69 @@ export default function SubmitScreenBuilderPage() {
             </button>
           )}
         </div>
+
+        {!loading && notice && (
+          <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">送信フォームの注意バナー</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  ドライバーの日報入力画面の上部に、指定期間だけ注意メッセージを表示します。
+                </p>
+              </div>
+              <label className="inline-flex shrink-0 items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={notice.enabled}
+                  disabled={!canWrite}
+                  onChange={(e) => updateNotice({ enabled: e.target.checked })}
+                  className="h-4 w-4 accent-slate-800"
+                />
+                表示する
+              </label>
+            </div>
+
+            <div className={notice.enabled ? "mt-3 space-y-3" : "mt-3 space-y-3 opacity-50"}>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">メッセージ</label>
+                <textarea
+                  value={notice.message}
+                  disabled={!canWrite || !notice.enabled}
+                  onChange={(e) => updateNotice({ message: e.target.value })}
+                  rows={2}
+                  maxLength={500}
+                  placeholder="例: 本日は降雪のため、安全運転を徹底してください。"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+                />
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">開始日（任意）</label>
+                  <input
+                    type="date"
+                    value={notice.startDate ?? ""}
+                    disabled={!canWrite || !notice.enabled}
+                    onChange={(e) => updateNotice({ startDate: e.target.value || null })}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">終了日（任意）</label>
+                  <input
+                    type="date"
+                    value={notice.endDate ?? ""}
+                    disabled={!canWrite || !notice.enabled}
+                    onChange={(e) => updateNotice({ endDate: e.target.value || null })}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                日付を空にすると、その側は無期限になります（両方空＝表示中はずっと表示）。終了日は当日を含みます。
+              </p>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="grid gap-4 lg:grid-cols-2">

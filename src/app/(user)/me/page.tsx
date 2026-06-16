@@ -6,6 +6,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 import { TeamPointsCard } from "@/lib/components/TeamPointsCard";
 import { DynamicField, ReportFileInput, type DynamicFieldValue } from "@/lib/components/report/DynamicField";
@@ -48,7 +49,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const isReport = forceReport || tabParam === "report";
 
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
   const now = useMemo(() => new Date(), []);
   const defaultDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const defaultTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
@@ -65,7 +65,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const [odometerConfirm, setOdometerConfirm] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [unlinkedVehicles, setUnlinkedVehicles] = useState<Vehicle[]>([]);
-  const [vehiclesLoading, setVehiclesLoading] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [confirmVehicle, setConfirmVehicle] = useState<Vehicle | null>(null);
@@ -75,24 +74,25 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const [pinMessage, setPinMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   useBodyScrollLock(showVehicleModal);
 
+  // プロフィールを SWR キャッシュ（遷移をまたいで保持＝再訪時の点滅をなくす）。
+  const { data: profileData, isInitialLoading: profileLoading } = useApi<Profile>(
+    "/api/reports/profile",
+  );
   useEffect(() => {
-    apiFetch<Profile>("/api/reports/profile")
-      .then(setProfile)
-      .catch(() => { })
-      .finally(() => setProfileLoading(false));
-  }, []);
+    if (profileData) setProfile(profileData);
+  }, [profileData]);
 
   // 報告種別（設定マスタ）を取得。先頭を既定選択に。
+  const { data: kindsData } = useApi<{ kinds: ReportKindOption[] }>(
+    isReport ? "/api/me/report-kinds" : null,
+  );
   useEffect(() => {
-    if (!isReport) return;
-    apiFetch<{ kinds: ReportKindOption[] }>("/api/me/report-kinds")
-      .then((res) => {
-        const kinds = res.kinds ?? [];
-        setReportKinds(kinds);
-        setReportKind((prev) => prev || kinds[0]?.key || "");
-      })
-      .catch(() => { });
-  }, [isReport]);
+    if (kindsData) {
+      const kinds = kindsData.kinds ?? [];
+      setReportKinds(kinds);
+      setReportKind((prev) => prev || kinds[0]?.key || "");
+    }
+  }, [kindsData]);
 
   const currentKind = reportKinds.find((k) => k.key === reportKind) ?? null;
 
@@ -102,42 +102,46 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     setAttachments([]);
   }, [reportKind]);
 
-  useEffect(() => {
-    if (!isReport) return;
-    const loadVehicles = async () => {
-      setVehiclesLoading(true);
-      try {
-        const [vehiclesRes, prefRes, unlinkedRes] = await Promise.all([
-          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }),
-          apiFetch<{ vehicleId: string | null }>("/api/reports/vehicle-preference"),
-          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }).catch(
-            () => ({ vehicles: [] as Vehicle[] }),
-          ),
-        ]);
-        const linkedVehicles = vehiclesRes.vehicles ?? [];
-        const otherVehicles = unlinkedRes.vehicles ?? [];
-        setVehicles(linkedVehicles);
-        setUnlinkedVehicles(otherVehicles);
+  // 車両（連携車/他車/優先）をまとめて SWR キャッシュ。選択中の車両が裏更新で
+  // 変わらないようフォーカス再検証は無効化し、取得結果は同期エフェクトで流し込む。
+  const { data: vehBundle, isInitialLoading: vehiclesLoading } = useApi<{
+    vehicles: Vehicle[];
+    unlinked: Vehicle[];
+    preferredId: string | null;
+  }>(isReport ? "me/report-vehicles" : null, {
+    revalidateOnFocus: false,
+    fetcher: async () => {
+      const [vehiclesRes, prefRes, unlinkedRes] = await Promise.all([
+        apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }),
+        apiFetch<{ vehicleId: string | null }>("/api/reports/vehicle-preference"),
+        apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }).catch(
+          () => ({ vehicles: [] as Vehicle[] }),
+        ),
+      ]);
+      return {
+        vehicles: vehiclesRes.vehicles ?? [],
+        unlinked: unlinkedRes.vehicles ?? [],
+        preferredId: prefRes.vehicleId,
+      };
+    },
+  });
 
-        const preferredId = prefRes.vehicleId;
-        const preferredInLinked = preferredId ? linkedVehicles.some((v) => v.id === preferredId) : false;
-        if (preferredInLinked && preferredId) {
-          setSelectedVehicleId(preferredId);
-        } else if (linkedVehicles.length > 0) {
-          setSelectedVehicleId(linkedVehicles[0].id);
-        } else {
-          setSelectedVehicleId(null);
-        }
-      } catch {
-        setVehicles([]);
-        setUnlinkedVehicles([]);
-        setSelectedVehicleId(null);
-      } finally {
-        setVehiclesLoading(false);
-      }
-    };
-    loadVehicles();
-  }, [isReport]);
+  useEffect(() => {
+    if (!vehBundle) return;
+    const linkedVehicles = vehBundle.vehicles;
+    setVehicles(linkedVehicles);
+    setUnlinkedVehicles(vehBundle.unlinked);
+
+    const preferredId = vehBundle.preferredId;
+    const preferredInLinked = preferredId ? linkedVehicles.some((v) => v.id === preferredId) : false;
+    if (preferredInLinked && preferredId) {
+      setSelectedVehicleId(preferredId);
+    } else if (linkedVehicles.length > 0) {
+      setSelectedVehicleId(linkedVehicles[0].id);
+    } else {
+      setSelectedVehicleId(null);
+    }
+  }, [vehBundle]);
 
   const allKnownVehicles = useMemo(
     () => Array.from(new Map([...vehicles, ...unlinkedVehicles].map((v) => [v.id, v] as const)).values()),

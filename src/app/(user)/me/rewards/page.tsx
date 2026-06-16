@@ -9,6 +9,7 @@ import { FixedExpenseSection } from "@/lib/components/FixedExpenseSection";
 import { PaymentSummary } from "@/lib/components/PaymentSummary";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 
 type RewardLogDetail = {
   log_date: string;
@@ -81,48 +82,51 @@ function mergedDetails(rewards: RewardsSummary): RewardLogDetail[] {
 export default function MeRewardsPage() {
   const [rewardMonth, setRewardMonth] = useState(() => currentYearMonth());
   const [rewards, setRewards] = useState<RewardsSummary | null>(null);
-  const [rewardsLoading, setRewardsLoading] = useState(true);
   const [rewardsError, setRewardsError] = useState<string | null>(null);
   const [optionalSubmitting, setOptionalSubmitting] = useState(false);
   const [optionalError, setOptionalError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [invoices, setInvoices] = useState<MyInvoice[]>([]);
-  const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [approvingInvoiceId, setApprovingInvoiceId] = useState<string | null>(null);
   const [invoicePanelOpen, setInvoicePanelOpen] = useState(false);
   const [previewInvoiceId, setPreviewInvoiceId] = useState<string | null>(null);
 
   const monthStr = `${rewardMonth.year}-${String(rewardMonth.month).padStart(2, "0")}`;
 
-  const loadRewards = useCallback(() => {
-    setRewardsLoading(true);
-    setRewardsError(null);
-    apiFetch<RewardsSummary>(`/api/me/rewards?month=${monthStr}`)
-      .then((d) => setRewards(d))
-      .catch((e: unknown) => {
-        console.error(e);
-        setRewardsError("報酬サマリの取得に失敗しました");
-      })
-      .finally(() => setRewardsLoading(false));
-  }, [monthStr]);
+  // 報酬サマリを SWR キャッシュ（月キー、遷移をまたいで保持）。
+  const {
+    data: rewardsData,
+    error: rewardsFetchError,
+    isInitialLoading: rewardsLoading,
+    mutate: mutateRewards,
+  } = useApi<RewardsSummary>(`/api/me/rewards?month=${monthStr}`);
 
   useEffect(() => {
-    loadRewards();
-  }, [loadRewards]);
+    if (rewardsData) {
+      setRewards(rewardsData);
+      setRewardsError(null);
+    }
+  }, [rewardsData]);
 
   useEffect(() => {
-    setInvoicesLoading(true);
-    apiFetch<{ invoices: MyInvoice[] }>(`/api/me/invoices`)
-      .then((res) => {
-        const pendingOnly = (res.invoices ?? []).filter((inv) => inv.status === "pending_approval");
-        setInvoices(pendingOnly);
-      })
-      .catch((e) => {
-        console.error(e);
-        setInvoices([]);
-      })
-      .finally(() => setInvoicesLoading(false));
-  }, []);
+    if (rewardsFetchError) setRewardsError("報酬サマリの取得に失敗しました");
+  }, [rewardsFetchError]);
+
+  // 書き込み後の再取得（旧 loadRewards の代替）。
+  const loadRewards = useCallback(() => mutateRewards(), [mutateRewards]);
+
+  // 承認待ち請求書を SWR キャッシュ。pending_approval のみ表示。
+  const {
+    data: invoicesData,
+    isInitialLoading: invoicesLoading,
+    mutate: mutateInvoices,
+  } = useApi<{ invoices: MyInvoice[] }>("/api/me/invoices");
+
+  useEffect(() => {
+    if (invoicesData) {
+      setInvoices((invoicesData.invoices ?? []).filter((inv) => inv.status === "pending_approval"));
+    }
+  }, [invoicesData]);
 
   const handleAddOptional = async (name: string, amount: number) => {
     setOptionalError(null);
@@ -154,9 +158,8 @@ export default function MeRewardsPage() {
     setApprovingInvoiceId(invoiceId);
     try {
       await apiFetch(`/api/me/invoices/${encodeURIComponent(invoiceId)}/approve`, { method: "POST" });
-      const res = await apiFetch<{ invoices: MyInvoice[] }>(`/api/me/invoices`);
-      const pendingOnly = (res.invoices ?? []).filter((inv) => inv.status === "pending_approval");
-      setInvoices(pendingOnly);
+      const res = await mutateInvoices();
+      const pendingOnly = (res?.invoices ?? []).filter((inv) => inv.status === "pending_approval");
       // 承認完了後はプレビューを閉じ、残件がなければ一覧モーダルも閉じる
       setPreviewInvoiceId(null);
       if (pendingOnly.length === 0) {

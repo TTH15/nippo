@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { PostSubmitView, type SubmitScreen } from "@/lib/components/PostSubmitView";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 import { evaluateMeter } from "./submitFormUtils";
 
@@ -69,74 +70,91 @@ export default function SubmitPageClientV2() {
 
   const [shifts, setShifts] = useState<ShiftForm[]>([]);
   const [values, setValues] = useState<ValueMap>({});
-  const [loading, setLoading] = useState(true);
-  const [formLoading, setFormLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   // プロフィール（勤務区分）・車両（紐付け＋その他）
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const [profile, vehiclesRes, unlinkedRes] = await Promise.all([
-          apiFetch<{ identities?: DriverIdentity[] }>("/api/reports/profile").catch(() => null),
-          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }).catch(() => ({ vehicles: [] })),
-          apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }).catch(() => ({ vehicles: [] })),
-        ]);
-        const list = profile?.identities ?? [];
-        setIdentities(list);
-        if (list.length > 0) setSelectedIdentityId(list[0].id);
-        setVehicles(vehiclesRes.vehicles ?? []);
-        setUnlinkedVehicles(unlinkedRes.vehicles ?? []);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  // プロフィール/車両を SWR キャッシュ（遷移をまたいで保持＝再訪時の点滅をなくす）。
+  // 選択中の identity が裏更新で変わらないようフォーカス再検証は無効化。
+  const { data: initData, isInitialLoading: loading } = useApi<{
+    identities: DriverIdentity[];
+    vehicles: Vehicle[];
+    unlinked: Vehicle[];
+  }>("me/submit-init", {
+    revalidateOnFocus: false,
+    fetcher: async () => {
+      const [profile, vehiclesRes, unlinkedRes] = await Promise.all([
+        apiFetch<{ identities?: DriverIdentity[] }>("/api/reports/profile").catch(() => null),
+        apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }).catch(() => ({ vehicles: [] })),
+        apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }).catch(() => ({ vehicles: [] })),
+      ]);
+      return {
+        identities: profile?.identities ?? [],
+        vehicles: vehiclesRes.vehicles ?? [],
+        unlinked: unlinkedRes.vehicles ?? [],
+      };
+    },
+  });
 
-  // 日付ごとの動的フォーム
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setFormLoading(true);
-      try {
-        const dateStr = dateToReportDateStr(reportDate);
-        const res = await apiFetch<{ shifts: ShiftForm[]; shiftVehicleId?: string | null }>(`/api/me/report-form?date=${encodeURIComponent(dateStr)}`, { cache: "no-store" });
-        if (cancelled) return;
-        const list = res.shifts ?? [];
-        setShifts(list);
-        // 既存値で初期化
-        const init: ValueMap = {};
-        list.forEach((s) => {
-          init[s.courseId] = {};
-          s.units.forEach((u) => {
-            init[s.courseId][u.id] = {};
-            u.fields.forEach((f) => {
-              const existing = s.existing?.values?.[u.id]?.[f.fieldKey];
-              init[s.courseId][u.id][f.fieldKey] = existing != null ? String(existing) : "";
-            });
-          });
+    if (!initData) return;
+    setIdentities(initData.identities);
+    if (initData.identities.length > 0) {
+      setSelectedIdentityId((prev) => prev ?? initData.identities[0].id);
+    }
+    setVehicles(initData.vehicles);
+    setUnlinkedVehicles(initData.unlinked);
+  }, [initData]);
+
+  // 日付ごとの動的フォーム。SWR でキャッシュしつつ、入力中(values)を裏更新で壊さない。
+  const reportFormDateStr = dateToReportDateStr(reportDate);
+  const {
+    data: formData,
+    error: formError,
+    isInitialLoading: formLoading,
+  } = useApi<{ shifts: ShiftForm[]; shiftVehicleId?: string | null }>(
+    `/api/me/report-form?date=${encodeURIComponent(reportFormDateStr)}`,
+    { revalidateOnFocus: false },
+  );
+
+  // 同一日付では再初期化しない（バックグラウンド再検証で入力を消さないため）。
+  const initializedDateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!formData) return;
+    if (initializedDateRef.current === reportFormDateStr) return;
+    initializedDateRef.current = reportFormDateStr;
+    const list = formData.shifts ?? [];
+    setShifts(list);
+    // 既存値で初期化
+    const init: ValueMap = {};
+    list.forEach((s) => {
+      init[s.courseId] = {};
+      s.units.forEach((u) => {
+        init[s.courseId][u.id] = {};
+        u.fields.forEach((f) => {
+          const existing = s.existing?.values?.[u.id]?.[f.fieldKey];
+          init[s.courseId][u.id][f.fieldKey] = existing != null ? String(existing) : "";
         });
-        setValues(init);
-        // 既定車両: その日のシフト割当車両を最優先 > 既存report の車両。メーターは既存report のみ。
-        const withExisting = list.find((s) => s.existing);
-        const existingVid = withExisting?.existing?.vehicleId ?? null;
-        const defaultVid = res.shiftVehicleId || existingVid || null;
-        setShiftVehicleId(res.shiftVehicleId ?? null);
-        setVehicleId(defaultVid);
-        if (withExisting?.existing?.meterValue != null) setMeter(String(withExisting.existing.meterValue));
-        else setMeter("");
-      } catch {
-        if (!cancelled) setShifts([]);
-      } finally {
-        if (!cancelled) setFormLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [reportDate]);
+      });
+    });
+    setValues(init);
+    // 既定車両: その日のシフト割当車両を最優先 > 既存report の車両。メーターは既存report のみ。
+    const withExisting = list.find((s) => s.existing);
+    const existingVid = withExisting?.existing?.vehicleId ?? null;
+    const defaultVid = formData.shiftVehicleId || existingVid || null;
+    setShiftVehicleId(formData.shiftVehicleId ?? null);
+    setVehicleId(defaultVid);
+    if (withExisting?.existing?.meterValue != null) setMeter(String(withExisting.existing.meterValue));
+    else setMeter("");
+  }, [formData, reportFormDateStr]);
+
+  useEffect(() => {
+    if (formError) setShifts([]);
+  }, [formError]);
+
+  // 送信フォーム上部の注意バナー（運営設定・期間判定はサーバ側）。
+  const { data: noticeData } = useApi<{ notice: { message: string } | null }>("/api/me/form-notice");
+  const formNotice = noticeData?.notice ?? null;
 
   function setVal(courseId: string, unitId: string, fieldKey: string, v: string) {
     setValues((prev) => ({
@@ -225,6 +243,16 @@ export default function SubmitPageClientV2() {
   return (
     <div className="max-w-md mx-auto px-4 py-6 space-y-5">
       <h1 className="text-lg font-semibold text-slate-900">日報入力</h1>
+
+      {formNotice && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-900"
+        >
+          <span aria-hidden className="mt-0.5 shrink-0 text-amber-500">⚠️</span>
+          <p className="whitespace-pre-wrap leading-relaxed">{formNotice.message}</p>
+        </div>
+      )}
 
       <div className="space-y-3">
         <div>
