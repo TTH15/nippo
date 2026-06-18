@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { CustomSelect } from "@/lib/components/CustomSelect";
@@ -78,6 +78,55 @@ const dateToYmd = (d: Date | undefined): string => {
   if (!d) return "";
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+
+// 日付の数値入力。編集中は生の文字列を保持して空や途中入力を許し、
+// 値が確定したときだけ min/max にクランプして数値で親に通知する。
+// （value を直接 number に束縛すると、空にした瞬間に既定値へ戻り入力できない）
+function DayInput({
+  value,
+  min,
+  max,
+  onChange,
+  className,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onChange: (n: number) => void;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  // 親側（プリセット適用など）で値が変わったら表示も追従。フォーカス中の編集は上書きしない。
+  useEffect(() => {
+    setDraft((prev) => (Number(prev) === value ? prev : String(value)));
+  }, [value]);
+
+  const clamp = (n: number) => Math.min(max, Math.max(min, n));
+
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (raw === "") return; // 空は確定せず保持（blur で戻す）
+        const n = Number(raw);
+        if (Number.isFinite(n)) onChange(clamp(n));
+      }}
+      onBlur={() => {
+        const n = Number(draft);
+        const next = draft === "" || !Number.isFinite(n) ? min : clamp(n);
+        onChange(next);
+        setDraft(String(next));
+      }}
+      className={className}
+    />
+  );
+}
 
 export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, embedded = false }: Props) {
   // SWR でキャッシュし、モーダルを開き直すたびのローディングをなくす。
@@ -344,21 +393,19 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
                               key={p._key}
                               className="flex flex-wrap items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1.5 text-sm"
                             >
-                              <input
-                                type="number"
+                              <DayInput
                                 min={1}
                                 max={31}
                                 value={p.startDay}
-                                onChange={(e) => updatePeriod(rule, p._key, { startDay: Number(e.target.value) || 1 })}
+                                onChange={(n) => updatePeriod(rule, p._key, { startDay: n })}
                                 className="w-12 rounded border border-slate-200 px-1.5 py-1 text-center"
                               />
                               <span className="text-slate-400">〜</span>
-                              <input
-                                type="number"
+                              <DayInput
                                 min={1}
                                 max={31}
                                 value={p.endDay}
-                                onChange={(e) => updatePeriod(rule, p._key, { endDay: Number(e.target.value) || 1 })}
+                                onChange={(n) => updatePeriod(rule, p._key, { endDay: n })}
                                 className="w-12 rounded border border-slate-200 px-1.5 py-1 text-center"
                               />
                               <span className="text-xs text-slate-500">日分</span>
@@ -372,12 +419,11 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
                                 size="sm"
                                 className="w-20"
                               />
-                              <input
-                                type="number"
+                              <DayInput
                                 min={1}
                                 max={28}
                                 value={p.deadlineDay}
-                                onChange={(e) => updatePeriod(rule, p._key, { deadlineDay: Number(e.target.value) || 1 })}
+                                onChange={(n) => updatePeriod(rule, p._key, { deadlineDay: n })}
                                 className="w-12 rounded border border-slate-200 px-1.5 py-1 text-center"
                               />
                               <span className="text-xs text-slate-500">日まで</span>

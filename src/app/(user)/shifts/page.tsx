@@ -8,74 +8,25 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark, faLock } from "@fortawesome/free-solid-svg-icons";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
-
-type ShiftRequest = {
-  id: string;
-  driver_id: string;
-  request_date: string;
-  request_type: string;
-  slot_id: string | null;
-};
-
-type DriverSlot = { id: string; name: string };
-
-const ALL = "ALL"; // 全休を表すキー
-
-type PeriodInfo = {
-  seq: number;
-  label: string; // "1〜15" 等
-  deadline: string; // YYYY-MM-DD
-  closed: boolean;
-  startDate: string; // YYYY-MM-DD
-  endDate: string; // YYYY-MM-DD
-};
-
-type MeShiftVehicle = {
-  id: string;
-  number_prefix: string | null;
-  number_class: string | null;
-  number_hiragana: string | null;
-  number_numeric: string | null;
-  manufacturer: string | null;
-  brand: string | null;
-};
-
-type MeShift = {
-  shift_date: string;
-  course_name: string;
-  course_color: string | null;
-  slot: number;
-  vehicle: MeShiftVehicle | null;
-};
-
-function getDaysInMonth(year: number, month: number): Date[] {
-  const days: Date[] = [];
-  const date = new Date(year, month, 1);
-  while (date.getMonth() === month) {
-    days.push(new Date(date));
-    date.setDate(date.getDate() + 1);
-  }
-  return days;
-}
-
-function currentMonth() {
-  const d = new Date();
-  return { year: d.getFullYear(), month: d.getMonth() };
-}
-
-function currentYearMonth(): { year: number; month: number } {
-  const d = new Date();
-  return { year: d.getFullYear(), month: d.getMonth() + 1 };
-}
-
-function getMonthDateRange(year: number, month: number): { start: string; end: string } {
-  const mm = String(month).padStart(2, "0");
-  const lastDay = new Date(year, month, 0).getDate();
-  return {
-    start: `${year}-${mm}-01`,
-    end: `${year}-${mm}-${String(lastDay).padStart(2, "0")}`,
-  };
-}
+import type { ShiftRequest, DriverSlot, PeriodInfo, MeShift, ShiftVehicle as MeShiftVehicle } from "@/core/types";
+import {
+  getDaysInMonth,
+  monthDateRange,
+  toLocalDateStr,
+  nowYearMonth0,
+  nowYearMonth1,
+} from "@/core/logic/calendar";
+import {
+  ALL,
+  requestsToOffMap,
+  isLockedDate,
+  dayOff as dayOffCore,
+  isWholeDayOff as isWholeDayOffCore,
+  hasAnyOff as hasAnyOffCore,
+  toggleOffKey as toggleOffKeyCore,
+  hasOffChanges,
+  buildOffEntries,
+} from "@/core/logic/shift";
 
 type SubTabId = "request" | "view";
 
@@ -87,7 +38,7 @@ const SUB_TABS: { id: SubTabId; label: string }[] = [
 export default function ShiftsPage() {
   const [subTab, setSubTab] = useState<SubTabId>("view");
 
-  const [viewDate, setViewDate] = useState(currentMonth);
+  const [viewDate, setViewDate] = useState(nowYearMonth0);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [saving, setSaving] = useState(false);
   // 希望休の選択。date → { "ALL"（全休） or slotId } の集合。
@@ -101,7 +52,7 @@ export default function ShiftsPage() {
     detail?: string;
   } | null>(null);
 
-  const [shiftMonth, setShiftMonth] = useState(() => currentYearMonth());
+  const [shiftMonth, setShiftMonth] = useState(nowYearMonth1);
   const [shifts, setShifts] = useState<MeShift[]>([]);
   const [shiftsError, setShiftsError] = useState<string | null>(null);
 
@@ -153,14 +104,7 @@ export default function ShiftsPage() {
     if (!reqData) return;
     setRequests(reqData.requests);
     setSlots(reqData.slots);
-    const m = new Map<string, Set<string>>();
-    reqData.requests.forEach((r) => {
-      const key = r.slot_id ?? ALL;
-      const s = m.get(r.request_date) ?? new Set<string>();
-      s.add(key);
-      m.set(r.request_date, s);
-    });
-    setOff(m);
+    setOff(requestsToOffMap(reqData.requests));
     setPeriods(reqData.periods);
   }, [reqData]);
 
@@ -169,15 +113,11 @@ export default function ShiftsPage() {
     await mutateReq();
   };
 
-  // 指定日が属する提出期間（API値を信頼）。どの期間にも属さない＝ロックしない（常に提出可）。
-  const periodFor = (dateStr: string): PeriodInfo | null => {
-    for (const p of periods) if (dateStr >= p.startDate && dateStr <= p.endDate) return p;
-    return null;
-  };
-  const isLockedDate = (dateStr: string): boolean => periodFor(dateStr)?.closed ?? false;
+  // 締切判定・希望休ロジックは @/core/logic/shift（純粋関数）に集約。
+  // periods/off を引数で渡して呼ぶ（下記の dayOff 系は薄いクロージャで状態を束縛）。
 
   // 確認タブ: 自分のシフトを SWR キャッシュ（月範囲キー）。表示専用。
-  const { start: shiftStart, end: shiftEnd } = getMonthDateRange(shiftMonth.year, shiftMonth.month);
+  const { start: shiftStart, end: shiftEnd } = monthDateRange(shiftMonth.year, shiftMonth.month);
   const {
     data: meShiftsData,
     error: meShiftsError,
@@ -211,64 +151,27 @@ export default function ShiftsPage() {
     });
   };
 
-  const getDateStr = (date: Date) => {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const d = String(date.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  };
-
-  const dayOff = (dateStr: string): Set<string> => off.get(dateStr) ?? new Set<string>();
-  const isWholeDayOff = (dateStr: string) => dayOff(dateStr).has(ALL);
-  const hasAnyOff = (dateStr: string) => dayOff(dateStr).size > 0;
-
-  // 全休/便キーをトグル（全休と便は排他）。
-  const toggleOffKey = (dateStr: string, key: string) => {
-    setOff((prev) => {
-      const next = new Map(prev);
-      const s = new Set(next.get(dateStr) ?? []);
-      if (key === ALL) {
-        if (s.has(ALL)) s.delete(ALL);
-        else {
-          s.clear();
-          s.add(ALL);
-        }
-      } else {
-        s.delete(ALL);
-        if (s.has(key)) s.delete(key);
-        else s.add(key);
-      }
-      if (s.size === 0) next.delete(dateStr);
-      else next.set(dateStr, s);
-      return next;
-    });
-  };
+  // 状態(off)を束縛する薄いクロージャ。実体は @/core/logic/shift。
+  const dayOff = (dateStr: string): Set<string> => dayOffCore(off, dateStr);
+  const isWholeDayOff = (dateStr: string) => isWholeDayOffCore(off, dateStr);
+  const hasAnyOff = (dateStr: string) => hasAnyOffCore(off, dateStr);
+  const toggleOffKey = (dateStr: string, key: string) =>
+    setOff((prev) => toggleOffKeyCore(prev, dateStr, key));
 
   const toggleOffDay = (date: Date) => {
-    const dateStr = getDateStr(date);
-    if (isLockedDate(dateStr)) return; // 締切済み期間は変更不可
+    const dateStr = toLocalDateStr(date);
+    if (isLockedDate(periods, dateStr)) return; // 締切済み期間は変更不可
     if (slots.length === 0) toggleOffKey(dateStr, ALL); // 便なし＝全休トグル
     else setPickerDate(dateStr); // 便あり＝ピッカーを開く
   };
 
-  const hasChanges = useMemo(() => {
-    const serverKeys = new Set(requests.map((r) => `${r.request_date}#${r.slot_id ?? ALL}`));
-    const curKeys: string[] = [];
-    off.forEach((set, d) => set.forEach((k) => curKeys.push(`${d}#${k}`)));
-    if (curKeys.length !== serverKeys.size) return true;
-    for (const k of curKeys) if (!serverKeys.has(k)) return true;
-    return false;
-  }, [requests, off]);
+  const hasChanges = useMemo(() => hasOffChanges(requests, off), [requests, off]);
 
   const submitOffDates = async () => {
     if (!hasChanges) return;
     setSaving(true);
     try {
-      const offEntries: { date: string; slotId: string | null }[] = [];
-      off.forEach((set, d) => {
-        if (!d.startsWith(monthStr) || isLockedDate(d)) return;
-        set.forEach((k) => offEntries.push({ date: d, slotId: k === ALL ? null : k }));
-      });
+      const offEntries = buildOffEntries(off, monthStr, periods);
       await apiFetch("/api/shifts/requests", {
         method: "POST",
         body: JSON.stringify({ month: monthStr, offEntries }),
@@ -408,9 +311,9 @@ export default function ShiftsPage() {
                     <div key={`empty-${i}`} className="aspect-square" />
                   ))}
                   {days.map((date) => {
-                    const dateStr = getDateStr(date);
+                    const dateStr = toLocalDateStr(date);
                     const isPast = date < today;
-                    const locked = isLockedDate(dateStr);
+                    const locked = isLockedDate(periods, dateStr);
                     const whole = isWholeDayOff(dateStr);
                     const partial = !whole && hasAnyOff(dateStr);
                     const dayOfWeek = date.getDay();
@@ -640,7 +543,7 @@ export default function ShiftsPage() {
                     <div key={`empty-${i}`} className="min-h-[5rem] bg-slate-50" />
                   ))}
                   {shiftViewDays.map((date) => {
-                    const dateStr = getDateStr(date);
+                    const dateStr = toLocalDateStr(date);
                     const dayShifts = shiftsByDate.get(dateStr) ?? [];
                     const dayOfWeek = date.getDay();
                     const isToday = date.toDateString() === today.toDateString();

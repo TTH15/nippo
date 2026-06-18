@@ -10,37 +10,12 @@ import { useApi } from "@/lib/useApi";
 import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 import { TeamPointsCard } from "@/lib/components/TeamPointsCard";
 import { DynamicField, ReportFileInput, type DynamicFieldValue } from "@/lib/components/report/DynamicField";
-import { validateAnswers, type ReportField, type AnswerAttachment } from "@/server/reportKinds/fields";
-
-type Profile = {
-  name: string;
-  officeCode: string;
-  driverCode: string;
-  displayName: string;
-  postalCode: string;
-  address: string;
-  phone: string;
-  bankName: string;
-  bankNo: string;
-  bankHolder: string;
-};
-
-type Vehicle = {
-  id: string;
-  number_prefix?: string | null;
-  number_class?: string | null;
-  number_hiragana?: string | null;
-  number_numeric?: string | null;
-  manufacturer?: string | null;
-  brand?: string | null;
-};
-
-type ReportKindOption = {
-  key: string;
-  label: string;
-  vehicleMode: "required" | "optional" | "none";
-  fields: ReportField[];
-};
+import { validateAnswers, type AnswerAttachment } from "@/server/reportKinds/fields";
+import type { Profile, VehiclePlateData as Vehicle, ReportKindOption } from "@/core/types";
+import { toLocalDateStr, toLocalTimeStr } from "@/core/logic/calendar";
+import { dedupeVehiclesById, excludeVehicleId, resolvePreferredVehicleId } from "@/core/logic/vehicle";
+import { validatePinChange, digitsOnly, buildProfileEntries } from "@/core/logic/profile";
+import { isValidReportDateTime, countAttachmentsByField } from "@/core/logic/report";
 
 export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
   const searchParams = useSearchParams();
@@ -50,8 +25,8 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const now = useMemo(() => new Date(), []);
-  const defaultDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const defaultTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const defaultDate = toLocalDateStr(now);
+  const defaultTime = toLocalTimeStr(now);
   const [reportDate, setReportDate] = useState(defaultDate);
   const [reportTime, setReportTime] = useState(defaultTime);
   const [reportKinds, setReportKinds] = useState<ReportKindOption[]>([]);
@@ -128,28 +103,18 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
 
   useEffect(() => {
     if (!vehBundle) return;
-    const linkedVehicles = vehBundle.vehicles;
-    setVehicles(linkedVehicles);
+    setVehicles(vehBundle.vehicles);
     setUnlinkedVehicles(vehBundle.unlinked);
-
-    const preferredId = vehBundle.preferredId;
-    const preferredInLinked = preferredId ? linkedVehicles.some((v) => v.id === preferredId) : false;
-    if (preferredInLinked && preferredId) {
-      setSelectedVehicleId(preferredId);
-    } else if (linkedVehicles.length > 0) {
-      setSelectedVehicleId(linkedVehicles[0].id);
-    } else {
-      setSelectedVehicleId(null);
-    }
+    setSelectedVehicleId(resolvePreferredVehicleId(vehBundle.vehicles, vehBundle.preferredId));
   }, [vehBundle]);
 
   const allKnownVehicles = useMemo(
-    () => Array.from(new Map([...vehicles, ...unlinkedVehicles].map((v) => [v.id, v] as const)).values()),
+    () => dedupeVehiclesById(vehicles, unlinkedVehicles),
     [vehicles, unlinkedVehicles],
   );
 
   const vehicleCandidates = useMemo(
-    () => allKnownVehicles.filter((v) => (selectedVehicleId ? v.id !== selectedVehicleId : true)),
+    () => excludeVehicleId(allKnownVehicles, selectedVehicleId),
     [allKnownVehicles, selectedVehicleId],
   );
 
@@ -167,12 +132,9 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPinMessage(null);
-    if (newPin.length !== 6 || !/^\d{6}$/.test(newPin)) {
-      setPinMessage({ type: "error", text: "新しいPINは6桁の数字で入力してください" });
-      return;
-    }
-    if (newPin !== confirmPin) {
-      setPinMessage({ type: "error", text: "新しいPINと確認用が一致しません" });
+    const pinCheck = validatePinChange(newPin, confirmPin);
+    if (!pinCheck.ok) {
+      setPinMessage({ type: "error", text: pinCheck.message! });
       return;
     }
     setPinSubmitting(true);
@@ -200,7 +162,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       setReportMessage({ type: "error", text: "報告の種類を選択してください" });
       return;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || !/^\d{2}:\d{2}$/.test(reportTime)) {
+    if (!isValidReportDateTime(reportDate, reportTime)) {
       setReportMessage({ type: "error", text: "日付・時間の形式が不正です" });
       return;
     }
@@ -209,9 +171,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       return;
     }
     // 動的フィールドの検証（サーバと同一ロジック）。
-    const attachmentsByField: Record<string, number> = {};
-    attachments.forEach((a) => (attachmentsByField[a.fieldId] = (attachmentsByField[a.fieldId] ?? 0) + 1));
-    const result = validateAnswers(kind.fields, answers, attachmentsByField);
+    const result = validateAnswers(kind.fields, answers, countAttachmentsByField(attachments));
     if (!result.ok) {
       setReportMessage({ type: "error", text: result.message });
       return;
@@ -248,20 +208,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     }
   };
 
-  const profileEntries: { label: string; value: string }[] = profile
-    ? [
-      { label: "名前", value: profile.name },
-      { label: "表示名", value: profile.displayName },
-      { label: "ドライバーコード", value: profile.driverCode },
-      { label: "営業所コード", value: profile.officeCode },
-      { label: "郵便番号", value: profile.postalCode },
-      { label: "住所", value: profile.address },
-      { label: "電話番号", value: profile.phone },
-      { label: "銀行名", value: profile.bankName },
-      { label: "口座番号", value: profile.bankNo },
-      { label: "口座名義", value: profile.bankHolder },
-    ].filter((e) => e.value !== undefined && e.value !== "")
-    : [];
+  const profileEntries = buildProfileEntries(profile);
 
   if (isReport) {
     return (
@@ -554,7 +501,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
               inputMode="numeric"
               maxLength={6}
               value={newPin}
-              onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, ""))}
+              onChange={(e) => setNewPin(digitsOnly(e.target.value))}
               className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
               placeholder="000000"
               autoComplete="new-password"
@@ -569,7 +516,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
               inputMode="numeric"
               maxLength={6}
               value={confirmPin}
-              onChange={(e) => setConfirmPin(e.target.value.replace(/[^0-9]/g, ""))}
+              onChange={(e) => setConfirmPin(digitsOnly(e.target.value))}
               className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
               placeholder="000000"
               autoComplete="new-password"

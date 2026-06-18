@@ -11,54 +11,27 @@ import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 import { evaluateMeter } from "./submitFormUtils";
+import type { DriverIdentity, SubmitVehicle as Vehicle, UnitDef, ShiftForm, ValueMap } from "@/core/types";
+import { formatMonthDayJP } from "@/core/logic/calendar";
+import {
+  buildInitialValues,
+  parseMeter,
+  resolveDefaultVehicleId,
+  resolveExistingMeter,
+  findVehicle,
+  buildReportItems,
+  buildVehicleCards,
+  groupFieldsByLabel,
+} from "@/core/logic/dailyReport";
 
 // ============================================================
 // 動的日報フォーム（新モデル）。
 //   その日のシフト(=コース)ごとに、キャリア配下の unit と報告項目を動的描画。
 //   複数シフト（昼ヤマト＋夜Amazon等）は複数カードで表示し、まとめて送信。
 //   送信は POST /api/reports/v2（daily_reports_v2 + report_entries）。
+//   ドメインロジックは @/core/logic/dailyReport に集約（純粋・テスト付き）。
 // 注: 旧 SubmitPageClient とは別ファイル。ルートは page.tsx で切替。
 // ============================================================
-
-// "YYYY-MM-DD" → "M月D日"
-function formatMonthDay(dateStr: string): string {
-  const [, m, d] = dateStr.split("-");
-  return `${Number(m)}月${Number(d)}日`;
-}
-
-type DriverIdentity = { id: string; slot: number; driverCode: string; officeCode: string; label?: string };
-type Vehicle = {
-  id: string;
-  manufacturer?: string | null;
-  brand?: string | null;
-  number_prefix?: string | null;
-  number_class?: string | null;
-  number_hiragana?: string | null;
-  number_numeric?: string | null;
-  current_mileage?: number;
-  is_ev?: boolean;
-};
-
-type FieldDef = {
-  fieldKey: string;
-  label: string;
-  inputType: "INT" | "TEXT" | "TIME" | "BOOL";
-  groupLabel: string | null;
-  required: boolean;
-};
-type UnitDef = { id: string; name: string; code: string | null; billingType: "PER_PIECE" | "FIXED"; fields: FieldDef[] };
-type ShiftForm = {
-  courseId: string;
-  courseName: string;
-  color: string | null;
-  carrierId: string | null;
-  carrierName: string;
-  units: UnitDef[];
-  existing: { vehicleId: string | null; meterValue: number | null; values: Record<string, Record<string, number | string>> } | null;
-};
-
-// values[courseId][unitId][fieldKey] = string
-type ValueMap = Record<string, Record<string, Record<string, string>>>;
 
 export default function SubmitPageClientV2() {
   const [reportDate, setReportDate] = useState<Date>(() => reportDateStrToDate(reportDateDefaultJST()));
@@ -134,26 +107,11 @@ export default function SubmitPageClientV2() {
     const list = formData.shifts ?? [];
     setShifts(list);
     // 既存値で初期化
-    const init: ValueMap = {};
-    list.forEach((s) => {
-      init[s.courseId] = {};
-      s.units.forEach((u) => {
-        init[s.courseId][u.id] = {};
-        u.fields.forEach((f) => {
-          const existing = s.existing?.values?.[u.id]?.[f.fieldKey];
-          init[s.courseId][u.id][f.fieldKey] = existing != null ? String(existing) : "";
-        });
-      });
-    });
-    setValues(init);
+    setValues(buildInitialValues(list));
     // 既定車両: その日のシフト割当車両を最優先 > 既存report の車両。メーターは既存report のみ。
-    const withExisting = list.find((s) => s.existing);
-    const existingVid = withExisting?.existing?.vehicleId ?? null;
-    const defaultVid = formData.shiftVehicleId || existingVid || null;
     setShiftVehicleId(formData.shiftVehicleId ?? null);
-    setVehicleId(defaultVid);
-    if (withExisting?.existing?.meterValue != null) setMeter(String(withExisting.existing.meterValue));
-    else setMeter("");
+    setVehicleId(resolveDefaultVehicleId(list, formData.shiftVehicleId ?? null));
+    setMeter(resolveExistingMeter(list));
   }, [formData, reportFormDateStr]);
 
   useEffect(() => {
@@ -177,11 +135,11 @@ export default function SubmitPageClientV2() {
     }));
   }
 
-  const meterNum = useMemo(() => (meter.trim() ? Number(meter) : null), [meter]);
+  const meterNum = useMemo(() => parseMeter(meter), [meter]);
 
   async function submit() {
     // 走行距離の妥当性（未入力・前回値以下）を判定。表示と同一ロジックで送信もブロックする。
-    const selVehicle = [...vehicles, ...unlinkedVehicles].find((v) => v.id === vehicleId) ?? null;
+    const selVehicle = findVehicle(vehicles, unlinkedVehicles, vehicleId);
     const meterState = evaluateMeter(meter, selVehicle);
     if (!meterState.canSubmit) {
       setMeterRequiredError(true);
@@ -197,24 +155,7 @@ export default function SubmitPageClientV2() {
     setSubmitting(true);
     setMessage(null);
     try {
-      const items = shifts.map((s) => ({
-        courseId: s.courseId,
-        carrierId: s.carrierId,
-        vehicleId,
-        meterValue: meterNum,
-        entries: s.units.flatMap((u) =>
-          u.fields.map((f) => {
-            const raw = values[s.courseId]?.[u.id]?.[f.fieldKey] ?? "";
-            const isNumeric = f.inputType === "INT";
-            return {
-              unitId: u.id,
-              fieldKey: f.fieldKey,
-              valueNum: isNumeric ? (raw.trim() ? Number(raw) : 0) : null,
-              valueText: isNumeric ? null : raw,
-            };
-          }),
-        ),
-      }));
+      const items = buildReportItems(shifts, values, vehicleId, meterNum);
 
       await apiFetch("/api/reports/v2", {
         method: "POST",
@@ -269,7 +210,7 @@ export default function SubmitPageClientV2() {
         >
           <FontAwesomeIcon icon={faCalendarDays} aria-hidden className="shrink-0" />
           <p className="leading-relaxed">
-            シフト提出は <span className="font-semibold">{formatMonthDay(deadlineReminder.deadline)}</span> まで
+            シフト提出は <span className="font-semibold">{formatMonthDayJP(deadlineReminder.deadline)}</span> まで
             <span className="ml-1 font-semibold">
               （{deadlineReminder.daysLeft === 0 ? "本日締切" : `あと${deadlineReminder.daysLeft}日`}）
             </span>
@@ -308,29 +249,13 @@ export default function SubmitPageClientV2() {
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-2">使用車両</label>
           {(() => {
-            const allById = new Map<string, Vehicle>(
-              [...vehicles, ...unlinkedVehicles].map((v) => [v.id, v]),
-            );
-            const linkedIds = new Set(vehicles.map((v) => v.id));
-            const cards: Vehicle[] = [...vehicles];
-            const sel = vehicleId ? allById.get(vehicleId) : null;
-            if (sel && !linkedIds.has(sel.id)) cards.push(sel);
-            if (showOtherVehicles) {
-              for (const v of unlinkedVehicles) {
-                if (!cards.some((c) => c.id === v.id)) cards.push(v);
-              }
-            }
-            // その日のシフト割当車両を先頭にサジェスト（廃車はサーバ側で除外済み）
-            const shiftVehicle = shiftVehicleId ? allById.get(shiftVehicleId) : null;
-            if (shiftVehicle) {
-              if (!cards.some((c) => c.id === shiftVehicle.id)) cards.push(shiftVehicle);
-              const idx = cards.findIndex((c) => c.id === shiftVehicle.id);
-              if (idx > 0) {
-                const [moved] = cards.splice(idx, 1);
-                cards.unshift(moved);
-              }
-            }
-            const hasMoreOthers = unlinkedVehicles.some((v) => !cards.some((c) => c.id === v.id));
+            const { cards, linkedIds, hasMoreOthers } = buildVehicleCards({
+              vehicles,
+              unlinked: unlinkedVehicles,
+              vehicleId,
+              shiftVehicleId,
+              showOtherVehicles,
+            });
             return (
               <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
                 {cards.map((v) => (
@@ -385,8 +310,7 @@ export default function SubmitPageClientV2() {
 
         {/* メーター（車両選択あり & EV でない時のみ） */}
         {(() => {
-          const sel =
-            [...vehicles, ...unlinkedVehicles].find((v) => v.id === vehicleId) ?? null;
+          const sel = findVehicle(vehicles, unlinkedVehicles, vehicleId);
           if (!sel || sel.is_ev) return null;
           const meterState = evaluateMeter(meter, sel);
           const prevKm = meterState.prevKm;
@@ -476,19 +400,13 @@ function UnitFields({
   setVal: (courseId: string, unitId: string, fieldKey: string, v: string) => void;
 }) {
   // group_label でグルーピング（null はグループなし）
-  const groups = new Map<string, FieldDef[]>();
-  unit.fields.forEach((f) => {
-    const key = f.groupLabel ?? "";
-    const arr = groups.get(key) ?? [];
-    arr.push(f);
-    groups.set(key, arr);
-  });
+  const groups = groupFieldsByLabel(unit.fields);
 
   return (
     <div>
       <div className="text-sm font-medium text-slate-700 mb-1.5">{unit.name}</div>
       <div className="space-y-2">
-        {Array.from(groups.entries()).map(([groupKey, fields]) => (
+        {groups.map(([groupKey, fields]) => (
           <div key={groupKey}>
             {groupKey && <div className="text-[11px] text-indigo-600 mb-1">{groupKey}</div>}
             <div className="grid grid-cols-2 gap-3">

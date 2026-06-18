@@ -10,77 +10,26 @@ import { PaymentSummary } from "@/lib/components/PaymentSummary";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-
-type RewardLogDetail = {
-  log_date: string;
-  type_name: string;
-  content: string;
-  amount: number;
-};
-
-type FixedExpenseDetail = {
-  id: string;
-  name: string;
-  amount: number;
-};
-
-type OptionalExpenseDetail = {
-  id: string;
-  name: string;
-  amount: number;
-};
-
-type RewardsSummary = {
-  month: string;
-  startDate: string;
-  endDate: string;
-  incomeLog: number;
-  variableDeductions: number;
-  fixedDeductions: number;
-  optionalDeductions?: number;
-  leaseDeductions?: number;
-  net: number;
-  logDetails: RewardLogDetail[];
-  dailyIncomeDetails?: RewardLogDetail[];
-  fixedDetails: FixedExpenseDetail[];
-  optionalDetails?: OptionalExpenseDetail[];
-};
-
-type MyInvoice = {
-  id: string;
-  month: string;
-  issueDate: string;
-  amount: number;
-  status: "draft" | "pending_approval" | "approved" | "paid";
-  invoiceNo: string;
-  payload: any;
-};
-
-function isUploadedDocument(inv: MyInvoice): boolean {
-  return String(inv?.payload?.source || "") === "uploaded_document";
-}
-
-function currentYearMonth(): { year: number; month: number } {
-  const d = new Date();
-  return { year: d.getFullYear(), month: d.getMonth() + 1 };
-}
-
-function formatLogLine(log: RewardLogDetail): string {
-  const [y, m, d] = log.log_date.split("-").map(Number);
-  const label = log.content || log.type_name || "—";
-  const amount = log.amount >= 0 ? `${log.amount.toLocaleString("ja-JP")}円` : `-${Math.abs(log.amount).toLocaleString("ja-JP")}円`;
-  return `${m}月${d}日 ${label} ${amount}`;
-}
-
-/** 日報ベースの日別報酬と手動ログを日付順にまとめた一覧 */
-function mergedDetails(rewards: RewardsSummary): RewardLogDetail[] {
-  const daily = rewards.dailyIncomeDetails ?? [];
-  const manual = rewards.logDetails ?? [];
-  return [...daily, ...manual].sort((a, b) => a.log_date.localeCompare(b.log_date));
-}
+import type {
+  InvoiceRow,
+  InvoiceAttachment,
+  RewardsSummary,
+  MyInvoice,
+} from "@/core/types";
+import { nowYearMonth1, formatYearMonth, formatMonthDayJP } from "@/core/logic/calendar";
+import {
+  isUploadedDocument,
+  mergedDetails,
+  pendingInvoices,
+  formatYen,
+  logLabel,
+  sumRows,
+  parseRow,
+  invoiceLines,
+} from "@/core/logic/reward";
 
 export default function MeRewardsPage() {
-  const [rewardMonth, setRewardMonth] = useState(() => currentYearMonth());
+  const [rewardMonth, setRewardMonth] = useState(nowYearMonth1);
   const [rewards, setRewards] = useState<RewardsSummary | null>(null);
   const [rewardsError, setRewardsError] = useState<string | null>(null);
   const [optionalSubmitting, setOptionalSubmitting] = useState(false);
@@ -91,7 +40,7 @@ export default function MeRewardsPage() {
   const [invoicePanelOpen, setInvoicePanelOpen] = useState(false);
   const [previewInvoiceId, setPreviewInvoiceId] = useState<string | null>(null);
 
-  const monthStr = `${rewardMonth.year}-${String(rewardMonth.month).padStart(2, "0")}`;
+  const monthStr = formatYearMonth(rewardMonth.year, rewardMonth.month);
 
   // 報酬サマリを SWR キャッシュ（月キー、遷移をまたいで保持）。
   const {
@@ -124,7 +73,7 @@ export default function MeRewardsPage() {
 
   useEffect(() => {
     if (invoicesData) {
-      setInvoices((invoicesData.invoices ?? []).filter((inv) => inv.status === "pending_approval"));
+      setInvoices(pendingInvoices(invoicesData.invoices ?? []));
     }
   }, [invoicesData]);
 
@@ -159,7 +108,7 @@ export default function MeRewardsPage() {
     try {
       await apiFetch(`/api/me/invoices/${encodeURIComponent(invoiceId)}/approve`, { method: "POST" });
       const res = await mutateInvoices();
-      const pendingOnly = (res?.invoices ?? []).filter((inv) => inv.status === "pending_approval");
+      const pendingOnly = pendingInvoices(res?.invoices ?? []);
       // 承認完了後はプレビューを閉じ、残件がなければ一覧モーダルも閉じる
       setPreviewInvoiceId(null);
       if (pendingOnly.length === 0) {
@@ -256,16 +205,9 @@ export default function MeRewardsPage() {
                 ) : (
                   details.map((l, idx) => (
                     <div key={`${l.log_date}-${l.type_name}-${idx}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
-                      <span className="text-slate-600 font-medium">
-                        {(() => {
-                          const [y, m, d] = l.log_date.split("-").map(Number);
-                          return `${m}月${d}日`;
-                        })()}
-                      </span>
-                      <span className="text-slate-800">{l.content || l.type_name || "—"}</span>
-                      <span className="text-slate-900 font-semibold">
-                        {l.amount >= 0 ? `${l.amount.toLocaleString("ja-JP")}円` : `-${Math.abs(l.amount).toLocaleString("ja-JP")}円`}
-                      </span>
+                      <span className="text-slate-600 font-medium">{formatMonthDayJP(l.log_date)}</span>
+                      <span className="text-slate-800">{logLabel(l)}</span>
+                      <span className="text-slate-900 font-semibold">{formatYen(l.amount)}</span>
                     </div>
                   ))
                 )}
@@ -327,7 +269,7 @@ export default function MeRewardsPage() {
                     </div>
                     {isUploadedDocument(inv) && (
                       <div className="mt-0.5 text-xs text-slate-500">
-                        添付 {Array.isArray(inv?.payload?.attachments) ? inv.payload.attachments.length : 0} 件
+                        添付 {invoiceLines(inv).attachments.length} 件
                       </div>
                     )}
                     <div className="mt-3 grid grid-cols-2 gap-2">
@@ -377,14 +319,7 @@ export default function MeRewardsPage() {
                   return <p className="text-sm text-slate-500">請求書データが見つかりません。</p>;
                 }
                 const isDoc = isUploadedDocument(inv);
-                const mainLines = Array.isArray(inv?.payload?.tableData?.main) ? inv.payload.tableData.main : [];
-                const deductLines = Array.isArray(inv?.payload?.tableData?.deduct) ? inv.payload.tableData.deduct : [];
-                const attachments = Array.isArray(inv?.payload?.attachments) ? inv.payload.attachments : [];
-                const sumRows = (rows: any[]) =>
-                  rows.reduce(
-                    (acc, row) => acc + (Number(row?.qty) || 0) * (Number(row?.price) || 0),
-                    0,
-                  );
+                const { main: mainLines, deduct: deductLines, attachments } = invoiceLines(inv);
                 const mainTotal = sumRows(mainLines);
                 const deductTotal = sumRows(deductLines);
                 return (
@@ -429,10 +364,8 @@ export default function MeRewardsPage() {
                                   </td>
                                 </tr>
                               ) : (
-                                mainLines.map((row: any, idx: number) => {
-                                  const qty = Number(row?.qty) || 0;
-                                  const price = Number(row?.price) || 0;
-                                  const amount = qty * price;
+                                mainLines.map((row: InvoiceRow, idx: number) => {
+                                  const { qty, price, amount } = parseRow(row);
                                   return (
                                     <tr key={`main-${idx}`} className="border-t border-slate-100">
                                       <td className="px-3 py-2 text-slate-800 max-w-[20ch] truncate whitespace-nowrap" title={row?.title || "明細"}>
@@ -455,7 +388,7 @@ export default function MeRewardsPage() {
                       <div className="rounded-lg border border-slate-200 overflow-hidden">
                         <div className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100">添付ファイル</div>
                         <div className="p-3 space-y-3">
-                          {attachments.map((f: any, idx: number) => {
+                          {attachments.map((f: InvoiceAttachment, idx: number) => {
                             const type = String(f?.type || "");
                             const url = String(f?.dataUrl || "");
                             if (!url) return null;
@@ -500,10 +433,8 @@ export default function MeRewardsPage() {
                                     </td>
                                   </tr>
                                 ) : (
-                                  deductLines.map((row: any, idx: number) => {
-                                    const qty = Number(row?.qty) || 0;
-                                    const price = Number(row?.price) || 0;
-                                    const amount = qty * price;
+                                  deductLines.map((row: InvoiceRow, idx: number) => {
+                                    const { qty, price, amount } = parseRow(row);
                                     return (
                                       <tr key={`deduct-${idx}`} className="border-t border-slate-100">
                                         <td className="px-3 py-2 text-slate-800 max-w-[20ch] truncate whitespace-nowrap" title={row?.title || "控除"}>

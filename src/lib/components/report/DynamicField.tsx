@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { CustomSelect } from "@/lib/components/CustomSelect";
+import { getToken } from "@/lib/api";
 import type { ReportField, AnswerAttachment } from "@/server/reportKinds/fields";
 
 // 諸報告フォームの動的フィールド入力。型ごとに適切な入力UIを描画する。
@@ -132,7 +133,7 @@ export function ReportFileInput({
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const token = typeof window !== "undefined" ? localStorage.getItem("nippo_token") : null;
+      const token = getToken();
       const res = await fetch("/api/reports/attachments", {
         method: "POST",
         body: fd,

@@ -1,66 +1,39 @@
 "use client";
 
-type StoredDriver = { 
-  id: string; 
-  name: string; 
-  role: string;
-  companyCode?: string;
-  officeCode?: string;
-  driverCode?: string;
+// Web プラットフォームの認証束縛点。
+// 認証ロジックの実体は @/core/auth（プラットフォーム非依存）にあり、ここでは
+// Web 用ストレージ（localStorage）と 401 遷移（window.location）を注入する。
+// 既存の各画面は従来どおり @/lib/api から import すればよい（実体を再エクスポート）。
+import { configureAuth, type KeyValueStorage } from "@/core/auth";
+
+// SSR でも落ちない localStorage アダプタ。
+const webStorage: KeyValueStorage = {
+  getItem: (key) =>
+    typeof window === "undefined" ? null : window.localStorage.getItem(key),
+  setItem: (key, value) => {
+    if (typeof window !== "undefined") window.localStorage.setItem(key, value);
+  },
+  removeItem: (key) => {
+    if (typeof window !== "undefined") window.localStorage.removeItem(key);
+  },
 };
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("nippo_token");
-}
+// このモジュールが読み込まれた時点（＝ apiFetch 等を import した時点）で Web 設定を注入。
+configureAuth({
+  storage: webStorage,
+  onUnauthorized: () => {
+    if (typeof window !== "undefined") window.location.href = "/login";
+  },
+});
 
-export function getStoredDriver(): StoredDriver | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem("nippo_driver");
-  return raw ? JSON.parse(raw) : null;
-}
-
-export function setAuth(token: string, driver: StoredDriver) {
-  localStorage.setItem("nippo_token", token);
-  localStorage.setItem("nippo_driver", JSON.stringify(driver));
-}
-
-export function clearAuth() {
-  localStorage.removeItem("nippo_token");
-  localStorage.removeItem("nippo_driver");
-}
-
-export async function apiFetch<T = unknown>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const token = getToken();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...((options.headers as Record<string, string>) ?? {}),
-  };
-
-  const res = await fetch(path, { ...options, headers });
-
-  if (res.status === 401) {
-    clearAuth();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
-    throw new Error("Unauthorized");
-  }
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
-  }
-
-  // Handle CSV or non-JSON
-  const ct = res.headers.get("content-type") ?? "";
-  if (ct.includes("text/csv")) {
-    return (await res.blob()) as unknown as T;
-  }
-
-  return res.json();
-}
+// 既存の import 互換のため core の API を再エクスポート。
+// apiFetch の実体は @/core/api（fetch本体は Web/RN 共有）。Web は baseUrl 既定（相対パス）
+// のままで従来挙動と同一なので configureApi の呼び出しは不要。
+export {
+  getToken,
+  getStoredDriver,
+  setAuth,
+  clearAuth,
+} from "@/core/auth";
+export type { StoredDriver } from "@/core/auth";
+export { apiFetch } from "@/core/api";

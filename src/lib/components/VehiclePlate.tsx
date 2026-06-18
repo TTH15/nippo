@@ -16,15 +16,9 @@ export function formatPlateNumeric(raw: string): string {
   return `${d[0]}${d[1]}${sep}${d[2]}${d[3]}`;
 }
 
-export type VehiclePlateData = {
-  id: string;
-  number_prefix?: string | null;
-  number_class?: string | null;
-  number_hiragana?: string | null;
-  number_numeric?: string | null;
-  manufacturer?: string | null;
-  brand?: string | null;
-};
+// 型の正準は core/types に集約。後方互換のためここから再エクスポートする。
+import type { VehiclePlateData } from "@/core/types";
+export type { VehiclePlateData };
 
 export function VehiclePlate({
   vehicle,
