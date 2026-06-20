@@ -27,6 +27,7 @@ export type LegacyDailyRow = {
   driver_id: string;
   driver_identity_id: string | null;
   report_date: string;
+  course_id: string | null;
   carrier: string; // 'YAMATO' | 'AMAZON'
   takuhaibin_completed: number;
   takuhaibin_returned: number;
@@ -105,7 +106,7 @@ export async function loadLegacyDailyRows(
   let q = supabase
     .from("daily_reports_v2")
     .select(
-      "id, legacy_report_id, driver_id, identity_id, report_date, carrier_id, vehicle_id, meter_value, submitted_at, approved_at, approved_by, rejected_at, rejected_by",
+      "id, legacy_report_id, driver_id, identity_id, report_date, course_id, carrier_id, vehicle_id, meter_value, submitted_at, approved_at, approved_by, rejected_at, rejected_by",
     )
     .limit(BIG);
   if (filters.start) q = q.gte("report_date", filters.start);
@@ -176,6 +177,7 @@ export async function loadLegacyDailyRows(
       driver_id: string;
       identity_id: string | null;
       report_date: string;
+      course_id: string | null;
       carrier_id: string | null;
       vehicle_id: string | null;
       meter_value: number | null;
@@ -200,6 +202,7 @@ export async function loadLegacyDailyRows(
         driver_id: r.driver_id,
         driver_identity_id: r.identity_id,
         report_date: r.report_date,
+        course_id: r.course_id,
         carrier: (r.carrier_id && carrierCodeById.get(r.carrier_id)) || "YAMATO",
         ...counts,
         vehicle_id: r.vehicle_id,

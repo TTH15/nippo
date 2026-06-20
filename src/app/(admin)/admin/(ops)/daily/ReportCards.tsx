@@ -102,6 +102,7 @@ export function PendingDriverCard({
   driver,
   reps,
   status,
+  needsProxy,
   canWrite,
   onApprove,
   onReject,
@@ -111,6 +112,8 @@ export function PendingDriverCard({
   driver: DriverLike;
   reps: ReportLike[];
   status: "off" | "unsubmitted" | "approved" | "pending";
+  /** 担当コースの一部だけ未提出 → 代理入力が必要（承認済みでもボタンを出す） */
+  needsProxy?: boolean;
   canWrite: boolean;
   onApprove: () => void;
   onReject: () => void;
@@ -118,32 +121,38 @@ export function PendingDriverCard({
   onProxyEntry?: () => void;
 }) {
   const muted = status === "off" || status === "approved";
+  // unsubmitted 以外でも未提出コースが残っていれば代理入力を出す（1日複数コース対応）
+  const showProxy = canWrite && !!onProxyEntry && !!needsProxy;
   return (
     <CardShell muted={muted}>
       <div className="flex items-center justify-between gap-2">
         <span className="font-semibold text-slate-900">{getDisplayName(driver)}</span>
-        {status === "approved" && (
-          <span className="inline-flex items-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
-            <FontAwesomeIcon icon={faCircleCheck} className="mr-1" />
-            承認済み
-          </span>
-        )}
-        {status === "unsubmitted" && (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          {status === "approved" && (
+            <span className="inline-flex items-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+              <FontAwesomeIcon icon={faCircleCheck} className="mr-1" />
+              承認済み
+            </span>
+          )}
+          {status === "unsubmitted" && (
             <span className="text-red-600 text-xs font-semibold">日報が未提出です</span>
-            {canWrite && onProxyEntry && (
-              <button
-                type="button"
-                onClick={onProxyEntry}
-                className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
-              >
-                代理入力
-              </button>
-            )}
-          </div>
-        )}
-        {status === "off" && reps.length === 0 && <span className="text-slate-500 text-xs">休み</span>}
+          )}
+          {status === "off" && reps.length === 0 && <span className="text-slate-500 text-xs">休み</span>}
+          {showProxy && (
+            <button
+              type="button"
+              onClick={onProxyEntry}
+              className="inline-flex items-center whitespace-nowrap px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
+            >
+              代理入力
+            </button>
+          )}
+        </div>
       </div>
+
+      {showProxy && reps.length > 0 && (
+        <p className="mt-2 text-[11px] font-semibold text-red-600">未提出のコースがあります</p>
+      )}
 
       {reps.length > 0 && (
         <div className="mt-2 space-y-2.5">

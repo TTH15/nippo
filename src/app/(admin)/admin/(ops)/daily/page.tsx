@@ -75,6 +75,7 @@ type DaySummaryReport = {
   id: string;
   driver_id: string;
   report_date: string;
+  course_id?: string | null;
   takuhaibin_completed: number;
   takuhaibin_returned: number;
   nekopos_completed: number;
@@ -98,6 +99,7 @@ type DaySummary = {
   date: string;
   drivers: { id: string; name: string; display_name: string | null }[];
   shiftDriverIds: string[];
+  shiftCoursesByDriver?: Record<string, string[]>;
   reportsByDriver: Record<string, DaySummaryReport[]>;
   driverPreferredVehicle?: Record<string, VehiclePlatePayload>;
 };
@@ -113,6 +115,7 @@ export default function AdminDailyPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [editSaveError, setEditSaveError] = useState<string | null>(null);
   const [allDateRange, setAllDateRange] = useState<DateRangeValue | undefined>(undefined);
+  const [pendingDateRange, setPendingDateRange] = useState<DateRangeValue | undefined>(undefined);
   const [daySummaries, setDaySummaries] = useState<DaySummary[]>([]);
   const [proxyTarget, setProxyTarget] = useState<{ driverId: string; driverName: string; date: string } | null>(null);
 
@@ -129,7 +132,14 @@ export default function AdminDailyPage() {
 
   // SWR でタブ別にキャッシュし、画面遷移をまたいで保持する（再訪時の点滅をなくす）。
   // pending=日次サマリ範囲 / all=全件（日付範囲指定）。非アクティブなタブは取得しない。
-  const pendingKey = tab === "pending" ? "/api/admin/daily/day-summary-range" : null;
+  const pendingKey =
+    tab === "pending"
+      ? `/api/admin/daily/day-summary-range${
+          pendingDateRange?.startDate && pendingDateRange?.endDate
+            ? `?start=${toYmd(pendingDateRange.startDate)}&end=${toYmd(pendingDateRange.endDate)}`
+            : ""
+        }`
+      : null;
   const allKey =
     tab === "all"
       ? `/api/admin/daily/all${
@@ -369,6 +379,18 @@ export default function AdminDailyPage() {
           </div>
         )}
 
+        {tab === "pending" && (
+          <div className="mb-6">
+            <DateRangePicker
+              value={pendingDateRange}
+              onChange={setPendingDateRange}
+            />
+            <p className="mt-1.5 text-xs text-slate-500">
+              期間を指定すると、過去に遡って作成したシフトの未提出日報も代理入力できます（未指定時は直近14日）。
+            </p>
+          </div>
+        )}
+
         {loading ? (
           <>
             <div className="grid grid-cols-3 gap-4 mb-6">
@@ -436,14 +458,32 @@ export default function AdminDailyPage() {
                   .filter((s) => s.date <= businessToday)
                   .sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0));
 
+                // ドライバー×日付の状態を算出。1日複数コース対応のため「担当コードに対し
+                // 未提出のコースが1つでもあれば代理入力が必要(needsProxy)」として扱う。
+                const computeDriverRow = (s: DaySummary, driver: DaySummary["drivers"][number]) => {
+                  const shiftCourses = s.shiftCoursesByDriver?.[driver.id] ?? [];
+                  const hasShift = shiftCourses.length > 0 || s.shiftDriverIds.includes(driver.id);
+                  const reps = s.reportsByDriver[driver.id] ?? []; // API側で却下分は除外済み
+                  const reportedCourseIds = new Set(
+                    reps.map((r) => r.course_id).filter((c): c is string => !!c),
+                  );
+                  const missingCount = hasShift
+                    ? shiftCourses.filter((c) => !reportedCourseIds.has(c)).length
+                    : 0;
+                  const hasUnapproved = reps.some((r) => !r.approved_at);
+                  let status: Status;
+                  if (!hasShift) status = "off";
+                  else if (reps.length === 0) status = "unsubmitted";
+                  else if (hasUnapproved) status = "pending";
+                  else status = "approved";
+                  // 全コース未提出(unsubmitted) または 一部コースだけ未提出 → 代理入力が必要
+                  const needsProxy = hasShift && (status === "unsubmitted" || missingCount > 0);
+                  const actionable = needsProxy || hasUnapproved;
+                  return { driver, reps, status, needsProxy, actionable };
+                };
+
                 const withActionable = filteredSummaries.map((s) => {
-                  const actionable = s.drivers.filter((d) => {
-                    const hasShift = s.shiftDriverIds.includes(d.id);
-                    const reps = s.reportsByDriver[d.id] ?? [];
-                    if (!hasShift) return false;
-                    if (reps.length === 0) return true; // 未提出
-                    return reps.some((r) => !r.approved_at && !r.rejected_at); // 未承認が1件でもあれば対応要
-                  }).length;
+                  const actionable = s.drivers.filter((d) => computeDriverRow(s, d).actionable).length;
                   return { summary: s, actionable };
                 });
 
@@ -455,21 +495,9 @@ export default function AdminDailyPage() {
                     : 0;
 
                 const renderDayTable = (summary: DaySummary, actionableCount: number) => {
-                  const baseRows = summary.drivers.map((driver) => {
-                    const hasShift = summary.shiftDriverIds.includes(driver.id);
-                    const reps = summary.reportsByDriver[driver.id] ?? [];
-                    let status: Status = "off";
-                    if (!hasShift) status = "off";
-                    else if (reps.length === 0) status = "unsubmitted";
-                    else if (reps.every((r) => r.approved_at)) status = "approved";
-                    else if (reps.every((r) => r.rejected_at)) status = "off";
-                    else status = "pending";
-                    return { driver, reps, status };
-                  });
+                  const baseRows = summary.drivers.map((driver) => computeDriverRow(summary, driver));
                   const isToday = summary.date === businessToday;
-                  const rows = isToday
-                    ? baseRows
-                    : baseRows.filter((r) => r.status === "unsubmitted" || r.status === "pending");
+                  const rows = isToday ? baseRows : baseRows.filter((r) => r.actionable);
                   return (
                     <div key={summary.date} className="mb-8">
                       <h2 className="text-sm font-semibold text-slate-800 mb-2">
@@ -492,7 +520,7 @@ export default function AdminDailyPage() {
                         <>
                         {/* スマホ: カード表示 */}
                         <div className="md:hidden space-y-2">
-                          {rows.map(({ driver, reps, status }) => {
+                          {rows.map(({ driver, reps, status, needsProxy }) => {
                             const driverEntry: Entry = {
                               driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
                               report: { report_date: summary.date, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" } as ReportData,
@@ -503,6 +531,7 @@ export default function AdminDailyPage() {
                                 driver={driver}
                                 reps={reps}
                                 status={status}
+                                needsProxy={needsProxy}
                                 canWrite={canWrite}
                                 onApprove={() => handleApprove(driverEntry, summary.date)}
                                 onReject={() => handleReject(driverEntry, summary.date)}
@@ -526,7 +555,7 @@ export default function AdminDailyPage() {
                               <col className="w-24" />
                               <col className="w-auto" />
                               <col className="w-36" />
-                              {canWrite && <col className="w-20" />}
+                              {canWrite && <col className="w-24" />}
                               <col className="w-24" />
                             </colgroup>
                             <thead className="bg-slate-50">
@@ -542,7 +571,7 @@ export default function AdminDailyPage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {rows.map(({ driver, reps, status }) => {
+                              {rows.map(({ driver, reps, status, needsProxy }) => {
                                 const isGray = status === "off" || status === "approved";
                                 const stack = reps.length > 1;
                                 const stackCls = stack ? "flex flex-col gap-2 items-center" : "";
@@ -621,6 +650,9 @@ export default function AdminDailyPage() {
                                           {reps.map((r) => <div key={r.id}>{reportContent(r)}</div>)}
                                         </div>
                                       )}
+                                      {needsProxy && reps.length > 0 && (
+                                        <span className="block mt-1 text-[11px] font-semibold text-red-600">未提出のコースがあります</span>
+                                      )}
                                     </td>
                                     <td className="py-3 px-2 text-center align-middle">
                                       {status === "approved" && <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700"><FontAwesomeIcon icon={faCircleCheck} className="mr-1" />承認済み</span>}
@@ -636,24 +668,26 @@ export default function AdminDailyPage() {
                                     </td>
                                     {canWrite && (
                                       <td className="py-3 px-2 text-center align-middle">
-                                        {(status === "pending" || status === "approved") && reps.length > 0 && (
-                                          <div className={stackCls}>
-                                            {reps.map((r) => (
-                                              <button key={r.id} type="button" onClick={() => openEdit(repEntry(r))} className="text-sm text-slate-600 hover:text-slate-900 underline">
-                                                <FontAwesomeIcon icon={faPenToSquare} />
-                                              </button>
-                                            ))}
-                                          </div>
-                                        )}
-                                        {status === "unsubmitted" && (
-                                          <button
-                                            type="button"
-                                            onClick={() => openProxy(driver, summary.date)}
-                                            className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
-                                          >
-                                            代理入力
-                                          </button>
-                                        )}
+                                        <div className="flex flex-col items-center gap-1.5">
+                                          {(status === "pending" || status === "approved") && reps.length > 0 && (
+                                            <div className={stackCls}>
+                                              {reps.map((r) => (
+                                                <button key={r.id} type="button" onClick={() => openEdit(repEntry(r))} className="text-sm text-slate-600 hover:text-slate-900 underline">
+                                                  <FontAwesomeIcon icon={faPenToSquare} />
+                                                </button>
+                                              ))}
+                                            </div>
+                                          )}
+                                          {needsProxy && (
+                                            <button
+                                              type="button"
+                                              onClick={() => openProxy(driver, summary.date)}
+                                              className="inline-flex items-center whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                            >
+                                              代理入力
+                                            </button>
+                                          )}
+                                        </div>
                                       </td>
                                     )}
                                     <td className="py-3 px-3 text-right text-xs text-slate-400 align-middle">

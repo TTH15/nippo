@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
 
     const { data: shiftRows, error: shiftsErr } = await supabase
       .from("shifts")
-      .select("shift_date, driver_id")
+      .select("shift_date, driver_id, course_id")
       .gte("shift_date", startParam)
       .lte("shift_date", endParam)
       .not("driver_id", "is", null);
@@ -82,10 +82,17 @@ export async function GET(req: NextRequest) {
     }
 
     const shiftsByDate = new Map<string, Set<string>>();
+    // 日付×ドライバーごとの担当コース集合（1日複数コースの未提出検出用）
+    const shiftCoursesByDate = new Map<string, Map<string, Set<string>>>();
     (shiftRows ?? []).forEach((r: any) => {
       if (!r.shift_date || !r.driver_id) return;
       if (!shiftsByDate.has(r.shift_date)) shiftsByDate.set(r.shift_date, new Set());
       shiftsByDate.get(r.shift_date)!.add(r.driver_id);
+      if (!r.course_id) return;
+      if (!shiftCoursesByDate.has(r.shift_date)) shiftCoursesByDate.set(r.shift_date, new Map());
+      const byDriver = shiftCoursesByDate.get(r.shift_date)!;
+      if (!byDriver.has(r.driver_id)) byDriver.set(r.driver_id, new Set());
+      byDriver.get(r.driver_id)!.add(r.course_id);
     });
 
     const driverIds = (drivers ?? []).map((d: { id: string }) => d.id);
@@ -128,6 +135,7 @@ export async function GET(req: NextRequest) {
         id: r.id,
         driver_id: r.driver_id,
         report_date: r.report_date,
+        course_id: r.course_id ?? null,
         takuhaibin_completed: Number(r.takuhaibin_completed) ?? 0,
         takuhaibin_returned: Number(r.takuhaibin_returned) ?? 0,
         nekopos_completed: Number(r.nekopos_completed) ?? 0,
@@ -165,10 +173,15 @@ export async function GET(req: NextRequest) {
       reportsMap.forEach((v, k) => {
         reportsByDriver[k] = v;
       });
+      const shiftCoursesByDriver: Record<string, string[]> = {};
+      (shiftCoursesByDate.get(date) ?? new Map<string, Set<string>>()).forEach((courseSet, driverId) => {
+        shiftCoursesByDriver[driverId] = Array.from(courseSet);
+      });
       return {
         date,
         drivers: drivers ?? [],
         shiftDriverIds,
+        shiftCoursesByDriver,
         reportsByDriver,
         driverPreferredVehicle,
       };
