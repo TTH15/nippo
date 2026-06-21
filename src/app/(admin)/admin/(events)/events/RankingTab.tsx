@@ -46,11 +46,28 @@ export function RankingTab({
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // 手動加点リストのチーム絞り込み
+  const [filterTeamId, setFilterTeamId] = useState("");
+
   const memberDriverIds = useMemo(() => new Set(members.map((m) => m.driver_id)), [members]);
   const memberDrivers = useMemo(
     () => drivers.filter((d) => memberDriverIds.has(d.id)),
     [drivers, memberDriverIds],
   );
+
+  // ドライバー → 所属チーム の対応表（個人加点をチームで絞り込むために使用）
+  const driverTeamMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members) map.set(m.driver_id, m.team_id);
+    return map;
+  }, [members]);
+
+  const filteredManual = useMemo(() => {
+    if (!filterTeamId) return manual;
+    return manual.filter((e) =>
+      e.team_id ? e.team_id === filterTeamId : driverTeamMap.get(e.driver_id ?? "") === filterTeamId,
+    );
+  }, [manual, filterTeamId, driverTeamMap]);
 
   // 同点は同順位で表示（並び自体は API 側で決定的に整列済み）
   const teamRanks = useMemo(() => tieRanks(ranking?.teams ?? []), [ranking]);
@@ -392,11 +409,31 @@ export function RankingTab({
           </div>
         )}
 
+        {manual.length > 0 && teams.length > 0 && (
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs font-medium text-slate-600">チーム絞り込み</span>
+            <div className="w-44">
+              <CustomSelect
+                options={[
+                  { value: "", label: "すべて" },
+                  ...teams.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+                value={filterTeamId}
+                onChange={setFilterTeamId}
+                clearable={false}
+                size="sm"
+              />
+            </div>
+          </div>
+        )}
+
         {manual.length === 0 ? (
           <p className="text-xs text-slate-400">手動加点はありません。</p>
+        ) : filteredManual.length === 0 ? (
+          <p className="text-xs text-slate-400">該当する手動加点はありません。</p>
         ) : (
           <div className="divide-y divide-slate-100">
-            {manual.map((e) => (
+            {filteredManual.map((e) => (
               <div key={e.id} className="flex items-center justify-between py-2 text-sm">
                 <div className="min-w-0">
                   <span className="text-slate-700">
