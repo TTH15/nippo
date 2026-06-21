@@ -30,7 +30,7 @@ import {
 import useSWR, { mutate as mutateSWR } from "swr";
 
 type DataPoint = { iso: string; date: string; yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number; [carrierKey: string]: number | string };
-type CarrierMeta = { id: string; key: string; name: string };
+type CarrierMeta = { id: string; key: string; profitKey: string; name: string };
 /** グラフのキャリア別積み上げ色（キャリア順にローテーション） */
 const CARRIER_COLORS = ["#334155", "#64748b", "#475569", "#94a3b8", "#1e293b", "#7c8aa5", "#0f172a"];
 type DriverRow = { id: string; name: string; display_name?: string | null };
@@ -577,6 +577,7 @@ type LogRow =
 function LogEntriesByDate({
   entries,
   displayData,
+  carriersMeta,
   daysInRange,
   canWrite,
   logTypes,
@@ -593,6 +594,7 @@ function LogEntriesByDate({
 }: {
   entries: SalesLogEntryRow[];
   displayData: DataPoint[];
+  carriersMeta: CarrierMeta[];
   daysInRange: { iso: string; label: string }[];
   canWrite: boolean;
   logTypes: SalesLogTypeRow[];
@@ -626,21 +628,23 @@ function LogEntriesByDate({
     const out: [string, LogRow[]][] = [];
     daysInRange.forEach((day, i) => {
       const sales = displayData[i];
-      const yamato = sales?.yamato ?? 0;
-      const amazon = sales?.amazon ?? 0;
-      const yamatoProfit = sales?.yamato_profit ?? 0;
-      const amazonProfit = sales?.amazon_profit ?? 0;
       const dayEntries = entriesByDate.get(day.iso) ?? [];
       const rows: LogRow[] = [];
-      if (yamato > 0 || yamatoProfit !== 0) rows.push({ kind: "calculated", type_name: "ヤマト", content: "日報集計", revenue: yamato, profit: yamatoProfit });
-      if (amazon > 0 || amazonProfit !== 0) rows.push({ kind: "calculated", type_name: "Amazon", content: "日報集計", revenue: amazon, profit: amazonProfit });
+      // 日報集計行はキャリアを動的に列挙（郵便局など新キャリアにも対応）
+      carriersMeta.forEach((c) => {
+        const revenue = Number(sales?.[c.key]) || 0;
+        const profit = Number(sales?.[c.profitKey]) || 0;
+        if (revenue > 0 || profit !== 0) {
+          rows.push({ kind: "calculated", type_name: c.name, content: "日報集計", revenue, profit });
+        }
+      });
       dayEntries.forEach((e) => rows.push({ kind: "entry", entry: e }));
       let filtered = rows;
       if (filterTypeId) filtered = filtered.filter((r) => r.kind === "calculated" || r.entry.type_id === filterTypeId);
       if (filtered.length > 0) out.push([day.iso, filtered]);
     });
     return out.sort((a, b) => (sortDateOrder === "desc" ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0])));
-  }, [daysInRange, displayData, entriesByDate, filterTypeId, sortDateOrder]);
+  }, [daysInRange, displayData, carriersMeta, entriesByDate, filterTypeId, sortDateOrder]);
 
   const dateLabel = (iso: string) => {
     const [y, m, d] = iso.split("-").map(Number);
@@ -1695,6 +1699,7 @@ export default function SalesPage() {
                     <LogEntriesByDate
                       entries={logEntries}
                       displayData={displayData}
+                      carriersMeta={carriersMeta}
                       daysInRange={daysInRange}
                       canWrite={canWrite}
                       logTypes={logTypes}

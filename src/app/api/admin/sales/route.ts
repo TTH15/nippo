@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
     amazon_profit: number;
     profit: number;
     byCarrier: Record<string, number>; // carrierId -> revenue（動的系列）
+    byCarrierProfit: Record<string, number>; // carrierId -> profit（動的系列）
   };
   const dateMap = new Map<string, Bucket>();
   const ensure = (d: string) => {
@@ -80,6 +81,7 @@ export async function GET(req: NextRequest) {
         amazon_profit: 0,
         profit: 0,
         byCarrier: {},
+        byCarrierProfit: {},
       });
     return dateMap.get(d)!;
   };
@@ -102,7 +104,8 @@ export async function GET(req: NextRequest) {
     e.profit += c.profit;
     const cid = c.carrierId ?? "unknown";
     e.byCarrier[cid] = (e.byCarrier[cid] ?? 0) + c.revenue;
-    if (c.revenue !== 0) seenCarriers.add(cid);
+    e.byCarrierProfit[cid] = (e.byCarrierProfit[cid] ?? 0) + c.profit;
+    if (c.revenue !== 0 || c.profit !== 0) seenCarriers.add(cid);
   }
 
   // 手動調整（売上ログ）: revenue→other, profit→profit（旧仕様踏襲）
@@ -133,17 +136,19 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 動的キャリア系列のメタ（revenue があったキャリアのみ・sort_order 順）
+  // 動的キャリア系列のメタ（revenue/profit があったキャリアのみ・sort_order 順）
   const crKey = (id: string) => `cr_${id.replace(/-/g, "")}`;
+  const crpKey = (id: string) => `crp_${id.replace(/-/g, "")}`;
   const carriersMeta = Array.from(seenCarriers)
     .map((id) => ({
       id,
       key: crKey(id),
+      profitKey: crpKey(id),
       name: id === "unknown" ? "未設定" : carrierMetaById.get(id)?.name ?? "その他",
       sort: id === "unknown" ? 9999 : carrierMetaById.get(id)?.sort ?? 9998,
     }))
     .sort((a, b) => a.sort - b.sort)
-    .map(({ id, key, name }) => ({ id, key, name }));
+    .map(({ id, key, profitKey, name }) => ({ id, key, profitKey, name }));
 
   const sortedDates = Array.from(dateMap.keys()).sort();
   const out = sortedDates.map((date) => {
@@ -159,8 +164,11 @@ export async function GET(req: NextRequest) {
       amazon_profit: d.amazon_profit,
       profit: d.profit,
     };
-    // 動的キャリア別 revenue を平坦キーで載せる（グラフ系列用）
-    for (const c of carriersMeta) row[c.key] = d.byCarrier[c.id] ?? 0;
+    // 動的キャリア別 revenue/profit を平坦キーで載せる（グラフ系列・売上調整テーブル用）
+    for (const c of carriersMeta) {
+      row[c.key] = d.byCarrier[c.id] ?? 0;
+      row[c.profitKey] = d.byCarrierProfit[c.id] ?? 0;
+    }
     return row;
   });
 
