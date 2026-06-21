@@ -12,7 +12,7 @@ import { EventSettingsTab } from "./EventSettingsTab";
 import { TeamsTab } from "./TeamsTab";
 import { ScoringRuleTab } from "./ScoringRuleTab";
 import { RankingTab } from "./RankingTab";
-import type { EventListItem, EventDetailResponse } from "./types";
+import type { EventListItem, EventDetailResponse, CarrierTreeRow } from "./types";
 import { STATUS_LABEL } from "./types";
 
 type Tab = "settings" | "teams" | "scoring" | "ranking";
@@ -83,6 +83,12 @@ export default function EventsPage() {
   useEffect(() => {
     if (detailData !== undefined) setDetail(detailData ?? null);
   }, [detailData]);
+
+  // 配送キャリア（units/fields込み）は全体共通のマスタ。イベント詳細は楽観更新保護のため
+  // フォーカス再検証を無効化しているので、別画面で追加した新キャリアが採点ルールに反映されない。
+  // そこでマスタは独立に取得し、通常どおり再検証して常に最新を採点ルールへ渡す。
+  const { data: carrierData } = useApi<{ carriers: CarrierTreeRow[] }>("/api/admin/carriers");
+  const carriers = carrierData?.carriers ?? detail?.carriers ?? [];
 
   useEffect(() => {
     if (detailError) {
@@ -289,7 +295,7 @@ export default function EventsPage() {
                   <ScoringRuleTab
                     eventId={detail.event.id}
                     scoringRule={detail.event.scoring_rule}
-                    carriers={detail.carriers}
+                    carriers={carriers}
                     canWrite={canWrite}
                     onSaved={() => loadDetail(detail.event.id, { silent: true })}
                     onError={onError}
