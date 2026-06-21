@@ -57,6 +57,7 @@ export default function AdminDashboardPage() {
   const [trend, setTrend] = useState<DayBar[]>([]);
   const [dailyUnread, setDailyUnread] = useState<number | null>(null);
   const [oilUnread, setOilUnread] = useState<number | null>(null);
+  const [oilAlert, setOilAlert] = useState<number | null>(null);
   const [activeDrivers, setActiveDrivers] = useState<number | null>(null);
 
   // SWR でダッシュボードの集計をまとめてキャッシュし、遷移をまたいで保持する。
@@ -66,14 +67,16 @@ export default function AdminDashboardPage() {
     trend: DayBar[];
     dailyUnread: number | null;
     oilUnread: number | null;
+    oilAlert: number | null;
     activeDrivers: number | null;
   }>(`admin/dashboard:${month}:${start14}:${today}`, {
     fetcher: async () => {
-      const [monthRes, trendRes, dailyRes, oilRes, shiftRes] = await Promise.all([
+      const [monthRes, trendRes, dailyRes, oilRes, oilAlertRes, shiftRes] = await Promise.all([
         apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?month=${month}`).catch(() => ({ data: [] as SalesRow[] })),
         apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?start=${start14}&end=${today}`).catch(() => ({ data: [] as SalesRow[] })),
         apiFetch<{ unreadCount: number }>(`/api/admin/daily/unread-count`).catch(() => null),
         apiFetch<{ unreadCount: number }>(`/api/admin/misc-reports/oil-change/unread-count`).catch(() => null),
+        apiFetch<{ count: number }>(`/api/admin/vehicles/oil-alert-count`).catch(() => null),
         apiFetch<{ shifts: { driver_id: string | null }[] }>(`/api/admin/shifts?start=${today}&end=${today}`).catch(() => ({ shifts: [] as { driver_id: string | null }[] })),
       ]);
       const monthRows = monthRes.data ?? [];
@@ -91,6 +94,7 @@ export default function AdminDashboardPage() {
         trend: trendRows,
         dailyUnread: dailyRes ? Number(dailyRes.unreadCount) || 0 : null,
         oilUnread: oilRes ? Number(oilRes.unreadCount) || 0 : null,
+        oilAlert: oilAlertRes ? Number(oilAlertRes.count) || 0 : null,
         activeDrivers: uniqueDrivers.size,
       };
     },
@@ -104,12 +108,13 @@ export default function AdminDashboardPage() {
     setTrend(dash.trend);
     setDailyUnread(dash.dailyUnread);
     setOilUnread(dash.oilUnread);
+    setOilAlert(dash.oilAlert);
     setActiveDrivers(dash.activeDrivers);
   }, [dash]);
 
   const margin = sales > 0 ? Math.round((profit / sales) * 1000) / 10 : 0;
   const maxTrend = Math.max(1, ...trend.map((d) => d.total));
-  const totalAlerts = (dailyUnread ?? 0) + (oilUnread ?? 0);
+  const totalAlerts = (dailyUnread ?? 0) + (oilUnread ?? 0) + (oilAlert ?? 0);
 
   return (
     <AdminLayout>
@@ -194,6 +199,15 @@ export default function AdminDashboardPage() {
               </div>
             ) : (
               <div className="space-y-2">
+                {(oilAlert ?? 0) > 0 && (
+                  <AlertRow
+                    icon={faOilCan}
+                    label="オイル交換が迫っている車両"
+                    count={oilAlert ?? 0}
+                    href="/admin/vehicles"
+                    tone="danger"
+                  />
+                )}
                 <AlertRow
                   icon={faFileLines}
                   label="未承認の報告"
@@ -267,27 +281,48 @@ function Kpi({ label, value, sub, loading }: { label: string; value: string; sub
   );
 }
 
-function AlertRow({ icon, label, count, href }: { icon: IconDefinition; label: string; count: number; href: string }) {
+function AlertRow({
+  icon,
+  label,
+  count,
+  href,
+  tone = "warn",
+}: {
+  icon: IconDefinition;
+  label: string;
+  count: number;
+  href: string;
+  tone?: "warn" | "danger";
+}) {
   const active = count > 0;
+  const danger = active && tone === "danger";
+  const containerClass = danger
+    ? "border-rose-300 bg-rose-50 hover:bg-rose-100"
+    : active
+      ? "border-amber-300 bg-amber-50 hover:bg-amber-100"
+      : "border-slate-200 hover:bg-slate-50";
+  const iconClass = danger ? "text-rose-500" : active ? "text-amber-500" : "text-slate-400";
+  const labelClass = danger ? "text-rose-800" : active ? "text-amber-800" : "text-slate-600";
+  const badgeClass = danger
+    ? "bg-rose-500 text-white"
+    : active
+      ? "bg-amber-500 text-white"
+      : "bg-slate-100 text-slate-400";
   return (
     <Link
       href={href}
-      className={`flex items-center justify-between rounded-lg border px-3 py-2.5 transition-colors ${
-        active ? "border-amber-300 bg-amber-50 hover:bg-amber-100" : "border-slate-200 hover:bg-slate-50"
-      }`}
+      className={`flex items-center justify-between rounded-lg border px-3 py-2.5 transition-colors ${containerClass}`}
     >
       <span className="flex items-center gap-2.5">
         <FontAwesomeIcon
           icon={active ? faTriangleExclamation : icon}
-          className={`h-4 w-4 ${active ? "text-amber-500" : "text-slate-400"}`}
+          className={`h-4 w-4 ${iconClass}`}
         />
-        <span className={`text-sm font-medium ${active ? "text-amber-800" : "text-slate-600"}`}>{label}</span>
+        <span className={`text-sm font-medium ${labelClass}`}>{label}</span>
       </span>
       <span className="flex items-center gap-1.5">
         <span
-          className={`inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-bold tabular-nums ${
-            active ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-400"
-          }`}
+          className={`inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-bold tabular-nums ${badgeClass}`}
         >
           {count}
         </span>

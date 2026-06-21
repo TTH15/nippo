@@ -79,6 +79,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [dailyUnreadCount, setDailyUnreadCount] = useState(0);
   const [otherUnreadCount, setOtherUnreadCount] = useState(0);
+  // オイル交換が迫っている車両の台数（「管理」メニューに通知バッジで表示）
+  const [oilAlertCount, setOilAlertCount] = useState(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
   const canWrite = canAdminWrite(driver?.role);
@@ -92,17 +94,20 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     let mounted = true;
     const loadUnreadCounts = async () => {
       try {
-        const [dailyRes, otherRes] = await Promise.all([
+        const [dailyRes, otherRes, oilRes] = await Promise.all([
           apiFetch<{ unreadCount: number }>("/api/admin/daily/unread-count", { cache: "no-store" }),
           apiFetch<{ unreadCount: number }>("/api/admin/misc-reports/oil-change/unread-count", { cache: "no-store" }),
+          apiFetch<{ count: number }>("/api/admin/vehicles/oil-alert-count", { cache: "no-store" }),
         ]);
         if (!mounted) return;
         setDailyUnreadCount(Number(dailyRes.unreadCount) || 0);
         setOtherUnreadCount(Number(otherRes.unreadCount) || 0);
+        setOilAlertCount(Number(oilRes.count) || 0);
       } catch {
         if (!mounted) return;
         setDailyUnreadCount(0);
         setOtherUnreadCount(0);
+        setOilAlertCount(0);
       }
     };
 
@@ -166,11 +171,14 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const getChildUnreadCount = (href: string) => {
     if (href === "/admin/daily") return dailyUnreadCount;
     if (href === "/admin/misc-reports/others") return otherUnreadCount;
+    if (href === "/admin/vehicles") return oilAlertCount;
     return 0;
   };
 
   const getParentUnreadCount = (item: Extract<NavItem, { children: NavChild[] }>) => {
     if (item.label === "諸報告") return totalMiscUnreadCount;
+    // 「管理」配下（車両）にオイル交換が迫っている台数を通知バッジで表示。
+    if (item.label === "管理") return oilAlertCount;
     return 0;
   };
 

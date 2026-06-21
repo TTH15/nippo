@@ -515,6 +515,17 @@ export default function VehiclesPage() {
     );
   };
 
+  // オイル交換の警告対象（廃車・EV・間隔未設定は除外）。バナー集計に使用。
+  const oilAlertVehicles = vehicles.filter(
+    (v) => !v.is_disposed && !v.is_ev && v.oil_change_interval > 0,
+  );
+  const oilCriticalCount = oilAlertVehicles.filter((v) => getOilRemainingKm(v) < 100).length;
+  const oilWarnCount = oilAlertVehicles.filter((v) => {
+    const r = getOilRemainingKm(v);
+    return r >= 100 && r <= 300;
+  }).length;
+  const oilAlertTotal = oilCriticalCount + oilWarnCount;
+
   // 元の配列順に基づく安定したナンバーを割り当て（廃車も含めて変動しない）
   const vehicleNoMap = new Map<string, number>(
     vehicles.map((v, i) => [v.id, i + 1] as const),
@@ -538,6 +549,44 @@ export default function VehiclesPage() {
             </Button>
           )}
         </div>
+
+        {/* オイル交換の警告サマリー（要交換・接近の台数を上部に強調表示） */}
+        {!loading && oilAlertTotal > 0 && (
+          <div
+            className={`mb-5 rounded-xl border p-4 ${
+              oilCriticalCount > 0 ? "border-rose-300 bg-rose-50" : "border-amber-300 bg-amber-50"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <FontAwesomeIcon
+                icon={oilCriticalCount > 0 ? faCircleExclamation : faTriangleExclamation}
+                className={`mt-0.5 h-5 w-5 shrink-0 ${oilCriticalCount > 0 ? "text-rose-500" : "text-amber-500"}`}
+              />
+              <div className="min-w-0">
+                <p className={`text-sm font-bold ${oilCriticalCount > 0 ? "text-rose-800" : "text-amber-800"}`}>
+                  オイル交換が迫っている車両が {oilAlertTotal} 台あります
+                </p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  {oilCriticalCount > 0 && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500 px-2.5 py-0.5 text-xs font-bold text-white">
+                      <FontAwesomeIcon icon={faCircleExclamation} className="h-3 w-3" />
+                      要交換 {oilCriticalCount} 台
+                    </span>
+                  )}
+                  {oilWarnCount > 0 && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-2.5 py-0.5 text-xs font-bold text-white">
+                      <FontAwesomeIcon icon={faTriangleExclamation} className="h-3 w-3" />
+                      交換時期接近 {oilWarnCount} 台
+                    </span>
+                  )}
+                </div>
+                <p className={`mt-1.5 text-xs ${oilCriticalCount > 0 ? "text-rose-700" : "text-amber-700"}`}>
+                  各車両のオイルゲージを確認し、交換手配を進めてください。
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="space-y-4">

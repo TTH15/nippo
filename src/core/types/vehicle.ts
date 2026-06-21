@@ -13,10 +13,12 @@ export type VehiclePlateData = {
   brand?: string | null;
 };
 
-/** 日報送信フォームで扱う車両（プレート情報＋走行距離・EV判定） */
+/** 日報送信フォームで扱う車両（プレート情報＋走行距離・EV判定＋オイル交換情報） */
 export type SubmitVehicle = VehiclePlateData & {
   current_mileage?: number;
   is_ev?: boolean;
+  last_oil_change_mileage?: number;
+  oil_change_interval?: number;
 };
 
 /** シフト表示に紐づく車両（各プレート項目は必須・null許容） */
