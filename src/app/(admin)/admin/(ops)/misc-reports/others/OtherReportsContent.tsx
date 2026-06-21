@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
@@ -102,13 +103,14 @@ export function OtherReportsContent({ onMutated }: { onMutated?: () => void } = 
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const canWrite = canAdminWrite(getStoredDriver()?.role);
 
-  // 報告種別マスタ（ラベル・使用フィールドの解決用）。
-  const [kindByKey, setKindByKey] = useState<Map<string, ReportKindInfo>>(new Map());
-  useEffect(() => {
-    apiFetch<{ kinds: ReportKindInfo[] }>("/api/admin/report-kinds")
-      .then((res) => setKindByKey(new Map((res.kinds ?? []).map((k) => [k.key, k]))))
-      .catch(() => { });
-  }, []);
+  // 報告種別マスタ（ラベル・使用フィールドの解決用）。SWRでキャッシュし再オープン時の再取得・チラつきを防ぐ。
+  const kindsApi = useApi<{ kinds: ReportKindInfo[] }>("/api/admin/report-kinds");
+  const kindByKey = useMemo(
+    () => new Map((kindsApi.data?.kinds ?? []).map((k) => [k.key, k])),
+    [kindsApi.data],
+  );
+  // 取得完了（成功 or 失敗）までは未確定。確定前は行を描画せずスケルトンを保つ。
+  const kindsReady = kindsApi.data !== undefined || kindsApi.error !== undefined;
   const kindLabel = (key: string | undefined) => (key ? kindByKey.get(key)?.label ?? key : "—");
 
   const getKey = (pageIndex: number, previousPageData: OilChangePage | null) => {
@@ -130,7 +132,8 @@ export function OtherReportsContent({ onMutated }: { onMutated?: () => void } = 
   });
 
   const entries = useMemo(() => (pages ?? []).flatMap((p) => p.entries ?? []), [pages]);
-  const loading = isLoading && entries.length === 0;
+  // 種別マスタ未確定の間もスケルトンを継続（生キー repair/oil_change のチラつき防止）。
+  const loading = (isLoading && entries.length === 0) || !kindsReady;
   const hasMore = (pages?.[pages.length - 1]?.hasMore ?? false) && !isValidating;
 
   useEffect(() => {

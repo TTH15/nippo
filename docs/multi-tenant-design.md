@@ -32,38 +32,69 @@
 
 ---
 
-## 2. テナント識別モデル（確定方針）
+## 2. アイデンティティ／所属／テナント識別モデル（確定方針）
 
-「内部キー」と「人が打ち込むコード」を分離する。1つのコードに役割を兼任させない。
+### 2-0. アイデンティティと所属の分離（最重要）
+
+「人そのもの」と「どの会社に属するか」を別レイヤにする。
+
+| 層 | 意味 | 個数 | 保持物 |
+|---|---|---|---|
+| **identity（アイデンティティ）** | 顔・免許・氏名・生年月日で確定する「この人」 | **1人=1つ**（グローバル） | KYC情報・電話・Passkey・LINE連携 |
+| **membership（所属）** | どの会社に、どの役割（DRIVER/ADMIN/ADMIN_VIEWER）で属するか | **1人=複数OK** | org_id・role・status・driver_code |
+
+- これにより**複数アカウント問題が消える**：会社が複数でもアカウントは1つ、所属が複数、アプリ内で切替（Slackモデル）。
+- 顔・免許で本人確認するので「同一人物=1 identity」を保証でき、二重登録を防げる（=利点）。
+
+**壊さない実装**: 既存 `drivers` 行を**そのまま membership** として温存（既に company_code・role・driver_code を持つ）。新規 `identities` を上に1枚足し、`drivers.identity_id` で紐付け。**既存の `driver_id` 参照（shifts/daily_reports 等）は無改修**。氏名・免許・PIN は identities へ昇格（人単位で重複排除）。
+
+### 2-1. 認証（Passkey ＋ 電話OTP、LINEは通知のみ）
+
+- **ログインの正本は Passkey（WebAuthn）**。パスワード/PIN より安全・フィッシング耐性高。Next.js が Relying Party になり Passkey 検証 → 既存 JWT 発行（構成A、Supabase無関係）。
+  - 必要: `@simplewebauthn/server`、iOS/Android の associated domains（`apple-app-site-association`/`assetlinks.json`）、Expo の Passkey ライブラリ。
+- **電話番号は SMS OTP で"検証"**（入力のみは不可。緊急連絡手段が誤りだと致命的なため）。identity 層に1つ保持。
+  - 唯一の新規外部依存＝**SMSプロバイダ**（Twilio Verify/AWS SNS/国内）＋1通数円の従量課金。
+- **LINE はログインに使わない**。純粋に通知チャネル（公式アカウント友だち追加）として identity に連携。
+- **端末紛失リカバリ**: ①SMS OTP で自己復旧 → 新端末で Passkey 再登録、②運営が顔・免許で本人確認して再登録、の2経路。KYC＋電話＋運営承認が復旧アンカー。
+
+### 2-2. アイデンティティ作成 → 会社参加フロー
+
+```
+【identity作成（初回1回）】
+1. Passkey作成（端末の生体/PIN）= ログイン手段確立
+2. 電話番号 → SMS OTP 認証
+3. 氏名・生年月日
+4. 顔写真撮影
+5. 免許証撮影（＋有効期限入力）
+6. LINE連携（通知用に公式アカウント友だち追加）
+
+【membership作成（会社ごと・何度でも）】
+7. join_code 入力 → org 逆引き → membership を status='pending' で作成
+8. 会社の運営画面に「承認待ち」表示（顔・免許を目視確認）
+9. 運営が承認 → status='active' で稼働（却下も可）
+
+※ 2社目以降は 7〜9 のみ（1〜6 を再利用）
+```
+
+- 顔・免許は**目視確認用の記録のみ（eKYCなし）**。承認ステップ＝本人確認。外部eKYC不要・PII最小。
+- 免許有効期限は identity に保存し、期限切れ前にアラート（運用要件）。
+- センシティブPII（顔・免許）は identity に1つ持ち、所属会社にのみ承認時に開示。
+
+### 2-3. テナント識別コード
 
 | 役割 | 用途 | 性質 | 例 |
 |---|---|---|---|
 | **org_id（UUID）** | 内部キー。全テーブルのFK、テナント分離はこれで行う | **不変・人に見せない** | `7f3a…` |
-| **join_code（英数6文字）** | ドライバーがアプリで打ち込む**参加用招待コード** | **再生成可能**（漏れたら作り直す） | `K7M2QP` |
-| 表示コード（legacy company_code） | 運営画面で人が会社を識別する表札。既存3文字 `ACE` を退避 | 可変・表示専用 | `ACE` |
+| **join_code（英数6文字）** | 会社参加用の招待コード | **再生成可能**（漏れたら作り直す） | `K7M2QP` |
+| 表示コード（legacy company_code） | 運営画面の表札。既存3文字 `ACE` を退避 | 可変・表示専用 | `ACE` |
 
-- テナント分離が依存するのは **org_id のみ**。ドライバーはUUIDを見ない（打つのは join_code）。
-- join_code は再生成可能。改名・衝突しても内部の org_id 紐付けは壊れない。
-- 実質「内部は UUID 正規化（旧案B）＋人には優しいコードを被せる」形。
+- 1社=1つの共有 join_code で十分。漏洩時は運営が再生成。承認必須なので漏れても勝手には入れない。
 
-### 2-1. ドライバー参加フロー（join_code＋承認）
+### 2-4. 認可・JWT
 
-```
-1. 会社作成時に org_id(UUID) と join_code(英数6文字) を自動発行
-2. 運営が join_code をドライバーへ配布（LINE等）
-3. ドライバーがアプリで join_code を入力 → org を逆引き
-   → drivers 行を status='pending' で作成し org_id を紐付け
-4. その会社の運営画面に「承認待ち」一覧が出る
-5. 運営が承認 → status='active' で本稼働（却下も可）
-```
-
-- 1社=1つの共有 join_code で十分（ドライバー毎の固有発行は不要）。漏洩時は運営が再生成。
-- **承認必須**（承認なし即有効にはしない）。コードが漏れても勝手に中へ入れない安全策。
-
-### 2-2. 認可・JWT
-
-- JWT は「ユーザーの所属org 1つ」だけ持つ。**1ユーザー=1ホーム会社**を基本とする。
-- 会社をまたぐ参照権限は JWT に焼き込まず、クエリ時に後述のグラント表から都度解決（取消が即反映される）。
+- JWT は **`identity_id` ＋ `current_org_id`（選択中の会社）** を持つ。会社切替＝current_org_id を差し替えてトークン再発行（その identity が持つ membership に限る）。
+- テナントスコープは `current_org_id`。`user.membershipId` が具体の drivers 行。
+- 会社をまたぐ参照権限は JWT に焼き込まず、クエリ時にグラント表（§4）から都度解決（取消が即反映）。
 
 ---
 
@@ -144,8 +175,25 @@ ALTER TABLE oil_change_reports ADD COLUMN org_id uuid;
 -- 車両: 所有者
 ALTER TABLE vehicles ADD COLUMN owner_org_id uuid;
 
--- ドライバー参加フロー
+-- アイデンティティ層（人単位・KYC・認証）※既存driversはmembershipとして温存
+CREATE TABLE identities (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text, dob date,
+  phone text, phone_verified_at timestamptz,   -- SMS OTPで検証
+  face_photo_path text, license_photo_path text, license_expiry date,
+  line_user_id text,                            -- 通知連携（友だち追加で取得）
+  created_at timestamptz DEFAULT now()
+);
+CREATE TABLE passkey_credentials (              -- WebAuthn
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  identity_id uuid NOT NULL REFERENCES identities(id),
+  credential_id text UNIQUE, public_key bytea, counter bigint,
+  created_at timestamptz DEFAULT now()
+);
+-- drivers 行 = membership。identityへ紐付け＋承認状態
+ALTER TABLE drivers ADD COLUMN identity_id uuid REFERENCES identities(id);
 ALTER TABLE drivers ADD COLUMN status text NOT NULL DEFAULT 'active'; -- pending/active/rejected
+-- 氏名・免許・PIN等の"人"の属性は identities へ昇格（人単位で重複排除）
 
 -- キャリア有効化（会社別）
 CREATE TABLE company_carriers (
@@ -170,8 +218,10 @@ CREATE TABLE company_carriers (
 - **Phase 2 — 強制の一元化**: `tenant.ts` ＋ 既存ローダ改修で全ルートを org_id スコープ経由に置換。G1 の未絞り込みクエリを潰す。手書き `.eq` 撤去。
 - **Phase 3 — 制約強化**: org_id を NOT NULL 化、FK 付与（G2 解消）。
 - **Phase 4 — ハードコード解消**: YAMATO/AMAZON 分岐（G6）を `carriers`＋`company_carriers` 駆動へ。運営日報の固定表示も会社別動的化（`admin-daily-legacy-display` 参照）。
-- **Phase 5 — 参加フロー**: join_code 入力API・承認/却下API・`status` 運用を実装。
-- **Phase 6 — 隔離テスト**: 2社目を作り、A社ログインでB社データが一切見えないことを Vitest で自動検証。
+- **Phase 5 — identity層抽出**: `identities`/`passkey_credentials` 作成。既存 drivers を identity へ割当（当面1行=1identity、同一人物の手動マージは運用で）。氏名・免許・PIN を identities へ移送。
+- **Phase 6 — 認証刷新**: Passkey(WebAuthn) 導入、電話 SMS OTP 検証、LINE連携。JWT を `identity_id`＋`current_org_id` 形式へ。会社切替UI。
+- **Phase 7 — 参加フロー**: join_code 入力API・承認/却下API・`status` 運用を実装。
+- **Phase 8 — 隔離テスト**: 2社目を作り、A社ログインでB社データが一切見えないことを Vitest で自動検証。
 
 各 Phase は独立リリース可。**Phase 2 完了まで2社目を本番投入しない**こと。
 
@@ -179,10 +229,11 @@ CREATE TABLE company_carriers (
 
 ## 8. 保留（実需が出てから・土台は確保済み）
 
-- **真の二重所属**（1ドライバーが複数会社で独立稼働）: 当面は 1ユーザー=1ホーム会社。`driver_identities`(2スロット) で部分対応しつつ、grant で表現しきれない実例が出たら多対多へ拡張。
+- **複数所属（会社切替UI）**: identity/membership 分離は最初から作る（土台）。ただし2社目を実際に運用する会社切替UI・複数membershipの本番運用は実需が出てから。`driver_identities`(2スロット) は勤務区分用で別概念。
 - **元請け→下請けのコース共有**（§4）: `course_shares`／外部エクスポート／コース別名。
 - **車両の会社間貸借UX**（§5）: 借用org可視化・スコープ絞り。
 - **company_code→org_id の完全廃止**: 当面 display_code として共存。
+- **identityの自動重複検出**（同一免許/同一人物のマージ）: 当面は手動。eKYC自動照合はしない。
 
 ---
 
