@@ -26,7 +26,8 @@ import {
   faGear,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import { apiFetch, clearAuth, getStoredDriver } from "@/lib/api";
+import { clearAuth, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite, isAdminViewerRole } from "@/lib/authz";
 
@@ -77,10 +78,22 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [driver, setDriver] = useState<{ id: string; name: string; role: string } | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [dailyUnreadCount, setDailyUnreadCount] = useState(0);
-  const [otherUnreadCount, setOtherUnreadCount] = useState(0);
+  // 要対応件数は SWR でグローバルにキャッシュする。ページ遷移で AdminLayout が
+  // 再マウントされても前回値が即返るため、バッジが一瞬消えない。60秒ごとに自動更新。
+  const dailyUnreadApi = useApi<{ unreadCount: number }>("/api/admin/daily/unread-count", {
+    refreshInterval: 60000,
+  });
+  const otherUnreadApi = useApi<{ unreadCount: number }>(
+    "/api/admin/misc-reports/oil-change/unread-count",
+    { refreshInterval: 60000 },
+  );
+  const oilAlertApi = useApi<{ count: number }>("/api/admin/vehicles/oil-alert-count", {
+    refreshInterval: 60000,
+  });
+  const dailyUnreadCount = Number(dailyUnreadApi.data?.unreadCount) || 0;
+  const otherUnreadCount = Number(otherUnreadApi.data?.unreadCount) || 0;
   // オイル交換が迫っている車両の台数（「管理」メニューに通知バッジで表示）
-  const [oilAlertCount, setOilAlertCount] = useState(0);
+  const oilAlertCount = Number(oilAlertApi.data?.count) || 0;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
   const canWrite = canAdminWrite(driver?.role);
@@ -90,35 +103,12 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     setDriver(getStoredDriver());
   }, []);
 
+  // ページ遷移時に最新化（キャッシュ値は保持したまま裏で再検証するのでバッジは消えない）。
   useEffect(() => {
-    let mounted = true;
-    const loadUnreadCounts = async () => {
-      try {
-        const [dailyRes, otherRes, oilRes] = await Promise.all([
-          apiFetch<{ unreadCount: number }>("/api/admin/daily/unread-count", { cache: "no-store" }),
-          apiFetch<{ unreadCount: number }>("/api/admin/misc-reports/oil-change/unread-count", { cache: "no-store" }),
-          apiFetch<{ count: number }>("/api/admin/vehicles/oil-alert-count", { cache: "no-store" }),
-        ]);
-        if (!mounted) return;
-        setDailyUnreadCount(Number(dailyRes.unreadCount) || 0);
-        setOtherUnreadCount(Number(otherRes.unreadCount) || 0);
-        setOilAlertCount(Number(oilRes.count) || 0);
-      } catch {
-        if (!mounted) return;
-        setDailyUnreadCount(0);
-        setOtherUnreadCount(0);
-        setOilAlertCount(0);
-      }
-    };
-
-    void loadUnreadCounts();
-    const timer = setInterval(() => {
-      void loadUnreadCounts();
-    }, 60000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
+    void dailyUnreadApi.mutate();
+    void otherUnreadApi.mutate();
+    void oilAlertApi.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
   const logout = () => {
