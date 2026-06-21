@@ -8,6 +8,8 @@ import { faCircleCheck, faPenToSquare } from "@fortawesome/free-solid-svg-icons"
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { getDisplayName } from "@/lib/displayName";
 import { carrierBadgeLabel, carrierBadgeTone } from "@/lib/carrierBadge";
+import { ReportContentView } from "@/lib/components/ReportContentView";
+import type { ReportContentUnit } from "@/lib/reportContent";
 
 type DriverLike = { id: string; name: string; display_name?: string | null };
 
@@ -25,6 +27,7 @@ type ReportLike = {
   id?: string;
   carrier?: string | null;
   carrier_name?: string | null;
+  content?: ReportContentUnit[];
   takuhaibin_completed?: number;
   nekopos_completed?: number;
   amazon_am_completed?: number;
@@ -56,37 +59,9 @@ export function CarrierBadge({
   );
 }
 
-/** 配送内容（宅急便/ネコポス または Amazon 午前/午後/4便）。 */
-export function ReportContent({ r }: { r: ReportLike }) {
-  if (r.carrier === "AMAZON") {
-    const am = r.amazon_am_completed ?? 0;
-    const pm = r.amazon_pm_completed ?? 0;
-    const four = r.amazon_4_completed ?? 0;
-    if (am === 0 && pm === 0 && four === 0) return <span className="text-slate-400 text-xs">—</span>;
-    return (
-      <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-        {am > 0 && <Metric label="午前" value={am} />}
-        {pm > 0 && <Metric label="午後" value={pm} />}
-        {four > 0 && <Metric label="4便" value={four} />}
-      </div>
-    );
-  }
-  return (
-    <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-      <Metric label="宅急便" value={r.takuhaibin_completed ?? 0} />
-      <Metric label="ネコポス" value={r.nekopos_completed ?? 0} />
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <span>
-      <span className="text-slate-500 text-xs">{label}</span>{" "}
-      <span className="font-semibold tabular-nums">{value}</span>
-      <span className="text-slate-500 text-xs"> 個</span>
-    </span>
-  );
+/** 配送内容。送信画面と同じ動的 unit/field 構造で表示する。 */
+export function ReportContent({ r, muted }: { r: ReportLike; muted?: boolean }) {
+  return <ReportContentView units={r.content} muted={muted} />;
 }
 
 function hasPlate(p?: VehiclePlatePayload | null): p is VehiclePlatePayload {
@@ -180,7 +155,7 @@ export function PendingDriverCard({
                 )}
               </div>
               <div className="mt-1.5 flex items-center justify-between gap-2">
-                <ReportContent r={r} />
+                <ReportContent r={r} muted={muted} />
                 {canWrite && (status === "pending" || status === "approved") && (
                   <button
                     type="button"

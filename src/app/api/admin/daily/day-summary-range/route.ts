@@ -3,6 +3,7 @@ import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
+import { loadReportContents } from "@/server/aggregation/reportContent";
 
 export const dynamic = "force-dynamic";
 
@@ -122,6 +123,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    // 内容（送信画面と同じ動的 unit/field 構造）を report_entries から取得
+    const contentByReport = await loadReportContents(
+      supabase,
+      (reportRows ?? []).map((r: any) => r.id).filter(Boolean),
+    );
+
     const reportsByDateDriver = new Map<string, Map<string, any>>();
     (reportRows ?? []).forEach((r: any) => {
       const date = r.report_date;
@@ -136,6 +143,7 @@ export async function GET(req: NextRequest) {
         driver_id: r.driver_id,
         report_date: r.report_date,
         course_id: r.course_id ?? null,
+        content: contentByReport.get(r.id) ?? [],
         takuhaibin_completed: Number(r.takuhaibin_completed) ?? 0,
         takuhaibin_returned: Number(r.takuhaibin_returned) ?? 0,
         nekopos_completed: Number(r.nekopos_completed) ?? 0,

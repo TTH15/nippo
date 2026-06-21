@@ -12,6 +12,8 @@ import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { carrierBadgeLabel, carrierBadgeTone } from "@/lib/carrierBadge";
+import { ReportContentView } from "@/lib/components/ReportContentView";
+import type { ReportContentUnit } from "@/lib/reportContent";
 import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
 import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
@@ -41,6 +43,7 @@ type ReportData = {
   submitted_at: string;
   carrier?: "YAMATO" | "AMAZON";
   carrier_name?: string | null;
+  content?: ReportContentUnit[];
   approved_at?: string | null;
   rejected_at?: string | null;
   amazon_am_mochidashi?: number;
@@ -78,6 +81,7 @@ type DaySummaryReport = {
   driver_id: string;
   report_date: string;
   course_id?: string | null;
+  content?: ReportContentUnit[];
   takuhaibin_completed: number;
   takuhaibin_returned: number;
   nekopos_completed: number;
@@ -595,19 +599,9 @@ export default function AdminDailyPage() {
                                     {carrierBadgeLabel(r.carrier, r.carrier_name)}
                                   </span>
                                 );
-                                const reportContent = (r: DaySummaryReport) =>
-                                  r.carrier === "AMAZON" ? (
-                                    <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
-                                      {r.amazon_am_completed ? <span><span className="text-slate-500 text-xs">午前</span> <span className="font-semibold tabular-nums">{r.amazon_am_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
-                                      {r.amazon_pm_completed ? <span><span className="text-slate-500 text-xs">午後</span> <span className="font-semibold tabular-nums">{r.amazon_pm_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
-                                      {r.amazon_4_completed ? <span><span className="text-slate-500 text-xs">4便</span> <span className="font-semibold tabular-nums">{r.amazon_4_completed}</span><span className="text-slate-500 text-xs"> 個</span></span> : null}
-                                    </div>
-                                  ) : (
-                                    <div className="text-[13px] flex flex-wrap items-baseline gap-x-3 gap-y-0">
-                                      <span><span className="text-slate-500 text-xs">宅急便</span> <span className="font-semibold tabular-nums">{r.takuhaibin_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
-                                      <span><span className="text-slate-500 text-xs">ネコポス</span> <span className="font-semibold tabular-nums">{r.nekopos_completed}</span><span className="text-slate-500 text-xs"> 個</span></span>
-                                    </div>
-                                  );
+                                const reportContent = (r: DaySummaryReport) => (
+                                  <ReportContentView units={r.content} muted={isGray} />
+                                );
                                 return (
                                   <tr key={`${driver.id}-${summary.date}`} className={`border-b border-slate-100 ${isGray ? "bg-slate-100 text-slate-500" : "hover:bg-slate-50"}`}>
                                     <td className="py-3 px-3 font-medium align-middle">{getDisplayName(driver)}</td>
@@ -862,55 +856,9 @@ export default function AdminDailyPage() {
                                   </span>
                                 </td>
                                 <td className="py-3 px-3 text-left align-middle">
-                                  {carrier === "YAMATO" ? (
-                                    <div className="text-[13px] pl-6">
-                                      <span className="text-slate-500 text-xs">宅急便</span>{" "}
-                                      <span className="font-semibold text-slate-900 text-base tabular-nums">{r.takuhaibin_completed}</span>
-                                      <span className="text-slate-500 text-xs pr-3"> 個</span>
-                                      <span className="text-slate-500 text-xs">ネコポス</span>{" "}
-                                      <span className="font-semibold text-slate-900 text-base tabular-nums">{r.nekopos_completed}</span>
-                                      <span className="text-slate-500 text-xs"> 個</span>
-                                    </div>
-                                  ) : (() => {
-                                    const am = r.amazon_am_completed ?? 0;
-                                    const pm = r.amazon_pm_completed ?? 0;
-                                    const four = r.amazon_4_completed ?? 0;
-                                    const fourOnly = am === 0 && pm === 0 && four > 0;
-                                    return fourOnly ? (
-                                      <div className="text-[13px] pl-6">
-                                        <span className="text-slate-500 text-xs">4便</span>{" "}
-                                        <span className="font-semibold text-slate-900 text-base tabular-nums">{four}</span>
-                                        <span className="text-slate-500 text-xs"> 個</span>
-                                      </div>
-                                    ) : (
-                                      <div className="text-[13px] pl-6 flex flex-wrap items-baseline gap-x-3 gap-y-0">
-                                        {am > 0 && (
-                                          <span>
-                                            <span className="text-slate-500 text-xs">午前</span>{" "}
-                                            <span className="font-semibold text-slate-900 text-base tabular-nums">{am}</span>
-                                            <span className="text-slate-500 text-xs"> 個</span>
-                                          </span>
-                                        )}
-                                        {pm > 0 && (
-                                          <span>
-                                            <span className="text-slate-500 text-xs">午後</span>{" "}
-                                            <span className="font-semibold text-slate-900 text-base tabular-nums">{pm}</span>
-                                            <span className="text-slate-500 text-xs"> 個</span>
-                                          </span>
-                                        )}
-                                        {four > 0 && (
-                                          <span>
-                                            <span className="text-slate-500 text-xs">4便</span>{" "}
-                                            <span className="font-semibold text-slate-900 text-base tabular-nums">{four}</span>
-                                            <span className="text-slate-500 text-xs"> 個</span>
-                                          </span>
-                                        )}
-                                        {am === 0 && pm === 0 && four === 0 && (
-                                          <span className="text-slate-400 text-xs">—</span>
-                                        )}
-                                      </div>
-                                    );
-                                  })()}
+                                  <div className="pl-6">
+                                    <ReportContentView units={r.content} />
+                                  </div>
                                 </td>
                                 <td className="py-3 px-3 text-center align-middle">
                                   {approved ? (

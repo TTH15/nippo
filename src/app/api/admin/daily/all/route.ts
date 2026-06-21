@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
+import { loadReportContents } from "@/server/aggregation/reportContent";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,15 @@ export async function GET(req: NextRequest) {
     if (!rows.length) {
       return NextResponse.json({ groups: [] });
     }
+
+    // 内容（送信画面と同じ動的 unit/field 構造）を各行へ付与（idSource:"v2" のため id=v2id）
+    const contentByReport = await loadReportContents(
+      supabase,
+      rows.map((r: { id: string }) => r.id).filter(Boolean),
+    );
+    rows.forEach((r: Record<string, unknown> & { id: string }) => {
+      r.content = contentByReport.get(r.id) ?? [];
+    });
 
     const driverIds = Array.from(new Set(rows.map((r: { driver_id: string }) => r.driver_id).filter(Boolean)));
     const { data: drivers, error: driverErr } = await supabase

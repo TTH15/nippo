@@ -128,6 +128,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   const isActive = (href: string) => {
     const path = href.split("?")[0];
+    // ダッシュボード(/admin)は全ページが "/admin/..." で始まるため、前方一致だと
+    // 常にアクティブ扱いになってしまう。ルートのみ完全一致で判定する。
+    if (path === "/admin") return pathname === "/admin";
     return pathname === path || pathname.startsWith(path + "/");
   };
 
