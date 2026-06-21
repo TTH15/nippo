@@ -28,7 +28,9 @@ export type LegacyDailyRow = {
   driver_identity_id: string | null;
   report_date: string;
   course_id: string | null;
-  carrier: string; // 'YAMATO' | 'AMAZON'
+  carrier: string; // 'YAMATO' | 'AMAZON'（旧コード。新キャリアでcode未設定だと 'YAMATO' に既定化される点に注意）
+  carrier_id: string | null;
+  carrier_name: string | null; // キャリアの実表示名（動的キャリア対応の表示用）
   takuhaibin_completed: number;
   takuhaibin_returned: number;
   nekopos_completed: number;
@@ -118,16 +120,18 @@ export async function loadLegacyDailyRows(
   const [{ data: reportRows, error: rErr }, { data: carrierRows }, { data: unitRows }] =
     await Promise.all([
       q,
-      supabase.from("carriers").select("id, code"),
+      supabase.from("carriers").select("id, code, name"),
       supabase.from("units").select("id, code"),
     ]);
   if (rErr) throw rErr;
   if (!reportRows?.length) return [];
 
   const carrierCodeById = new Map<string, string>();
-  (carrierRows ?? []).forEach((c: { id: string; code: string | null }) =>
-    carrierCodeById.set(c.id, c.code ?? ""),
-  );
+  const carrierNameById = new Map<string, string>();
+  (carrierRows ?? []).forEach((c: { id: string; code: string | null; name: string | null }) => {
+    carrierCodeById.set(c.id, c.code ?? "");
+    carrierNameById.set(c.id, c.name ?? "");
+  });
   const unitCodeById = new Map<string, string>();
   (unitRows ?? []).forEach((u: { id: string; code: string | null }) =>
     unitCodeById.set(u.id, u.code ?? ""),
@@ -204,6 +208,8 @@ export async function loadLegacyDailyRows(
         report_date: r.report_date,
         course_id: r.course_id,
         carrier: (r.carrier_id && carrierCodeById.get(r.carrier_id)) || "YAMATO",
+        carrier_id: r.carrier_id,
+        carrier_name: (r.carrier_id && carrierNameById.get(r.carrier_id)) || null,
         ...counts,
         vehicle_id: r.vehicle_id,
         meter_value: r.meter_value,

@@ -142,6 +142,8 @@ export async function GET(req: NextRequest) {
         nekopos_returned: Number(r.nekopos_returned) ?? 0,
         submitted_at: r.submitted_at ?? "",
         carrier: r.carrier ?? null,
+        carrier_id: r.carrier_id ?? null,
+        carrier_name: r.carrier_name ?? null,
         approved_at: r.approved_at ?? null,
         rejected_at: r.rejected_at ?? null,
         vehicle_id: r.vehicle_id ?? null,

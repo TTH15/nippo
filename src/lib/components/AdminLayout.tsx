@@ -337,6 +337,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                 }
 
                 const active = isActive(item.href);
+                const linkUnread = getChildUnreadCount(item.href);
                 return (
                   <li key={item.href}>
                     <Link
@@ -350,6 +351,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                         <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />
                       )}
                       {item.label}
+                      {linkUnread > 0 && (
+                        <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
+                          {linkUnread}
+                        </span>
+                      )}
                     </Link>
                   </li>
                 );
@@ -465,6 +471,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                       );
                     }
                     const active = isActive(item.href);
+                    const linkUnread = getChildUnreadCount(item.href);
                     return (
                       <li key={item.href}>
                         <Link
@@ -479,6 +486,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                             <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />
                           )}
                           {item.label}
+                          {linkUnread > 0 && (
+                            <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
+                              {linkUnread}
+                            </span>
+                          )}
                         </Link>
                       </li>
                     );

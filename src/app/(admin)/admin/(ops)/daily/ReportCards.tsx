@@ -7,6 +7,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck, faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { getDisplayName } from "@/lib/displayName";
+import { carrierBadgeLabel, carrierBadgeTone } from "@/lib/carrierBadge";
 
 type DriverLike = { id: string; name: string; display_name?: string | null };
 
@@ -23,6 +24,7 @@ type VehiclePlatePayload = {
 type ReportLike = {
   id?: string;
   carrier?: string | null;
+  carrier_name?: string | null;
   takuhaibin_completed?: number;
   nekopos_completed?: number;
   amazon_am_completed?: number;
@@ -36,18 +38,20 @@ type ReportLike = {
 const fmtTime = (s?: string) =>
   s ? new Date(s).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "—";
 
-export function CarrierBadge({ carrier, muted }: { carrier?: string | null; muted?: boolean }) {
+export function CarrierBadge({
+  carrier,
+  carrierName,
+  muted,
+}: {
+  carrier?: string | null;
+  carrierName?: string | null;
+  muted?: boolean;
+}) {
   return (
     <span
-      className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${
-        muted
-          ? "bg-slate-200 text-slate-600"
-          : carrier === "AMAZON"
-            ? "bg-violet-100 text-violet-700"
-            : "bg-emerald-100 text-emerald-700"
-      }`}
+      className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${carrierBadgeTone(carrier, carrierName, muted)}`}
     >
-      {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
+      {carrierBadgeLabel(carrier, carrierName)}
     </span>
   );
 }
@@ -159,7 +163,7 @@ export function PendingDriverCard({
           {reps.map((r) => (
             <div key={r.id} className="border-t border-slate-100 pt-2 first:border-t-0 first:pt-0">
               <div className="flex items-center justify-between gap-2">
-                <CarrierBadge carrier={r.carrier} muted={muted} />
+                <CarrierBadge carrier={r.carrier} carrierName={r.carrier_name} muted={muted} />
                 <span className="text-[11px] text-slate-400 tabular-nums">{fmtTime(r.submitted_at)} 送信</span>
               </div>
               <div className="mt-1.5 flex items-center gap-2">
@@ -241,7 +245,7 @@ export function AllReportCard({
     <CardShell>
       <div className="flex items-center justify-between gap-2">
         <span className="font-semibold text-slate-900">{getDisplayName(driver)}</span>
-        <CarrierBadge carrier={report.carrier} />
+        <CarrierBadge carrier={report.carrier} carrierName={report.carrier_name} />
       </div>
       <div className="mt-1.5 flex items-center justify-between gap-2">
         <ReportContent r={report} />

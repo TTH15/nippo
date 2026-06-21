@@ -11,6 +11,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
+import { carrierBadgeLabel, carrierBadgeTone } from "@/lib/carrierBadge";
 import { canAdminWrite } from "@/lib/authz";
 import { getStoredDriver } from "@/lib/api";
 import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
@@ -39,6 +40,7 @@ type ReportData = {
   nekopos_returned: number;
   submitted_at: string;
   carrier?: "YAMATO" | "AMAZON";
+  carrier_name?: string | null;
   approved_at?: string | null;
   rejected_at?: string | null;
   amazon_am_mochidashi?: number;
@@ -82,6 +84,8 @@ type DaySummaryReport = {
   nekopos_returned: number;
   submitted_at: string;
   carrier: string | null;
+  carrier_id?: string | null;
+  carrier_name?: string | null;
   approved_at: string | null;
   rejected_at: string | null;
   vehicle_id: string | null;
@@ -586,15 +590,9 @@ export default function AdminDailyPage() {
                                 const dash = <span className="inline-block w-full text-center text-slate-400 text-xs">—</span>;
                                 const carrierBadge = (r: DaySummaryReport) => (
                                   <span
-                                    className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${
-                                      isGray
-                                        ? "bg-slate-200 text-slate-600"
-                                        : r.carrier === "AMAZON"
-                                          ? "bg-violet-100 text-violet-700"
-                                          : "bg-emerald-100 text-emerald-700"
-                                    }`}
+                                    className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${carrierBadgeTone(r.carrier, r.carrier_name, isGray)}`}
                                   >
-                                    {r.carrier === "AMAZON" ? "Amazon" : "ヤマト"}
+                                    {carrierBadgeLabel(r.carrier, r.carrier_name)}
                                   </span>
                                 );
                                 const reportContent = (r: DaySummaryReport) =>
@@ -858,12 +856,9 @@ export default function AdminDailyPage() {
                                 <td className="py-3 px-4 font-medium align-middle">{getDisplayName(e.driver)}</td>
                                 <td className="py-3 px-3 text-center align-middle">
                                   <span
-                                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${carrier === "AMAZON"
-                                      ? "bg-violet-100 text-violet-700"
-                                      : "bg-emerald-100 text-emerald-700"
-                                      }`}
+                                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${carrierBadgeTone(carrier, r.carrier_name)}`}
                                   >
-                                    {carrier === "AMAZON" ? "Amazon" : "ヤマト"}
+                                    {carrierBadgeLabel(carrier, r.carrier_name)}
                                   </span>
                                 </td>
                                 <td className="py-3 px-3 text-left align-middle">
