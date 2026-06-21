@@ -1,27 +1,27 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { SimpleSelect } from "@/lib/components/SimpleSelect";
-import type { SelectOption } from "@/lib/components/CustomSelect";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { dateToReportDateStr, reportDateStrToDate } from "@/lib/date";
+import { groupFieldsByLabel, type ReportContentUnit } from "@/lib/reportContent";
+
+// 編集で送信する 1 フィールド分の値（report_entries 縦持ち）
+export type EditEntryValue = {
+  unitId: string;
+  fieldKey: string;
+  valueNum: number | null;
+  valueText: string | null;
+};
 
 type ReportData = {
   id?: string;
   report_date: string;
-  takuhaibin_completed: number;
-  takuhaibin_returned: number;
-  nekopos_completed: number;
-  nekopos_returned: number;
   submitted_at: string;
-  carrier?: "YAMATO" | "AMAZON";
+  carrier_name?: string | null;
   approved_at?: string | null;
   rejected_at?: string | null;
-  amazon_am_mochidashi?: number;
-  amazon_am_completed?: number;
-  amazon_pm_mochidashi?: number;
-  amazon_pm_completed?: number;
-  amazon_4_mochidashi?: number;
-  amazon_4_completed?: number;
+  content?: ReportContentUnit[];
 };
 
 type Entry = {
@@ -38,7 +38,28 @@ interface EditReportModalProps {
   savingEdit: boolean;
   saveError?: string | null;
   onClose: () => void;
-  onSave: () => void;
+  onSave: (entries: EditEntryValue[] | undefined) => void;
+}
+
+// content の値を入力欄の文字列へ
+function initialValues(units: ReportContentUnit[]): Record<string, Record<string, string>> {
+  const out: Record<string, Record<string, string>> = {};
+  units.forEach((u) => {
+    out[u.unitId] = {};
+    u.fields.forEach((f) => {
+      out[u.unitId][f.fieldKey] =
+        f.inputType === "BOOL"
+          ? f.valueText === "true" || f.valueNum === 1
+            ? "true"
+            : "false"
+          : f.inputType === "INT"
+            ? f.valueNum != null
+              ? String(f.valueNum)
+              : ""
+            : (f.valueText ?? "");
+    });
+  });
+  return out;
 }
 
 export default function EditReportModal({
@@ -50,26 +71,45 @@ export default function EditReportModal({
   onClose,
   onSave,
 }: EditReportModalProps) {
+  const units = editingEntry?.entry.report.content ?? [];
+  const reportId = editingEntry?.entry.report.id;
+  const [values, setValues] = useState<Record<string, Record<string, string>>>({});
+
+  // 対象日報が変わるたびに現在値で初期化
+  useEffect(() => {
+    setValues(initialValues(editingEntry?.entry.report.content ?? []));
+  }, [reportId, editingEntry]);
+
   if (!editingEntry) return null;
 
-  const carrierOptions: SelectOption[] = [
-    { value: "YAMATO", label: "ヤマト" },
-    { value: "AMAZON", label: "Amazon" },
-  ];
-
-  const carrierValue = editForm.carrier ?? "YAMATO";
-  const isYamato = carrierValue === "YAMATO";
   const statusValue = (editForm.status as "approved" | "rejected" | undefined) ?? undefined;
-
-  const handleChange = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setEditForm((f) => ({ ...f, [key]: value }));
-  };
 
   const reportDateValue =
     editForm.report_date && /^\d{4}-\d{2}-\d{2}$/.test(editForm.report_date)
       ? reportDateStrToDate(editForm.report_date)
       : undefined;
+
+  const setVal = (unitId: string, fieldKey: string, v: string) =>
+    setValues((prev) => ({
+      ...prev,
+      [unitId]: { ...prev[unitId], [fieldKey]: v },
+    }));
+
+  const buildEntries = (): EditEntryValue[] =>
+    units.flatMap((u) =>
+      u.fields.map((f) => {
+        const raw = values[u.unitId]?.[f.fieldKey] ?? "";
+        if (f.inputType === "INT") {
+          return { unitId: u.unitId, fieldKey: f.fieldKey, valueNum: raw.trim() ? Number(raw) : 0, valueText: null };
+        }
+        if (f.inputType === "BOOL") {
+          return { unitId: u.unitId, fieldKey: f.fieldKey, valueNum: null, valueText: raw === "true" ? "true" : "false" };
+        }
+        return { unitId: u.unitId, fieldKey: f.fieldKey, valueNum: null, valueText: raw };
+      }),
+    );
+
+  const carrierName = editingEntry.entry.report.carrier_name;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -77,6 +117,7 @@ export default function EditReportModal({
         <div className="p-6">
           <h2 className="text-lg font-semibold text-slate-900 mb-1">
             日報の編集 — {editingEntry.entry.driver.display_name ?? editingEntry.entry.driver.name}
+            {carrierName ? <span className="text-sm font-normal text-slate-500"> / {carrierName}</span> : null}
           </h2>
           <p className="text-xs text-slate-500 mb-4">
             承認済みの日報を編集すると、売上・報酬・集計にもその内容が反映されます。
@@ -102,16 +143,6 @@ export default function EditReportModal({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">種別</label>
-              <SimpleSelect
-                options={carrierOptions}
-                value={carrierValue}
-                onChange={(v) => setEditForm((f) => ({ ...f, carrier: v }))}
-                clearable={false}
-                size="sm"
-              />
-            </div>
-            <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">承認ステータス</label>
               <SimpleSelect
                 options={[
@@ -133,117 +164,65 @@ export default function EditReportModal({
                 ステータスを変更しない場合は未選択のままにしてください。
               </p>
             </div>
-            {isYamato ? (
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">宅急便 完了</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={editForm.takuhaibin_completed ?? ""}
-                    onChange={handleChange("takuhaibin_completed")}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">宅急便 持戻</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={editForm.takuhaibin_returned ?? ""}
-                    onChange={handleChange("takuhaibin_returned")}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">ネコポス 完了</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={editForm.nekopos_completed ?? ""}
-                    onChange={handleChange("nekopos_completed")}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">ネコポス 持戻</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={editForm.nekopos_returned ?? ""}
-                    onChange={handleChange("nekopos_returned")}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded"
-                  />
-                </div>
+
+            {units.length === 0 ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                この日報には編集できる報告項目がありません。
               </div>
             ) : (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-slate-600 mb-0.5">午前 持出</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={editForm.amazon_am_mochidashi ?? ""}
-                      onChange={handleChange("amazon_am_mochidashi")}
-                      className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded"
-                    />
+              <div className="space-y-4">
+                {units.map((u) => (
+                  <div key={u.unitId} className="rounded-lg border border-slate-200">
+                    <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50 rounded-t-lg">
+                      <span className="text-sm font-semibold text-slate-800">{u.unitName}</span>
+                    </div>
+                    <div className="p-4 space-y-4">
+                      {groupFieldsByLabel(u.fields).map((g, gi) => (
+                        <div key={`${u.unitId}-${gi}`}>
+                          {g.label && (
+                            <div className="text-xs font-semibold text-indigo-600 mb-2">{g.label}</div>
+                          )}
+                          <div className="grid grid-cols-2 gap-3">
+                            {g.fields.map((f) => {
+                              const val = values[u.unitId]?.[f.fieldKey] ?? "";
+                              if (f.inputType === "BOOL") {
+                                return (
+                                  <label
+                                    key={f.fieldKey}
+                                    className="flex items-center gap-2 rounded border border-slate-200 px-3 py-2"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={val === "true"}
+                                      onChange={(e) => setVal(u.unitId, f.fieldKey, e.target.checked ? "true" : "false")}
+                                      className="h-4 w-4 accent-slate-800"
+                                    />
+                                    <span className="text-xs text-slate-700">{f.label}</span>
+                                  </label>
+                                );
+                              }
+                              const isInt = f.inputType === "INT";
+                              return (
+                                <div key={f.fieldKey}>
+                                  <label className="block text-xs font-medium text-slate-600 mb-1">{f.label}</label>
+                                  <input
+                                    type={isInt ? "number" : f.inputType === "TIME" ? "time" : "text"}
+                                    inputMode={isInt ? "numeric" : undefined}
+                                    min={isInt ? 0 : undefined}
+                                    placeholder={isInt ? "0" : ""}
+                                    value={val}
+                                    onChange={(e) => setVal(u.unitId, f.fieldKey, e.target.value)}
+                                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded"
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs text-slate-600 mb-0.5">午前 完了</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={editForm.amazon_am_completed ?? ""}
-                      onChange={handleChange("amazon_am_completed")}
-                      className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-slate-600 mb-0.5">午後 持出</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={editForm.amazon_pm_mochidashi ?? ""}
-                      onChange={handleChange("amazon_pm_mochidashi")}
-                      className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-600 mb-0.5">午後 完了</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={editForm.amazon_pm_completed ?? ""}
-                      onChange={handleChange("amazon_pm_completed")}
-                      className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-slate-600 mb-0.5">4便 持出</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={editForm.amazon_4_mochidashi ?? ""}
-                      onChange={handleChange("amazon_4_mochidashi")}
-                      className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-600 mb-0.5">4便 完了</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={editForm.amazon_4_completed ?? ""}
-                      onChange={handleChange("amazon_4_completed")}
-                      className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded"
-                    />
-                  </div>
-                </div>
+                ))}
               </div>
             )}
           </div>
@@ -257,7 +236,7 @@ export default function EditReportModal({
             </button>
             <button
               type="button"
-              onClick={onSave}
+              onClick={() => onSave(units.length ? buildEntries() : undefined)}
               disabled={savingEdit}
               className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50"
             >
@@ -269,4 +248,3 @@ export default function EditReportModal({
     </div>
   );
 }
-

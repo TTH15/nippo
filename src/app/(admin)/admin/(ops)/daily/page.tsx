@@ -22,6 +22,7 @@ import { reportDateDefaultJST } from "@/lib/date";
 import type { SelectOption } from "@/lib/components/CustomSelect";
 import { OtherReportsContent } from "../misc-reports/others/OtherReportsContent";
 import { PendingDriverCard, AllReportCard } from "./ReportCards";
+import type { EditEntryValue } from "./EditReportModal";
 
 const EditReportModal = dynamic(() => import("./EditReportModal"), {
   ssr: false,
@@ -232,17 +233,6 @@ export default function AdminDailyPage() {
     setEditingEntry({ entry, groupDate: r.report_date });
     setEditForm({
       report_date: r.report_date ?? "",
-      takuhaibin_completed: String(r.takuhaibin_completed ?? 0),
-      takuhaibin_returned: String(r.takuhaibin_returned ?? 0),
-      nekopos_completed: String(r.nekopos_completed ?? 0),
-      nekopos_returned: String(r.nekopos_returned ?? 0),
-      carrier: r.carrier || "YAMATO",
-      amazon_am_mochidashi: String(r.amazon_am_mochidashi ?? 0),
-      amazon_am_completed: String(r.amazon_am_completed ?? 0),
-      amazon_pm_mochidashi: String(r.amazon_pm_mochidashi ?? 0),
-      amazon_pm_completed: String(r.amazon_pm_completed ?? 0),
-      amazon_4_mochidashi: String(r.amazon_4_mochidashi ?? 0),
-      amazon_4_completed: String(r.amazon_4_completed ?? 0),
       status: r.approved_at
         ? "approved"
         : r.rejected_at
@@ -255,7 +245,7 @@ export default function AdminDailyPage() {
     setProxyTarget({ driverId: driver.id, driverName: getDisplayName(driver), date });
   };
 
-  const saveEdit = async () => {
+  const saveEdit = async (entries: EditEntryValue[] | undefined) => {
     if (!editingEntry?.entry.report.id) {
       setEditSaveError("日報IDが取得できません。画面を再読み込みしてください。");
       return;
@@ -270,28 +260,19 @@ export default function AdminDailyPage() {
           ? "rejected"
           : "";
       const desiredStatusRaw = editForm.status as string | undefined;
+      // 未選択(変更しない)なら元のステータスを維持。PUTで承認はリセットされるため後で再適用する。
       const desiredStatus =
         desiredStatusRaw === "approved" || desiredStatusRaw === "rejected"
           ? desiredStatusRaw
           : originalStatus;
 
-      const carrier = editForm.carrier === "AMAZON" ? "AMAZON" : "YAMATO";
       const reportDate = (editForm.report_date ?? "").trim();
       await apiFetch(`/api/admin/daily/reports/${editingEntry.entry.report.id}`, {
         method: "PUT",
         body: JSON.stringify({
           report_date: /^\d{4}-\d{2}-\d{2}$/.test(reportDate) ? reportDate : undefined,
-          takuhaibin_completed: Number(editForm.takuhaibin_completed) || 0,
-          takuhaibin_returned: Number(editForm.takuhaibin_returned) || 0,
-          nekopos_completed: Number(editForm.nekopos_completed) || 0,
-          nekopos_returned: Number(editForm.nekopos_returned) || 0,
-          carrier,
-          amazon_am_mochidashi: Number(editForm.amazon_am_mochidashi) || 0,
-          amazon_am_completed: Number(editForm.amazon_am_completed) || 0,
-          amazon_pm_mochidashi: Number(editForm.amazon_pm_mochidashi) || 0,
-          amazon_pm_completed: Number(editForm.amazon_pm_completed) || 0,
-          amazon_4_mochidashi: Number(editForm.amazon_4_mochidashi) || 0,
-          amazon_4_completed: Number(editForm.amazon_4_completed) || 0,
+          // 動的フォームの値（report_entries 縦持ち）。undefined のときは項目を変更しない。
+          entries,
         }),
       });
 
@@ -300,12 +281,13 @@ export default function AdminDailyPage() {
           ? reportDate
           : originalReport.report_date;
 
-      if (desiredStatus !== originalStatus && desiredStatus === "approved") {
+      // 編集でヘッダの承認状態はリセットされるため、選択ステータスを必ず再適用する。
+      if (desiredStatus === "approved") {
         await apiFetch("/api/admin/daily/approve", {
           method: "POST",
           body: JSON.stringify({ driverId: editingEntry.entry.driver.id, date: effectiveDate }),
         });
-      } else if (desiredStatus !== originalStatus && desiredStatus === "rejected") {
+      } else if (desiredStatus === "rejected") {
         await apiFetch("/api/admin/daily/reject", {
           method: "POST",
           body: JSON.stringify({ driverId: editingEntry.entry.driver.id, date: effectiveDate }),
