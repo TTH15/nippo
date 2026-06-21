@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
-import { countLicenseAlertDrivers, type LicenseDriver } from "@/core/logic/license";
+import { countLicenseAlertDrivers, type LicenseDriver } from "@repo/core/logic/license";
 
 export const dynamic = "force-dynamic";
 

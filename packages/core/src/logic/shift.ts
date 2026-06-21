@@ -1,7 +1,7 @@
 // 希望休（シフト提出）のドメインロジック（純粋・プラットフォーム非依存）。
 // React state や DOM に依存せず、プレーンなデータ（requests / off マップ / periods）を
 // 受け取り新しい値を返す。UI 側は setState ラッパとして薄く呼ぶだけにする。
-import type { ShiftRequest, PeriodInfo } from "@/core/types";
+import type { ShiftRequest, PeriodInfo } from "../types";
 
 /** 全休を表すキー（便ごとではなくその日まるごと休む）。 */
 export const ALL = "ALL";

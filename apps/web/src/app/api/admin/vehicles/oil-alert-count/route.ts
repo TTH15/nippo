@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
-import { countOilAlertVehicles, type OilVehicle } from "@/core/logic/oilChange";
+import { countOilAlertVehicles, type OilVehicle } from "@repo/core/logic/oilChange";
 
 export const dynamic = "force-dynamic";
 

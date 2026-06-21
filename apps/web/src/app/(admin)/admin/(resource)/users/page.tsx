@@ -11,7 +11,7 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite } from "@/lib/authz";
-import { computeLicenseLevel } from "@/core/logic/license";
+import { computeLicenseLevel } from "@repo/core/logic/license";
 import { Button } from "@/lib/ui/button";
 import { faChevronRight, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";

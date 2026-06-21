@@ -11,7 +11,7 @@ import {
   sumRows,
   invoiceLines,
 } from "./reward";
-import type { RewardLogDetail, RewardsSummary, MyInvoice } from "@/core/types";
+import type { RewardLogDetail, RewardsSummary, MyInvoice } from "../types";
 
 function log(log_date: string, amount: number, content = "", type_name = ""): RewardLogDetail {
   return { log_date, amount, content, type_name };

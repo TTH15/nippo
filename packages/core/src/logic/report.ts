@@ -1,6 +1,6 @@
 // 諸報告（オイル交換・修理・経費等）フォームの純粋ロジック（プラットフォーム非依存）。
 // フィールドの中身検証は server/reportKinds/fields の validateAnswers を共用する。
-import type { AnswerAttachment } from "@/server/reportKinds/fields";
+import type { AnswerAttachment } from "../types/reportFields";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;

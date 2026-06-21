@@ -15,8 +15,8 @@ import type {
   InvoiceAttachment,
   RewardsSummary,
   MyInvoice,
-} from "@/core/types";
-import { nowYearMonth1, formatYearMonth, formatMonthDayJP } from "@/core/logic/calendar";
+} from "@repo/core/types";
+import { nowYearMonth1, formatYearMonth, formatMonthDayJP } from "@repo/core/logic/calendar";
 import {
   isUploadedDocument,
   mergedDetails,
@@ -26,7 +26,7 @@ import {
   sumRows,
   parseRow,
   invoiceLines,
-} from "@/core/logic/reward";
+} from "@repo/core/logic/reward";
 
 export default function MeRewardsPage() {
   const [rewardMonth, setRewardMonth] = useState(nowYearMonth1);

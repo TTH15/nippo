@@ -12,7 +12,7 @@ import {
   buildOffEntries,
   type OffMap,
 } from "./shift";
-import type { ShiftRequest, PeriodInfo } from "@/core/types";
+import type { ShiftRequest, PeriodInfo } from "../types";
 
 function req(date: string, slot_id: string | null): ShiftRequest {
   return { id: `${date}#${slot_id ?? ALL}`, driver_id: "d1", request_date: date, request_type: "off", slot_id };

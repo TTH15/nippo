@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { digitsOnly, validatePinChange, buildProfileEntries } from "./profile";
-import type { Profile } from "@/core/types";
+import type { Profile } from "../types";
 
 describe("digitsOnly", () => {
   it("数字以外を除去", () => {

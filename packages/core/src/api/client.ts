@@ -2,8 +2,8 @@
 // fetch / Blob は Web・RN 双方に存在するため本体は共有できる。
 // 唯一の差分はベースURL: Web は相対パス（同一オリジン）、RN は絶対オリジンが
 // 必要なため configureApi({ baseUrl }) で注入する。
-// 認証トークンと 401 遷移は @/core/auth に委譲する。
-import { getToken, handleUnauthorized } from "@/core/auth";
+// 認証トークンと 401 遷移は ../auth に委譲する。
+import { getToken, handleUnauthorized } from "../auth";
 
 // 既定は空文字＝相対パス（Web の従来挙動）。RN は起動時に絶対URLを注入する。
 let baseUrl = "";
@@ -20,7 +20,7 @@ export function getApiBaseUrl(): string {
 
 /**
  * 認証付き fetch ラッパ。
- * - Bearer トークンを自動付与（@/core/auth の getToken）。
+ * - Bearer トークンを自動付与（../auth の getToken）。
  * - 401 は handleUnauthorized()（保存値破棄＋ログイン遷移）を発火し throw。
  * - text/csv は Blob、それ以外は JSON を返す。
  * - path が "http" 始まりなら baseUrl を付けずそのまま使う。

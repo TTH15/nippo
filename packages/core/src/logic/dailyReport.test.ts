@@ -9,7 +9,7 @@ import {
   buildVehicleCards,
   groupFieldsByLabel,
 } from "./dailyReport";
-import type { ShiftForm, FieldDef, SubmitVehicle, ValueMap } from "@/core/types";
+import type { ShiftForm, FieldDef, SubmitVehicle, ValueMap } from "../types";
 
 function field(fieldKey: string, inputType: FieldDef["inputType"], groupLabel: string | null = null): FieldDef {
   return { fieldKey, label: fieldKey, inputType, groupLabel, required: false };

@@ -8,14 +8,14 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark, faLock } from "@fortawesome/free-solid-svg-icons";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
-import type { ShiftRequest, DriverSlot, PeriodInfo, MeShift, ShiftVehicle as MeShiftVehicle } from "@/core/types";
+import type { ShiftRequest, DriverSlot, PeriodInfo, MeShift, ShiftVehicle as MeShiftVehicle } from "@repo/core/types";
 import {
   getDaysInMonth,
   monthDateRange,
   toLocalDateStr,
   nowYearMonth0,
   nowYearMonth1,
-} from "@/core/logic/calendar";
+} from "@repo/core/logic/calendar";
 import {
   ALL,
   requestsToOffMap,
@@ -26,7 +26,7 @@ import {
   toggleOffKey as toggleOffKeyCore,
   hasOffChanges,
   buildOffEntries,
-} from "@/core/logic/shift";
+} from "@repo/core/logic/shift";
 
 type SubTabId = "request" | "view";
 
@@ -113,7 +113,7 @@ export default function ShiftsPage() {
     await mutateReq();
   };
 
-  // 締切判定・希望休ロジックは @/core/logic/shift（純粋関数）に集約。
+  // 締切判定・希望休ロジックは @repo/core/logic/shift（純粋関数）に集約。
   // periods/off を引数で渡して呼ぶ（下記の dayOff 系は薄いクロージャで状態を束縛）。
 
   // 確認タブ: 自分のシフトを SWR キャッシュ（月範囲キー）。表示専用。
@@ -151,7 +151,7 @@ export default function ShiftsPage() {
     });
   };
 
-  // 状態(off)を束縛する薄いクロージャ。実体は @/core/logic/shift。
+  // 状態(off)を束縛する薄いクロージャ。実体は @repo/core/logic/shift。
   const dayOff = (dateStr: string): Set<string> => dayOffCore(off, dateStr);
   const isWholeDayOff = (dateStr: string) => isWholeDayOffCore(off, dateStr);
   const hasAnyOff = (dateStr: string) => hasAnyOffCore(off, dateStr);

@@ -1,40 +1,20 @@
 // ============================================================
 // 諸報告フォームビルダーのフィールド定義・バリデーション。
 // サーバ（信頼境界）とクライアント（即時UX）で共有する純TS（ランタイム依存なし）。
+// 型の正準は @repo/core/types（Web/RN 共有）。ここでは import して再export し、
+// 既存の "@/server/reportKinds/fields" 経由の型 import を無改変で維持する。
 // ============================================================
 
-export type FieldType =
-  | "short_text"
-  | "long_text"
-  | "number"
-  | "select"
-  | "multiselect"
-  | "date"
-  | "time"
-  | "bool"
-  | "file";
+import type {
+  FieldType,
+  FieldRole,
+  FieldOption,
+  ReportField,
+  VehicleMode,
+  AnswerAttachment,
+} from "@repo/core/types";
 
-export type FieldRole = "none" | "odometer" | "amount";
-
-export type FieldOption = { value: string; label: string };
-
-export type ReportField = {
-  /** 種別内で安定なID（answers のキー）。 */
-  id: string;
-  type: FieldType;
-  label: string;
-  required: boolean;
-  placeholder?: string;
-  maxLen?: number; // short_text/long_text
-  min?: number; // number
-  max?: number; // number
-  options?: FieldOption[]; // select/multiselect
-  role?: FieldRole; // number のみ。capability 束縛用
-  maxFileBytes?: number; // file
-  acceptMime?: string[]; // file
-};
-
-export type VehicleMode = "required" | "optional" | "none";
+export type { FieldType, FieldRole, FieldOption, ReportField, VehicleMode, AnswerAttachment };
 
 export const FIELD_TYPES: FieldType[] = [
   "short_text",
@@ -106,9 +86,7 @@ export function normalizeFields(raw: unknown): ReportField[] {
   return out;
 }
 
-// --- 添付（answers とは別に保持） ---
-export type AnswerAttachment = { fieldId: string; path: string; name: string; mime: string; size: number };
-
+// --- 添付（answers とは別に保持。型は @repo/core/types より） ---
 export function normalizeAttachments(raw: unknown): AnswerAttachment[] {
   if (!Array.isArray(raw)) return [];
   const out: AnswerAttachment[] = [];

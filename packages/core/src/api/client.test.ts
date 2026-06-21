@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { apiFetch, configureApi, getApiBaseUrl } from "./index";
-import { configureAuth, setAuth } from "@/core/auth";
-import type { KeyValueStorage, StoredDriver } from "@/core/auth";
+import { configureAuth, setAuth } from "../auth";
+import type { KeyValueStorage, StoredDriver } from "../auth";
 
 function memoryStorage(): KeyValueStorage {
   const m = new Map<string, string>();

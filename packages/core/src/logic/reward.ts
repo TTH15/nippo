@@ -6,7 +6,7 @@ import type {
   MyInvoice,
   InvoiceRow,
   InvoiceAttachment,
-} from "@/core/types";
+} from "../types";
 import { formatMonthDayJP } from "./calendar";
 
 /** 金額を符号付き「N円」表記にする（負値は -N円、3桁区切り）。 */

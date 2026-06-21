@@ -11,11 +11,11 @@ import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 import { TeamPointsCard } from "@/lib/components/TeamPointsCard";
 import { DynamicField, ReportFileInput, type DynamicFieldValue } from "@/lib/components/report/DynamicField";
 import { validateAnswers, type AnswerAttachment } from "@/server/reportKinds/fields";
-import type { Profile, VehiclePlateData as Vehicle, ReportKindOption } from "@/core/types";
-import { toLocalDateStr, toLocalTimeStr } from "@/core/logic/calendar";
-import { dedupeVehiclesById, excludeVehicleId, resolvePreferredVehicleId } from "@/core/logic/vehicle";
-import { validatePinChange, digitsOnly, buildProfileEntries } from "@/core/logic/profile";
-import { isValidReportDateTime, countAttachmentsByField } from "@/core/logic/report";
+import type { Profile, VehiclePlateData as Vehicle, ReportKindOption } from "@repo/core/types";
+import { toLocalDateStr, toLocalTimeStr } from "@repo/core/logic/calendar";
+import { dedupeVehiclesById, excludeVehicleId, resolvePreferredVehicleId } from "@repo/core/logic/vehicle";
+import { validatePinChange, digitsOnly, buildProfileEntries } from "@repo/core/logic/profile";
+import { isValidReportDateTime, countAttachmentsByField } from "@repo/core/logic/report";
 
 export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
   const searchParams = useSearchParams();

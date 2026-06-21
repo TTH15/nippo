@@ -6,7 +6,7 @@ import type {
   FieldDef,
   ReportItem,
   SubmitVehicle,
-} from "@/core/types";
+} from "../types";
 
 /** その日のシフト群から、既存reportの値で初期化した入力マップを構築（未入力は ""）。 */
 export function buildInitialValues(shifts: ShiftForm[]): ValueMap {

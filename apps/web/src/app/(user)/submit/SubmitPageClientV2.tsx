@@ -17,9 +17,9 @@ import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 import { evaluateMeter } from "./submitFormUtils";
-import type { DriverIdentity, SubmitVehicle as Vehicle, UnitDef, ShiftForm, ValueMap } from "@/core/types";
-import { formatMonthDayJP } from "@/core/logic/calendar";
-import { computeOilStatus, type OilLevel } from "@/core/logic/oilChange";
+import type { DriverIdentity, SubmitVehicle as Vehicle, UnitDef, ShiftForm, ValueMap } from "@repo/core/types";
+import { formatMonthDayJP } from "@repo/core/logic/calendar";
+import { computeOilStatus, type OilLevel } from "@repo/core/logic/oilChange";
 import {
   buildInitialValues,
   parseMeter,
@@ -29,14 +29,14 @@ import {
   buildReportItems,
   buildVehicleCards,
   groupFieldsByLabel,
-} from "@/core/logic/dailyReport";
+} from "@repo/core/logic/dailyReport";
 
 // ============================================================
 // 動的日報フォーム（新モデル）。
 //   その日のシフト(=コース)ごとに、キャリア配下の unit と報告項目を動的描画。
 //   複数シフト（昼ヤマト＋夜Amazon等）は複数カードで表示し、まとめて送信。
 //   送信は POST /api/reports/v2（daily_reports_v2 + report_entries）。
-//   ドメインロジックは @/core/logic/dailyReport に集約（純粋・テスト付き）。
+//   ドメインロジックは @repo/core/logic/dailyReport に集約（純粋・テスト付き）。
 // 注: 旧 SubmitPageClient とは別ファイル。ルートは page.tsx で切替。
 // ============================================================
 

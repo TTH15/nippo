@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { isValidReportDateTime, countAttachmentsByField } from "./report";
-import type { AnswerAttachment } from "@/server/reportKinds/fields";
+import type { AnswerAttachment } from "../types/reportFields";
 
 const att = (fieldId: string, path: string): AnswerAttachment =>
   ({ fieldId, path } as AnswerAttachment);

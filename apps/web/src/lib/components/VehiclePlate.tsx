@@ -17,7 +17,7 @@ export function formatPlateNumeric(raw: string): string {
 }
 
 // 型の正準は core/types に集約。後方互換のためここから再エクスポートする。
-import type { VehiclePlateData } from "@/core/types";
+import type { VehiclePlateData } from "@repo/core/types";
 export type { VehiclePlateData };
 
 export function VehiclePlate({

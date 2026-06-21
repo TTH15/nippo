@@ -1,5 +1,5 @@
 // プロフィール表示・PIN変更の純粋ロジック（プラットフォーム非依存）。
-import type { Profile } from "@/core/types";
+import type { Profile } from "../types";
 
 /** 数字以外を取り除く（PIN等の数値入力サニタイズ）。 */
 export function digitsOnly(s: string): string {
