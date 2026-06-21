@@ -1,6 +1,6 @@
 # マルチテナント化 設計叩き台
 
-ステータス: ドラフト（合意前）／最終更新: 2026-06-21
+ステータス: ドラフト（合意形成中）／最終更新: 2026-06-21
 関連方針: `構成A`（クライアントは Next.js API 経由のみ。Supabase直結なし。テナント分離はAPI層で一本化、**RLSは使わない**）
 
 ---
@@ -15,7 +15,7 @@
 - 運営系APIの多くがすでに `.eq("company_code", user.companyCode)` で会社絞り込み済み（例: `admin/users`, `admin/payments`）。
 - `companies` テーブルが存在（`id uuid` / `code text UNIQUE` / `name`）。ただし**他テーブルからのFK参照は無く**、`drivers.company_code` は緩い TEXT 直結。
 
-→ したがって本作業の本質は「**既存テナント概念の完全化・整合化・厳格化**」であり、新しいテナントモデルの発明ではない。
+→ 本作業の本質は「**既存テナント概念の完全化・整合化・厳格化**」。新しいテナントモデルの発明ではない。
 
 ---
 
@@ -23,135 +23,181 @@
 
 | # | ギャップ | リスク |
 |---|---------|--------|
-| G1 | **絞り込みが不徹底**。`courses` / `vehicles` / `shifts` などのクエリに会社フィルタが無い | 2社目を載せた瞬間に他社のコース・車両・シフトが見える/混ざる |
-| G2 | **整合性が無い**。`company_code` は FK 制約のない TEXT。タイプミス・孤児行を防げない | データ不整合、誤った会社への紐付け |
-| G3 | **強制が分散**。各ルートが手書きで `.eq("company_code", ...)`。書き忘れ＝そのルートが素通し | テナント越境漏洩（1か所の書き忘れが事故に直結） |
-| G4 | **会社列を持たない根テーブルがある**（`courses`, `vehicles`, `events`, `submit_screen_config`, 締切設定系 等） | そもそも会社で分けられない |
-| G5 | **共有マスタの境界が未定義**（`carriers`, `units`, `report_kinds` 等は全社共通か会社別か） | 設計が定まらないと移行できない |
-| G6 | **YAMATO/AMAZON のハードコード**が複数ルートに残存 | 会社ごとに扱うキャリアが違うと破綻 |
+| G1 | **絞り込みが不徹底**。`courses`/`vehicles`/`shifts` のクエリに会社フィルタが無い | 2社目で他社データが混ざる |
+| G2 | **整合性が無い**。`company_code` は FK 制約のない TEXT | データ不整合・孤児行 |
+| G3 | **強制が分散**。各ルートが手書きで `.eq(...)`。書き忘れ＝素通し | テナント越境漏洩 |
+| G4 | **会社列を持たない根テーブルがある**（courses/vehicles/events/submit_screen_config/締切系） | 会社で分けられない |
+| G5 | **共有マスタの境界が未定義**（carriers/units/report_kinds 等） | 移行方針が定まらない |
+| G6 | **YAMATO/AMAZON のハードコード**が複数ルートに残存 | 会社別キャリアで破綻 |
 
 ---
 
-## 2. 設計判断（要・合意）
+## 2. テナント識別モデル（確定方針）
 
-### D1. テナントキーをどうするか ★最重要
+「内部キー」と「人が打ち込むコード」を分離する。1つのコードに役割を兼任させない。
 
-| 案 | 内容 | 利点 | 欠点 |
-|----|------|------|------|
-| **A（推奨）** | 既存の `company_code`(TEXT) をテナントキーとして据え置き、`companies` を正式なテナント表に昇格、FK と欠落列追加で「硬く」する | JWT/ログイン/既存クエリをそのまま再利用。最小改修で最速。ロールバック容易 | キーが可変な3文字テキスト。会社増加で改名・衝突リスク |
-| B | `organizations(id uuid)` を導入し、全テーブル・JWT・全クエリを `org_id` UUID へ移行 | 正規・将来安全。テナントIDが不変 | JWT/ログイン/全クエリ/全テーブルに波及。今やると高コスト・高リスク |
+| 役割 | 用途 | 性質 | 例 |
+|---|---|---|---|
+| **org_id（UUID）** | 内部キー。全テーブルのFK、テナント分離はこれで行う | **不変・人に見せない** | `7f3a…` |
+| **join_code（英数6文字）** | ドライバーがアプリで打ち込む**参加用招待コード** | **再生成可能**（漏れたら作り直す） | `K7M2QP` |
+| 表示コード（legacy company_code） | 運営画面で人が会社を識別する表札。既存3文字 `ACE` を退避 | 可変・表示専用 | `ACE` |
 
-**推奨: 案A で進める。** ただし `companies` を `organizations` 相当に整備し、後日 B へ移れる形にしておく。
-3文字コードの脆さ対策として、`companies.code` は**今後の新規会社では生成・一意・長さ拡張**を許容するルールに変更（既存 'ACE' 等はそのまま）。
+- テナント分離が依存するのは **org_id のみ**。ドライバーはUUIDを見ない（打つのは join_code）。
+- join_code は再生成可能。改名・衝突しても内部の org_id 紐付けは壊れない。
+- 実質「内部は UUID 正規化（旧案B）＋人には優しいコードを被せる」形。
 
-> 確認したい点: 当面 A でよいか。それとも最初から org_id(UUID) で正規化（B）したいか。
+### 2-1. ドライバー参加フロー（join_code＋承認）
 
-### D2. テナント列を「直接持つ」か「親経由」か
+```
+1. 会社作成時に org_id(UUID) と join_code(英数6文字) を自動発行
+2. 運営が join_code をドライバーへ配布（LINE等）
+3. ドライバーがアプリで join_code を入力 → org を逆引き
+   → drivers 行を status='pending' で作成し org_id を紐付け
+4. その会社の運営画面に「承認待ち」一覧が出る
+5. 運営が承認 → status='active' で本稼働（却下も可）
+```
 
-原則: **根（ルート）テーブルは会社列を直接持つ。子テーブルは親を辿って決まるので持たない。**
-ただし例外として、**集計・高頻度クエリのテーブルは冗長でも会社列を直接持つ**（JOIN削減・絞り込み安全性のため）。
+- 1社=1つの共有 join_code で十分（ドライバー毎の固有発行は不要）。漏洩時は運営が再生成。
+- **承認必須**（承認なし即有効にはしない）。コードが漏れても勝手に中へ入れない安全策。
 
-- **会社列を直接持つ（ルート）**: `drivers`✓既存, `invoice_addresses`✓既存, `courses`✕追加, `vehicles`✕追加, `events`✕追加, `submit_screen_config`✕追加, 締切設定系✕追加
-- **冗長に直接持つ（集計効率＋安全）**: `daily_reports_v2`, `payrolls`, `sales_log_entries`, `ledger_entries`, `oil_change_reports`
-- **持たない（親経由で決定）**: `driver_identities`/`driver_courses`/`shift_requests`/`report_entries`/`vehicle_*`/`counterparty_monthly_*`/`event_teams`/`event_point_entries` など子テーブル群
+### 2-2. 認可・JWT
 
-### D3. 共有マスタ vs テナント別
+- JWT は「ユーザーの所属org 1つ」だけ持つ。**1ユーザー=1ホーム会社**を基本とする。
+- 会社をまたぐ参照権限は JWT に焼き込まず、クエリ時に後述のグラント表から都度解決（取消が即反映される）。
+
+---
+
+## 3. テナント分離の実装（API層・default-deny、RLSなし）
+
+- `src/server/db/tenant.ts`（新規）に **org_id スコープを必ず付与する薄いラッパ**を用意。各ルートの手書き `.eq` は廃止していく。
+- 既存の一元化済みローダ（`src/server/aggregation/legacyShape.ts` の `loadLegacyDailyRows()`、`loadAggregationData()` 等）に **orgId 引数を必須化**して差し込む（集計の単一通り道）。
+- 「会社スコープ未適用のクエリを書けない/検出できる」状態を目標に、レビュー観点 or 簡易 lint（`from("drivers")` 直書き検出）で担保。
+
+### 3-1. テナント列を直接持つか親経由か
+
+- **根（ルート）テーブルは org_id を直接持つ**: `drivers`✓, `invoice_addresses`✓, `courses`✕追加, `vehicles`(→§5特例), `events`✕追加, `submit_screen_config`✕追加, 締切設定系✕追加
+- **集計・高頻度は冗長でも直接持つ**: `daily_reports_v2`, `payrolls`, `sales_log_entries`, `ledger_entries`, `oil_change_reports`
+- **持たない（親経由で決定）**: `driver_identities`/`driver_courses`/`shift_requests`/`report_entries`/`counterparty_monthly_*`/`event_*` 等の子テーブル
+
+### 3-2. 共有マスタ vs テナント別
 
 | 分類 | テーブル | 方針 |
 |------|---------|------|
-| 全社共通（会社列なし） | `report_kinds`, `sales_log_types`, `unit_fields`, `rate_master` | 共有のまま。会社別の上書きが要るときに「nullable owner列」で後付け |
-| キャリア系（共有＋会社別有効化） | `carriers`, `units`, `shift_request_slots` | マスタは共有。**「どの会社がどのキャリアを使うか」は会社別設定**（中間表 or `companies.enabled_carriers`）で表現 |
-| テナント別（会社列必須） | `drivers`, `courses`, `vehicles`, `invoice_addresses`, `events`, `submit_screen_config`, 締切設定系 | 会社で分離 |
-
-### D4. テナント分離の強制方法（API層・RLSなし）
-
-**default-deny を1か所で強制する**。各ルートの手書き `.eq` は廃止していく。
-
-- `src/server/db/tenant.ts`（新規）に **テナントスコープ付きクエリヘルパー**を用意。例:
-  ```ts
-  // user.companyCode を必ず付与する薄いラッパ
-  export function scoped(supabase, table, user) {
-    return supabase.from(table).eq("company_code", user.companyCode);
-  }
-  ```
-- さらに、`src/server/aggregation/legacyShape.ts` の `loadLegacyDailyRows()` や `loadAggregationData()` など**既存の一元化済みローダに companyCode 引数を必須化**して差し込む（ここが集計の単一通り道）。
-- 「**会社スコープ未適用のクエリを書けない/見つけられる**」状態を目標に、レビュー観点 or 簡易 lint（`from("drivers")` 直書き検出など）で担保。
+| 全社共通（org列なし） | `report_kinds`, `sales_log_types`, `unit_fields`, `rate_master` | 共有。会社別上書きが要る時に nullable owner 列で後付け |
+| キャリア系（共有＋会社別有効化） | `carriers`, `units`, `shift_request_slots` | マスタは共有。「どの会社がどのキャリアを使うか」は `company_carriers` 中間表 |
+| テナント別（org列必須） | `drivers`/`courses`/`vehicles`/`invoice_addresses`/`events`/`submit_screen_config`/締切系 | 会社で分離 |
 
 ---
 
-## 3. 対象テーブルと変更（案Aベース）
+## 4. 会社をまたぐ参照（元請け→下請け）★土台のみ確保・実装は保留
 
-会社列は当面 `company_code text` を追加（将来 org_id 化する場合に備え、`companies.code` への FK を張る）。
+要件が未確定（元請けがアプリを使うか不明／コース名が両社で異なる／下請けは複数元請けにぶら下がる）。**今は作り込まず、土台だけ将来対応可能にする。**
+
+確定した考え方：
+
+- **共有の単位は「会社」ではなく「コース」**。下請けは複数元請けにぶら下がるため、元請けごとに見せるコースが違う。`org_grants`(会社丸ごと)は粗すぎ、`course_shares`(コース単位)が正しい粒度。
+- **消費側のテナント性を切り離す**。中身（コース単位の報告）と届け方を分離：
+  - 元請けが**アプリを使う** → `course_shares` でその運営画面に該当コースの報告だけ表示。
+  - 元請けが**使わない** → トークン付き閲覧リンク or エクスポート（PDF/CSV、ログイン不要・読み取り専用）。
+- **見せる範囲は報告（配送実績）のみ**。給与・個人情報・口座は対象外（scope で遮断）。
+- **コース名不一致**は共有時の任意エイリアスで吸収（仕上げ。後回し）。
+- 実装方式（in-app / 外部リンク）は実需が出てから確定。
+
+**今ロックする土台**: `courses.org_id`、報告がコース×期間で取り出せる構造。これがあれば `course_shares`/エクスポートは後からスキーマ改修なしで追加可。
+
+---
+
+## 5. 車両のグローバル一意化と会社間貸借 ★土台のみ確保
+
+会社をまたぐ車両貸借があるため、車両は org で厳密分割しない特例とする。
+
+- **車両アイデンティティはグローバル一意**：QRは `vehicles.id`(UUID) を指す。会社をまたいでも同じ車両は同じID。
+- **所有と占有を分離**：`vehicles.owner_org_id`（所有者）＋ 貸出記録（**既存 `vehicle_loans` が土台**）で「A社の車両を期間PだけB社へ貸与中」を表現。
+- メーター等は車両に紐づくため、会社をまたいで自動で引き継がれる（=情報の自動反映）。
+- テナント分離は「owner_org_id で管理＋貸与中はサーバー側で借用orgの可視集合に追加」という §4 と同じ"明示的に広げる例外"パターン。
+- **借用側に見せる情報は限定**（運行に必要なメーター/ナンバーのみ。所有者のリース代・財務は不可）。
+
+---
+
+## 6. 対象テーブルと変更（org_idベース）
 
 ```sql
+-- テナント表（既存 companies を昇格 or organizations 新設）
+-- id uuid PK / name / join_code text UNIQUE / display_code text(旧company_code)
+
 -- ルート（直接保持）
-ALTER TABLE courses              ADD COLUMN company_code text;
-ALTER TABLE vehicles             ADD COLUMN company_code text;
-ALTER TABLE events               ADD COLUMN company_code text;
-ALTER TABLE submit_screen_config ADD COLUMN company_code text;
-ALTER TABLE shift_request_deadline_config    ADD COLUMN company_code text;
-ALTER TABLE shift_request_deadline_overrides ADD COLUMN company_code text;
-ALTER TABLE shift_request_deadline_rules     ADD COLUMN company_code text;
--- drivers, invoice_addresses は既存
+ALTER TABLE courses              ADD COLUMN org_id uuid;
+ALTER TABLE events               ADD COLUMN org_id uuid;
+ALTER TABLE submit_screen_config ADD COLUMN org_id uuid;
+ALTER TABLE shift_request_deadline_config    ADD COLUMN org_id uuid;
+ALTER TABLE shift_request_deadline_overrides ADD COLUMN org_id uuid;
+ALTER TABLE shift_request_deadline_rules     ADD COLUMN org_id uuid;
+-- drivers, invoice_addresses は company_code→org_id へ移行
 
 -- 集計・高頻度（冗長保持）
-ALTER TABLE daily_reports_v2  ADD COLUMN company_code text;
-ALTER TABLE payrolls          ADD COLUMN company_code text;
-ALTER TABLE sales_log_entries ADD COLUMN company_code text;
-ALTER TABLE ledger_entries    ADD COLUMN company_code text;
-ALTER TABLE oil_change_reports ADD COLUMN company_code text;
+ALTER TABLE daily_reports_v2  ADD COLUMN org_id uuid;
+ALTER TABLE payrolls          ADD COLUMN org_id uuid;
+ALTER TABLE sales_log_entries ADD COLUMN org_id uuid;
+ALTER TABLE ledger_entries    ADD COLUMN org_id uuid;
+ALTER TABLE oil_change_reports ADD COLUMN org_id uuid;
 
--- キャリア有効化（会社別）: 中間表
+-- 車両: 所有者
+ALTER TABLE vehicles ADD COLUMN owner_org_id uuid;
+
+-- ドライバー参加フロー
+ALTER TABLE drivers ADD COLUMN status text NOT NULL DEFAULT 'active'; -- pending/active/rejected
+
+-- キャリア有効化（会社別）
 CREATE TABLE company_carriers (
-  company_code text NOT NULL,
-  carrier_id   uuid NOT NULL REFERENCES carriers(id),
-  PRIMARY KEY (company_code, carrier_id)
+  org_id uuid NOT NULL, carrier_id uuid NOT NULL REFERENCES carriers(id),
+  PRIMARY KEY (org_id, carrier_id)
 );
+
+-- 【保留・土台のみ】会社をまたぐコース共有（実装は実需が出てから）
+-- CREATE TABLE course_shares (course_id uuid, consumer_org_id uuid NULL, scope text, ...);
 ```
 
-※ 子テーブルは追加しない（親経由で決定）。
+子テーブルは追加しない（親経由で決定）。
 
 ---
 
-## 4. 移行・バックフィル手順（段階的・無停止寄り）
+## 7. 移行・バックフィル手順（段階的）
 
-現在は実質1社運用なので、既存データは「現会社コード」で一括バックフィルできる。
+現在は実質1社運用。既存データは現会社の org_id で一括バックフィルできる。
 
-- **Phase 0 — 正式化**: `companies` を正式テナント表として整備（必要なら `organizations` へ改称）。現運用会社の行を確認/シード。
-- **Phase 1 — 列追加（nullable）**: §3 の列を nullable で追加。既存全行を現会社コードで `UPDATE` バックフィル。インデックス `(company_code, ...)` 付与。
-  - 例: `UPDATE courses SET company_code = 'ACE' WHERE company_code IS NULL;`
-- **Phase 2 — 強制の一元化**: §2-D4 のヘルパー/ローダ改修を入れ、**全ルートを会社スコープ経由に置換**。`courses`/`vehicles`/`shifts` 等の未絞り込みクエリ（G1）を潰す。手書き `.eq` を撤去。
-- **Phase 3 — 制約強化**: 列を `NOT NULL` 化、`company_code` に `companies.code` への FK を付与（G2 解消）。
-- **Phase 4 — ハードコード解消**: YAMATO/AMAZON 分岐（G6）を `carriers` + `company_carriers` 駆動の動的処理へ。運営日報の固定表示（`admin-daily-legacy-display` 参照）も会社別動的化。
-- **Phase 5 — 隔離テスト**: テスト用2社目を作成し、A社ログインでB社データが一切見えないことを自動テストで確認（テナント越境テストを CI に追加）。
+- **Phase 0 — 正式化**: `companies`→`organizations` 整備（id/name/join_code/display_code）。現運用会社の行をシード、join_code 発行。
+- **Phase 1 — 列追加（nullable）＋バックフィル**: §6 の org_id 列を nullable 追加、既存全行を現 org_id で UPDATE。`(org_id, …)` インデックス付与。
+- **Phase 2 — 強制の一元化**: `tenant.ts` ＋ 既存ローダ改修で全ルートを org_id スコープ経由に置換。G1 の未絞り込みクエリを潰す。手書き `.eq` 撤去。
+- **Phase 3 — 制約強化**: org_id を NOT NULL 化、FK 付与（G2 解消）。
+- **Phase 4 — ハードコード解消**: YAMATO/AMAZON 分岐（G6）を `carriers`＋`company_carriers` 駆動へ。運営日報の固定表示も会社別動的化（`admin-daily-legacy-display` 参照）。
+- **Phase 5 — 参加フロー**: join_code 入力API・承認/却下API・`status` 運用を実装。
+- **Phase 6 — 隔離テスト**: 2社目を作り、A社ログインでB社データが一切見えないことを Vitest で自動検証。
 
-各 Phase は独立リリース可能。Phase 1→2 の間はデータが入って未強制の状態なので、**Phase 2 完了までは2社目を本番投入しない**こと。
-
----
-
-## 5. 認可・JWT 改修ポイント
-
-- JWT: `companyCode` は**既に入っている**ため、案Aなら**改修不要**。案Bを選ぶ場合のみ `org_id` 追加が必要（`jwt.ts` / `login/route.ts` の2か所）。
-- `requireAuth()`（`src/server/auth/index.ts`）: ロール検証は現状維持。返す `user.companyCode` をテナントスコープの単一の真実とする。
-- 追加で検討: 1ユーザーが複数会社に属する将来要件があるか（運営代行など）。あるなら JWT に「現在選択中の会社」を持たせる設計が要る。**当面は1ユーザー=1会社の前提**で進める。
-
-> 確認したい点: 1ユーザーが複数会社にまたがる運用は当面無い、で良いか。
+各 Phase は独立リリース可。**Phase 2 完了まで2社目を本番投入しない**こと。
 
 ---
 
-## 6. 未確定・要確認リスト
+## 8. 保留（実需が出てから・土台は確保済み）
 
-1. **D1**: テナントキーは案A（company_code据え置き）でよいか／案B（org_id UUID 正規化）にするか。
-2. **D3**: `carriers`/`units` は「共有マスタ＋会社別有効化」方針でよいか。
-3. **§5**: 1ユーザー=1会社の前提でよいか（複数会社所属は当面無し）。
-4. 既存の `companies` 行は現運用の1社のみか。バックフィル時に割り当てるコード値の確定。
-5. 旧 `daily_reports`(v1) は今も多くのクエリで直接参照されているか。会社列追加の対象に含めるか。
+- **真の二重所属**（1ドライバーが複数会社で独立稼働）: 当面は 1ユーザー=1ホーム会社。`driver_identities`(2スロット) で部分対応しつつ、grant で表現しきれない実例が出たら多対多へ拡張。
+- **元請け→下請けのコース共有**（§4）: `course_shares`／外部エクスポート／コース別名。
+- **車両の会社間貸借UX**（§5）: 借用org可視化・スコープ絞り。
+- **company_code→org_id の完全廃止**: 当面 display_code として共存。
 
 ---
 
-## 7. 次アクション（合意後）
+## 9. 未確定・要確認
 
-1. 上記 D1〜D3 と §6 を確定。
-2. Phase 0/1 のマイグレーション（列追加＋バックフィル＋インデックス）を作成。
+1. `carriers`/`units` は「共有マスタ＋会社別有効化」でよいか。
+2. 既存 `companies` 行は現運用1社のみか。バックフィル時の org_id 確定。
+3. 旧 `daily_reports`(v1) は今も直接参照が多いか。org_id 追加対象に含めるか。
+4. ドライバーの `status` 既定値: 既存ドライバーは 'active' で移行、新規参加のみ 'pending'。
+
+---
+
+## 10. 次アクション（合意後）
+
+1. §9 を確定。
+2. Phase 0/1 マイグレーション（organizations整備＋org_id列＋バックフィル＋インデックス）作成。
 3. `src/server/db/tenant.ts` ＋ 既存ローダ改修でスコープ一元化（Phase 2）。
 4. テナント越境テストを Vitest に追加（`testing-suite` 参照）。

@@ -161,6 +161,14 @@ export default function AdminDailyPage() {
   const pendingApi = useApi<{ days: DaySummary[] }>(pendingKey);
   const allApi = useApi<{ groups: Group[] }>(allKey);
 
+  // 上部タブ（日報/その他の報告）の要対応件数。タブに関係なく常に取得する。
+  const dailyUnreadApi = useApi<{ unreadCount: number }>("/api/admin/daily/unread-count");
+  const miscUnreadApi = useApi<{ unreadCount: number }>(
+    "/api/admin/misc-reports/oil-change/unread-count",
+  );
+  const dailyActionableCount = dailyUnreadApi.data?.unreadCount ?? 0;
+  const miscActionableCount = miscUnreadApi.data?.unreadCount ?? 0;
+
   // 取得結果を既存 state に同期する（楽観更新の setGroups を温存するため state は維持）。
   useEffect(() => {
     if (pendingApi.data) {
@@ -196,9 +204,12 @@ export default function AdminDailyPage() {
 
   // 書き込み後の再取得（旧 load の代替）。range はキーから導出するため引数では無視。
   const load = useCallback(
-    (targetTab: Tab, _range?: DateRangeValue): Promise<unknown> =>
-      targetTab === "pending" ? pendingApi.mutate() : allApi.mutate(),
-    [pendingApi, allApi],
+    (targetTab: Tab, _range?: DateRangeValue): Promise<unknown> => {
+      // 日報の承認/却下/代理入力/編集後はタブの要対応件数も更新
+      void dailyUnreadApi.mutate();
+      return targetTab === "pending" ? pendingApi.mutate() : allApi.mutate();
+    },
+    [pendingApi, allApi, dailyUnreadApi],
   );
 
   const handleApprove = async (e: Entry, groupDate: string) => {
@@ -326,15 +337,27 @@ export default function AdminDailyPage() {
   return (
     <AdminLayout>
       <div className="mb-4 flex gap-6 border-b border-slate-200">
-        <button type="button" onClick={() => setReportTab("daily")} className={`relative pb-2.5 text-sm font-medium ${reportTab === "daily" ? "text-blue-600" : "text-slate-600 hover:text-slate-900"}`}>
-          日報{reportTab === "daily" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />}
+        <button type="button" onClick={() => setReportTab("daily")} className={`relative pb-2.5 text-sm font-medium inline-flex items-center gap-1.5 ${reportTab === "daily" ? "text-blue-600" : "text-slate-600 hover:text-slate-900"}`}>
+          日報
+          {dailyActionableCount > 0 && (
+            <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold leading-none tabular-nums">
+              {dailyActionableCount}
+            </span>
+          )}
+          {reportTab === "daily" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />}
         </button>
-        <button type="button" onClick={() => setReportTab("other")} className={`relative pb-2.5 text-sm font-medium ${reportTab === "other" ? "text-blue-600" : "text-slate-600 hover:text-slate-900"}`}>
-          その他の報告{reportTab === "other" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />}
+        <button type="button" onClick={() => setReportTab("other")} className={`relative pb-2.5 text-sm font-medium inline-flex items-center gap-1.5 ${reportTab === "other" ? "text-blue-600" : "text-slate-600 hover:text-slate-900"}`}>
+          その他の報告
+          {miscActionableCount > 0 && (
+            <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold leading-none tabular-nums">
+              {miscActionableCount}
+            </span>
+          )}
+          {reportTab === "other" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />}
         </button>
       </div>
       {reportTab === "other" ? (
-        <OtherReportsContent />
+        <OtherReportsContent onMutated={() => void miscUnreadApi.mutate()} />
       ) : (
       <>
       <div className="w-full">

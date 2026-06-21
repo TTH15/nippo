@@ -96,7 +96,7 @@ function ReportAnswers({ report, fields }: { report: MiscReport; fields: ReportF
   );
 }
 
-export function OtherReportsContent() {
+export function OtherReportsContent({ onMutated }: { onMutated?: () => void } = {}) {
   const [tab, setTab] = useState<"pending" | "approved">("pending");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -158,6 +158,7 @@ export function OtherReportsContent() {
           entries: page.entries.filter((e) => e.report.id !== id),
         }));
       }, { revalidate: false });
+      onMutated?.(); // 親タブの要対応件数を更新
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : "操作に失敗しました");
     }
@@ -243,20 +244,20 @@ export function OtherReportsContent() {
                   {entries.map(({ driver, report }) => {
                     return (
                     <tr key={report.id} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-3 px-4 font-medium align-top">{getDisplayName(driver)}</td>
-                      <td className="py-3 px-3 text-sm align-top">{kindLabel(report.report_kind)}</td>
-                      <td className="py-3 px-3 tabular-nums align-top">{report.report_date} {report.report_time}</td>
-                      <td className="py-3 px-3 text-center align-top">
+                      <td className="py-3 px-4 font-medium align-middle">{getDisplayName(driver)}</td>
+                      <td className="py-3 px-3 text-sm align-middle">{kindLabel(report.report_kind)}</td>
+                      <td className="py-3 px-3 tabular-nums align-middle">{report.report_date} {report.report_time}</td>
+                      <td className="py-3 px-3 text-center align-middle">
                         {report.vehicles ? (
                           <VehiclePlate vehicle={report.vehicles} compact className="max-w-[150px] mx-auto" />
                         ) : (
                           <span className="text-slate-400 text-xs">—</span>
                         )}
                       </td>
-                      <td className="py-3 px-3 text-slate-700 max-w-[320px] align-top">
+                      <td className="py-3 px-3 text-slate-700 max-w-[320px] align-middle">
                         <ReportAnswers report={report} fields={kindByKey.get(report.report_kind ?? "")?.fields ?? []} />
                       </td>
-                      <td className="py-3 px-3 text-center align-top">
+                      <td className="py-3 px-3 text-center align-middle">
                         {tab === "approved" ? (
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
                             承認済み
@@ -282,7 +283,7 @@ export function OtherReportsContent() {
                           <span className="text-slate-400 text-xs">未承認</span>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-right text-slate-500 tabular-nums whitespace-nowrap align-top">
+                      <td className="py-3 px-4 text-right text-slate-500 tabular-nums whitespace-nowrap align-middle">
                         <div>{fmtDateTime(report.submitted_at)}</div>
                         {tab === "approved" && report.approved_at && (
                           <div className="text-[11px] text-emerald-600">承認 {fmtDateTime(report.approved_at)}</div>
