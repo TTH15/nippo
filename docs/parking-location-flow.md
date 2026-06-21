@@ -36,21 +36,30 @@
 
 ## 3. トリガー（いつ記録するか）
 
-- **返却（チェックアウト）シーケンスの最終ステップ**として記録（`vehicle-inspection-flow.md` §4）。稼働後点検→オドメーター→駐車位置→運営通知、の流れに統合。これによりチェックアウト必須ゲートで**送信忘れを防ぐ**。
+- **返却（チェックアウト）シーケンスの最終ステップ**として記録（`vehicle-session-flow.md` §3）。稼働後点検→オドメーター→駐車位置→運営通知、の流れに統合。これによりチェックアウト必須ゲートで**送信忘れを防ぐ**。
 - **単独クイックアクション**も併設：「ここに停めた」を即記録できる導線。
 - **org設定で必須/任意**を切替（会社により運用が違う）。
-- 返却完了は**車両QR（1車両=1QR=vehicles.id、`vehicle-inspection-flow.md` §4-1）**スキャンで確定。位置は**GPS＋写真**（屋内精度は写真/メモで補完）。場所QR/鍵ボックスで物理強制・屋内精度が欲しい会社は任意アドオン。
+- 返却完了は**車両QR（1車両=1QR=vehicles.id、`vehicle-session-flow.md` §8）**スキャンで確定。位置は**GPS＋写真**（屋内精度は写真/メモで補完）。場所QR/鍵ボックスで物理強制・屋内精度が欲しい会社は任意アドオン。
 
 ---
 
 ## 4. データモデル
 
 ```sql
+-- org所有の名前付き駐車地点ライブラリ（停めた人/運営が追加、org内で再利用）
+CREATE TABLE org_parking_places (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL,
+  name text NOT NULL,              -- 「〇〇駐車場」
+  lat double precision, lng double precision,
+  added_by uuid, created_at timestamptz DEFAULT now()
+);
 CREATE TABLE vehicle_parking_locations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   vehicle_id uuid NOT NULL REFERENCES vehicles(id),
   org_id uuid NOT NULL,            -- 駐車時に使用していたorg（貸与中は借用org）
   recorded_by uuid,                -- membership（drivers行）
+  place_id uuid REFERENCES org_parking_places(id),  -- 名前付き地点（任意）
   lat double precision, lng double precision, accuracy double precision,
   photo_path text, note text,
   recorded_at timestamptz NOT NULL DEFAULT now()
@@ -75,19 +84,16 @@ CREATE INDEX ON vehicle_parking_locations (vehicle_id, recorded_at DESC);
 
 ## 6. 通知連携
 
-- 翌日アサイン通知は、割当車両の**最新 parking record** を引いて「車は××に停まっています」を生成。
-- 表示は2案（§10で確定）:
-  - **A. 逆ジオコーディングで住所文字列**（「〇〇町付近」）→ 外部API（Google Geocoding等）＝**追加コスト**。
-  - **B. 地図ピンへのリンク＋写真**（座標→地図URL、写真は短命署名URL）→ 外部ジオコーディング不要・低コスト。
-- 記録が無い/古い場合は **degrade**（位置行を省く or `recorded_at` を併記して鮮度を示す）。
+- 翌日アサイン通知は、割当車両の**最新 parking record** を引いて「車は〇〇駐車場に停まっています」を生成。
+- **逆ジオコーディングは使わない（決定）**。代わりに **org所有の名前付き駐車地点（`org_parking_places`）** を使う：停めた人 or 運営が「〇〇駐車場」等の名前を付けて保存し、org内で再利用（地点ライブラリが育つ）。通知は地点名を表示。
+- 地図ピン＋写真も併用可（座標→地図、写真は短命署名URL）。記録が無い/古い場合は degrade（`recorded_at` 併記で鮮度表示）。
 
 ---
 
 ## 7. 運営の地図ビュー
 
-- 自社車両の**最新位置を地図にピン表示**（静的・最新スナップショット。ライブ追跡ではない）。
-- 各ピンに `recorded_at`（鮮度）・写真・記録者。
-- 地図SDK（コスト・キー管理）を使うか、軽量に座標リスト＋外部地図リンクで済ますかは§10。
+- 自社車両の**最新位置を地図にピン表示**（静的・最新スナップショット。ライブ追跡ではない）。各ピンに地点名・`recorded_at`（鮮度）・写真・記録者。
+- **地図UIデータ（地図SDK）は購入が必要な外部依存**（コスト・キー管理）。地点名は `org_parking_places` から出すため逆ジオコーディングは不要。
 
 ---
 
@@ -116,8 +122,8 @@ CREATE INDEX ON vehicle_parking_locations (vehicle_id, recorded_at DESC);
 1. キャプチャ既定: GPSワンタップ＋写真/メモ任意、でよいか。写真は必須にするか。
 2. トリガー: 日報提出に統合＋単独アクション併設、でよいか。記録は必須/任意（org設定）。
 3. 車両特定にQRスキャンを必須にするか（普段は当日アサインから既知で省略可とするか）。
-4. 通知の位置表示: 逆ジオコーディング住所（外部API・課金）か、地図ピン＋写真（低コスト）か。
-5. 運営地図ビュー: 地図SDK導入か、外部地図リンクで簡易にstartか。
+4. ~~通知の位置表示~~ → **決定: 逆ジオコーディング廃止、`org_parking_places`(名前付き地点)を表示**。停めた人/運営が命名し再利用。
+5. 運営地図ビュー: 地図SDK（購入依存）。地点名はorg_parking_placesから。
 6. 写真の保持期間・解像度制限（Storage容量対策）。
 
 ---
