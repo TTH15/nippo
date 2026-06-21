@@ -90,10 +90,15 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const oilAlertApi = useApi<{ count: number }>("/api/admin/vehicles/oil-alert-count", {
     refreshInterval: 60000,
   });
+  const licenseAlertApi = useApi<{ count: number }>("/api/admin/users/license-alert-count", {
+    refreshInterval: 60000,
+  });
   const dailyUnreadCount = Number(dailyUnreadApi.data?.unreadCount) || 0;
   const otherUnreadCount = Number(otherUnreadApi.data?.unreadCount) || 0;
   // オイル交換が迫っている車両の台数（「管理」メニューに通知バッジで表示）
   const oilAlertCount = Number(oilAlertApi.data?.count) || 0;
+  // 免許更新が迫っているドライバーの人数（「管理」「ドライバー」メニューに通知バッジで表示）
+  const licenseAlertCount = Number(licenseAlertApi.data?.count) || 0;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
   const canWrite = canAdminWrite(driver?.role);
@@ -108,6 +113,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     void dailyUnreadApi.mutate();
     void otherUnreadApi.mutate();
     void oilAlertApi.mutate();
+    void licenseAlertApi.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
@@ -165,13 +171,14 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     if (href === "/admin/daily") return dailyUnreadCount;
     if (href === "/admin/misc-reports/others") return otherUnreadCount;
     if (href === "/admin/vehicles") return oilAlertCount;
+    if (href === "/admin/users") return licenseAlertCount;
     return 0;
   };
 
   const getParentUnreadCount = (item: Extract<NavItem, { children: NavChild[] }>) => {
     if (item.label === "諸報告") return totalMiscUnreadCount;
-    // 「管理」配下（車両）にオイル交換が迫っている台数を通知バッジで表示。
-    if (item.label === "管理") return oilAlertCount;
+    // 「管理」配下にオイル交換が迫っている車両台数＋免許更新が迫っているドライバー人数を通知バッジで表示。
+    if (item.label === "管理") return oilAlertCount + licenseAlertCount;
     return 0;
   };
 

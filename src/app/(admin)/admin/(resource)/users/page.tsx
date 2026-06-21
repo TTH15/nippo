@@ -11,6 +11,7 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite } from "@/lib/authz";
+import { computeLicenseLevel } from "@/core/logic/license";
 import { Button } from "@/lib/ui/button";
 import { faChevronRight, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
@@ -608,42 +609,20 @@ export default function UsersPage() {
     /^\d{6}$/.test(form.driverNumber) &&
     slot2Valid;
 
+  // 判定しきい値はメニューバッジ（更新が迫っている人数）と共有するため core/logic/license に集約。
   const getLicenseStatus = (dateStr?: string | null): { label: string; className: string } => {
-    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      return {
-        label: "未設定",
-        className: "bg-slate-100 text-slate-500",
-      };
+    switch (computeLicenseLevel(dateStr)) {
+      case "unset":
+        return { label: "未設定", className: "bg-slate-100 text-slate-500" };
+      case "expired":
+        return { label: `${dateStr}（期限切れ）`, className: "bg-red-100 text-red-700" };
+      case "within1Month":
+        return { label: `${dateStr}（1ヶ月以内）`, className: "bg-red-100 text-red-700" };
+      case "within2Months":
+        return { label: `${dateStr}（2ヶ月以内）`, className: "bg-amber-100 text-amber-700" };
+      default:
+        return { label: dateStr ?? "", className: "bg-emerald-100 text-emerald-700" };
     }
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const expiry = new Date(`${dateStr}T00:00:00`);
-    const oneMonthBefore = new Date(expiry);
-    oneMonthBefore.setMonth(oneMonthBefore.getMonth() - 1);
-    const twoMonthsBefore = new Date(expiry);
-    twoMonthsBefore.setMonth(twoMonthsBefore.getMonth() - 2);
-    if (today >= expiry) {
-      return {
-        label: `${dateStr}（期限切れ）`,
-        className: "bg-red-100 text-red-700",
-      };
-    }
-    if (today >= oneMonthBefore) {
-      return {
-        label: `${dateStr}（1ヶ月以内）`,
-        className: "bg-red-100 text-red-700",
-      };
-    }
-    if (today >= twoMonthsBefore) {
-      return {
-        label: `${dateStr}（2ヶ月以内）`,
-        className: "bg-amber-100 text-amber-700",
-      };
-    }
-    return {
-      label: dateStr,
-      className: "bg-emerald-100 text-emerald-700",
-    };
   };
 
   return (

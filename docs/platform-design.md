@@ -56,8 +56,9 @@
   - 必要: `@simplewebauthn/server`、iOS/Android の associated domains（`apple-app-site-association`/`assetlinks.json`）、Expo の Passkey ライブラリ。
 - **電話番号は SMS OTP で"検証"**（入力のみは不可。緊急連絡手段が誤りだと致命的なため）。identity 層に1つ保持。
   - 唯一の新規外部依存＝**SMSプロバイダ**（Twilio Verify/AWS SNS/国内）＋1通数円の従量課金。
-- **LINE はログインに使わない**。通知チャネル専用。**各 org が自社の公式アカウント（Messaging APIチャネル）を持ち込む BYO 方式**で、LINE料金は各社が LINE へ直接支払う（詳細 `notification-flow.md` §1）。
-  - LINEのuserIdはチャネル別 → 連携は identity グローバルでなく **`line_links(identity_id, org_id, line_user_id)` ＝ org別（membership単位）**。各orgのチャネル資格情報（token/secret）は暗号化してorg単位で保存。
+- **LINE はログインに使わない**。通知チャネル専用。**既定 = Nippo公式アカウント1本の統合方式**（詳細 `notification-flow.md` §1）。チャネルは配信パイプにすぎず、誰に/何を/いつ はプラットフォームのテナントスコープが決める。
+  - 統合のため LINE連携は **identity単位**（1人1つのuserId）。将来BYO-LINE（自社ブランド希望社）を足すときに `line_links(identity_id, org_id, line_user_id)` の org別へ拡張。
+  - 統合チャネルの誤爆防止（org越境送信の禁止）は `notification-flow.md` §1-3 に集約。
 - **端末紛失リカバリ**: ①SMS OTP で自己復旧 → 新端末で Passkey 再登録、②運営が顔・免許で本人確認して再登録、の2経路。KYC＋電話＋運営承認が復旧アンカー。
 - **メアド/Google等の併設は不要**。消費者アプリがメアドを置く主因は「復旧アンカー」だが、本アプリは検証済み電話＋KYC＋運営承認で既にそれを満たす。SMS OTP は**復旧・再登録専用**（毎回ログインには使わない＝コスト最小・安全最大）。PIN は廃止。Passkey は iCloud/Google 同期で機種変も引継がれるため復旧発動はレア。
 
@@ -218,16 +219,11 @@ CREATE TABLE identities (
   name text, dob date,
   phone text, phone_verified_at timestamptz,   -- SMS OTPで検証
   face_photo_path text, license_photo_path text, license_expiry date,
+  line_user_id text,                            -- 統合Nippo公式の友だち追加で取得（identity単位）
   created_at timestamptz DEFAULT now()
 );
--- LINE連携は org別（BYO-LINE: 各orgが自前チャネル → userIdはチャネル別）
-CREATE TABLE line_links (
-  identity_id uuid NOT NULL REFERENCES identities(id),
-  org_id uuid NOT NULL,
-  line_user_id text NOT NULL,                   -- そのorgチャネルでの友だち追加時に取得
-  PRIMARY KEY (identity_id, org_id)
-);
--- org別 LINEチャネル資格情報（token/secret）は暗号化して別途保存（org_line_channels）
+-- 将来BYO-LINE（自社ブランド希望社）を足すとき、identityのline_user_idに代えて
+-- line_links(identity_id, org_id, line_user_id) のorg別へ拡張。orgチャネル資格情報は暗号化保存。
 CREATE TABLE passkey_credentials (              -- WebAuthn
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   identity_id uuid NOT NULL REFERENCES identities(id),
