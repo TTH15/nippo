@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -8,10 +9,12 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { data: courses, error } = await supabase
     .from("courses")
     .select("*")
+    .eq("org_id", orgId)
     .order("sort_order");
 
   if (error) {
@@ -26,6 +29,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -114,6 +118,7 @@ export async function POST(req: NextRequest) {
     const sortOrder = (maxData?.sort_order ?? 0) + 1;
 
     const insertRow: Record<string, unknown> = {
+      org_id: orgId,
       name: name.trim(),
       color,
       sort_order: sortOrder,
