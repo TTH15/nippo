@@ -1,6 +1,6 @@
 # データベーススキーマ
 
-migrations 001〜085 を適用した後の最終状態。
+migrations 001〜084 を適用した後の最終状態。
 
 > **マルチテナント移行 Phase 0/1（082, 083）**: `companies` を `organizations` へ昇格（`join_code`/`status` 追加、`id`=org_id）。多数のテーブルに `org_id`（車両は `owner_org_id`）を nullable で追加し、既存全行を ACE テナントへバックフィル済。NOT NULL/FK・スコープ強制は後続フェーズ。詳細は `platform-design.md` §6,§7。
 
