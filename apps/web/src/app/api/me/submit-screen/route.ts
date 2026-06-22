@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const driverId = user.driverId as string;
   const date = req.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
 
-  const config = await loadSubmitScreenConfig(supabase);
+  const config = await loadSubmitScreenConfig(supabase, orgId);
 
   // --- 今日の報酬見込み（v2・未承認も含む / 却下は除外） ---
   const dayData = await loadAggregationData(supabase, orgId, date, date);

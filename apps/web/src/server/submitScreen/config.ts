@@ -112,12 +112,16 @@ function normalizeFields(raw: unknown): MetricField[] {
 }
 
 /** 設定を取得（行が無い/テーブル未作成なら既定値）。 */
-export async function loadSubmitScreenConfig(supabase: SupabaseClient): Promise<SubmitScreenConfig> {
+export async function loadSubmitScreenConfig(
+  supabase: SupabaseClient,
+  orgId: string,
+): Promise<SubmitScreenConfig> {
   try {
     // select("*") にして 065 未適用でも安全（新カラムが無ければ undefined → 既定）
     const { data, error } = await supabase
       .from("submit_screen_config")
       .select("*")
+      .eq("org_id", orgId)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -157,14 +161,17 @@ export async function loadSubmitScreenConfig(supabase: SupabaseClient): Promise<
 /** 設定を保存（単一行 upsert）。 */
 export async function saveSubmitScreenConfig(
   supabase: SupabaseClient,
+  orgId: string,
   cfg: SubmitScreenConfig,
 ): Promise<void> {
   const { data: existing } = await supabase
     .from("submit_screen_config")
     .select("id")
+    .eq("org_id", orgId)
     .limit(1)
     .maybeSingle();
   const row = {
+    org_id: orgId,
     metric_label: cfg.metricLabel,
     metric_fields: cfg.metricFields,
     target_driver_ids: cfg.targetDriverIds,

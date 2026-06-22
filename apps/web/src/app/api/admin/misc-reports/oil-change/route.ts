@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { normalizeAttachments } from "@/server/reportKinds/fields";
 import { signAttachments } from "@/server/reportKinds/attachments";
@@ -14,6 +15,7 @@ type Entry = {
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const limitRaw = Number(req.nextUrl.searchParams.get("limit") || "30");
@@ -26,7 +28,8 @@ export async function GET(req: NextRequest) {
       .select(`
         *,
         vehicles ( id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand )
-      `);
+      `)
+      .eq("org_id", orgId);
 
     if (status === "approved") {
       query = query.not("approved_at", "is", null).order("approved_at", { ascending: false });
