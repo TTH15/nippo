@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { computeEventScores } from "@/server/events/score";
@@ -18,6 +19,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const driverId = user.driverId as string;
   const date = req.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
 
@@ -59,7 +61,7 @@ export async function GET(req: NextRequest) {
     entryDate: p.entry_date,
   }));
 
-  const aggData = await loadAggregationData(supabase, ev.starts_on, ev.ends_on);
+  const aggData = await loadAggregationData(supabase, orgId, ev.starts_on, ev.ends_on);
   const reports: ScoringReport[] = aggData.reports.map((r) => ({
     driverId: r.driverId,
     approvedAt: r.approvedAt,

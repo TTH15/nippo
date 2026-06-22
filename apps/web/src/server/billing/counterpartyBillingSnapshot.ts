@@ -53,6 +53,7 @@ export type MergeCandidate = {
 
 export async function buildMergeCandidateMap(
   supabase: SupabaseClient,
+  orgId: string,
   companyCode: string,
   invoiceAddressId: string,
   startDate: string,
@@ -62,6 +63,7 @@ export async function buildMergeCandidateMap(
   const map = new Map<string, MergeCandidate>();
   const { systemLines } = await computeCounterpartyMonthBillingDetail(
     supabase,
+    orgId,
     startDate,
     endDate,
     invoiceAddressId
@@ -125,6 +127,7 @@ export async function buildMergeCandidateMap(
 
 export async function buildCounterpartyBillingSnapshot(
   supabase: SupabaseClient,
+  orgId: string,
   companyCode: string,
   invoiceAddressId: string,
   startDate: string,
@@ -133,6 +136,7 @@ export async function buildCounterpartyBillingSnapshot(
 ): Promise<CounterpartyBillingSnapshot> {
   const { systemLines, systemTotal: shiftSystemTotal } = await computeCounterpartyMonthBillingDetail(
     supabase,
+    orgId,
     startDate,
     endDate,
     invoiceAddressId

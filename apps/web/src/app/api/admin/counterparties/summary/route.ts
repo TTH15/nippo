@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import {
   dominantSectionFromCourses,
@@ -51,6 +52,7 @@ function toCounterpartyCourse(c: {
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const monthParam = req.nextUrl.searchParams.get("month");
   const range = getMonthRange(monthParam);
@@ -112,7 +114,7 @@ export async function GET(req: NextRequest) {
   // 取引先ごとのシステム売上を v2 集計エンジンで一括計算（admin/sales と一致・N+1回避）
   const systemRevenueByAddr = new Map<string, number>();
   if (courseById.size > 0) {
-    const aggData = await loadAggregationData(supabase, range.startDate, range.endDate);
+    const aggData = await loadAggregationData(supabase, orgId, range.startDate, range.endDate);
     const aggCtx = buildContext(aggData.units, aggData.unitRates, aggData.fixedRates);
     const contribs = buildContributions(aggData.reports, [], aggCtx); // ledger 抜き = system auto のみ
     for (const c of contribs) {

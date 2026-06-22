@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { buildCounterpartyBillingSnapshot } from "@/server/billing/counterpartyBillingSnapshot";
 
@@ -36,6 +37,7 @@ export async function GET(
 ) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: invoiceAddressId } = await params;
   const monthParam = req.nextUrl.searchParams.get("month");
@@ -59,6 +61,7 @@ export async function GET(
   try {
     const snapshot = await buildCounterpartyBillingSnapshot(
       supabase,
+      orgId,
       user.companyCode,
       invoiceAddressId,
       range.startDate,

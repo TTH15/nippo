@@ -152,6 +152,7 @@ async function pickEvent(supabase: SupabaseClient, block: EventPointsBlock, date
 }
 
 export type ResolveContext = {
+  orgId: string;
   driverId: string;
   date: string;
   todayReward: number;
@@ -168,7 +169,7 @@ export async function resolveBlocks(
   // 個人系で使う今月の集計（必要時のみ1回ロード）。
   let monthDataPromise: ReturnType<typeof loadAggregationData> | null = null;
   const month = monthRange(ctx.date);
-  const monthData = () => (monthDataPromise ??= loadAggregationData(supabase, month.start, month.end));
+  const monthData = () => (monthDataPromise ??= loadAggregationData(supabase, ctx.orgId, month.start, month.end));
   let driverNamesPromise: Promise<Map<string, string>> | null = null;
   const driverNames = () => {
     if (!driverNamesPromise) {
@@ -226,7 +227,7 @@ async function resolveEventBlock(
   const myTeamId = members.find((m) => m.driverId === ctx.driverId)?.teamId ?? null;
   if (!myTeamId) return null;
   const manualEntries: ManualPointEntry[] = (pointRows ?? []).map((p) => ({ teamId: p.team_id, driverId: p.driver_id, points: Number(p.points) || 0, reason: p.reason, entryDate: p.entry_date }));
-  const aggData = await loadAggregationData(supabase, ev.starts_on, ev.ends_on);
+  const aggData = await loadAggregationData(supabase, ctx.orgId, ev.starts_on, ev.ends_on);
   const reports: ScoringReport[] = aggData.reports.map((r) => ({
     driverId: r.driverId,
     approvedAt: r.approvedAt,
@@ -241,7 +242,7 @@ async function resolveEventBlock(
 
   // 当日の自分の日報を採点ルールでスコア化＝今日の獲得ポイント（カウントアップ用）。
   let todayPoints = 0;
-  const dayData = await loadAggregationData(supabase, ctx.date, ctx.date);
+  const dayData = await loadAggregationData(supabase, ctx.orgId, ctx.date, ctx.date);
   const ruleFieldSets = rule.rules.map((r) => new Set(r.fields.map((f) => `${f.unitId}|${f.fieldKey}`)));
   for (const r of dayData.reports) {
     if (r.driverId !== ctx.driverId || r.reportDate !== ctx.date || r.rejectedAt) continue;

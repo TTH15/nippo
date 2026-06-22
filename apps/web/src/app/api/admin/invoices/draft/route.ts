@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { buildCounterpartyBillingSnapshot } from "@/server/billing/counterpartyBillingSnapshot";
 import {
@@ -113,8 +114,8 @@ function todayIsoDate(): string {
 }
 
 /** セクション合計は v2 集計（computeSectionMonthRevenue）へ委譲。郵便局は sales_log COMPANY。 */
-async function computeTotalForSection(startDate: string, endDate: string, section: Section) {
-  return computeSectionMonthRevenue(supabase, startDate, endDate, section);
+async function computeTotalForSection(orgId: string, startDate: string, endDate: string, section: Section) {
+  return computeSectionMonthRevenue(supabase, orgId, startDate, endDate, section);
 }
 
 const UUID_RE =
@@ -123,6 +124,7 @@ const UUID_RE =
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const monthParam = req.nextUrl.searchParams.get("month");
   const sectionParamRaw = req.nextUrl.searchParams.get("section");
@@ -154,6 +156,7 @@ export async function GET(req: NextRequest) {
 
     const snap = await buildCounterpartyBillingSnapshot(
       supabase,
+      orgId,
       user.companyCode,
       counterpartyParam,
       range.startDate,
@@ -202,7 +205,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const total = await computeTotalForSection(range.startDate, range.endDate, section);
+  const total = await computeTotalForSection(orgId, range.startDate, range.endDate, section);
 
   // section と月内シフトから、請求先ID（取引先ID）を頻度ベースで決める
   const { data: shiftsForTo } = await supabase

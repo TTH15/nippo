@@ -35,7 +35,9 @@ async function main() {
   const { start, end } = monthRange(month);
   console.log(`\n=== ドライバー報酬 parity ${month} (${start}〜${end}) ===\n`);
 
-  const data = await loadAggregationData(supabase, start, end);
+  const { data: org } = await supabase.from("organizations").select("id").eq("code", "ACE").single();
+  const orgId = org!.id as string;
+  const data = await loadAggregationData(supabase, orgId, start, end);
   const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
   const auto = buildContributions(data.reports, [], ctx); // ledger 抜き = 自動算出のみ
   const expectedByDriver = sumBy(auto, (c) => c.driverId);
@@ -54,7 +56,7 @@ async function main() {
 
   for (const [driverId, money] of driverIds) {
     const expected = money.payout;
-    const result = await computeDriverAutoPayout(supabase, driverId!, start, end);
+    const result = await computeDriverAutoPayout(supabase, orgId, driverId!, start, end);
     // 内部整合: Σdays == Σlines == total
     const sumDays = result.days.reduce((s, d) => s + d.payout, 0);
     const sumLines = result.lines.reduce((s, l) => s + l.amount, 0);
