@@ -105,7 +105,7 @@ export async function buildMergeCandidateMap(
   const { data: customs } = await supabase
     .from("counterparty_monthly_custom_lines")
     .select("id, description, quantity, unit_price")
-    .eq("company_code", companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_address_id", invoiceAddressId)
     .eq("month_yyyy_mm", monthYm)
     .eq("row_kind", "main");
@@ -145,7 +145,7 @@ export async function buildCounterpartyBillingSnapshot(
   const { data: labelRows, error: labelErr } = await supabase
     .from("counterparty_monthly_line_labels")
     .select("line_key, display_label")
-    .eq("company_code", companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_address_id", invoiceAddressId)
     .eq("month_yyyy_mm", monthYm);
 
@@ -160,7 +160,7 @@ export async function buildCounterpartyBillingSnapshot(
   const { data: mergedList, error: mErr } = await supabase
     .from("counterparty_monthly_merged_lines")
     .select("id, sort_order, description, quantity, unit_price")
-    .eq("company_code", companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_address_id", invoiceAddressId)
     .eq("month_yyyy_mm", monthYm)
     .order("sort_order", { ascending: true })
@@ -255,7 +255,7 @@ export async function buildCounterpartyBillingSnapshot(
   const { data: customRows, error: cErr } = await supabase
     .from("counterparty_monthly_custom_lines")
     .select("id, description, quantity, unit_price, sort_order, row_kind, created_at")
-    .eq("company_code", companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_address_id", invoiceAddressId)
     .eq("month_yyyy_mm", monthYm)
     .order("row_kind", { ascending: true })

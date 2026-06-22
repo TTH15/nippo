@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export async function PATCH(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: invoiceAddressId, mergeId } = await params;
   let body: { description?: string };
@@ -27,7 +29,7 @@ export async function PATCH(
     .from("counterparty_monthly_merged_lines")
     .update({ description: body.description.trim() })
     .eq("id", mergeId)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_address_id", invoiceAddressId)
     .select("id")
     .maybeSingle();
@@ -49,6 +51,7 @@ export async function DELETE(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: invoiceAddressId, mergeId } = await params;
 
@@ -56,7 +59,7 @@ export async function DELETE(
     .from("counterparty_monthly_merged_lines")
     .delete()
     .eq("id", mergeId)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_address_id", invoiceAddressId);
 
   if (error) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { countLicenseAlertDrivers, type LicenseDriver } from "@repo/core/logic/license";
 
@@ -10,12 +11,13 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const { data, error } = await supabase
       .from("drivers")
       .select("license_expiry_date")
-      .eq("company_code", user.companyCode)
+      .eq("org_id", orgId)
       .eq("role", "DRIVER");
 
     if (error) {

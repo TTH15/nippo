@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .from("invoice_addresses")
     .select("id")
     .eq("id", invoiceAddressId)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (addrErr || !addr) {
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: maxRow } = await supabase
     .from("counterparty_monthly_merged_lines")
     .select("sort_order")
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_address_id", invoiceAddressId)
     .eq("month_yyyy_mm", month)
     .order("sort_order", { ascending: false })
@@ -113,6 +113,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: merged, error: insErr } = await supabase
     .from("counterparty_monthly_merged_lines")
     .insert({
+      org_id: orgId,
       company_code: user.companyCode,
       invoice_address_id: invoiceAddressId,
       month_yyyy_mm: month,

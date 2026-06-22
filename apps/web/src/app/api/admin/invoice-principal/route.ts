@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ function sectionToCarrier(section: string | null): "YAMATO" | "AMAZON" | "OTHER"
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const monthParam = req.nextUrl.searchParams.get("month");
   const carrierParamRaw = req.nextUrl.searchParams.get("carrier");
@@ -122,7 +124,7 @@ export async function GET(req: NextRequest) {
     .from("invoice_addresses")
     .select("id, name")
     .eq("id", principalId)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (addrErr) {

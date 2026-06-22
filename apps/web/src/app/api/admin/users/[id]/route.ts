@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export async function GET(
 ) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id: driverId } = await params;
 
   const { data: driver, error } = await supabase
@@ -36,7 +38,7 @@ export async function GET(
       )
     `)
     .eq("id", driverId)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .single();
 
   if (error || !driver) {
@@ -54,6 +56,7 @@ export async function PUT(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -78,7 +81,7 @@ export async function PUT(
       .from("drivers")
       .select("id, company_code, driver_code, pin_hash")
       .eq("id", driverId)
-      .eq("company_code", user.companyCode)
+      .eq("org_id", orgId)
       .single();
 
     if (driverFetchErr || !driverRow) {
@@ -245,7 +248,7 @@ export async function PUT(
     }
 
     if (Object.keys(updates).length > 0) {
-      const { error } = await supabase.from("drivers").update(updates).eq("id", driverId).eq("company_code", user.companyCode);
+      const { error } = await supabase.from("drivers").update(updates).eq("id", driverId).eq("org_id", orgId);
       if (error) throw error;
     }
 
@@ -279,6 +282,7 @@ export async function DELETE(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id } = await params;
 
@@ -286,7 +290,7 @@ export async function DELETE(
     .from("drivers")
     .delete()
     .eq("id", id)
-    .eq("company_code", user.companyCode);
+    .eq("org_id", orgId);
 
   if (error) {
     console.error(error);

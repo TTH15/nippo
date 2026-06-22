@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const url = req.nextUrl;
   const limitRaw = Number(url.searchParams.get("limit") || "20");
   const cursorRaw = Number(url.searchParams.get("cursor") || "0");
@@ -29,7 +31,7 @@ export async function GET(req: NextRequest) {
         )
       )
     `)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("role", "DRIVER")
     .order("list_no", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true })
@@ -44,7 +46,7 @@ export async function GET(req: NextRequest) {
   const countRes = await supabase
     .from("drivers")
     .select("id", { count: "exact", head: true })
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("role", "DRIVER");
   const total = countRes.count ?? 0;
   const nextCursor = offset + (drivers?.length ?? 0) < total ? String(offset + (drivers?.length ?? 0)) : null;
@@ -62,6 +64,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -120,7 +123,7 @@ export async function POST(req: NextRequest) {
     const { data: listRows } = await supabase
       .from("drivers")
       .select("list_no")
-      .eq("company_code", resolvedCompany)
+      .eq("org_id", orgId)
       .eq("role", "DRIVER");
 
     const maxNo = Math.max(
@@ -135,10 +138,11 @@ export async function POST(req: NextRequest) {
     const { postalCode, address, phone, bankName, bankNo, bankHolder } = body;
     const { data: driver, error: dErr } = await supabase
       .from("drivers")
-      .insert({ 
-        name: name.trim(), 
+      .insert({
+        org_id: orgId,
+        name: name.trim(),
         display_name: typeof displayName === "string" && displayName.trim() ? displayName.trim() : null,
-        role: "DRIVER", 
+        role: "DRIVER",
         pin_hash: pinHash,
         company_code: resolvedCompany,
         office_code: officeCode,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ export async function PATCH(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: invoiceAddressId } = await params;
   let body: { month?: string; lineKey?: string; displayLabel?: string };
@@ -39,7 +41,7 @@ export async function PATCH(
     .from("invoice_addresses")
     .select("id")
     .eq("id", invoiceAddressId)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (addrErr || !addr) {
@@ -49,7 +51,7 @@ export async function PATCH(
   await supabase
     .from("counterparty_monthly_line_labels")
     .delete()
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_address_id", invoiceAddressId)
     .eq("month_yyyy_mm", month)
     .eq("line_key", lineKey);
@@ -59,6 +61,7 @@ export async function PATCH(
   }
 
   const { error: insErr } = await supabase.from("counterparty_monthly_line_labels").insert({
+    org_id: orgId,
     company_code: user.companyCode,
     invoice_address_id: invoiceAddressId,
     month_yyyy_mm: month,

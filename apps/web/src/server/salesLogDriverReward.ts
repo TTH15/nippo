@@ -15,7 +15,7 @@ export type SalesLogEntryForReward = {
  */
 export async function syncSalesLogDriverReward(
   supabase: SupabaseClient,
-  companyCode: string,
+  orgId: string,
   entry: SalesLogEntryForReward,
 ): Promise<void> {
   const revenue = Math.max(0, Math.trunc(Number(entry.revenue) || 0));
@@ -52,7 +52,7 @@ export async function syncSalesLogDriverReward(
     .from("drivers")
     .select("id")
     .eq("id", entry.target_driver_id!)
-    .eq("company_code", companyCode)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (driverErr) throw driverErr;
