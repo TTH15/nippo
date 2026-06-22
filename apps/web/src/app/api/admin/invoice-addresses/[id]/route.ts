@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export async function PUT(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -36,7 +38,7 @@ export async function PUT(
       .from("invoice_addresses")
       .update(updates)
       .eq("id", id)
-      .eq("company_code", user.companyCode)
+      .eq("org_id", orgId)
       .select()
       .single();
 
@@ -59,6 +61,7 @@ export async function DELETE(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id } = await params;
 
@@ -66,7 +69,7 @@ export async function DELETE(
     .from("invoice_addresses")
     .delete()
     .eq("id", id)
-    .eq("company_code", user.companyCode);
+    .eq("org_id", orgId);
 
   if (error) {
     console.error(error);

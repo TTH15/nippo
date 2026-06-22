@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -10,13 +11,14 @@ export async function POST(
 ) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
 
   const { data: invoice, error: fetchErr } = await supabase
     .from("invoice_documents")
     .select("id, status, payload, driver_id")
     .eq("id", id)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (fetchErr || !invoice) {
@@ -36,7 +38,7 @@ export async function POST(
     .from("invoice_documents")
     .update({ status: "approved", updated_at: new Date().toISOString() })
     .eq("id", id)
-    .eq("company_code", user.companyCode);
+    .eq("org_id", orgId);
 
   if (error) {
     console.error(error);

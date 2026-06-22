@@ -47,7 +47,7 @@ export async function GET(
     .from("invoice_addresses")
     .select("id")
     .eq("id", invoiceAddressId)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (addrErr) {

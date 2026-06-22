@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -8,11 +9,12 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { data, error } = await supabase
     .from("invoice_addresses")
     .select("id, name, postal_code, address, phone, invoice_no, billing_notes, created_at")
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .order("name");
 
   if (error) {
@@ -27,6 +29,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -39,6 +42,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase
       .from("invoice_addresses")
       .insert({
+        org_id: orgId,
         company_code: user.companyCode,
         name: name.trim(),
         postal_code: typeof postalCode === "string" ? postalCode.trim() || null : null,

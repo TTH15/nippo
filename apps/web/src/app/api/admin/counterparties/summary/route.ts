@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
   const { data: addresses, error: addrErr } = await supabase
     .from("invoice_addresses")
     .select("id, name, billing_notes")
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .order("name");
 
   if (addrErr) {
@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
   const { data: customAgg, error: customErr } = await supabase
     .from("counterparty_monthly_custom_lines")
     .select("invoice_address_id, quantity, unit_price, row_kind")
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("month_yyyy_mm", range.month);
 
   if (customErr) {
