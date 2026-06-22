@@ -24,11 +24,15 @@ const toInt = (v: unknown, fallback: number): number => {
 };
 
 /** 既定ルールを取得（行が無い/テーブル未作成なら既定値）。 */
-export async function loadDeadlineConfig(supabase: SupabaseClient): Promise<DeadlineConfig> {
+export async function loadDeadlineConfig(
+  supabase: SupabaseClient,
+  orgId: string,
+): Promise<DeadlineConfig> {
   try {
     const { data, error } = await supabase
       .from("shift_request_deadline_config")
       .select("*")
+      .eq("org_id", orgId)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -55,14 +59,17 @@ export async function loadDeadlineConfig(supabase: SupabaseClient): Promise<Dead
 /** 既定ルールを保存（単一行 upsert）。 */
 export async function saveDeadlineConfig(
   supabase: SupabaseClient,
+  orgId: string,
   cfg: DeadlineConfig,
 ): Promise<void> {
   const { data: existing } = await supabase
     .from("shift_request_deadline_config")
     .select("id")
+    .eq("org_id", orgId)
     .limit(1)
     .maybeSingle();
   const row = {
+    org_id: orgId,
     first_half_end_day: cfg.firstHalfEndDay,
     first_half_deadline_month_offset: cfg.firstHalfDeadlineMonthOffset,
     first_half_deadline_day: cfg.firstHalfDeadlineDay,
@@ -82,11 +89,13 @@ const HALVES: Half[] = ["FIRST", "SECOND"];
 /** 期間例外の一覧（テーブル未作成なら空配列）。 */
 export async function loadDeadlineOverrides(
   supabase: SupabaseClient,
+  orgId: string,
 ): Promise<DeadlineOverride[]> {
   try {
     const { data, error } = await supabase
       .from("shift_request_deadline_overrides")
       .select("target_year, target_month, half, deadline_date, note")
+      .eq("org_id", orgId)
       .order("target_year")
       .order("target_month")
       .order("half");
@@ -114,15 +123,17 @@ export async function loadDeadlineOverrides(
 /** 期間例外を全置換で保存（送られた集合に揃える）。 */
 export async function saveDeadlineOverrides(
   supabase: SupabaseClient,
+  orgId: string,
   overrides: DeadlineOverride[],
 ): Promise<void> {
-  // 既存を全削除 → 入れ直し（件数は十数件程度の想定）
+  // 既存を全削除 → 入れ直し（このテナント分のみ。件数は十数件程度の想定）
   await supabase
     .from("shift_request_deadline_overrides")
     .delete()
-    .neq("id", "00000000-0000-0000-0000-000000000000");
+    .eq("org_id", orgId);
   if (overrides.length === 0) return;
   const rows = overrides.map((o) => ({
+    org_id: orgId,
     target_year: o.targetYear,
     target_month: o.targetMonth,
     half: o.half,
@@ -136,8 +147,6 @@ export async function saveDeadlineOverrides(
 // ============================================================
 // 締切ルール（migration 075）。ルール＝名前＋提出期間リスト＋期間例外。ドライバー→ルール割り当て。
 // ============================================================
-
-const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 
 /** 管理画面用のルール（割り当てドライバーID付き）。 */
 export type DeadlineRuleFull = DeadlineRule & { sortOrder: number; driverIds: string[] };
@@ -181,6 +190,7 @@ const mapRuleOverrideRow = (o: {
 /** ドライバーに割り当てられたルール（無ければ null＝常にオープン）。 */
 export async function loadDriverRule(
   supabase: SupabaseClient,
+  orgId: string,
   driverId: string,
 ): Promise<DeadlineRule | null> {
   try {
@@ -192,7 +202,7 @@ export async function loadDriverRule(
     const ruleId = asg?.rule_id as string | undefined;
     if (!ruleId) return null;
     const [{ data: rule }, { data: periods }, { data: ovs }] = await Promise.all([
-      supabase.from("shift_request_deadline_rules").select("id, name").eq("id", ruleId).maybeSingle(),
+      supabase.from("shift_request_deadline_rules").select("id, name").eq("id", ruleId).eq("org_id", orgId).maybeSingle(),
       supabase
         .from("shift_request_deadline_rule_periods")
         .select("seq, start_day, end_day, deadline_month_offset, deadline_day")
@@ -216,10 +226,10 @@ export async function loadDriverRule(
 }
 
 /** 全ルール（管理画面用）。 */
-export async function loadAllRules(supabase: SupabaseClient): Promise<DeadlineRuleFull[]> {
+export async function loadAllRules(supabase: SupabaseClient, orgId: string): Promise<DeadlineRuleFull[]> {
   try {
     const [{ data: rules }, { data: periods }, { data: ovs }, { data: asgs }] = await Promise.all([
-      supabase.from("shift_request_deadline_rules").select("id, name, sort_order").order("sort_order"),
+      supabase.from("shift_request_deadline_rules").select("id, name, sort_order").eq("org_id", orgId).order("sort_order"),
       supabase
         .from("shift_request_deadline_rule_periods")
         .select("rule_id, seq, start_day, end_day, deadline_month_offset, deadline_day")
@@ -243,20 +253,28 @@ export async function loadAllRules(supabase: SupabaseClient): Promise<DeadlineRu
 }
 
 /** ルールを全置換で保存（rules / periods / overrides / assignments）。 */
-export async function saveRules(supabase: SupabaseClient, rules: DeadlineRuleInput[]): Promise<void> {
+export async function saveRules(supabase: SupabaseClient, orgId: string, rules: DeadlineRuleInput[]): Promise<void> {
   const now = new Date().toISOString();
-  // 依存順に全削除（FK CASCADE もあるが明示）。
-  await supabase.from("shift_request_deadline_rule_assignments").delete().neq("driver_id", ZERO_UUID);
-  await supabase.from("shift_request_deadline_rule_overrides").delete().neq("id", ZERO_UUID);
-  await supabase.from("shift_request_deadline_rule_periods").delete().neq("id", ZERO_UUID);
-  await supabase.from("shift_request_deadline_rules").delete().neq("id", ZERO_UUID);
+  // このテナントの既存ルール群だけを依存順に全削除（他テナントのルールは消さない）。
+  // 子テーブル（periods/overrides/assignments）に org_id は無いため、当org の rule_id 配下に限定する。
+  const { data: orgRules } = await supabase
+    .from("shift_request_deadline_rules")
+    .select("id")
+    .eq("org_id", orgId);
+  const orgRuleIds = (orgRules ?? []).map((r) => String(r.id));
+  if (orgRuleIds.length > 0) {
+    await supabase.from("shift_request_deadline_rule_assignments").delete().in("rule_id", orgRuleIds);
+    await supabase.from("shift_request_deadline_rule_overrides").delete().in("rule_id", orgRuleIds);
+    await supabase.from("shift_request_deadline_rule_periods").delete().in("rule_id", orgRuleIds);
+  }
+  await supabase.from("shift_request_deadline_rules").delete().eq("org_id", orgId);
 
   const assigned = new Set<string>();
   for (let i = 0; i < rules.length; i++) {
     const r = rules[i];
     const { data: ins } = await supabase
       .from("shift_request_deadline_rules")
-      .insert({ name: r.name, sort_order: i, updated_at: now })
+      .insert({ org_id: orgId, name: r.name, sort_order: i, updated_at: now })
       .select("id")
       .single();
     const ruleId = ins?.id as string | undefined;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadDriverRule } from "@/server/shiftDeadline/config";
 import { upcomingDeadline, daysUntil } from "@/lib/shiftDeadline";
@@ -16,9 +17,10 @@ const REMINDER_THRESHOLD_DAYS = 7;
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const today = todayJST();
-  const rule = await loadDriverRule(supabase, user.driverId);
+  const rule = await loadDriverRule(supabase, orgId, user.driverId);
   const next = upcomingDeadline(rule, today);
 
   let reminder: { deadline: string; daysLeft: number; label: string } | null = null;
