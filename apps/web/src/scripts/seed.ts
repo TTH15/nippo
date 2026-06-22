@@ -54,6 +54,14 @@ const DRIVERS = [
 ];
 
 async function main() {
+  // テナント(org_id)を解決（COMPANY_CODE のorganizationが無ければ作る）
+  const { data: org } = await supabase
+    .from("organizations")
+    .upsert({ code: COMPANY_CODE, name: COMPANY_CODE }, { onConflict: "code" })
+    .select("id")
+    .single();
+  const orgId = org!.id as string;
+
   for (const d of DRIVERS) {
     // まず既存のドライバーをチェック
     const { data: existing } = await supabase
@@ -67,8 +75,9 @@ async function main() {
       const pinHash = await bcrypt.hash(d.pin, 10);
       const { error } = await supabase
         .from("drivers")
-        .update({ 
+        .update({
           pin_hash: pinHash,
+          org_id: orgId,
           company_code: d.company_code,
           office_code: d.office_code,
           driver_code: d.driver_code,
@@ -86,10 +95,11 @@ async function main() {
     const pinHash = await bcrypt.hash(d.pin, 10);
     const { data, error } = await supabase
       .from("drivers")
-      .insert({ 
-        name: d.name, 
-        role: d.role, 
+      .insert({
+        name: d.name,
+        role: d.role,
         pin_hash: pinHash,
+        org_id: orgId,
         company_code: d.company_code,
         office_code: d.office_code,
         driver_code: d.driver_code,

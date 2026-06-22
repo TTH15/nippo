@@ -68,12 +68,19 @@ const supabase = createClient(
 async function main() {
   const pinHash = await bcrypt.hash(password, 10);
 
-  // Create organization row if missing (optional)
-  await supabase
+  // Create organization row if missing, and resolve its org_id
+  const { data: org, error: orgErr } = await supabase
     .from("organizations")
-    .upsert({ code: resolvedCompany, name: resolvedCompany }, { onConflict: "code" });
+    .upsert({ code: resolvedCompany, name: resolvedCompany }, { onConflict: "code" })
+    .select("id")
+    .single();
+  if (orgErr || !org) {
+    fail(`Failed to upsert organization: ${orgErr?.message}`);
+  }
+  const orgId = org!.id as string;
 
   const payload = {
+    org_id: orgId,
     name,
     role: isReadonly ? "ADMIN_VIEWER" as const : "ADMIN" as const,
     company_code: resolvedCompany,
