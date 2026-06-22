@@ -81,6 +81,7 @@ export async function PATCH(
     .from("sales_log_entries")
     .update(updates)
     .eq("id", id)
+    .eq("org_id", orgId)
     .select("id, log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo, counterparty_invoice_address_id, updated_at")
     .single();
 
@@ -116,7 +117,8 @@ export async function PATCH(
         counterparty_invoice_address_id: b.counterparty_invoice_address_id,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("org_id", orgId);
     return NextResponse.json(
       { error: "ドライバー報酬の同期に失敗しました。もう一度お試しください。" },
       { status: 500 },
@@ -139,7 +141,7 @@ export async function DELETE(
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  const { error } = await supabase.from("sales_log_entries").delete().eq("id", id);
+  const { error } = await supabase.from("sales_log_entries").delete().eq("id", id).eq("org_id", orgId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

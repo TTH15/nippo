@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { normalizeScoringRuleSet } from "@/server/events/types";
 
@@ -14,6 +15,7 @@ export async function GET(
 ) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
 
   const [
@@ -79,6 +81,7 @@ export async function PATCH(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
 
   const body = await req.json().catch(() => ({}));
@@ -110,6 +113,7 @@ export async function PATCH(
     .from("events")
     .update(updates)
     .eq("id", id)
+    .eq("org_id", orgId)
     .select("id, name, description, starts_on, ends_on, status, scoring_rule, created_at")
     .single();
 
@@ -129,9 +133,10 @@ export async function DELETE(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
 
-  const { error } = await supabase.from("events").delete().eq("id", id);
+  const { error } = await supabase.from("events").delete().eq("id", id).eq("org_id", orgId);
   if (error) {
     console.error(error);
     return NextResponse.json({ error: "削除に失敗しました" }, { status: 500 });
