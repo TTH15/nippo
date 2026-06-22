@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const driverId = user.driverId as string;
   const date = req.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
 
-  const config = await loadSubmitScreenConfig(supabase);
+  const config = await loadSubmitScreenConfig(supabase, orgId);
   const rankingVisible = config.teamRankingVisibleToDrivers;
 
   // 開催中(active)かつ期間内のチーム戦イベント

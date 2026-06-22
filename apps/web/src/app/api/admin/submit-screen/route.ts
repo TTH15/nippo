@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import {
   loadSubmitScreenConfig,
@@ -17,10 +18,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const [config, { data: drivers }, { data: carriers }, { data: units }, { data: fields }, { data: events }] =
     await Promise.all([
-      loadSubmitScreenConfig(supabase),
+      loadSubmitScreenConfig(supabase, orgId),
       supabase.from("drivers").select("id, name, display_name").eq("role", "DRIVER").order("name"),
       supabase.from("carriers").select("*").order("sort_order"),
       supabase.from("units").select("*").order("sort_order"),
@@ -56,6 +58,7 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const body = await req.json().catch(() => ({}));
   const base = defaultSubmitScreenConfig();
@@ -82,7 +85,7 @@ export async function PUT(req: NextRequest) {
   };
 
   try {
-    await saveSubmitScreenConfig(supabase, cfg);
+    await saveSubmitScreenConfig(supabase, orgId, cfg);
   } catch (e) {
     console.error(e);
     return NextResponse.json(

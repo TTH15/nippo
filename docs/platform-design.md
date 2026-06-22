@@ -253,11 +253,16 @@ CREATE TABLE company_carriers (
 ## 7. 移行・バックフィル手順（段階的）
 
 現在は実質1社運用。既存データは現会社の org_id で一括バックフィルできる。
+実装の進捗は memory `tenant-migration` を正とする。テナント＝**ACE**（`organizations.code='ACE'`）。
 
-- **Phase 0 — 正式化**: `companies`→`organizations` 整備（id/name/join_code/display_code）。現運用会社の行をシード、join_code 発行。
-- **Phase 1 — 列追加（nullable）＋バックフィル**: §6 の org_id 列を nullable 追加、既存全行を現 org_id で UPDATE。`(org_id, …)` インデックス付与。
-- **Phase 2 — 強制の一元化**: `tenant.ts` ＋ 既存ローダ改修で全ルートを org_id スコープ経由に置換。G1 の未絞り込みクエリを潰す。手書き `.eq` 撤去。
-- **Phase 3 — 制約強化**: org_id を NOT NULL 化、FK 付与（G2 解消）。
+- **Phase 0 — 正式化 ✅完了**（migration 082）: `companies`→`organizations` リネーム（`join_code`/`status` 追加、`code`=display_code）。ACE 行を保証・join_code 採番。
+- **Phase 1 — 列追加（nullable）＋バックフィル ✅完了**（migration 083）: §6 の org_id 列を nullable 追加、既存全行を ACE で UPDATE、`org_id` インデックス付与。車両は `owner_org_id`。
+- **Phase 2 — 強制の一元化 🚧進行中**: `src/server/db/tenant.ts`（`resolveOrgId`/`requireTenant`）を新設。default-deny は段階適用中。
+  - 2a ✅: 集計ローダ `loadAggregationData(orgId,…)` ＋給与/請求チェーンを org_id スコープ（daily_reports_v2 / ledger_entries）。
+  - 2b-1 ✅: daily_reports_v2 の**書き込み**に org_id 刻印＋migration 084 でギャップ再バックフィル（READをスコープしたら同テーブルのWRITE刻印＋再バックフィルをセットで、が鉄則）。
+  - 2b-2 ✅: submit_screen_config / courses / events / vehicles(owner_org_id) / oil_change_reports の主要 list/singleton 読みをスコープ＋書き込み刻印。
+  - 残🚧: `shift_request_deadline_*`（saveRules の全削除は org スコープ要・要注意）、手書き `.eq("company_code")`（invoices/counterparties/users 等）→org_id 置換、二次的な参照の総点検、`tenant.ts` ラッパによる全面 default-deny。
+- **Phase 3 — 制約強化**: org_id を NOT NULL 化、FK 付与（G2 解消）。**Phase 2 の `.eq(company_code)` 置換・全書き込み刻印が済むまで NOT NULL にしない**。
 - **Phase 4 — ハードコード解消**: YAMATO/AMAZON 分岐（G6）を `carriers`＋`company_carriers` 駆動へ。運営日報の固定表示も会社別動的化（`admin-daily-legacy-display` 参照）。
 - **Phase 5 — identity層抽出**: `identities`/`passkey_credentials` 作成。既存 drivers を identity へ割当（当面1行=1identity、同一人物の手動マージは運用で）。氏名・免許・PIN を identities へ移送。
 - **Phase 6 — 認証刷新**: Passkey(WebAuthn) 導入、電話 SMS OTP 検証、LINE連携。JWT を `identity_id`＋`current_org_id` 形式へ。会社切替UI。
