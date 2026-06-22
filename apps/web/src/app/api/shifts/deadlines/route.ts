@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadDriverRule } from "@/server/shiftDeadline/config";
 import { monthPeriods } from "@/lib/shiftDeadline";
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const month = req.nextUrl.searchParams.get("month") ?? "";
   const m = /^(\d{4})-(\d{2})$/.exec(month);
@@ -21,7 +23,7 @@ export async function GET(req: NextRequest) {
   const year = Number(m[1]);
   const mon = Number(m[2]);
 
-  const rule = await loadDriverRule(supabase, user.driverId);
+  const rule = await loadDriverRule(supabase, orgId, user.driverId);
   const periods = monthPeriods(rule, year, mon, todayJST());
   return NextResponse.json({ periods, ruleName: rule?.name ?? null });
 }

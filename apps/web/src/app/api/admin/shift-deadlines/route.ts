@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAllRules, saveRules, type DeadlineRuleInput } from "@/server/shiftDeadline/config";
 import type { RulePeriod, RulePeriodOverride } from "@/lib/shiftDeadline";
@@ -20,9 +21,10 @@ const clampOffset = (o: number) => (o < -2 ? -2 : o > 2 ? 2 : o);
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const [rules, { data: drivers }] = await Promise.all([
-    loadAllRules(supabase),
+    loadAllRules(supabase, orgId),
     // 実ドライバーのみ（管理者・閲覧専用アカウントは除外）。
     supabase.from("drivers").select("id, name, display_name").eq("role", "DRIVER").order("name"),
   ]);
@@ -35,6 +37,7 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const body = await req.json().catch(() => ({}));
   const rawRules = Array.isArray(body.rules) ? body.rules : [];
@@ -88,7 +91,7 @@ export async function PUT(req: NextRequest) {
   }
 
   try {
-    await saveRules(supabase, rules);
+    await saveRules(supabase, orgId, rules);
   } catch (e) {
     console.error(e);
     return NextResponse.json(
