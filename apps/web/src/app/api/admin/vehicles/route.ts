@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import {
   loadDailyLeaseByVehicleMonth,
@@ -39,6 +40,7 @@ function totalFromItems(items: PurchaseCostItem[]): number {
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { data: vehicles, error } = await supabase
     .from("vehicles")
@@ -49,6 +51,7 @@ export async function GET(req: NextRequest) {
         drivers (id, name, display_name)
       )
     `)
+    .eq("owner_org_id", orgId)
     .order("manufacturer")
     .order("brand");
 
@@ -121,6 +124,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -159,6 +163,7 @@ export async function POST(req: NextRequest) {
     const { data: vehicle, error } = await supabase
       .from("vehicles")
       .insert({
+        owner_org_id: orgId,
         manufacturer: manufacturer?.trim() || null,
         brand: brand?.trim() || null,
         is_disposed: !!isDisposed,
