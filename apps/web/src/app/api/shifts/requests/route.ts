@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadDriverRule } from "@/server/shiftDeadline/config";
 import { loadDriverSlots } from "@/server/shiftSlots/config";
@@ -45,6 +46,7 @@ type OffEntry = { date: string; slotId: string | null };
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -58,7 +60,7 @@ export async function POST(req: NextRequest) {
       }
 
       const [rule, mySlots] = await Promise.all([
-        loadDriverRule(supabase, user.driverId),
+        loadDriverRule(supabase, orgId, user.driverId),
         loadDriverSlots(supabase, user.driverId),
       ]);
       const validSlotIds = new Set(mySlots.map((s) => s.id));
@@ -167,7 +169,7 @@ export async function POST(req: NextRequest) {
     }
     {
       const [year, mon] = date.split("-").map(Number);
-      const rule = await loadDriverRule(supabase, user.driverId);
+      const rule = await loadDriverRule(supabase, orgId, user.driverId);
       const periods = monthPeriods(rule, year, mon, todayJST());
       const period = periods.find((p) => date >= p.startDate && date <= p.endDate);
       if (period?.closed) {
