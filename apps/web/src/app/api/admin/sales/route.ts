@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { buildContext, buildContributions } from "@/server/aggregation/compute";
@@ -18,6 +19,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const url = req.nextUrl;
   const startParam = url.searchParams.get("start");
@@ -47,7 +49,7 @@ export async function GET(req: NextRequest) {
   }
 
   // 自動算出は新モデル(v2)、手動調整(売上ログ)は既存 sales_log_entries を直接読む（ハイブリッド）
-  const data = await loadAggregationData(supabase, startDate, endDate);
+  const data = await loadAggregationData(supabase, orgId, startDate, endDate);
   const codeByCarrier = new Map(data.carriers.map((c) => [c.id, c.code]));
   const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
   const contribs = buildContributions(data.reports, [], ctx); // ledgerは使わず手動分は下で別途

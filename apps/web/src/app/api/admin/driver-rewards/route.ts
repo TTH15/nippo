@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { computeDriverAutoPayout } from "@/server/billing/driverPayout";
 import { loadDriverLease, loadCourseDailyLease, computeLeaseDeduction, leaseDailyRateForCourse } from "@/server/billing/driverLease";
@@ -64,6 +65,7 @@ function getMonthRange(monthParam?: string | null): {
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const url = req.nextUrl;
   const monthParam = url.searchParams.get("month");
@@ -76,7 +78,7 @@ export async function GET(req: NextRequest) {
   const { month, startDate, endDate } = getMonthRange(monthParam);
 
   // 自動算出の報酬は v2 集計モデル（/api/me/rewards・admin/payments と一致）
-  const autoPayout = await computeDriverAutoPayout(supabase, driverId, startDate, endDate);
+  const autoPayout = await computeDriverAutoPayout(supabase, orgId, driverId, startDate, endDate);
   const calculatedIncome = autoPayout.total;
 
   // リース控除（driver_leases）。DAILY はコース日額(courses.daily_lease)由来で日当へ反映。

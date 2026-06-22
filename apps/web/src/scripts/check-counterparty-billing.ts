@@ -35,8 +35,10 @@ async function main() {
   const { start, end } = monthRange(month);
   console.log(`\n=== Phase8 請求 parity ${month} (${start}〜${end}) ===\n`);
 
+  const { data: org } = await supabase.from("organizations").select("id").eq("code", "ACE").single();
+  const orgId = org!.id as string;
   // v2 集計の auto(従量+固定) contributions
-  const data = await loadAggregationData(supabase, start, end);
+  const data = await loadAggregationData(supabase, orgId, start, end);
   const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
   const contribs = buildContributions(data.reports, [], ctx); // ledger 抜き = system auto のみ
 
@@ -71,7 +73,7 @@ async function main() {
   let pass = 0;
   let fail = 0;
   for (const [cp, expected] of [...expectedByCp.entries()].sort((a, b) => b[1] - a[1])) {
-    const actual = await computeCounterpartyMonthRevenue(supabase, start, end, cp);
+    const actual = await computeCounterpartyMonthRevenue(supabase, orgId, start, end, cp);
     const ok = Math.round(actual) === Math.round(expected);
     const name = nameById.get(cp) ?? cp.slice(0, 8);
     console.log(

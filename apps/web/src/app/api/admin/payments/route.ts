@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { buildContext, buildContributions, sumBy, isCountableReport } from "@/server/aggregation/compute";
@@ -53,6 +54,7 @@ export type DriverPaymentRow = {
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const monthParam = req.nextUrl.searchParams.get("month");
   const { month, startDate, endDate } = getMonthRange(monthParam);
@@ -70,7 +72,7 @@ export async function GET(req: NextRequest) {
   const driverIds = drivers.map((d: { id: string }) => d.id);
 
   // 自動算出は新モデル(v2)。手動調整(臨時手当/控除)は既存 driver_ad_hoc_expenses を直読み（ハイブリッド）
-  const data = await loadAggregationData(supabase, startDate, endDate);
+  const data = await loadAggregationData(supabase, orgId, startDate, endDate);
   const codeByCarrier = new Map(data.carriers.map((c) => [c.id, c.code]));
   const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
   const auto = buildContributions(data.reports, [], ctx);
