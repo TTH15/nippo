@@ -101,6 +101,14 @@ function randomReport(
 async function main() {
   console.log("=== フルシード開始 ===\n");
 
+  // テナント(org_id)を解決（COMPANY_CODE のorganizationが無ければ作る）
+  const { data: org } = await supabase
+    .from("organizations")
+    .upsert({ code: COMPANY_CODE, name: COMPANY_CODE }, { onConflict: "code" })
+    .select("id")
+    .single();
+  const orgId = org!.id as string;
+
   // 1. コース取得
   const { data: courses, error: cErr } = await supabase.from("courses").select("id, name").order("sort_order");
   if (cErr || !courses?.length) {
@@ -151,6 +159,7 @@ async function main() {
     const { data: existing } = await supabase.from("drivers").select("id").eq("name", d.name).single();
 
     const payload = {
+      org_id: orgId,
       name: d.name,
       role: d.role,
       pin_hash: pinHash,
@@ -215,6 +224,7 @@ async function main() {
       .eq("number_numeric", v.number_numeric)
       .maybeSingle();
     const payload = {
+      owner_org_id: orgId,
       number_prefix: v.number_prefix,
       number_class: v.number_class,
       number_hiragana: v.number_hiragana,
