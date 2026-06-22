@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { syncSalesLogDriverReward } from "@/server/salesLogDriverReward";
 
@@ -24,6 +25,7 @@ export async function PATCH(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id } = await params;
   if (!id) {
@@ -87,7 +89,7 @@ export async function PATCH(
   }
 
   try {
-    await syncSalesLogDriverReward(supabase, user.companyCode, {
+    await syncSalesLogDriverReward(supabase, orgId, {
       id: data.id,
       log_date: String(data.log_date ?? ""),
       revenue: Number((data as { revenue?: number }).revenue) || 0,
@@ -130,6 +132,7 @@ export async function DELETE(
 ) {
   const user = await requireAuth(_req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id } = await params;
   if (!id) {

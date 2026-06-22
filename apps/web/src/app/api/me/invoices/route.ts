@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -7,12 +8,13 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const month = req.nextUrl.searchParams.get("month");
   let query = supabase
     .from("invoice_documents")
     .select("id, month_yyyy_mm, issue_date, amount, status, invoice_no, payload, updated_at")
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("driver_id", user.driverId)
     .order("updated_at", { ascending: false });
 

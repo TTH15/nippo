@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ export async function PATCH(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: invoiceAddressId, lineId } = await params;
   const monthParam = req.nextUrl.searchParams.get("month");
@@ -48,7 +50,7 @@ export async function PATCH(
     .from("counterparty_monthly_custom_lines")
     .update(updates)
     .eq("id", lineId)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_address_id", invoiceAddressId)
     .eq("month_yyyy_mm", month)
     .select("id")

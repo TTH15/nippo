@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
         .from("invoice_addresses")
         .select("id")
         .eq("id", principalInvoiceAddressId)
-        .eq("company_code", user.companyCode)
+        .eq("org_id", orgId)
         .maybeSingle();
 
       if (addrErr || !addr) {
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
         .from("invoice_addresses")
         .select("id")
         .eq("id", counterpartyInvoiceAddressId)
-        .eq("company_code", user.companyCode)
+        .eq("org_id", orgId)
         .maybeSingle();
 
       if (addrErr || !addr) {

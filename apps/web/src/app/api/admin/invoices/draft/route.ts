@@ -43,7 +43,7 @@ function buildInvoiceNo(params: {
 }
 
 async function buildNextInvoiceNo(
-  companyCode: string,
+  orgId: string,
   params: {
     month: string;
     section: Section;
@@ -56,7 +56,7 @@ async function buildNextInvoiceNo(
   const { data, error } = await supabase
     .from("invoice_documents")
     .select("invoice_no")
-    .eq("company_code", companyCode)
+    .eq("org_id", orgId)
     .like("invoice_no", `${prefix}%`)
     .limit(300);
   if (error) throw error;
@@ -143,7 +143,7 @@ export async function GET(req: NextRequest) {
       .from("invoice_addresses")
       .select("id, name")
       .eq("id", counterpartyParam)
-      .eq("company_code", user.companyCode)
+      .eq("org_id", orgId)
       .maybeSingle();
 
     if (addrErr) {
@@ -194,7 +194,7 @@ export async function GET(req: NextRequest) {
       section,
       issueDate,
       dueDate,
-      invoiceNo: await buildNextInvoiceNo(user.companyCode, {
+      invoiceNo: await buildNextInvoiceNo(orgId, {
         month: range.month,
         section,
         counterpartyId: counterpartyParam,
@@ -258,7 +258,7 @@ export async function GET(req: NextRequest) {
     section,
     issueDate,
     dueDate,
-    invoiceNo: await buildNextInvoiceNo(user.companyCode, {
+    invoiceNo: await buildNextInvoiceNo(orgId, {
       month: range.month,
       section,
       counterpartyId: counterpartyInvoiceAddressId,

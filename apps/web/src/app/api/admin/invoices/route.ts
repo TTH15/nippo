@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -104,7 +105,7 @@ function bumpInvoiceNo(invoiceNo: string): string {
 }
 
 async function isDuplicateInvoiceNo(
-  companyCode: string,
+  orgId: string,
   invoiceNo: string | null | undefined,
 ): Promise<boolean> {
   const normalized = String(invoiceNo ?? "").trim();
@@ -112,7 +113,7 @@ async function isDuplicateInvoiceNo(
   const { data, error } = await supabase
     .from("invoice_documents")
     .select("id")
-    .eq("company_code", companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_no", normalized)
     .limit(1);
   if (error) throw error;
@@ -120,13 +121,13 @@ async function isDuplicateInvoiceNo(
 }
 
 async function resolveUniqueInvoiceNo(
-  companyCode: string,
+  orgId: string,
   invoiceNo: string | null,
 ): Promise<string | null> {
   let candidate = normalizeInvoiceNo(invoiceNo);
   if (!candidate) return null;
   for (let i = 0; i < 120; i++) {
-    const duplicated = await isDuplicateInvoiceNo(companyCode, candidate);
+    const duplicated = await isDuplicateInvoiceNo(orgId, candidate);
     if (!duplicated) return candidate;
     candidate = bumpInvoiceNo(candidate);
   }
@@ -136,13 +137,14 @@ async function resolveUniqueInvoiceNo(
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const monthParam = req.nextUrl.searchParams.get("month");
   const month = monthParam ? normalizeMonth(monthParam) : null;
   let query = supabase
     .from("invoice_documents")
     .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, is_starred, created_at, updated_at, payload")
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .order("updated_at", { ascending: false });
   if (month) {
     query = query.eq("month_yyyy_mm", month);
@@ -188,6 +190,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   let body: SaveBody;
   try {
@@ -236,7 +239,7 @@ export async function POST(req: NextRequest) {
     const { data: pendingRows, error: pendingErr } = await supabase
       .from("invoice_documents")
       .select("id, payload")
-      .eq("company_code", user.companyCode)
+      .eq("org_id", orgId)
       .eq("status", "pending_approval")
       .eq("driver_id", incomingDriverId)
       .limit(50);
@@ -256,6 +259,7 @@ export async function POST(req: NextRequest) {
   }
 
   const insertRow = {
+    org_id: orgId,
     company_code: user.companyCode,
     month_yyyy_mm: month,
     section,
@@ -273,7 +277,7 @@ export async function POST(req: NextRequest) {
 
   try {
     insertRow.invoice_no = await resolveUniqueInvoiceNo(
-      user.companyCode,
+      orgId,
       typeof insertRow.invoice_no === "string" ? insertRow.invoice_no : null,
     );
   } catch (e) {
@@ -293,7 +297,7 @@ export async function POST(req: NextRequest) {
     if (!error) break;
     if ((error as any)?.code !== "23505") break;
     insertRow.invoice_no = await resolveUniqueInvoiceNo(
-      user.companyCode,
+      orgId,
       typeof insertRow.invoice_no === "string" ? bumpInvoiceNo(insertRow.invoice_no) : "INV-MANUAL-R01",
     );
   }

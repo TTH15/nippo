@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,7 @@ export async function PUT(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: invoiceAddressId } = await params;
   const monthParam = req.nextUrl.searchParams.get("month");
@@ -58,7 +60,7 @@ export async function PUT(
     .from("invoice_addresses")
     .select("id")
     .eq("id", invoiceAddressId)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (addrErr) {
@@ -95,7 +97,7 @@ export async function PUT(
   const { error: delErr } = await supabase
     .from("counterparty_monthly_custom_lines")
     .delete()
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_address_id", invoiceAddressId)
     .eq("month_yyyy_mm", month);
 
@@ -106,6 +108,7 @@ export async function PUT(
 
   let ord = 0;
   const allRows = [...mainNormalized, ...dedNormalized].map((r) => ({
+    org_id: orgId,
     company_code: user.companyCode,
     invoice_address_id: invoiceAddressId,
     month_yyyy_mm: month,
