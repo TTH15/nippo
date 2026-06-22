@@ -49,6 +49,7 @@ export type SystemBillingLine = {
  */
 export async function computeCounterpartyMonthBillingDetail(
   supabase: SupabaseClient,
+  orgId: string,
   startDate: string,
   endDate: string,
   counterpartyInvoiceAddressId: string,
@@ -57,6 +58,7 @@ export async function computeCounterpartyMonthBillingDetail(
   const { data: courseRows, error: coursesErr } = await supabase
     .from("courses")
     .select("id, name, sort_order")
+    .eq("org_id", orgId)
     .eq("counterparty_invoice_address_id", counterpartyInvoiceAddressId)
     .order("sort_order", { ascending: true });
   if (coursesErr) throw coursesErr;
@@ -68,7 +70,7 @@ export async function computeCounterpartyMonthBillingDetail(
   const allowed = new Set(orderedCourseIds);
 
   // 2. v2 正規化データ
-  const data = await loadAggregationData(supabase, startDate, endDate);
+  const data = await loadAggregationData(supabase, orgId, startDate, endDate);
   const unitById = new Map(data.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
   const fixedByCourse = new Map(data.fixedRates.map((r) => [r.courseId, r]));
@@ -203,12 +205,14 @@ export async function computeCounterpartyMonthBillingDetail(
  */
 export async function computeCounterpartyMonthRevenue(
   supabase: SupabaseClient,
+  orgId: string,
   startDate: string,
   endDate: string,
   counterpartyInvoiceAddressId: string,
 ): Promise<number> {
   const { systemTotal } = await computeCounterpartyMonthBillingDetail(
     supabase,
+    orgId,
     startDate,
     endDate,
     counterpartyInvoiceAddressId,
@@ -222,6 +226,7 @@ export async function computeCounterpartyMonthRevenue(
  */
 export async function computeSectionMonthRevenue(
   supabase: SupabaseClient,
+  orgId: string,
   startDate: string,
   endDate: string,
   section: Section,
@@ -230,6 +235,7 @@ export async function computeSectionMonthRevenue(
     const { data, error } = await supabase
       .from("sales_log_entries")
       .select("revenue, attribution")
+      .eq("org_id", orgId)
       .gte("log_date", startDate)
       .lte("log_date", endDate)
       .eq("attribution", "COMPANY");
@@ -242,7 +248,7 @@ export async function computeSectionMonthRevenue(
     return total;
   }
 
-  const data = await loadAggregationData(supabase, startDate, endDate);
+  const data = await loadAggregationData(supabase, orgId, startDate, endDate);
   const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
   const contribs = buildContributions(data.reports, [], ctx); // ledger 無し = auto のみ
 

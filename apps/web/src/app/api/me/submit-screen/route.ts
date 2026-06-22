@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { loadSubmitScreenConfig } from "@/server/submitScreen/config";
@@ -11,13 +12,14 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const driverId = user.driverId as string;
   const date = req.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
 
   const config = await loadSubmitScreenConfig(supabase);
 
   // --- 今日の報酬見込み（v2・未承認も含む / 却下は除外） ---
-  const dayData = await loadAggregationData(supabase, date, date);
+  const dayData = await loadAggregationData(supabase, orgId, date, date);
   const unitById = new Map(dayData.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(dayData.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
   const fixedByCourse = new Map(dayData.fixedRates.map((r) => [r.courseId, r]));
@@ -52,6 +54,7 @@ export async function GET(req: NextRequest) {
   const blocks =
     config.blocks && config.blocks.length > 0 ? normalizeBlocks(config.blocks) : defaultBlocksFromConfig(config);
   const resolvedBlocks = await resolveBlocks(supabase, blocks, {
+    orgId,
     driverId,
     date,
     todayReward: Math.round(todayReward),

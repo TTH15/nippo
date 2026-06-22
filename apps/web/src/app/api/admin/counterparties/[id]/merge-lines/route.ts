@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { buildMergeCandidateMap } from "@/server/billing/counterpartyBillingSnapshot";
 
@@ -27,6 +28,7 @@ function sameUnitPrice(a: number, b: number) {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: invoiceAddressId } = await params;
   let body: { month?: string; sourceLineKeys?: string[]; description?: string };
@@ -64,6 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const candidateMap = await buildMergeCandidateMap(
     supabase,
+    orgId,
     user.companyCode,
     invoiceAddressId,
     startDate,

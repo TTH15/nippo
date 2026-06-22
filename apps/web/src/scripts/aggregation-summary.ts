@@ -32,7 +32,9 @@ async function main() {
   const { start, end } = monthRange(month);
   console.log(`\n=== 新モデル月次サマリ ${month} (${start}〜${end}) ===\n`);
 
-  const data = await loadAggregationData(supabase, start, end);
+  const { data: org } = await supabase.from("organizations").select("id").eq("code", "ACE").single();
+  const orgId = org!.id as string;
+  const data = await loadAggregationData(supabase, orgId, start, end);
   const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
   const contribs = buildContributions(data.reports, data.ledger, ctx);
 
