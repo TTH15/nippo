@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
         rejected_at: new Date().toISOString(),
         rejected_by: user.driverId,
       })
-      .eq("id", id);
+      .eq("id", id).eq("org_id", orgId);
 
     if (error) {
       console.error("[admin/misc-reports/oil-change/reject] error", error);

@@ -131,7 +131,8 @@ export async function PUT(
     const { error } = await supabase
       .from("courses")
       .update(updates)
-      .eq("id", id);
+      .eq("id", id)
+      .eq("org_id", orgId);
 
     if (error) throw error;
 
@@ -162,7 +163,7 @@ export async function DELETE(
     await supabase.from("course_rates").delete().eq("course_id", id);
     await supabase.from("shifts").delete().eq("course_id", id);
 
-    const { error } = await supabase.from("courses").delete().eq("id", id);
+    const { error } = await supabase.from("courses").delete().eq("id", id).eq("org_id", orgId);
     if (error) throw error;
 
     return NextResponse.json({ ok: true });

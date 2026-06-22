@@ -140,7 +140,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   if (srcErr) {
     console.error(srcErr);
-    await supabase.from("counterparty_monthly_merged_lines").delete().eq("id", mergeId);
+    await supabase.from("counterparty_monthly_merged_lines").delete().eq("id", mergeId).eq("org_id", orgId);
     return NextResponse.json({ error: srcErr.message }, { status: 500 });
   }
 

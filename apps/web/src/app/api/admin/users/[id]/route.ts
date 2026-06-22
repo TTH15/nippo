@@ -131,7 +131,7 @@ export async function PUT(
           return;
         }
       }
-      await supabase.from("drivers").update({ driver_code: fullCode, office_code: office }).eq("id", driverId);
+      await supabase.from("drivers").update({ driver_code: fullCode, office_code: office }).eq("id", driverId).eq("org_id", orgId);
     };
 
     const upsertIdentity = async (item: IdentityInput) => {
