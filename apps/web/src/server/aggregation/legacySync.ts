@@ -1,4 +1,5 @@
 import { supabase } from "@/server/db/client";
+import { resolveOrgId } from "@/server/db/tenant";
 
 // ============================================================
 // 移行期の整合ヘルパ: 旧 daily_reports ⇄ 新 daily_reports_v2 を同期。
@@ -62,6 +63,7 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
   const unitByCode = new Map<string, string>((units ?? []).map((u: any) => [u.code, u.id]));
 
   const header = {
+    org_id: await resolveOrgId(r.driver_id),
     driver_id: r.driver_id,
     report_date: r.report_date,
     course_id: courseId,

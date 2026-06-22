@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,8 @@ export async function POST(req: NextRequest) {
 
   const nowIso = new Date().toISOString();
   const savedReportIds: string[] = [];
+  // 代理入力でも org_id は「対象ドライバーの所属テナント」を刻む
+  const orgId = await resolveOrgId(driverId);
 
   for (const item of items) {
     if (!item.courseId) continue;
@@ -65,6 +68,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     const header = {
+      org_id: orgId,
       driver_id: driverId,
       report_date: reportDate,
       course_id: item.courseId,
