@@ -8,7 +8,8 @@
     "start": "next start",
     "seed": "npx tsx src/scripts/seed.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:itest": "vitest run --config vitest.itest.config.mts"
   },
   "dependencies": {
     "@repo/core": "*",
