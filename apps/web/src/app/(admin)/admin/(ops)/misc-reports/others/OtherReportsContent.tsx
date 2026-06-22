@@ -126,8 +126,10 @@ export function OtherReportsContent({ onMutated }: { onMutated?: () => void } = 
     setSize,
     mutate,
   } = useSWRInfinite<OilChangePage>(getKey, (url: string) => apiFetch<OilChangePage>(url), {
-    revalidateOnFocus: false,
-    dedupingInterval: 5 * 60 * 1000,
+    // 未承認は新着を取りこぼさないよう、タブ復帰で再検証＋デデュープを短く。
+    // 承認済は変化が少ないため再検証を抑えてチラつき・無駄な取得を防ぐ。
+    revalidateOnFocus: tab === "pending",
+    dedupingInterval: tab === "pending" ? 15 * 1000 : 5 * 60 * 1000,
     revalidateFirstPage: false,
   });
 
