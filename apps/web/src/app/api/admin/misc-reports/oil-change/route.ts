@@ -88,7 +88,12 @@ export async function GET(req: NextRequest) {
       nextCursor: hasMore ? String(offset + limit) : null,
       hasMore,
     });
-    response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=300");
+    // 未承認(pending)は承認ワークフローの鮮度が命なのでキャッシュしない。
+    // 承認済(approved)は変化が少ないため短時間キャッシュ＋SWRで再検証。
+    response.headers.set(
+      "Cache-Control",
+      status === "approved" ? "private, max-age=30, stale-while-revalidate=300" : "no-store",
+    );
     return response;
   } catch (err) {
     console.error("[admin/misc-reports/oil-change] error", err);
