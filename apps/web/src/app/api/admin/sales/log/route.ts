@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { syncSalesLogDriverReward } from "@/server/salesLogDriverReward";
 
@@ -29,6 +30,7 @@ export type SalesLogEntryRow = {
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const url = req.nextUrl;
   const startParam = url.searchParams.get("start");
@@ -49,6 +51,7 @@ export async function GET(req: NextRequest) {
       drivers ( id, name, display_name ),
       vehicles ( id, manufacturer, brand, number_numeric )
     `)
+    .eq("org_id", orgId)
     .gte("log_date", startParam)
     .lte("log_date", endParam)
     .order("log_date", { ascending: true })
@@ -106,6 +109,7 @@ type CreateEntryBody = {
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   let body: CreateEntryBody;
   try {
@@ -144,7 +148,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("sales_log_entries")
-    .insert(payload)
+    .insert({ ...payload, org_id: orgId })
     .select("id, log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo, counterparty_invoice_address_id, created_at, updated_at")
     .single();
 
@@ -153,7 +157,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await syncSalesLogDriverReward(supabase, user.companyCode, {
+    await syncSalesLogDriverReward(supabase, orgId, {
       id: data.id,
       log_date: String(data.log_date ?? ""),
       revenue: Number((data as { revenue?: number }).revenue) || 0,

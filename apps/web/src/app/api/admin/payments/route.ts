@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers, error: driversError } = await supabase
     .from("drivers")
     .select("id, name, display_name")
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("role", "DRIVER")
     .order("name");
 

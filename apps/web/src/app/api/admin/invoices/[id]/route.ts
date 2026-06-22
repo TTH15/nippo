@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -82,7 +83,7 @@ function normalizeInvoiceNo(value: unknown): string | null {
 }
 
 async function isDuplicateInvoiceNo(
-  companyCode: string,
+  orgId: string,
   invoiceNo: string | null | undefined,
   currentId: string,
 ): Promise<boolean> {
@@ -91,7 +92,7 @@ async function isDuplicateInvoiceNo(
   const { data, error } = await supabase
     .from("invoice_documents")
     .select("id")
-    .eq("company_code", companyCode)
+    .eq("org_id", orgId)
     .eq("invoice_no", normalized)
     .neq("id", currentId)
     .limit(1);
@@ -105,13 +106,14 @@ export async function GET(
 ) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
 
   const { data, error } = await supabase
     .from("invoice_documents")
     .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, is_starred, payload, created_at, updated_at")
     .eq("id", id)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .single();
 
   if (error || !data) {
@@ -143,6 +145,7 @@ export async function PATCH(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
 
   let body: Record<string, unknown>;
@@ -158,7 +161,7 @@ export async function PATCH(
       .from("invoice_documents")
       .select("id, payload")
       .eq("id", id)
-      .eq("company_code", user.companyCode)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (curErr || !current) {
       return NextResponse.json({ error: "請求書の更新に失敗しました" }, { status: 500 });
@@ -173,7 +176,7 @@ export async function PATCH(
       const { data: pendingRows, error: pendingErr } = await supabase
         .from("invoice_documents")
         .select("id, payload")
-        .eq("company_code", user.companyCode)
+        .eq("org_id", orgId)
         .eq("status", "pending_approval")
         .eq("driver_id", incomingDriverId)
         .neq("id", id)
@@ -255,7 +258,7 @@ export async function PATCH(
       .from("invoice_documents")
       .select("invoice_no")
       .eq("id", id)
-      .eq("company_code", user.companyCode)
+      .eq("org_id", orgId)
       .maybeSingle();
     const baseInvoiceNo =
       typeof current?.invoice_no === "string" && current.invoice_no.trim()
@@ -272,7 +275,7 @@ export async function PATCH(
         .from("invoice_documents")
         .select("invoice_no")
         .eq("id", id)
-        .eq("company_code", user.companyCode)
+        .eq("org_id", orgId)
         .maybeSingle();
       if (currentNoErr) {
         console.error(currentNoErr);
@@ -284,7 +287,7 @@ export async function PATCH(
       // 請求書番号が変更された場合のみ重複チェックする
       if (nextNo && nextNo !== currentNo) {
         const duplicated = await isDuplicateInvoiceNo(
-          user.companyCode,
+          orgId,
           nextNo,
           id,
         );
@@ -302,7 +305,7 @@ export async function PATCH(
     .from("invoice_documents")
     .update(updates)
     .eq("id", id)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, is_starred, payload, created_at, updated_at")
     .single();
 
@@ -338,13 +341,14 @@ export async function DELETE(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
 
   const { error } = await supabase
     .from("invoice_documents")
     .delete()
     .eq("id", id)
-    .eq("company_code", user.companyCode);
+    .eq("org_id", orgId);
 
   if (error) {
     return NextResponse.json({ error: "請求書の削除に失敗しました" }, { status: 500 });

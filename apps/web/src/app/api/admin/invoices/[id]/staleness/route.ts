@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -23,13 +24,14 @@ export async function GET(
 ) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
 
   const { data: invoice, error: invoiceErr } = await supabase
     .from("invoice_documents")
     .select("id, month_yyyy_mm, counterparty_invoice_address_id, created_at, payload")
     .eq("id", id)
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (invoiceErr || !invoice) {
@@ -52,7 +54,7 @@ export async function GET(
   const { data: rows, error: rowsErr } = await supabase
     .from("sales_log_entries")
     .select("updated_at")
-    .eq("company_code", user.companyCode)
+    .eq("org_id", orgId)
     .eq("counterparty_invoice_address_id", counterpartyId)
     .gte("log_date", range.start)
     .lte("log_date", range.end)
