@@ -1,6 +1,8 @@
 # データベーススキーマ
 
-migrations 001〜073 を適用した後の最終状態。
+migrations 001〜083 を適用した後の最終状態。
+
+> **マルチテナント移行 Phase 0/1（082, 083）**: `companies` を `organizations` へ昇格（`join_code`/`status` 追加、`id`=org_id）。多数のテーブルに `org_id`（車両は `owner_org_id`）を nullable で追加し、既存全行を ACE テナントへバックフィル済。NOT NULL/FK・スコープ強制は後続フェーズ。詳細は `platform-design.md` §6,§7。
 
 ---
 
@@ -39,16 +41,20 @@ migrations 001〜073 を適用した後の最終状態。
 
 ---
 
-### companies
-会社マスタ（テナント）。
+### organizations
+テナント（運営会社）マスタ。`id` がテナント内部キー（org_id）。旧 `companies`（082 でリネーム）。
 
 | カラム | 型 | 制約 |
 |--------|-----|------|
 | id | uuid | PK, DEFAULT gen_random_uuid() |
-| code | text | NOT NULL, UNIQUE |
+| code | text | NOT NULL, UNIQUE（表示用の会社コード=旧 company_code） |
 | name | text | NOT NULL |
+| join_code | text | nullable, UNIQUE(部分: NOT NULL のみ)。参加用招待コード・再生成可 |
+| status | text | NOT NULL, DEFAULT 'active'（pending/active/suspended） |
 | admin_pin_hash | text | nullable |
 | created_at | timestamptz | NOT NULL, DEFAULT now() |
+
+各テーブルの `org_id`（車両は `owner_org_id`）はこの `organizations.id` を指す（FK は Phase 3 で付与）。
 
 ---
 

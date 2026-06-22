@@ -68,9 +68,9 @@ const supabase = createClient(
 async function main() {
   const pinHash = await bcrypt.hash(password, 10);
 
-  // Create company row if exists (optional)
+  // Create organization row if missing (optional)
   await supabase
-    .from("companies")
+    .from("organizations")
     .upsert({ code: resolvedCompany, name: resolvedCompany }, { onConflict: "code" });
 
   const payload = {
