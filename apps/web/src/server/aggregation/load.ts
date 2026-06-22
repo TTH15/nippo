@@ -28,9 +28,13 @@ const BIG = 100000;
 
 export async function loadAggregationData(
   supabase: SupabaseClient,
+  orgId: string,
   startDate: string,
   endDate: string,
 ): Promise<AggregationData> {
+  // org_id を持つ高頻度テーブル（daily_reports_v2 / ledger_entries）はテナントで絞る。
+  // carriers/units/unit_fields/各rate は当面共有マスタ（org_id 未付与）。reports/ledger を
+  // org スコープすれば、それらは出現したコースのみ参照されるためテナント越境しない。
   const [
     { data: carriers },
     { data: units },
@@ -52,6 +56,7 @@ export async function loadAggregationData(
     supabase
       .from("daily_reports_v2")
       .select("id, driver_id, report_date, course_id, carrier_id, approved_at, rejected_at")
+      .eq("org_id", orgId)
       .gte("report_date", startDate)
       .lte("report_date", endDate)
       .limit(BIG),
@@ -60,6 +65,7 @@ export async function loadAggregationData(
       .select(
         "entry_date, revenue_delta, profit_delta, payout_delta, target_driver_id, course_id, counterparty_invoice_address_id",
       )
+      .eq("org_id", orgId)
       .gte("entry_date", startDate)
       .lte("entry_date", endDate)
       .limit(BIG),

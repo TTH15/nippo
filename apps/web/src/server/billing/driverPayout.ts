@@ -49,11 +49,12 @@ function shortCourseLabel(name: string): string {
 
 export async function computeDriverAutoPayout(
   supabase: SupabaseClient,
+  orgId: string,
   driverId: string,
   startDate: string,
   endDate: string,
 ): Promise<DriverAutoPayout> {
-  const data = await loadAggregationData(supabase, startDate, endDate);
+  const data = await loadAggregationData(supabase, orgId, startDate, endDate);
   const unitById = new Map(data.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
   const fixedByCourse = new Map(data.fixedRates.map((r) => [r.courseId, r]));

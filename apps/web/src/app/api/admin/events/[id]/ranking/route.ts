@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { computeEventScores } from "@/server/events/score";
@@ -21,6 +22,7 @@ export async function GET(
 ) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id: eventId } = await params;
 
   const { data: event, error: eErr } = await supabase
@@ -78,7 +80,7 @@ export async function GET(
   }));
 
   // 期間内の日報を集計コアでロード → ScoringReport へ
-  const aggData = await loadAggregationData(supabase, event.starts_on, event.ends_on);
+  const aggData = await loadAggregationData(supabase, orgId, event.starts_on, event.ends_on);
   const reports: ScoringReport[] = aggData.reports.map((r) => ({
     driverId: r.driverId,
     approvedAt: r.approvedAt,

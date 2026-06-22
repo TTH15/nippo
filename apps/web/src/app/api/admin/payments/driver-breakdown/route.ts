@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { computeDriverAutoPayout } from "@/server/billing/driverPayout";
 import { loadDriverLease, loadCourseDailyLease, computeLeaseDeduction } from "@/server/billing/driverLease";
@@ -41,6 +42,7 @@ type BreakdownLine = {
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const driverId = req.nextUrl.searchParams.get("driver_id");
   if (!driverId) {
@@ -49,7 +51,7 @@ export async function GET(req: NextRequest) {
   const { month, startDate, endDate } = getMonthRange(req.nextUrl.searchParams.get("month"));
 
   // 自動算出の報酬明細を v2 集計モデルから取得（admin/payments と一致）
-  const autoPayout = await computeDriverAutoPayout(supabase, driverId, startDate, endDate);
+  const autoPayout = await computeDriverAutoPayout(supabase, orgId, driverId, startDate, endDate);
   const lines: BreakdownLine[] = autoPayout.lines.map((l) => ({
     title: l.title,
     qty: l.qty,
