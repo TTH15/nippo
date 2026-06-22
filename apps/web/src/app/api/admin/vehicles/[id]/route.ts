@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,7 @@ export async function PUT(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: vehicleId } = await params;
   if (!vehicleId) {
@@ -117,7 +119,8 @@ export async function PUT(
     const { error } = await supabase
       .from("vehicles")
       .update(updates)
-      .eq("id", vehicleId);
+      .eq("id", vehicleId)
+      .eq("owner_org_id", orgId);
 
     if (error) throw error;
 
@@ -150,13 +153,14 @@ export async function DELETE(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: vehicleId } = await params;
   if (!vehicleId) {
     return NextResponse.json({ error: "Invalid vehicle id" }, { status: 400 });
   }
 
-  const { error } = await supabase.from("vehicles").delete().eq("id", vehicleId);
+  const { error } = await supabase.from("vehicles").delete().eq("id", vehicleId).eq("owner_org_id", orgId);
 
   if (error) {
     console.error(error);

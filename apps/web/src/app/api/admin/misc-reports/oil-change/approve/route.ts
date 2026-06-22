@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadReportKinds } from "@/server/reportKinds/config";
 import { getRoleValue, getAnswerValue } from "@/server/reportKinds/answers";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
         rejected_at: null,
         rejected_by: null,
       })
-      .eq("id", id);
+      .eq("id", id).eq("org_id", orgId);
 
     if (error) {
       console.error("[admin/misc-reports/oil-change/approve] error", error);
