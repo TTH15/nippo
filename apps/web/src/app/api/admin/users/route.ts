@@ -170,6 +170,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: dErr.message }, { status: 500 });
     }
 
+    // identity 層（人単位）。driver=membership は必ず 1 つの identity を持つ（Phase 5a）。
+    // 氏名・電話・免許・PIN を人単位の属性として刻む（読み替えは Phase 6）。
+    const { data: identity, error: identErr } = await supabase
+      .from("identities")
+      .insert({
+        name: name.trim(),
+        phone: typeof phone === "string" ? phone.trim() || null : null,
+        license_expiry:
+          typeof licenseExpiryDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(licenseExpiryDate)
+            ? licenseExpiryDate
+            : null,
+        pin_hash: pinHash,
+      })
+      .select("id")
+      .single();
+    if (identErr || !identity) {
+      console.error(identErr);
+      return NextResponse.json({ error: "アイデンティティの作成に失敗しました" }, { status: 500 });
+    }
+    await supabase.from("drivers").update({ identity_id: identity.id }).eq("id", driver.id);
+
     const { data: ident1, error: iErr } = await supabase
       .from("driver_identities")
       .insert({
