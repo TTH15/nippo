@@ -39,11 +39,12 @@ export async function POST(req: NextRequest) {
         pin_hash: string | null;
         identity_id: string | null;
         org_id: string | null;
+        status: string | null;
       } | null = null;
 
       const { data: byDriverRow, error: err1 } = await supabase
         .from("drivers")
-        .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id")
+        .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id, status")
         .eq("driver_code", code)
         .eq("role", "DRIVER")
         .maybeSingle();
@@ -75,7 +76,7 @@ export async function POST(req: NextRequest) {
         if (idRow?.driver_id) {
           const { data: d2, error: err3 } = await supabase
             .from("drivers")
-            .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id")
+            .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id, status")
             .eq("id", idRow.driver_id)
             .eq("role", "DRIVER")
             .single();
@@ -102,9 +103,18 @@ export async function POST(req: NextRequest) {
       const match = await bcrypt.compare(pin, driver.pin_hash);
       console.log("[Login] PIN match:", match);
       if (!match) {
-        return NextResponse.json({ 
-          error: "PINが正しくありません。" 
+        return NextResponse.json({
+          error: "PINが正しくありません。"
         }, { status: 401 });
+      }
+
+      // Phase 7a: membership status の適用。active 以外はログイン不可。
+      if (driver.status && driver.status !== "active") {
+        const msg =
+          driver.status === "pending"
+            ? "アカウントは承認待ちです。運営の承認をお待ちください。"
+            : "このアカウントは利用できません。運営にお問い合わせください。";
+        return NextResponse.json({ error: msg }, { status: 403 });
       }
 
       const token = await signToken({
@@ -171,7 +181,7 @@ export async function POST(req: NextRequest) {
 
       const { data: admin, error } = await supabase
         .from("drivers")
-        .select("id, name, role, company_code, driver_code, pin_hash, identity_id, org_id")
+        .select("id, name, role, company_code, driver_code, pin_hash, identity_id, org_id, status")
         .eq("driver_code", full)
         .eq("company_code", code)
         .in("role", ["ADMIN", "ADMIN_VIEWER"])
@@ -187,6 +197,15 @@ export async function POST(req: NextRequest) {
       const match = await bcrypt.compare(rawPassword, admin.pin_hash);
       if (!match) {
         return NextResponse.json({ error: "パスワードが正しくありません" }, { status: 401 });
+      }
+
+      // Phase 7a: membership status の適用。active 以外はログイン不可。
+      if (admin.status && admin.status !== "active") {
+        const msg =
+          admin.status === "pending"
+            ? "アカウントは承認待ちです。運営の承認をお待ちください。"
+            : "このアカウントは利用できません。運営にお問い合わせください。";
+        return NextResponse.json({ error: msg }, { status: 403 });
       }
 
       const token = await signToken({
