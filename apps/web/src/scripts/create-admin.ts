@@ -92,11 +92,24 @@ async function main() {
   const { data, error } = await supabase
     .from("drivers")
     .upsert(payload, { onConflict: "driver_code" })
-    .select("id, name, role, company_code, driver_code")
+    .select("id, name, role, company_code, driver_code, identity_id")
     .single();
 
   if (error) {
     fail(`Failed to upsert admin: ${error.message}`);
+  }
+
+  // identity 層（人単位）。driver は必ず 1 つの identity を持つ（Phase 5a）。再実行時は既存を維持。
+  if (!data.identity_id) {
+    const { data: identity, error: identErr } = await supabase
+      .from("identities")
+      .insert({ name, pin_hash: pinHash })
+      .select("id")
+      .single();
+    if (identErr || !identity) {
+      fail(`Failed to create identity: ${identErr?.message}`);
+    }
+    await supabase.from("drivers").update({ identity_id: identity!.id }).eq("id", data.id);
   }
 
   console.log("\n[OK] ADMIN account is ready");
