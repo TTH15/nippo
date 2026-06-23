@@ -1,0 +1,23 @@
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# Env
+.env
+.env.local
+
+# Logs
+npm-debug.*
+*.log
