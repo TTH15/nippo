@@ -8,6 +8,7 @@ import { getStoredDriver, clearAuth, type StoredDriver } from "@repo/core/auth";
 import { bootstrap } from "./src/bootstrap";
 import { AuthContext } from "./src/AuthContext";
 import { LoginScreen } from "./src/screens/LoginScreen";
+import { RegisterScreen } from "./src/screens/RegisterScreen";
 import { MeScreen } from "./src/screens/MeScreen";
 import { RewardsScreen } from "./src/screens/RewardsScreen";
 import { ShiftsScreen } from "./src/screens/ShiftsScreen";
@@ -18,6 +19,7 @@ const Tab = createBottomTabNavigator();
 export default function App() {
   const [ready, setReady] = useState(false);
   const [driver, setDriver] = useState<StoredDriver | null>(null);
+  const [authView, setAuthView] = useState<"login" | "register">("login");
 
   useEffect(() => {
     // 起動時に core へ依存注入し、保存済みログインを復元する。
@@ -42,7 +44,14 @@ export default function App() {
   if (!driver) {
     return (
       <>
-        <LoginScreen onLoggedIn={() => setDriver(getStoredDriver())} />
+        {authView === "register" ? (
+          <RegisterScreen onBack={() => setAuthView("login")} />
+        ) : (
+          <LoginScreen
+            onLoggedIn={() => setDriver(getStoredDriver())}
+            onRegister={() => setAuthView("register")}
+          />
+        )}
         <StatusBar style="auto" />
       </>
     );

@@ -6,7 +6,7 @@ import { setAuth, type StoredDriver } from "@repo/core/auth";
 // 会社コード接頭辞（ブランド/テナント確定までは仮で ACE）。
 const COMPANY = process.env.EXPO_PUBLIC_COMPANY_CODE ?? "";
 
-export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
+export function LoginScreen({ onLoggedIn, onRegister }: { onLoggedIn: () => void; onRegister?: () => void }) {
   const [num, setNum] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
@@ -71,6 +71,12 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
       >
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>ログイン</Text>}
       </Pressable>
+
+      {onRegister && (
+        <Pressable onPress={onRegister} style={styles.registerLink}>
+          <Text style={styles.registerText}>はじめての方はこちら（参加申請）</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -109,4 +115,6 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  registerLink: { marginTop: 16, alignItems: "center" },
+  registerText: { color: "#2563eb", fontSize: 14 },
 });
