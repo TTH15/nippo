@@ -8,7 +8,9 @@
     "run:ios": "expo run:ios",
     "run:android": "expo run:android",
     "doctor": "expo-doctor",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@repo/core": "*",
