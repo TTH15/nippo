@@ -16,12 +16,15 @@ export async function GET(req: NextRequest) {
   const cursorRaw = Number(url.searchParams.get("cursor") || "0");
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 20;
   const offset = Number.isFinite(cursorRaw) ? Math.max(0, Math.floor(cursorRaw)) : 0;
+  // Phase 7a: status フィルタ。既定は active（既存ロスター挙動を維持）。?status=pending で承認待ち一覧。
+  const statusRaw = url.searchParams.get("status");
+  const status = statusRaw && ["pending", "active", "rejected"].includes(statusRaw) ? statusRaw : "active";
 
   // 同じ会社コードのドライバー一覧（一覧表示に不要な住所/口座情報は除外）
   const { data: drivers, error } = await supabase
     .from("drivers")
     .select(`
-      id, name, display_name, role, office_code, driver_code, list_no, license_expiry_date,
+      id, name, display_name, role, office_code, driver_code, list_no, license_expiry_date, status, created_at,
       postal_code, address, phone, bank_name, bank_no, bank_holder,
       driver_identities (
         id, slot, driver_code, office_code, label,
@@ -33,6 +36,7 @@ export async function GET(req: NextRequest) {
     `)
     .eq("org_id", orgId)
     .eq("role", "DRIVER")
+    .eq("status", status)
     .order("list_no", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true })
     .order("id", { ascending: true })
@@ -47,7 +51,8 @@ export async function GET(req: NextRequest) {
     .from("drivers")
     .select("id", { count: "exact", head: true })
     .eq("org_id", orgId)
-    .eq("role", "DRIVER");
+    .eq("role", "DRIVER")
+    .eq("status", status);
   const total = countRes.count ?? 0;
   const nextCursor = offset + (drivers?.length ?? 0) < total ? String(offset + (drivers?.length ?? 0)) : null;
   const response = NextResponse.json({
