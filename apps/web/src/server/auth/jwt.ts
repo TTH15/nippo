@@ -15,11 +15,16 @@ export async function signToken(payload: {
   driverId: string;
   role: "DRIVER" | "ADMIN" | "ADMIN_VIEWER";
   companyCode: string;
+  // Phase 6a: identity（人）と current_org_id（選択中の所属）を運ぶ。未指定（旧呼び出し）は null。
+  identityId?: string | null;
+  orgId?: string | null;
 }): Promise<string> {
-  return new SignJWT({ 
-    sub: payload.driverId, 
+  return new SignJWT({
+    sub: payload.driverId,
     role: payload.role,
     companyCode: payload.companyCode,
+    identity_id: payload.identityId ?? null,
+    current_org_id: payload.orgId ?? null,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -42,14 +47,19 @@ export class SimpleJwtAuthProvider implements AuthProvider {
     const driverId = payload.sub;
     const role = payload.role as string;
     const companyCode = payload.companyCode as string;
-    
+    // Phase 6a: 旧トークンには無いため null フォールバック（後方互換）。
+    const identityId = (payload.identity_id as string | null | undefined) ?? null;
+    const orgId = (payload.current_org_id as string | null | undefined) ?? null;
+
     if (!driverId || !["DRIVER", "ADMIN", "ADMIN_VIEWER"].includes(role)) {
       throw new Error("Invalid token payload");
     }
-    return { 
-      driverId, 
+    return {
+      driverId,
       role: role as AuthUser["role"],
       companyCode: companyCode || "AAA", // 後方互換性
+      identityId,
+      orgId,
     };
   }
 }
