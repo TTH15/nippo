@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { NavigationContainer } from "@react-navigation/native";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { getStoredDriver, clearAuth, type StoredDriver } from "@repo/core/auth";
 import { bootstrap } from "./src/bootstrap";
+import { AuthContext } from "./src/AuthContext";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { MeScreen } from "./src/screens/MeScreen";
+import { RewardsScreen } from "./src/screens/RewardsScreen";
+
+const Tab = createBottomTabNavigator();
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -30,21 +37,35 @@ export default function App() {
     );
   }
 
+  if (!driver) {
+    return (
+      <>
+        <LoginScreen onLoggedIn={() => setDriver(getStoredDriver())} />
+        <StatusBar style="auto" />
+      </>
+    );
+  }
+
   return (
-    <>
-      {driver ? (
-        <MeScreen
-          driver={driver}
-          onLogout={() => {
+    <SafeAreaProvider>
+      <AuthContext.Provider
+        value={{
+          driver,
+          logout: () => {
             clearAuth();
             setDriver(null);
-          }}
-        />
-      ) : (
-        <LoginScreen onLoggedIn={() => setDriver(getStoredDriver())} />
-      )}
+          },
+        }}
+      >
+        <NavigationContainer>
+          <Tab.Navigator screenOptions={{ headerShown: false }}>
+            <Tab.Screen name="マイページ" component={MeScreen} />
+            <Tab.Screen name="報酬" component={RewardsScreen} />
+          </Tab.Navigator>
+        </NavigationContainer>
+      </AuthContext.Provider>
       <StatusBar style="auto" />
-    </>
+    </SafeAreaProvider>
   );
 }
 

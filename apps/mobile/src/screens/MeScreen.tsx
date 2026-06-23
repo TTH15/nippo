@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { View, Text, ScrollView, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { apiFetch } from "@repo/core/api";
-import type { StoredDriver } from "@repo/core/auth";
 import type { Profile } from "@repo/core/types";
 import { buildProfileEntries } from "@repo/core/logic/profile";
+import { useAuth } from "../AuthContext";
 
 // ============================================================
 // マイページ（me）の RN 移植・第1弾＝プロフィール表示（読み取り専用）。
@@ -11,7 +11,8 @@ import { buildProfileEntries } from "@repo/core/logic/profile";
 // PIN 変更・諸報告（書き込み系）は次段（本番 DB を汚さないよう dev 接続後に）。
 // ============================================================
 
-export function MeScreen({ driver, onLogout }: { driver: StoredDriver; onLogout: () => void }) {
+export function MeScreen() {
+  const { driver, logout } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -57,7 +58,7 @@ export function MeScreen({ driver, onLogout }: { driver: StoredDriver; onLogout:
         </View>
       )}
 
-      <Pressable style={styles.logout} onPress={onLogout}>
+      <Pressable style={styles.logout} onPress={logout}>
         <Text style={styles.logoutText}>ログアウト</Text>
       </Pressable>
     </ScrollView>
