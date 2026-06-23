@@ -110,6 +110,15 @@ async function main() {
     if (error) {
       console.error(`Failed to insert ${d.name}:`, error.message);
     } else {
+      // identity 層（人単位）。driver は必ず 1 つの identity を持つ（Phase 5a）。
+      const { data: identity } = await supabase
+        .from("identities")
+        .insert({ name: d.name, pin_hash: pinHash })
+        .select("id")
+        .single();
+      if (identity) {
+        await supabase.from("drivers").update({ identity_id: identity.id }).eq("id", data.id);
+      }
       console.log(`[OK] ${d.name} (${d.role}) — id: ${data.id}`);
     }
   }
