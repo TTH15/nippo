@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
+import { orgOwnsCarrier } from "@/server/carriers/orgCarriers";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
 const BILLING_TYPES = ["PER_PIECE", "FIXED"];
+
+/** unit を当 org が管理してよいか（unit の carrier が当 org の有効化集合にあるか）。 */
+async function orgOwnsUnit(orgId: string, unitId: string): Promise<boolean> {
+  const { data } = await supabase.from("units").select("carrier_id").eq("id", unitId).maybeSingle();
+  if (!data?.carrier_id) return false;
+  return orgOwnsCarrier(supabase, orgId, data.carrier_id as string);
+}
 
 // PATCH: unit 更新
 export async function PATCH(
@@ -13,7 +22,11 @@ export async function PATCH(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
+  if (!(await orgOwnsUnit(orgId, id))) {
+    return NextResponse.json({ error: "unit が見つかりません" }, { status: 404 });
+  }
 
   const body = await req.json().catch(() => ({}));
   const patch: Record<string, unknown> = {};
@@ -49,7 +62,11 @@ export async function DELETE(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
+  if (!(await orgOwnsUnit(orgId, id))) {
+    return NextResponse.json({ error: "unit が見つかりません" }, { status: 404 });
+  }
 
   const { count: rateCount } = await supabase
     .from("course_unit_rates")

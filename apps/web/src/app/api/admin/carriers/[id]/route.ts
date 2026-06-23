@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
+import { orgOwnsCarrier } from "@/server/carriers/orgCarriers";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
+
+const NOT_FOUND = NextResponse.json({ error: "キャリアが見つかりません" }, { status: 404 });
 
 // PATCH: キャリア更新（name / code / sort_order / active）
 export async function PATCH(
@@ -11,7 +15,9 @@ export async function PATCH(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
+  if (!(await orgOwnsCarrier(supabase, orgId, id))) return NOT_FOUND;
 
   const body = await req.json().catch(() => ({}));
   const patch: Record<string, unknown> = {};
@@ -46,7 +52,9 @@ export async function DELETE(
 ) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
+  if (!(await orgOwnsCarrier(supabase, orgId, id))) return NOT_FOUND;
 
   // 配下に unit があれば削除不可（unit を先に消す/無効化）
   const { count: unitCount } = await supabase
@@ -68,6 +76,9 @@ export async function DELETE(
       { status: 409 },
     );
   }
+
+  // 有効化(company_carriers)を先に解除（carriers への FK のため）。
+  await supabase.from("company_carriers").delete().eq("carrier_id", id);
 
   const { error } = await supabase.from("carriers").delete().eq("id", id);
   if (error) {
