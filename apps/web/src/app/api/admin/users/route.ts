@@ -55,8 +55,20 @@ export async function GET(req: NextRequest) {
     .eq("status", status);
   const total = countRes.count ?? 0;
   const nextCursor = offset + (drivers?.length ?? 0) < total ? String(offset + (drivers?.length ?? 0)) : null;
+
+  // プライバシー: 承認前（pending）の申請者の電話は下4桁のみ開示（サーバ側マスク）。
+  // 誤 join_code で別 org に出てもフル電話は渡さない。active は所属ドライバーなのでフル。
+  const rows =
+    status === "pending"
+      ? (drivers ?? []).map((d) => {
+          const p = (d as { phone?: string | null }).phone;
+          const digits = typeof p === "string" ? p.replace(/\D/g, "") : "";
+          return { ...d, phone: digits ? `***${digits.slice(-4)}` : null };
+        })
+      : (drivers ?? []);
+
   const response = NextResponse.json({
-    drivers: drivers ?? [],
+    drivers: rows,
     nextCursor,
     hasMore: nextCursor != null,
     total,
