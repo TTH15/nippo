@@ -1,6 +1,6 @@
 # プラットフォーム再構築 設計 俯瞰（棚卸し）
 
-ステータス: 設計フェーズ（合意形成中）。**基盤移行は実装着手済**（monorepo化 Step0 完了／マルチテナント Phase 0・1 完了、Phase 2 進行中。詳細は memory `tenant-migration` / `platform-design.md` §7）／最終更新: 2026-06-22
+ステータス: 設計フェーズ（合意形成中）。**基盤移行は大きく前進**（monorepo化 Step0 完了／マルチテナント **Phase 0〜4 完了**＝org_id 基盤・スコープ一元化・NOT NULL/FK・キャリア会社別化、**Phase 8 隔離テスト基盤**も完了。**残=Phase 5〜7 認証/参加フロー**。詳細は memory `tenant-migration` / `platform-design.md` §7）／最終更新: 2026-06-23
 
 MVP（nippo-mvp）を **マルチテナントSaaS ＋ Expoネイティブ** へ作り替える設計の入口・決定ログ・残課題の一覧。各論は個別フロー文書を参照。
 
@@ -44,7 +44,7 @@ MVP（nippo-mvp）を **マルチテナントSaaS ＋ Expoネイティブ** へ�
 
 | 領域 | 状態 |
 |---|---|
-| テナント/identity/認証 | 方針確定。**org_id 基盤＝Phase 0・1 完了、Phase 2（スコープ一元化）進行中**（identity/認証=Phase 5・6 で未着手） |
+| テナント/identity/認証 | **org_id 基盤＝Phase 0〜4 完了**（スコープ一元化・NOT NULL/FK・キャリア会社別化・隔離テスト基盤）。**identity/認証（Phase 5〜7）は未着手**＝次の主タスク |
 | 運営社/ドライバー オンボーディング | 方針確定（認証方式メニューは導入相談で選択） |
 | シフト・アサイン | 現行維持＋デルタ確定（通知ゲート=案A） |
 | 車両セッション（チェックイン/アウト・点検・オドメーター・QR） | 方針確定 |
@@ -99,7 +99,7 @@ MVP（nippo-mvp）を **マルチテナントSaaS ＋ Expoネイティブ** へ�
 
 ## 7. 実装着手時の推奨順序（計画の目安）
 
-1. **基盤移行**: org_id付与＋テナントスコープ一元化＋identity/membership分離（platform-design Phase0-6）。現行コードで先行。→ **Phase 0・1 完了、Phase 2 進行中**（`platform-design.md` §7 / memory `tenant-migration`）。
+1. **基盤移行**: org_id付与＋テナントスコープ一元化＋identity/membership分離（platform-design Phase0-8）。→ **Phase 0〜4＋8基盤 完了。残=Phase 5〜7（identity/Passkey認証/参加フロー）が次の主タスク**（`platform-design.md` §7 / memory `tenant-migration`）。
 2. **認証＋オンボーディング**: Passkey＋SMS OTP、join_code/承認、KYB。
 3. **monorepo＋Expo足場**（packages/core 昇格）。
 4. **ドライバー中核**: 車両セッション（チェックイン/アウト）＋通知＋シフト閲覧。
