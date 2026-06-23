@@ -16,3 +16,16 @@ export async function loadOrgCarrierIds(
   const ids = (data ?? []).map((r: { carrier_id: string }) => r.carrier_id);
   return ids.length > 0 ? ids : null;
 }
+
+/**
+ * 当 org がそのキャリアを管理してよいか（company_carriers に有効化があるか）。
+ * 未設定（loadOrgCarrierIds が null）の org は許可（読みのフォールバックと同じ＝087未適用でも壊さない）。
+ */
+export async function orgOwnsCarrier(
+  supabase: SupabaseClient,
+  orgId: string,
+  carrierId: string,
+): Promise<boolean> {
+  const ids = await loadOrgCarrierIds(supabase, orgId);
+  return ids === null || ids.includes(carrierId);
+}
