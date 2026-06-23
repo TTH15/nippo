@@ -12,5 +12,8 @@ import { secureStoreStorage, hydrateAuthStorage } from "./auth/secureStoreStorag
 export async function bootstrap(onUnauthorized: () => void): Promise<void> {
   await hydrateAuthStorage();
   configureAuth({ storage: secureStoreStorage, onUnauthorized });
-  configureApi({ baseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? "" });
+  // 末尾スラッシュを除去（apiFetch は `${baseUrl}${path}` で path が "/api/..." のため、
+  // baseUrl 末尾に "/" があると "//api/..." と二重になるのを防ぐ）。
+  const baseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, "");
+  configureApi({ baseUrl });
 }
