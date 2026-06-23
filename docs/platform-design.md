@@ -257,19 +257,21 @@ CREATE TABLE company_carriers (
 
 - **Phase 0 — 正式化 ✅完了**（migration 082）: `companies`→`organizations` リネーム（`join_code`/`status` 追加、`code`=display_code）。ACE 行を保証・join_code 採番。
 - **Phase 1 — 列追加（nullable）＋バックフィル ✅完了**（migration 083）: §6 の org_id 列を nullable 追加、既存全行を ACE で UPDATE、`org_id` インデックス付与。車両は `owner_org_id`。
-- **Phase 2 — 強制の一元化 🚧進行中**: `src/server/db/tenant.ts`（`resolveOrgId`/`requireTenant`）を新設。default-deny は段階適用中。
-  - 2a ✅: 集計ローダ `loadAggregationData(orgId,…)` ＋給与/請求チェーンを org_id スコープ（daily_reports_v2 / ledger_entries）。
-  - 2b-1 ✅: daily_reports_v2 の**書き込み**に org_id 刻印＋migration 084 でギャップ再バックフィル（READをスコープしたら同テーブルのWRITE刻印＋再バックフィルをセットで、が鉄則）。
-  - 2b-2 ✅: submit_screen_config / courses / events / vehicles(owner_org_id) / oil_change_reports の主要 list/singleton 読みをスコープ＋書き込み刻印。
-  - 残🚧: `shift_request_deadline_*`（saveRules の全削除は org スコープ要・要注意）、手書き `.eq("company_code")`（invoices/counterparties/users 等）→org_id 置換、二次的な参照の総点検、`tenant.ts` ラッパによる全面 default-deny。
-- **Phase 3 — 制約強化**: org_id を NOT NULL 化、FK 付与（G2 解消）。**Phase 2 の `.eq(company_code)` 置換・全書き込み刻印が済むまで NOT NULL にしない**。
-- **Phase 4 — ハードコード解消**: YAMATO/AMAZON 分岐（G6）を `carriers`＋`company_carriers` 駆動へ。運営日報の固定表示も会社別動的化（`admin-daily-legacy-display` 参照）。
-- **Phase 5 — identity層抽出**: `identities`/`passkey_credentials` 作成。既存 drivers を identity へ割当（当面1行=1identity、同一人物の手動マージは運用で）。氏名・免許・PIN を identities へ移送。
-- **Phase 6 — 認証刷新**: Passkey(WebAuthn) 導入、電話 SMS OTP 検証、LINE連携。JWT を `identity_id`＋`current_org_id` 形式へ。会社切替UI。
-- **Phase 7 — 参加フロー**: join_code 入力API・承認/却下API・`status` 運用を実装。
-- **Phase 8 — 隔離テスト**: 2社目を作り、A社ログインでB社データが一切見えないことを Vitest で自動検証。
+- **Phase 2 — 強制の一元化 ✅完了**: `src/server/db/tenant.ts`（`resolveOrgId`/`requireTenant`）新設。
+  - 2a: 集計ローダ `loadAggregationData(orgId,…)` ＋給与/請求チェーンを org_id スコープ（daily_reports_v2 / ledger_entries）。
+  - 2b-1: daily_reports_v2 の**書き込み**に org_id 刻印＋migration 084 でギャップ再バックフィル（**鉄則: READをスコープしたら同テーブルのWRITE刻印＋再バックフィルをセットで**）。
+  - 2b-2: submit_screen_config / courses / events / vehicles(owner_org_id) / oil_change_reports の主要 list/singleton 読みをスコープ＋書き込み刻印。
+  - 2c: `shift_request_deadline_*`（`saveRules`/`saveDeadlineOverrides` の**無スコープ全削除という地雷**を当org分のみ削除へ。子は rule_id 経由で限定）。
+  - 2d: 手書き `.eq("company_code")` 約50箇所→`.eq("org_id", orgId)` 置換＋書き込み刻印（migration 085 で請求系4表に org_id 追加が前提）。残った `.eq("company_code")` はログインの表示コード照合のみ。
+  - 仕上げ: `[id]` ルートの **PK指定のみ mutation（UPDATE/DELETE）に org_id ガード**（cross-tenant 破壊の IDOR を塞ぐ）。
+- **Phase 3 — 制約強化 ✅完了**（migration 086）: 全 org_id 列（＋vehicles.owner_org_id）に NULL→ACE 再バックフィル→FK→NOT NULL（単一冪等 DO ブロック）。全書き込みが org_id を刻むことを事前監査（スクリプトも刻印）。
+- **Phase 4 — キャリアの会社別化 ✅完了**（migration 087）: `company_carriers(org_id, carrier_id)`＝共有マスタ＋会社別有効化。ACE 全有効 backfill。集計ローダ・admin/carriers・submit-screen の carrier/unit 読みを org スコープ（`loadOrgCarrierIds`、未設定は全許可フォールバック）。carrier 作成は当org有効化、by-id mutation は `orgOwnsCarrier` でガード。**YAMATO/AMAZON 残ハードコード（旧V1 submit `SubmitPageClient`/`api/reports`、請求セクション Amazon/ヤマト/郵便局）は ACE 固有で multi-tenant 非必須 → 対象外（合意）**。運営日報UIの動的化は別途完了済（`admin-daily-legacy-display`）。
+- **Phase 5 — identity層抽出 ⬜️未着手**: `identities`/`passkey_credentials` 作成。既存 drivers を identity へ割当（当面1行=1identity、同一人物の手動マージは運用で）。氏名・免許・PIN を identities へ移送。
+- **Phase 6 — 認証刷新 ⬜️未着手**: Passkey(WebAuthn) 導入、電話 SMS OTP 検証、LINE連携。JWT を `identity_id`＋`current_org_id` 形式へ。会社切替UI。
+- **Phase 7 — 参加フロー ⬜️未着手**: join_code 入力API・承認/却下API・`status` 運用を実装。
+- **Phase 8 — 隔離テスト ✅基盤完了**: 実DB(Supabase ブランチ)に supabase-js で接続する env-gated 統合テスト（`npm run test:itest`、`*.itest.ts`）。使い捨て2 org を seed し集計/ledger/mutation の隔離を assert。ルートレベル(JWT+NextRequest)テストは follow-up。
 
-各 Phase は独立リリース可。**Phase 2 完了まで2社目を本番投入しない**こと。
+各 Phase は独立リリース可。**Phase 2 完了まで2社目を本番投入しない**条件はクリア済（org_id 基盤・スコープ・制約・キャリア別化・隔離テストまで完了＝技術的に2社目を載せられる土台）。残りは認証/参加フロー（Phase 5-7）。
 
 ---
 
