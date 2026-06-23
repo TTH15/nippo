@@ -14,6 +14,7 @@
     "test:watch": "npm -w @repo/web run test:watch",
     "test:itest": "npm -w @repo/web run test:itest",
     "seed": "npm -w @repo/web run seed",
+    "db:migrate": "npm -w @repo/web run db:migrate",
     "mobile": "npm -w @repo/mobile run start"
   }
 }
