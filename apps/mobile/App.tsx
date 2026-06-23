@@ -4,17 +4,29 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { getStoredDriver, clearAuth, type StoredDriver } from "@repo/core/auth";
 import { bootstrap } from "./src/bootstrap";
 import { AuthContext } from "./src/AuthContext";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { RegisterScreen } from "./src/screens/RegisterScreen";
 import { MeScreen } from "./src/screens/MeScreen";
+import { KycScreen } from "./src/screens/KycScreen";
 import { RewardsScreen } from "./src/screens/RewardsScreen";
 import { ShiftsScreen } from "./src/screens/ShiftsScreen";
 import { SubmitScreen } from "./src/screens/SubmitScreen";
 
 const Tab = createBottomTabNavigator();
+const MeStackNav = createNativeStackNavigator();
+
+function MeStack() {
+  return (
+    <MeStackNav.Navigator screenOptions={{ headerShown: false }}>
+      <MeStackNav.Screen name="MeHome" component={MeScreen} />
+      <MeStackNav.Screen name="Kyc" component={KycScreen} />
+    </MeStackNav.Navigator>
+  );
+}
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -73,7 +85,7 @@ export default function App() {
             <Tab.Screen name="日報" component={SubmitScreen} />
             <Tab.Screen name="希望休" component={ShiftsScreen} />
             <Tab.Screen name="報酬" component={RewardsScreen} />
-            <Tab.Screen name="マイページ" component={MeScreen} />
+            <Tab.Screen name="マイページ" component={MeStack} />
           </Tab.Navigator>
         </NavigationContainer>
       </AuthContext.Provider>
