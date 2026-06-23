@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Nippo Mobile (dev)",
+    "slug": "nippo-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.nippomobile"
+    },
+    "android": {
+      "package": "com.example.nippomobile"
+    },
+    "extra": {
+      "_note": "name/slug/bundleId はブランド未確定のため仮。確定後にリネーム。"
+    },
+    "plugins": [
+      "expo-asset"
+    ]
+  }
+}

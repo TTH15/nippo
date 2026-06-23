@@ -1,0 +1,16 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@repo/core": ["../../packages/core/src/index.ts"],
+      "@repo/core/auth": ["../../packages/core/src/auth/index.ts"],
+      "@repo/core/api": ["../../packages/core/src/api/index.ts"],
+      "@repo/core/types": ["../../packages/core/src/types/index.ts"],
+      "@repo/core/logic/*": ["../../packages/core/src/logic/*.ts"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", "expo-env.d.ts"]
+}
