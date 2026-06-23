@@ -32,9 +32,22 @@ export async function loadAggregationData(
   startDate: string,
   endDate: string,
 ): Promise<AggregationData> {
+  // キャリアは共有マスタ＋会社別有効化（company_carriers）。当 org が有効化した
+  // キャリア集合に carriers / units を絞る（ACE は全有効＝従来どおり）。
+  // 未設定（company_carriers に当 org の行が無い＝移行直後/087未適用）の場合は
+  // 全キャリアにフォールバックして既存挙動を壊さない（onboarding で明示設定する想定）。
+  const { data: ccRows } = await supabase
+    .from("company_carriers")
+    .select("carrier_id")
+    .eq("org_id", orgId);
+  const orgCarrierIds = (ccRows ?? []).map((r: any) => r.carrier_id as string);
+  const scopeCarriers = orgCarrierIds.length > 0;
+
   // org_id を持つ高頻度テーブル（daily_reports_v2 / ledger_entries）はテナントで絞る。
-  // carriers/units/unit_fields/各rate は当面共有マスタ（org_id 未付与）。reports/ledger を
-  // org スコープすれば、それらは出現したコースのみ参照されるためテナント越境しない。
+  // unit_fields/各rate は子テーブル（unit/course 経由で決まる）ため、絞った units/reports
+  // に紐づくものだけが参照される。
+  const carriersQ = supabase.from("carriers").select("id, code");
+  const unitsQ = supabase.from("units").select("id, carrier_id, code, billing_type");
   const [
     { data: carriers },
     { data: units },
@@ -44,8 +57,8 @@ export async function loadAggregationData(
     { data: reportRows },
     { data: ledgerRows },
   ] = await Promise.all([
-    supabase.from("carriers").select("id, code"),
-    supabase.from("units").select("id, carrier_id, code, billing_type"),
+    scopeCarriers ? carriersQ.in("id", orgCarrierIds) : carriersQ,
+    scopeCarriers ? unitsQ.in("carrier_id", orgCarrierIds) : unitsQ,
     supabase.from("unit_fields").select("unit_id, field_key, is_billable"),
     supabase
       .from("course_unit_rates")
