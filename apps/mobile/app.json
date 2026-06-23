@@ -17,7 +17,14 @@
       "_note": "name/slug/bundleId はブランド未確定のため仮。確定後にリネーム。"
     },
     "plugins": [
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "免許証・顔写真の登録のために写真ライブラリにアクセスします。",
+          "cameraPermission": "免許証・顔写真の撮影のためにカメラにアクセスします。"
+        }
+      ]
     ]
   }
 }
