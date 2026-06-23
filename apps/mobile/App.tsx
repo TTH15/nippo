@@ -4,7 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { getStoredDriver, clearAuth, type StoredDriver } from "@repo/core/auth";
 import { bootstrap } from "./src/bootstrap";
 import { LoginScreen } from "./src/screens/LoginScreen";
-import { HomeScreen } from "./src/screens/HomeScreen";
+import { MeScreen } from "./src/screens/MeScreen";
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -33,7 +33,7 @@ export default function App() {
   return (
     <>
       {driver ? (
-        <HomeScreen
+        <MeScreen
           driver={driver}
           onLogout={() => {
             clearAuth();
