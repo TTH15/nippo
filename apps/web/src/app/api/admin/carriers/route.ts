@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
+import { loadOrgCarrierIds } from "@/server/carriers/orgCarriers";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
-// GET: キャリア一覧（units / unit_fields をネストして返す）
+// GET: キャリア一覧（units / unit_fields をネストして返す）。当 org が有効化したキャリアのみ。
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
+  const orgCarrierIds = await loadOrgCarrierIds(supabase, orgId);
 
+  const carriersQ = supabase.from("carriers").select("*").order("sort_order");
+  const unitsQ = supabase.from("units").select("*").order("sort_order");
   const [{ data: carriers, error: cErr }, { data: units, error: uErr }, { data: fields, error: fErr }] =
     await Promise.all([
-      supabase.from("carriers").select("*").order("sort_order"),
-      supabase.from("units").select("*").order("sort_order"),
+      orgCarrierIds ? carriersQ.in("id", orgCarrierIds) : carriersQ,
+      orgCarrierIds ? unitsQ.in("carrier_id", orgCarrierIds) : unitsQ,
       supabase.from("unit_fields").select("*").order("sort_order"),
     ]);
 
@@ -47,6 +53,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const body = await req.json().catch(() => ({}));
   const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -80,6 +87,9 @@ export async function POST(req: NextRequest) {
     const msg = error.code === "23505" ? "同名/同コードのキャリアが既に存在します" : "DB error";
     return NextResponse.json({ error: msg }, { status: 400 });
   }
+
+  // 作成したキャリアを当 org に有効化（company_carriers）。これで一覧に出る＝org専用扱い。
+  await supabase.from("company_carriers").insert({ org_id: orgId, carrier_id: data.id });
 
   return NextResponse.json({ carrier: { ...data, units: [] } });
 }

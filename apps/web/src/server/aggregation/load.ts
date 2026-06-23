@@ -4,6 +4,7 @@
 // ============================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadOrgCarrierIds } from "@/server/carriers/orgCarriers";
 import type {
   CourseFixedRate,
   CourseUnitRate,
@@ -34,14 +35,8 @@ export async function loadAggregationData(
 ): Promise<AggregationData> {
   // キャリアは共有マスタ＋会社別有効化（company_carriers）。当 org が有効化した
   // キャリア集合に carriers / units を絞る（ACE は全有効＝従来どおり）。
-  // 未設定（company_carriers に当 org の行が無い＝移行直後/087未適用）の場合は
-  // 全キャリアにフォールバックして既存挙動を壊さない（onboarding で明示設定する想定）。
-  const { data: ccRows } = await supabase
-    .from("company_carriers")
-    .select("carrier_id")
-    .eq("org_id", orgId);
-  const orgCarrierIds = (ccRows ?? []).map((r: any) => r.carrier_id as string);
-  const scopeCarriers = orgCarrierIds.length > 0;
+  // 未設定（null）の場合は全キャリアにフォールバック（移行期に既存挙動を壊さない）。
+  const orgCarrierIds = await loadOrgCarrierIds(supabase, orgId);
 
   // org_id を持つ高頻度テーブル（daily_reports_v2 / ledger_entries）はテナントで絞る。
   // unit_fields/各rate は子テーブル（unit/course 経由で決まる）ため、絞った units/reports
@@ -57,8 +52,8 @@ export async function loadAggregationData(
     { data: reportRows },
     { data: ledgerRows },
   ] = await Promise.all([
-    scopeCarriers ? carriersQ.in("id", orgCarrierIds) : carriersQ,
-    scopeCarriers ? unitsQ.in("carrier_id", orgCarrierIds) : unitsQ,
+    orgCarrierIds ? carriersQ.in("id", orgCarrierIds) : carriersQ,
+    orgCarrierIds ? unitsQ.in("carrier_id", orgCarrierIds) : unitsQ,
     supabase.from("unit_fields").select("unit_id, field_key, is_billable"),
     supabase
       .from("course_unit_rates")
