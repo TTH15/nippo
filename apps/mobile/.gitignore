@@ -3,6 +3,10 @@
 dist/
 web-build/
 
+# Native（CNG＝prebuild で生成。コミットしない）
+/ios/
+/android/
+
 # Native
 *.orig.*
 *.jks
