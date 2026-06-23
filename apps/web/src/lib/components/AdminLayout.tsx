@@ -24,6 +24,7 @@ import {
   faTrophy,
   faMobileScreenButton,
   faGear,
+  faUserPlus,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver } from "@/lib/api";
@@ -46,6 +47,7 @@ const navItems: NavItem[] = [
     icon: faFolderTree,
     children: [
       { href: "/admin/users", label: "ドライバー", icon: faUsers },
+      { href: "/admin/users/pending", label: "参加・承認", icon: faUserPlus },
       { href: "/admin/vehicles", label: "車両", icon: faCar },
       { href: "/admin/carriers", label: "キャリア", icon: faTruck },
       { href: "/admin/courses", label: "コース", icon: faRoute },
