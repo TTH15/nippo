@@ -10,6 +10,8 @@ import { AuthContext } from "./src/AuthContext";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { MeScreen } from "./src/screens/MeScreen";
 import { RewardsScreen } from "./src/screens/RewardsScreen";
+import { ShiftsScreen } from "./src/screens/ShiftsScreen";
+import { SubmitScreen } from "./src/screens/SubmitScreen";
 
 const Tab = createBottomTabNavigator();
 
@@ -59,8 +61,10 @@ export default function App() {
       >
         <NavigationContainer>
           <Tab.Navigator screenOptions={{ headerShown: false }}>
-            <Tab.Screen name="マイページ" component={MeScreen} />
+            <Tab.Screen name="日報" component={SubmitScreen} />
+            <Tab.Screen name="希望休" component={ShiftsScreen} />
             <Tab.Screen name="報酬" component={RewardsScreen} />
+            <Tab.Screen name="マイページ" component={MeScreen} />
           </Tab.Navigator>
         </NavigationContainer>
       </AuthContext.Provider>
