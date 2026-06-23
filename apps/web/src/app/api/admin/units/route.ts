@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
+import { orgOwnsCarrier } from "@/server/carriers/orgCarriers";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +12,7 @@ const BILLING_TYPES = ["PER_PIECE", "FIXED"] as const;
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const body = await req.json().catch(() => ({}));
   const carrierId = typeof body.carrier_id === "string" ? body.carrier_id : "";
@@ -18,6 +21,9 @@ export async function POST(req: NextRequest) {
 
   if (!carrierId) return NextResponse.json({ error: "carrier_id は必須です" }, { status: 400 });
   if (!name) return NextResponse.json({ error: "名称は必須です" }, { status: 400 });
+  if (!(await orgOwnsCarrier(supabase, orgId, carrierId))) {
+    return NextResponse.json({ error: "キャリアが見つかりません" }, { status: 404 });
+  }
 
   const { data: maxRow } = await supabase
     .from("units")
