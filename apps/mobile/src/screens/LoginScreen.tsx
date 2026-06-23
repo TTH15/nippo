@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, TextInput, Pressable, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, TextInput, Pressable, ActivityIndicator, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
 import { apiFetch } from "@repo/core/api";
 import { setAuth, type StoredDriver } from "@repo/core/auth";
 
@@ -33,7 +33,8 @@ export function LoginScreen({ onLoggedIn, onRegister }: { onLoggedIn: () => void
   const valid = num.length === 6 && pin.length === 6;
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>ログイン</Text>
 
       <Text style={styles.label}>会社コード + ドライバー番号</Text>
@@ -48,7 +49,6 @@ export function LoginScreen({ onLoggedIn, onRegister }: { onLoggedIn: () => void
           keyboardType="number-pad"
           maxLength={6}
           placeholder="123456"
-          autoFocus
         />
       </View>
 
@@ -77,12 +77,14 @@ export function LoginScreen({ onLoggedIn, onRegister }: { onLoggedIn: () => void
           <Text style={styles.registerText}>はじめての方はこちら（参加申請）</Text>
         </Pressable>
       )}
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 24, gap: 8, backgroundColor: "#f1f5f9" },
+  flex: { flex: 1, backgroundColor: "#f1f5f9" },
+  container: { flexGrow: 1, justifyContent: "center", padding: 24, gap: 8 },
   title: { fontSize: 22, fontWeight: "700", color: "#0f172a", marginBottom: 12, textAlign: "center" },
   label: { fontSize: 13, color: "#334155", marginTop: 8 },
   row: { flexDirection: "row", alignItems: "stretch" },
