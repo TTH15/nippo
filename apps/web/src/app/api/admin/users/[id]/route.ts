@@ -73,6 +73,7 @@ export async function PUT(
       bankNo,
       bankHolder,
       licenseExpiryDate,
+      status,
       identities: identitiesRaw,
     } = body;
     const { id: driverId } = await params;
@@ -107,6 +108,10 @@ export async function PUT(
           ? licenseExpiryDate
           : null;
     }
+    // Phase 7a: 参加申請の承認(active)/却下(rejected)。pending へは戻さない。
+    if (status === "active" || status === "rejected") {
+      updates.status = status;
+    }
 
     const syncSlot1ToDriver = async (fullCode: string, office: string) => {
       const { data: d } = await supabase
@@ -131,7 +136,13 @@ export async function PUT(
           return;
         }
       }
-      await supabase.from("drivers").update({ driver_code: fullCode, office_code: office }).eq("id", driverId).eq("org_id", orgId);
+      // Phase 7a: pin_hash 未設定（参加申請の承認で初めて driver_code を割り当てる）なら
+      // 初期PIN（コードの数字6桁）を発行する。既存PIN（カスタム含む）があるときは触らない。
+      const finalUpdate: Record<string, unknown> = { driver_code: fullCode, office_code: office };
+      if (!d?.pin_hash) {
+        finalUpdate.pin_hash = await bcrypt.hash(newPinPart, 10);
+      }
+      await supabase.from("drivers").update(finalUpdate).eq("id", driverId).eq("org_id", orgId);
     };
 
     const upsertIdentity = async (item: IdentityInput) => {
