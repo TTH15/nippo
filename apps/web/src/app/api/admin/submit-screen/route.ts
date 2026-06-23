@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
+import { loadOrgCarrierIds } from "@/server/carriers/orgCarriers";
 import { supabase } from "@/server/db/client";
 import {
   loadSubmitScreenConfig,
@@ -19,13 +20,16 @@ export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
+  const orgCarrierIds = await loadOrgCarrierIds(supabase, orgId);
+  const carriersQ = supabase.from("carriers").select("*").order("sort_order");
+  const unitsQ = supabase.from("units").select("*").order("sort_order");
 
   const [config, { data: drivers }, { data: carriers }, { data: units }, { data: fields }, { data: events }] =
     await Promise.all([
       loadSubmitScreenConfig(supabase, orgId),
-      supabase.from("drivers").select("id, name, display_name").eq("role", "DRIVER").order("name"),
-      supabase.from("carriers").select("*").order("sort_order"),
-      supabase.from("units").select("*").order("sort_order"),
+      supabase.from("drivers").select("id, name, display_name").eq("org_id", orgId).eq("role", "DRIVER").order("name"),
+      orgCarrierIds ? carriersQ.in("id", orgCarrierIds) : carriersQ,
+      orgCarrierIds ? unitsQ.in("carrier_id", orgCarrierIds) : unitsQ,
       supabase.from("unit_fields").select("*").order("sort_order"),
       // 067 未適用でも GET 全体は壊さない（エラー時は events=null→[]）。
       supabase
