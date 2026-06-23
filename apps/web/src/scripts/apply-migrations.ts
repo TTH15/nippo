@@ -40,14 +40,25 @@ async function main() {
 
   const client = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
   await client.connect();
-  console.log(`[migrate] connected. applying ${files.length} migrations...`);
 
   try {
-    for (const file of files) {
+    // 適用済みを記録する台帳。これにより未適用の migration だけを流す（再実行安全）。
+    // 初期 migration（001 等）は冪等でないため、台帳での skip が必須。
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS _migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`,
+    );
+    const appliedRes = await client.query<{ name: string }>(`SELECT name FROM _migrations`);
+    const applied = new Set(appliedRes.rows.map((r) => r.name));
+
+    const pending = files.filter((f) => !applied.has(f));
+    console.log(`[migrate] connected. applied=${applied.size}, pending=${pending.length}`);
+
+    for (const file of pending) {
       const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
       process.stdout.write(`  - ${file} ... `);
       try {
         await client.query(sql);
+        await client.query(`INSERT INTO _migrations(name) VALUES ($1) ON CONFLICT DO NOTHING`, [file]);
         console.log("ok");
       } catch (e) {
         console.log("FAILED");
