@@ -5,6 +5,8 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { apiFetch } from "@repo/core/api";
+import { parseLicenseExpiryFromOcr } from "@repo/core/logic/license";
+import { recognizeLicenseText } from "../ocr/recognizeLicense";
 
 // ============================================================
 // 本登録（KYC）ウィザード。承認後ドライバーが完了するまでアプリ本体を開けない
@@ -39,6 +41,7 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
   const [error, setError] = useState("");
   // 撮影/選択した画像のローカルプレビュー（このセッション内）。
   const [previews, setPreviews] = useState<{ license?: string; face?: string }>({});
+  const [ocrNote, setOcrNote] = useState("");
 
   useEffect(() => {
     apiFetch<Reg>("/api/me/registration")
@@ -75,7 +78,21 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
       });
       setReg((r) => (r ? { ...r, [kind === "license" ? "hasLicensePhoto" : "hasFacePhoto"]: true } : r));
       setPreviews((p) => ({ ...p, [kind]: a.uri }));
-      // 次段: 免許写真なら OCR で a.base64 から有効期限を抽出して set("licenseExpiry", ...) する。
+
+      // 免許写真は端末側 OCR で有効期限を読み取り、期限欄にプリフィル（確認は本人）。
+      if (kind === "license") {
+        setOcrNote("");
+        try {
+          const text = await recognizeLicenseText(a.uri);
+          const expiry = parseLicenseExpiryFromOcr(text);
+          if (expiry) {
+            set("licenseExpiry", expiry);
+            setOcrNote("OCRで読み取りました。内容をご確認ください。");
+          }
+        } catch {
+          // OCR 失敗は無視（手入力で続行）
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "アップロードに失敗しました");
     } finally {
@@ -136,7 +153,8 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
           <View style={styles.fields}>
             <PhotoBox title="免許証の写真" done={reg.hasLicensePhoto} previewUri={previews.license} busy={busy} onPick={(c) => pickPhoto("license", c)} />
             <Text style={styles.hSub}>免許の有効期限</Text>
-            <TextInput style={styles.input} value={reg.licenseExpiry} onChangeText={(t) => set("licenseExpiry", t)} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+            <TextInput style={styles.input} value={reg.licenseExpiry} onChangeText={(t) => { set("licenseExpiry", t); setOcrNote(""); }} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+            {ocrNote ? <Text style={styles.ocrNote}>{ocrNote}</Text> : null}
             <Text style={styles.hSub}>生年月日（任意）</Text>
             <TextInput style={styles.input} value={reg.dob} onChangeText={(t) => set("dob", t)} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
           </View>
@@ -212,6 +230,7 @@ const styles = StyleSheet.create({
   fields: { gap: 10 },
   h: { fontSize: 20, fontWeight: "700", color: "#0f172a" },
   hSub: { fontSize: 13, color: "#64748b", marginTop: 8 },
+  ocrNote: { fontSize: 12, color: "#2563eb" },
   input: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingVertical: 12, paddingHorizontal: 14, fontSize: 16 },
   photoBox: { height: 200, borderRadius: 10, borderWidth: 1, borderColor: "#cbd5e1", borderStyle: "dashed", alignItems: "center", justifyContent: "center", backgroundColor: "#fff", overflow: "hidden" },
   photoBoxDone: { borderColor: "#16a34a", borderStyle: "solid", backgroundColor: "#f0fdf4" },
