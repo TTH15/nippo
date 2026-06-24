@@ -1,8 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  View, Text, TextInput, Pressable, ActivityIndicator, Image,
-  KeyboardAvoidingView, Platform, StyleSheet,
-} from "react-native";
+import { View, Text, TextInput, Pressable, ActivityIndicator, Image, KeyboardAvoidingView, Platform } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { apiFetch } from "@repo/core/api";
 import { parseLicenseExpiryFromOcr } from "@repo/core/logic/license";
@@ -10,9 +7,8 @@ import { recognizeLicenseText } from "../ocr/recognizeLicense";
 
 // ============================================================
 // 本登録（KYC）ウィザード。承認後ドライバーが完了するまでアプリ本体を開けない
-// ハードゲート。1ステップずつ提出し、上部に進捗バー。
-// ステップ: ①免許証写真＋有効期限 ②顔写真 ③住所 ④銀行口座。
-// 免許期限は当面手入力（写真からの OCR 自動抽出は次段）。
+// ハードゲート。1ステップずつ提出し、上部に進捗バー。NativeWind。
+// ステップ: ①免許証写真＋有効期限(OCR) ②顔写真 ③住所 ④銀行口座。
 // ============================================================
 
 type Reg = {
@@ -24,6 +20,7 @@ const STEP_KEYS = ["license", "face", "address", "bank"] as const;
 type StepKey = (typeof STEP_KEYS)[number];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const INPUT = "bg-white border border-slate-300 rounded-lg py-3 px-3.5 text-base";
 
 const isStepDone = (k: StepKey, r: Reg): boolean => {
   switch (k) {
@@ -39,7 +36,6 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  // 撮影/選択した画像のローカルプレビュー（このセッション内）。
   const [previews, setPreviews] = useState<{ license?: string; face?: string }>({});
   const [ocrNote, setOcrNote] = useState("");
 
@@ -54,7 +50,12 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
   }, []);
 
   if (!reg) {
-    return <View style={styles.center}><ActivityIndicator />{error ? <Text style={styles.error}>{error}</Text> : null}</View>;
+    return (
+      <View className="flex-1 justify-center items-center gap-3 bg-slate-100">
+        <ActivityIndicator />
+        {error ? <Text className="text-red-600">{error}</Text> : null}
+      </View>
+    );
   }
 
   const key = STEP_KEYS[step];
@@ -79,7 +80,6 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
       setReg((r) => (r ? { ...r, [kind === "license" ? "hasLicensePhoto" : "hasFacePhoto"]: true } : r));
       setPreviews((p) => ({ ...p, [kind]: a.uri }));
 
-      // 免許写真は端末側 OCR で有効期限を読み取り、期限欄にプリフィル（確認は本人）。
       if (kind === "license") {
         setOcrNote("");
         try {
@@ -142,55 +142,57 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
   const progress = (step + (canNext ? 1 : 0)) / STEP_KEYS.length;
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <View style={styles.topBar}>
-        <Text style={styles.stepLabel}>本登録　{step + 1} / {STEP_KEYS.length}</Text>
-        <View style={styles.track}><View style={[styles.fill, { width: `${Math.round(progress * 100)}%` }]} /></View>
+    <KeyboardAvoidingView className="flex-1 bg-slate-100" behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <View className="pt-[60px] px-5 pb-3 gap-2 bg-white border-b border-slate-200">
+        <Text className="text-[13px] text-slate-500 font-semibold">本登録　{step + 1} / {STEP_KEYS.length}</Text>
+        <View className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
+          <View className="h-1.5 rounded-full bg-slate-900" style={{ width: `${Math.round(progress * 100)}%` }} />
+        </View>
       </View>
 
-      <View style={styles.body}>
+      <View className="flex-1 p-5">
         {key === "license" && (
-          <View style={styles.fields}>
+          <View className="gap-2.5">
             <PhotoBox title="免許証の写真" done={reg.hasLicensePhoto} previewUri={previews.license} busy={busy} onPick={(c) => pickPhoto("license", c)} />
-            <Text style={styles.hSub}>免許の有効期限</Text>
-            <TextInput style={styles.input} value={reg.licenseExpiry} onChangeText={(t) => { set("licenseExpiry", t); setOcrNote(""); }} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
-            {ocrNote ? <Text style={styles.ocrNote}>{ocrNote}</Text> : null}
-            <Text style={styles.hSub}>生年月日（任意）</Text>
-            <TextInput style={styles.input} value={reg.dob} onChangeText={(t) => set("dob", t)} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+            <Text className="text-[13px] text-slate-500 mt-2">免許の有効期限</Text>
+            <TextInput className={INPUT} value={reg.licenseExpiry} onChangeText={(t) => { set("licenseExpiry", t); setOcrNote(""); }} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+            {ocrNote ? <Text className="text-xs text-blue-600">{ocrNote}</Text> : null}
+            <Text className="text-[13px] text-slate-500 mt-2">生年月日（任意）</Text>
+            <TextInput className={INPUT} value={reg.dob} onChangeText={(t) => set("dob", t)} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
           </View>
         )}
         {key === "face" && (
-          <View style={styles.fields}>
+          <View className="gap-2.5">
             <PhotoBox title="顔写真" done={reg.hasFacePhoto} previewUri={previews.face} busy={busy} onPick={(c) => pickPhoto("face", c)} />
           </View>
         )}
         {key === "address" && (
-          <View style={styles.fields}>
-            <Text style={styles.h}>住所</Text>
-            <TextInput style={styles.input} value={reg.postalCode} onChangeText={(t) => set("postalCode", t)} placeholder="郵便番号" keyboardType="number-pad" autoFocus />
-            <TextInput style={styles.input} value={reg.address} onChangeText={(t) => set("address", t)} placeholder="住所" />
+          <View className="gap-2.5">
+            <Text className="text-xl font-bold text-slate-900">住所</Text>
+            <TextInput className={INPUT} value={reg.postalCode} onChangeText={(t) => set("postalCode", t)} placeholder="郵便番号" keyboardType="number-pad" autoFocus />
+            <TextInput className={INPUT} value={reg.address} onChangeText={(t) => set("address", t)} placeholder="住所" />
           </View>
         )}
         {key === "bank" && (
-          <View style={styles.fields}>
-            <Text style={styles.h}>銀行口座</Text>
-            <TextInput style={styles.input} value={reg.bankName} onChangeText={(t) => set("bankName", t)} placeholder="銀行名・支店" autoFocus />
-            <TextInput style={styles.input} value={reg.bankNo} onChangeText={(t) => set("bankNo", t)} placeholder="口座番号" />
-            <TextInput style={styles.input} value={reg.bankHolder} onChangeText={(t) => set("bankHolder", t)} placeholder="口座名義（カナ）" />
+          <View className="gap-2.5">
+            <Text className="text-xl font-bold text-slate-900">銀行口座</Text>
+            <TextInput className={INPUT} value={reg.bankName} onChangeText={(t) => set("bankName", t)} placeholder="銀行名・支店" autoFocus />
+            <TextInput className={INPUT} value={reg.bankNo} onChangeText={(t) => set("bankNo", t)} placeholder="口座番号" />
+            <TextInput className={INPUT} value={reg.bankHolder} onChangeText={(t) => set("bankHolder", t)} placeholder="口座名義（カナ）" />
           </View>
         )}
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error ? <Text className="text-red-600 mt-3">{error}</Text> : null}
       </View>
 
-      <View style={styles.footer}>
+      <View className="flex-row gap-3 p-5 pb-8 bg-white border-t border-slate-200">
         {step > 0 && (
-          <Pressable style={styles.backBtn} onPress={() => { setError(""); setStep(step - 1); }} disabled={busy}>
-            <Text style={styles.backText}>戻る</Text>
+          <Pressable className="py-3.5 px-5 rounded-lg border border-slate-300 items-center justify-center" onPress={() => { setError(""); setStep(step - 1); }} disabled={busy}>
+            <Text className="text-slate-700 font-semibold">戻る</Text>
           </Pressable>
         )}
-        <Pressable style={[styles.nextBtn, (!canNext || busy) && styles.disabled]} onPress={next} disabled={!canNext || busy}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.nextText}>{step === STEP_KEYS.length - 1 ? "完了" : "次へ"}</Text>}
+        <Pressable className={`flex-1 bg-slate-900 py-3.5 rounded-lg items-center active:opacity-80 ${!canNext || busy ? "opacity-40" : ""}`} onPress={next} disabled={!canNext || busy}>
+          {busy ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-bold text-base">{step === STEP_KEYS.length - 1 ? "完了" : "次へ"}</Text>}
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -199,54 +201,30 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
 
 function PhotoBox({ title, done, previewUri, busy, onPick }: { title: string; done: boolean; previewUri?: string; busy: boolean; onPick: (camera: boolean) => void }) {
   return (
-    <View style={styles.fields}>
-      <Text style={styles.h}>{title}</Text>
-      <View style={[styles.photoBox, done && styles.photoBoxDone]}>
+    <View className="gap-2.5">
+      <Text className="text-xl font-bold text-slate-900">{title}</Text>
+      <View className={`h-[200px] rounded-[10px] border items-center justify-center bg-white overflow-hidden ${done ? "border-green-600 bg-green-50" : "border-slate-300 border-dashed"}`}>
         {previewUri ? (
-          <Image source={{ uri: previewUri }} style={styles.preview} resizeMode="cover" />
+          <Image source={{ uri: previewUri }} className="w-full h-full" resizeMode="cover" />
         ) : busy ? (
           <ActivityIndicator />
         ) : (
-          <Text style={done ? styles.photoDone : styles.photoHint}>{done ? "✓ 登録済み（撮り直し可）" : "写真を選択してください"}</Text>
+          <Text className={done ? "text-green-600 font-semibold" : "text-slate-400"}>{done ? "✓ 登録済み（撮り直し可）" : "写真を選択してください"}</Text>
         )}
-        {previewUri && done ? <View style={styles.badge}><Text style={styles.badgeText}>✓ 登録済み</Text></View> : null}
+        {previewUri && done ? (
+          <View className="absolute top-2 right-2 bg-green-600/90 rounded-md px-2 py-0.5">
+            <Text className="text-white text-[11px] font-bold">✓ 登録済み</Text>
+          </View>
+        ) : null}
       </View>
-      <View style={styles.photoBtns}>
-        <Pressable style={styles.smBtn} onPress={() => onPick(false)} disabled={busy}><Text style={styles.smBtnText}>ライブラリ</Text></Pressable>
-        <Pressable style={styles.smBtn} onPress={() => onPick(true)} disabled={busy}><Text style={styles.smBtnText}>カメラ</Text></Pressable>
+      <View className="flex-row gap-2.5">
+        <Pressable className="flex-1 border border-slate-300 rounded-lg py-3 items-center bg-white active:opacity-80" onPress={() => onPick(false)} disabled={busy}>
+          <Text className="text-slate-700 font-semibold">ライブラリ</Text>
+        </Pressable>
+        <Pressable className="flex-1 border border-slate-300 rounded-lg py-3 items-center bg-white active:opacity-80" onPress={() => onPick(true)} disabled={busy}>
+          <Text className="text-slate-700 font-semibold">カメラ</Text>
+        </Pressable>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: "#f1f5f9" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 12, backgroundColor: "#f1f5f9" },
-  topBar: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 12, gap: 8, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e2e8f0" },
-  stepLabel: { fontSize: 13, color: "#64748b", fontWeight: "600" },
-  track: { height: 6, borderRadius: 3, backgroundColor: "#e2e8f0", overflow: "hidden" },
-  fill: { height: 6, borderRadius: 3, backgroundColor: "#0f172a" },
-  body: { flex: 1, padding: 20 },
-  fields: { gap: 10 },
-  h: { fontSize: 20, fontWeight: "700", color: "#0f172a" },
-  hSub: { fontSize: 13, color: "#64748b", marginTop: 8 },
-  ocrNote: { fontSize: 12, color: "#2563eb" },
-  input: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingVertical: 12, paddingHorizontal: 14, fontSize: 16 },
-  photoBox: { height: 200, borderRadius: 10, borderWidth: 1, borderColor: "#cbd5e1", borderStyle: "dashed", alignItems: "center", justifyContent: "center", backgroundColor: "#fff", overflow: "hidden" },
-  photoBoxDone: { borderColor: "#16a34a", borderStyle: "solid", backgroundColor: "#f0fdf4" },
-  preview: { width: "100%", height: "100%" },
-  badge: { position: "absolute", top: 8, right: 8, backgroundColor: "rgba(22,163,74,0.92)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText: { color: "#fff", fontSize: 11, fontWeight: "700" },
-  photoHint: { color: "#94a3b8" },
-  photoDone: { color: "#16a34a", fontWeight: "600" },
-  photoBtns: { flexDirection: "row", gap: 10 },
-  smBtn: { flex: 1, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingVertical: 12, alignItems: "center", backgroundColor: "#fff" },
-  smBtnText: { color: "#334155", fontWeight: "600" },
-  error: { color: "#dc2626", marginTop: 12 },
-  footer: { flexDirection: "row", gap: 12, padding: 20, paddingBottom: 32, backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: "#e2e8f0" },
-  backBtn: { paddingVertical: 14, paddingHorizontal: 20, borderRadius: 8, borderWidth: 1, borderColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
-  backText: { color: "#334155", fontWeight: "600" },
-  nextBtn: { flex: 1, backgroundColor: "#0f172a", paddingVertical: 14, borderRadius: 8, alignItems: "center" },
-  disabled: { opacity: 0.4 },
-  nextText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-});
