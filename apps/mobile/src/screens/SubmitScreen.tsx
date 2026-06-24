@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, TextInput, Pressable, ScrollView, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, TextInput, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { apiFetch } from "@repo/core/api";
 import type { DriverIdentity, SubmitVehicle, ShiftForm, ValueMap, VehiclePlateData } from "@repo/core/types";
 import { toLocalDateStr, formatMonthDayJP } from "@repo/core/logic/calendar";
@@ -14,12 +14,13 @@ import {
 } from "@repo/core/logic/dailyReport";
 
 // ============================================================
-// 日報提出（submit-v2）の RN 移植・第1弾。
-// 日付→その日のシフト(コース/unit/field)を動的描画→車両/メーター→送信。
-// 値構築・整形は Web と同じ @repo/core/logic/dailyReport を再利用（buildReportItems 等）。
-// オイル警告モーダル・送信後画面・添付・車両プレート描画は次段。
+// 日報提出（submit-v2）。日付→その日のシフト(コース/unit/field)を動的描画→車両/メーター→送信。
+// 値構築・整形は Web と同じ @repo/core/logic/dailyReport を再利用。NativeWind。
 // ※送信は書き込み（POST /api/reports/v2）。
 // ============================================================
+
+const INPUT = "bg-white border border-slate-300 rounded-lg py-2.5 px-3 text-base";
+const CHIP = "py-2 px-3.5 rounded-full border";
 
 const addDays = (dateStr: string, delta: number): string => {
   const d = new Date(`${dateStr}T12:00:00`);
@@ -47,7 +48,6 @@ export function SubmitScreen() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  // 初期データ（identities / vehicles / unlinked）を合成取得（Web の me/submit-init 相当）。
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -74,7 +74,6 @@ export function SubmitScreen() {
     };
   }, []);
 
-  // 日付ごとのフォーム（その日のシフト）を取得。
   useEffect(() => {
     let alive = true;
     setFormLoading(true);
@@ -135,84 +134,73 @@ export function SubmitScreen() {
 
   if (initLoading) {
     return (
-      <View style={styles.centerFull}>
+      <View className="flex-1 justify-center items-center bg-slate-100">
         <ActivityIndicator />
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>日報入力</Text>
+    <ScrollView className="flex-1 bg-slate-100" contentContainerClassName="p-4 pt-16 gap-2.5">
+      <Text className="text-[26px] font-bold text-slate-900">日報入力</Text>
 
-      {/* 日付 */}
-      <View style={styles.dateRow}>
-        <Pressable style={styles.navBtn} onPress={() => setReportDate((d) => addDays(d, -1))}>
-          <Text style={styles.navBtnText}>‹</Text>
+      <View className="flex-row items-center justify-center gap-5">
+        <Pressable className="px-3.5 py-1 rounded-lg bg-slate-200 active:opacity-80" onPress={() => setReportDate((d) => addDays(d, -1))}>
+          <Text className="text-xl text-slate-700 leading-6">‹</Text>
         </Pressable>
-        <Text style={styles.dateLabel}>{formatMonthDayJP(reportDate)}</Text>
-        <Pressable style={styles.navBtn} onPress={() => setReportDate((d) => addDays(d, 1))}>
-          <Text style={styles.navBtnText}>›</Text>
+        <Text className="text-base font-semibold text-slate-900 min-w-[110px] text-center">{formatMonthDayJP(reportDate)}</Text>
+        <Pressable className="px-3.5 py-1 rounded-lg bg-slate-200 active:opacity-80" onPress={() => setReportDate((d) => addDays(d, 1))}>
+          <Text className="text-xl text-slate-700 leading-6">›</Text>
         </Pressable>
       </View>
 
-      {/* 勤務区分（複数時のみ） */}
       {identities.length > 1 && (
-        <View style={styles.chipRow}>
-          {identities.map((i) => (
-            <Pressable
-              key={i.id}
-              style={[styles.chip, identityId === i.id && styles.chipActive]}
-              onPress={() => setIdentityId(i.id)}
-            >
-              <Text style={[styles.chipText, identityId === i.id && styles.chipTextActive]}>
-                {i.label || i.driverCode}
-              </Text>
-            </Pressable>
-          ))}
+        <View className="flex-row flex-wrap gap-2">
+          {identities.map((i) => {
+            const on = identityId === i.id;
+            return (
+              <Pressable key={i.id} className={`${CHIP} ${on ? "bg-slate-900 border-slate-900" : "bg-white border-slate-300"}`} onPress={() => setIdentityId(i.id)}>
+                <Text className={`text-[13px] ${on ? "text-white" : "text-slate-700"}`}>{i.label || i.driverCode}</Text>
+              </Pressable>
+            );
+          })}
         </View>
       )}
 
-      {/* 車両 */}
-      <Text style={styles.section}>車両</Text>
-      <View style={styles.chipRow}>
-        <Pressable style={[styles.chip, vehicleId === null && styles.chipActive]} onPress={() => setVehicleId(null)}>
-          <Text style={[styles.chipText, vehicleId === null && styles.chipTextActive]}>車両なし</Text>
+      <Text className="text-[13px] text-slate-500 mt-2">車両</Text>
+      <View className="flex-row flex-wrap gap-2">
+        <Pressable className={`${CHIP} ${vehicleId === null ? "bg-slate-900 border-slate-900" : "bg-white border-slate-300"}`} onPress={() => setVehicleId(null)}>
+          <Text className={`text-[13px] ${vehicleId === null ? "text-white" : "text-slate-700"}`}>車両なし</Text>
         </Pressable>
-        {cards.map((v) => (
-          <Pressable key={v.id} style={[styles.chip, vehicleId === v.id && styles.chipActive]} onPress={() => setVehicleId(v.id)}>
-            <Text style={[styles.chipText, vehicleId === v.id && styles.chipTextActive]}>{plateText(v)}</Text>
-          </Pressable>
-        ))}
+        {cards.map((v) => {
+          const on = vehicleId === v.id;
+          return (
+            <Pressable key={v.id} className={`${CHIP} ${on ? "bg-slate-900 border-slate-900" : "bg-white border-slate-300"}`} onPress={() => setVehicleId(v.id)}>
+              <Text className={`text-[13px] ${on ? "text-white" : "text-slate-700"}`}>{plateText(v)}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
-      {/* メーター */}
-      <Text style={styles.section}>メーター（km）</Text>
-      <TextInput
-        style={styles.input}
-        value={meter}
-        onChangeText={(t) => setMeter(t.replace(/[^0-9]/g, ""))}
-        keyboardType="number-pad"
-        placeholder="例: 123456"
-      />
+      <Text className="text-[13px] text-slate-500 mt-2">メーター（km）</Text>
+      <TextInput className={INPUT} value={meter} onChangeText={(t) => setMeter(t.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder="例: 123456" />
 
-      {/* 動的フィールド */}
       {formLoading ? (
-        <View style={styles.center}>
+        <View className="py-6 items-center">
           <ActivityIndicator />
         </View>
       ) : shifts.length === 0 ? (
-        <Text style={styles.empty}>この日のシフトはありません</Text>
+        <Text className="text-slate-400 py-4 text-center">この日のシフトはありません</Text>
       ) : (
         shifts.map((s) => (
-          <View key={s.courseId} style={styles.shiftCard}>
-            <Text style={styles.courseName}>{s.courseName}</Text>
+          <View key={s.courseId} className="bg-white rounded-[10px] border border-slate-200 p-3 gap-2.5 mt-1.5">
+            <Text className="text-base font-bold text-slate-900">{s.courseName}</Text>
             {s.units.map((u) => (
-              <View key={u.id} style={styles.unit}>
-                <Text style={styles.unitName}>{u.name}</Text>
+              <View key={u.id} className="gap-1.5">
+                <Text className="text-sm font-semibold text-slate-700">{u.name}</Text>
                 {groupFieldsByLabel(u.fields).map(([group, fields]) => (
-                  <View key={group || "_"} style={styles.group}>
-                    {group ? <Text style={styles.groupLabel}>{group}</Text> : null}
+                  <View key={group || "_"} className="gap-1.5 pl-1">
+                    {group ? <Text className="text-xs text-slate-500 mt-1">{group}</Text> : null}
                     {fields.map((f) => {
                       const raw = values[s.courseId]?.[u.id]?.[f.fieldKey] ?? "";
                       if (f.inputType === "BOOL") {
@@ -220,29 +208,24 @@ export function SubmitScreen() {
                         return (
                           <Pressable
                             key={f.fieldKey}
-                            style={styles.boolRow}
+                            className="flex-row items-center justify-between py-1.5"
                             onPress={() => setVal(s.courseId, u.id, f.fieldKey, on ? "false" : "true")}
                           >
-                            <Text style={styles.fieldLabel}>{f.label}</Text>
-                            <View style={[styles.checkbox, on && styles.checkboxOn]}>
-                              {on ? <Text style={styles.checkMark}>✓</Text> : null}
+                            <Text className="text-[13px] text-slate-700">{f.label}</Text>
+                            <View className={`w-6 h-6 rounded-md border items-center justify-center ${on ? "bg-slate-900 border-slate-900" : "bg-white border-slate-300"}`}>
+                              {on ? <Text className="text-white font-bold">✓</Text> : null}
                             </View>
                           </Pressable>
                         );
                       }
                       return (
-                        <View key={f.fieldKey} style={styles.field}>
-                          <Text style={styles.fieldLabel}>{f.label}</Text>
+                        <View key={f.fieldKey} className="gap-1">
+                          <Text className="text-[13px] text-slate-700">{f.label}</Text>
                           <TextInput
-                            style={styles.input}
+                            className={INPUT}
                             value={raw}
                             onChangeText={(t) =>
-                              setVal(
-                                s.courseId,
-                                u.id,
-                                f.fieldKey,
-                                f.inputType === "INT" ? t.replace(/[^0-9]/g, "") : t,
-                              )
+                              setVal(s.courseId, u.id, f.fieldKey, f.inputType === "INT" ? t.replace(/[^0-9]/g, "") : t)
                             }
                             keyboardType={f.inputType === "INT" ? "number-pad" : "default"}
                             placeholder={f.inputType === "TIME" ? "HH:MM" : ""}
@@ -258,53 +241,16 @@ export function SubmitScreen() {
         ))
       )}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {message ? <Text style={styles.success}>{message}</Text> : null}
+      {error ? <Text className="text-red-600 py-1">{error}</Text> : null}
+      {message ? <Text className="text-green-600 py-1 font-semibold">{message}</Text> : null}
 
       <Pressable
-        style={[styles.submit, (shifts.length === 0 || submitting) && styles.submitDisabled]}
+        className={`mt-2 bg-slate-900 py-3.5 rounded-lg items-center active:opacity-80 ${shifts.length === 0 || submitting ? "opacity-40" : ""}`}
         onPress={submit}
         disabled={shifts.length === 0 || submitting}
       >
-        <Text style={styles.submitText}>{submitting ? "送信中..." : "日報を送信"}</Text>
+        <Text className="text-white font-bold text-base">{submitting ? "送信中..." : "日報を送信"}</Text>
       </Pressable>
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: "#f1f5f9" },
-  content: { padding: 16, paddingTop: 64, gap: 10 },
-  centerFull: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f1f5f9" },
-  center: { paddingVertical: 24, alignItems: "center" },
-  title: { fontSize: 26, fontWeight: "700", color: "#0f172a" },
-  dateRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 20 },
-  navBtn: { paddingHorizontal: 14, paddingVertical: 4, borderRadius: 8, backgroundColor: "#e2e8f0" },
-  navBtnText: { fontSize: 20, color: "#334155", lineHeight: 24 },
-  dateLabel: { fontSize: 16, fontWeight: "600", color: "#0f172a", minWidth: 110, textAlign: "center" },
-  section: { fontSize: 13, color: "#64748b", marginTop: 8 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff" },
-  chipActive: { backgroundColor: "#0f172a", borderColor: "#0f172a" },
-  chipText: { fontSize: 13, color: "#334155" },
-  chipTextActive: { color: "#fff" },
-  input: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, fontSize: 16 },
-  shiftCard: { backgroundColor: "#fff", borderRadius: 10, borderWidth: 1, borderColor: "#e2e8f0", padding: 12, gap: 10, marginTop: 6 },
-  courseName: { fontSize: 16, fontWeight: "700", color: "#0f172a" },
-  unit: { gap: 6 },
-  unitName: { fontSize: 14, fontWeight: "600", color: "#334155" },
-  group: { gap: 6, paddingLeft: 4 },
-  groupLabel: { fontSize: 12, color: "#64748b", marginTop: 4 },
-  field: { gap: 4 },
-  fieldLabel: { fontSize: 13, color: "#334155" },
-  boolRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 6 },
-  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1, borderColor: "#cbd5e1", alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
-  checkboxOn: { backgroundColor: "#0f172a", borderColor: "#0f172a" },
-  checkMark: { color: "#fff", fontWeight: "700" },
-  empty: { color: "#94a3b8", paddingVertical: 16, textAlign: "center" },
-  error: { color: "#dc2626", paddingVertical: 4 },
-  success: { color: "#16a34a", paddingVertical: 4, fontWeight: "600" },
-  submit: { marginTop: 8, backgroundColor: "#0f172a", paddingVertical: 14, borderRadius: 8, alignItems: "center" },
-  submitDisabled: { opacity: 0.4 },
-  submitText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-});
