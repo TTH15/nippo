@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, TextInput, Pressable, ActivityIndicator, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Text, TextInput, Pressable, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
 import { apiFetch } from "@repo/core/api";
 import { setAuth, type StoredDriver } from "@repo/core/auth";
 
@@ -33,90 +33,51 @@ export function LoginScreen({ onLoggedIn, onRegister }: { onLoggedIn: () => void
   const valid = num.length === 6 && pin.length === 6;
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>ログイン</Text>
+    <KeyboardAvoidingView className="flex-1 bg-slate-100" behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScrollView contentContainerClassName="grow justify-center p-6 gap-2" keyboardShouldPersistTaps="handled">
+        <Text className="text-2xl font-bold text-slate-900 mb-3 text-center">ログイン</Text>
 
-      <Text style={styles.label}>会社コード + ドライバー番号</Text>
-      <View style={styles.row}>
-        <View style={styles.prefix}>
-          <Text style={styles.prefixText}>{COMPANY || "—"}</Text>
+        <Text className="text-[13px] text-slate-700 mt-2">会社コード + ドライバー番号</Text>
+        <View className="flex-row items-stretch">
+          <View className="justify-center px-3.5 bg-slate-200 rounded-l-lg">
+            <Text className="text-base text-slate-600">{COMPANY || "—"}</Text>
+          </View>
+          <TextInput
+            className="flex-1 bg-white border border-slate-300 rounded-lg rounded-l-none py-3 px-4 text-lg text-center"
+            value={num}
+            onChangeText={(t) => setNum(t.replace(/[^0-9]/g, "").slice(0, 6))}
+            keyboardType="number-pad"
+            maxLength={6}
+            placeholder="123456"
+          />
         </View>
+
+        <Text className="text-[13px] text-slate-700 mt-2">PIN</Text>
         <TextInput
-          style={[styles.input, styles.inputGrow]}
-          value={num}
-          onChangeText={(t) => setNum(t.replace(/[^0-9]/g, "").slice(0, 6))}
+          className="bg-white border border-slate-300 rounded-lg py-3 px-4 text-lg text-center"
+          value={pin}
+          onChangeText={(t) => setPin(t.replace(/[^0-9]/g, "").slice(0, 6))}
           keyboardType="number-pad"
           maxLength={6}
-          placeholder="123456"
+          secureTextEntry
         />
-      </View>
 
-      <Text style={styles.label}>PIN</Text>
-      <TextInput
-        style={styles.input}
-        value={pin}
-        onChangeText={(t) => setPin(t.replace(/[^0-9]/g, "").slice(0, 6))}
-        keyboardType="number-pad"
-        maxLength={6}
-        secureTextEntry
-      />
+        {error ? <Text className="text-red-600 text-center mt-2">{error}</Text> : null}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-
-      <Pressable
-        style={[styles.button, (!valid || loading) && styles.buttonDisabled]}
-        onPress={submit}
-        disabled={!valid || loading}
-      >
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>ログイン</Text>}
-      </Pressable>
-
-      {onRegister && (
-        <Pressable onPress={onRegister} style={styles.registerLink}>
-          <Text style={styles.registerText}>はじめての方はこちら（参加申請）</Text>
+        <Pressable
+          className={`mt-4 bg-slate-900 py-3.5 rounded-lg items-center active:opacity-80 ${!valid || loading ? "opacity-50" : ""}`}
+          onPress={submit}
+          disabled={!valid || loading}
+        >
+          {loading ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-semibold text-base">ログイン</Text>}
         </Pressable>
-      )}
+
+        {onRegister && (
+          <Pressable onPress={onRegister} className="mt-4 items-center">
+            <Text className="text-blue-600 text-sm">はじめての方はこちら（参加申請）</Text>
+          </Pressable>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: "#f1f5f9" },
-  container: { flexGrow: 1, justifyContent: "center", padding: 24, gap: 8 },
-  title: { fontSize: 22, fontWeight: "700", color: "#0f172a", marginBottom: 12, textAlign: "center" },
-  label: { fontSize: 13, color: "#334155", marginTop: 8 },
-  row: { flexDirection: "row", alignItems: "stretch" },
-  prefix: {
-    justifyContent: "center",
-    paddingHorizontal: 14,
-    backgroundColor: "#e2e8f0",
-    borderTopLeftRadius: 8,
-    borderBottomLeftRadius: 8,
-  },
-  prefixText: { fontSize: 16, color: "#475569", fontVariant: ["tabular-nums"] },
-  input: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    fontSize: 18,
-    textAlign: "center",
-  },
-  inputGrow: { flex: 1, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 },
-  error: { color: "#dc2626", textAlign: "center", marginTop: 8 },
-  button: {
-    marginTop: 16,
-    backgroundColor: "#0f172a",
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  registerLink: { marginTop: 16, alignItems: "center" },
-  registerText: { color: "#2563eb", fontSize: 14 },
-});
