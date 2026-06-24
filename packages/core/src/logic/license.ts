@@ -90,7 +90,9 @@ function pushDate(out: DateCand[], year: number, month: number, day: number, end
  */
 export function parseLicenseExpiryFromOcr(text: string): string | null {
   if (!text) return null;
-  const t = toHalfWidth(text);
+  // 現代の免許は「2028年（令和10年）08月23日まで有効」のように西暦と（元号）が併記され、
+  // 括弧が年と月の間に挟まる。括弧内を除去してから抽出する（西暦年を採用）。
+  const t = toHalfWidth(text).replace(/[（(][^）)]*[）)]/g, " ");
   const cands: DateCand[] = [];
 
   const eraRe = /(令和|平成|昭和)\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g;

@@ -79,6 +79,16 @@ describe("parseLicenseExpiryFromOcr", () => {
     expect(parseLicenseExpiryFromOcr("2030年9月8日まで有効")).toBe("2030-09-08");
   });
 
+  it("西暦＋（元号）併記の現代免許で『まで有効』の期限を読む（交付日を拾わない）", () => {
+    // 交付 令和5年 / 有効 2028年（令和10年）08月23日
+    const text = "令和05年06月20日交付\n2028年（令和10年）08月23日まで有効";
+    expect(parseLicenseExpiryFromOcr(text)).toBe("2028-08-23");
+  });
+
+  it("全角の西暦＋（元号）併記も読む", () => {
+    expect(parseLicenseExpiryFromOcr("２０２８年（令和１０年）０８月２３日まで有効")).toBe("2028-08-23");
+  });
+
   it("複数日付があっても有効の直前を選ぶ", () => {
     // 生年月日 昭和60年・交付 令和5年・有効 令和10年
     const text = "昭和60年1月1日生\n交付 令和5年4月1日\n令和10年3月31日まで有効";
