@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  View, Text, TextInput, Pressable, ActivityIndicator,
+  View, Text, TextInput, Pressable, ActivityIndicator, Image,
   KeyboardAvoidingView, Platform, StyleSheet,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -37,6 +37,8 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // 撮影/選択した画像のローカルプレビュー（このセッション内）。
+  const [previews, setPreviews] = useState<{ license?: string; face?: string }>({});
 
   useEffect(() => {
     apiFetch<Reg>("/api/me/registration")
@@ -72,6 +74,7 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
         body: JSON.stringify({ kind, base64: a.base64, mime: a.mimeType || "image/jpeg" }),
       });
       setReg((r) => (r ? { ...r, [kind === "license" ? "hasLicensePhoto" : "hasFacePhoto"]: true } : r));
+      setPreviews((p) => ({ ...p, [kind]: a.uri }));
       // 次段: 免許写真なら OCR で a.base64 から有効期限を抽出して set("licenseExpiry", ...) する。
     } catch (e) {
       setError(e instanceof Error ? e.message : "アップロードに失敗しました");
@@ -131,7 +134,7 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
       <View style={styles.body}>
         {key === "license" && (
           <View style={styles.fields}>
-            <PhotoBox title="免許証の写真" done={reg.hasLicensePhoto} busy={busy} onPick={(c) => pickPhoto("license", c)} />
+            <PhotoBox title="免許証の写真" done={reg.hasLicensePhoto} previewUri={previews.license} busy={busy} onPick={(c) => pickPhoto("license", c)} />
             <Text style={styles.hSub}>免許の有効期限</Text>
             <TextInput style={styles.input} value={reg.licenseExpiry} onChangeText={(t) => set("licenseExpiry", t)} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
             <Text style={styles.hSub}>生年月日（任意）</Text>
@@ -140,7 +143,7 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
         )}
         {key === "face" && (
           <View style={styles.fields}>
-            <PhotoBox title="顔写真" done={reg.hasFacePhoto} busy={busy} onPick={(c) => pickPhoto("face", c)} />
+            <PhotoBox title="顔写真" done={reg.hasFacePhoto} previewUri={previews.face} busy={busy} onPick={(c) => pickPhoto("face", c)} />
           </View>
         )}
         {key === "address" && (
@@ -176,12 +179,19 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-function PhotoBox({ title, done, busy, onPick }: { title: string; done: boolean; busy: boolean; onPick: (camera: boolean) => void }) {
+function PhotoBox({ title, done, previewUri, busy, onPick }: { title: string; done: boolean; previewUri?: string; busy: boolean; onPick: (camera: boolean) => void }) {
   return (
     <View style={styles.fields}>
       <Text style={styles.h}>{title}</Text>
       <View style={[styles.photoBox, done && styles.photoBoxDone]}>
-        {busy ? <ActivityIndicator /> : <Text style={done ? styles.photoDone : styles.photoHint}>{done ? "✓ 登録済み（撮り直し可）" : "写真を選択してください"}</Text>}
+        {previewUri ? (
+          <Image source={{ uri: previewUri }} style={styles.preview} resizeMode="cover" />
+        ) : busy ? (
+          <ActivityIndicator />
+        ) : (
+          <Text style={done ? styles.photoDone : styles.photoHint}>{done ? "✓ 登録済み（撮り直し可）" : "写真を選択してください"}</Text>
+        )}
+        {previewUri && done ? <View style={styles.badge}><Text style={styles.badgeText}>✓ 登録済み</Text></View> : null}
       </View>
       <View style={styles.photoBtns}>
         <Pressable style={styles.smBtn} onPress={() => onPick(false)} disabled={busy}><Text style={styles.smBtnText}>ライブラリ</Text></Pressable>
@@ -203,8 +213,11 @@ const styles = StyleSheet.create({
   h: { fontSize: 20, fontWeight: "700", color: "#0f172a" },
   hSub: { fontSize: 13, color: "#64748b", marginTop: 8 },
   input: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingVertical: 12, paddingHorizontal: 14, fontSize: 16 },
-  photoBox: { height: 150, borderRadius: 10, borderWidth: 1, borderColor: "#cbd5e1", borderStyle: "dashed", alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
+  photoBox: { height: 200, borderRadius: 10, borderWidth: 1, borderColor: "#cbd5e1", borderStyle: "dashed", alignItems: "center", justifyContent: "center", backgroundColor: "#fff", overflow: "hidden" },
   photoBoxDone: { borderColor: "#16a34a", borderStyle: "solid", backgroundColor: "#f0fdf4" },
+  preview: { width: "100%", height: "100%" },
+  badge: { position: "absolute", top: 8, right: 8, backgroundColor: "rgba(22,163,74,0.92)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  badgeText: { color: "#fff", fontSize: 11, fontWeight: "700" },
   photoHint: { color: "#94a3b8" },
   photoDone: { color: "#16a34a", fontWeight: "600" },
   photoBtns: { flexDirection: "row", gap: 10 },
