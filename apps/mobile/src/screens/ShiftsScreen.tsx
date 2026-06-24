@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, ScrollView, ActivityIndicator, Modal, StyleSheet } from "react-native";
+import { View, Text, Pressable, ScrollView, ActivityIndicator, Modal } from "react-native";
 import { apiFetch } from "@repo/core/api";
 import type { ShiftRequest, DriverSlot, PeriodInfo } from "@repo/core/types";
 import { getDaysInMonth, toLocalDateStr, nowYearMonth0, formatYearMonth } from "@repo/core/logic/calendar";
@@ -16,15 +16,14 @@ import {
 } from "@repo/core/logic/shift";
 
 // ============================================================
-// シフト（希望休提出）の RN 移植・第1弾。
-// カレンダーで休み希望日（全休/便単位）をトグル → 提出。
+// シフト（希望休提出）。カレンダーで休み希望日（全休/便単位）をトグル → 提出。NativeWind。
 // 判定・整形は Web と同じ @repo/core/logic/shift・calendar を再利用。
-// シフト確認タブ（割当表示）・締切カード・凡例は次段。
 // ※提出は書き込み（POST /api/shifts/requests）。
 // ============================================================
 
 type OffMap = ReturnType<typeof requestsToOffMap>;
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
+const CELL = "w-[14.2857%] aspect-square items-center justify-center p-0.5";
 
 export function ShiftsScreen() {
   const [view, setView] = useState(nowYearMonth0); // month は 0-indexed
@@ -109,37 +108,35 @@ export function ShiftsScreen() {
   const changed = hasOffChanges(requests, off);
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>希望休</Text>
-      <Text style={styles.hint}>休みたい日をタップして選択し、提出してください。</Text>
+    <ScrollView className="flex-1 bg-slate-100" contentContainerClassName="p-4 pt-16 gap-3">
+      <Text className="text-[26px] font-bold text-slate-900">希望休</Text>
+      <Text className="text-xs text-slate-500">休みたい日をタップして選択し、提出してください。</Text>
 
-      <View style={styles.monthRow}>
-        <Pressable style={styles.navBtn} onPress={() => shiftMonth(-1)}>
-          <Text style={styles.navBtnText}>‹</Text>
+      <View className="flex-row items-center justify-center gap-5">
+        <Pressable className="px-3.5 py-1 rounded-lg bg-slate-200 active:opacity-80" onPress={() => shiftMonth(-1)}>
+          <Text className="text-xl text-slate-700 leading-6">‹</Text>
         </Pressable>
-        <Text style={styles.monthLabel}>
-          {view.year}年{view.month + 1}月
-        </Text>
-        <Pressable style={styles.navBtn} onPress={() => shiftMonth(1)}>
-          <Text style={styles.navBtnText}>›</Text>
+        <Text className="text-base font-semibold text-slate-900 min-w-[110px] text-center">{view.year}年{view.month + 1}月</Text>
+        <Pressable className="px-3.5 py-1 rounded-lg bg-slate-200 active:opacity-80" onPress={() => shiftMonth(1)}>
+          <Text className="text-xl text-slate-700 leading-6">›</Text>
         </Pressable>
       </View>
 
       {loading ? (
-        <View style={styles.center}>
+        <View className="py-8 items-center">
           <ActivityIndicator />
         </View>
       ) : (
         <>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          <View style={styles.grid}>
+          {error ? <Text className="text-red-600 py-2">{error}</Text> : null}
+          <View className="flex-row flex-wrap">
             {DOW.map((d, i) => (
-              <View key={d} style={styles.cell}>
-                <Text style={[styles.dow, i === 0 && styles.sun, i === 6 && styles.sat]}>{d}</Text>
+              <View key={d} className={CELL}>
+                <Text className={`text-xs ${i === 0 ? "text-red-600" : i === 6 ? "text-blue-600" : "text-slate-500"}`}>{d}</Text>
               </View>
             ))}
             {Array.from({ length: firstDow }).map((_, i) => (
-              <View key={`e${i}`} style={styles.cell} />
+              <View key={`e${i}`} className={CELL} />
             ))}
             {days.map((date) => {
               const dateStr = toLocalDateStr(date);
@@ -148,56 +145,71 @@ export function ShiftsScreen() {
               const whole = isWholeDayOff(off, dateStr);
               const partial = !whole && hasAnyOff(off, dateStr);
               const disabled = locked || past;
+              const box = whole
+                ? "bg-red-100 border-red-300"
+                : partial
+                  ? "bg-red-50 border-red-300"
+                  : "bg-white border-slate-200";
               return (
                 <Pressable
                   key={dateStr}
-                  style={[styles.cell, styles.day, whole && styles.dayWhole, partial && styles.dayPartial, disabled && styles.dayDisabled]}
+                  className={`${CELL} rounded-lg border ${box} ${disabled ? "opacity-50" : ""}`}
                   onPress={() => !disabled && onDayPress(date)}
                   disabled={disabled}
                 >
-                  <Text style={[styles.dayNum, whole && styles.dayNumOff]}>{date.getDate()}</Text>
-                  {whole ? <Text style={styles.mark}>休</Text> : partial ? <Text style={styles.markSm}>便{dayOff(off, dateStr).size}</Text> : locked ? <Text style={styles.lock}>🔒</Text> : null}
+                  <Text className={`text-sm ${whole ? "text-red-700 font-bold" : "text-slate-900"}`}>{date.getDate()}</Text>
+                  {whole ? (
+                    <Text className="text-[11px] text-red-700 font-bold">休</Text>
+                  ) : partial ? (
+                    <Text className="text-[9px] text-red-700">便{dayOff(off, dateStr).size}</Text>
+                  ) : locked ? (
+                    <Text className="text-[9px]">🔒</Text>
+                  ) : null}
                 </Pressable>
               );
             })}
           </View>
 
           <Pressable
-            style={[styles.submit, (!changed || submitting) && styles.submitDisabled]}
+            className={`mt-2 bg-slate-900 py-3.5 rounded-lg items-center active:opacity-80 ${!changed || submitting ? "opacity-40" : ""}`}
             onPress={submit}
             disabled={!changed || submitting}
           >
-            <Text style={styles.submitText}>{submitting ? "提出中..." : "希望休を提出"}</Text>
+            <Text className="text-white font-bold text-base">{submitting ? "提出中..." : "希望休を提出"}</Text>
           </Pressable>
         </>
       )}
 
       {/* 便ピッカー */}
       <Modal visible={!!pickerDate} transparent animationType="fade" onRequestClose={() => setPickerDate(null)}>
-        <Pressable style={styles.overlay} onPress={() => setPickerDate(null)}>
-          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.sheetTitle}>{pickerDate}</Text>
-            <Text style={styles.hint}>全休、または休みたい便を選んでください。</Text>
+        <Pressable className="flex-1 bg-black/40 justify-center p-6" onPress={() => setPickerDate(null)}>
+          <Pressable className="bg-white rounded-xl p-5 gap-2.5" onPress={(e) => e.stopPropagation()}>
+            <Text className="text-base font-bold text-slate-900">{pickerDate}</Text>
+            <Text className="text-xs text-slate-500">全休、または休みたい便を選んでください。</Text>
             {pickerDate && (
               <>
                 <Pressable
-                  style={[styles.slotBtn, dayOff(off, pickerDate).has(ALL) && styles.slotActive]}
+                  className={`py-3 rounded-lg border items-center ${dayOff(off, pickerDate).has(ALL) ? "bg-slate-900 border-slate-900" : "bg-white border-slate-200"}`}
                   onPress={() => toggle(pickerDate, ALL)}
                 >
-                  <Text style={[styles.slotText, dayOff(off, pickerDate).has(ALL) && styles.slotTextActive]}>全休</Text>
+                  <Text className={`text-sm font-semibold ${dayOff(off, pickerDate).has(ALL) ? "text-white" : "text-slate-700"}`}>全休</Text>
                 </Pressable>
                 {slots.map((s) => {
                   const on = pickerDate ? dayOff(off, pickerDate).has(s.id) : false;
                   return (
-                    <Pressable key={s.id} style={[styles.slotBtn, on && styles.slotActive]} onPress={() => toggle(pickerDate, s.id)}>
-                      <Text style={[styles.slotText, on && styles.slotTextActive]}>{s.name}</Text>
+                    <Pressable
+                      key={s.id}
+                      className={`py-3 rounded-lg border items-center ${on ? "bg-slate-900 border-slate-900" : "bg-white border-slate-200"}`}
+                      onPress={() => toggle(pickerDate, s.id)}
+                    >
+                      <Text className={`text-sm font-semibold ${on ? "text-white" : "text-slate-700"}`}>{s.name}</Text>
                     </Pressable>
                   );
                 })}
               </>
             )}
-            <Pressable style={styles.close} onPress={() => setPickerDate(null)}>
-              <Text style={styles.closeText}>閉じる</Text>
+            <Pressable className="self-center py-2 mt-1" onPress={() => setPickerDate(null)}>
+              <Text className="text-slate-500">閉じる</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -205,42 +217,3 @@ export function ShiftsScreen() {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: "#f1f5f9" },
-  content: { padding: 16, paddingTop: 64, gap: 12 },
-  title: { fontSize: 26, fontWeight: "700", color: "#0f172a" },
-  hint: { fontSize: 12, color: "#64748b" },
-  monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 20 },
-  navBtn: { paddingHorizontal: 14, paddingVertical: 4, borderRadius: 8, backgroundColor: "#e2e8f0" },
-  navBtnText: { fontSize: 20, color: "#334155", lineHeight: 24 },
-  monthLabel: { fontSize: 16, fontWeight: "600", color: "#0f172a", minWidth: 110, textAlign: "center" },
-  center: { paddingVertical: 32, alignItems: "center" },
-  error: { color: "#dc2626", paddingVertical: 8 },
-  grid: { flexDirection: "row", flexWrap: "wrap" },
-  cell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: "center", justifyContent: "center", padding: 2 },
-  dow: { fontSize: 12, color: "#64748b" },
-  sun: { color: "#dc2626" },
-  sat: { color: "#2563eb" },
-  day: { borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#fff" },
-  dayWhole: { backgroundColor: "#fee2e2", borderColor: "#fca5a5" },
-  dayPartial: { backgroundColor: "#fef2f2", borderColor: "#fca5a5" },
-  dayDisabled: { backgroundColor: "#f1f5f9", opacity: 0.5 },
-  dayNum: { fontSize: 14, color: "#0f172a" },
-  dayNumOff: { color: "#b91c1c", fontWeight: "700" },
-  mark: { fontSize: 11, color: "#b91c1c", fontWeight: "700" },
-  markSm: { fontSize: 9, color: "#b91c1c" },
-  lock: { fontSize: 9 },
-  submit: { marginTop: 8, backgroundColor: "#0f172a", paddingVertical: 14, borderRadius: 8, alignItems: "center" },
-  submitDisabled: { opacity: 0.4 },
-  submitText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 },
-  sheet: { backgroundColor: "#fff", borderRadius: 12, padding: 20, gap: 10 },
-  sheetTitle: { fontSize: 16, fontWeight: "700", color: "#0f172a" },
-  slotBtn: { paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", alignItems: "center", backgroundColor: "#fff" },
-  slotActive: { backgroundColor: "#0f172a", borderColor: "#0f172a" },
-  slotText: { fontSize: 14, color: "#334155", fontWeight: "600" },
-  slotTextActive: { color: "#fff" },
-  close: { alignSelf: "center", paddingVertical: 8, marginTop: 4 },
-  closeText: { color: "#64748b" },
-});
