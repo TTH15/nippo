@@ -54,61 +54,54 @@ export async function GET(req: NextRequest) {
   });
 }
 
-// POST: 本登録のテキスト項目を保存（写真は /photo で別途）。
+// POST: 本登録のテキスト項目を「部分更新」で保存（ウィザードのステップごと）。
+// body に含まれた項目だけ更新する。完了判定は GET の complete に委ねる。
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
 
   try {
     const body = await req.json();
-    const dob = str(body.dob);
-    const licenseExpiry = str(body.licenseExpiry);
-    const postalCode = str(body.postalCode);
-    const address = str(body.address);
-    const bankName = str(body.bankName);
-    const bankNo = str(body.bankNo);
-    const bankHolder = str(body.bankHolder);
+    const idUpdate: Record<string, unknown> = {};
+    const drvUpdate: Record<string, unknown> = {};
 
-    if (!DATE_RE.test(licenseExpiry)) {
-      return NextResponse.json({ error: "免許有効期限は YYYY-MM-DD で入力してください" }, { status: 400 });
+    if (body.licenseExpiry !== undefined) {
+      const v = str(body.licenseExpiry);
+      if (v && !DATE_RE.test(v)) {
+        return NextResponse.json({ error: "免許有効期限は YYYY-MM-DD で入力してください" }, { status: 400 });
+      }
+      idUpdate.license_expiry = v || null;
+      drvUpdate.license_expiry_date = v || null; // 旧モデル互換（admin の license badge 等）
     }
-    if (dob && !DATE_RE.test(dob)) {
-      return NextResponse.json({ error: "生年月日は YYYY-MM-DD で入力してください" }, { status: 400 });
+    if (body.dob !== undefined) {
+      const v = str(body.dob);
+      if (v && !DATE_RE.test(v)) {
+        return NextResponse.json({ error: "生年月日は YYYY-MM-DD で入力してください" }, { status: 400 });
+      }
+      idUpdate.dob = v || null;
     }
-    if (!postalCode || !address) {
-      return NextResponse.json({ error: "住所を入力してください" }, { status: 400 });
-    }
-    if (!bankName || !bankNo || !bankHolder) {
-      return NextResponse.json({ error: "銀行口座を入力してください" }, { status: 400 });
-    }
+    if (body.postalCode !== undefined) drvUpdate.postal_code = str(body.postalCode) || null;
+    if (body.address !== undefined) drvUpdate.address = str(body.address) || null;
+    if (body.bankName !== undefined) drvUpdate.bank_name = str(body.bankName) || null;
+    if (body.bankNo !== undefined) drvUpdate.bank_no = str(body.bankNo) || null;
+    if (body.bankHolder !== undefined) drvUpdate.bank_holder = str(body.bankHolder) || null;
 
     const identityId = await resolveIdentityId(user);
     if (!identityId) return NextResponse.json({ error: "アカウント情報が不完全です" }, { status: 400 });
 
-    const { error: iErr } = await supabase
-      .from("identities")
-      .update({ license_expiry: licenseExpiry, dob: dob || null })
-      .eq("id", identityId);
-    if (iErr) {
-      console.error("[registration] identity update", iErr);
-      return NextResponse.json({ error: "保存に失敗しました" }, { status: 500 });
+    if (Object.keys(idUpdate).length > 0) {
+      const { error } = await supabase.from("identities").update(idUpdate).eq("id", identityId);
+      if (error) {
+        console.error("[registration] identity update", error);
+        return NextResponse.json({ error: "保存に失敗しました" }, { status: 500 });
+      }
     }
-
-    const { error: dErr } = await supabase
-      .from("drivers")
-      .update({
-        postal_code: postalCode,
-        address,
-        bank_name: bankName,
-        bank_no: bankNo,
-        bank_holder: bankHolder,
-        // 旧モデル互換: drivers にも免許期限を保持（admin 一覧の license badge 等）
-        license_expiry_date: licenseExpiry,
-      })
-      .eq("id", user.driverId);
-    if (dErr) {
-      console.error("[registration] driver update", dErr);
-      return NextResponse.json({ error: "保存に失敗しました" }, { status: 500 });
+    if (Object.keys(drvUpdate).length > 0) {
+      const { error } = await supabase.from("drivers").update(drvUpdate).eq("id", user.driverId);
+      if (error) {
+        console.error("[registration] driver update", error);
+        return NextResponse.json({ error: "保存に失敗しました" }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ ok: true });
