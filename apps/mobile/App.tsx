@@ -11,6 +11,7 @@ import { AuthContext } from "./src/AuthContext";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { RegisterScreen } from "./src/screens/RegisterScreen";
 import { KycWizard } from "./src/screens/KycWizard";
+import { KycPending } from "./src/screens/KycPending";
 import { MeScreen } from "./src/screens/MeScreen";
 import { RewardsScreen } from "./src/screens/RewardsScreen";
 import { ShiftsScreen } from "./src/screens/ShiftsScreen";
@@ -22,8 +23,15 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [driver, setDriver] = useState<StoredDriver | null>(null);
   const [authView, setAuthView] = useState<"login" | "register">("login");
-  // 本登録の完了状態（ハードゲート）: null=確認中 / false=未完了 / true=完了
-  const [regComplete, setRegComplete] = useState<boolean | null>(null);
+  // ハードゲート判定: null=確認中 / {complete=本登録, kycVerified=本承認}
+  const [regState, setRegState] = useState<{ complete: boolean; kycVerified: boolean } | null>(null);
+
+  const fetchReg = () => {
+    setRegState(null);
+    apiFetch<{ complete: boolean; kycVerified: boolean }>("/api/me/registration")
+      .then((r) => setRegState({ complete: r.complete, kycVerified: r.kycVerified }))
+      .catch(() => setRegState({ complete: true, kycVerified: true })); // 取得失敗時はブロックしない
+  };
 
   useEffect(() => {
     bootstrap(() => setDriver(null))
@@ -34,20 +42,13 @@ export default function App() {
       .catch(() => setReady(true));
   }, []);
 
-  // ログイン後に本登録の完了状態を取得（ゲート判定）。
+  // ログイン後にゲート状態を取得。
   useEffect(() => {
     if (!driver) {
-      setRegComplete(null);
+      setRegState(null);
       return;
     }
-    let alive = true;
-    setRegComplete(null);
-    apiFetch<{ complete: boolean }>("/api/me/registration")
-      .then((r) => alive && setRegComplete(r.complete))
-      .catch(() => alive && setRegComplete(true)); // 取得失敗時はブロックしない
-    return () => {
-      alive = false;
-    };
+    fetchReg();
   }, [driver]);
 
   if (!ready) {
@@ -73,8 +74,8 @@ export default function App() {
     );
   }
 
-  // ログイン後・本登録の状態確認中
-  if (regComplete === null) {
+  // ログイン後・ゲート状態確認中
+  if (regState === null) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
@@ -83,19 +84,31 @@ export default function App() {
     );
   }
 
-  // ハードゲート: 本登録が未完了ならアプリ本体を開かせず、ウィザードを出す。
-  if (!regComplete) {
+  // ①本登録が未完了 → ウィザード（完了したら再取得して本人確認待ちへ）。
+  if (!regState.complete) {
     return (
       <SafeAreaProvider>
         <AuthContext.Provider value={{ driver, logout: () => { clearAuth(); setDriver(null); } }}>
-          <KycWizard onComplete={() => setRegComplete(true)} />
+          <KycWizard onComplete={fetchReg} />
         </AuthContext.Provider>
         <StatusBar style="auto" />
       </SafeAreaProvider>
     );
   }
 
-  // 本登録 完了: アプリ本体（タブ）。
+  // ②本登録済・本承認前 → 本人確認待ち（アプリ本体は開かない）。
+  if (!regState.kycVerified) {
+    return (
+      <SafeAreaProvider>
+        <AuthContext.Provider value={{ driver, logout: () => { clearAuth(); setDriver(null); } }}>
+          <KycPending onRefresh={fetchReg} />
+        </AuthContext.Provider>
+        <StatusBar style="auto" />
+      </SafeAreaProvider>
+    );
+  }
+
+  // ③本承認済 → アプリ本体（タブ）。
   return (
     <SafeAreaProvider>
       <AuthContext.Provider value={{ driver, logout: () => { clearAuth(); setDriver(null); } }}>

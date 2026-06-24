@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faRotate, faCheck, faXmark, faUserPlus } from "@fortawesome/free-solid-svg-icons";
+import { faRotate, faCheck, faXmark, faUserPlus, faIdCard } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -25,6 +25,19 @@ type PendingDriver = {
   phone: string | null;
   status: string;
   created_at: string | null;
+};
+type KycDriver = { id: string; name: string; phone: string | null; created_at: string | null };
+type KycDetail = {
+  name: string;
+  licenseUrl: string | null;
+  faceUrl: string | null;
+  licenseExpiry: string;
+  dob: string;
+  postalCode: string;
+  address: string;
+  bankName: string;
+  bankNo: string;
+  bankHolder: string;
 };
 
 export default function PendingApprovalPage() {
@@ -52,8 +65,14 @@ export default function PendingApprovalPage() {
     (url: string) => apiFetch<{ courses: Course[] }>(url),
     { revalidateOnFocus: false, dedupingInterval: 30 * 60 * 1000 },
   );
+  const { data: kycRes, mutate: mutateKyc } = useSWR<{ drivers: KycDriver[]; total: number }>(
+    "/api/admin/users?stage=kyc",
+    (url: string) => apiFetch<{ drivers: KycDriver[]; total: number }>(url),
+    { revalidateOnFocus: false },
+  );
   const courses = coursesRes?.courses ?? [];
   const pending = pendingRes?.drivers ?? [];
+  const kycList = kycRes?.drivers ?? [];
 
   const [regenerating, setRegenerating] = useState(false);
   const [confirmRegen, setConfirmRegen] = useState(false);
@@ -62,6 +81,10 @@ export default function PendingApprovalPage() {
   const [approveForm, setApproveForm] = useState({ driverNumber: "", officeCode: "", courseIds: [] as string[] });
   const [saving, setSaving] = useState(false);
   const [errorState, setErrorState] = useState<{ title: string; message: string } | null>(null);
+  const [kycTarget, setKycTarget] = useState<KycDriver | null>(null);
+  const [kycDetail, setKycDetail] = useState<KycDetail | null>(null);
+  const [kycLoading, setKycLoading] = useState(false);
+  const [confirmKycReject, setConfirmKycReject] = useState<KycDriver | null>(null);
 
   const regenerate = async () => {
     setRegenerating(true);
@@ -129,6 +152,39 @@ export default function PendingApprovalPage() {
       ...f,
       courseIds: f.courseIds.includes(cid) ? f.courseIds.filter((id) => id !== cid) : [...f.courseIds, cid],
     }));
+
+  const openKycReview = async (d: KycDriver) => {
+    setKycTarget(d);
+    setKycDetail(null);
+    setKycLoading(true);
+    try {
+      const detail = await apiFetch<KycDetail>(`/api/admin/users/${d.id}/kyc`);
+      setKycDetail(detail);
+    } catch (e) {
+      setErrorState({ title: "取得に失敗しました", message: e instanceof Error ? e.message : "不明なエラー" });
+      setKycTarget(null);
+    } finally {
+      setKycLoading(false);
+    }
+  };
+
+  const verifyKyc = async (action: "approve" | "reject") => {
+    if (!kycTarget) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/api/admin/users/${kycTarget.id}/verify-kyc`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      });
+      setKycTarget(null);
+      setKycDetail(null);
+      await mutateKyc();
+    } catch (e) {
+      setErrorState({ title: action === "approve" ? "本承認に失敗しました" : "却下に失敗しました", message: e instanceof Error ? e.message : "不明なエラー" });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <AdminLayout>
@@ -210,7 +266,105 @@ export default function PendingApprovalPage() {
             </ul>
           )}
         </section>
+
+        {/* 本人確認待ち（本承認） */}
+        <section className="bg-white rounded-lg border border-slate-200 p-4">
+          <h2 className="text-sm font-semibold text-slate-900 mb-1">
+            本人確認待ち{kycRes ? `（${kycList.length}）` : ""}
+          </h2>
+          <p className="text-xs text-slate-500 mb-3">
+            本登録（免許証・顔写真）を提出したドライバーです。免許・顔を確認して本承認してください。
+          </p>
+          {kycList.length === 0 ? (
+            <p className="text-sm text-slate-400 py-6 text-center">本人確認待ちはありません</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {kycList.map((d) => (
+                <li key={d.id} className="py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-900 truncate">{d.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {d.phone || "電話未登録"}
+                      {d.created_at ? ` ・ ${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
+                    </p>
+                  </div>
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => openKycReview(d)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-slate-900 text-white hover:bg-slate-800 transition-colors"
+                    >
+                      <FontAwesomeIcon icon={faIdCard} className="h-3 w-3" />
+                      確認
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
+
+      {/* 本人確認モーダル */}
+      {kycTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !saving && setKycTarget(null)}>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-3 border-b border-slate-200">
+              <h2 className="text-sm font-semibold text-slate-900">本人確認</h2>
+              <p className="text-xs text-slate-500 mt-1">{kycTarget.name}</p>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              {kycLoading || !kycDetail ? (
+                <p className="text-sm text-slate-400 py-8 text-center">読み込み中...</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-slate-500 mb-1">免許証</p>
+                      {kycDetail.licenseUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={kycDetail.licenseUrl} alt="免許証" className="w-full rounded border border-slate-200" />
+                      ) : (
+                        <p className="text-xs text-slate-400">未提出</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 mb-1">顔写真</p>
+                      {kycDetail.faceUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={kycDetail.faceUrl} alt="顔写真" className="w-full rounded border border-slate-200" />
+                      ) : (
+                        <p className="text-xs text-slate-400">未提出</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-sm space-y-1.5">
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">有効期限</span><span className="text-slate-900">{kycDetail.licenseExpiry || "—"}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">生年月日</span><span className="text-slate-900">{kycDetail.dob || "—"}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">住所</span><span className="text-slate-900 text-right">〒{kycDetail.postalCode} {kycDetail.address}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">口座</span><span className="text-slate-900 text-right">{kycDetail.bankName} / {kycDetail.bankNo} / {kycDetail.bankHolder}</span></div>
+                  </div>
+                </>
+              )}
+            </div>
+            {canWrite && (
+              <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
+                <button type="button" onClick={() => setConfirmKycReject(kycTarget)} disabled={saving} className="px-3 py-1.5 text-xs text-red-600 hover:text-red-800">
+                  却下
+                </button>
+                <button
+                  type="button"
+                  onClick={() => verifyKyc("approve")}
+                  disabled={saving || !kycDetail}
+                  className="px-4 py-1.5 text-xs font-medium rounded bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                >
+                  {saving ? "処理中..." : "本承認する"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 承認モーダル */}
       {approveTarget && (
@@ -314,6 +468,14 @@ export default function PendingApprovalPage() {
           if (confirmReject) reject(confirmReject);
         }}
         onClose={() => setConfirmReject(null)}
+      />
+      <ConfirmDialog
+        open={!!confirmKycReject}
+        title="本人確認を却下"
+        message={confirmKycReject ? `${confirmKycReject.name} を却下しますか？（申請は却下扱いになります）` : ""}
+        confirmLabel="却下"
+        onConfirm={() => verifyKyc("reject")}
+        onClose={() => setConfirmKycReject(null)}
       />
       <ErrorDialog
         open={!!errorState}
