@@ -1,6 +1,7 @@
 // Metro × monorepo（npm workspaces）設定。
 // ルートの packages/core（@repo/core）を監視・解決できるようにする。
 const { getDefaultConfig } = require("expo/metro-config");
+const { withNativeWind } = require("nativewind/metro");
 const path = require("path");
 
 const projectRoot = __dirname;
@@ -21,4 +22,5 @@ config.resolver.nodeModulesPaths = [
 // 3) @repo/core の subpath exports（./auth, ./api, ./logic/*）を解決
 config.resolver.unstable_enablePackageExports = true;
 
-module.exports = config;
+// 4) NativeWind（Tailwind for RN）。global.css を入力に className 変換を有効化。
+module.exports = withNativeWind(config, { input: "./global.css" });
