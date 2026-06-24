@@ -99,13 +99,17 @@ MVP（nippo-mvp）を **マルチテナントSaaS ＋ Expoネイティブ** へ�
 
 ## 7. 実装着手時の推奨順序（計画の目安）
 
-1. **基盤移行**: org_id付与＋テナントスコープ一元化＋identity/membership分離（platform-design Phase0-8）。→ **Phase 0〜4＋8基盤 完了。残=Phase 5〜7（identity/Passkey認証/参加フロー）が次の主タスク**（`platform-design.md` §7 / memory `tenant-migration`）。
-2. **認証＋オンボーディング**: Passkey＋SMS OTP、join_code/承認、KYB。
-3. **monorepo＋Expo足場**（packages/core 昇格）。
-4. **ドライバー中核**: 車両セッション（チェックイン/アウト）＋通知＋シフト閲覧。
-5. **新機能**: 点検/オドメーター・駐車位置・QR。
-6. **日報移行**＋集計/請求/給与適合。
-7. **運営UI**: 承認・マップ・請求・給与。
+**進捗（2026-06-24 時点）**: 1〜3 と「オンボーディング一気通貫」は実装済み。詳細は `platform-design.md` §7・memory `tenant-migration`/`rn-migration-core-layer`。
+
+1. ✅ **基盤移行**: org_id 付与＋テナントスコープ一元化（API 層 `server/db/tenant.ts`）＋ identity/membership 分離。Phase 0〜4＋6a(JWT)＋8 基盤 完了。
+2. ✅ **オンボーディング（一気通貫・dev で実証）**: 仮登録（電話 **SMS OTP**＝Twilio Verify・最小PII）→ 仮承認（join_code＋運営承認）→ **本登録 KYC**（免許/顔写真＝非公開 Storage、住所/銀行、免許期限は **OCR** 端末側）→ **本承認**（運営が顔/免許を目視＝2段階承認）→ 稼働。Passkey/KYB は未（**Passkey はブランド/ドメイン確定後**＝rpID 固定が前提。当面 PIN ログイン）。
+3. ✅ **monorepo＋Expo 足場**: `apps/mobile`（Expo SDK52・`@repo/core` 再利用）。ドライバー全画面（ログイン/仮登録/本登録ウィザード/日報/希望休/報酬/マイページ）実装＋**NativeWind** 統一。dev 環境（独立 Supabase＋`npm run db:migrate`）。
+4. ⬜️ **ドライバー中核**: 車両セッション（チェックイン/アウト・QR）＋通知＋シフト閲覧。
+5. ⬜️ **新機能**: 点検/オドメーター・駐車位置。
+6. ⬜️ **日報移行**＋集計/請求/給与適合。
+7. ⬜️ **運営UI**: 承認・マップ・請求・給与。
+
+**次タスク（ユーザー方針）**: ユーザーフローを固め、必要な画面だけ作る方針。Passkey 認証は延期中（ブランド/ドメイン確定後）。
 
 ※ 各フェーズは独立リリース可。**Phase「スコープ一元化」完了まで2社目は本番投入しない**（platform-design §7）。
 
