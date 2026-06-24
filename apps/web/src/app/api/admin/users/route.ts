@@ -20,6 +20,34 @@ export async function GET(req: NextRequest) {
   const statusRaw = url.searchParams.get("status");
   const status = statusRaw && ["pending", "active", "rejected"].includes(statusRaw) ? statusRaw : "active";
 
+  // 2段階承認: stage=kyc → 本人確認(本承認)待ち。
+  // active＋kyc_verified_at NULL＋本登録提出済(identities.license_photo_path あり)。
+  if (url.searchParams.get("stage") === "kyc") {
+    const { data, error: kErr } = await supabase
+      .from("drivers")
+      .select("id, name, phone, created_at, identities ( license_photo_path )")
+      .eq("org_id", orgId)
+      .eq("role", "DRIVER")
+      .eq("status", "active")
+      .is("kyc_verified_at", null)
+      .order("created_at", { ascending: true });
+    if (kErr) {
+      console.error(kErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    const rows = (data ?? [])
+      .filter((d) => {
+        const id = (d as { identities?: { license_photo_path?: string | null } | null }).identities;
+        return !!id?.license_photo_path; // 本登録の免許写真を提出済のみ
+      })
+      .map((d) => {
+        const p = (d as { phone?: string | null }).phone;
+        const digits = typeof p === "string" ? p.replace(/\D/g, "") : "";
+        return { id: d.id, name: d.name, phone: digits ? `***${digits.slice(-4)}` : null, created_at: d.created_at };
+      });
+    return NextResponse.json({ drivers: rows, total: rows.length });
+  }
+
   // 同じ会社コードのドライバー一覧（一覧表示に不要な住所/口座情報は除外）
   const { data: drivers, error } = await supabase
     .from("drivers")

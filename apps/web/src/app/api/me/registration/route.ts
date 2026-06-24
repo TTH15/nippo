@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     .single();
   const { data: driver } = await supabase
     .from("drivers")
-    .select("postal_code, address, bank_name, bank_no, bank_holder")
+    .select("postal_code, address, bank_name, bank_no, bank_holder, kyc_verified_at")
     .eq("id", user.driverId)
     .single();
 
@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
     bankNo: driver?.bank_no ?? "",
     bankHolder: driver?.bank_holder ?? "",
     complete,
+    kycVerified: !!driver?.kyc_verified_at,
   });
 }
 
