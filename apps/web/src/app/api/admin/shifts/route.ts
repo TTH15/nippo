@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // GET: 指定期間のシフト取得
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, "can_view_shifts");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
 // POST: シフト登録/更新
 // 閲覧専用アカウント（ADMIN_VIEWER）にもシフトの編集を許可する運用要件のため ADMIN_OR_VIEWER。
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_shifts");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
 
   try {
