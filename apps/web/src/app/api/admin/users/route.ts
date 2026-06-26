@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // GET: 全ドライバー一覧（コース情報含む）
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, "can_view_members");
+  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const url = req.nextUrl;
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
 
 // POST: 新規ドライバー追加
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_members");
+  const user = await requireAuth(req, "ADMIN");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
