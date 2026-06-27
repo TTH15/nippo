@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Nippo",
-    short_name: "Nippo",
-    description: "配送日報集計システム",
+    name: "ハコ虎",
+    short_name: "ハコ虎",
+    description: "物流現場のデータを積み重ねるプラットフォーム",
     start_url: "/",
     scope: "/",
     display: "standalone",
