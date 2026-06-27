@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ type UnitMeta = { id: string; name: string; billingType: string; sortOrder: numb
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_reports");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const url = req.nextUrl;
   const start = url.searchParams.get("start") ?? "";
@@ -30,6 +32,7 @@ export async function GET(req: NextRequest) {
   let q = supabase
     .from("daily_reports_v2")
     .select("id, driver_id, report_date")
+    .eq("org_id", orgId)
     .gte("report_date", start)
     .lte("report_date", end)
     .is("rejected_at", null)
