@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { countOilAlertVehicles, type OilVehicle } from "@repo/core/logic/oilChange";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // GET: オイル交換が迫っている（接近 or 要交換）車両の台数。
 // メニューバッジ・ダッシュボードの警告に使用。しきい値は core/logic/oilChange に集約。
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_vehicles");
   if (isAuthError(user)) return user;
 
   try {

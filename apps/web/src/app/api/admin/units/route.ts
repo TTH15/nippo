@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { orgOwnsCarrier } from "@/server/carriers/orgCarriers";
 import { supabase } from "@/server/db/client";
@@ -10,7 +10,7 @@ const BILLING_TYPES = ["PER_PIECE", "FIXED"] as const;
 
 // POST: unit 追加
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_org_settings");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

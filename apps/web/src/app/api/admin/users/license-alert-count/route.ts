@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { countLicenseAlertDrivers, type LicenseDriver } from "@repo/core/logic/license";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // GET: 運転免許証の更新が迫っている（接近 or 期限切れ）ドライバーの人数。
 // メニューバッジ（「管理」／「ドライバー」）に使用。しきい値は core/logic/license に集約。
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_members");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

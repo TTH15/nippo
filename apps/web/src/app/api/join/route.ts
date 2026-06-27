@@ -55,43 +55,61 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "認証コードが正しくありません" }, { status: 400 });
     }
 
-    // 多重申請の抑止: 同 org に同 phone の pending が既にあれば作らず ok を返す。
+    // identity を「検証済み電話」で find-or-create（重複排除）。
+    // migration 091 で identities(phone) は検証済みのみ一意。並行/再送でも二重作成しない。
+    const verifiedNow = new Date().toISOString();
+    let identityId: string;
+    const { data: existing } = await supabase
+      .from("identities")
+      .select("id")
+      .eq("phone", phone)
+      .order("phone_verified_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      identityId = existing.id;
+      // 検証時刻を更新（未検証 legacy 行ならここで検証済みに昇格）。
+      await supabase.from("identities").update({ phone_verified_at: verifiedNow }).eq("id", identityId);
+    } else {
+      const { data: identity, error: identErr } = await supabase
+        .from("identities")
+        .insert({ name, phone, phone_verified_at: verifiedNow })
+        .select("id")
+        .single();
+      if (identErr?.code === "23505") {
+        // 並行 join で先に作られた → 既存を採用（冪等）。
+        const { data: raced } = await supabase
+          .from("identities")
+          .select("id")
+          .eq("phone", phone)
+          .order("phone_verified_at", { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle();
+        if (!raced) {
+          console.error("[Join] identity race resolve failed:", identErr);
+          return NextResponse.json({ error: "申請の作成に失敗しました" }, { status: 500 });
+        }
+        identityId = raced.id;
+      } else if (identErr || !identity) {
+        console.error("[Join] identity insert error:", identErr);
+        return NextResponse.json({ error: "申請の作成に失敗しました" }, { status: 500 });
+      } else {
+        identityId = identity.id;
+      }
+    }
+
+    // 多重申請の抑止: 同 org に同 identity の有効な membership が既にあれば作らず ok。
+    // migration 091 の uq_drivers_identity_org_active(却下以外で一意)と整合。
     const { data: dup } = await supabase
       .from("drivers")
       .select("id")
       .eq("org_id", org.id)
-      .eq("status", "pending")
-      .eq("phone", phone)
+      .eq("identity_id", identityId)
+      .neq("status", "rejected")
+      .limit(1)
       .maybeSingle();
     if (dup) {
       return NextResponse.json({ ok: true, organizationName: org.name, alreadyApplied: true });
-    }
-
-    // identity を「検証済み電話」で find-or-create（重複排除）。
-    let identityId: string;
-    const { data: existingIdentity } = await supabase
-      .from("identities")
-      .select("id")
-      .eq("phone", phone)
-      .maybeSingle();
-    if (existingIdentity) {
-      identityId = existingIdentity.id;
-      // 氏名が空なら補完・検証時刻を更新
-      await supabase
-        .from("identities")
-        .update({ phone_verified_at: new Date().toISOString() })
-        .eq("id", identityId);
-    } else {
-      const { data: identity, error: identErr } = await supabase
-        .from("identities")
-        .insert({ name, phone, phone_verified_at: new Date().toISOString() })
-        .select("id")
-        .single();
-      if (identErr || !identity) {
-        console.error("[Join] identity insert error:", identErr);
-        return NextResponse.json({ error: "申請の作成に失敗しました" }, { status: 500 });
-      }
-      identityId = identity.id;
     }
 
     // membership（drivers）を pending で作成。driver_code/PIN は承認時に発行。
@@ -104,6 +122,10 @@ export async function POST(req: NextRequest) {
       phone,
     });
     if (dErr) {
+      // 並行申請で一意制約に当たった場合は「申請済み」として冪等に成功扱い。
+      if (dErr.code === "23505") {
+        return NextResponse.json({ ok: true, organizationName: org.name, alreadyApplied: true });
+      }
       console.error("[Join] membership insert error:", dErr);
       return NextResponse.json({ error: "申請の作成に失敗しました" }, { status: 500 });
     }

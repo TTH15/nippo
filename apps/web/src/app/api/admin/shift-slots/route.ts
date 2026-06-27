@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { loadAllSlots, saveSlots, type SlotInput } from "@/server/shiftSlots/config";
 
@@ -9,7 +9,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // GET: 便一覧 + ドライバー一覧
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_shifts");
   if (isAuthError(user)) return user;
 
   const [slots, { data: drivers }] = await Promise.all([
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
 // PUT: 便マスタ＋割り当てを保存
 export async function PUT(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_shifts");
   if (isAuthError(user)) return user;
 
   const body = await req.json().catch(() => ({}));

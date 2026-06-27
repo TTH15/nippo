@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
@@ -9,7 +9,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; mergeId: string }> }
 ) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_billing");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
@@ -49,7 +49,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; mergeId: string }> }
 ) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_billing");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

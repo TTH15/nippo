@@ -10,7 +10,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getCompany } from "@/config/companies";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 
 // ============================================================
 // ドライバーの参加・承認（Phase 7b）。
@@ -46,7 +46,7 @@ export default function PendingApprovalPage() {
 
   useEffect(() => {
     const d = getStoredDriver();
-    setCanWrite(canAdminWrite(d?.role));
+    setCanWrite(hasCapability("can_approve_members"));
     if (d?.companyCode) setCompanyCode(d.companyCode);
   }, []);
 

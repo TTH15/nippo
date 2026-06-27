@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { getStoredDriver } from "@/lib/api";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import useSWRInfinite from "swr/infinite";
@@ -101,7 +101,7 @@ export function OtherReportsContent({ onMutated }: { onMutated?: () => void } = 
   const [tab, setTab] = useState<"pending" | "approved">("pending");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
-  const canWrite = canAdminWrite(getStoredDriver()?.role);
+  const canWrite = hasCapability("can_edit_reports");
 
   // 報告種別マスタ（ラベル・使用フィールドの解決用）。SWRでキャッシュし再オープン時の再取得・チラつきを防ぐ。
   const kindsApi = useApi<{ kinds: ReportKindInfo[] }>("/api/admin/report-kinds");

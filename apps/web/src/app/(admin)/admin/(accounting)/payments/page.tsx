@@ -9,7 +9,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 
 type DriverPaymentRow = {
   driverId: string;
@@ -181,7 +181,7 @@ export default function PaymentsPage() {
   const loadPayments = useCallback(() => mutatePayments(), [mutatePayments]);
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_rewards"));
   }, []);
 
   useEffect(() => {

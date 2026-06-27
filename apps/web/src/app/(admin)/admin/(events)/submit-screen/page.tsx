@@ -7,7 +7,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { PostSubmitView } from "@/lib/components/PostSubmitView";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { getDisplayName } from "@/lib/displayName";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { DatePicker } from "@/lib/components/DatePicker";
@@ -204,7 +204,7 @@ export default function SubmitScreenBuilderPage() {
   const load = useCallback(() => mutateScreen(), [mutateScreen]);
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_org_settings"));
   }, []);
 
   const preview = useMemo(

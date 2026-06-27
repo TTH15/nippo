@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { normalizeScoringRuleSet } from "@/server/events/types";
@@ -13,7 +13,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_org_settings");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
@@ -79,7 +79,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_org_settings");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
@@ -131,7 +131,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_org_settings");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;

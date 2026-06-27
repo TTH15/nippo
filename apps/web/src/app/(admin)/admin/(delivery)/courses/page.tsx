@@ -20,7 +20,7 @@ import { CourseRateEditor, type CourseRateEditorHandle } from "@/lib/components/
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { slotDisplayLabel } from "@/lib/timeSlot";
 import { Button } from "@/lib/ui/button";
 
@@ -271,7 +271,7 @@ export default function CoursesPage() {
   }, [bundle]);
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_org_settings"));
   }, []);
 
   const addCourse = async () => {

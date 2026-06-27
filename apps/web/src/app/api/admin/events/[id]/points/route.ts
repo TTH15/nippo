@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_org_settings");
   if (isAuthError(user)) return user;
   const { id: eventId } = await params;
 
@@ -32,7 +32,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_org_settings");
   if (isAuthError(user)) return user;
   const { id: eventId } = await params;
 

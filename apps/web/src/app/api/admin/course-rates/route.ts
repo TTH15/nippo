@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
 // GET: 全コースの単価
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_billing");
   if (isAuthError(user)) return user;
 
   const { data, error } = await supabase
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
 // PATCH: コース単価を更新
 export async function PATCH(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_billing");
   if (isAuthError(user)) return user;
 
   try {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { loadOrgCarrierIds } from "@/server/carriers/orgCarriers";
 import { supabase } from "@/server/db/client";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // GET: キャリア一覧（units / unit_fields をネストして返す）。当 org が有効化したキャリアのみ。
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_org_settings");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const orgCarrierIds = await loadOrgCarrierIds(supabase, orgId);
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
 
 // POST: キャリア追加
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_org_settings");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

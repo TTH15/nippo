@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
@@ -135,7 +135,7 @@ async function resolveUniqueInvoiceNo(
 }
 
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_billing");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
@@ -188,7 +188,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_billing");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

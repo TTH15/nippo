@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 // GET: ?course_id=... → そのコースのキャリア配下 unit と現単価
 //      ?carrier_id=... → コース未作成（新規作成）向け。キャリア配下 unit のみ（単価は空）。
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_billing");
   if (isAuthError(user)) return user;
 
   const courseId = req.nextUrl.searchParams.get("course_id") ?? "";
@@ -82,7 +82,7 @@ const num = (v: unknown) => Math.trunc(Number(v) || 0);
 
 // PUT: 単価保存（新テーブル upsert ＋ 旧 course_rates 同期）
 export async function PUT(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_billing");
   if (isAuthError(user)) return user;
 
   const body = await req.json().catch(() => ({}));
