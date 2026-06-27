@@ -13,7 +13,7 @@ import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
 import { Button } from "@/lib/ui/button";
-import { faChevronRight, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { faTrash, faUser, faPhone, faCircleCheck, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -36,6 +36,10 @@ type Driver = {
   display_name?: string | null;
   role?: string;
   role_id?: string | null;
+  /** 顔写真（KYC・identities）の署名URL。一覧アバター用。 */
+  faceUrl?: string | null;
+  /** 電話番号が Twilio(SMS OTP) 認証済みか（identities.phone_verified_at）。 */
+  phone_verified_at?: string | null;
   company_code?: string;
   office_code: string;
   driver_code: string;
@@ -144,7 +148,18 @@ export default function UsersPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [openingEditId, setOpeningEditId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalTab, setModalTab] = useState<"basic" | "work" | "contract">("basic");
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
+  // 詳細モーダルのキャッシュ（同じドライバーを再度開く時はDBを叩かない）
+  const detailCache = useRef<Map<string, { driver: Driver; lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null }>>(new Map());
+  // 自動保存（編集モード）。populate 直後の1回はスキップ。
+  const skipAutoSave = useRef(true);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // 担当可能コース: 未選択はアコーディオンに隠す（選択中のみ常時表示）
+  const [courseOpen1, setCourseOpen1] = useState(false);
+  const [courseOpen2, setCourseOpen2] = useState(false);
   const [form, setForm] = useState({
     name: "",
     displayName: "",
@@ -180,7 +195,6 @@ export default function UsersPage() {
     message: string;
     detail?: string;
   } | null>(null);
-  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const usersPageKey = (pageIndex: number, previousPageData: UsersPageResponse | null) => {
     if (previousPageData && !previousPageData.hasMore) return null;
@@ -240,16 +254,10 @@ export default function UsersPage() {
     });
   }, [flattenedDrivers]);
 
+  // 運営のドライバー一覧は件数が限定的なので、hasMore の間は全ページを自動取得する。
+  // （無限スクロール待ちで末尾のドライバーが表示されない問題を回避）
   useEffect(() => {
-    const node = loadMoreRef.current;
-    if (!node) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries[0]?.isIntersecting) return;
-      if (!hasMore) return;
-      void setSize((s) => s + 1);
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
+    if (hasMore) void setSize((s) => s + 1);
   }, [hasMore, setSize]);
 
   const openNew = () => {
@@ -280,8 +288,75 @@ export default function UsersPage() {
     setShowModal(true);
   };
 
+  // 取得済みドライバー詳細＋リースから編集フォームを埋める（fetch/キャッシュ共通）
+  const populateForm = (
+    full: Driver,
+    lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null,
+  ) => {
+    setLeaseForm(
+      lease
+        ? {
+            enabled: true,
+            mode: lease.mode === "DAILY" ? "DAILY" : "MONTHLY",
+            amount: String(lease.amount ?? ""),
+            validFrom:
+              lease.valid_from && /^\d{4}-\d{2}-\d{2}$/.test(lease.valid_from)
+                ? lease.valid_from
+                : currentMonthStartStr(),
+          }
+        : { ...EMPTY_LEASE, validFrom: currentMonthStartStr() },
+    );
+    setEditingDriver(full);
+    const { institution, branch } = parseBankName(full.bank_name || "");
+    const { type, number, typeOther } = parseBankNo(full.bank_no || "");
+    const id1 = full.driver_identities?.find((x) => x.slot === 1);
+    const id2 = full.driver_identities?.find((x) => x.slot === 2);
+    setForm({
+      name: full.name,
+      displayName: full.display_name?.trim() ?? getDisplayName(full),
+      officeCode: id1?.office_code ?? full.office_code ?? "",
+      driverNumber: (id1?.driver_code ?? full.driver_code)?.slice(3) || "",
+      courseIds: (id1?.driver_courses ?? []).map((dc) => dc.course_id),
+      officeCode2: id2?.office_code ?? "",
+      driverNumber2: id2?.driver_code?.slice(3) ?? "",
+      courseIds2: (id2?.driver_courses ?? []).map((dc) => dc.course_id),
+      postalCode: full.postal_code || "",
+      address: full.address || "",
+      phone: full.phone || "",
+      bankInstitution: institution,
+      bankBranch: branch,
+      bankType: type,
+      bankTypeOther: typeOther,
+      bankNumber: number,
+      bankHolder: full.bank_holder || "",
+      licenseExpiryDate:
+        full.license_expiry_date && /^\d{4}-\d{2}-\d{2}$/.test(full.license_expiry_date)
+          ? full.license_expiry_date
+          : "",
+      roleId: full.role_id ?? "",
+    });
+  };
+
   const openEdit = async (d: Driver) => {
     if (!canWrite) return;
+    skipAutoSave.current = true; // populate では自動保存しない
+    setAutoSaveStatus("idle");
+    setModalTab("basic");
+    setEditingDriver(d);
+
+    // キャッシュヒット: DBを叩かず即時表示
+    const cached = detailCache.current.get(d.id);
+    if (cached) {
+      setModalLoading(false);
+      setLeaseLoading(false);
+      setShowModal(true);
+      populateForm(cached.driver, cached.lease);
+      return;
+    }
+
+    // キャッシュミス: スケルトンを即時表示しつつ取得
+    setModalLoading(true);
+    setShowModal(true);
     setOpeningEditId(d.id);
     setLeaseLoading(true);
     try {
@@ -293,51 +368,12 @@ export default function UsersPage() {
       ]);
       const full = res.driver;
       const lease = leaseRes.lease;
-      setLeaseForm(
-        lease
-          ? {
-              enabled: true,
-              mode: lease.mode === "DAILY" ? "DAILY" : "MONTHLY",
-              amount: String(lease.amount ?? ""),
-              validFrom:
-                lease.valid_from && /^\d{4}-\d{2}-\d{2}$/.test(lease.valid_from)
-                  ? lease.valid_from
-                  : currentMonthStartStr(),
-            }
-          : { ...EMPTY_LEASE, validFrom: currentMonthStartStr() },
-      );
-      setEditingDriver(full);
-      const { institution, branch } = parseBankName(full.bank_name || "");
-      const { type, number, typeOther } = parseBankNo(full.bank_no || "");
-      const id1 = full.driver_identities?.find((x) => x.slot === 1);
-      const id2 = full.driver_identities?.find((x) => x.slot === 2);
-      setForm({
-        name: full.name,
-        displayName: full.display_name?.trim() ?? getDisplayName(full),
-        officeCode: id1?.office_code ?? full.office_code ?? "",
-        driverNumber: (id1?.driver_code ?? full.driver_code)?.slice(3) || "",
-        courseIds: (id1?.driver_courses ?? []).map((dc) => dc.course_id),
-        officeCode2: id2?.office_code ?? "",
-        driverNumber2: id2?.driver_code?.slice(3) ?? "",
-        courseIds2: (id2?.driver_courses ?? []).map((dc) => dc.course_id),
-        postalCode: full.postal_code || "",
-        address: full.address || "",
-        phone: full.phone || "",
-        bankInstitution: institution,
-        bankBranch: branch,
-        bankType: type,
-        bankTypeOther: typeOther,
-        bankNumber: number,
-        bankHolder: full.bank_holder || "",
-        licenseExpiryDate:
-          full.license_expiry_date && /^\d{4}-\d{2}-\d{2}$/.test(full.license_expiry_date)
-            ? full.license_expiry_date
-            : "",
-        roleId: full.role_id ?? "",
-      });
-      setShowModal(true);
+      detailCache.current.set(d.id, { driver: full, lease });
+      skipAutoSave.current = true; // 取得後の populate でも自動保存しない
+      populateForm(full, lease);
     } catch (e) {
       console.error(e);
+      setShowModal(false);
       setErrorState({
         title: "ドライバー詳細の取得に失敗しました",
         message: "編集用データの取得に失敗しました。時間をおいて再度お試しください。",
@@ -345,6 +381,7 @@ export default function UsersPage() {
     } finally {
       setOpeningEditId(null);
       setLeaseLoading(false);
+      setModalLoading(false);
     }
   };
 
@@ -416,8 +453,9 @@ export default function UsersPage() {
     }));
   };
 
-  const save = async () => {
+  const save = async (opts?: { silent?: boolean }) => {
     if (!canWrite) return;
+    const silent = opts?.silent === true;
     setSaving(true);
     try {
       const driverCode = companyCode + form.driverNumber;
@@ -563,18 +601,28 @@ export default function UsersPage() {
         }
       }
 
-      setShowModal(false);
+      // 保存後はキャッシュを無効化（次回オープン時に最新を1回だけ取得）
+      if (savedDriverId) detailCache.current.delete(savedDriverId);
+      if (silent) {
+        setAutoSaveStatus("saved");
+      } else {
+        setShowModal(false);
+      }
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
-      setErrorState({
-        title: "ドライバー情報の保存に失敗しました",
-        message:
-          "サーバーでエラーが発生したため、ドライバー情報を保存できませんでした。\n\n" +
-          "入力内容（コードの重複や必須項目の抜けなど）を確認し、もう一度保存してください。\n" +
-          "同じエラーが続く場合は、システム管理者に連絡してください。",
-        detail: reason || undefined,
-      });
+      if (silent) {
+        setAutoSaveStatus("error");
+      } else {
+        setErrorState({
+          title: "ドライバー情報の保存に失敗しました",
+          message:
+            "サーバーでエラーが発生したため、ドライバー情報を保存できませんでした。\n\n" +
+            "入力内容（コードの重複や必須項目の抜けなど）を確認し、もう一度保存してください。\n" +
+            "同じエラーが続く場合は、システム管理者に連絡してください。",
+          detail: reason || undefined,
+        });
+      }
     } finally {
       setSaving(false);
     }
@@ -588,6 +636,7 @@ export default function UsersPage() {
         try {
           await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
           setDrivers((prev) => prev.filter((d) => d.id !== id));
+          setShowModal(false);
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";
@@ -623,6 +672,44 @@ export default function UsersPage() {
     slot2Valid;
 
   // 判定しきい値はメニューバッジ（更新が迫っている人数）と共有するため core/logic/license に集約。
+  // インライン権限変更（この画面から role を変更。can_manage_members 必須＝canWrite）。
+  // 楽観更新→失敗時ロールバック。最後の管理者保護等はサーバ(PUT)が弾く。
+  const [roleSavingId, setRoleSavingId] = useState<string | null>(null);
+  const roleLabelOf = (d: Driver) =>
+    roleOptions.find((r) => r.id === d.role_id)?.label ?? d.role ?? "—";
+  const changeRole = async (d: Driver, roleId: string) => {
+    if (!roleId || roleId === d.role_id) return;
+    const prevRoleId = d.role_id ?? null;
+    setRoleSavingId(d.id);
+    setDrivers((list) => list.map((x) => (x.id === d.id ? { ...x, role_id: roleId } : x)));
+    try {
+      await apiFetch(`/api/admin/users/${d.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ roleId }),
+      });
+    } catch (e) {
+      setDrivers((list) => list.map((x) => (x.id === d.id ? { ...x, role_id: prevRoleId } : x)));
+      setErrorState({
+        title: "権限の変更に失敗しました",
+        message: e instanceof Error ? e.message : "権限を変更できませんでした。",
+      });
+    } finally {
+      setRoleSavingId(null);
+    }
+  };
+
+  // 免許期限を「YYYY年MM月DD日」で表示（ハイフン禁止／年月日は小さく薄く）。
+  const jpDate = (iso: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!m) return <>{iso}</>;
+    const u = "text-[10px] font-normal opacity-60 mx-0.5";
+    return (
+      <>
+        {m[1]}<span className={u}>年</span>{m[2]}<span className={u}>月</span>{m[3]}<span className={u}>日</span>
+      </>
+    );
+  };
+
   const getLicenseStatus = (dateStr?: string | null): { label: string; className: string } => {
     switch (computeLicenseLevel(dateStr)) {
       case "unset":
@@ -637,6 +724,24 @@ export default function UsersPage() {
         return { label: dateStr ?? "", className: "bg-emerald-100 text-emerald-700" };
     }
   };
+
+  // 自動保存（編集モード）: 入力変更を1秒デバウンスで PUT。populate直後・無効入力・新規はスキップ。
+  useEffect(() => {
+    if (!showModal || modalLoading || !editingDriver || !canWrite || !isFormValid) return;
+    if (skipAutoSave.current) {
+      skipAutoSave.current = false;
+      return;
+    }
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    setAutoSaveStatus("saving");
+    autoSaveTimer.current = setTimeout(() => {
+      void save({ silent: true });
+    }, 1000);
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, leaseForm, showModal, modalLoading, editingDriver, isFormValid]);
 
   return (
     <AdminLayout>
@@ -658,102 +763,106 @@ export default function UsersPage() {
         </div>
 
         {loading ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <Skeleton className="h-5 w-12" />
-                  <Skeleton className="h-5 w-28" />
-                </div>
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-10 w-full" />
-              </div>
+          <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
+            {[...Array(8)].map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
             ))}
           </div>
         ) : drivers.length === 0 ? (
           <p className="text-sm text-slate-500">ドライバーが登録されていません</p>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {drivers.map((d, index) => {
-              const id1 = d.driver_identities?.find((x) => x.slot === 1);
-              const id2 = d.driver_identities?.find((x) => x.slot === 2);
-              const codeText = id2?.driver_code
-                ? `${id1?.driver_code ?? d.driver_code ?? "-"} / ${id2.driver_code}`
-                : (id1?.driver_code ?? d.driver_code ?? "-");
-              const officeText = id2?.office_code
-                ? `${id1?.office_code ?? d.office_code ?? "-"} / ${id2.office_code}`
-                : (id1?.office_code ?? d.office_code ?? "-");
-              const coursesOfDriver = allIdentityCourses(d);
-              const licenseStatus = getLicenseStatus(d.license_expiry_date);
-              return (
-                <div
-                  key={d.id}
-                  onClick={() => canWrite && void openEdit(d)}
-                  role={canWrite ? "button" : undefined}
-                  tabIndex={canWrite ? 0 : undefined}
-                  onKeyDown={(e) => {
-                    if (canWrite && (e.key === "Enter" || e.key === " ")) {
-                      e.preventDefault();
-                      void openEdit(d);
-                    }
-                  }}
-                  className={`bg-white rounded-lg border border-slate-200 p-4 shadow-sm ${canWrite ? "cursor-pointer hover:border-slate-300 hover:shadow-md transition-shadow active:bg-slate-50" : ""}`}
-                >
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div>
-                      <div className="text-xs text-slate-500 tabular-nums">No.{d.list_no ?? index + 1}</div>
-                      <div className="text-base font-semibold text-slate-900">{d.name}</div>
-                      <div className="text-sm text-slate-500">{getDisplayName(d)}</div>
-                    </div>
-                    <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${licenseStatus.className}`}>
-                      免許期限: {licenseStatus.label}
-                    </span>
-                  </div>
-                  <div className="space-y-1.5 text-sm mb-3">
-                    <div><span className="text-slate-400">ドライバーコード:</span> <span className="font-mono text-slate-700">{codeText}</span></div>
-                    <div><span className="text-slate-400">事業所:</span> <span className="text-slate-700">{officeText}</span></div>
-                  </div>
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {coursesOfDriver.map((dc) => (
-                      <span
-                        key={dc.course_id}
-                        className="px-1.5 py-0.5 rounded text-xs text-white"
-                        style={{ backgroundColor: dc.courses.color }}
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            <div className="overflow-x-auto table-scroll table-scroll-fade">
+              <table className="w-full text-sm min-w-[760px]">
+                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold w-12">No.</th>
+                    <th className="px-4 py-3 text-left font-semibold">ドライバー</th>
+                    <th className="px-4 py-3 text-left font-semibold">表示名</th>
+                    <th className="px-4 py-3 text-left font-semibold">コース</th>
+                    <th className="px-4 py-3 text-left font-semibold">免許期限</th>
+                    <th className="px-4 py-3 text-left font-semibold w-44">権限</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {drivers.map((d, index) => {
+                    const coursesOfDriver = allIdentityCourses(d);
+                    const licenseStatus = getLicenseStatus(d.license_expiry_date);
+                    return (
+                      <tr
+                        key={d.id}
+                        onClick={() => canWrite && void openEdit(d)}
+                        className={`border-t border-slate-100 ${canWrite ? "cursor-pointer hover:bg-slate-50" : ""}`}
                       >
-                        {dc.courses.name}
-                      </span>
-                    ))}
-                    {coursesOfDriver.length === 0 && (
-                      <span className="text-xs text-slate-400">担当コース未設定</span>
-                    )}
-                  </div>
-                  {canWrite && (
-                    <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-100">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteDriver(d.id, d.name);
-                        }}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
-                        title="削除"
-                      >
-                        <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="inline-flex items-center gap-1.5 pl-1 text-xs text-slate-400">
-                        {openingEditId === d.id ? "開いています…" : "編集"}
-                        <FontAwesomeIcon icon={faChevronRight} className="h-3.5 w-3.5 text-slate-300" />
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            <div ref={loadMoreRef} className="h-8 md:col-span-2" />
-            {hasMore && (
-              <div className="md:col-span-2 text-center text-xs text-slate-500 py-2">
-                さらに読み込み中...
-              </div>
+                        <td className="px-4 py-3 text-xs text-slate-400 tabular-nums">{d.list_no ?? index + 1}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            {d.faceUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={d.faceUrl} alt="" className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0" />
+                            ) : (
+                              <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-slate-100 text-slate-400 shrink-0">
+                                <FontAwesomeIcon icon={faUser} className="w-4 h-4" />
+                              </span>
+                            )}
+                            <span className="font-semibold text-slate-900 whitespace-nowrap">{d.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{getDisplayName(d)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5 max-w-[230px] overflow-hidden">
+                            {coursesOfDriver.slice(0, 2).map((dc) => (
+                              <span
+                                key={dc.course_id}
+                                className="px-2 py-1 rounded text-xs text-white whitespace-nowrap truncate max-w-[100px]"
+                                style={{ backgroundColor: dc.courses.color }}
+                                title={dc.courses.name}
+                              >
+                                {dc.courses.name}
+                              </span>
+                            ))}
+                            {coursesOfDriver.length > 2 && (
+                              <span className="px-2 py-1 rounded text-xs bg-slate-100 text-slate-500 whitespace-nowrap shrink-0">
+                                +{coursesOfDriver.length - 2}
+                              </span>
+                            )}
+                            {coursesOfDriver.length === 0 && <span className="text-xs text-slate-400">未設定</span>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {d.license_expiry_date ? (
+                            <span className={`inline-flex items-baseline px-2.5 py-1 rounded text-sm font-semibold whitespace-nowrap ${licenseStatus.className}`}>
+                              {jpDate(d.license_expiry_date)}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-500">未設定</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          {canWrite ? (
+                            <select
+                              value={d.role_id ?? ""}
+                              disabled={roleSavingId === d.id}
+                              onChange={(e) => changeRole(d, e.target.value)}
+                              className="w-full max-w-[170px] appearance-none rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100 disabled:opacity-50"
+                            >
+                              {!d.role_id && <option value="">未設定</option>}
+                              {roleOptions.map((r) => (
+                                <option key={r.id} value={r.id}>{r.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-xs text-slate-600">{roleLabelOf(d)}</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {usersValidating && (
+              <div className="text-center text-xs text-slate-500 py-3">読み込み中...</div>
             )}
           </div>
         )}
@@ -761,59 +870,91 @@ export default function UsersPage() {
 
       {/* Modal */}
       {showModal && canWrite && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+          <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
-              {editingDriver ? "ドライバー編集" : "新規ドライバー追加"}
+              {editingDriver
+                ? `No.${editingDriver.list_no ?? "—"}　${editingDriver.name}`
+                : "新規ドライバー追加"}
             </h2>
 
+            {modalLoading ? (
+              <div className="space-y-4">
+                {[...Array(6)].map((_, i) => (
+                  <Skeleton key={i} className="h-11 w-full" />
+                ))}
+              </div>
+            ) : (
+            <>
+            <div className="flex gap-1 border-b border-slate-200 mb-4">
+              {([["basic", "基本"], ["work", "勤務"], ["contract", "契約"]] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setModalTab(key)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${modalTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">名前</label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
+              {modalTab === "basic" && (
+              <>
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2">
+                <FontAwesomeIcon icon={faUser} className="w-3.5 h-3.5 text-slate-400" />
+                基本情報
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">表示名</label>
-                <input
-                  type="text"
-                  value={form.displayName}
-                  onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
-                  placeholder="未入力なら苗字のみ表示"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-                <p className="text-xs text-slate-500 mt-1">シフト・日報などで表示します。空欄の場合は苗字のみ表示されます。</p>
-              </div>
-
-              {editingDriver && roleOptions.length > 0 && (
+              {!editingDriver && (
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">ロール・権限</label>
-                  <select
-                    value={form.roleId}
-                    onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  >
-                    <option value="">（変更しない）</option>
-                    {roleOptions.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-slate-500 mt-1">
-                    権限の内容は「設定 → ロール・権限」で編集できます。
-                  </p>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">名前</label>
+                  <input
+                    type="text"
+                    value={form.name}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
                 </div>
               )}
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">表示名</label>
+                  <input
+                    type="text"
+                    value={form.displayName}
+                    onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+                    placeholder="未入力なら苗字のみ"
+                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                </div>
+                {editingDriver && roleOptions.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">ロール・権限</label>
+                    <select
+                      value={form.roleId}
+                      onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    >
+                      <option value="">（変更しない）</option>
+                      {roleOptions.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+              </>
+              )}
+
+              {modalTab === "work" && (
+              <>
               <p className="text-xs font-semibold text-slate-600 pt-1">勤務区分1</p>
+              <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">事業所コード（6桁）</label>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">事業所コード（6桁）</label>
                 <input
                   type="text"
                   maxLength={6}
@@ -823,12 +964,12 @@ export default function UsersPage() {
                     setForm((f) => ({ ...f, officeCode: v }));
                   }}
                   placeholder="000001"
-                  className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  className="w-full px-3.5 py-2.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">
                   ドライバーコード
                 </label>
                 <div className="flex items-center gap-1">
@@ -844,31 +985,59 @@ export default function UsersPage() {
                       setForm((f) => ({ ...f, driverNumber: v }));
                     }}
                     placeholder="123456"
-                    className="flex-1 px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
+                    className="flex-1 px-3.5 py-2.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                   />
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
                   この6桁が初回ログイン時のPINになります
                 </p>
               </div>
+              </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">担当可能コース（区分1）</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-slate-400">担当可能コース（区分1）</label>
+                  <button
+                    type="button"
+                    onClick={() => setCourseOpen1((o) => !o)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-amber-700 hover:bg-amber-50 transition-colors"
+                  >
+                    <FontAwesomeIcon icon={courseOpen1 ? faChevronUp : faChevronDown} className="w-2.5 h-2.5" />
+                    {courseOpen1 ? "閉じる" : "コースを選択"}
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-2">
-                  {courses.map((c) => (
+                  {courses.filter((c) => form.courseIds.includes(c.id)).map((c) => (
                     <button
                       key={c.id}
                       type="button"
                       onClick={() => toggleCourse(c.id)}
-                      className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${form.courseIds.includes(c.id)
-                        ? "text-white border-transparent"
-                        : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
-                        }`}
-                      style={form.courseIds.includes(c.id) ? { backgroundColor: c.color } : {}}
+                      className="px-3 py-1.5 rounded text-sm font-medium text-white border border-transparent transition-transform active:scale-95"
+                      style={{ backgroundColor: c.color }}
                     >
                       {c.name}
                     </button>
                   ))}
+                  {form.courseIds.length === 0 && <span className="text-xs text-slate-400 py-1.5">未選択</span>}
+                </div>
+                <div className={`grid transition-all duration-300 ease-out ${courseOpen1 ? "grid-rows-[1fr] opacity-100 mt-2" : "grid-rows-[0fr] opacity-0"}`}>
+                  <div className="overflow-hidden">
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {courses.filter((c) => !form.courseIds.includes(c.id)).map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => toggleCourse(c.id)}
+                          className="px-3 py-1.5 rounded text-sm font-medium border text-slate-600 border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                      {courses.filter((c) => !form.courseIds.includes(c.id)).length === 0 && (
+                        <span className="text-xs text-slate-400 py-1.5">追加できるコースはありません</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -878,8 +1047,9 @@ export default function UsersPage() {
                   別コード・別事業所で日報を分ける場合。未入力のままなら区分2は無効です。
                 </p>
                 <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">事業所コード（6桁）</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">事業所コード（6桁）</label>
                     <input
                       type="text"
                       maxLength={6}
@@ -889,11 +1059,11 @@ export default function UsersPage() {
                         setForm((f) => ({ ...f, officeCode2: v }));
                       }}
                       placeholder="000000"
-                      className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="w-full px-3.5 py-2.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">ドライバーコード</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">ドライバーコード</label>
                     <div className="flex items-center gap-1">
                       <span className="px-3 py-2 bg-slate-100 border border-slate-200 rounded text-sm font-mono text-slate-600">
                         {companyCode}
@@ -907,37 +1077,72 @@ export default function UsersPage() {
                           setForm((f) => ({ ...f, driverNumber2: v }));
                         }}
                         placeholder="123456"
-                        className="flex-1 px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        className="flex-1 px-3.5 py-2.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     </div>
                   </div>
+                  </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">担当可能コース（区分2）</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-medium text-slate-400">担当可能コース（区分2）</label>
+                      <button
+                        type="button"
+                        onClick={() => setCourseOpen2((o) => !o)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-amber-700 hover:bg-amber-50 transition-colors"
+                      >
+                        <FontAwesomeIcon icon={courseOpen2 ? faChevronUp : faChevronDown} className="w-2.5 h-2.5" />
+                        {courseOpen2 ? "閉じる" : "コースを選択"}
+                      </button>
+                    </div>
                     <div className="flex flex-wrap gap-2">
-                      {courses.map((c) => (
+                      {courses.filter((c) => form.courseIds2.includes(c.id)).map((c) => (
                         <button
-                          key={`s2-${c.id}`}
+                          key={`s2-sel-${c.id}`}
                           type="button"
                           onClick={() => toggleCourse2(c.id)}
-                          className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${form.courseIds2.includes(c.id)
-                            ? "text-white border-transparent"
-                            : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
-                            }`}
-                          style={form.courseIds2.includes(c.id) ? { backgroundColor: c.color } : {}}
+                          className="px-3 py-1.5 rounded text-sm font-medium text-white border border-transparent transition-transform active:scale-95"
+                          style={{ backgroundColor: c.color }}
                         >
                           {c.name}
                         </button>
                       ))}
+                      {form.courseIds2.length === 0 && <span className="text-xs text-slate-400 py-1.5">未選択</span>}
+                    </div>
+                    <div className={`grid transition-all duration-300 ease-out ${courseOpen2 ? "grid-rows-[1fr] opacity-100 mt-2" : "grid-rows-[0fr] opacity-0"}`}>
+                      <div className="overflow-hidden">
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {courses.filter((c) => !form.courseIds2.includes(c.id)).map((c) => (
+                            <button
+                              key={`s2-unsel-${c.id}`}
+                              type="button"
+                              onClick={() => toggleCourse2(c.id)}
+                              className="px-3 py-1.5 rounded text-sm font-medium border text-slate-600 border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+                            >
+                              {c.name}
+                            </button>
+                          ))}
+                          {courses.filter((c) => !form.courseIds2.includes(c.id)).length === 0 && (
+                            <span className="text-xs text-slate-400 py-1.5">追加できるコースはありません</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
+              </>
+              )}
 
+              {modalTab === "contract" && (
+              <>
               <div className="pt-4 mt-4 border-t border-slate-200">
-                <h3 className="text-sm font-semibold text-slate-700 mb-1">運転免許証</h3>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-1">
+                  <FontAwesomeIcon icon={faIdCard} className="w-3.5 h-3.5 text-slate-400" />
+                  運転免許証
+                </h3>
                 <p className="text-xs text-slate-500 mb-3">有効期限の管理（一覧では期限色で表示されます）</p>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">有効期限</label>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">有効期限</label>
                   <DatePicker
                     value={
                       form.licenseExpiryDate && /^\d{4}-\d{2}-\d{2}$/.test(form.licenseExpiryDate)
@@ -957,7 +1162,10 @@ export default function UsersPage() {
               </div>
 
               <div className="pt-4 mt-4 border-t border-slate-200">
-                <h3 className="text-sm font-semibold text-slate-700 mb-1">リース</h3>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-1">
+                  <FontAwesomeIcon icon={faMoneyBillWave} className="w-3.5 h-3.5 text-slate-400" />
+                  リース
+                </h3>
                 <p className="text-xs text-slate-500 mb-3">
                   リース方式を選びます。<strong>月額</strong>＝毎月固定額を日当から控除（コースの日額リース代は免除）。
                   <strong>日毎</strong>＝走ったコースの日額リース代×稼働日数を日当から控除（金額はコース側で設定）。
@@ -1000,7 +1208,7 @@ export default function UsersPage() {
                       <div className="grid grid-cols-2 gap-3">
                         {leaseForm.mode === "MONTHLY" ? (
                           <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">月額（円 / 月・固定）</label>
+                            <label className="block text-xs font-medium text-slate-400 mb-1">月額（円 / 月・固定）</label>
                             <input
                               type="text"
                               inputMode="numeric"
@@ -1009,7 +1217,7 @@ export default function UsersPage() {
                                 setLeaseForm((f) => ({ ...f, amount: e.target.value.replace(/\D/g, "") }))
                               }
                               placeholder="35000"
-                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                              className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                             />
                           </div>
                         ) : (
@@ -1020,7 +1228,7 @@ export default function UsersPage() {
                           </div>
                         )}
                         <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">適用開始月</label>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">適用開始月</label>
                           <MonthYearPicker
                             value={{
                               year: Number(leaseForm.validFrom.slice(0, 4)) || new Date().getFullYear(),
@@ -1039,14 +1247,20 @@ export default function UsersPage() {
                   </div>
                 )}
               </div>
+              </>
+              )}
 
-              <div className="pt-4 mt-4 border-t border-slate-200">
-                <h3 className="text-sm font-semibold text-slate-700 mb-3">請求書用情報（個人）</h3>
-                <p className="text-xs text-slate-500 mb-3">請求書の請求元として使用する際の住所・振込先情報</p>
+              {modalTab === "basic" && (
+              <>
+              <div className="pt-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 mb-3">
+                  <FontAwesomeIcon icon={faPhone} className="w-3.5 h-3.5 text-slate-400" />
+                  連絡先
+                </div>
                 <div className="space-y-3">
                   <div className="flex gap-2">
                     <div className="flex-1">
-                      <label className="block text-xs font-medium text-slate-600 mb-1">郵便番号</label>
+                      <label className="block text-xs font-medium text-slate-400 mb-1">郵便番号</label>
                       <input
                         type="text"
                         value={form.postalCode}
@@ -1059,7 +1273,7 @@ export default function UsersPage() {
                         }}
                         placeholder="1234567 または 123-4567"
                         maxLength={10}
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     </div>
                     <div className="flex items-end">
@@ -1074,17 +1288,32 @@ export default function UsersPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">住所</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">住所</label>
                     <input
                       type="text"
                       value={form.address}
                       onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
                       placeholder="京都市○○区○○1-2-3"
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">電話番号</label>
+                    <label className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-1">
+                      電話番号
+                      {editingDriver && (
+                        editingDriver.phone_verified_at ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700">
+                            <FontAwesomeIcon icon={faCircleCheck} className="w-2.5 h-2.5" />
+                            認証済み
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">
+                            <FontAwesomeIcon icon={faTriangleExclamation} className="w-2.5 h-2.5" />
+                            未認証
+                          </span>
+                        )
+                      )}
+                    </label>
                     <input
                       type="text"
                       value={form.phone}
@@ -1094,33 +1323,46 @@ export default function UsersPage() {
                         setForm((f) => ({ ...f, phone: half }));
                       }}
                       placeholder="03-1234-5678"
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
+                </div>
+              </div>
+              </>
+              )}
+
+              {modalTab === "contract" && (
+              <>
+              <div className="pt-4 mt-4 border-t border-slate-200">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-3">
+                  <FontAwesomeIcon icon={faBuildingColumns} className="w-3.5 h-3.5 text-slate-400" />
+                  口座（振込先）
+                </h3>
+                <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">金融機関名（機関名）</label>
+                      <label className="block text-xs font-medium text-slate-400 mb-1">金融機関名（機関名）</label>
                       <input
                         type="text"
                         value={form.bankInstitution}
                         onChange={(e) => setForm((f) => ({ ...f, bankInstitution: e.target.value }))}
                         placeholder="〇〇銀行"
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">支店名</label>
+                      <label className="block text-xs font-medium text-slate-400 mb-1">支店名</label>
                       <input
                         type="text"
                         value={form.bankBranch}
                         onChange={(e) => setForm((f) => ({ ...f, bankBranch: e.target.value }))}
                         placeholder="〇〇支店"
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1.5">口座種別</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">口座種別</label>
                     <div className="flex flex-wrap gap-2 mb-2">
                       {BANK_TYPES.map((t) => (
                         <button
@@ -1142,49 +1384,88 @@ export default function UsersPage() {
                         value={form.bankTypeOther}
                         onChange={(e) => setForm((f) => ({ ...f, bankTypeOther: e.target.value }))}
                         placeholder="口座種別を入力（例：定期）"
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">口座番号</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">口座番号</label>
                     <input
                       type="text"
                       value={form.bankNumber}
                       onChange={(e) => setForm((f) => ({ ...f, bankNumber: e.target.value.replace(/\D/g, "") }))}
                       placeholder="1234567"
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">口座名義</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">口座名義</label>
                     <input
                       type="text"
                       value={form.bankHolder}
                       onChange={(e) => setForm((f) => ({ ...f, bankHolder: e.target.value }))}
                       placeholder="ヤマダ タロウ"
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
                 </div>
               </div>
+              </>
+              )}
 
             </div>
+            </>
+            )}
 
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={save}
-                disabled={saving || !isFormValid}
-                className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
-              >
-                {saving ? "保存中..." : "保存"}
-              </button>
+            <div className="flex items-center justify-between gap-2 mt-6">
+              <div>
+                {editingDriver && !modalLoading && (
+                  <button
+                    onClick={() => deleteDriver(editingDriver.id, editingDriver.name)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+                  >
+                    <FontAwesomeIcon icon={faTrash} className="w-3.5 h-3.5" />
+                    削除
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {editingDriver ? (
+                  <>
+                    <span className="text-xs text-slate-400">
+                      {autoSaveStatus === "saving"
+                        ? "保存中…"
+                        : autoSaveStatus === "saved"
+                          ? "自動保存しました"
+                          : autoSaveStatus === "error"
+                            ? "保存に失敗しました"
+                            : "変更は自動保存されます"}
+                    </span>
+                    <button
+                      onClick={() => setShowModal(false)}
+                      className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+                    >
+                      閉じる
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setShowModal(false)}
+                      className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      onClick={() => save()}
+                      disabled={saving || modalLoading || !isFormValid}
+                      className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                    >
+                      {saving ? "保存中..." : "追加"}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
