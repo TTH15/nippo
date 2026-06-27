@@ -143,6 +143,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
 
         <div className="ml-auto flex items-center gap-2">
           {error ? <span className="text-sm text-red-600">{error}</span> : null}
+          <button onClick={() => window.print()} className={barBtn}>印刷</button>
           <button onClick={downloadPdf} disabled={pdfBusy} className={barBtn + " disabled:opacity-50"}>{pdfBusy ? "PDF生成中…" : "PDF"}</button>
           <button onClick={save} disabled={saving} className="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">{saving ? "保存中…" : "保存"}</button>
         </div>
