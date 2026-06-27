@@ -62,6 +62,9 @@ export default function AdminInvoicePreviewPage() {
           <a href="/admin/invoices" className="text-sm text-slate-600 underline hover:text-slate-900">一覧へ戻る</a>
           <div className="flex items-center gap-3">
             <a href={`/admin/invoices/${encodeURIComponent(id)}/edit`} className="text-sm text-slate-600 underline hover:text-slate-900">編集</a>
+            <button onClick={() => window.print()} disabled={!state} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+              印刷
+            </button>
             <button onClick={downloadPdf} disabled={pdfBusy || !state} className="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
               {pdfBusy ? "PDF生成中…" : "PDFダウンロード"}
             </button>
