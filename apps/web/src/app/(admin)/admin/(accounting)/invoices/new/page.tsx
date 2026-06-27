@@ -7,7 +7,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faDesktop } from "@fortawesome/free-solid-svg-icons";
 import { hasCapability } from "@/lib/capabilities";
 import { useApi } from "@/lib/useApi";
-import { InvoiceEditor } from "../_components/InvoiceEditor";
+import { InvoiceSheetEditor } from "../_components/InvoiceSheetEditor";
 import {
   blankEditorState,
   emptyLine,
@@ -128,7 +128,7 @@ function InvoiceNewPageContent() {
         {wantDraft && draftLoading ? (
           <div className="p-10 text-center text-slate-500">下書きを読み込み中…</div>
         ) : (
-          <InvoiceEditor mode="new" initial={buildInitial(kind, wantDraft ? draft : undefined)} />
+          <InvoiceSheetEditor mode="new" initial={buildInitial(kind, wantDraft ? draft : undefined)} />
         )}
       </div>
     </AdminLayout>
