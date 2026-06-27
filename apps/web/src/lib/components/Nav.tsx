@@ -45,8 +45,8 @@ export function Nav({ variant = "default" }: NavProps) {
         <div className="flex items-center">
           <Link href={isAdmin ? "/admin" : "/submit"} className="flex items-center" onClick={() => setMenuOpen(false)}>
             <Image
-              src="/logo/Nippo.svg"
-              alt="Nippo"
+              src="/logo/hakotora-logo_secondary_logo.svg"
+              alt="ハコ虎"
               className="h-12 w-auto"
               priority
             />

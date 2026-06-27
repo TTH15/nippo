@@ -206,8 +206,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         </button>
         <Link href="/admin" className="inline-flex items-center">
           <Image
-            src={"/logo/Nippo.svg"}
-            alt="Nippo"
+            src={"/logo/hakotora-logo_secondary_logo.svg"}
+            alt="ハコ虎"
             width={120}
             height={40}
             className="h-10 w-auto"
@@ -233,8 +233,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           <div className="h-20 flex items-center border-b border-slate-700/60 p-2">
             <Link href="/admin" className="inline-flex items-center">
               <Image
-                src={"/logo/Nippo.svg"}
-                alt="Nippo"
+                src={"/logo/hakotora-logo_secondary_logo.svg"}
+                alt="ハコ虎"
                 width={150}
                 height={50}
                 className="h-20 w-auto"
@@ -409,8 +409,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                   onClick={() => setMobileNavOpen(false)}
                 >
                   <Image
-                    src={"/logo/Nippo.svg"}
-                    alt="Nippo"
+                    src={"/logo/hakotora-logo_secondary_logo.svg"}
+                    alt="ハコ虎"
                     width={130}
                     height={40}
                     className="h-10 w-auto"

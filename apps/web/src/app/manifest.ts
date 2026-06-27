@@ -13,7 +13,7 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#0f2a52",
     icons: [
       {
-        src: "/logo/favicon.svg",
+        src: "/logo/hakotora-logo_icon.svg",
         sizes: "any",
         type: "image/svg+xml",
         purpose: "any",

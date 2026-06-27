@@ -56,7 +56,7 @@ export default function AdminFullLoginPage() {
       <div className="w-full max-w-sm">
         <div className="bg-white rounded-lg shadow-sm border border-slate-200">
           <div className="p-5 border-b border-slate-200">
-            <img src="/logo/Nippo.svg" alt="Nippo" className="w-full h-auto" />
+            <img src="/logo/hakotora-logo_secondary_logo.svg" alt="ハコ虎" className="w-full h-auto" />
           </div>
 
           <form onSubmit={handleSubmit} className="p-5 space-y-4">
