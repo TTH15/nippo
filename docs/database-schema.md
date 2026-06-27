@@ -1,6 +1,6 @@
 # データベーススキーマ
 
-migrations 001〜090 を適用した後の最終状態。
+migrations 001〜098 を適用した後の最終状態。
 
 > **マルチテナント移行 Phase 0/1/3（082, 083, 086）**: `companies` を `organizations` へ昇格（`join_code`/`status` 追加、`id`=org_id）。多数のテーブルに `org_id`（車両は `owner_org_id`）を追加し既存全行を ACE テナントへバックフィル → 086 で NOT NULL＋FK 化。スコープ強制は API 層（`server/db/tenant.ts`）。詳細は `platform-design.md` §6,§7。
 
@@ -845,8 +845,82 @@ WebAuthn 資格情報（088・Phase 6 で使用、現状は空）。
 | vehicle_id | uuid | NOT NULL, FK → vehicles(id) ON DELETE CASCADE |
 | loan_date | date | NOT NULL |
 | note | text | nullable |
+| borrower_org_id | uuid | nullable, FK → organizations(id)（貸与先org。QRのテナント横断認可に使用。migration 097） |
 | created_at | timestamptz | NOT NULL, DEFAULT now() |
 | UNIQUE | | (vehicle_id, loan_date) |
+
+---
+
+### vehicle_qr
+車両QRのローテーション式トークン（migration 096）。再発行で旧失効・ADMIN貼付確認で有効化。設計: `vehicle-session-flow.md §8`。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK |
+| vehicle_id | uuid | NOT NULL, FK → vehicles(id) ON DELETE CASCADE |
+| org_id | uuid | NOT NULL, FK → organizations(id)（発行=所有org） |
+| token | text | NOT NULL, UNIQUE（不透明。QRペイロード `nippo://v/<token>`） |
+| version | int | NOT NULL, DEFAULT 1（再発行で+1） |
+| status | text | NOT NULL, DEFAULT 'issued'，CHECK in ('issued','active','revoked') |
+| issued_at / issued_by | timestamptz / uuid | 発行時刻・発行membership |
+| attached_confirmed_at / attached_confirmed_by | timestamptz / uuid | 貼付確認(有効化) |
+| revoked_at | timestamptz | nullable |
+| 部分UNIQUE | | (vehicle_id) WHERE status <> 'revoked'（有効トークンは車両に1本） |
+
+---
+
+### vehicle_sessions
+車両セッション（出退勤＝勤怠の正本。migration 095）。設計: `vehicle-session-flow.md §1`。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK |
+| vehicle_id | uuid | NOT NULL, FK → vehicles(id) |
+| org_id | uuid | NOT NULL, FK → organizations(id)（使用org。貸与中は借用org） |
+| recorded_by | uuid | FK → drivers(id)（記録ドライバー） |
+| purpose | text | NOT NULL, DEFAULT 'work'，CHECK in ('work','move','private') |
+| shift_id / authorized_by | uuid | nullable（work紐付け／private承認者） |
+| status | text | NOT NULL, DEFAULT 'open'，CHECK in ('open','closed') |
+| started_at / start_lat / start_lng / start_odometer | ts / float / float / int | 出勤 |
+| ended_at / end_lat / end_lng / end_odometer | ts / float / float / int | 退勤 |
+| start_method / end_method | text | 'qr'｜'plate_ocr'｜'manual'（打刻手段） |
+| start_gps_status / end_gps_status | text | 'captured'｜'denied'｜'unavailable' |
+| fallback_reason / plate_photo_path | text | 退避ルート証跡（plate_ocr/manual時） |
+| approval_status / approved_at / approved_by | text / ts / uuid | manual打刻の承認（'pending'｜'approved'｜'rejected'） |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+
+ドライバー別走行距離は派生（SUM(end_odometer - start_odometer) GROUP BY recorded_by）。
+
+---
+
+### vehicle_inspections
+稼働前後の点検（オドメーター＋状態写真。migration 095）。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK |
+| session_id | uuid | FK → vehicle_sessions(id) ON DELETE SET NULL |
+| vehicle_id | uuid | NOT NULL, FK → vehicles(id) |
+| org_id | uuid | NOT NULL, FK → organizations(id) |
+| recorded_by | uuid | FK → drivers(id) |
+| phase | text | NOT NULL, CHECK in ('pre','post') |
+| odometer_reading | int | nullable |
+| odometer_photo_path | text | nullable（Storage `meter-photos`。承認まで保持） |
+| odometer_photo_retain_until | timestamptz | nullable（cleanup用） |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+
+---
+
+### vehicle_inspection_photos
+点検の角度別写真（migration 095。UI未実装）。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK |
+| inspection_id | uuid | NOT NULL, FK → vehicle_inspections(id) ON DELETE CASCADE |
+| angle | text | NOT NULL（front/rear/left/right/corner_* 等） |
+| photo_path | text | NOT NULL |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
 
 ---
 
