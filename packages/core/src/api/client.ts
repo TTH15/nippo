@@ -27,7 +27,8 @@ export function getApiBaseUrl(): string {
  */
 export async function apiFetch<T = unknown>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  opts: { skipAuthRedirect?: boolean } = {}
 ): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -40,6 +41,12 @@ export async function apiFetch<T = unknown>(
   const res = await fetch(url, { ...options, headers });
 
   if (res.status === 401) {
+    // ログイン等、401 が「資格情報の誤り」を意味する呼び出しはリダイレクトせず
+    // サーバのエラー文言を投げて呼び出し側で表示させる（保存値破棄/遷移はしない）。
+    if (opts.skipAuthRedirect) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || "Unauthorized");
+    }
     handleUnauthorized();
     throw new Error("Unauthorized");
   }
