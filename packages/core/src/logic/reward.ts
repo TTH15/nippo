@@ -6,6 +6,8 @@ import type {
   MyInvoice,
   InvoiceRow,
   InvoiceAttachment,
+  InvoiceTotalsInput,
+  InvoiceTotals,
 } from "../types";
 import { formatMonthDayJP } from "./calendar";
 
@@ -80,5 +82,51 @@ export function invoiceLines(inv: MyInvoice): {
     main: Array.isArray(payload?.tableData?.main) ? payload.tableData.main : [],
     deduct: Array.isArray(payload?.tableData?.deduct) ? payload.tableData.deduct : [],
     attachments: Array.isArray(payload?.attachments) ? payload.attachments : [],
+  };
+}
+
+/** 明細行1行の税抜合計（数量×税抜単価、円未満は四捨五入）。 */
+export function roundedRowAmount(row: InvoiceRow): number {
+  const { qty, price } = parseRow(row);
+  return Math.round(qty * price);
+}
+
+/** 明細行の税抜小計（各行を四捨五入してから合算＝表示と一致）。 */
+export function sumRowsRounded(rows: InvoiceRow[]): number {
+  return rows.reduce((acc, row) => acc + roundedRowAmount(row), 0);
+}
+
+/**
+ * 請求書の合計を計算する（新仕様：税抜単価モデル）。
+ * - 各行 税抜合計 = round(qty × 税抜単価)、小計はその合算
+ * - 消費税は各セクション小計への外税（taxEnabled=false なら 0）
+ * - 差引き請求額（税込）= 請求税込 − お支払い税込 − 借入返済 + 追加外注支払い
+ * 支払いに直結するためここに集約し、テストで固定する。
+ */
+export function computeInvoiceTotals(input: InvoiceTotalsInput): InvoiceTotals {
+  const rate = input.taxEnabled ? (Number(input.taxRatePercent) || 0) / 100 : 0;
+
+  const billSubtotal = sumRowsRounded(input.main);
+  const deductSubtotal = sumRowsRounded(input.deduct);
+
+  const billTax = Math.round(billSubtotal * rate);
+  const deductTax = Math.round(deductSubtotal * rate);
+
+  const billGross = billSubtotal + billTax;
+  const deductGross = deductSubtotal + deductTax;
+
+  const loanRepay = Number(input.loanRepay) || 0;
+  const extraOutsourcing = Number(input.extraOutsourcing) || 0;
+
+  const total = billGross - deductGross - loanRepay + extraOutsourcing;
+
+  return {
+    billSubtotal,
+    deductSubtotal,
+    billTax,
+    deductTax,
+    billGross,
+    deductGross,
+    total,
   };
 }
