@@ -195,7 +195,6 @@ export default function UsersPage() {
     message: string;
     detail?: string;
   } | null>(null);
-  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const usersPageKey = (pageIndex: number, previousPageData: UsersPageResponse | null) => {
     if (previousPageData && !previousPageData.hasMore) return null;
@@ -255,16 +254,10 @@ export default function UsersPage() {
     });
   }, [flattenedDrivers]);
 
+  // 運営のドライバー一覧は件数が限定的なので、hasMore の間は全ページを自動取得する。
+  // （無限スクロール待ちで末尾のドライバーが表示されない問題を回避）
   useEffect(() => {
-    const node = loadMoreRef.current;
-    if (!node) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries[0]?.isIntersecting) return;
-      if (!hasMore) return;
-      void setSize((s) => s + 1);
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
+    if (hasMore) void setSize((s) => s + 1);
   }, [hasMore, setSize]);
 
   const openNew = () => {
@@ -868,9 +861,8 @@ export default function UsersPage() {
                 </tbody>
               </table>
             </div>
-            <div ref={loadMoreRef} className="h-8" />
-            {hasMore && (
-              <div className="text-center text-xs text-slate-500 py-2">さらに読み込み中...</div>
+            {usersValidating && (
+              <div className="text-center text-xs text-slate-500 py-3">読み込み中...</div>
             )}
           </div>
         )}
