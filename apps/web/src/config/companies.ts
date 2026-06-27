@@ -16,11 +16,11 @@ export type InvoiceIssuer = {
 export const companies = {
   DEFAULT: {
     code: "AAA",
-    name: "Nippo",
+    name: "ハコ虎",
     logoPath: "/logo/Nippo.svg",
     faviconPath: "/logo/favicon.svg",
-    title: "Nippo | 配送日報集計システム",
-    description: "配送日報集計システム",
+    title: "ハコ虎 | 現場の全てを、一つに。",
+    description: "物流現場のデータを積み重ねるプラットフォーム",
     invoiceIssuer: {
       name: "",
       addressHtml: "",
@@ -37,8 +37,8 @@ export const companies = {
     name: "株式会社ACE CREATION",
     logoPath: "/logo/Nippo.svg",
     faviconPath: "/logo/favicon.svg",
-    title: "Nippo | 配送日報集計システム",
-    description: "配送日報集計システム（ACE CREATION）",
+    title: "ハコ虎 | 現場の全てを、一つに。",
+    description: "物流現場のデータを積み重ねるプラットフォーム（ACE CREATION）",
     invoiceIssuer: {
       name: "株式会社ACE CREATION",
       addressHtml: "〒615-0904<br/>京都市右京区梅津堤上町21 KKハウスⅡ 101",
