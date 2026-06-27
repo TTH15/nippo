@@ -8,7 +8,12 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.nippomobile"
+      "bundleIdentifier": "com.example.nippomobile",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
     },
     "android": {
       "package": "com.example.nippomobile"
@@ -23,6 +28,18 @@
         {
           "photosPermission": "免許証・顔写真の登録のために写真ライブラリにアクセスします。",
           "cameraPermission": "免許証・顔写真の撮影のためにカメラにアクセスします。"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "車両QRの読み取り・メーター撮影のためにカメラにアクセスします。"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "出退勤の打刻位置・駐車位置の記録のために位置情報を使用します（任意）。"
         }
       ],
       [

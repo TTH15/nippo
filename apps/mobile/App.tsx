@@ -17,6 +17,7 @@ import { MeScreen } from "./src/screens/MeScreen";
 import { RewardsScreen } from "./src/screens/RewardsScreen";
 import { ShiftsScreen } from "./src/screens/ShiftsScreen";
 import { SubmitScreen } from "./src/screens/SubmitScreen";
+import { WorkScreen } from "./src/screens/WorkScreen";
 
 const Tab = createBottomTabNavigator();
 
@@ -115,6 +116,7 @@ export default function App() {
       <AuthContext.Provider value={{ driver, logout: () => { clearAuth(); setDriver(null); } }}>
         <NavigationContainer>
           <Tab.Navigator screenOptions={{ headerShown: false }}>
+            <Tab.Screen name="業務" component={WorkScreen} />
             <Tab.Screen name="日報" component={SubmitScreen} />
             <Tab.Screen name="希望休" component={ShiftsScreen} />
             <Tab.Screen name="報酬" component={RewardsScreen} />
