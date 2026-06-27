@@ -27,7 +27,7 @@ export async function GET(
   const { data: driver, error } = await supabase
     .from("drivers")
     .select(`
-      id, name, display_name, role, role_id, company_code, office_code, driver_code, list_no, created_at, license_expiry_date,
+      id, name, display_name, role, role_id, identity_id, company_code, office_code, driver_code, list_no, created_at, license_expiry_date,
       postal_code, address, phone, bank_name, bank_no, bank_holder,
       driver_identities (
         id, slot, driver_code, office_code, label,
@@ -51,6 +51,19 @@ export async function GET(
     driver.bank_no = null;
     driver.bank_holder = null;
   }
+  // 電話番号が Twilio(SMS OTP) で認証済みか（identities.phone_verified_at・仮登録で刻まれる）。
+  let phoneVerifiedAt: string | null = null;
+  const identId = (driver as { identity_id?: string | null }).identity_id;
+  if (identId) {
+    const { data: idn } = await supabase
+      .from("identities")
+      .select("phone_verified_at")
+      .eq("id", identId)
+      .maybeSingle();
+    phoneVerifiedAt = (idn?.phone_verified_at as string | null) ?? null;
+  }
+  (driver as Record<string, unknown>).phone_verified_at = phoneVerifiedAt;
+
   const response = NextResponse.json({ driver });
   response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=300");
   return response;
