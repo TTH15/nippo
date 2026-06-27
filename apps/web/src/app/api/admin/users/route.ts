@@ -83,7 +83,10 @@ export async function GET(req: NextRequest) {
     .eq("role", "DRIVER")
     .eq("status", status);
   const total = countRes.count ?? 0;
-  const nextCursor = offset + (drivers?.length ?? 0) < total ? String(offset + (drivers?.length ?? 0)) : null;
+  const returned = drivers?.length ?? 0;
+  // ページが limit 未満＝最終ページ。total(件数)が実データとズレても空ページを無限に
+  // 要求しないよう、len<limit で必ず終了させる。
+  const nextCursor = returned === limit && offset + returned < total ? String(offset + returned) : null;
 
   // プライバシー: 承認前（pending）の申請者の電話は下4桁のみ開示（サーバ側マスク）。
   // 誤 join_code で別 org に出てもフル電話は渡さない。active は所属ドライバーなのでフル。
