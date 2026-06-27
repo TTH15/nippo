@@ -147,6 +147,7 @@ export default function UsersPage() {
   const [openingEditId, setOpeningEditId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
+  const [modalTab, setModalTab] = useState<"basic" | "work" | "contract">("basic");
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [form, setForm] = useState({
     name: "",
@@ -288,6 +289,7 @@ export default function UsersPage() {
     // まず詳細モーダルをスケルトンで即時表示し、取得完了まで loading にする
     setEditingDriver(d);
     setModalLoading(true);
+    setModalTab("basic");
     setShowModal(true);
     setOpeningEditId(d.id);
     setLeaseLoading(true);
@@ -658,6 +660,18 @@ export default function UsersPage() {
     }
   };
 
+  // 免許期限を「YYYY年MM月DD日」で表示（ハイフン禁止／年月日は小さく薄く）。
+  const jpDate = (iso: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!m) return <>{iso}</>;
+    const u = "text-[10px] font-normal opacity-60 mx-0.5";
+    return (
+      <>
+        {m[1]}<span className={u}>年</span>{m[2]}<span className={u}>月</span>{m[3]}<span className={u}>日</span>
+      </>
+    );
+  };
+
   const getLicenseStatus = (dateStr?: string | null): { label: string; className: string } => {
     switch (computeLicenseLevel(dateStr)) {
       case "unset":
@@ -706,12 +720,12 @@ export default function UsersPage() {
               <table className="w-full text-sm min-w-[760px]">
                 <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-3 py-2.5 text-left font-semibold w-12">No.</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">ドライバー</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">表示名</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">コース</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">免許期限</th>
-                    <th className="px-3 py-2.5 text-left font-semibold w-44">権限</th>
+                    <th className="px-4 py-3 text-left font-semibold w-12">No.</th>
+                    <th className="px-4 py-3 text-left font-semibold">ドライバー</th>
+                    <th className="px-4 py-3 text-left font-semibold">表示名</th>
+                    <th className="px-4 py-3 text-left font-semibold">コース</th>
+                    <th className="px-4 py-3 text-left font-semibold">免許期限</th>
+                    <th className="px-4 py-3 text-left font-semibold w-44">権限</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -724,8 +738,8 @@ export default function UsersPage() {
                         onClick={() => canWrite && void openEdit(d)}
                         className={`border-t border-slate-100 ${canWrite ? "cursor-pointer hover:bg-slate-50" : ""}`}
                       >
-                        <td className="px-3 py-2 text-xs text-slate-400 tabular-nums">{d.list_no ?? index + 1}</td>
-                        <td className="px-3 py-2">
+                        <td className="px-4 py-3 text-xs text-slate-400 tabular-nums">{d.list_no ?? index + 1}</td>
+                        <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             {d.faceUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -738,13 +752,13 @@ export default function UsersPage() {
                             <span className="font-semibold text-slate-900 whitespace-nowrap">{d.name}</span>
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{getDisplayName(d)}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-1 max-w-[200px] overflow-hidden">
+                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{getDisplayName(d)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5 max-w-[230px] overflow-hidden">
                             {coursesOfDriver.slice(0, 2).map((dc) => (
                               <span
                                 key={dc.course_id}
-                                className="px-1.5 py-0.5 rounded text-xs text-white whitespace-nowrap truncate max-w-[88px]"
+                                className="px-2 py-1 rounded text-xs text-white whitespace-nowrap truncate max-w-[100px]"
                                 style={{ backgroundColor: dc.courses.color }}
                                 title={dc.courses.name}
                               >
@@ -752,19 +766,23 @@ export default function UsersPage() {
                               </span>
                             ))}
                             {coursesOfDriver.length > 2 && (
-                              <span className="px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-500 whitespace-nowrap shrink-0">
+                              <span className="px-2 py-1 rounded text-xs bg-slate-100 text-slate-500 whitespace-nowrap shrink-0">
                                 +{coursesOfDriver.length - 2}
                               </span>
                             )}
                             {coursesOfDriver.length === 0 && <span className="text-xs text-slate-400">未設定</span>}
                           </div>
                         </td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap ${licenseStatus.className}`}>
-                            {licenseStatus.label}
-                          </span>
+                        <td className="px-4 py-3">
+                          {d.license_expiry_date ? (
+                            <span className={`inline-flex items-baseline px-2.5 py-1 rounded text-sm font-semibold whitespace-nowrap ${licenseStatus.className}`}>
+                              {jpDate(d.license_expiry_date)}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-500">未設定</span>
+                          )}
                         </td>
-                        <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           {canWrite ? (
                             <select
                               value={d.role_id ?? ""}
@@ -798,7 +816,7 @@ export default function UsersPage() {
       {/* Modal */}
       {showModal && canWrite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
               {editingDriver ? "ドライバー編集" : "新規ドライバー追加"}
             </h2>
@@ -810,7 +828,22 @@ export default function UsersPage() {
                 ))}
               </div>
             ) : (
+            <>
+            <div className="flex gap-1 border-b border-slate-200 mb-4">
+              {([["basic", "基本"], ["work", "勤務"], ["contract", "契約"]] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setModalTab(key)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${modalTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="space-y-4">
+              {modalTab === "basic" && (
+              <>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">名前</label>
                 <input
@@ -853,7 +886,11 @@ export default function UsersPage() {
                   </p>
                 </div>
               )}
+              </>
+              )}
 
+              {modalTab === "work" && (
+              <>
               <p className="text-xs font-semibold text-slate-600 pt-1">勤務区分1</p>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">事業所コード（6桁）</label>
@@ -975,7 +1012,11 @@ export default function UsersPage() {
                   </div>
                 </div>
               </div>
+              </>
+              )}
 
+              {modalTab === "contract" && (
+              <>
               <div className="pt-4 mt-4 border-t border-slate-200">
                 <h3 className="text-sm font-semibold text-slate-700 mb-1">運転免許証</h3>
                 <p className="text-xs text-slate-500 mb-3">有効期限の管理（一覧では期限色で表示されます）</p>
@@ -1082,10 +1123,14 @@ export default function UsersPage() {
                   </div>
                 )}
               </div>
+              </>
+              )}
 
+              {modalTab === "basic" && (
+              <>
               <div className="pt-4 mt-4 border-t border-slate-200">
-                <h3 className="text-sm font-semibold text-slate-700 mb-3">請求書用情報（個人）</h3>
-                <p className="text-xs text-slate-500 mb-3">請求書の請求元として使用する際の住所・振込先情報</p>
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">住所・連絡先</h3>
+                <p className="text-xs text-slate-500 mb-3">請求書の請求元（個人）として使用する住所・電話</p>
                 <div className="space-y-3">
                   <div className="flex gap-2">
                     <div className="flex-1">
@@ -1140,6 +1185,16 @@ export default function UsersPage() {
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
+                </div>
+              </div>
+              </>
+              )}
+
+              {modalTab === "contract" && (
+              <>
+              <div className="pt-4 mt-4 border-t border-slate-200">
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">口座（振込先）</h3>
+                <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-600 mb-1">金融機関名（機関名）</label>
@@ -1211,8 +1266,11 @@ export default function UsersPage() {
                   </div>
                 </div>
               </div>
+              </>
+              )}
 
             </div>
+            </>
             )}
 
             <div className="flex items-center justify-between gap-2 mt-6">
