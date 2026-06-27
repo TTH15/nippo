@@ -13,7 +13,7 @@ import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
 import { Button } from "@/lib/ui/button";
-import { faTrash, faUser, faPhone } from "@fortawesome/free-solid-svg-icons";
+import { faTrash, faUser, faPhone, faCircleCheck, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -38,6 +38,8 @@ type Driver = {
   role_id?: string | null;
   /** 顔写真（KYC・identities）の署名URL。一覧アバター用。 */
   faceUrl?: string | null;
+  /** 電話番号が Twilio(SMS OTP) 認証済みか（identities.phone_verified_at）。 */
+  phone_verified_at?: string | null;
   company_code?: string;
   office_code: string;
   driver_code: string;
@@ -876,7 +878,9 @@ export default function UsersPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
-              {editingDriver ? "ドライバー編集" : "新規ドライバー追加"}
+              {editingDriver
+                ? `No.${editingDriver.list_no ?? "—"}　${editingDriver.name}`
+                : "新規ドライバー追加"}
             </h2>
 
             {modalLoading ? (
@@ -906,15 +910,17 @@ export default function UsersPage() {
                 <FontAwesomeIcon icon={faUser} className="w-3.5 h-3.5 text-slate-400" />
                 基本情報
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">名前</label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-              </div>
+              {!editingDriver && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">名前</label>
+                  <input
+                    type="text"
+                    value={form.name}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1233,7 +1239,22 @@ export default function UsersPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">電話番号</label>
+                    <label className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-1">
+                      電話番号
+                      {editingDriver && (
+                        editingDriver.phone_verified_at ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700">
+                            <FontAwesomeIcon icon={faCircleCheck} className="w-2.5 h-2.5" />
+                            認証済み
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">
+                            <FontAwesomeIcon icon={faTriangleExclamation} className="w-2.5 h-2.5" />
+                            未認証
+                          </span>
+                        )
+                      )}
+                    </label>
                     <input
                       type="text"
                       value={form.phone}
