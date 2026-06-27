@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, Fragment, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare, faRotateRight } from "@fortawesome/free-solid-svg-icons";
+import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare, faRotateRight, faFileLines, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
 import { hasCapability } from "@/lib/capabilities";
@@ -29,7 +29,7 @@ import {
 } from "recharts";
 import useSWR, { mutate as mutateSWR } from "swr";
 
-type DataPoint = { iso: string; date: string; yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number; [carrierKey: string]: number | string };
+type DataPoint = { iso: string; date: string; yamato: number; amazon: number; other: number; yamato_profit: number; amazon_profit: number; profit: number; reportCount: number; pendingCount: number; logCount: number; [carrierKey: string]: number | string };
 type CarrierMeta = { id: string; key: string; profitKey: string; name: string };
 /** グラフのキャリア別積み上げ色（キャリア順にローテーション） */
 const CARRIER_COLORS = ["#334155", "#64748b", "#475569", "#94a3b8", "#1e293b", "#7c8aa5", "#0f172a"];
@@ -1486,7 +1486,8 @@ export default function SalesPage() {
             {tab === "summary" && (
               <>
                 <div className="text-sm text-slate-600 mb-3">
-                  <span className="font-medium">daily_reports</span> の内容を月次で確認します（ヤマト個数: 宅急便/ネコポス）。
+                  承認済の日報をユニット別・日別に集計しています。
+                  <span className="text-slate-500">〇＝固定（日当）、数値＝従量の数量。</span>
                 </div>
 
                 {loadingSummary ? (
@@ -1547,7 +1548,7 @@ export default function SalesPage() {
                             return (
                               <Fragment key={drv.id}>
                                 {usedUnits.length === 0 ? (
-                                  <tr className="border-t border-slate-100">
+                                  <tr className="border-t-2 border-slate-200">
                                     <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-2 text-left">
                                       <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>
                                     </td>
@@ -1564,7 +1565,7 @@ export default function SalesPage() {
                                     const cell = unitData[u.id] ?? { total: 0, byDate: {} as Record<string, number> };
                                     const fixed = u.billingType === "FIXED";
                                     return (
-                                      <tr key={`${drv.id}-${u.id}`} className={ui === 0 ? "border-t border-slate-100" : ""}>
+                                      <tr key={`${drv.id}-${u.id}`} className={ui === 0 ? "border-t-2 border-slate-200" : ""}>
                                         <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-1.5 text-left">
                                           {ui === 0 && <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>}
                                         </td>
@@ -1848,6 +1849,47 @@ export default function SalesPage() {
                     {marginDiff == null && <span>– 粗利率変化</span>}
                   </div>
                 </div>
+
+                {/* データの裏付け（信憑性）: 売上・粗利が「承認済の日報」何件に基づくか／未承認で未集計の件数／手動調整の件数 */}
+                {(() => {
+                  const totReports = displayData.reduce((s, d) => s + (Number(d.reportCount) || 0), 0);
+                  const totPending = displayData.reduce((s, d) => s + (Number(d.pendingCount) || 0), 0);
+                  const totLog = displayData.reduce((s, d) => s + (Number(d.logCount) || 0), 0);
+                  return (
+                    <div className="bg-white rounded-lg border border-slate-200 p-4">
+                      <div className="text-xs font-semibold text-slate-500 mb-2">データの裏付け</div>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-2 text-slate-600">
+                            <FontAwesomeIcon icon={faFileLines} className="w-3.5 h-3.5 text-slate-400" />
+                            承認済の日報
+                          </span>
+                          <span className="font-semibold text-slate-900 tabular-nums">{totReports.toLocaleString("ja-JP")}件</span>
+                        </div>
+                        {totPending > 0 && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="flex items-center gap-2 text-amber-700">
+                              <FontAwesomeIcon icon={faTriangleExclamation} className="w-3.5 h-3.5" />
+                              未承認（未集計）
+                            </span>
+                            <span className="font-semibold text-amber-700 tabular-nums">{totPending.toLocaleString("ja-JP")}件</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-2 text-slate-600">
+                            <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5 text-slate-400" />
+                            手動調整
+                          </span>
+                          <span className="font-semibold text-slate-900 tabular-nums">{totLog.toLocaleString("ja-JP")}件</span>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-400 leading-relaxed">
+                        売上・粗利は承認済の日報のみを集計しています
+                        {totPending > 0 ? `（未承認 ${totPending} 件は未反映）` : ""}。ペイメントの報酬もこの集計に基づきます。
+                      </p>
+                    </div>
+                  );
+                })()}
 
                 {/* その他指標: 1日平均・1人あたり・稼働率 */}
                 <div className="bg-white rounded-lg border border-slate-200 p-4">

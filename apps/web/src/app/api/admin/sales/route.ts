@@ -3,7 +3,7 @@ import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
-import { buildContext, buildContributions } from "@/server/aggregation/compute";
+import { buildContext, buildContributions, isCountableReport } from "@/server/aggregation/compute";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +71,11 @@ export async function GET(req: NextRequest) {
     profit: number;
     byCarrier: Record<string, number>; // carrierId -> revenue（動的系列）
     byCarrierProfit: Record<string, number>; // carrierId -> profit（動的系列）
+    // リネージ（信憑性の裏付け）: その日の自動算出が「何件の承認済日報」由来か、
+    // 未承認で集計から除外された件数、手動調整(売上ログ)の件数。
+    reportCount: number; // 集計に含めた承認済日報の件数
+    pendingCount: number; // 未承認のため集計から除外した日報の件数
+    logCount: number; // 手動調整(売上ログ)の件数
   };
   const dateMap = new Map<string, Bucket>();
   const ensure = (d: string) => {
@@ -84,6 +89,9 @@ export async function GET(req: NextRequest) {
         profit: 0,
         byCarrier: {},
         byCarrierProfit: {},
+        reportCount: 0,
+        pendingCount: 0,
+        logCount: 0,
       });
     return dateMap.get(d)!;
   };
@@ -110,6 +118,17 @@ export async function GET(req: NextRequest) {
     if (c.revenue !== 0 || c.profit !== 0) seenCarriers.add(cid);
   }
 
+  // リネージ用: その日の「承認済（集計対象）」「未承認（除外）」日報の件数を数える。
+  // 売上数値が何件の日報に裏付けられているか／未確定で除外された件数を画面で示すため。
+  for (const r of data.reports) {
+    if (r.reportDate < startDate || r.reportDate > endDate) continue;
+    if (courseIds.size > 0 && (!r.courseId || !courseIds.has(r.courseId))) continue;
+    if (driverId && r.driverId !== driverId) continue;
+    const e = ensure(r.reportDate);
+    if (isCountableReport(r)) e.reportCount += 1;
+    else if (r.rejectedAt == null) e.pendingCount += 1; // 却下は除外（未承認のみ数える）
+  }
+
   // 手動調整（売上ログ）: revenue→other, profit→profit（旧仕様踏襲）
   const logQuery = supabase
     .from("sales_log_entries")
@@ -121,6 +140,7 @@ export async function GET(req: NextRequest) {
     const date = row.log_date as string;
     if (!date || date < startDate || date > endDate) return;
     const e = ensure(date);
+    e.logCount += 1;
     const revenue = Number(row.revenue) || 0;
     if (revenue > 0) e.other += revenue;
     e.profit += Number(row.profit) || 0;
@@ -165,6 +185,9 @@ export async function GET(req: NextRequest) {
       yamato_profit: d.yamato_profit,
       amazon_profit: d.amazon_profit,
       profit: d.profit,
+      reportCount: d.reportCount,
+      pendingCount: d.pendingCount,
+      logCount: d.logCount,
     };
     // 動的キャリア別 revenue/profit を平坦キーで載せる（グラフ系列・売上調整テーブル用）
     for (const c of carriersMeta) {
