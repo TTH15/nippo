@@ -22,13 +22,32 @@ type StepKey = (typeof STEP_KEYS)[number];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const INPUT = "bg-white border border-slate-300 rounded-lg py-3 px-3.5 text-base";
 
+const STEP_LABEL: Record<StepKey, string> = {
+  license: "免許",
+  face: "顔写真",
+  address: "住所",
+  bank: "口座",
+};
+
+// 「保存済み＝完了」の判定はサーバの complete 条件（値が入っているか）に揃える。
+// 入力中の形式チェック（DATE_RE）は canNext 側で別途行う。両者の基準ズレが
+// 「全項目入れたのに前のステップへ戻される」誤判定の原因だった。
 const isStepDone = (k: StepKey, r: Reg): boolean => {
   switch (k) {
-    case "license": return r.hasLicensePhoto && DATE_RE.test(r.licenseExpiry);
+    case "license": return r.hasLicensePhoto && !!r.licenseExpiry;
     case "face": return r.hasFacePhoto;
     case "address": return !!r.postalCode && !!r.address;
     case "bank": return !!r.bankName && !!r.bankNo && !!r.bankHolder;
   }
+};
+
+// 数字だけ入力させ、YYYY-MM-DD へ自動整形（ダッシュ手打ち不要）。
+const formatDateInput = (raw: string): string => {
+  const d = raw.replace(/\D/g, "").slice(0, 8);
+  let out = d.slice(0, 4);
+  if (d.length > 4) out += "-" + d.slice(4, 6);
+  if (d.length > 6) out += "-" + d.slice(6, 8);
+  return out;
 };
 
 export function KycWizard({ onComplete }: { onComplete: () => void }) {
@@ -43,6 +62,11 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
     apiFetch<Reg>("/api/me/registration")
       .then((r) => {
         setReg(r);
+        // 既に完了（サーバ判定）なら本人確認待ちへ進める（ウィザードを出さない）。
+        if (r.complete) {
+          onComplete();
+          return;
+        }
         const first = STEP_KEYS.findIndex((k) => !isStepDone(k, r));
         setStep(first < 0 ? STEP_KEYS.length - 1 : first);
       })
@@ -117,10 +141,11 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
         const fresh = await apiFetch<Reg>("/api/me/registration");
         if (fresh.complete) onComplete();
         else {
+          const missing = STEP_KEYS.filter((k) => !isStepDone(k, fresh));
           const first = STEP_KEYS.findIndex((k) => !isStepDone(k, fresh));
           setReg(fresh);
           setStep(first < 0 ? 0 : first);
-          setError("未完了の項目があります");
+          setError(`未入力の項目があります（${missing.map((k) => STEP_LABEL[k]).join("・")}）`);
         }
       }
     } catch (e) {
@@ -155,10 +180,10 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
           <View className="gap-2.5">
             <PhotoBox title="免許証の写真" done={reg.hasLicensePhoto} previewUri={previews.license} busy={busy} onPick={(c) => pickPhoto("license", c)} />
             <Text className="text-[13px] text-slate-500 mt-2">免許の有効期限</Text>
-            <TextInput className={INPUT} value={reg.licenseExpiry} onChangeText={(t) => { set("licenseExpiry", t); setOcrNote(""); }} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+            <TextInput className={INPUT} value={reg.licenseExpiry} onChangeText={(t) => { set("licenseExpiry", formatDateInput(t)); setOcrNote(""); }} placeholder="例: 20280822（数字のみ）" keyboardType="number-pad" maxLength={10} />
             {ocrNote ? <Text className="text-xs text-blue-600">{ocrNote}</Text> : null}
             <Text className="text-[13px] text-slate-500 mt-2">生年月日（任意）</Text>
-            <TextInput className={INPUT} value={reg.dob} onChangeText={(t) => set("dob", t)} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+            <TextInput className={INPUT} value={reg.dob} onChangeText={(t) => set("dob", formatDateInput(t))} placeholder="例: 20030722（数字のみ）" keyboardType="number-pad" maxLength={10} />
           </View>
         )}
         {key === "face" && (
