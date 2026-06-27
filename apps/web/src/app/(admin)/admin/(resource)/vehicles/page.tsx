@@ -9,6 +9,7 @@ import {
   faCircleExclamation,
   faTriangleExclamation,
   faQrcode,
+  faCar,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { DatePicker } from "@/lib/components/DatePicker";
@@ -349,12 +350,7 @@ export default function VehiclesPage() {
         jibaisekiRenewalMonth: form.jibaisekiRenewalMonth.trim() || null,
         driverIds: form.driverIds,
       };
-      if (form.isDisposed) {
-        payload.numberPrefix = null;
-        payload.numberClass = null;
-        payload.numberHiragana = null;
-        payload.numberNumeric = "0000";
-      }
+      // 廃車でもナンバーは保持する（一覧では斜線表示で廃車を示す）。
       if (editingVehicle) {
         await apiFetch(`/api/admin/vehicles/${editingVehicle.id}`, {
           method: "PUT",
@@ -546,7 +542,10 @@ export default function VehiclesPage() {
     <AdminLayout>
       <div className="w-full">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-xl font-bold text-slate-900">車両管理</h1>
+          <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+            <FontAwesomeIcon icon={faCar} className="w-5 h-5 text-slate-400" />
+            車両管理
+          </h1>
           {canWrite && (
             <div className="flex items-center gap-2">
               <Button variant="secondary" size="default" onClick={() => setShowBulkQr(true)}>
@@ -646,7 +645,7 @@ export default function VehiclesPage() {
               return (
                 <div
                   key={v.id}
-                  className={`rounded-lg border p-4 sm:p-6 md:p-8 shadow-sm relative ${
+                  className={`soft-rise rounded-lg border p-4 sm:p-6 md:p-8 shadow-sm relative ${
                     v.is_disposed
                       ? "bg-red-50 border-red-200"
                       : "bg-white border-slate-200"
@@ -980,8 +979,8 @@ export default function VehiclesPage() {
 
       {/* 車両編集モーダル */}
       {showModal && canWrite && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+          <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">
                 {editingVehicle ? "車両情報編集" : "新規車両追加"}
@@ -996,20 +995,7 @@ export default function VehiclesPage() {
                         type="button"
                         role="switch"
                         aria-checked={form.isDisposed}
-                        onClick={() =>
-                          setForm((f) => ({
-                            ...f,
-                            isDisposed: !f.isDisposed,
-                            ...(f.isDisposed
-                              ? {}
-                              : {
-                                  numberPrefix: "",
-                                  numberClass: "",
-                                  numberHiragana: "",
-                                  numberNumeric: "0000",
-                                }),
-                          }))
-                        }
+                        onClick={() => setForm((f) => ({ ...f, isDisposed: !f.isDisposed }))}
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                           form.isDisposed ? "bg-red-600" : "bg-slate-300"
                         }`}
@@ -1023,7 +1009,7 @@ export default function VehiclesPage() {
                     </label>
                     {form.isDisposed && (
                       <p className="text-xs text-red-600 mt-1">
-                        廃車にすると車両ナンバーは保存時に 0000 として登録されます。
+                        廃車にすると一覧でナンバーに斜線が入ります（番号は保持されます）。
                       </p>
                     )}
                   </div>
@@ -1081,7 +1067,6 @@ export default function VehiclesPage() {
                       type="text"
                       value={form.numberPrefix}
                       onChange={(e) => setForm((f) => ({ ...f, numberPrefix: e.target.value }))}
-                      disabled={form.isDisposed}
                       placeholder="地域名（例: 京都）"
                       className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-100 disabled:text-slate-400"
                     />
@@ -1089,7 +1074,6 @@ export default function VehiclesPage() {
                       type="text"
                       value={form.numberClass}
                       onChange={(e) => setForm((f) => ({ ...f, numberClass: e.target.value }))}
-                      disabled={form.isDisposed}
                       placeholder="分類（例: 400）"
                       className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-100 disabled:text-slate-400"
                     />
@@ -1097,7 +1081,6 @@ export default function VehiclesPage() {
                       type="text"
                       value={form.numberHiragana}
                       onChange={(e) => setForm((f) => ({ ...f, numberHiragana: e.target.value }))}
-                      disabled={form.isDisposed}
                       placeholder="かな（例: わ）"
                       maxLength={1}
                       className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-100 disabled:text-slate-400"
@@ -1115,7 +1098,6 @@ export default function VehiclesPage() {
                       inputMode="numeric"
                       autoComplete="off"
                       value={form.numberNumeric}
-                      disabled={form.isDisposed}
                       onChange={(e) => {
                         const v = e.target.value.replace(/\D/g, "").slice(0, 4);
                         setForm((f) => ({ ...f, numberNumeric: v }));
@@ -1560,8 +1542,8 @@ export default function VehiclesPage() {
 
       {/* 詳細モーダル（メーター / 初期費用回収） */}
       {openDetail && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4" onClick={() => setOpenDetail(null)}>
-          <div className={`bg-white rounded-lg shadow-lg w-full max-h-[90vh] overflow-y-auto ${openDetail.type === "recovery" ? "max-w-3xl" : "max-w-xl"}`} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4" onClick={() => setOpenDetail(null)}>
+          <div className={`modal-panel-in bg-white rounded-lg shadow-lg w-full max-h-[90vh] overflow-y-auto ${openDetail.type === "recovery" ? "max-w-3xl" : "max-w-xl"}`} onClick={(e) => e.stopPropagation()}>
             <div className="p-5">
               {openDetail.type === "meter" && (
                 <>
