@@ -173,3 +173,41 @@ input[type="number"] {
   .psv-reveal,
   .psv-seal { animation: none; }
 }
+
+/* ==============================================
+   請求書 印刷（請求書シートのみを A4 で印刷する）
+   ============================================== */
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+  /* 印刷時に隠す要素（ツールバー・ボタン・行追加/削除など） */
+  .hide-print {
+    display: none !important;
+  }
+  /* 請求書シート以外を非表示にし、シートだけを印刷 */
+  body * {
+    visibility: hidden;
+  }
+  .invoice-print-root,
+  .invoice-print-root * {
+    visibility: visible;
+  }
+  .invoice-print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm;
+    margin: 0 !important;
+    box-shadow: none !important;
+  }
+  /* 編集中のインライン入力欄は印刷では枠・背景を消してプレーン表示に */
+  .invoice-print-root input,
+  .invoice-print-root textarea {
+    background: transparent !important;
+    border: none !important;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+}

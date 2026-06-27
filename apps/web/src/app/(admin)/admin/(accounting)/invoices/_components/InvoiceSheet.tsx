@@ -220,7 +220,7 @@ export function InvoiceSheet({
     <div className={cn("bg-slate-100 overflow-auto py-6", className)}>
       <div
         ref={sheetRef}
-        className="mx-auto bg-white text-[#111] shadow-md w-[210mm] min-h-[297mm]"
+        className="invoice-print-root mx-auto bg-white text-[#111] shadow-md w-[210mm] min-h-[297mm]"
         style={{ padding: "14mm 14mm 12mm 14mm", boxSizing: "border-box" }}
       >
         {/* タイトル */}
