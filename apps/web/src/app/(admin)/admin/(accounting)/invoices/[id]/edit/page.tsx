@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { useApi } from "@/lib/useApi";
-import { InvoiceEditor } from "../../_components/InvoiceEditor";
+import { InvoiceSheetEditor } from "../../_components/InvoiceSheetEditor";
 import { editorFromInvoice } from "../../_components/editorModel";
 
 type InvoiceResp = {
@@ -34,7 +34,7 @@ export default function AdminInvoiceEditPage() {
         ) : error || !data?.invoice ? (
           <div className="p-10 text-center text-red-600">請求書を読み込めませんでした。</div>
         ) : (
-          <InvoiceEditor mode="edit" initial={editorFromInvoice(data.invoice)} />
+          <InvoiceSheetEditor mode="edit" initial={editorFromInvoice(data.invoice)} />
         )}
       </div>
     </AdminLayout>
