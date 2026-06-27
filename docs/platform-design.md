@@ -85,6 +85,34 @@
 - 免許有効期限は identity に保存し、期限切れ前にアラート（運用要件）。
 - センシティブPII（顔・免許）は identity に1つ持ち、所属会社にのみ承認時に開示。
 
+**保存／開示／確認の3分離（複数所属での個情法対応）★合意済み・実装これから**。PII を identity に1つ持つ（保存）こと自体は委託先としての預かりで問題ないが、**org をまたぐ自動可視化＝第三者提供**になる。そこで3つを別管理にする:
+
+| 関心 | 置き場所 | 単位 | 状態 |
+|---|---|---|---|
+| 保存（写真・期限の正本） | `identities` | 人 | ✅ ある（更新は1回で済む） |
+| **開示同意（この org に見せてよい）** | 新規 `pii_disclosures` | identity × org | ❌ 無い（現状 membership 存在で暗黙開示） |
+| 本人確認（目視承認した） | `drivers.kyc_verified_at` | membership | ✅ あるが再検証フック無し |
+
+```sql
+CREATE TABLE pii_disclosures (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  identity_id   uuid NOT NULL REFERENCES identities(id),
+  org_id        uuid NOT NULL REFERENCES organizations(id),
+  document_kind text NOT NULL CHECK (document_kind IN ('license','face')),
+  consented_at  timestamptz NOT NULL DEFAULT now(),
+  consent_source text,                  -- 'join_wizard' 等（監査用）
+  revoked_at    timestamptz
+);
+CREATE UNIQUE INDEX uq_pii_disclosure_active
+  ON pii_disclosures (identity_id, org_id, document_kind) WHERE revoked_at IS NULL;
+```
+
+- `kyc/route.ts` は role（§2-6 `can_view_pii`）に加え **当 org×identity に有効な開示同意があるときだけ署名URLを返す**＋PII閲覧監査ログ。
+- **2社目参加**: 写真は再アップロード不要。ウィザードで「登録済みの免許/顔を ○○社に提出しますか？[このまま提出/撮り直す]」と聞き、開示同意を作る（＝本人同意の記録）。
+- **免許更新**: identity を1回更新→開示同意は維持（再提出不要）。ただし各 membership の `kyc_verified_at` をクリアし「再確認待ち」に戻す（各社が新証跡を目視し直す＝再アップロードは不要）。
+- **退職/解約**: 当 org の開示同意を `revoked_at` で取消→即不可視。identity の写真は他社向けに残る。
+- 法的分類（同種書類の更新が同意でカバーされるか等）は**専門家レビュー前提**。
+
 ### 2-3. テナント識別コード
 
 | 役割 | 用途 | 性質 | 例 |
@@ -134,6 +162,69 @@
 **課金**: 公開セルフサーブ価格なし。**エンタープライズ価格**を導入相談で提示。フローは「申請→導入相談（料金/方式/初期設定）→契約→承認・発行」。
 
 **PII・コンプラのガードレール**: ①テナント分離が最大の保護（§2-3,§3）②顔/免許画像は暗号化＋短命署名URL＋テナント＆本人限定 ③運営社内でも免許/顔はADMINのみ・ADMIN_VIEWER不可（最小権限）④PII閲覧の監査ログ（希望休監査の考え方を拡張）⑤退職/解約時の削除ポリシー ⑥法的: 運営社=取扱事業者、あなた=委託先 → 委託契約＋安全管理措置。元請け→下請け共有（§4）は第三者提供論点あり。**契約/規約/個情法対応は専門家レビュー前提**。
+
+### 2-6. 認可モデル（capability / role / permission）★合意済み・実装これから
+
+権限も §2-0 と同じ「束ねる単位を分ける」思想で3層にする。現状は単一 role（DRIVER/ADMIN/ADMIN_VIEWER）を `requireAuth` の3段ハードコード階層で約163ルートに直書きしており、**読み/書きの区別は「ADMIN_VIEWER=読取専用 vs ADMIN=書込」だけ・全画面一律・運営は変更不可**。これをドメイン能力単位に作り替える。
+
+| 層 | 意味 | 個数 | 可変性 |
+|---|---|---|---|
+| **capability（権限の最小単位）** | `can_view_rewards` 等、コードが知る固定の能力 | **固定（~15）** | コード変更時のみ |
+| **role（権限の束）** | capability の集合に名前を付けたもの | **org ごとに自由** | **org が作成・編集・並べ替え** |
+| **membership の role 割当** | その人がどの role か（既存 `drivers.role` を昇格） | 1 membership = 1 role | 運営が付与 |
+
+- **粒度は「管理画面の read/write」ではなくドメイン能力**（`can_view_rewards` / `can_view_bank_accounts` / `can_manage_shifts` …）。UI 単位でなく業務単位なので、運営の設定 UI がチェックボックスで素直。
+- **role は org 単位で自由に作れる**（GitHub のカスタムロール型）。system 既定（DRIVER/ADMIN/ADMIN_VIEWER/ACCOUNTING）を seed しつつ、org が独自 role（例「経理主任」「副管理者」）を capability を盛り合わせて新規作成し、`sort_order` で並べ替えできる。
+- **capability は org が増やせない**（コードの固定集合）。各 `can_*` が1つのサーバーガードに対応するので、新 capability＝コード追加。これで「ガードの無い権限名」が生まれず取りこぼしを防ぐ。
+
+**capability カタログ（初版・~15）**。○=既定で付与。
+
+| capability | 意味 | DRIVER | ACCOUNTING | ADMIN_VIEWER | ADMIN |
+|---|---|:-:|:-:|:-:|:-:|
+| `can_view_reports` | 全員の日報を閲覧 | ✕ | ○ | ○ | ○ |
+| `can_edit_reports` | 代理入力・修正 | ✕ | ✕ | ✕ | ○ |
+| `can_view_shifts` | シフト表の閲覧 | ✕ | ○ | ○ | ○ |
+| `can_manage_shifts` | シフト確定・希望休管理 | ✕ | ✕ | ✕ | ○ |
+| `can_view_rewards` | 報酬・給与の閲覧 | ✕ | ○ | ○ | ○ |
+| `can_manage_rewards` | 単価設定・給与締め | ✕ | ○ | ✕ | ○ |
+| `can_view_bank_accounts` | 口座情報の閲覧 | ✕ | ○ | ✕ | ○ |
+| `can_view_pii` | 顔・免許の閲覧 | ✕ | ✕ | ✕ | ○ |
+| `can_view_vehicles` | 車両情報の閲覧 | ✕ | ○ | ○ | ○ |
+| `can_manage_vehicles` | 車両の登録・管理 | ✕ | ✕ | ✕ | ○ |
+| `can_view_billing` | 請求・取引先の閲覧 | ✕ | ○ | ○ | ○ |
+| `can_manage_billing` | 請求の確定・取引先編集 | ✕ | ○ | ✕ | ○ |
+| `can_approve_members` | 参加承認・本人確認 | ✕ | ✕ | ✕ | ○ |
+| `can_manage_members` | ロール変更・退会処理 | ✕ | ✕ | ✕ | ○ |
+| `can_manage_org_settings` | フォーム/締切/コース等の設定 | ✕ | ✕ | ✕ | ○ |
+
+view/manage を分けるのは機微なドメイン（rewards/bank/pii/billing/members）だけにして個数を抑える。追加候補: `can_export_reports`（元請け共有・§4）、`can_send_notifications`（通知送信）。
+
+**スキーマ**
+```sql
+CREATE TABLE roles (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id     uuid NOT NULL REFERENCES organizations(id),
+  key        text NOT NULL,             -- 'ADMIN' 等。system は予約キー
+  label      text NOT NULL,             -- 表示名（org が自由に）
+  is_system  boolean NOT NULL DEFAULT false,
+  sort_order int NOT NULL DEFAULT 0,    -- 表示・優先順位（運営が並べ替え）
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (org_id, key)
+);
+CREATE TABLE role_capabilities (
+  role_id    uuid NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  capability text NOT NULL,             -- 'can_view_rewards' 等（コード固定集合）
+  PRIMARY KEY (role_id, capability)
+);
+-- membership は role を参照（既存 drivers.role[text] を role_id[FK] へ移行）
+ALTER TABLE drivers ADD COLUMN role_id uuid REFERENCES roles(id);
+```
+
+- **移行**: 各 org に system 既定 role 4種＋既定 capability を seed → 既存 `drivers.role`(text) を対応する `role_id` にバックフィル → `drivers_role_check` 撤廃。`drivers.role`(text) は当面併存（表示・互換）。
+- **ガード**: ルートは `requirePermission(req, "can_view_rewards")`。解決は `membership.role_id → role_capabilities`。機微系（`can_view_pii`/`can_view_bank_accounts`/`can_manage_rewards`）は**都度 DB 解決（取消即時）**、軽量系は JWT にキャッシュ可。既存の3段ハードコード（約163か所）は**機微なものから段階置換**。
+- **§2-2 PII と連動**: `can_view_pii` は org 内の最小権限ゲート。これに加え、人をまたぐ開示は §2-2 の開示同意（identity×org）で二重にゲートする（「org 内の誰が見られるか＝capability」「その org に見せてよいか＝開示同意」）。
+- **`features` と別レイヤ**: `organizations.features`（機能ON/OFF）は「その機能が有効か」、capability は「有効な機能を誰が使えるか」。混同しない。
+- ⚠️ **`ACCOUNTING`（migration 091 で DB CHECK に追加済）は JWT verify ホワイトリスト・型に未反映**＝現状ログイン不可。本フェーズの role 化で同時に解消する。
 
 ---
 
@@ -279,7 +370,15 @@ CREATE TABLE company_carriers (
 - **Phase 6b〜（再掲・延期中）**: Passkey はブランド/ドメイン確定後（rpID 固定が前提）。SMS OTP は復旧アンカーとしても機能（電話基盤復旧）。
 - **Phase 8 — 隔離テスト ✅基盤完了**: 実DB(Supabase ブランチ)に supabase-js で接続する env-gated 統合テスト（`npm run test:itest`、`*.itest.ts`）。使い捨て2 org を seed し集計/ledger/mutation の隔離を assert。ルートレベル(JWT+NextRequest)テストは follow-up。
 
-各 Phase は独立リリース可。**Phase 2 完了まで2社目を本番投入しない**条件はクリア済（org_id 基盤・スコープ・制約・キャリア別化・隔離テストまで完了＝技術的に2社目を載せられる土台）。残りは認証/参加フロー（Phase 5-7）。
+- **Phase 5b — 整合性制約 ✅完了**（migration 091）: identity/membership の不変条件をDB化。`identities(phone)` 検証済み部分ユニーク（1人=1 identity）／`drivers(identity_id, org_id)` 却下以外で部分ユニーク（1人×1社=1所属）／`drivers.role` に `ACCOUNTING` 追加。対の `api/join/route.ts` を find-or-create 冪等化（複数行で壊れない・並行/再送の 23505 を「申請済み」に吸収）。検証=tsc clean・258緑。
+
+- **Phase 9 — 基盤の作り込み（設計合意済・実装これから）**: 以下は複数所属の本番運用に必要で、相互に絡む。
+  - **認可モデル（§2-6）**: `roles`/`role_capabilities` 追加＋`drivers.role_id` 移行。`requirePermission(cap)` 導入し約163か所の3段ハードコードを機微順に置換。system 既定 role を seed。`ACCOUNTING` を JWT/`requireAuth` に通す（091 の置き土産解消）。
+  - **PII 開示同意（§2-2）**: `pii_disclosures` 追加。`kyc/route.ts` を `can_view_pii`＋開示同意の二重ゲート＋監査ログに。2社目参加ウィザードの開示同意・免許更新時の `kyc_verified_at` クリア。
+  - **承認ステートマシン**: membership の状態（`status` + `kyc_verified_at` + 導出 `complete`）を1列の明示遷移（pending→approved→kyc_submitted→verified→suspended 等）に集約。
+  - **invites（招待エンティティ）**: `organizations.join_code` 1個に潰れている招待を独立化（token/kind=url|qr|code・role・expires_at・max_uses・revoked_at）。join_code は「無期限 open invite」の1特殊行として内包。
+
+各 Phase は独立リリース可。**Phase 2 完了まで2社目を本番投入しない**条件はクリア済（org_id 基盤・スコープ・制約・キャリア別化・隔離テストまで完了＝技術的に2社目を載せられる土台）。残りは認証（Phase 6b）と Phase 9 の基盤作り込み。
 
 ---
 
@@ -302,12 +401,39 @@ CREATE TABLE company_carriers (
 5. ~~運営者の認証方式~~ → **決定: 既定Passkey（ドライバーと同一identity・運営兼配送者を1アカウント連結）、SSOはIdP保有社の任意、メールOTPフォールバック**。org単位で上書き可。
 6. **課金（§2-5）**: **ドライバー1人/月の席課金（Workspace的、例¥1,000/人）**＋導入相談で確定。具体の価格表・契約フローは未確定。
 7. 申請者と実ADMIN（社長等）の分離運用: 申請者を一時ロールにするか、ADMIN付与後に社長招待→降格か。
+8. ~~権限の粒度・role 設計~~ → **決定: capability（固定~15の `can_*`）＋ org が自由に作れる role（capability の束・`sort_order`）。粒度はドメイン能力単位（管理画面 read/write ではない）。ユーザー個別 ACL は作らない（§2-6）**。
 
 ---
 
-## 10. 次アクション（合意後）
+## 10. 完成 → ストア申請 までのロードマップ（2026-06-24 合意）
 
-1. §9 を確定。
-2. Phase 0/1 マイグレーション（organizations整備＋org_id列＋バックフィル＋インデックス）作成。
-3. `src/server/db/tenant.ts` ＋ 既存ローダ改修でスコープ一元化（Phase 2）。
-4. テナント越境テストを Vitest に追加（`testing-suite` 参照）。
+現状: マルチテナント基盤（org_id, 082-087）は**本番(ACE)反映済み**。identity/membership/KYC/参加(OTP)/認可(roles・capabilities)＝migration 088-094 と mobile(Expo)一式は **dev＋feat ブランチのみ**で、本番未反映。認証は移行用 PIN/パスワードのまま。
+
+### 最重要のゲート（直列）
+**ブランド/サービス名・ドメイン確定 → Passkey(6b) → 本番カットオーバー（大型マージ）**
+- "Nippo" は商標の都合で改名予定 → ドメイン変更 → WebAuthn の **rpID は登録ドメインに固定**が前提のため、Passkey はドメイン確定後でないと着手すると登録が無効化される。
+- よって **identity/KYC/認可の大型マージは Passkey ができてから**（合意）。それまで本番は現行のまま無傷で稼働。
+
+### いま進められる（ブランド非依存・dev/feat 上で並行可）
+- **QR 出勤→退勤 業務フロー**（vehicle-session 新トラック）: QR は `vehicles.id`(UUID) を指す。チェックイン/アウト・メーター記録。`docs/vehicle-session-flow.md`。ブランド非依存。
+- **プッシュ通知**: dev では Expo push で試作可。**本番配信は最終 bundleID＋APNs/FCM（＝ブランド/ストア確定）に依存**するため、基盤試作は今・本番設定は後。LINE 通知（統合公式）とは別レイヤ（`notification-flow.md`）。
+- **UI 細部修正**: 随時。ただし**ブランド準拠の最終仕上げ（色/ロゴ/名称）はブランド確定後**にもう一段。
+- 残りの mobile 画面の作り込み。
+- ※これらは新プラットフォーム線（feat）に積み上がり、本番へは下記カットオーバーで一括反映される（QR/通知は identity/membership 前提のため本番へ単独先行はしない）。
+
+### ブランド確定後
+- **Passkey(6b)**: Web で任意登録（rpID=本番ルートドメイン固定）→ ネイティブで再利用（associated domains 同ドメイン）。SMS OTP 復旧、LINE 連携。**ログイン統合**（driver/admin の2フォームを1つに＝認証は identity 単位、UI は capability で出し分け。§2-6）。
+
+### 本番カットオーバー（大型マージ）
+1. 本番 Supabase(ACE) に **migration 088→094 を順次適用**（手動。**091 の重複事前検査が本番データで発火しうる**＝dev と同様、要事前確認。086/091/094 が制約系）。本番 `_migrations` 台帳でどこまで当たっているか先に確認。
+2. **ACE の挙動差分を確認・調整**: ADMIN_VIEWER のシフト編集/承認権限の喪失、口座ゲート等 → 必要なら `/admin/roles` で capability を付与。
+3. **安全デプロイ手順**（[[safe-deploy-procedure]]）: ブランチ→push→PR→Vercel preview で確認→main マージ→自動デプロイ。RootDir=apps/web は設定済み。
+
+### ストア申請（ネイティブ公開）
+- 最終 bundleID・アプリ名/アイコン/スプラッシュ（ブランド）・APNs/FCM（push）。EAS build → TestFlight/内部テスト → ストア審査 → 申請。
+- ネイティブ公開は web/PWA カットオーバーとは別パイプライン（後日）。
+
+### 並行して随時OK（大型マージと独立）
+- **本番 web の小修正**: `main` から短命ブランチを切る → PR → preview → merge。進行中の大型作業と切り離して即反映可。
+
+実装の進捗追跡は memory `tenant-migration` を正とする。
