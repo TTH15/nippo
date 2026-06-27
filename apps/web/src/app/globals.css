@@ -23,10 +23,11 @@
 }
 
 :root {
+  /* ハコ虎ブランドトークン: ライトUI＋Charcoal(primary)＋Amber(accent) */
   --color-bg: #f8fafc;
   --color-surface: #ffffff;
-  --color-brand: #1e3a5f;
-  --color-accent: #3b82f6;
+  --color-brand: #252a30; /* Charcoal */
+  --color-accent: #f59e0b; /* Amber */
   --color-danger: #ef4444;
   --color-success: #22c55e;
   --color-text: #0f172a;

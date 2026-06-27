@@ -81,7 +81,7 @@ export default function JoinPage() {
       <div className="w-full max-w-sm">
         <div className="bg-white rounded-lg shadow-sm border border-slate-200">
           <div className="p-3 border-b border-slate-200 flex flex-col items-center">
-            <img src="/logo/Nippo.svg" alt="ロゴ" className="h-12 mb-2" style={{ maxWidth: "60%", height: "auto" }} />
+            <img src="/logo/hakotora-logo_secondary_logo.svg" alt="ロゴ" className="h-12 mb-2" style={{ maxWidth: "60%", height: "auto" }} />
             <h1 className="text-base font-semibold text-slate-900">参加申請</h1>
           </div>
 
