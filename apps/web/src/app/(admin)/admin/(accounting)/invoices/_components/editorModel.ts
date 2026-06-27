@@ -1,7 +1,51 @@
 import { computeInvoiceTotals } from "@repo/core/logic/reward";
 import { getInvoiceIssuer } from "@/config/companies";
-import type { InvoiceDocData, InvoiceDocLine } from "./InvoiceDocument";
 import { resolveInvoiceKind, type InvoiceKind } from "./invoiceKinds";
+
+/** 帳票1行（税抜単価モデル・数値化済み）。 */
+export type InvoiceDocLine = {
+  title: string;
+  qty: number;
+  unit: string;
+  price: number;
+};
+
+/** 帳票表示データ（数値化済み）。 */
+export type InvoiceDocData = {
+  kind: InvoiceKind;
+  toName: string;
+  toAddrHtml: string;
+  toTel?: string;
+  toReg?: string;
+  honorific: string;
+  fromName: string;
+  fromAddrHtml: string;
+  fromTel?: string;
+  fromReg?: string;
+  showStamp: boolean;
+  period: string;
+  invoiceNo: string;
+  taxEnabled: boolean;
+  taxRatePercent: number;
+  main: InvoiceDocLine[];
+  deduct: InvoiceDocLine[];
+  loanRepay: number;
+  extraOutsourcing: number;
+  dueDate: string;
+  bankName: string;
+  bankNo: string;
+  bankHolder: string;
+  notes: string;
+};
+
+/** invoice_addresses の1件（請求先住所の補完用）。 */
+export type CounterpartyAddress = {
+  name?: string;
+  postal_code?: string;
+  address?: string;
+  phone?: string;
+  invoice_no?: string;
+};
 
 /** 対象期間の既定値（前月の1日〜末日）。 */
 export function defaultTargetPeriod(now: Date = new Date()): string {
@@ -272,5 +316,20 @@ export function saveBodyFromEditor(st: EditorState): Record<string, unknown> {
     status: st.status,
     amount: amountFromEditor(st),
     payload: payloadFromEditor(st),
+  };
+}
+
+/** 請求先住所が空のとき、紐づく取引先アドレスで補完（読み取りプレビュー用）。 */
+export function applyCounterparty(st: EditorState, addr?: CounterpartyAddress): EditorState {
+  if (!addr) return st;
+  const p = s(addr.postal_code);
+  const a = s(addr.address);
+  const html = !p && !a ? "" : p ? `〒${p}<br/>${a}` : a;
+  return {
+    ...st,
+    toName: st.toName || s(addr.name),
+    toAddrHtml: st.toAddrHtml || html,
+    toTel: st.toTel || s(addr.phone),
+    toReg: st.toReg || s(addr.invoice_no),
   };
 }
