@@ -12,6 +12,9 @@ import {
   faCar,
   faChevronDown,
   faChevronUp,
+  faUsers,
+  faGaugeHigh,
+  faMoneyBillWave,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { DatePicker } from "@/lib/components/DatePicker";
@@ -87,6 +90,8 @@ export default function VehiclesPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   // 利用ドライバー選択のアコーディオン（選択中は常時表示、未選択は展開で選ぶ）
   const [driverOpen, setDriverOpen] = useState(false);
+  // 車両編集モーダルのタブ
+  const [vehTab, setVehTab] = useState<"basic" | "work" | "cost" | "record">("basic");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
@@ -255,6 +260,8 @@ export default function VehiclesPage() {
       jibaisekiRenewalMonth: "",
       driverIds: [],
     });
+    setVehTab("basic");
+    setDriverOpen(false);
     setShowModal(true);
   };
 
@@ -303,6 +310,8 @@ export default function VehiclesPage() {
           : "",
       driverIds: v.vehicle_drivers?.map((vd) => vd.driver_id) || [],
     });
+    setVehTab("basic");
+    setDriverOpen(false);
     setShowModal(true);
   };
 
@@ -991,11 +1000,46 @@ export default function VehiclesPage() {
         <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
           <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">
-                {editingVehicle ? "車両情報編集" : "新規車両追加"}
-              </h2>
+              <div className="flex items-start justify-between mb-4">
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {editingVehicle ? "車両情報編集" : "新規車両追加"}
+                </h2>
+                {editingVehicle && (
+                  <div className="flex items-center gap-1">
+                    <button type="button" title="走行距離" onClick={() => { setShowModal(false); setOpenDetail({ type: "meter", vehicle: editingVehicle }); }}
+                      className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
+                      <FontAwesomeIcon icon={faGaugeHigh} className="w-4 h-4" />
+                    </button>
+                    <button type="button" title="回収状況" onClick={() => { setShowModal(false); setOpenDetail({ type: "recovery", vehicle: editingVehicle }); }}
+                      className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
+                      <FontAwesomeIcon icon={faMoneyBillWave} className="w-4 h-4" />
+                    </button>
+                    <button type="button" title="車両QR" onClick={() => { setShowModal(false); setQrVehicle(editingVehicle); }}
+                      className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
+                      <FontAwesomeIcon icon={faQrcode} className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* タブ */}
+              <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
+                {([["basic", "基本", faCar], ["work", "稼働", faUsers], ["cost", "費用", faMoneyBillWave], ["record", "記録", faFileLines]] as const).map(([key, label, icon]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setVehTab(key)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${vehTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+                  >
+                    <FontAwesomeIcon icon={icon} className="w-3.5 h-3.5" />
+                    {label}
+                  </button>
+                ))}
+              </div>
 
               <div className="space-y-4">
+                {vehTab === "basic" && (
+                <>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <label className="flex items-center justify-between px-3 py-2 rounded border border-slate-200 bg-slate-50">
@@ -1161,7 +1205,11 @@ export default function VehiclesPage() {
                     })()}
                   </div>
                 </div>
+                </>
+                )}
 
+                {vehTab === "work" && (
+                <>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-sm font-medium text-slate-700">利用ドライバー</label>
@@ -1241,6 +1289,11 @@ export default function VehiclesPage() {
                   <p className="text-xs text-slate-500 mt-1">デフォルト: 3,000km</p>
                 </div>
 
+                </>
+                )}
+
+                {vehTab === "cost" && (
+                <>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">購入費用明細 (円)</label>
                   <div className="border border-slate-200 rounded-md overflow-hidden">
@@ -1410,6 +1463,11 @@ export default function VehiclesPage() {
                   </div>
                 </div>
 
+                </>
+                )}
+
+                {vehTab === "record" && (
+                <>
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-sm font-medium text-slate-700">車両画像</label>
@@ -1517,6 +1575,8 @@ export default function VehiclesPage() {
                     <p className="text-xs text-slate-500 mt-1">例: 2026-04</p>
                   </div>
                 </div>
+                </>
+                )}
               </div>
 
               <div className="flex flex-col gap-3 mt-6">
