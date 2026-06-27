@@ -206,8 +206,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         </button>
         <Link href="/admin" className="inline-flex items-center">
           <Image
-            src={"/logo/Nippo.svg"}
-            alt="Nippo"
+            src={"/logo/hakotora-logo_secondary_logo.svg"}
+            alt="ハコ虎"
             width={120}
             height={40}
             className="h-10 w-auto"
@@ -226,15 +226,15 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 min-h-0">
         {/* Sidebar（デスクトップ常時表示） */}
         <aside
-          className="hidden md:flex z-40 w-56 bg-slate-900 text-white flex-col shrink-0 h-screen sticky top-0"
+          className="hidden md:flex z-40 w-56 bg-white text-slate-700 border-r border-slate-200 flex-col shrink-0 h-screen sticky top-0"
           style={{ overflow: "visible" }}
         >
           {/* Logo */}
-          <div className="h-20 flex items-center border-b border-slate-700/60 p-2">
+          <div className="h-20 flex items-center border-b border-slate-200 p-2">
             <Link href="/admin" className="inline-flex items-center">
               <Image
-                src={"/logo/Nippo.svg"}
-                alt="Nippo"
+                src={"/logo/hakotora-logo_primary_logo.svg"}
+                alt="ハコ虎"
                 width={150}
                 height={50}
                 className="h-20 w-auto"
@@ -266,8 +266,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                         type="button"
                         onClick={() => handleParentClick(item)}
                         className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${hasActiveChild || isOpen
-                            ? "bg-amber-400/15 text-amber-300"
-                            : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                            ? "bg-amber-100 text-amber-800"
+                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                           }`}
                       >
                         {item.icon && (
@@ -305,7 +305,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                           onMouseEnter={handlePanelEnter}
                           onMouseLeave={handlePanelLeave}
                         >
-                          <div className="bg-slate-800 rounded-lg shadow-2xl border border-slate-600/50 py-1.5 min-w-[200px]">
+                          <div className="bg-white rounded-lg shadow-2xl border border-slate-200 py-1.5 min-w-[200px]">
                             {filteredChildren.map((child) => {
                               const childActive = isActive(child.href);
                               return (
@@ -314,8 +314,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                   href={child.href}
                                   onClick={() => setOpenMenu(null)}
                                   className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-bold transition-colors ${childActive
-                                      ? "bg-amber-400/15 text-amber-300"
-                                      : "text-slate-300 hover:bg-slate-700/60 hover:text-white"
+                                      ? "bg-amber-100 text-amber-800"
+                                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                                     }`}
                                 >
                                   {child.icon && (
@@ -347,8 +347,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                     <Link
                       href={item.href}
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${active
-                          ? "bg-amber-400/15 text-amber-300"
-                          : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                          ? "bg-amber-100 text-amber-800"
+                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                         }`}
                     >
                       {item.icon && (
@@ -372,18 +372,18 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           </nav>
 
           {/* User section */}
-          <div className="p-4 border-t border-slate-700/60">
+          <div className="p-4 border-t border-slate-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-bold text-white">{driver?.name}</p>
-                <p className="text-[11px] text-slate-400 font-medium">
+                <p className="text-sm font-bold text-slate-900">{driver?.name}</p>
+                <p className="text-[11px] text-slate-500 font-medium">
                   {company.name}
                   {isViewer ? "（閲覧）" : ""}
                 </p>
               </div>
               <button
                 onClick={logout}
-                className="px-2.5 py-1 rounded-md font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                className="px-2.5 py-1 rounded-md font-bold text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
                 title="ログアウト"
               >
                 <FontAwesomeIcon icon={faRightFromBracket} className="w-4 h-4" />
@@ -401,16 +401,16 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
               onClick={() => setMobileNavOpen(false)}
               aria-label="メニューを閉じる"
             />
-            <aside className="w-64 max-w-[80%] bg-slate-900 text-white flex flex-col">
-              <div className="h-16 flex items-center justify-between border-b border-slate-700/60 px-3">
+            <aside className="w-64 max-w-[80%] bg-white text-slate-700 flex flex-col">
+              <div className="h-16 flex items-center justify-between border-b border-slate-200 px-3">
                 <Link
                   href="/admin"
                   className="inline-flex items-center"
                   onClick={() => setMobileNavOpen(false)}
                 >
                   <Image
-                    src={"/logo/Nippo.svg"}
-                    alt="Nippo"
+                    src={"/logo/hakotora-logo_secondary_logo.svg"}
+                    alt="ハコ虎"
                     width={130}
                     height={40}
                     className="h-10 w-auto"
@@ -420,7 +420,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(false)}
-                  className="p-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800"
+                  className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100"
                   aria-label="メニューを閉じる"
                 >
                   ×
@@ -435,7 +435,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                         : item.children.filter((c) => c.href !== "/admin/invoices/new");
                       return (
                         <li key={item.label}>
-                          <p className="px-3 py-2.5 text-[12px] font-bold text-slate-400 uppercase tracking-wide">
+                          <p className="px-3 py-2.5 text-[12px] font-bold text-slate-500 uppercase tracking-wide">
                             <span className="inline-flex items-center gap-2">
                               {item.label}
                               {getParentUnreadCount(item) > 0 && (
@@ -454,8 +454,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                     href={child.href}
                                     onClick={() => setMobileNavOpen(false)}
                                     className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-medium ${active
-                                        ? "bg-amber-400/15 text-amber-300"
-                                        : "text-slate-200 hover:bg-slate-800 hover:text-white"
+                                        ? "bg-amber-100 text-amber-800"
+                                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                                       }`}
                                   >
                                     {child.icon && (
@@ -486,8 +486,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                           href={item.href}
                           onClick={() => setMobileNavOpen(false)}
                           className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold ${active
-                              ? "bg-amber-400/15 text-amber-300"
-                              : "text-slate-200 hover:bg-slate-800 hover:text-white"
+                              ? "bg-amber-100 text-amber-800"
+                              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                             }`}
                         >
                           {item.icon && (
@@ -505,17 +505,17 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                   })}
                 </ul>
               </nav>
-              <div className="p-4 border-t border-slate-700/60 text-sm text-slate-300">
+              <div className="p-4 border-t border-slate-200 text-sm text-slate-600">
                 <div className="mb-2">
                   <p className="font-bold">{driver?.name}</p>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-500">
                     {company.name}
                     {isViewer ? "（閲覧）" : ""}
                   </p>
                 </div>
                 <button
                   onClick={logout}
-                  className="w-full mt-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-slate-800 text-slate-100 text-sm font-semibold"
+                  className="w-full mt-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-slate-100 text-slate-800 hover:bg-slate-200 text-sm font-semibold"
                 >
                   <FontAwesomeIcon icon={faRightFromBracket} className="w-4 h-4" />
                   ログアウト
