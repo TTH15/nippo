@@ -58,20 +58,20 @@ export function UserBottomNav() {
                   href={tab.href}
                   prefetch
                   className={`flex flex-col items-center justify-end ${active
-                    ? "text-brand-800 font-semibold"
+                    ? "text-amber-600 font-semibold"
                     : "text-slate-500 hover:text-slate-700"
                     }`}
                   aria-current={active ? "page" : undefined}
                 >
                   {/* 中央の目立つ円形ボタン（PayPay風：色付き・浮き上がり） */}
-                  <div className={`flex flex-col items-center justify-center flex-shrink-0 w-16 h-16 mb-1 rounded-full ${active ? "bg-brand-900" : "bg-brand-800"} text-white`}>
+                  <div className={`flex flex-col items-center justify-center flex-shrink-0 w-16 h-16 mb-1 rounded-full shadow-md ${active ? "bg-amber-600" : "bg-amber-500"} text-slate-900`}>
                     <FontAwesomeIcon
                       icon={tab.icon}
                       className="w-7 h-7 flex-shrink-0"
                       aria-hidden
                     />
                     <span
-                      className={`text-[10px] leading-tight font-semibold truncate max-w-full px-0.5 mt-1 text-white`}
+                      className={`text-[10px] leading-tight font-semibold truncate max-w-full px-0.5 mt-1 text-slate-900`}
                     >
                       {tab.label}
                     </span>
@@ -87,14 +87,14 @@ export function UserBottomNav() {
               href={tab.href}
               prefetch
               className={`flex-1 flex flex-col items-center justify-center gap-0.5 min-w-0 pb-2 pt-2 transition-colors ${active
-                ? "text-brand-800 font-semibold"
+                ? "text-amber-600 font-semibold"
                 : "text-slate-500 hover:text-slate-700"
                 }`}
               aria-current={active ? "page" : undefined}
             >
               <FontAwesomeIcon
                 icon={tab.icon}
-                className={`w-5 h-5 flex-shrink-0 ${active ? "text-brand-800" : "text-slate-500"}`}
+                className={`w-5 h-5 flex-shrink-0 ${active ? "text-amber-600" : "text-slate-500"}`}
                 aria-hidden
               />
               <span className="text-[10px] leading-tight truncate max-w-full px-0.5">
