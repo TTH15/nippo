@@ -2,7 +2,7 @@
 
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faDesktop } from "@fortawesome/free-solid-svg-icons";
 import { hasCapability } from "@/lib/capabilities";
@@ -56,6 +56,13 @@ function InvoiceNewPageContent() {
   const [canWrite, setCanWrite] = useState(false);
   const [isDesktop, setIsDesktop] = useState<boolean | null>(null);
   const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // 旧「編集」リンク（new?invoiceId=...）の互換：編集ページへ転送。
+  const invoiceId = searchParams?.get("invoiceId") ?? "";
+  useEffect(() => {
+    if (invoiceId) router.replace(`/admin/invoices/${encodeURIComponent(invoiceId)}/edit`);
+  }, [invoiceId, router]);
 
   useEffect(() => setCanWrite(hasCapability("can_manage_billing")), []);
   useEffect(() => {
@@ -76,10 +83,14 @@ function InvoiceNewPageContent() {
     : null;
   const { data: draft, isInitialLoading: draftLoading } = useApi<DraftResp>(draftKey);
 
-  const legacySrc = (() => {
-    const qs = searchParams?.toString();
-    return qs ? `/invoice/index.html?${qs}` : "/invoice/index.html";
-  })();
+  // 旧「編集」リンク（new?invoiceId=...）は編集ページへ転送中。
+  if (invoiceId) {
+    return (
+      <AdminLayout>
+        <div className="p-10 text-center text-slate-500">編集ページへ移動中…</div>
+      </AdminLayout>
+    );
+  }
 
   if (!canWrite) {
     return (
@@ -120,11 +131,6 @@ function InvoiceNewPageContent() {
   return (
     <AdminLayout>
       <div className="-m-6">
-        <div className="px-4 py-2 bg-white border-b border-slate-200 flex items-center justify-end">
-          <a href={legacySrc} target="_blank" rel="noreferrer" className="text-xs text-slate-500 underline hover:text-slate-900">
-            従来エディタ（自動集計・アドレス帳・添付）
-          </a>
-        </div>
         {wantDraft && draftLoading ? (
           <div className="p-10 text-center text-slate-500">下書きを読み込み中…</div>
         ) : (
