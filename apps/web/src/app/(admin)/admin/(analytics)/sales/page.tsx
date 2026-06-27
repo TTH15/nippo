@@ -97,17 +97,23 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
-/** コースをキャリア別にグループ化: ヤマト / Amazon / その他（DBの carrier を優先、未設定時は名前で判定） */
-function groupCoursesByCarrier(courses: CourseRow[]): { label: string; courses: CourseRow[] }[] {
+/**
+ * コースをキャリア別にグループ化（DBの carrier を優先、未設定時は名前で判定）。
+ * グループ表示ラベルは carriers マスタ名（codeToName）から取得し、未取得時のみ固定文言にフォールバック。
+ */
+function groupCoursesByCarrier(
+  courses: CourseRow[],
+  codeToName?: Map<string, string>,
+): { label: string; courses: CourseRow[] }[] {
   const byCarrier = (carrier: "YAMATO" | "AMAZON" | "OTHER") =>
     courses.filter((c) => (c.carrier ?? (c.name.startsWith("ヤマト") ? "YAMATO" : c.name.startsWith("Amazon") || c.name.startsWith("アマゾン") ? "AMAZON" : "OTHER")) === carrier);
   const yamato = byCarrier("YAMATO");
   const amazon = byCarrier("AMAZON");
   const other = byCarrier("OTHER");
   const groups: { label: string; courses: CourseRow[] }[] = [];
-  if (yamato.length > 0) groups.push({ label: "ヤマト", courses: yamato });
-  if (amazon.length > 0) groups.push({ label: "Amazon", courses: amazon });
-  if (other.length > 0) groups.push({ label: "その他", courses: other });
+  if (yamato.length > 0) groups.push({ label: codeToName?.get("YAMATO") ?? "ヤマト", courses: yamato });
+  if (amazon.length > 0) groups.push({ label: codeToName?.get("AMAZON") ?? "Amazon", courses: amazon });
+  if (other.length > 0) groups.push({ label: codeToName?.get("OTHER") ?? "その他", courses: other });
   return groups;
 }
 
@@ -116,15 +122,17 @@ function CourseSelect({
   value,
   onChange,
   disabled,
+  codeToName,
 }: {
   courses: CourseRow[];
   value: Set<string>;
   onChange: (ids: Set<string>) => void;
   disabled?: boolean;
+  codeToName?: Map<string, string>;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const groups = useMemo(() => groupCoursesByCarrier(courses), [courses]);
+  const groups = useMemo(() => groupCoursesByCarrier(courses, codeToName), [courses, codeToName]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -706,10 +714,12 @@ function LogEntriesByDate({
                 {rows.map((row, rowIdx) => {
                   if (row.kind === "calculated") {
                     return (
-                      <div key={`mcalc-${dateIso}-${rowIdx}`} className="px-3 py-2.5 bg-slate-50/40">
+                      <div key={`mcalc-${dateIso}-${rowIdx}`} className="px-3 py-2.5 bg-slate-50/60 border-l-2 border-slate-300">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-sm font-medium text-slate-800">{row.type_name}</span>
-                          <span className="text-[10px] text-slate-400">自動</span>
+                          <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-slate-200/70 text-slate-500">
+                            <FontAwesomeIcon icon={faFileLines} className="w-2.5 h-2.5" />自動
+                          </span>
                         </div>
                         {row.content && <div className="mt-0.5 text-xs text-slate-500">{row.content}</div>}
                         <div className="mt-1 flex items-center gap-4 text-xs">
@@ -725,9 +735,14 @@ function LogEntriesByDate({
                     ? invoiceAddressById[r.counterparty_invoice_address_id] ?? null
                     : null;
                   return (
-                    <div key={`m-${r.id}`} className="px-3 py-2.5">
+                    <div key={`m-${r.id}`} className="px-3 py-2.5 border-l-2 border-amber-300">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-slate-800">{r.type_name}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-slate-800">{r.type_name}</span>
+                          <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700">
+                            <FontAwesomeIcon icon={faPenToSquare} className="w-2.5 h-2.5" />手動
+                          </span>
+                        </span>
                         {canWrite &&
                           (saving ? (
                             <span className="text-[10px] text-slate-400">保存中...</span>
@@ -779,9 +794,14 @@ function LogEntriesByDate({
                   {rows.map((row, rowIdx) => {
                     if (row.kind === "calculated") {
                       return (
-                        <tr key={`calc-${dateIso}-${rowIdx}`} className="border-t border-slate-100 bg-slate-50/30">
-                          <td className="sticky left-0 z-10 bg-slate-50/30 px-3 py-2 font-medium text-slate-800">{row.type_name}</td>
-                          <td className="sticky left-[80px] z-10 bg-slate-50/30 px-3 py-2 text-slate-600 truncate">{row.content}</td>
+                        <tr key={`calc-${dateIso}-${rowIdx}`} className="border-t border-slate-100 bg-slate-50/60">
+                          <td className="sticky left-0 z-10 bg-slate-50/60 px-3 py-2 align-top">
+                            <div className="font-medium text-slate-800">{row.type_name}</div>
+                            <span className="mt-0.5 inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium bg-slate-200/70 text-slate-500">
+                              <FontAwesomeIcon icon={faFileLines} className="w-2.5 h-2.5" />自動
+                            </span>
+                          </td>
+                          <td className="sticky left-[80px] z-10 bg-slate-50/60 px-3 py-2 text-slate-600 truncate">{row.content}</td>
                           <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">{fmt(row.revenue)}</td>
                           <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmtSigned(row.profit)}</td>
                           <td className="px-3 py-2 text-slate-500">—</td>
@@ -799,7 +819,12 @@ function LogEntriesByDate({
                         key={r.id}
                         className="border-t border-slate-100 hover:bg-slate-50/50"
                       >
-                        <td className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-slate-800">{r.type_name}</td>
+                        <td className="sticky left-0 z-10 bg-white px-3 py-2 align-top">
+                          <div className="font-medium text-slate-800">{r.type_name}</div>
+                          <span className="mt-0.5 inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700">
+                            <FontAwesomeIcon icon={faPenToSquare} className="w-2.5 h-2.5" />手動
+                          </span>
+                        </td>
                         <td className="sticky left-[80px] z-10 bg-white px-3 py-2 text-slate-700 truncate max-w-[12ch]">{r.content}</td>
                         <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900">
                           {fmt(r.revenue)}
@@ -905,6 +930,20 @@ export default function SalesPage() {
   useEffect(() => {
     if (coursesData) setCourses(coursesData.courses ?? []);
   }, [coursesData]);
+
+  // キャリアマスタ（グループ表示ラベルの脱ハードコード用: code→name）
+  const { data: carriersData } = useSWR<{ carriers: { code: string | null; name: string | null }[] }>(
+    "/api/admin/carriers",
+    (url: string) => apiFetch<{ carriers: { code: string | null; name: string | null }[] }>(url),
+    { revalidateOnFocus: false, dedupingInterval: 30 * 60 * 1000 },
+  );
+  const carrierNameByCode = useMemo(() => {
+    const m = new Map<string, string>();
+    (carriersData?.carriers ?? []).forEach((c) => {
+      if (c.code && c.name) m.set(c.code, c.name);
+    });
+    return m;
+  }, [carriersData]);
 
   const debouncedSelectedDriverId = useDebouncedValue(selectedDriverId, 400);
   const debouncedCourseIds = useDebouncedValue(
@@ -1421,6 +1460,7 @@ export default function SalesPage() {
               courses={courses}
               value={selectedCourseIds}
               onChange={setSelectedCourseIds}
+              codeToName={carrierNameByCode}
             />
             <span className="text-xs text-slate-500">対象ドライバー</span>
             <div className="w-full sm:w-56">
