@@ -13,7 +13,7 @@ import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
 import { Button } from "@/lib/ui/button";
-import { faTrash, faUser } from "@fortawesome/free-solid-svg-icons";
+import { faTrash, faUser, faPhone } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -149,6 +149,12 @@ export default function UsersPage() {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalTab, setModalTab] = useState<"basic" | "work" | "contract">("basic");
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
+  // 詳細モーダルのキャッシュ（同じドライバーを再度開く時はDBを叩かない）
+  const detailCache = useRef<Map<string, { driver: Driver; lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null }>>(new Map());
+  // 自動保存（編集モード）。populate 直後の1回はスキップ。
+  const skipAutoSave = useRef(true);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [form, setForm] = useState({
     name: "",
     displayName: "",
@@ -284,12 +290,74 @@ export default function UsersPage() {
     setShowModal(true);
   };
 
+  // 取得済みドライバー詳細＋リースから編集フォームを埋める（fetch/キャッシュ共通）
+  const populateForm = (
+    full: Driver,
+    lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null,
+  ) => {
+    setLeaseForm(
+      lease
+        ? {
+            enabled: true,
+            mode: lease.mode === "DAILY" ? "DAILY" : "MONTHLY",
+            amount: String(lease.amount ?? ""),
+            validFrom:
+              lease.valid_from && /^\d{4}-\d{2}-\d{2}$/.test(lease.valid_from)
+                ? lease.valid_from
+                : currentMonthStartStr(),
+          }
+        : { ...EMPTY_LEASE, validFrom: currentMonthStartStr() },
+    );
+    setEditingDriver(full);
+    const { institution, branch } = parseBankName(full.bank_name || "");
+    const { type, number, typeOther } = parseBankNo(full.bank_no || "");
+    const id1 = full.driver_identities?.find((x) => x.slot === 1);
+    const id2 = full.driver_identities?.find((x) => x.slot === 2);
+    setForm({
+      name: full.name,
+      displayName: full.display_name?.trim() ?? getDisplayName(full),
+      officeCode: id1?.office_code ?? full.office_code ?? "",
+      driverNumber: (id1?.driver_code ?? full.driver_code)?.slice(3) || "",
+      courseIds: (id1?.driver_courses ?? []).map((dc) => dc.course_id),
+      officeCode2: id2?.office_code ?? "",
+      driverNumber2: id2?.driver_code?.slice(3) ?? "",
+      courseIds2: (id2?.driver_courses ?? []).map((dc) => dc.course_id),
+      postalCode: full.postal_code || "",
+      address: full.address || "",
+      phone: full.phone || "",
+      bankInstitution: institution,
+      bankBranch: branch,
+      bankType: type,
+      bankTypeOther: typeOther,
+      bankNumber: number,
+      bankHolder: full.bank_holder || "",
+      licenseExpiryDate:
+        full.license_expiry_date && /^\d{4}-\d{2}-\d{2}$/.test(full.license_expiry_date)
+          ? full.license_expiry_date
+          : "",
+      roleId: full.role_id ?? "",
+    });
+  };
+
   const openEdit = async (d: Driver) => {
     if (!canWrite) return;
-    // まず詳細モーダルをスケルトンで即時表示し、取得完了まで loading にする
-    setEditingDriver(d);
-    setModalLoading(true);
+    skipAutoSave.current = true; // populate では自動保存しない
+    setAutoSaveStatus("idle");
     setModalTab("basic");
+    setEditingDriver(d);
+
+    // キャッシュヒット: DBを叩かず即時表示
+    const cached = detailCache.current.get(d.id);
+    if (cached) {
+      setModalLoading(false);
+      setLeaseLoading(false);
+      setShowModal(true);
+      populateForm(cached.driver, cached.lease);
+      return;
+    }
+
+    // キャッシュミス: スケルトンを即時表示しつつ取得
+    setModalLoading(true);
     setShowModal(true);
     setOpeningEditId(d.id);
     setLeaseLoading(true);
@@ -302,48 +370,9 @@ export default function UsersPage() {
       ]);
       const full = res.driver;
       const lease = leaseRes.lease;
-      setLeaseForm(
-        lease
-          ? {
-              enabled: true,
-              mode: lease.mode === "DAILY" ? "DAILY" : "MONTHLY",
-              amount: String(lease.amount ?? ""),
-              validFrom:
-                lease.valid_from && /^\d{4}-\d{2}-\d{2}$/.test(lease.valid_from)
-                  ? lease.valid_from
-                  : currentMonthStartStr(),
-            }
-          : { ...EMPTY_LEASE, validFrom: currentMonthStartStr() },
-      );
-      setEditingDriver(full);
-      const { institution, branch } = parseBankName(full.bank_name || "");
-      const { type, number, typeOther } = parseBankNo(full.bank_no || "");
-      const id1 = full.driver_identities?.find((x) => x.slot === 1);
-      const id2 = full.driver_identities?.find((x) => x.slot === 2);
-      setForm({
-        name: full.name,
-        displayName: full.display_name?.trim() ?? getDisplayName(full),
-        officeCode: id1?.office_code ?? full.office_code ?? "",
-        driverNumber: (id1?.driver_code ?? full.driver_code)?.slice(3) || "",
-        courseIds: (id1?.driver_courses ?? []).map((dc) => dc.course_id),
-        officeCode2: id2?.office_code ?? "",
-        driverNumber2: id2?.driver_code?.slice(3) ?? "",
-        courseIds2: (id2?.driver_courses ?? []).map((dc) => dc.course_id),
-        postalCode: full.postal_code || "",
-        address: full.address || "",
-        phone: full.phone || "",
-        bankInstitution: institution,
-        bankBranch: branch,
-        bankType: type,
-        bankTypeOther: typeOther,
-        bankNumber: number,
-        bankHolder: full.bank_holder || "",
-        licenseExpiryDate:
-          full.license_expiry_date && /^\d{4}-\d{2}-\d{2}$/.test(full.license_expiry_date)
-            ? full.license_expiry_date
-            : "",
-        roleId: full.role_id ?? "",
-      });
+      detailCache.current.set(d.id, { driver: full, lease });
+      skipAutoSave.current = true; // 取得後の populate でも自動保存しない
+      populateForm(full, lease);
     } catch (e) {
       console.error(e);
       setShowModal(false);
@@ -426,8 +455,9 @@ export default function UsersPage() {
     }));
   };
 
-  const save = async () => {
+  const save = async (opts?: { silent?: boolean }) => {
     if (!canWrite) return;
+    const silent = opts?.silent === true;
     setSaving(true);
     try {
       const driverCode = companyCode + form.driverNumber;
@@ -573,18 +603,28 @@ export default function UsersPage() {
         }
       }
 
-      setShowModal(false);
+      // 保存後はキャッシュを無効化（次回オープン時に最新を1回だけ取得）
+      if (savedDriverId) detailCache.current.delete(savedDriverId);
+      if (silent) {
+        setAutoSaveStatus("saved");
+      } else {
+        setShowModal(false);
+      }
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
-      setErrorState({
-        title: "ドライバー情報の保存に失敗しました",
-        message:
-          "サーバーでエラーが発生したため、ドライバー情報を保存できませんでした。\n\n" +
-          "入力内容（コードの重複や必須項目の抜けなど）を確認し、もう一度保存してください。\n" +
-          "同じエラーが続く場合は、システム管理者に連絡してください。",
-        detail: reason || undefined,
-      });
+      if (silent) {
+        setAutoSaveStatus("error");
+      } else {
+        setErrorState({
+          title: "ドライバー情報の保存に失敗しました",
+          message:
+            "サーバーでエラーが発生したため、ドライバー情報を保存できませんでした。\n\n" +
+            "入力内容（コードの重複や必須項目の抜けなど）を確認し、もう一度保存してください。\n" +
+            "同じエラーが続く場合は、システム管理者に連絡してください。",
+          detail: reason || undefined,
+        });
+      }
     } finally {
       setSaving(false);
     }
@@ -686,6 +726,24 @@ export default function UsersPage() {
         return { label: dateStr ?? "", className: "bg-emerald-100 text-emerald-700" };
     }
   };
+
+  // 自動保存（編集モード）: 入力変更を1秒デバウンスで PUT。populate直後・無効入力・新規はスキップ。
+  useEffect(() => {
+    if (!showModal || modalLoading || !editingDriver || !canWrite || !isFormValid) return;
+    if (skipAutoSave.current) {
+      skipAutoSave.current = false;
+      return;
+    }
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    setAutoSaveStatus("saving");
+    autoSaveTimer.current = setTimeout(() => {
+      void save({ silent: true });
+    }, 1000);
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, leaseForm, showModal, modalLoading, editingDriver, isFormValid]);
 
   return (
     <AdminLayout>
@@ -844,48 +902,49 @@ export default function UsersPage() {
             <div className="space-y-4">
               {modalTab === "basic" && (
               <>
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2">
+                <FontAwesomeIcon icon={faUser} className="w-3.5 h-3.5 text-slate-400" />
+                基本情報
+              </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">名前</label>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">名前</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">表示名</label>
-                <input
-                  type="text"
-                  value={form.displayName}
-                  onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
-                  placeholder="未入力なら苗字のみ表示"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-                <p className="text-xs text-slate-500 mt-1">シフト・日報などで表示します。空欄の場合は苗字のみ表示されます。</p>
-              </div>
-
-              {editingDriver && roleOptions.length > 0 && (
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">ロール・権限</label>
-                  <select
-                    value={form.roleId}
-                    onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  >
-                    <option value="">（変更しない）</option>
-                    {roleOptions.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-slate-500 mt-1">
-                    権限の内容は「設定 → ロール・権限」で編集できます。
-                  </p>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">表示名</label>
+                  <input
+                    type="text"
+                    value={form.displayName}
+                    onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+                    placeholder="未入力なら苗字のみ"
+                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
                 </div>
-              )}
+                {editingDriver && roleOptions.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">ロール・権限</label>
+                    <select
+                      value={form.roleId}
+                      onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    >
+                      <option value="">（変更しない）</option>
+                      {roleOptions.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
               </>
               )}
 
@@ -893,7 +952,7 @@ export default function UsersPage() {
               <>
               <p className="text-xs font-semibold text-slate-600 pt-1">勤務区分1</p>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">事業所コード（6桁）</label>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">事業所コード（6桁）</label>
                 <input
                   type="text"
                   maxLength={6}
@@ -903,12 +962,12 @@ export default function UsersPage() {
                     setForm((f) => ({ ...f, officeCode: v }));
                   }}
                   placeholder="000001"
-                  className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  className="w-full px-3.5 py-2.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">
                   ドライバーコード
                 </label>
                 <div className="flex items-center gap-1">
@@ -924,7 +983,7 @@ export default function UsersPage() {
                       setForm((f) => ({ ...f, driverNumber: v }));
                     }}
                     placeholder="123456"
-                    className="flex-1 px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
+                    className="flex-1 px-3.5 py-2.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                   />
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
@@ -959,7 +1018,7 @@ export default function UsersPage() {
                 </p>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">事業所コード（6桁）</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">事業所コード（6桁）</label>
                     <input
                       type="text"
                       maxLength={6}
@@ -969,11 +1028,11 @@ export default function UsersPage() {
                         setForm((f) => ({ ...f, officeCode2: v }));
                       }}
                       placeholder="000000"
-                      className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="w-full px-3.5 py-2.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">ドライバーコード</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">ドライバーコード</label>
                     <div className="flex items-center gap-1">
                       <span className="px-3 py-2 bg-slate-100 border border-slate-200 rounded text-sm font-mono text-slate-600">
                         {companyCode}
@@ -987,7 +1046,7 @@ export default function UsersPage() {
                           setForm((f) => ({ ...f, driverNumber2: v }));
                         }}
                         placeholder="123456"
-                        className="flex-1 px-3 py-2 text-sm font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        className="flex-1 px-3.5 py-2.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     </div>
                   </div>
@@ -1021,7 +1080,7 @@ export default function UsersPage() {
                 <h3 className="text-sm font-semibold text-slate-700 mb-1">運転免許証</h3>
                 <p className="text-xs text-slate-500 mb-3">有効期限の管理（一覧では期限色で表示されます）</p>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">有効期限</label>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">有効期限</label>
                   <DatePicker
                     value={
                       form.licenseExpiryDate && /^\d{4}-\d{2}-\d{2}$/.test(form.licenseExpiryDate)
@@ -1084,7 +1143,7 @@ export default function UsersPage() {
                       <div className="grid grid-cols-2 gap-3">
                         {leaseForm.mode === "MONTHLY" ? (
                           <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">月額（円 / 月・固定）</label>
+                            <label className="block text-xs font-medium text-slate-400 mb-1">月額（円 / 月・固定）</label>
                             <input
                               type="text"
                               inputMode="numeric"
@@ -1093,7 +1152,7 @@ export default function UsersPage() {
                                 setLeaseForm((f) => ({ ...f, amount: e.target.value.replace(/\D/g, "") }))
                               }
                               placeholder="35000"
-                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                              className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                             />
                           </div>
                         ) : (
@@ -1104,7 +1163,7 @@ export default function UsersPage() {
                           </div>
                         )}
                         <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">適用開始月</label>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">適用開始月</label>
                           <MonthYearPicker
                             value={{
                               year: Number(leaseForm.validFrom.slice(0, 4)) || new Date().getFullYear(),
@@ -1128,13 +1187,15 @@ export default function UsersPage() {
 
               {modalTab === "basic" && (
               <>
-              <div className="pt-4 mt-4 border-t border-slate-200">
-                <h3 className="text-sm font-semibold text-slate-700 mb-3">住所・連絡先</h3>
-                <p className="text-xs text-slate-500 mb-3">請求書の請求元（個人）として使用する住所・電話</p>
+              <div className="pt-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 mb-3">
+                  <FontAwesomeIcon icon={faPhone} className="w-3.5 h-3.5 text-slate-400" />
+                  連絡先
+                </div>
                 <div className="space-y-3">
                   <div className="flex gap-2">
                     <div className="flex-1">
-                      <label className="block text-xs font-medium text-slate-600 mb-1">郵便番号</label>
+                      <label className="block text-xs font-medium text-slate-400 mb-1">郵便番号</label>
                       <input
                         type="text"
                         value={form.postalCode}
@@ -1147,7 +1208,7 @@ export default function UsersPage() {
                         }}
                         placeholder="1234567 または 123-4567"
                         maxLength={10}
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     </div>
                     <div className="flex items-end">
@@ -1162,17 +1223,17 @@ export default function UsersPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">住所</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">住所</label>
                     <input
                       type="text"
                       value={form.address}
                       onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
                       placeholder="京都市○○区○○1-2-3"
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">電話番号</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">電話番号</label>
                     <input
                       type="text"
                       value={form.phone}
@@ -1182,7 +1243,7 @@ export default function UsersPage() {
                         setForm((f) => ({ ...f, phone: half }));
                       }}
                       placeholder="03-1234-5678"
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
                 </div>
@@ -1197,28 +1258,28 @@ export default function UsersPage() {
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">金融機関名（機関名）</label>
+                      <label className="block text-xs font-medium text-slate-400 mb-1">金融機関名（機関名）</label>
                       <input
                         type="text"
                         value={form.bankInstitution}
                         onChange={(e) => setForm((f) => ({ ...f, bankInstitution: e.target.value }))}
                         placeholder="〇〇銀行"
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">支店名</label>
+                      <label className="block text-xs font-medium text-slate-400 mb-1">支店名</label>
                       <input
                         type="text"
                         value={form.bankBranch}
                         onChange={(e) => setForm((f) => ({ ...f, bankBranch: e.target.value }))}
                         placeholder="〇〇支店"
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1.5">口座種別</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">口座種別</label>
                     <div className="flex flex-wrap gap-2 mb-2">
                       {BANK_TYPES.map((t) => (
                         <button
@@ -1240,28 +1301,28 @@ export default function UsersPage() {
                         value={form.bankTypeOther}
                         onChange={(e) => setForm((f) => ({ ...f, bankTypeOther: e.target.value }))}
                         placeholder="口座種別を入力（例：定期）"
-                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">口座番号</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">口座番号</label>
                     <input
                       type="text"
                       value={form.bankNumber}
                       onChange={(e) => setForm((f) => ({ ...f, bankNumber: e.target.value.replace(/\D/g, "") }))}
                       placeholder="1234567"
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">口座名義</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">口座名義</label>
                     <input
                       type="text"
                       value={form.bankHolder}
                       onChange={(e) => setForm((f) => ({ ...f, bankHolder: e.target.value }))}
                       placeholder="ヤマダ タロウ"
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                   </div>
                 </div>
@@ -1285,20 +1346,42 @@ export default function UsersPage() {
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
-                >
-                  キャンセル
-                </button>
-                <button
-                  onClick={save}
-                  disabled={saving || modalLoading || !isFormValid}
-                  className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
-                >
-                  {saving ? "保存中..." : "保存"}
-                </button>
+              <div className="flex items-center gap-3">
+                {editingDriver ? (
+                  <>
+                    <span className="text-xs text-slate-400">
+                      {autoSaveStatus === "saving"
+                        ? "保存中…"
+                        : autoSaveStatus === "saved"
+                          ? "自動保存しました"
+                          : autoSaveStatus === "error"
+                            ? "保存に失敗しました"
+                            : "変更は自動保存されます"}
+                    </span>
+                    <button
+                      onClick={() => setShowModal(false)}
+                      className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+                    >
+                      閉じる
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setShowModal(false)}
+                      className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      onClick={() => save()}
+                      disabled={saving || modalLoading || !isFormValid}
+                      className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                    >
+                      {saving ? "保存中..." : "追加"}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
