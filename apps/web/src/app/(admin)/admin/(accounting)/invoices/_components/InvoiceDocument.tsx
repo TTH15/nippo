@@ -214,7 +214,7 @@ export function InvoiceDocument({
               <img src="/invoice/ACE_CREATION_stamp_1.png" alt="" className="absolute right-0 top-8 w-20 opacity-90" />
             ) : null}
             <div className="text-[12px] leading-[1.7]">
-              <div><b>請求期間：</b>{data.period}</div>
+              <div><b>対象期間：</b>{data.period}</div>
               <div><b>請求書番号：</b>{data.invoiceNo}</div>
             </div>
             <div className="mt-3 text-[12px] leading-[1.6]">
