@@ -13,7 +13,7 @@ import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { CounterpartyBillingExpand } from "./CounterpartyBillingExpand";
 
 type CourseRow = {
@@ -60,7 +60,7 @@ export default function CounterpartiesPage() {
   const [createInvoiceError, setCreateInvoiceError] = useState<string | null>(null);
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_billing"));
   }, []);
 
   // SWR で月別サマリをキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。

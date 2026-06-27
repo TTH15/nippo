@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // GET: 全ドライバー一覧（コース情報含む）
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_members");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const url = req.nextUrl;
@@ -19,6 +19,34 @@ export async function GET(req: NextRequest) {
   // Phase 7a: status フィルタ。既定は active（既存ロスター挙動を維持）。?status=pending で承認待ち一覧。
   const statusRaw = url.searchParams.get("status");
   const status = statusRaw && ["pending", "active", "rejected"].includes(statusRaw) ? statusRaw : "active";
+
+  // 2段階承認: stage=kyc → 本人確認(本承認)待ち。
+  // active＋kyc_verified_at NULL＋本登録提出済(identities.license_photo_path あり)。
+  if (url.searchParams.get("stage") === "kyc") {
+    const { data, error: kErr } = await supabase
+      .from("drivers")
+      .select("id, name, phone, created_at, identities ( license_photo_path )")
+      .eq("org_id", orgId)
+      .eq("role", "DRIVER")
+      .eq("status", "active")
+      .is("kyc_verified_at", null)
+      .order("created_at", { ascending: true });
+    if (kErr) {
+      console.error(kErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    const rows = (data ?? [])
+      .filter((d) => {
+        const id = (d as { identities?: { license_photo_path?: string | null } | null }).identities;
+        return !!id?.license_photo_path; // 本登録の免許写真を提出済のみ
+      })
+      .map((d) => {
+        const p = (d as { phone?: string | null }).phone;
+        const digits = typeof p === "string" ? p.replace(/\D/g, "") : "";
+        return { id: d.id, name: d.name, phone: digits ? `***${digits.slice(-4)}` : null, created_at: d.created_at };
+      });
+    return NextResponse.json({ drivers: rows, total: rows.length });
+  }
 
   // 同じ会社コードのドライバー一覧（一覧表示に不要な住所/口座情報は除外）
   const { data: drivers, error } = await supabase
@@ -55,8 +83,20 @@ export async function GET(req: NextRequest) {
     .eq("status", status);
   const total = countRes.count ?? 0;
   const nextCursor = offset + (drivers?.length ?? 0) < total ? String(offset + (drivers?.length ?? 0)) : null;
+
+  // プライバシー: 承認前（pending）の申請者の電話は下4桁のみ開示（サーバ側マスク）。
+  // 誤 join_code で別 org に出てもフル電話は渡さない。active は所属ドライバーなのでフル。
+  const rows =
+    status === "pending"
+      ? (drivers ?? []).map((d) => {
+          const p = (d as { phone?: string | null }).phone;
+          const digits = typeof p === "string" ? p.replace(/\D/g, "") : "";
+          return { ...d, phone: digits ? `***${digits.slice(-4)}` : null };
+        })
+      : (drivers ?? []);
+
   const response = NextResponse.json({
-    drivers: drivers ?? [],
+    drivers: rows,
     nextCursor,
     hasMore: nextCursor != null,
     total,
@@ -67,7 +107,7 @@ export async function GET(req: NextRequest) {
 
 // POST: 新規ドライバー追加
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_members");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

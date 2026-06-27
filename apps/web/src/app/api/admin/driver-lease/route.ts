@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ function currentMonthStart(): string {
 
 // GET: 現在有効なリース（valid_to が NULL または未来）。複数あれば valid_from 最新。
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_rewards");
   if (isAuthError(user)) return user;
 
   const driverId = req.nextUrl.searchParams.get("driver_id");
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
 
 // PUT: リースの設定/更新/解除
 export async function PUT(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_rewards");
   if (isAuthError(user)) return user;
 
   type Body = {

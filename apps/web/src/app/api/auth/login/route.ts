@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { supabase } from "@/server/db/client";
-import { signToken } from "@/server/auth";
+import { signToken, resolveCapabilities } from "@/server/auth";
 import { getCompany } from "@/config/companies";
 
 export const dynamic = "force-dynamic";
@@ -131,15 +131,18 @@ export async function POST(req: NextRequest) {
         .eq("driver_code", code)
         .maybeSingle();
 
+      const driverCaps = await resolveCapabilities(driver.id, driver.role);
+
       return NextResponse.json({
         token,
-        driver: { 
-          id: driver.id, 
-          name: driver.name, 
+        driver: {
+          id: driver.id,
+          name: driver.name,
           role: driver.role,
           companyCode: driver.company_code,
           officeCode: loginIdentity?.office_code ?? driver.office_code ?? "",
           driverCode: loginIdentity?.driver_code ?? driver.driver_code ?? "",
+          capabilities: Array.from(driverCaps),
         },
       });
     }
@@ -179,12 +182,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "無効な管理者コードです" }, { status: 401 });
       }
 
+      // §2-6: ロール名でハードコード判定せず、capability で「運営アカウントか」を判定する。
+      // これにより ACCOUNTING や org が作ったカスタムロールも（管理権限を1つでも持てば）ログインできる。
       const { data: admin, error } = await supabase
         .from("drivers")
-        .select("id, name, role, company_code, driver_code, pin_hash, identity_id, org_id, status")
+        .select("id, name, role, role_id, company_code, driver_code, pin_hash, identity_id, org_id, status")
         .eq("driver_code", full)
         .eq("company_code", code)
-        .in("role", ["ADMIN", "ADMIN_VIEWER"])
         .single();
 
       if (error || !admin) {
@@ -197,6 +201,12 @@ export async function POST(req: NextRequest) {
       const match = await bcrypt.compare(rawPassword, admin.pin_hash);
       if (!match) {
         return NextResponse.json({ error: "パスワードが正しくありません" }, { status: 401 });
+      }
+
+      // 管理権限の判定: capability を1つでも持てば運営アカウント（純ドライバー＝0個は不可）。
+      const adminCaps = await resolveCapabilities(admin.id, admin.role);
+      if (adminCaps.size === 0) {
+        return NextResponse.json({ error: "このアカウントには管理権限がありません" }, { status: 403 });
       }
 
       // Phase 7a: membership status の適用。active 以外はログイン不可。
@@ -218,11 +228,12 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         token,
-        driver: { 
-          id: admin.id, 
-          name: admin.name, 
+        driver: {
+          id: admin.id,
+          name: admin.name,
           role: admin.role,
           companyCode: admin.company_code,
+          capabilities: Array.from(adminCaps),
         },
       });
     }

@@ -58,3 +58,60 @@ export function countLicenseAlertDrivers(
 ): number {
   return drivers.reduce((n, d) => (isLicenseAlertDriver(d, now) ? n + 1 : n), 0);
 }
+
+// ============================================================
+// 免許証 OCR テキストから有効期限を抽出する（純粋・プラットフォーム非依存）。
+// 端末側 OCR（ML Kit）の生テキストを入力し、"YYYY-MM-DD" を返す。
+// 自動確定はせずプリフィル用途（ユーザーが確認・修正する前提）。
+// ============================================================
+
+const ERA_OFFSET: Record<string, number> = { 令和: 2018, 平成: 1988, 昭和: 1925 };
+
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+/** 全角数字・全角空白を半角へ。 */
+function toHalfWidth(s: string): string {
+  return s
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/　/g, " ");
+}
+
+type DateCand = { ymd: string; end: number };
+
+function pushDate(out: DateCand[], year: number, month: number, day: number, end: number): void {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return;
+  out.push({ ymd: `${year}-${pad2(month)}-${pad2(day)}`, end });
+}
+
+/**
+ * 免許証 OCR テキストから有効期限（YYYY-MM-DD）を推定する。見つからなければ null。
+ * - 和暦（令和/平成/昭和）と西暦の「○年○月○日」を抽出。
+ * - 「有効」直前の日付を優先（免許の "…まで有効" バンド）。無ければ最も新しい日付。
+ */
+export function parseLicenseExpiryFromOcr(text: string): string | null {
+  if (!text) return null;
+  // 現代の免許は「2028年（令和10年）08月23日まで有効」のように西暦と（元号）が併記され、
+  // 括弧が年と月の間に挟まる。括弧内を除去してから抽出する（西暦年を採用）。
+  const t = toHalfWidth(text).replace(/[（(][^）)]*[）)]/g, " ");
+  const cands: DateCand[] = [];
+
+  const eraRe = /(令和|平成|昭和)\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g;
+  let m: RegExpExecArray | null;
+  while ((m = eraRe.exec(t)) !== null) {
+    pushDate(cands, ERA_OFFSET[m[1]] + Number(m[2]), Number(m[3]), Number(m[4]), m.index + m[0].length);
+  }
+  const westRe = /(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g;
+  while ((m = westRe.exec(t)) !== null) {
+    pushDate(cands, Number(m[1]), Number(m[2]), Number(m[3]), m.index + m[0].length);
+  }
+  if (cands.length === 0) return null;
+
+  // 「…まで有効」の直前にある日付を優先。
+  const idx = t.indexOf("有効");
+  if (idx >= 0) {
+    const before = cands.filter((c) => c.end <= idx).sort((a, b) => b.end - a.end);
+    if (before.length > 0) return before[0].ymd;
+  }
+  // フォールバック: 最も新しい日付（YYYY-MM-DD は辞書順＝日付順）。
+  return cands.map((c) => c.ymd).sort().slice(-1)[0];
+}

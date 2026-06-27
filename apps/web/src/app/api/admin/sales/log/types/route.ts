@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export type SalesLogTypeRow = {
 
 // GET: 種別一覧
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_org_settings");
   if (isAuthError(user)) return user;
 
   const { data, error } = await supabase
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
 
 // POST: 種別を追加
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_org_settings");
   if (isAuthError(user)) return user;
 
   let body: { name?: string; sort_order?: number };

@@ -28,10 +28,14 @@ export default function AdminLoginPage() {
       const res = await apiFetch<{
         token: string;
         driver: { id: string; name: string; role: string; companyCode?: string };
-      }>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
+      }>(
+        "/api/auth/login",
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+        },
+        { skipAuthRedirect: true }, // 資格情報の誤り(401)は /login へ飛ばさず文言表示
+      );
 
       setAuth(res.token, res.driver);
       router.push("/admin");

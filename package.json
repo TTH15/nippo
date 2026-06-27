@@ -13,6 +13,15 @@
     "test": "npm -w @repo/web run test",
     "test:watch": "npm -w @repo/web run test:watch",
     "test:itest": "npm -w @repo/web run test:itest",
-    "seed": "npm -w @repo/web run seed"
+    "seed": "npm -w @repo/web run seed",
+    "db:migrate": "npm -w @repo/web run db:migrate",
+    "mobile": "npm -w @repo/mobile run start",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
+  },
+  "dependencies": {
+    "expo": "~52.0.49",
+    "react": "18.3.1",
+    "react-native": "0.76.9"
   }
 }

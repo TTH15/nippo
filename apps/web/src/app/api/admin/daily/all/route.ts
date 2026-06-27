@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 import { loadReportContents } from "@/server/aggregation/reportContent";
@@ -17,7 +17,7 @@ type ReportGroup = {
 };
 
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_reports");
   if (isAuthError(user)) return user;
 
   const url = req.nextUrl;

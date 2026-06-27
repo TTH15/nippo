@@ -14,7 +14,7 @@ import { getDisplayName } from "@/lib/displayName";
 import { carrierBadgeLabel, carrierBadgeTone } from "@/lib/carrierBadge";
 import { ReportContentView } from "@/lib/components/ReportContentView";
 import type { ReportContentUnit } from "@/lib/reportContent";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { getStoredDriver } from "@/lib/api";
 import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
@@ -128,7 +128,7 @@ export default function AdminDailyPage() {
   const [daySummaries, setDaySummaries] = useState<DaySummary[]>([]);
   const [proxyTarget, setProxyTarget] = useState<{ driverId: string; driverName: string; date: string } | null>(null);
 
-  const canWrite = canAdminWrite(getStoredDriver()?.role);
+  const canWrite = hasCapability("can_edit_reports");
   const totalEntries = groups.reduce((sum, g) => sum + g.entries.length, 0);
   const businessToday = reportDateDefaultJST();
 

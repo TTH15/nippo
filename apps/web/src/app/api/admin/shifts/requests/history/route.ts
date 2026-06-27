@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
 // GET: 指定ドライバー×日付の希望休 変更履歴（時系列）。運営UIの初回提出/最終変更表示用。
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_shifts");
   if (isAuthError(user)) return user;
 
   const driverId = req.nextUrl.searchParams.get("driverId");

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError, getCapabilities } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
@@ -19,7 +19,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_members");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const { id: driverId } = await params;
@@ -27,7 +27,7 @@ export async function GET(
   const { data: driver, error } = await supabase
     .from("drivers")
     .select(`
-      id, name, display_name, role, company_code, office_code, driver_code, list_no, created_at, license_expiry_date,
+      id, name, display_name, role, role_id, company_code, office_code, driver_code, list_no, created_at, license_expiry_date,
       postal_code, address, phone, bank_name, bank_no, bank_holder,
       driver_identities (
         id, slot, driver_code, office_code, label,
@@ -44,6 +44,13 @@ export async function GET(
   if (error || !driver) {
     return NextResponse.json({ error: "ドライバーが見つかりません" }, { status: 404 });
   }
+  // §2-6: 口座情報は can_view_bank_accounts を持つ場合のみ開示（名簿閲覧だけでは見せない）。
+  const caps = await getCapabilities(user);
+  if (!caps.has("can_view_bank_accounts")) {
+    driver.bank_name = null;
+    driver.bank_no = null;
+    driver.bank_holder = null;
+  }
   const response = NextResponse.json({ driver });
   response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=300");
   return response;
@@ -54,7 +61,7 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_members");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
@@ -74,19 +81,48 @@ export async function PUT(
       bankHolder,
       licenseExpiryDate,
       status,
+      roleId,
       identities: identitiesRaw,
     } = body;
     const { id: driverId } = await params;
 
     const { data: driverRow, error: driverFetchErr } = await supabase
       .from("drivers")
-      .select("id, company_code, driver_code, pin_hash")
+      .select("id, company_code, driver_code, pin_hash, role_id, status")
       .eq("id", driverId)
       .eq("org_id", orgId)
       .single();
 
     if (driverFetchErr || !driverRow) {
       return NextResponse.json({ error: "ドライバーが見つかりません" }, { status: 404 });
+    }
+
+    // ガバナンス保護: org には常に active な管理者(ADMIN)が1人以上必要。
+    // 最後の ADMIN を別ロールに変更/却下しようとしたら弾く（ロックアウト防止）。
+    const { data: adminRole } = await supabase
+      .from("roles")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("key", "ADMIN")
+      .maybeSingle();
+    const isCurrentlyAdmin = !!adminRole && driverRow.role_id === adminRole.id;
+    const willLeaveAdmin =
+      isCurrentlyAdmin &&
+      ((roleId !== undefined && roleId !== null && roleId !== adminRole!.id) || status === "rejected");
+    if (willLeaveAdmin) {
+      const { count } = await supabase
+        .from("drivers")
+        .select("id", { count: "exact", head: true })
+        .eq("org_id", orgId)
+        .eq("role_id", adminRole!.id)
+        .eq("status", "active")
+        .neq("id", driverId);
+      if ((count ?? 0) === 0) {
+        return NextResponse.json(
+          { error: "最後の管理者です。先に別のメンバーを管理者に設定してください" },
+          { status: 400 },
+        );
+      }
     }
 
     const companyCode = driverRow.company_code || user.companyCode;
@@ -111,6 +147,21 @@ export async function PUT(
     // Phase 7a: 参加申請の承認(active)/却下(rejected)。pending へは戻さない。
     if (status === "active" || status === "rejected") {
       updates.status = status;
+    }
+    // §2-6: ロール割当（role_id を正本に、role テキストも key で同期＝表示・互換）。
+    // 当 org のロールのみ受け付ける（他社ロールは弾く）。
+    if (roleId !== undefined && roleId !== null) {
+      const { data: role } = await supabase
+        .from("roles")
+        .select("id, key")
+        .eq("id", roleId)
+        .eq("org_id", orgId)
+        .maybeSingle();
+      if (!role) {
+        return NextResponse.json({ error: "指定されたロールが見つかりません" }, { status: 400 });
+      }
+      updates.role_id = role.id;
+      updates.role = role.key;
     }
 
     const syncSlot1ToDriver = async (fullCode: string, office: string) => {
@@ -291,7 +342,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_members");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

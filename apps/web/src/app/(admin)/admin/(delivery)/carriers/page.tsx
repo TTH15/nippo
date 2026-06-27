@@ -9,7 +9,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 
 type BillingType = "PER_PIECE" | "FIXED";
@@ -58,7 +58,7 @@ export default function CarriersPage() {
   const [presetFor, setPresetFor] = useState<string | null>(null); // unitId
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_org_settings"));
   }, []);
 
   // SWR でキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。

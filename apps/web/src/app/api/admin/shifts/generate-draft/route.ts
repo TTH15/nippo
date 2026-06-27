@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
@@ -22,7 +22,7 @@ type CourseRow = {
  * 各 (日付, コース) に対して、そのコースを担当可能で希望休でないドライバーを1名割り当てる。
  */
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_manage_shifts");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

@@ -1,5 +1,5 @@
 import { jwtVerify, SignJWT } from "jose";
-import type { AuthProvider, AuthUser } from "./types";
+import type { AuthProvider, AuthUser, MembershipRole } from "./types";
 
 const secret = () => {
   const s = process.env.JWT_SECRET;
@@ -13,7 +13,7 @@ const secret = () => {
 
 export async function signToken(payload: {
   driverId: string;
-  role: "DRIVER" | "ADMIN" | "ADMIN_VIEWER";
+  role: MembershipRole;
   companyCode: string;
   // Phase 6a: identity（人）と current_org_id（選択中の所属）を運ぶ。未指定（旧呼び出し）は null。
   identityId?: string | null;
@@ -51,7 +51,9 @@ export class SimpleJwtAuthProvider implements AuthProvider {
     const identityId = (payload.identity_id as string | null | undefined) ?? null;
     const orgId = (payload.current_org_id as string | null | undefined) ?? null;
 
-    if (!driverId || !["DRIVER", "ADMIN", "ADMIN_VIEWER"].includes(role)) {
+    // role は表示ラベル（カスタムロールのキーも入りうる）。権限の判定は capability 側で行うため、
+    // ここでは driverId と非空 role の存在のみ検証する。
+    if (!driverId || typeof role !== "string" || !role) {
       throw new Error("Invalid token payload");
     }
     return {

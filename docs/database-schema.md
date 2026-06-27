@@ -1,10 +1,16 @@
 # データベーススキーマ
 
-migrations 001〜087 を適用した後の最終状態。
+migrations 001〜098 を適用した後の最終状態。
 
-> **Phase 4（087）**: `company_carriers(org_id, carrier_id)` 追加＝キャリアは共有マスタ＋会社別有効化。ACE は全キャリア有効で backfill。集計ローダは org の有効キャリアに carriers/units を絞る。
+> **マルチテナント移行 Phase 0/1/3（082, 083, 086）**: `companies` を `organizations` へ昇格（`join_code`/`status` 追加、`id`=org_id）。多数のテーブルに `org_id`（車両は `owner_org_id`）を追加し既存全行を ACE テナントへバックフィル → 086 で NOT NULL＋FK 化。スコープ強制は API 層（`server/db/tenant.ts`）。詳細は `platform-design.md` §6,§7。
 
-> **マルチテナント移行 Phase 0/1（082, 083）**: `companies` を `organizations` へ昇格（`join_code`/`status` 追加、`id`=org_id）。多数のテーブルに `org_id`（車両は `owner_org_id`）を nullable で追加し、既存全行を ACE テナントへバックフィル済。NOT NULL/FK・スコープ強制は後続フェーズ。詳細は `platform-design.md` §6,§7。
+> **Phase 4（087）**: `company_carriers(org_id, carrier_id)` 追加＝キャリアは共有マスタ＋会社別有効化。
+
+> **Phase 5a 識別子層（088）**: `identities`（人＝顔/免許/氏名/電話/Passkey、1人1つ）と `passkey_credentials` を新設。`drivers` を membership として温存し `drivers.identity_id` で紐付け。`drivers.status`（pending/active/rejected）追加。※ `identities`（人）は既存 `driver_identities`（勤務区分slot）とは別物。
+
+> **本登録 KYC / 2段階承認（089, 090）**: 089=非公開 Storage バケット `kyc-documents`（免許/顔写真）。090=`drivers.kyc_verified_at`/`kyc_verified_by`（運営の本人確認＝本承認）。フロー: 仮登録(電話OTP)→仮承認(pending→active)→本登録(免許/顔/住所/銀行)→本承認(kyc_verified_at)→稼働。詳細は `platform-design.md` §2,§7・memory `tenant-migration`。
+
+> **JWT（6a）**: トークンに `identity_id`＋`current_org_id` を後方互換で追加（`server/auth`）。
 
 ---
 
@@ -40,6 +46,18 @@ migrations 001〜087 を適用した後の最終状態。
 | sort_order | int | NOT NULL, DEFAULT 0 |
 | active | boolean | NOT NULL, DEFAULT true |
 | created_at | timestamptz | NOT NULL, DEFAULT now() |
+
+---
+
+### company_carriers
+キャリアの会社別有効化（087）。carriers は共有マスタのまま、どの org がどのキャリアを使うかを表す。未設定の org は「全 carrier 有効」とフォールバック（`loadOrgCarrierIds` が null→全許可）。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| org_id | uuid | NOT NULL, FK → organizations(id) |
+| carrier_id | uuid | NOT NULL, FK → carriers(id) |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+| PK | | (org_id, carrier_id) |
 
 ---
 
@@ -384,8 +402,48 @@ migrations 001〜087 を適用した後の最終状態。
 | list_no | integer | nullable |
 | license_expiry_date | date | nullable |
 | last_bonus_seen_at | timestamptz | nullable |
+| org_id | uuid | NOT NULL, FK → organizations(id)（083/086） |
+| identity_id | uuid | nullable, FK → identities(id)（088。membership↔人の紐付け） |
+| status | text | NOT NULL, DEFAULT 'active', CHECK IN ('pending','active','rejected')（088。仮承認の状態） |
+| kyc_verified_at | timestamptz | nullable（090。運営の本人確認＝本承認の時刻。null=本承認前） |
+| kyc_verified_by | uuid | nullable（090。本承認した運営の driver id） |
 
-**Index:** `idx_drivers_company_list_no_driver (company_code, list_no) WHERE role = 'DRIVER' AND list_no IS NOT NULL`
+**ドライバーの状態（2段階承認）:** `status='pending'`=仮登録申請中 / `status='active' かつ kyc_verified_at IS NULL`=仮承認済・本登録/本人確認待ち / `status='active' かつ kyc_verified_at IS NOT NULL`=本承認済（稼働可）/ `status='rejected'`=却下。**住所/銀行（postal_code/address/bank_*）は membership（drivers）側、氏名/免許/顔写真は identity 側**（本名 vs 表示名 display_name）。
+
+**Index:** `idx_drivers_company_list_no_driver (company_code, list_no) WHERE role = 'DRIVER' AND list_no IS NOT NULL`、`idx_drivers_identity_id`
+
+---
+
+### identities
+人（KYC・認証）の層（088）。**1人=1つ（グローバル）**。`drivers`（membership）が `identity_id` で紐付く。検証済み電話で重複排除（仮登録 find-or-create）。※既存 `driver_identities`（勤務区分slot）とは別物・混同注意。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK, DEFAULT gen_random_uuid() |
+| name | text | nullable（本名） |
+| dob | date | nullable（生年月日） |
+| phone | text | nullable |
+| phone_verified_at | timestamptz | nullable（SMS OTP 検証時刻。仮登録で刻む） |
+| face_photo_path | text | nullable（非公開バケット kyc-documents のパス） |
+| license_photo_path | text | nullable（同上） |
+| license_expiry | date | nullable（免許有効期限。OCR/手入力） |
+| line_user_id | text | UNIQUE, nullable |
+| pin_hash | text | nullable（Phase 6 で Passkey に置換予定の橋渡し） |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+
+---
+
+### passkey_credentials
+WebAuthn 資格情報（088・Phase 6 で使用、現状は空）。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK, DEFAULT gen_random_uuid() |
+| identity_id | uuid | NOT NULL, FK → identities(id) |
+| credential_id | text | UNIQUE, nullable |
+| public_key | bytea | nullable |
+| counter | bigint | nullable |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
 
 ---
 
@@ -787,8 +845,82 @@ migrations 001〜087 を適用した後の最終状態。
 | vehicle_id | uuid | NOT NULL, FK → vehicles(id) ON DELETE CASCADE |
 | loan_date | date | NOT NULL |
 | note | text | nullable |
+| borrower_org_id | uuid | nullable, FK → organizations(id)（貸与先org。QRのテナント横断認可に使用。migration 097） |
 | created_at | timestamptz | NOT NULL, DEFAULT now() |
 | UNIQUE | | (vehicle_id, loan_date) |
+
+---
+
+### vehicle_qr
+車両QRのローテーション式トークン（migration 096）。再発行で旧失効・ADMIN貼付確認で有効化。設計: `vehicle-session-flow.md §8`。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK |
+| vehicle_id | uuid | NOT NULL, FK → vehicles(id) ON DELETE CASCADE |
+| org_id | uuid | NOT NULL, FK → organizations(id)（発行=所有org） |
+| token | text | NOT NULL, UNIQUE（不透明。QRペイロード `nippo://v/<token>`） |
+| version | int | NOT NULL, DEFAULT 1（再発行で+1） |
+| status | text | NOT NULL, DEFAULT 'issued'，CHECK in ('issued','active','revoked') |
+| issued_at / issued_by | timestamptz / uuid | 発行時刻・発行membership |
+| attached_confirmed_at / attached_confirmed_by | timestamptz / uuid | 貼付確認(有効化) |
+| revoked_at | timestamptz | nullable |
+| 部分UNIQUE | | (vehicle_id) WHERE status <> 'revoked'（有効トークンは車両に1本） |
+
+---
+
+### vehicle_sessions
+車両セッション（出退勤＝勤怠の正本。migration 095）。設計: `vehicle-session-flow.md §1`。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK |
+| vehicle_id | uuid | NOT NULL, FK → vehicles(id) |
+| org_id | uuid | NOT NULL, FK → organizations(id)（使用org。貸与中は借用org） |
+| recorded_by | uuid | FK → drivers(id)（記録ドライバー） |
+| purpose | text | NOT NULL, DEFAULT 'work'，CHECK in ('work','move','private') |
+| shift_id / authorized_by | uuid | nullable（work紐付け／private承認者） |
+| status | text | NOT NULL, DEFAULT 'open'，CHECK in ('open','closed') |
+| started_at / start_lat / start_lng / start_odometer | ts / float / float / int | 出勤 |
+| ended_at / end_lat / end_lng / end_odometer | ts / float / float / int | 退勤 |
+| start_method / end_method | text | 'qr'｜'plate_ocr'｜'manual'（打刻手段） |
+| start_gps_status / end_gps_status | text | 'captured'｜'denied'｜'unavailable' |
+| fallback_reason / plate_photo_path | text | 退避ルート証跡（plate_ocr/manual時） |
+| approval_status / approved_at / approved_by | text / ts / uuid | manual打刻の承認（'pending'｜'approved'｜'rejected'） |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+
+ドライバー別走行距離は派生（SUM(end_odometer - start_odometer) GROUP BY recorded_by）。
+
+---
+
+### vehicle_inspections
+稼働前後の点検（オドメーター＋状態写真。migration 095）。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK |
+| session_id | uuid | FK → vehicle_sessions(id) ON DELETE SET NULL |
+| vehicle_id | uuid | NOT NULL, FK → vehicles(id) |
+| org_id | uuid | NOT NULL, FK → organizations(id) |
+| recorded_by | uuid | FK → drivers(id) |
+| phase | text | NOT NULL, CHECK in ('pre','post') |
+| odometer_reading | int | nullable |
+| odometer_photo_path | text | nullable（Storage `meter-photos`。承認まで保持） |
+| odometer_photo_retain_until | timestamptz | nullable（cleanup用） |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+
+---
+
+### vehicle_inspection_photos
+点検の角度別写真（migration 095。UI未実装）。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK |
+| inspection_id | uuid | NOT NULL, FK → vehicle_inspections(id) ON DELETE CASCADE |
+| angle | text | NOT NULL（front/rear/left/right/corner_* 等） |
+| photo_path | text | NOT NULL |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
 
 ---
 
