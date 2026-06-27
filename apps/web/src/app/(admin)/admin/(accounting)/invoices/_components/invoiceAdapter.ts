@@ -1,4 +1,5 @@
 import type { InvoiceDocData, InvoiceDocLine } from "./InvoiceDocument";
+import { resolveInvoiceKind, type InvoiceKind } from "./invoiceKinds";
 
 // GET /api/admin/invoices/[id] のレスポンス（payload は形が一定しないため防御的に読む）。
 // 新仕様の追加項目（unit / period / loanRepay / extraOutsourcing）が無い旧 payload でも
@@ -6,6 +7,7 @@ import type { InvoiceDocData, InvoiceDocLine } from "./InvoiceDocument";
 type ApiInvoice = {
   invoiceNo?: string;
   clientName?: string;
+  direction?: "outgoing" | "incoming";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload?: any;
 };
@@ -38,8 +40,11 @@ export function toInvoiceDocData(invoice: ApiInvoice): InvoiceDocData {
   const fromParty = str(p?.parties?.fromParty);
   const showStamp = fromParty === "ace_creation" || /ACE\s*CREATION/i.test(fromName);
   const tax = p.taxSettings ?? {};
+  // 種別：トップレベル direction を優先、無ければ parties から推定。
+  const kind: InvoiceKind = invoice.direction ?? resolveInvoiceKind(p?.parties);
 
   return {
+    kind,
     toName: str(p.toName) || str(invoice.clientName),
     toAddrHtml: str(p.toAddr),
     toTel: p.toTel ? str(p.toTel) : undefined,
