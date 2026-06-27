@@ -13,7 +13,7 @@ import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
 import { Button } from "@/lib/ui/button";
-import { faTrash, faUser, faPhone, faCircleCheck, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faTrash, faUser, faPhone, faCircleCheck, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -157,6 +157,9 @@ export default function UsersPage() {
   const skipAutoSave = useRef(true);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // 担当可能コース: 未選択はアコーディオンに隠す（選択中のみ常時表示）
+  const [courseOpen1, setCourseOpen1] = useState(false);
+  const [courseOpen2, setCourseOpen2] = useState(false);
   const [form, setForm] = useState({
     name: "",
     displayName: "",
@@ -957,6 +960,7 @@ export default function UsersPage() {
               {modalTab === "work" && (
               <>
               <p className="text-xs font-semibold text-slate-600 pt-1">勤務区分1</p>
+              <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">事業所コード（6桁）</label>
                 <input
@@ -996,11 +1000,15 @@ export default function UsersPage() {
                   この6桁が初回ログイン時のPINになります
                 </p>
               </div>
+              </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">担当可能コース（区分1）</label>
-                <div className="flex flex-wrap gap-2">
-                  {courses.map((c) => (
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">担当可能コース（区分1）</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  {form.courseIds.length === 0 && !courseOpen1 && (
+                    <span className="text-xs text-slate-400">未選択</span>
+                  )}
+                  {(courseOpen1 ? courses : courses.filter((c) => form.courseIds.includes(c.id))).map((c) => (
                     <button
                       key={c.id}
                       type="button"
@@ -1014,6 +1022,14 @@ export default function UsersPage() {
                       {c.name}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => setCourseOpen1((o) => !o)}
+                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs font-medium text-amber-700 hover:bg-amber-50"
+                  >
+                    <FontAwesomeIcon icon={courseOpen1 ? faChevronUp : faChevronDown} className="w-2.5 h-2.5" />
+                    {courseOpen1 ? "閉じる" : "コースを選択"}
+                  </button>
                 </div>
               </div>
 
@@ -1023,6 +1039,7 @@ export default function UsersPage() {
                   別コード・別事業所で日報を分ける場合。未入力のままなら区分2は無効です。
                 </p>
                 <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-400 mb-1.5">事業所コード（6桁）</label>
                     <input
@@ -1056,10 +1073,14 @@ export default function UsersPage() {
                       />
                     </div>
                   </div>
+                  </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">担当可能コース（区分2）</label>
-                    <div className="flex flex-wrap gap-2">
-                      {courses.map((c) => (
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">担当可能コース（区分2）</label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {form.courseIds2.length === 0 && !courseOpen2 && (
+                        <span className="text-xs text-slate-400">未選択</span>
+                      )}
+                      {(courseOpen2 ? courses : courses.filter((c) => form.courseIds2.includes(c.id))).map((c) => (
                         <button
                           key={`s2-${c.id}`}
                           type="button"
@@ -1073,6 +1094,14 @@ export default function UsersPage() {
                           {c.name}
                         </button>
                       ))}
+                      <button
+                        type="button"
+                        onClick={() => setCourseOpen2((o) => !o)}
+                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs font-medium text-amber-700 hover:bg-amber-50"
+                      >
+                        <FontAwesomeIcon icon={courseOpen2 ? faChevronUp : faChevronDown} className="w-2.5 h-2.5" />
+                        {courseOpen2 ? "閉じる" : "コースを選択"}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1083,7 +1112,10 @@ export default function UsersPage() {
               {modalTab === "contract" && (
               <>
               <div className="pt-4 mt-4 border-t border-slate-200">
-                <h3 className="text-sm font-semibold text-slate-700 mb-1">運転免許証</h3>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-1">
+                  <FontAwesomeIcon icon={faIdCard} className="w-3.5 h-3.5 text-slate-400" />
+                  運転免許証
+                </h3>
                 <p className="text-xs text-slate-500 mb-3">有効期限の管理（一覧では期限色で表示されます）</p>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">有効期限</label>
@@ -1106,7 +1138,10 @@ export default function UsersPage() {
               </div>
 
               <div className="pt-4 mt-4 border-t border-slate-200">
-                <h3 className="text-sm font-semibold text-slate-700 mb-1">リース</h3>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-1">
+                  <FontAwesomeIcon icon={faMoneyBillWave} className="w-3.5 h-3.5 text-slate-400" />
+                  リース
+                </h3>
                 <p className="text-xs text-slate-500 mb-3">
                   リース方式を選びます。<strong>月額</strong>＝毎月固定額を日当から控除（コースの日額リース代は免除）。
                   <strong>日毎</strong>＝走ったコースの日額リース代×稼働日数を日当から控除（金額はコース側で設定）。
@@ -1275,7 +1310,10 @@ export default function UsersPage() {
               {modalTab === "contract" && (
               <>
               <div className="pt-4 mt-4 border-t border-slate-200">
-                <h3 className="text-sm font-semibold text-slate-700 mb-3">口座（振込先）</h3>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-3">
+                  <FontAwesomeIcon icon={faBuildingColumns} className="w-3.5 h-3.5 text-slate-400" />
+                  口座（振込先）
+                </h3>
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
