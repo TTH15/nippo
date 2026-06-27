@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest";
+import { useState } from "react";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { InvoiceSheet } from "./InvoiceSheet";
 import { blankEditorState, type EditorState } from "./editorModel";
+
+function Harness({ init }: { init: EditorState }) {
+  const [st, setSt] = useState(init);
+  return <InvoiceSheet state={st} onChange={setSt} />;
+}
 
 function sample(): EditorState {
   return {
@@ -32,5 +39,18 @@ describe("InvoiceSheet", () => {
     // 摘要セルが input（placeholder=摘要）として描画される
     expect(screen.getAllByPlaceholderText("摘要").length).toBeGreaterThan(0);
     expect(screen.getByText("差引き請求額")).toBeInTheDocument();
+  });
+
+  it("連続入力でフォーカスが外れない（複数桁を入力できる）", async () => {
+    const user = userEvent.setup();
+    render(<Harness init={{ ...blankEditorState("outgoing"), main: [{ title: "", qty: "", unit: "", price: "" }], deduct: [] }} />);
+    const title = screen.getByPlaceholderText("摘要");
+    await user.click(title);
+    await user.type(title, "ネコポス");
+    expect((title as HTMLInputElement).value).toBe("ネコポス");
+    // 数量に複数桁
+    const qty = screen.getAllByPlaceholderText("0")[0];
+    await user.type(qty, "254");
+    expect((qty as HTMLInputElement).value).toBe("254");
   });
 });
