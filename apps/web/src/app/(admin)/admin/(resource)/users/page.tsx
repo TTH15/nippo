@@ -146,6 +146,7 @@ export default function UsersPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [openingEditId, setOpeningEditId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [form, setForm] = useState({
     name: "",
@@ -284,6 +285,10 @@ export default function UsersPage() {
 
   const openEdit = async (d: Driver) => {
     if (!canWrite) return;
+    // まず詳細モーダルをスケルトンで即時表示し、取得完了まで loading にする
+    setEditingDriver(d);
+    setModalLoading(true);
+    setShowModal(true);
     setOpeningEditId(d.id);
     setLeaseLoading(true);
     try {
@@ -337,9 +342,9 @@ export default function UsersPage() {
             : "",
         roleId: full.role_id ?? "",
       });
-      setShowModal(true);
     } catch (e) {
       console.error(e);
+      setShowModal(false);
       setErrorState({
         title: "ドライバー詳細の取得に失敗しました",
         message: "編集用データの取得に失敗しました。時間をおいて再度お試しください。",
@@ -347,6 +352,7 @@ export default function UsersPage() {
     } finally {
       setOpeningEditId(null);
       setLeaseLoading(false);
+      setModalLoading(false);
     }
   };
 
@@ -590,6 +596,7 @@ export default function UsersPage() {
         try {
           await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
           setDrivers((prev) => prev.filter((d) => d.id !== id));
+          setShowModal(false);
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";
@@ -642,7 +649,10 @@ export default function UsersPage() {
       });
     } catch (e) {
       setDrivers((list) => list.map((x) => (x.id === d.id ? { ...x, role_id: prevRoleId } : x)));
-      window.alert(e instanceof Error ? e.message : "権限の変更に失敗しました");
+      setErrorState({
+        title: "権限の変更に失敗しました",
+        message: e instanceof Error ? e.message : "権限を変更できませんでした。",
+      });
     } finally {
       setRoleSavingId(null);
     }
@@ -701,8 +711,7 @@ export default function UsersPage() {
                     <th className="px-3 py-2.5 text-left font-semibold">表示名</th>
                     <th className="px-3 py-2.5 text-left font-semibold">コース</th>
                     <th className="px-3 py-2.5 text-left font-semibold">免許期限</th>
-                    <th className="px-3 py-2.5 text-left font-semibold w-40">権限</th>
-                    {canWrite && <th className="px-3 py-2.5 w-12" />}
+                    <th className="px-3 py-2.5 text-left font-semibold w-44">権限</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -731,16 +740,22 @@ export default function UsersPage() {
                         </td>
                         <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{getDisplayName(d)}</td>
                         <td className="px-3 py-2">
-                          <div className="flex flex-wrap gap-1 max-w-[220px]">
-                            {coursesOfDriver.map((dc) => (
+                          <div className="flex items-center gap-1 max-w-[200px] overflow-hidden">
+                            {coursesOfDriver.slice(0, 2).map((dc) => (
                               <span
                                 key={dc.course_id}
-                                className="px-1.5 py-0.5 rounded text-xs text-white whitespace-nowrap"
+                                className="px-1.5 py-0.5 rounded text-xs text-white whitespace-nowrap truncate max-w-[88px]"
                                 style={{ backgroundColor: dc.courses.color }}
+                                title={dc.courses.name}
                               >
                                 {dc.courses.name}
                               </span>
                             ))}
+                            {coursesOfDriver.length > 2 && (
+                              <span className="px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-500 whitespace-nowrap shrink-0">
+                                +{coursesOfDriver.length - 2}
+                              </span>
+                            )}
                             {coursesOfDriver.length === 0 && <span className="text-xs text-slate-400">未設定</span>}
                           </div>
                         </td>
@@ -755,7 +770,7 @@ export default function UsersPage() {
                               value={d.role_id ?? ""}
                               disabled={roleSavingId === d.id}
                               onChange={(e) => changeRole(d, e.target.value)}
-                              className="w-full max-w-[150px] rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100 disabled:opacity-50"
+                              className="w-full max-w-[170px] appearance-none rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100 disabled:opacity-50"
                             >
                               {!d.role_id && <option value="">未設定</option>}
                               {roleOptions.map((r) => (
@@ -766,17 +781,6 @@ export default function UsersPage() {
                             <span className="text-xs text-slate-600">{roleLabelOf(d)}</span>
                           )}
                         </td>
-                        {canWrite && (
-                          <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              onClick={() => deleteDriver(d.id, d.name)}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-                              title="削除"
-                            >
-                              <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
-                            </button>
-                          </td>
-                        )}
                       </tr>
                     );
                   })}
@@ -799,6 +803,13 @@ export default function UsersPage() {
               {editingDriver ? "ドライバー編集" : "新規ドライバー追加"}
             </h2>
 
+            {modalLoading ? (
+              <div className="space-y-4">
+                {[...Array(6)].map((_, i) => (
+                  <Skeleton key={i} className="h-11 w-full" />
+                ))}
+              </div>
+            ) : (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">名前</label>
@@ -1202,21 +1213,35 @@ export default function UsersPage() {
               </div>
 
             </div>
+            )}
 
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={save}
-                disabled={saving || !isFormValid}
-                className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
-              >
-                {saving ? "保存中..." : "保存"}
-              </button>
+            <div className="flex items-center justify-between gap-2 mt-6">
+              <div>
+                {editingDriver && !modalLoading && (
+                  <button
+                    onClick={() => deleteDriver(editingDriver.id, editingDriver.name)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded transition-colors"
+                  >
+                    <FontAwesomeIcon icon={faTrash} className="w-3.5 h-3.5" />
+                    削除
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={save}
+                  disabled={saving || modalLoading || !isFormValid}
+                  className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                >
+                  {saving ? "保存中..." : "保存"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
