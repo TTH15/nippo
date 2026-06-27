@@ -10,6 +10,9 @@ import {
   parseRow,
   sumRows,
   invoiceLines,
+  roundedRowAmount,
+  sumRowsRounded,
+  computeInvoiceTotals,
 } from "./reward";
 import type { RewardLogDetail, RewardsSummary, MyInvoice } from "../types";
 
@@ -137,5 +140,78 @@ describe("invoiceLines", () => {
   });
   it("payload 欠如でも落ちない", () => {
     expect(invoiceLines(inv({ payload: null }))).toEqual({ main: [], deduct: [], attachments: [] });
+  });
+});
+
+describe("roundedRowAmount / sumRowsRounded", () => {
+  it("行ごとに四捨五入（小数単価）", () => {
+    expect(roundedRowAmount({ qty: 254, price: 27.3 })).toBe(6934); // 6934.2→6934
+    expect(roundedRowAmount({ qty: 59, price: 27.3 })).toBe(1611); // 1610.7→1611
+  });
+  it("sumRowsRounded は各行四捨五入後の合算", () => {
+    expect(sumRowsRounded([{ qty: 254, price: 27.3 }, { qty: 59, price: 27.3 }])).toBe(8545);
+    expect(sumRowsRounded([])).toBe(0);
+  });
+});
+
+describe("computeInvoiceTotals", () => {
+  it("税抜単価モデル：請求−お支払い−借入返済+追加外注", () => {
+    const t = computeInvoiceTotals({
+      main: [{ qty: 1, price: 100000 }],
+      deduct: [{ qty: 1, price: 30000 }],
+      taxEnabled: true,
+      taxRatePercent: 10,
+      loanRepay: 5000,
+      extraOutsourcing: 2000,
+    });
+    expect(t.billSubtotal).toBe(100000);
+    expect(t.deductSubtotal).toBe(30000);
+    expect(t.billTax).toBe(10000);
+    expect(t.deductTax).toBe(3000);
+    expect(t.billGross).toBe(110000);
+    expect(t.deductGross).toBe(33000);
+    // 110000 − 33000 − 5000 + 2000
+    expect(t.total).toBe(74000);
+  });
+
+  it("消費税OFFなら税額0・総額は税抜差引き", () => {
+    const t = computeInvoiceTotals({
+      main: [{ qty: 2, price: 12727 }],
+      deduct: [],
+      taxEnabled: false,
+      taxRatePercent: 10,
+      loanRepay: 0,
+      extraOutsourcing: 0,
+    });
+    expect(t.billTax).toBe(0);
+    expect(t.deductTax).toBe(0);
+    expect(t.total).toBe(25454);
+  });
+
+  it("小数単価は行ごと四捨五入してから税計算", () => {
+    const t = computeInvoiceTotals({
+      main: [{ qty: 254, price: 27.3 }, { qty: 1453, price: 136.36 }],
+      deduct: [],
+      taxEnabled: true,
+      taxRatePercent: 10,
+      loanRepay: 0,
+      extraOutsourcing: 0,
+    });
+    // 6934 + 198131 = 205065, tax 20506.5→20507
+    expect(t.billSubtotal).toBe(205065);
+    expect(t.billTax).toBe(20507);
+    expect(t.total).toBe(225572);
+  });
+
+  it("欠損入力でも落ちない（NaN→0）", () => {
+    const t = computeInvoiceTotals({
+      main: [],
+      deduct: [],
+      taxEnabled: true,
+      taxRatePercent: 10,
+      loanRepay: NaN as unknown as number,
+      extraOutsourcing: NaN as unknown as number,
+    });
+    expect(t.total).toBe(0);
   });
 });
