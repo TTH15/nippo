@@ -337,23 +337,23 @@ export default function AdminDailyPage() {
   return (
     <AdminLayout>
       <div className="mb-4 flex gap-6 border-b border-slate-200">
-        <button type="button" onClick={() => setReportTab("daily")} className={`relative pb-2.5 text-sm font-medium inline-flex items-center gap-1.5 ${reportTab === "daily" ? "text-blue-600" : "text-slate-600 hover:text-slate-900"}`}>
+        <button type="button" onClick={() => setReportTab("daily")} className={`relative pb-2.5 text-sm font-medium inline-flex items-center gap-1.5 ${reportTab === "daily" ? "text-amber-600" : "text-slate-600 hover:text-slate-900"}`}>
           日報
           {dailyActionableCount > 0 && (
             <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold leading-none tabular-nums">
               {dailyActionableCount}
             </span>
           )}
-          {reportTab === "daily" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />}
+          {reportTab === "daily" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-600" />}
         </button>
-        <button type="button" onClick={() => setReportTab("other")} className={`relative pb-2.5 text-sm font-medium inline-flex items-center gap-1.5 ${reportTab === "other" ? "text-blue-600" : "text-slate-600 hover:text-slate-900"}`}>
+        <button type="button" onClick={() => setReportTab("other")} className={`relative pb-2.5 text-sm font-medium inline-flex items-center gap-1.5 ${reportTab === "other" ? "text-amber-600" : "text-slate-600 hover:text-slate-900"}`}>
           その他の報告
           {miscActionableCount > 0 && (
             <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold leading-none tabular-nums">
               {miscActionableCount}
             </span>
           )}
-          {reportTab === "other" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />}
+          {reportTab === "other" && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-600" />}
         </button>
       </div>
       {reportTab === "other" ? (

@@ -218,7 +218,7 @@ export default function CarriersPage() {
                                 className={`rounded-lg border border-slate-200 px-2.5 py-2 relative ${canWrite ? "cursor-pointer hover:border-slate-300 active:bg-slate-50" : ""}`}
                               >
                                 <div className="text-[11px] text-slate-500 mb-1 flex items-center gap-1 pr-7">
-                                  {f.group_label && <span className="text-[10px] px-1 rounded bg-indigo-50 text-indigo-600">{f.group_label}</span>}
+                                  {f.group_label && <span className="text-[10px] px-1 rounded bg-amber-50 text-amber-600">{f.group_label}</span>}
                                   {f.label}{f.required && <span className="text-red-500">*</span>}
                                   {f.is_billable && <span className="text-[9px] px-1 rounded bg-emerald-50 text-emerald-600 ml-auto">課金</span>}
                                 </div>

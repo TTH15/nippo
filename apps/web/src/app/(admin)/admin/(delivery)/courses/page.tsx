@@ -488,7 +488,7 @@ export default function CoursesPage() {
               ) : (
                 <span className="text-xs text-slate-400">担当ドライバー未設定</span>
               )}
-              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[11px] rounded">
+              <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[11px] rounded">
                 元請:{" "}
                 {course.principal_invoice_address_id
                   ? principalNameById.get(course.principal_invoice_address_id) ?? "未設定"
