@@ -26,6 +26,18 @@ type AddressRow = {
   invoice_no?: string;
 };
 
+type DriverRow = {
+  id: string;
+  name: string;
+  display_name?: string | null;
+  postal_code?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  bank_name?: string | null;
+  bank_no?: string | null;
+  bank_holder?: string | null;
+};
+
 function addrHtml(postal?: string, address?: string): string {
   const p = postal ?? "";
   const a = address ?? "";
@@ -136,8 +148,16 @@ export function InvoiceEditor({
   const [error, setError] = useState<string | null>(null);
 
   // 取引先（請求先）アドレス帳。売上請求書の請求先セレクタで使用。
-  const { data: addrData } = useApi<{ addresses: AddressRow[] }>("/api/admin/invoice-addresses");
+  const { data: addrData } = useApi<{ addresses: AddressRow[] }>(
+    st.kind === "outgoing" ? "/api/admin/invoice-addresses" : null,
+  );
   const addresses = addrData?.addresses ?? [];
+
+  // ドライバー一覧。受領請求書の請求元（ドライバー）セレクタで使用。
+  const { data: driverData } = useApi<{ drivers: DriverRow[] }>(
+    st.kind === "incoming" ? "/api/admin/users?limit=500" : null,
+  );
+  const drivers = driverData?.drivers ?? [];
 
   const set = <K extends keyof EditorState>(key: K, value: EditorState[K]) =>
     setSt((prev) => ({ ...prev, [key]: value }));
@@ -153,6 +173,21 @@ export function InvoiceEditor({
       toTel: a ? a.phone ?? "" : prev.toTel,
       toReg: a ? a.invoice_no ?? "" : prev.toReg,
       parties: { ...prev.parties, toParty: id ? `corp-${id}` : prev.parties.toParty },
+    }));
+  };
+
+  // ドライバーを選ぶと請求元（氏名/住所/電話）と振込先（口座）を自動入力。
+  const selectDriver = (id: string) => {
+    const d = drivers.find((x) => x.id === id);
+    setSt((prev) => ({
+      ...prev,
+      fromName: d ? d.display_name || d.name : prev.fromName,
+      fromAddrHtml: d ? addrHtml(d.postal_code ?? undefined, d.address ?? undefined) : prev.fromAddrHtml,
+      fromTel: d ? d.phone ?? "" : prev.fromTel,
+      bankName: d ? d.bank_name ?? "" : prev.bankName,
+      bankNo: d ? d.bank_no ?? "" : prev.bankNo,
+      bankHolder: d ? d.bank_holder ?? "" : prev.bankHolder,
+      parties: { ...prev.parties, fromParty: id ? `drv-${id}` : prev.parties.fromParty },
     }));
   };
 
@@ -257,7 +292,21 @@ export function InvoiceEditor({
               ))}
             </select>
           </label>
-        ) : null}
+        ) : (
+          <label className="block">
+            <span className={labelCls}>請求元（ドライバーを選択）</span>
+            <select
+              className={inputCls}
+              value={st.parties.fromParty.startsWith("drv-") ? st.parties.fromParty.slice(4) : ""}
+              onChange={(e) => selectDriver(e.target.value)}
+            >
+              <option value="">— 選択 / 手入力 —</option>
+              {drivers.map((d) => (
+                <option key={d.id} value={d.id}>{d.display_name || d.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="請求先 名称" value={st.toName} onChange={(v) => set("toName", v)} />
