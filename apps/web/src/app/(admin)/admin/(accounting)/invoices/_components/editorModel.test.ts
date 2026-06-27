@@ -1,25 +1,37 @@
 import { describe, it, expect } from "vitest";
+import { getInvoiceIssuer } from "@/config/companies";
 import {
   blankEditorState,
   editorFromInvoice,
   amountFromEditor,
   payloadFromEditor,
   saveBodyFromEditor,
+  defaultTargetPeriod,
   type EditorState,
 } from "./editorModel";
 
 describe("blankEditorState", () => {
-  it("outgoing は自社が請求元", () => {
+  it("outgoing は自社が請求元・対象期間を補完", () => {
     const st = blankEditorState("outgoing");
     expect(st.parties.fromParty).toBe("ace_creation");
-    expect(st.showStamp).toBe(true);
-    expect(st.fromName).toMatch(/ACE CREATION/);
+    expect(st.fromName).toBe(getInvoiceIssuer().name);
+    expect(st.showStamp).toBe(Boolean(getInvoiceIssuer().stampPath));
+    expect(st.period).not.toBe("");
   });
   it("incoming は自社が請求先・印鑑なし", () => {
     const st = blankEditorState("incoming");
     expect(st.parties.toParty).toBe("ace_creation");
+    expect(st.toName).toBe(getInvoiceIssuer().name);
     expect(st.showStamp).toBe(false);
-    expect(st.toName).toMatch(/ACE CREATION/);
+  });
+});
+
+describe("defaultTargetPeriod", () => {
+  it("前月の1日〜末日（うるう年2月）", () => {
+    expect(defaultTargetPeriod(new Date(2024, 2, 15))).toBe("2024年2月1日〜2024年2月29日");
+  });
+  it("年跨ぎ（1月→前年12月）", () => {
+    expect(defaultTargetPeriod(new Date(2025, 0, 10))).toBe("2024年12月1日〜2024年12月31日");
   });
 });
 

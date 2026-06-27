@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { InvoiceDocument } from "./InvoiceDocument";
 import {
   type EditorState,
@@ -15,6 +16,22 @@ import { INVOICE_KIND_CONFIG, type InvoiceKind } from "./invoiceKinds";
 
 // 請求書エディタ（売上/受領 共通）。左＝入力フォーム、右＝ライブプレビュー（InvoiceDocument 再利用）。
 // 計算は @repo/core、保存は /api/admin/invoices（POST=新規 / PATCH=編集）。
+
+type AddressRow = {
+  id: string;
+  name: string;
+  postal_code?: string;
+  address?: string;
+  phone?: string;
+  invoice_no?: string;
+};
+
+function addrHtml(postal?: string, address?: string): string {
+  const p = postal ?? "";
+  const a = address ?? "";
+  if (!p && !a) return "";
+  return p ? `〒${p}<br/>${a}` : a;
+}
 
 const labelCls = "block text-xs font-medium text-slate-600 mb-1";
 const inputCls =
@@ -118,8 +135,26 @@ export function InvoiceEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 取引先（請求先）アドレス帳。売上請求書の請求先セレクタで使用。
+  const { data: addrData } = useApi<{ addresses: AddressRow[] }>("/api/admin/invoice-addresses");
+  const addresses = addrData?.addresses ?? [];
+
   const set = <K extends keyof EditorState>(key: K, value: EditorState[K]) =>
     setSt((prev) => ({ ...prev, [key]: value }));
+
+  // 取引先を選ぶと請求先の名称/住所/電話/登録番号を自動入力。
+  const selectCounterparty = (id: string) => {
+    const a = addresses.find((x) => x.id === id);
+    setSt((prev) => ({
+      ...prev,
+      counterpartyInvoiceAddressId: id || null,
+      toName: a ? a.name : prev.toName,
+      toAddrHtml: a ? addrHtml(a.postal_code, a.address) : prev.toAddrHtml,
+      toTel: a ? a.phone ?? "" : prev.toTel,
+      toReg: a ? a.invoice_no ?? "" : prev.toReg,
+      parties: { ...prev.parties, toParty: id ? `corp-${id}` : prev.parties.toParty },
+    }));
+  };
 
   // 種別切替（新規時のみ）。請求元/先の向き・印鑑・ACEスロットを既定へ、入力済み明細は保持。
   const changeKind = (kind: InvoiceKind) => {
@@ -204,9 +239,25 @@ export function InvoiceEditor({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="請求期間" value={st.period} onChange={(v) => set("period", v)} placeholder="2025年5月1日〜2025年5月31日" />
+          <Field label="対象期間" value={st.period} onChange={(v) => set("period", v)} placeholder="2025年5月1日〜2025年5月31日" />
           <Field label="請求書番号" value={st.invoiceNo} onChange={(v) => set("invoiceNo", v)} />
         </div>
+
+        {st.kind === "outgoing" ? (
+          <label className="block">
+            <span className={labelCls}>請求先（取引先アドレス帳から選択）</span>
+            <select
+              className={inputCls}
+              value={st.counterpartyInvoiceAddressId ?? ""}
+              onChange={(e) => selectCounterparty(e.target.value)}
+            >
+              <option value="">— 選択 / 手入力 —</option>
+              {addresses.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="請求先 名称" value={st.toName} onChange={(v) => set("toName", v)} />

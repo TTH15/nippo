@@ -1,6 +1,17 @@
 import { computeInvoiceTotals } from "@repo/core/logic/reward";
+import { getInvoiceIssuer } from "@/config/companies";
 import type { InvoiceDocData, InvoiceDocLine } from "./InvoiceDocument";
 import { resolveInvoiceKind, type InvoiceKind } from "./invoiceKinds";
+
+/** 対象期間の既定値（前月の1日〜末日）。 */
+export function defaultTargetPeriod(now: Date = new Date()): string {
+  const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastOfPrevMonth = new Date(firstOfThisMonth.getTime() - 86400000);
+  const y = lastOfPrevMonth.getFullYear();
+  const m = lastOfPrevMonth.getMonth() + 1;
+  const lastDay = lastOfPrevMonth.getDate();
+  return `${y}年${m}月1日〜${y}年${m}月${lastDay}日`;
+}
 
 // 請求書エディタの編集状態（純粋データ）と、表示/保存への変換。
 // 入力欄は自由入力のため数値は string で保持し、変換時に数値化する。
@@ -61,22 +72,25 @@ export function emptyLine(): EditorLine {
   return { title: "", qty: "", unit: "", price: "" };
 }
 
-/** 種別ごとの空エディタ状態。 */
+/** 種別ごとの空エディタ状態。自社（請求元）情報は config/companies から自動補完。 */
 export function blankEditorState(kind: InvoiceKind): EditorState {
   const isIncoming = kind === "incoming";
+  const issuer = getInvoiceIssuer();
   return {
     kind,
-    toName: isIncoming ? "株式会社ACE CREATION" : "",
-    toAddrHtml: "",
-    toTel: "",
-    toReg: "",
+    // 受領：請求先＝自社 / 売上：請求先＝取引先（未選択）
+    toName: isIncoming ? issuer.name : "",
+    toAddrHtml: isIncoming ? issuer.addressHtml : "",
+    toTel: isIncoming ? issuer.tel : "",
+    toReg: isIncoming ? issuer.regNo : "",
     honorific: "御中",
-    fromName: isIncoming ? "" : "株式会社ACE CREATION",
-    fromAddrHtml: "",
-    fromTel: "",
-    fromReg: "",
-    showStamp: !isIncoming,
-    period: "",
+    // 受領：請求元＝ドライバー（未入力）/ 売上：請求元＝自社
+    fromName: isIncoming ? "" : issuer.name,
+    fromAddrHtml: isIncoming ? "" : issuer.addressHtml,
+    fromTel: isIncoming ? "" : issuer.tel,
+    fromReg: isIncoming ? "" : issuer.regNo,
+    showStamp: isIncoming ? false : Boolean(issuer.stampPath),
+    period: defaultTargetPeriod(),
     invoiceNo: "",
     taxEnabled: true,
     taxRatePercent: "10",
@@ -85,9 +99,10 @@ export function blankEditorState(kind: InvoiceKind): EditorState {
     loanRepay: "0",
     extraOutsourcing: "0",
     dueDate: "",
-    bankName: "",
-    bankNo: "",
-    bankHolder: "",
+    // 振込先：売上＝自社口座 / 受領＝ドライバー口座（未入力）
+    bankName: isIncoming ? "" : issuer.bankName,
+    bankNo: isIncoming ? "" : issuer.bankNo,
+    bankHolder: isIncoming ? "" : issuer.bankHolder,
     notes: "",
     section: "Amazon",
     counterpartyInvoiceAddressId: null,
@@ -131,17 +146,17 @@ export function editorFromInvoice(inv: ApiInvoice): EditorState {
     ...base,
     id: inv.id,
     toName: s(p.toName) || s(inv.clientName) || base.toName,
-    toAddrHtml: s(p.toAddr),
-    toTel: s(p.toTel),
-    toReg: s(p.toReg),
+    toAddrHtml: s(p.toAddr) || base.toAddrHtml,
+    toTel: s(p.toTel) || base.toTel,
+    toReg: s(p.toReg) || base.toReg,
     honorific: s(p.honorific || p.toHonorific) || "御中",
     fromName,
-    fromAddrHtml: s(p.fromAddr),
-    fromTel: s(p.fromTel),
-    fromReg: s(p.fromReg),
+    fromAddrHtml: s(p.fromAddr) || base.fromAddrHtml,
+    fromTel: s(p.fromTel) || base.fromTel,
+    fromReg: s(p.fromReg) || base.fromReg,
     showStamp:
       s(p?.parties?.fromParty) === "ace_creation" || /ACE\s*CREATION/i.test(fromName),
-    period: s(p.period || p.subject),
+    period: s(p.period || p.subject) || base.period,
     invoiceNo: s(p.invoiceNo) || s(inv.invoiceNo),
     taxEnabled: tax.enabled !== undefined ? Boolean(tax.enabled) : true,
     taxRatePercent: tax.rate !== undefined ? String(tax.rate) : "10",
@@ -150,9 +165,9 @@ export function editorFromInvoice(inv: ApiInvoice): EditorState {
     loanRepay: p.loanRepay != null ? String(p.loanRepay) : "0",
     extraOutsourcing: p.extraOutsourcing != null ? String(p.extraOutsourcing) : "0",
     dueDate: s(p.dueDate),
-    bankName: s(p.bankName),
-    bankNo: s(p.bankNo),
-    bankHolder: s(p.bankHolder),
+    bankName: s(p.bankName) || base.bankName,
+    bankNo: s(p.bankNo) || base.bankNo,
+    bankHolder: s(p.bankHolder) || base.bankHolder,
     notes: s(p.notes),
     section: s(inv.section) || base.section,
     counterpartyInvoiceAddressId: inv.counterpartyInvoiceAddressId ?? null,
