@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { signKyc } from "@/server/kyc/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers, error } = await supabase
     .from("drivers")
     .select(`
-      id, name, display_name, role, office_code, driver_code, list_no, license_expiry_date, status, created_at,
+      id, name, display_name, role, role_id, identity_id, office_code, driver_code, list_no, license_expiry_date, status, created_at,
       postal_code, address, phone, bank_name, bank_no, bank_holder,
       driver_identities (
         id, slot, driver_code, office_code, label,
@@ -95,8 +96,30 @@ export async function GET(req: NextRequest) {
         })
       : (drivers ?? []);
 
+  // 顔写真（identities.face_photo_path・非公開バケット）を署名URL化してアバター表示に使う。
+  const identityIds = Array.from(
+    new Set((rows as { identity_id?: string | null }[]).map((r) => r.identity_id).filter(Boolean)),
+  ) as string[];
+  const faceByIdentity = new Map<string, string>();
+  if (identityIds.length > 0) {
+    const { data: idRows } = await supabase
+      .from("identities")
+      .select("id, face_photo_path")
+      .in("id", identityIds);
+    await Promise.all(
+      (idRows ?? []).map(async (ir: { id: string; face_photo_path: string | null }) => {
+        if (!ir.face_photo_path) return;
+        const signed = await signKyc(supabase, ir.face_photo_path);
+        if (signed) faceByIdentity.set(ir.id, signed);
+      }),
+    );
+  }
+  const rowsWithFace = (rows as ({ identity_id?: string | null } & Record<string, unknown>)[]).map(
+    (r) => ({ ...r, faceUrl: r.identity_id ? faceByIdentity.get(r.identity_id) ?? null : null }),
+  );
+
   const response = NextResponse.json({
-    drivers: rows,
+    drivers: rowsWithFace,
     nextCursor,
     hasMore: nextCursor != null,
     total,

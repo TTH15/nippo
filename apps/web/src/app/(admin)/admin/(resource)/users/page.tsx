@@ -13,7 +13,7 @@ import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
 import { Button } from "@/lib/ui/button";
-import { faChevronRight, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { faTrash, faUser } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -36,6 +36,8 @@ type Driver = {
   display_name?: string | null;
   role?: string;
   role_id?: string | null;
+  /** 顔写真（KYC・identities）の署名URL。一覧アバター用。 */
+  faceUrl?: string | null;
   company_code?: string;
   office_code: string;
   driver_code: string;
@@ -623,6 +625,29 @@ export default function UsersPage() {
     slot2Valid;
 
   // 判定しきい値はメニューバッジ（更新が迫っている人数）と共有するため core/logic/license に集約。
+  // インライン権限変更（この画面から role を変更。can_manage_members 必須＝canWrite）。
+  // 楽観更新→失敗時ロールバック。最後の管理者保護等はサーバ(PUT)が弾く。
+  const [roleSavingId, setRoleSavingId] = useState<string | null>(null);
+  const roleLabelOf = (d: Driver) =>
+    roleOptions.find((r) => r.id === d.role_id)?.label ?? d.role ?? "—";
+  const changeRole = async (d: Driver, roleId: string) => {
+    if (!roleId || roleId === d.role_id) return;
+    const prevRoleId = d.role_id ?? null;
+    setRoleSavingId(d.id);
+    setDrivers((list) => list.map((x) => (x.id === d.id ? { ...x, role_id: roleId } : x)));
+    try {
+      await apiFetch(`/api/admin/users/${d.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ roleId }),
+      });
+    } catch (e) {
+      setDrivers((list) => list.map((x) => (x.id === d.id ? { ...x, role_id: prevRoleId } : x)));
+      window.alert(e instanceof Error ? e.message : "権限の変更に失敗しました");
+    } finally {
+      setRoleSavingId(null);
+    }
+  };
+
   const getLicenseStatus = (dateStr?: string | null): { label: string; className: string } => {
     switch (computeLicenseLevel(dateStr)) {
       case "unset":
@@ -658,102 +683,109 @@ export default function UsersPage() {
         </div>
 
         {loading ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <Skeleton className="h-5 w-12" />
-                  <Skeleton className="h-5 w-28" />
-                </div>
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-10 w-full" />
-              </div>
+          <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
+            {[...Array(8)].map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
             ))}
           </div>
         ) : drivers.length === 0 ? (
           <p className="text-sm text-slate-500">ドライバーが登録されていません</p>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {drivers.map((d, index) => {
-              const id1 = d.driver_identities?.find((x) => x.slot === 1);
-              const id2 = d.driver_identities?.find((x) => x.slot === 2);
-              const codeText = id2?.driver_code
-                ? `${id1?.driver_code ?? d.driver_code ?? "-"} / ${id2.driver_code}`
-                : (id1?.driver_code ?? d.driver_code ?? "-");
-              const officeText = id2?.office_code
-                ? `${id1?.office_code ?? d.office_code ?? "-"} / ${id2.office_code}`
-                : (id1?.office_code ?? d.office_code ?? "-");
-              const coursesOfDriver = allIdentityCourses(d);
-              const licenseStatus = getLicenseStatus(d.license_expiry_date);
-              return (
-                <div
-                  key={d.id}
-                  onClick={() => canWrite && void openEdit(d)}
-                  role={canWrite ? "button" : undefined}
-                  tabIndex={canWrite ? 0 : undefined}
-                  onKeyDown={(e) => {
-                    if (canWrite && (e.key === "Enter" || e.key === " ")) {
-                      e.preventDefault();
-                      void openEdit(d);
-                    }
-                  }}
-                  className={`bg-white rounded-lg border border-slate-200 p-4 shadow-sm ${canWrite ? "cursor-pointer hover:border-slate-300 hover:shadow-md transition-shadow active:bg-slate-50" : ""}`}
-                >
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div>
-                      <div className="text-xs text-slate-500 tabular-nums">No.{d.list_no ?? index + 1}</div>
-                      <div className="text-base font-semibold text-slate-900">{d.name}</div>
-                      <div className="text-sm text-slate-500">{getDisplayName(d)}</div>
-                    </div>
-                    <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${licenseStatus.className}`}>
-                      免許期限: {licenseStatus.label}
-                    </span>
-                  </div>
-                  <div className="space-y-1.5 text-sm mb-3">
-                    <div><span className="text-slate-400">ドライバーコード:</span> <span className="font-mono text-slate-700">{codeText}</span></div>
-                    <div><span className="text-slate-400">事業所:</span> <span className="text-slate-700">{officeText}</span></div>
-                  </div>
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {coursesOfDriver.map((dc) => (
-                      <span
-                        key={dc.course_id}
-                        className="px-1.5 py-0.5 rounded text-xs text-white"
-                        style={{ backgroundColor: dc.courses.color }}
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            <div className="overflow-x-auto table-scroll table-scroll-fade">
+              <table className="w-full text-sm min-w-[760px]">
+                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2.5 text-left font-semibold w-12">No.</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">ドライバー</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">表示名</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">コース</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">免許期限</th>
+                    <th className="px-3 py-2.5 text-left font-semibold w-40">権限</th>
+                    {canWrite && <th className="px-3 py-2.5 w-12" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {drivers.map((d, index) => {
+                    const coursesOfDriver = allIdentityCourses(d);
+                    const licenseStatus = getLicenseStatus(d.license_expiry_date);
+                    return (
+                      <tr
+                        key={d.id}
+                        onClick={() => canWrite && void openEdit(d)}
+                        className={`border-t border-slate-100 ${canWrite ? "cursor-pointer hover:bg-slate-50" : ""}`}
                       >
-                        {dc.courses.name}
-                      </span>
-                    ))}
-                    {coursesOfDriver.length === 0 && (
-                      <span className="text-xs text-slate-400">担当コース未設定</span>
-                    )}
-                  </div>
-                  {canWrite && (
-                    <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-100">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteDriver(d.id, d.name);
-                        }}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
-                        title="削除"
-                      >
-                        <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="inline-flex items-center gap-1.5 pl-1 text-xs text-slate-400">
-                        {openingEditId === d.id ? "開いています…" : "編集"}
-                        <FontAwesomeIcon icon={faChevronRight} className="h-3.5 w-3.5 text-slate-300" />
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            <div ref={loadMoreRef} className="h-8 md:col-span-2" />
+                        <td className="px-3 py-2 text-xs text-slate-400 tabular-nums">{d.list_no ?? index + 1}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2.5">
+                            {d.faceUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={d.faceUrl} alt="" className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0" />
+                            ) : (
+                              <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-slate-100 text-slate-400 shrink-0">
+                                <FontAwesomeIcon icon={faUser} className="w-4 h-4" />
+                              </span>
+                            )}
+                            <span className="font-semibold text-slate-900 whitespace-nowrap">{d.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{getDisplayName(d)}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-1 max-w-[220px]">
+                            {coursesOfDriver.map((dc) => (
+                              <span
+                                key={dc.course_id}
+                                className="px-1.5 py-0.5 rounded text-xs text-white whitespace-nowrap"
+                                style={{ backgroundColor: dc.courses.color }}
+                              >
+                                {dc.courses.name}
+                              </span>
+                            ))}
+                            {coursesOfDriver.length === 0 && <span className="text-xs text-slate-400">未設定</span>}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap ${licenseStatus.className}`}>
+                            {licenseStatus.label}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                          {canWrite ? (
+                            <select
+                              value={d.role_id ?? ""}
+                              disabled={roleSavingId === d.id}
+                              onChange={(e) => changeRole(d, e.target.value)}
+                              className="w-full max-w-[150px] rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100 disabled:opacity-50"
+                            >
+                              {!d.role_id && <option value="">未設定</option>}
+                              {roleOptions.map((r) => (
+                                <option key={r.id} value={r.id}>{r.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-xs text-slate-600">{roleLabelOf(d)}</span>
+                          )}
+                        </td>
+                        {canWrite && (
+                          <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => deleteDriver(d.id, d.name)}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                              title="削除"
+                            >
+                              <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div ref={loadMoreRef} className="h-8" />
             {hasMore && (
-              <div className="md:col-span-2 text-center text-xs text-slate-500 py-2">
-                さらに読み込み中...
-              </div>
+              <div className="text-center text-xs text-slate-500 py-2">さらに読み込み中...</div>
             )}
           </div>
         )}
