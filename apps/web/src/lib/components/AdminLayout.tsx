@@ -16,7 +16,6 @@ import {
   faAddressBook,
   faCalendar,
   faClock,
-  faFolderTree,
   faFileLines,
   faListUl,
   faRightFromBracket,
@@ -41,29 +40,26 @@ type NavItem =
 
 const navItems: NavItem[] = [
   { href: "/admin", label: "ダッシュボード", icon: faChartLine },
-  { href: "/admin/sales", label: "売上", icon: faChartColumn },
   { href: "/admin/daily", label: "報告", icon: faFileLines },
-  { href: "/admin/shifts", label: "シフト", icon: faCalendar },
   { href: "/admin/attendance", label: "勤怠", icon: faClock },
-  {
-    label: "管理",
-    icon: faFolderTree,
-    children: [
-      { href: "/admin/users", label: "ドライバー", icon: faUsers },
-      { href: "/admin/users/pending", label: "参加・承認", icon: faUserPlus },
-      { href: "/admin/vehicles", label: "車両", icon: faCar },
-      { href: "/admin/carriers", label: "キャリア", icon: faTruck },
-      { href: "/admin/courses", label: "コース", icon: faRoute },
-      { href: "/admin/counterparties", label: "取引先", icon: faBuilding },
-    ],
-  },
+  { href: "/admin/shifts", label: "シフト", icon: faCalendar },
+  { href: "/admin/vehicles", label: "車両", icon: faCar },
   {
     label: "収支",
     icon: faFileInvoice,
     children: [
+      { href: "/admin/sales", label: "売上", icon: faChartColumn },
       { href: "/admin/payments", label: "ペイメント", icon: faMoneyBill1Wave },
       { href: "/admin/invoices", label: "請求書", icon: faAddressBook },
       { href: "/admin/adjustments", label: "調整履歴", icon: faListUl },
+    ],
+  },
+  {
+    label: "ドライバー",
+    icon: faUsers,
+    children: [
+      { href: "/admin/users/pending", label: "参加・承認", icon: faUserPlus },
+      { href: "/admin/users", label: "ドライバー一覧", icon: faUsers },
     ],
   },
   { href: "/admin/events", label: "イベント", icon: faTrophy },
@@ -72,8 +68,11 @@ const navItems: NavItem[] = [
     icon: faGear,
     children: [
       { href: "/admin/roles", label: "ロール・権限", icon: faUserShield },
-      { href: "/admin/submit-screen", label: "送信後画面", icon: faMobileScreenButton },
+      { href: "/admin/carriers", label: "キャリア／フォーム設計", icon: faTruck },
+      { href: "/admin/courses", label: "コース／単価表", icon: faRoute },
+      { href: "/admin/counterparties", label: "取引先", icon: faBuilding },
       { href: "/admin/report-kinds", label: "報告種別", icon: faFileLines },
+      { href: "/admin/submit-screen", label: "送信後画面", icon: faMobileScreenButton },
     ],
   },
 ];
@@ -171,8 +170,6 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     setOpenMenu((cur) => (cur === item.label ? null : item.label));
   };
 
-  const totalMiscUnreadCount = dailyUnreadCount + otherUnreadCount;
-
   const getChildUnreadCount = (href: string) => {
     if (href === "/admin/daily") return dailyUnreadCount;
     if (href === "/admin/misc-reports/others") return otherUnreadCount;
@@ -182,9 +179,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   };
 
   const getParentUnreadCount = (item: Extract<NavItem, { children: NavChild[] }>) => {
-    if (item.label === "諸報告") return totalMiscUnreadCount;
-    // 「管理」配下にオイル交換が迫っている車両台数＋免許更新が迫っているドライバー人数を通知バッジで表示。
-    if (item.label === "管理") return oilAlertCount + licenseAlertCount;
+    // 「ドライバー」配下に免許更新が迫っているドライバー人数を通知バッジで表示。
+    // （オイル交換警告はトップレベルの「車両」リンク側に getChildUnreadCount で直接表示）
+    if (item.label === "ドライバー") return licenseAlertCount;
     return 0;
   };
 
@@ -269,7 +266,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                         type="button"
                         onClick={() => handleParentClick(item)}
                         className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${hasActiveChild || isOpen
-                            ? "bg-slate-700/80 text-white"
+                            ? "bg-amber-400/15 text-amber-300"
                             : "text-slate-400 hover:bg-slate-800 hover:text-white"
                           }`}
                       >
@@ -317,7 +314,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                   href={child.href}
                                   onClick={() => setOpenMenu(null)}
                                   className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-bold transition-colors ${childActive
-                                      ? "bg-slate-700 text-white"
+                                      ? "bg-amber-400/15 text-amber-300"
                                       : "text-slate-300 hover:bg-slate-700/60 hover:text-white"
                                     }`}
                                 >
@@ -350,7 +347,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                     <Link
                       href={item.href}
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${active
-                          ? "bg-slate-700/80 text-white"
+                          ? "bg-amber-400/15 text-amber-300"
                           : "text-slate-400 hover:bg-slate-800 hover:text-white"
                         }`}
                     >
@@ -457,7 +454,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                     href={child.href}
                                     onClick={() => setMobileNavOpen(false)}
                                     className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-medium ${active
-                                        ? "bg-slate-700/80 text-white"
+                                        ? "bg-amber-400/15 text-amber-300"
                                         : "text-slate-200 hover:bg-slate-800 hover:text-white"
                                       }`}
                                   >
@@ -489,7 +486,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                           href={item.href}
                           onClick={() => setMobileNavOpen(false)}
                           className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold ${active
-                              ? "bg-slate-700/80 text-white"
+                              ? "bg-amber-400/15 text-amber-300"
                               : "text-slate-200 hover:bg-slate-800 hover:text-white"
                             }`}
                         >
