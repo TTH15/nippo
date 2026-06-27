@@ -871,13 +871,14 @@ export default function UsersPage() {
       {/* Modal */}
       {showModal && canWrite && (
         <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-          <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl h-[85vh] flex flex-col p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
               {editingDriver
                 ? `No.${editingDriver.list_no ?? "—"}　${editingDriver.name}`
                 : "新規ドライバー追加"}
             </h2>
 
+            <div className="flex-1 min-h-0 overflow-y-auto -mr-1 pr-1">
             {modalLoading ? (
               <div className="space-y-4">
                 {[...Array(6)].map((_, i) => (
@@ -1416,8 +1417,9 @@ export default function UsersPage() {
             </div>
             </>
             )}
+            </div>
 
-            <div className="flex items-center justify-between gap-2 mt-6">
+            <div className="flex items-center justify-between gap-2 mt-4 pt-4 border-t border-slate-100 shrink-0">
               <div>
                 {editingDriver && !modalLoading && (
                   <button
