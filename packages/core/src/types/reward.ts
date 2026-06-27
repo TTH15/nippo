@@ -43,7 +43,43 @@ export type RewardsSummary = {
 export type InvoiceRow = {
   title?: string;
   qty?: number | string;
+  /** 単位（新仕様。例: 件 / 回 / 式）。未設定でも後方互換。 */
+  unit?: string;
+  /** 税抜単価。 */
   price?: number | string;
+};
+
+/**
+ * 請求書合計計算の入力（新仕様：税抜単価モデル）。
+ * - main: 請求分、deduct: お支払い分（控除）
+ * - 税は各セクションの税抜小計に対する外税
+ * - loanRepay（借入返済）はマイナス、extraOutsourcing（追加外注支払い・税込）はプラス
+ */
+export type InvoiceTotalsInput = {
+  main: InvoiceRow[];
+  deduct: InvoiceRow[];
+  taxEnabled: boolean;
+  taxRatePercent: number;
+  loanRepay: number;
+  extraOutsourcing: number;
+};
+
+/** 請求書合計計算の出力。 */
+export type InvoiceTotals = {
+  /** 請求分 税抜小計 */
+  billSubtotal: number;
+  /** お支払い分 税抜小計 */
+  deductSubtotal: number;
+  /** 請求分 消費税額 */
+  billTax: number;
+  /** お支払い分 消費税額 */
+  deductTax: number;
+  /** 請求分 税込合計 */
+  billGross: number;
+  /** お支払い分 税込合計 */
+  deductGross: number;
+  /** 差引き請求額（税込）＝ 請求 − お支払い − 借入返済 + 追加外注 */
+  total: number;
 };
 
 /** 請求書プレビューの添付（payload.attachments の各要素） */
