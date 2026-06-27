@@ -1617,7 +1617,7 @@ export default function SalesPage() {
                                           return (
                                             <td key={d.iso} className={`px-2 py-1.5 text-center ${v ? "text-slate-900" : "text-slate-300"}`}>
                                               {fixed ? (
-                                                v ? <span className="text-[11px] font-semibold text-indigo-600">〇</span> : <span className="text-slate-300">·</span>
+                                                v ? <span className="text-[11px] font-semibold text-amber-600">〇</span> : <span className="text-slate-300">·</span>
                                               ) : (
                                                 <span className="tabular-nums text-[11px] font-semibold">{v || "·"}</span>
                                               )}
@@ -1660,7 +1660,7 @@ export default function SalesPage() {
                                               className={`px-2 py-1.5 text-center ${hasShift ? "text-slate-900" : "text-slate-300"}`}
                                             >
                                               {hasShift ? (
-                                                <div className="text-[11px] font-semibold text-indigo-600">〇</div>
+                                                <div className="text-[11px] font-semibold text-amber-600">〇</div>
                                               ) : (
                                                 <span className="text-slate-300">·</span>
                                               )}

@@ -67,7 +67,7 @@ export default function AdjustmentsPage() {
         </div>
         <p className="text-xs text-slate-500 mb-4">
           売上・利益の手動調整（残業代・立替・リース代等）の履歴です。入力は
-          <Link href="/admin/sales" className="text-blue-600 hover:underline mx-1">売上ページの「売上調整」タブ</Link>
+          <Link href="/admin/sales" className="text-amber-700 hover:underline mx-1">売上ページの「売上調整」タブ</Link>
           から行います。
         </p>
 

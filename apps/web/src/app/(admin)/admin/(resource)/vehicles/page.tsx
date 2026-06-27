@@ -943,7 +943,7 @@ export default function VehiclesPage() {
                           <button
                             type="button"
                             onClick={() => openRecoveryDetail(v)}
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-blue-200 bg-white text-slate-500 hover:bg-blue-50 hover:text-slate-800 transition-colors"
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-amber-200 bg-white text-slate-500 hover:bg-amber-50 hover:text-slate-800 transition-colors"
                             title="初期費用回収の詳細を見る"
                           >
                             <FontAwesomeIcon icon={faFileLines} className="w-3.5 h-3.5" />
@@ -953,14 +953,14 @@ export default function VehiclesPage() {
                           <span>回収済み {fmt(recovered)}円</span>
                           <span>購入費用 {fmt(purchaseCost)}円</span>
                         </div>
-                        <div className="relative h-6 bg-blue-50 rounded border border-blue-200 overflow-hidden">
+                        <div className="relative h-6 bg-amber-50 rounded border border-amber-200 overflow-hidden">
                           <div
-                            className="absolute top-0 left-0 h-full bg-blue-600 transition-all"
+                            className="absolute top-0 left-0 h-full bg-amber-600 transition-all"
                             style={{ width: `${recoveryProgress}%` }}
                           />
                           <div className="absolute inset-0 flex items-center justify-end px-2">
                             {remainingMonths !== null && remainingMonths > 0 && (
-                              <span className="text-[10px] font-medium text-blue-900">残り約{remainingMonths}ヶ月</span>
+                              <span className="text-[10px] font-medium text-amber-900">残り約{remainingMonths}ヶ月</span>
                             )}
                             {purchaseCost > 0 && recovered >= purchaseCost && (
                               <span className="text-[10px] font-medium text-green-700">回収完了</span>

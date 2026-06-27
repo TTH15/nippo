@@ -180,7 +180,7 @@ export default function EditReportModal({
                       {groupFieldsByLabel(u.fields).map((g, gi) => (
                         <div key={`${u.unitId}-${gi}`}>
                           {g.label && (
-                            <div className="text-xs font-semibold text-indigo-600 mb-2">{g.label}</div>
+                            <div className="text-xs font-semibold text-amber-600 mb-2">{g.label}</div>
                           )}
                           <div className="grid grid-cols-2 gap-3">
                             {g.fields.map((f) => {
