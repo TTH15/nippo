@@ -39,7 +39,7 @@ export function Nav({ variant = "default" }: NavProps) {
   };
 
   return (
-    <nav className="bg-slate-900 text-white sticky top-0 z-50">
+    <nav className="bg-white text-slate-700 border-b border-slate-200 sticky top-0 z-50">
       <div className="max-w-3xl mx-auto flex items-center justify-between h-12 px-4">
         {/* 左: ロゴ */}
         <div className="flex items-center">
@@ -59,7 +59,7 @@ export function Nav({ variant = "default" }: NavProps) {
             <button
               type="button"
               onClick={() => setMenuOpen((o) => !o)}
-              className="p-2 -ml-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+              className="p-2 -ml-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
               aria-label="メニューを開く"
               aria-expanded={menuOpen}
             >
@@ -72,17 +72,17 @@ export function Nav({ variant = "default" }: NavProps) {
             <button
               type="button"
               onClick={logout}
-              className="text-xs text-slate-400 hover:text-white transition-colors"
+              className="text-xs text-slate-500 hover:text-slate-900 transition-colors"
             >
               ログアウト
             </button>
           )}
           <Link
             href="/me"
-            className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition-colors"
             onClick={() => setMenuOpen(false)}
           >
-            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
             {mounted && <span className="text-xs max-w-[120px] truncate">{driver?.name}</span>}
@@ -98,42 +98,42 @@ export function Nav({ variant = "default" }: NavProps) {
             onClick={() => setMenuOpen(false)}
             aria-hidden
           />
-          <div className="absolute left-0 right-0 top-12 z-50 bg-slate-900 border-b border-slate-700 shadow-xl">
+          <div className="absolute left-0 right-0 top-12 z-50 bg-white border-b border-slate-200 shadow-xl">
             <div className="max-w-3xl mx-auto py-2 px-4">
               {!isAdmin && (
                 <>
                   <Link
                     href="/submit"
-                    className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    className="flex items-center gap-3 py-3 px-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
                   >
                     <span>日報送信</span>
                   </Link>
                   <Link
                     href="/shifts"
-                    className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    className="flex items-center gap-3 py-3 px-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
                   >
                     <span className="flex flex-col items-start">
                       <span>シフト</span>
-                      <span className="text-xs text-slate-400 font-normal mt-0.5">
+                      <span className="text-xs text-slate-500 font-normal mt-0.5">
                         希望休提出・シフト表確認
                       </span>
                     </span>
                   </Link>
                   <Link
                     href="/me/rewards"
-                    className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    className="flex items-center gap-3 py-3 px-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
                   >
                     <span>報酬</span>
                   </Link>
                   <Link
                     href="/me"
-                    className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    className="flex items-center gap-3 py-3 px-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
                   >
                     <span>プロフィール</span>
                   </Link>
                   <Link
                     href="/report"
-                    className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    className="flex items-center gap-3 py-3 px-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
                   >
                     <span>報告</span>
                   </Link>
@@ -143,7 +143,7 @@ export function Nav({ variant = "default" }: NavProps) {
                 <>
                   <Link
                     href="/admin"
-                    className="flex items-center gap-3 py-3 px-2 text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    className="flex items-center gap-3 py-3 px-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
                   >
                     <span>日別</span>
                   </Link>
@@ -152,7 +152,7 @@ export function Nav({ variant = "default" }: NavProps) {
               <button
                 type="button"
                 onClick={logout}
-                className="w-full flex items-center gap-3 py-3 px-2 text-left text-slate-200 hover:text-white hover:bg-slate-800 rounded-lg transition-colors border-t border-slate-700 mt-2 pt-3"
+                className="w-full flex items-center gap-3 py-3 px-2 text-left text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors border-t border-slate-200 mt-2 pt-3"
               >
                 <span>ログアウト</span>
               </button>
