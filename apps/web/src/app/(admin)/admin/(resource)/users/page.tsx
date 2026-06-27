@@ -870,8 +870,8 @@ export default function UsersPage() {
 
       {/* Modal */}
       {showModal && canWrite && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+          <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
               {editingDriver
                 ? `No.${editingDriver.list_no ?? "—"}　${editingDriver.name}`
@@ -995,33 +995,49 @@ export default function UsersPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">担当可能コース（区分1）</label>
-                <div className="flex flex-wrap items-center gap-2">
-                  {form.courseIds.length === 0 && !courseOpen1 && (
-                    <span className="text-xs text-slate-400">未選択</span>
-                  )}
-                  {(courseOpen1 ? courses : courses.filter((c) => form.courseIds.includes(c.id))).map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => toggleCourse(c.id)}
-                      className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${form.courseIds.includes(c.id)
-                        ? "text-white border-transparent"
-                        : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
-                        }`}
-                      style={form.courseIds.includes(c.id) ? { backgroundColor: c.color } : {}}
-                    >
-                      {c.name}
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-slate-400">担当可能コース（区分1）</label>
                   <button
                     type="button"
                     onClick={() => setCourseOpen1((o) => !o)}
-                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs font-medium text-amber-700 hover:bg-amber-50"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-amber-700 hover:bg-amber-50 transition-colors"
                   >
                     <FontAwesomeIcon icon={courseOpen1 ? faChevronUp : faChevronDown} className="w-2.5 h-2.5" />
                     {courseOpen1 ? "閉じる" : "コースを選択"}
                   </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {courses.filter((c) => form.courseIds.includes(c.id)).map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => toggleCourse(c.id)}
+                      className="px-3 py-1.5 rounded text-sm font-medium text-white border border-transparent transition-transform active:scale-95"
+                      style={{ backgroundColor: c.color }}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                  {form.courseIds.length === 0 && <span className="text-xs text-slate-400 py-1.5">未選択</span>}
+                </div>
+                <div className={`grid transition-all duration-300 ease-out ${courseOpen1 ? "grid-rows-[1fr] opacity-100 mt-2" : "grid-rows-[0fr] opacity-0"}`}>
+                  <div className="overflow-hidden">
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {courses.filter((c) => !form.courseIds.includes(c.id)).map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => toggleCourse(c.id)}
+                          className="px-3 py-1.5 rounded text-sm font-medium border text-slate-600 border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                      {courses.filter((c) => !form.courseIds.includes(c.id)).length === 0 && (
+                        <span className="text-xs text-slate-400 py-1.5">追加できるコースはありません</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1067,33 +1083,49 @@ export default function UsersPage() {
                   </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5">担当可能コース（区分2）</label>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {form.courseIds2.length === 0 && !courseOpen2 && (
-                        <span className="text-xs text-slate-400">未選択</span>
-                      )}
-                      {(courseOpen2 ? courses : courses.filter((c) => form.courseIds2.includes(c.id))).map((c) => (
-                        <button
-                          key={`s2-${c.id}`}
-                          type="button"
-                          onClick={() => toggleCourse2(c.id)}
-                          className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${form.courseIds2.includes(c.id)
-                            ? "text-white border-transparent"
-                            : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
-                            }`}
-                          style={form.courseIds2.includes(c.id) ? { backgroundColor: c.color } : {}}
-                        >
-                          {c.name}
-                        </button>
-                      ))}
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-medium text-slate-400">担当可能コース（区分2）</label>
                       <button
                         type="button"
                         onClick={() => setCourseOpen2((o) => !o)}
-                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded text-xs font-medium text-amber-700 hover:bg-amber-50"
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-amber-700 hover:bg-amber-50 transition-colors"
                       >
                         <FontAwesomeIcon icon={courseOpen2 ? faChevronUp : faChevronDown} className="w-2.5 h-2.5" />
                         {courseOpen2 ? "閉じる" : "コースを選択"}
                       </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {courses.filter((c) => form.courseIds2.includes(c.id)).map((c) => (
+                        <button
+                          key={`s2-sel-${c.id}`}
+                          type="button"
+                          onClick={() => toggleCourse2(c.id)}
+                          className="px-3 py-1.5 rounded text-sm font-medium text-white border border-transparent transition-transform active:scale-95"
+                          style={{ backgroundColor: c.color }}
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                      {form.courseIds2.length === 0 && <span className="text-xs text-slate-400 py-1.5">未選択</span>}
+                    </div>
+                    <div className={`grid transition-all duration-300 ease-out ${courseOpen2 ? "grid-rows-[1fr] opacity-100 mt-2" : "grid-rows-[0fr] opacity-0"}`}>
+                      <div className="overflow-hidden">
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {courses.filter((c) => !form.courseIds2.includes(c.id)).map((c) => (
+                            <button
+                              key={`s2-unsel-${c.id}`}
+                              type="button"
+                              onClick={() => toggleCourse2(c.id)}
+                              className="px-3 py-1.5 rounded text-sm font-medium border text-slate-600 border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+                            >
+                              {c.name}
+                            </button>
+                          ))}
+                          {courses.filter((c) => !form.courseIds2.includes(c.id)).length === 0 && (
+                            <span className="text-xs text-slate-400 py-1.5">追加できるコースはありません</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
