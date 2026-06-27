@@ -15,6 +15,7 @@ import {
   faFileInvoice,
   faAddressBook,
   faCalendar,
+  faClock,
   faFolderTree,
   faFileLines,
   faListUl,
@@ -25,6 +26,7 @@ import {
   faMobileScreenButton,
   faGear,
   faUserPlus,
+  faUserShield,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver } from "@/lib/api";
@@ -42,6 +44,7 @@ const navItems: NavItem[] = [
   { href: "/admin/sales", label: "売上", icon: faChartColumn },
   { href: "/admin/daily", label: "報告", icon: faFileLines },
   { href: "/admin/shifts", label: "シフト", icon: faCalendar },
+  { href: "/admin/attendance", label: "勤怠", icon: faClock },
   {
     label: "管理",
     icon: faFolderTree,
@@ -68,6 +71,7 @@ const navItems: NavItem[] = [
     label: "設定",
     icon: faGear,
     children: [
+      { href: "/admin/roles", label: "ロール・権限", icon: faUserShield },
       { href: "/admin/submit-screen", label: "送信後画面", icon: faMobileScreenButton },
       { href: "/admin/report-kinds", label: "報告種別", icon: faFileLines },
     ],
