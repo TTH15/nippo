@@ -233,7 +233,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           <div className="h-20 flex items-center border-b border-slate-200 p-2">
             <Link href="/admin" className="inline-flex items-center">
               <Image
-                src={"/logo/hakotora-logo_secondary_logo.svg"}
+                src={"/logo/hakotora-logo_primary_logo.svg"}
                 alt="ハコ虎"
                 width={150}
                 height={50}
