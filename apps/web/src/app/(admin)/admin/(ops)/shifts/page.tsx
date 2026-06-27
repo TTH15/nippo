@@ -258,7 +258,7 @@ function VehicleOptionList({
             className={cn(
               "flex-1 text-center text-[11px] py-1.5 px-2 rounded-md border transition-colors",
               isExternal
-                ? "bg-indigo-50 border-indigo-300 font-medium text-indigo-700"
+                ? "bg-amber-50 border-amber-300 font-medium text-amber-700"
                 : "border-slate-200 text-slate-600 hover:bg-slate-50",
             )}
             onClick={() => onSelectExternal()}
@@ -1512,7 +1512,7 @@ export default function ShiftsPage() {
                                                 className="!max-w-none w-full min-w-0 pointer-events-none"
                                               />
                                             ) : currentExternal ? (
-                                              <span className="py-0.5 text-[10px] font-semibold text-indigo-600">他社車両</span>
+                                              <span className="py-0.5 text-[10px] font-semibold text-amber-600">他社車両</span>
                                             ) : (
                                               <span className="py-0.5 text-[10px] font-medium text-slate-400">車両なし</span>
                                             )}
@@ -1818,7 +1818,7 @@ export default function ShiftsPage() {
                                 className={cn(
                                   "w-9 h-9 rounded-md border text-[11px] font-semibold transition-colors disabled:opacity-50",
                                   on
-                                    ? "bg-indigo-600 border-indigo-600 text-white"
+                                    ? "bg-amber-600 border-amber-600 text-white"
                                     : "border-slate-200 bg-white text-slate-300 hover:border-slate-300",
                                 )}
                               >
