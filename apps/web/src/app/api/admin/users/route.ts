@@ -49,6 +49,31 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ drivers: rows, total: rows.length });
   }
 
+  // all=1: ページングなしで全ドライバーを返す（車両のドライバー選択など、セレクタ用途）。
+  // 顔写真の署名はしない（一覧表示専用の重い処理を避ける）。
+  if (url.searchParams.get("all") === "1") {
+    const { data: allRows, error: allErr } = await supabase
+      .from("drivers")
+      .select(`
+        id, name, display_name, role, office_code, driver_code, list_no, status,
+        driver_identities (
+          id, slot, driver_code, office_code, label,
+          driver_courses ( course_id, courses (id, name, color) )
+        )
+      `)
+      .eq("org_id", orgId)
+      .eq("role", "DRIVER")
+      .eq("status", status)
+      .order("list_no", { ascending: true, nullsFirst: false })
+      .order("name", { ascending: true })
+      .order("id", { ascending: true });
+    if (allErr) {
+      console.error(allErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    return NextResponse.json({ drivers: allRows ?? [], total: (allRows ?? []).length });
+  }
+
   // 同じ会社コードのドライバー一覧（一覧表示に不要な住所/口座情報は除外）
   const { data: drivers, error } = await supabase
     .from("drivers")

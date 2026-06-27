@@ -10,6 +10,8 @@ import {
   faTriangleExclamation,
   faQrcode,
   faCar,
+  faChevronDown,
+  faChevronUp,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { DatePicker } from "@/lib/components/DatePicker";
@@ -83,6 +85,8 @@ export default function VehiclesPage() {
   const emptyPurchaseItem = () => ({ sign: "+" as "+" | "-", label: "", amount: "" });
   const [canWrite, setCanWrite] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  // 利用ドライバー選択のアコーディオン（選択中は常時表示、未選択は展開で選ぶ）
+  const [driverOpen, setDriverOpen] = useState(false);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
@@ -164,7 +168,7 @@ export default function VehiclesPage() {
     fetcher: async () => {
       const [vehiclesRes, driversRes] = await Promise.all([
         apiFetch<{ vehicles: Vehicle[] }>("/api/admin/vehicles"),
-        apiFetch<{ drivers: Array<Driver & { role?: string }> }>("/api/admin/users"),
+        apiFetch<{ drivers: Array<Driver & { role?: string }> }>("/api/admin/users?all=1"),
       ]);
       return {
         vehicles: sortVehicles(vehiclesRes.vehicles),
@@ -645,7 +649,12 @@ export default function VehiclesPage() {
               return (
                 <div
                   key={v.id}
-                  className={`soft-rise rounded-lg border p-4 sm:p-6 md:p-8 shadow-sm relative ${
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest('button, a, input, [role="switch"]')) return;
+                    if (canWrite) openEdit(v);
+                  }}
+                  role={canWrite ? "button" : undefined}
+                  className={`soft-rise rounded-lg border p-4 sm:p-6 md:p-8 shadow-sm relative ${canWrite ? "cursor-pointer hover:border-slate-300 transition-colors" : ""} ${
                     v.is_disposed
                       ? "bg-red-50 border-red-200"
                       : "bg-white border-slate-200"
@@ -1154,21 +1163,48 @@ export default function VehiclesPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">利用ドライバー</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-sm font-medium text-slate-700">利用ドライバー</label>
+                    <button
+                      type="button"
+                      onClick={() => setDriverOpen((o) => !o)}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-amber-700 hover:bg-amber-50 transition-colors"
+                    >
+                      <FontAwesomeIcon icon={driverOpen ? faChevronUp : faChevronDown} className="w-2.5 h-2.5" />
+                      {driverOpen ? "閉じる" : "ドライバーを選択"}
+                    </button>
+                  </div>
                   <div className="flex flex-wrap gap-2">
-                    {drivers.map((d) => (
+                    {drivers.filter((d) => form.driverIds.includes(d.id)).map((d) => (
                       <button
                         key={d.id}
                         type="button"
                         onClick={() => toggleDriver(d.id)}
-                        className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${form.driverIds.includes(d.id)
-                          ? "bg-slate-800 text-white border-slate-800"
-                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                          }`}
+                        className="px-3 py-1.5 rounded text-sm font-medium border bg-slate-800 text-white border-slate-800 transition-transform active:scale-95"
                       >
                         {getDisplayName(d)}
                       </button>
                     ))}
+                    {form.driverIds.length === 0 && <span className="text-xs text-slate-400 py-1.5">未選択</span>}
+                  </div>
+                  <div className={`grid transition-all duration-300 ease-out ${driverOpen ? "grid-rows-[1fr] opacity-100 mt-2" : "grid-rows-[0fr] opacity-0"}`}>
+                    <div className="overflow-hidden">
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {drivers.filter((d) => !form.driverIds.includes(d.id)).map((d) => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() => toggleDriver(d.id)}
+                            className="px-3 py-1.5 rounded text-sm font-medium border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 transition-colors"
+                          >
+                            {getDisplayName(d)}
+                          </button>
+                        ))}
+                        {drivers.filter((d) => !form.driverIds.includes(d.id)).length === 0 && (
+                          <span className="text-xs text-slate-400 py-1.5">追加できるドライバーはいません</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
