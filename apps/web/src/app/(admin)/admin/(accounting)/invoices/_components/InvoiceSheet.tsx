@@ -13,6 +13,9 @@ import {
 // 御請求書（A4帳票）。編集とプレビューを同一にした WYSIWYG コンポーネント。
 // readOnly=false のとき、帳票上のテキスト・明細セルを直接インライン編集する（Word風）。
 // 計算は @repo/core に集約。種別（売上/受領）ごとの設定で色・項目を出し分ける。
+//
+// 注意: 入力欄を持つサブコンポーネント（T / LineTable）は必ずモジュールレベルに定義する。
+// 関数内で定義すると毎レンダーで別物と見なされ再マウント→フォーカス喪失（IME/複数桁入力不可）になる。
 
 const jpy = (n: number) => Number(n || 0).toLocaleString("ja-JP");
 const num = (v: unknown) => {
@@ -20,12 +23,10 @@ const num = (v: unknown) => {
   const n = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, ""));
   return Number.isFinite(n) ? n : 0;
 };
+const priceDisplay = (v: unknown) =>
+  Number(num(v)).toLocaleString("ja-JP", { maximumFractionDigits: 2 });
 
-function resolveSummaryValue(
-  ref: SummaryRowDef["value"],
-  totals: InvoiceTotals,
-  st: EditorState,
-): number {
+function resolveSummaryValue(ref: SummaryRowDef["value"], totals: InvoiceTotals, st: EditorState): number {
   if (ref.kind === "total") return totals[ref.key];
   return num(ref.field === "loanRepay" ? st.loanRepay : st.extraOutsourcing);
 }
@@ -48,21 +49,135 @@ function T({
   align?: "left" | "right" | "center";
   bold?: boolean;
 }) {
-  if (readOnly) {
-    return <span className={cn(bold && "font-bold", className)}>{value}</span>;
-  }
+  if (readOnly) return <span className={cn(bold && "font-bold", className)}>{value}</span>;
   return (
     <input
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange?.(e.target.value)}
-      className={cn(
-        "bg-transparent outline-none focus:bg-blue-50 rounded-sm w-full",
-        bold && "font-bold",
-        className,
-      )}
+      className={cn("bg-transparent outline-none focus:bg-blue-50 rounded-sm w-full", bold && "font-bold", className)}
       style={{ textAlign: align }}
     />
+  );
+}
+
+type Section = "main" | "deduct";
+
+/** 明細テーブル（請求/報酬・お支払い/控除）。モジュールレベル定義（再マウント防止）。 */
+function LineTable({
+  readOnly,
+  section,
+  lines,
+  title,
+  color,
+  soft,
+  subtotal,
+  tax,
+  gross,
+  subtotalLabel,
+  taxLabel,
+  classNameTbl,
+  setLine,
+  addLine,
+  removeLine,
+}: {
+  readOnly: boolean;
+  section: Section;
+  lines: EditorLine[];
+  title: string;
+  color: string;
+  soft: string;
+  subtotal: number;
+  tax: number;
+  gross: number;
+  subtotalLabel: string;
+  taxLabel: string;
+  classNameTbl?: string;
+  setLine: (section: Section, i: number, patch: Partial<EditorLine>) => void;
+  addLine: (section: Section) => void;
+  removeLine: (section: Section, i: number) => void;
+}) {
+  return (
+    <table className={cn("w-full border-collapse text-[11.5px]", classNameTbl)} style={{ border: `4px solid ${color}` }}>
+      <thead>
+        <tr>
+          <th colSpan={readOnly ? 5 : 6} className="bg-white py-[3px] px-2 text-center text-[12.5px] font-bold tracking-[4px]" style={{ color, border: `1px solid ${color}` }}>
+            {title}
+          </th>
+        </tr>
+        <tr className="text-white font-semibold">
+          <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "40%" }}>摘要</th>
+          <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "11%" }}>数量</th>
+          <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "9%" }}>単位</th>
+          <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "18%" }}>税抜単価（円）</th>
+          <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "22%" }}>税抜合計（円）</th>
+          {!readOnly ? <th className="w-7" style={{ border: "none" }} /> : null}
+        </tr>
+      </thead>
+      <tbody>
+        {lines.length === 0 ? (
+          <tr>
+            <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>&nbsp;</td>
+            <td className="bg-white" style={{ border: `1px solid ${color}` }} />
+            <td className="bg-white" style={{ border: `1px solid ${color}` }} />
+            <td className="bg-white" style={{ border: `1px solid ${color}` }} />
+            <td className="text-right px-2 bg-white" style={{ border: `1px solid ${color}` }}>0</td>
+            {!readOnly ? <td /> : null}
+          </tr>
+        ) : (
+          lines.map((ln, i) => (
+            <tr key={i}>
+              <td className="py-[2.5px] px-2 leading-[1.3] bg-white" style={{ border: `1px solid ${color}` }}>
+                <T readOnly={readOnly} value={ln.title} placeholder="摘要" onChange={(v) => setLine(section, i, { title: v })} />
+              </td>
+              <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
+                <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" onChange={(v) => setLine(section, i, { qty: v })} />
+              </td>
+              <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
+                <T readOnly={readOnly} value={ln.unit} align="center" placeholder="件" onChange={(v) => setLine(section, i, { unit: v })} />
+              </td>
+              <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
+                <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : ln.price} align="right" placeholder="0" onChange={(v) => setLine(section, i, { price: v })} />
+              </td>
+              <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>
+                {jpy(Math.round(num(ln.qty) * num(ln.price)))}
+              </td>
+              {!readOnly ? (
+                <td className="text-center align-middle">
+                  <button type="button" onClick={() => removeLine(section, i)} className="text-slate-400 hover:text-red-500 text-sm hide-print">×</button>
+                </td>
+              ) : null}
+            </tr>
+          ))
+        )}
+        {!readOnly ? (
+          <tr className="hide-print">
+            <td colSpan={6} className="py-1 px-2" style={{ border: "none" }}>
+              <button type="button" onClick={() => addLine(section)} className="text-xs text-slate-600 underline hover:text-slate-900">＋ 行を追加</button>
+            </td>
+          </tr>
+        ) : null}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{subtotalLabel}</td>
+          <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(subtotal)}</td>
+          {!readOnly ? <td /> : null}
+        </tr>
+        {taxLabel ? (
+          <tr>
+            <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{taxLabel}</td>
+            <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(tax)}</td>
+            {!readOnly ? <td /> : null}
+          </tr>
+        ) : null}
+        <tr className="font-bold text-white">
+          <td colSpan={4} className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>税込合計</td>
+          <td className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>{jpy(gross)}</td>
+          {!readOnly ? <td /> : null}
+        </tr>
+      </tfoot>
+    </table>
   );
 }
 
@@ -94,121 +209,12 @@ export function InvoiceSheet({
   const ratePct = Math.round(num(st.taxRatePercent));
 
   const set = (patch: Partial<EditorState>) => onChange?.({ ...st, ...patch });
-  const setLine = (section: "main" | "deduct", i: number, patch: Partial<EditorLine>) =>
+  const setLine = (section: Section, i: number, patch: Partial<EditorLine>) =>
     set({ [section]: st[section].map((l, idx) => (idx === i ? { ...l, ...patch } : l)) } as Partial<EditorState>);
-  const addLine = (section: "main" | "deduct") =>
+  const addLine = (section: Section) =>
     set({ [section]: [...st[section], emptyLine()] } as Partial<EditorState>);
-  const removeLine = (section: "main" | "deduct", i: number) =>
+  const removeLine = (section: Section, i: number) =>
     set({ [section]: st[section].filter((_, idx) => idx !== i) } as Partial<EditorState>);
-
-  /** 明細テーブル（請求/報酬・お支払い/控除）。 */
-  const LineTable = ({
-    section,
-    title,
-    color,
-    soft,
-    subtotal,
-    tax,
-    gross,
-    subtotalLabel,
-    taxLabel,
-    classNameTbl,
-  }: {
-    section: "main" | "deduct";
-    title: string;
-    color: string;
-    soft: string;
-    subtotal: number;
-    tax: number;
-    gross: number;
-    subtotalLabel: string;
-    taxLabel: string;
-    classNameTbl?: string;
-  }) => {
-    const lines = st[section];
-    return (
-      <table className={cn("w-full border-collapse text-[11.5px]", classNameTbl)} style={{ border: `4px solid ${color}` }}>
-        <thead>
-          <tr>
-            <th colSpan={readOnly ? 5 : 6} className="bg-white py-[3px] px-2 text-center text-[12.5px] font-bold tracking-[4px]" style={{ color, border: `1px solid ${color}` }}>
-              {title}
-            </th>
-          </tr>
-          <tr className="text-white font-semibold">
-            <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "40%" }}>摘要</th>
-            <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "11%" }}>数量</th>
-            <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "9%" }}>単位</th>
-            <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "18%" }}>税抜単価（円）</th>
-            <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "22%" }}>税抜合計（円）</th>
-            {!readOnly ? <th className="w-7" style={{ border: "none" }} /> : null}
-          </tr>
-        </thead>
-        <tbody>
-          {lines.length === 0 ? (
-            <tr>
-              <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>&nbsp;</td>
-              <td className="bg-white" style={{ border: `1px solid ${color}` }} />
-              <td className="bg-white" style={{ border: `1px solid ${color}` }} />
-              <td className="bg-white" style={{ border: `1px solid ${color}` }} />
-              <td className="text-right px-2 bg-white" style={{ border: `1px solid ${color}` }}>0</td>
-              {!readOnly ? <td /> : null}
-            </tr>
-          ) : (
-            lines.map((ln, i) => (
-              <tr key={i}>
-                <td className="py-[2.5px] px-2 leading-[1.3] bg-white" style={{ border: `1px solid ${color}` }}>
-                  <T readOnly={readOnly} value={ln.title} placeholder="摘要" onChange={(v) => setLine(section, i, { title: v })} />
-                </td>
-                <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
-                  <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" onChange={(v) => setLine(section, i, { qty: v })} />
-                </td>
-                <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
-                  <T readOnly={readOnly} value={ln.unit} align="center" placeholder="件" onChange={(v) => setLine(section, i, { unit: v })} />
-                </td>
-                <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
-                  <T readOnly={readOnly} value={readOnly ? (ln.price ? Number(num(ln.price)).toLocaleString("ja-JP", { maximumFractionDigits: 2 }) : "") : ln.price} align="right" placeholder="0" onChange={(v) => setLine(section, i, { price: v })} />
-                </td>
-                <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>
-                  {jpy(Math.round(num(ln.qty) * num(ln.price)))}
-                </td>
-                {!readOnly ? (
-                  <td className="text-center align-middle">
-                    <button type="button" onClick={() => removeLine(section, i)} className="text-slate-400 hover:text-red-500 text-sm hide-print">×</button>
-                  </td>
-                ) : null}
-              </tr>
-            ))
-          )}
-          {!readOnly ? (
-            <tr className="hide-print">
-              <td colSpan={6} className="py-1 px-2" style={{ border: "none" }}>
-                <button type="button" onClick={() => addLine(section)} className="text-xs text-slate-600 underline hover:text-slate-900">＋ 行を追加</button>
-              </td>
-            </tr>
-          ) : null}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{subtotalLabel}</td>
-            <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(subtotal)}</td>
-            {!readOnly ? <td /> : null}
-          </tr>
-          {taxLabel ? (
-            <tr>
-              <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{taxLabel}</td>
-              <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(tax)}</td>
-              {!readOnly ? <td /> : null}
-            </tr>
-          ) : null}
-          <tr className="font-bold text-white">
-            <td colSpan={4} className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>税込合計</td>
-            <td className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>{jpy(gross)}</td>
-            {!readOnly ? <td /> : null}
-          </tr>
-        </tfoot>
-      </table>
-    );
-  };
 
   return (
     <div className={cn("bg-slate-100 overflow-auto py-6", className)}>
@@ -229,26 +235,14 @@ export function InvoiceSheet({
               <span className="text-[16px] font-bold flex-1">
                 <T readOnly={readOnly} value={st.toName} placeholder="請求先 名称" bold onChange={(v) => set({ toName: v })} />
               </span>
-              <button
-                type="button"
-                disabled={readOnly}
-                onClick={() => set({ honorific: st.honorific === "御中" ? "様" : "御中" })}
-                className="text-[14px] ml-2"
-                title={readOnly ? undefined : "クリックで御中/様"}
-              >
+              <button type="button" disabled={readOnly} onClick={() => set({ honorific: st.honorific === "御中" ? "様" : "御中" })} className="text-[14px] ml-2" title={readOnly ? undefined : "クリックで御中/様"}>
                 {st.honorific || "御中"}
               </button>
             </div>
             {readOnly ? (
               <div className="mt-1 text-[12px] leading-[1.5]" dangerouslySetInnerHTML={{ __html: st.toAddrHtml || "〒<br/>（住所）" }} />
             ) : (
-              <textarea
-                value={st.toAddrHtml.replace(/<br\s*\/?>/gi, "\n")}
-                placeholder="〒\n（住所）"
-                onChange={(e) => set({ toAddrHtml: e.target.value.replace(/\n/g, "<br/>") })}
-                className="mt-1 text-[12px] leading-[1.5] w-full bg-transparent outline-none focus:bg-blue-50 rounded-sm resize-none"
-                rows={2}
-              />
+              <textarea value={st.toAddrHtml.replace(/<br\s*\/?>/gi, "\n")} placeholder={"〒\n（住所）"} onChange={(e) => set({ toAddrHtml: e.target.value.replace(/\n/g, "<br/>") })} className="mt-1 text-[12px] leading-[1.5] w-full bg-transparent outline-none focus:bg-blue-50 rounded-sm resize-none" rows={2} />
             )}
             <div className="mt-6 text-[12px]">下記の通りご請求申し上げます。</div>
           </div>
@@ -267,13 +261,7 @@ export function InvoiceSheet({
               {readOnly ? (
                 <div dangerouslySetInnerHTML={{ __html: st.fromAddrHtml || "" }} />
               ) : (
-                <textarea
-                  value={st.fromAddrHtml.replace(/<br\s*\/?>/gi, "\n")}
-                  placeholder="〒\n（住所）"
-                  onChange={(e) => set({ fromAddrHtml: e.target.value.replace(/\n/g, "<br/>") })}
-                  className="text-[12px] leading-[1.6] w-full bg-transparent outline-none focus:bg-blue-50 rounded-sm resize-none"
-                  rows={2}
-                />
+                <textarea value={st.fromAddrHtml.replace(/<br\s*\/?>/gi, "\n")} placeholder={"〒\n（住所）"} onChange={(e) => set({ fromAddrHtml: e.target.value.replace(/\n/g, "<br/>") })} className="text-[12px] leading-[1.6] w-full bg-transparent outline-none focus:bg-blue-50 rounded-sm resize-none" rows={2} />
               )}
               {readOnly ? (
                 st.fromTel ? <div>電話：{st.fromTel}</div> : null
@@ -331,10 +319,41 @@ export function InvoiceSheet({
           </tbody>
         </table>
 
-        <LineTable section="main" title={config.billSectionTitle} color={C.bill} soft={C.billSoft} subtotal={totals.billSubtotal} tax={totals.billTax} gross={totals.billGross} subtotalLabel="小計（税抜）" taxLabel={st.taxEnabled ? `消費税額（小計分 ${ratePct}%）` : ""} />
+        <LineTable
+          readOnly={readOnly}
+          section="main"
+          lines={st.main}
+          title={config.billSectionTitle}
+          color={C.bill}
+          soft={C.billSoft}
+          subtotal={totals.billSubtotal}
+          tax={totals.billTax}
+          gross={totals.billGross}
+          subtotalLabel="小計（税抜）"
+          taxLabel={st.taxEnabled ? `消費税額（小計分 ${ratePct}%）` : ""}
+          setLine={setLine}
+          addLine={addLine}
+          removeLine={removeLine}
+        />
 
         {config.showDeductTable ? (
-          <LineTable classNameTbl="mt-[34px]" section="deduct" title={config.deductSectionTitle} color={C.deduct} soft={C.deductSoft} subtotal={totals.deductSubtotal} tax={totals.deductTax} gross={totals.deductGross} subtotalLabel={`${config.deductSectionTitle}小計（税抜）`} taxLabel={st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : ""} />
+          <LineTable
+            readOnly={readOnly}
+            section="deduct"
+            lines={st.deduct}
+            title={config.deductSectionTitle}
+            color={C.deduct}
+            soft={C.deductSoft}
+            subtotal={totals.deductSubtotal}
+            tax={totals.deductTax}
+            gross={totals.deductGross}
+            subtotalLabel={`${config.deductSectionTitle}小計（税抜）`}
+            taxLabel={st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : ""}
+            setLine={setLine}
+            addLine={addLine}
+            removeLine={removeLine}
+            classNameTbl="mt-[34px]"
+          />
         ) : null}
 
         {/* 振込先 */}
