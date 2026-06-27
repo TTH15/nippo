@@ -4,16 +4,19 @@ import { useParams } from "next/navigation";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { useApi } from "@/lib/useApi";
 import { InvoiceDocument } from "../../_components/InvoiceDocument";
-import { toInvoiceDocData } from "../../_components/invoiceAdapter";
+import { toInvoiceDocData, type CounterpartyAddress } from "../../_components/invoiceAdapter";
 
 type InvoiceResp = {
   invoice: {
     id: string;
     invoiceNo?: string;
     clientName?: string;
+    counterpartyInvoiceAddressId?: string | null;
     payload?: unknown;
   };
 };
+
+type AddressesResp = { addresses: (CounterpartyAddress & { id: string })[] };
 
 export default function AdminInvoicePreviewPage() {
   const params = useParams<{ id: string }>();
@@ -21,6 +24,11 @@ export default function AdminInvoicePreviewPage() {
   const { data, isInitialLoading, error } = useApi<InvoiceResp>(
     id ? `/api/admin/invoices/${encodeURIComponent(id)}` : null,
   );
+  // 請求先住所が payload に無い場合の補完用にアドレス帳を取得。
+  const { data: addrData } = useApi<AddressesResp>("/api/admin/invoice-addresses");
+  const counterparty = data?.invoice?.counterpartyInvoiceAddressId
+    ? addrData?.addresses?.find((a) => a.id === data.invoice.counterpartyInvoiceAddressId)
+    : undefined;
   // 旧 iframe プレビュー（PDF/印刷は当面こちら。React 版の PDF 化が済んだら撤去）。
   const legacySrc = `/invoice/index.html?invoiceId=${encodeURIComponent(id)}&readonly=1`;
 
@@ -51,7 +59,7 @@ export default function AdminInvoicePreviewPage() {
             請求書を読み込めませんでした。
           </div>
         ) : (
-          <InvoiceDocument data={toInvoiceDocData(data.invoice)} />
+          <InvoiceDocument data={toInvoiceDocData(data.invoice, counterparty)} />
         )}
       </div>
     </AdminLayout>
