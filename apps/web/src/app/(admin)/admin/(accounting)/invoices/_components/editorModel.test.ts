@@ -96,4 +96,27 @@ describe("editorFromInvoice → saveBodyFromEditor 往復", () => {
     });
     expect(st.kind).toBe("incoming");
   });
+
+  it("旧iframe保存の payload（subject/単価のみ）でも編集に展開される", () => {
+    const st = editorFromInvoice({
+      id: "old1",
+      clientName: "旧取引先",
+      payload: {
+        toName: "旧取引先",
+        subject: "2025年4月1日〜2025年4月30日",
+        taxSettings: { enabled: true, rate: 10 },
+        parties: { fromParty: "ace_creation", toParty: "corp-9" },
+        tableData: {
+          main: [{ title: "ヤマト", qty: 100, price: 150 }],
+          deduct: [{ title: "リース", qty: 1, price: 39091 }],
+        },
+      },
+    });
+    expect(st.toName).toBe("旧取引先");
+    expect(st.period).toBe("2025年4月1日〜2025年4月30日");
+    expect(st.main).toHaveLength(1);
+    expect(st.main[0].title).toBe("ヤマト");
+    expect(st.main[0].qty).toBe("100");
+    expect(st.deduct[0].title).toBe("リース");
+  });
 });

@@ -689,7 +689,7 @@ export default function InvoicesPage() {
                             <td className="px-3 py-3 text-right">
                               {canWrite ? (
                                 (() => {
-                                  const href = `/admin/invoices/new?invoiceId=${encodeURIComponent(inv.id)}`;
+                                  const href = `/admin/invoices/${encodeURIComponent(inv.id)}/edit`;
                                   return (
                                     <div className="inline-flex items-center gap-2">
                                       {inv.status === "pending_approval" && (
@@ -809,7 +809,7 @@ export default function InvoicesPage() {
                               </a>
                             )}
                             <a
-                              href={`/admin/invoices/new?invoiceId=${encodeURIComponent(inv.id)}`}
+                              href={`/admin/invoices/${encodeURIComponent(inv.id)}/edit`}
                               title="編集"
                               className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-200 text-slate-500 active:bg-slate-100"
                             >
