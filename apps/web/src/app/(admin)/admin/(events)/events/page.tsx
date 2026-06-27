@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { EventSettingsTab } from "./EventSettingsTab";
 import { TeamsTab } from "./TeamsTab";
 import { ScoringRuleTab } from "./ScoringRuleTab";
@@ -106,7 +106,7 @@ export default function EventsPage() {
   );
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_org_settings"));
   }, []);
 
   const selectEvent = (id: string) => {

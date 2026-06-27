@@ -5,7 +5,8 @@
 //   設計: docs/platform-design.md §4,§6,§7 / docs/tenant-migration（memory）
 // ============================================================
 
-import type { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { requireAuth, isAuthError, type AuthUser } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
@@ -38,8 +39,14 @@ export async function requireTenant(
 ): Promise<TenantContext | NextResponse> {
   const user = await requireAuth(req, requiredRole);
   if (isAuthError(user)) return user;
-  const orgId = await resolveOrgId(user.driverId);
-  return { user, orgId };
+  // 孤児セッション（token は有効だが driver 行が削除済み等）は org を解決できない。
+  // これは認証無効として 401（クライアントはログイン画面へ遷移）にする。生の500を出さない。
+  try {
+    const orgId = await resolveOrgId(user.driverId);
+    return { user, orgId };
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 }
 
 export { isAuthError } from "@/server/auth";

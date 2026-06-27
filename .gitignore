@@ -42,3 +42,9 @@ next-env.d.ts
 
 # supabase CLI temp
 supabase/.temp/
+
+# Expo prebuild artifacts must live in apps/*, never at repo root
+/ios/
+/android/
+/app.json
+.expo/

@@ -2,8 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { authProvider } from "./jwt";
 import type { AuthUser } from "./types";
 
-export type { AuthUser } from "./types";
+export type { AuthUser, MembershipRole } from "./types";
 export { authProvider, signToken } from "./jwt";
+export { requirePermission, hasCapability, getCapabilities, resolveCapabilities } from "./permissions";
+export {
+  CAPABILITIES,
+  DEFAULT_ROLE_CAPABILITIES,
+  CAPABILITY_META,
+  CAPABILITY_GROUP_ORDER,
+  type Capability,
+} from "./capabilities";
 
 /**
  * Helper: extract AuthUser from request, or return 401 response.

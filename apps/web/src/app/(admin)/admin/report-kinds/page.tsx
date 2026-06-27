@@ -7,7 +7,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { Button } from "@/lib/ui/button";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrashCan, faChevronRight, faPlus } from "@fortawesome/free-solid-svg-icons";
@@ -106,7 +106,7 @@ export default function ReportKindsPage() {
   const load = useCallback(() => mutateKinds(), [mutateKinds]);
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_org_settings"));
   }, []);
 
   const openNew = () => setForm(emptyForm((kinds.at(-1)?.sortOrder ?? 0) + 1));

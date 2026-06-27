@@ -8,6 +8,7 @@ import {
   faTrash,
   faCircleExclamation,
   faTriangleExclamation,
+  faQrcode,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { DatePicker } from "@/lib/components/DatePicker";
@@ -21,10 +22,12 @@ import { todayJST } from "@/lib/date";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { Button } from "@/lib/ui/button";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { VehicleRecoveryDetail } from "./VehicleRecoveryDetail";
+import { VehicleQrModal } from "./VehicleQrModal";
+import { VehicleQrBulkModal } from "./VehicleQrBulkModal";
 
 const DEFAULT_LEASE_COST = 35000; // 月々リース代（デフォルト）
 
@@ -82,6 +85,8 @@ export default function VehiclesPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const [qrVehicle, setQrVehicle] = useState<Vehicle | null>(null);
+  const [showBulkQr, setShowBulkQr] = useState(false);
   const [form, setForm] = useState({
     isDisposed: false,
     isEv: false,
@@ -176,7 +181,7 @@ export default function VehiclesPage() {
   }, [bundle]);
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_vehicles"));
   }, []);
 
   const defaultRangeLast30Days = () => {
@@ -543,10 +548,16 @@ export default function VehiclesPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">車両管理</h1>
           {canWrite && (
-            <Button variant="default" size="default" onClick={openNew}>
-              <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
-              新規追加
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" size="default" onClick={() => setShowBulkQr(true)}>
+                <FontAwesomeIcon icon={faQrcode} className="w-3.5 h-3.5" />
+                QR一括
+              </Button>
+              <Button variant="default" size="default" onClick={openNew}>
+                <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
+                新規追加
+              </Button>
+            </div>
           )}
         </div>
 
@@ -749,6 +760,18 @@ export default function VehiclesPage() {
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                         </svg>
+                      </button>
+                    )}
+                    {canWrite && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setQrVehicle(v);
+                        }}
+                        className="text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+                        title="車両QR"
+                      >
+                        <FontAwesomeIcon icon={faQrcode} className="w-5 h-5" />
                       </button>
                     )}
                   </div>
@@ -1849,6 +1872,17 @@ export default function VehiclesPage() {
         onClose={() => setConfirmState(null)}
         confirmLabel="削除"
       />
+
+      {qrVehicle && (
+        <VehicleQrModal vehicle={qrVehicle} onClose={() => setQrVehicle(null)} />
+      )}
+
+      {showBulkQr && (
+        <VehicleQrBulkModal
+          vehicles={vehicles.filter((v) => !v.is_disposed)}
+          onClose={() => setShowBulkQr(false)}
+        />
+      )}
       <ErrorDialog
         open={!!errorState}
         title={errorState?.title}

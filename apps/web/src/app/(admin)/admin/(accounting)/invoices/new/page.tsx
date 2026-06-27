@@ -3,7 +3,7 @@
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Suspense, useEffect, useState } from "react";
 import { getStoredDriver } from "@/lib/api";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { useSearchParams } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faDesktop } from "@fortawesome/free-solid-svg-icons";
@@ -15,7 +15,7 @@ function InvoiceNewPageContent() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_billing"));
   }, []);
 
   useEffect(() => {

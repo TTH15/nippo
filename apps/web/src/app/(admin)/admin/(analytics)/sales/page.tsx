@@ -5,7 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare, faRotateRight } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { Button } from "@/lib/ui/button";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
 import { DatePicker } from "@/lib/components/DatePicker";
@@ -891,7 +891,7 @@ export default function SalesPage() {
   const [manualRefreshing, setManualRefreshing] = useState(false);
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_billing"));
   }, []);
 
   const { data: coursesData } = useSWR<{ courses: CourseRow[] }>(

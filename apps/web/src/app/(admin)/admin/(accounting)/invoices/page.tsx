@@ -8,7 +8,7 @@ import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 
 type SavedInvoice = {
   direction?: "outgoing" | "incoming";
@@ -200,7 +200,7 @@ export default function InvoicesPage() {
   });
 
   useEffect(() => {
-    setCanWrite(canAdminWrite(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_billing"));
   }, []);
 
   // SWR で請求書一覧をキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。

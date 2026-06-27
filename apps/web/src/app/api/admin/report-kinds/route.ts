@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { loadReportKinds, normalizeCapability } from "@/server/reportKinds/config";
 import { normalizeFields, validateKindFields, type VehicleMode } from "@/server/reportKinds/fields";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // GET: 全種別（管理画面の設定用）。
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_org_settings");
   if (isAuthError(user)) return user;
   const kinds = await loadReportKinds(supabase);
   return NextResponse.json({ kinds });
@@ -22,7 +22,7 @@ function normVehicleMode(raw: unknown): VehicleMode {
 
 // POST: 種別を追加（フォームビルダー: fields/vehicleMode）。
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_org_settings");
   if (isAuthError(user)) return user;
 
   const body = await req.json().catch(() => ({}));

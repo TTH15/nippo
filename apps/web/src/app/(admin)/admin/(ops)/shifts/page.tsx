@@ -13,7 +13,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
-import { canEditShifts } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { slotDisplayLabel } from "@/lib/timeSlot";
 import {
   formatPlateNumeric,
@@ -549,7 +549,7 @@ export default function ShiftsPage() {
   );
 
   useEffect(() => {
-    setCanWrite(canEditShifts(getStoredDriver()?.role));
+    setCanWrite(hasCapability("can_manage_shifts"));
   }, []);
 
   // 自動保存のため未保存確認は不要。そのまま切り替える。
