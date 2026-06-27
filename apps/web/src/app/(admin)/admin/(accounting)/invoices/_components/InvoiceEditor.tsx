@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { exportInvoicePdf, invoicePdfFileName } from "@/lib/invoicePdf";
 import { InvoiceDocument } from "./InvoiceDocument";
 import {
   type EditorState,
@@ -145,7 +146,19 @@ export function InvoiceEditor({
   const router = useRouter();
   const [st, setSt] = useState<EditorState>(initial);
   const [saving, setSaving] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  const downloadPdf = async () => {
+    if (!sheetRef.current) return;
+    setPdfBusy(true);
+    try {
+      await exportInvoicePdf(sheetRef.current, invoicePdfFileName(st.period, st.fromName));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   // 取引先（請求先）アドレス帳。売上請求書の請求先セレクタで使用。
   const { data: addrData } = useApi<{ addresses: AddressRow[] }>(
@@ -239,13 +252,22 @@ export function InvoiceEditor({
           <h1 className="text-base font-semibold text-slate-900">
             {mode === "new" ? "請求書の作成" : "請求書の編集"}
           </h1>
-          <button
-            onClick={save}
-            disabled={saving}
-            className="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-          >
-            {saving ? "保存中…" : "保存"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={downloadPdf}
+              disabled={pdfBusy}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {pdfBusy ? "PDF生成中…" : "PDF"}
+            </button>
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+            >
+              {saving ? "保存中…" : "保存"}
+            </button>
+          </div>
         </div>
         {error ? <div className="rounded bg-red-50 text-red-700 text-sm px-3 py-2">{error}</div> : null}
 
@@ -357,7 +379,7 @@ export function InvoiceEditor({
 
       {/* 右：ライブプレビュー */}
       <div className="flex-1 overflow-y-auto">
-        <InvoiceDocument data={docDataFromEditor(st)} />
+        <InvoiceDocument data={docDataFromEditor(st)} sheetRef={sheetRef} />
       </div>
     </div>
   );
