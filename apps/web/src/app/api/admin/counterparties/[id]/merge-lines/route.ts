@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { buildMergeCandidateMap } from "@/server/billing/counterpartyBillingSnapshot";
@@ -26,7 +26,7 @@ function sameUnitPrice(a: number, b: number) {
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_billing");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

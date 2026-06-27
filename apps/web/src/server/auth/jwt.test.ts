@@ -50,12 +50,22 @@ describe("signToken / verify (Phase 6a: identity_id + current_org_id)", () => {
     expect(user.orgId).toBeNull();
   });
 
-  it("不正な role は弾く", async () => {
-    const bad = await new SignJWT({ sub: "drv-4", role: "HACKER", companyCode: "ACE" })
+  it("role 欠落（空）は弾く", async () => {
+    const bad = await new SignJWT({ sub: "drv-4", companyCode: "ACE" })
       .setProtectedHeader({ alg: "HS256" })
       .setIssuedAt()
       .setExpirationTime("30d")
       .sign(secret());
     await expect(provider.verify(`Bearer ${bad}`)).rejects.toThrow();
+  });
+
+  it("カスタムロールのキー（任意文字列）は通す（権限の正本は capability 側）", async () => {
+    const token = await new SignJWT({ sub: "drv-5", role: "CUSTOM_AB12C", companyCode: "ACE" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("30d")
+      .sign(secret());
+    const user = await provider.verify(`Bearer ${token}`);
+    expect(user.role).toBe("CUSTOM_AB12C");
   });
 });

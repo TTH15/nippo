@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ type DriverFixedExpense = {
 
 // GET: ドライバーごとの固定経費一覧
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_rewards");
   if (isAuthError(user)) return user;
 
   const driverId = req.nextUrl.searchParams.get("driver_id");
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
 
 // POST: 固定経費の新規登録
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_rewards");
   if (isAuthError(user)) return user;
 
   type Body = {

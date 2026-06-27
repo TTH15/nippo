@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // GET: 全ドライバー一覧（コース情報含む）
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_members");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const url = req.nextUrl;
@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
 
 // POST: 新規ドライバー追加
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_members");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
@@ -164,6 +164,30 @@ export async function POST(req: NextRequest) {
     // ドライバーコードの数字部分をPINとしてハッシュ化
     const pinPart = driverCode.slice(3);
     const pinHash = await bcrypt.hash(pinPart, 10);
+
+    // 勤務区分(driver_identities.driver_code)はグローバル一意。drivers を作る前に
+    // 衝突を検査し、孤児行を残さず明確なエラーを返す（後続の driver_identities 挿入が
+    // 失敗してもこの POST はトランザクションではないため、ここで弾くのが安全）。
+    const code1 = driverCode.toUpperCase();
+    const oc2pre = typeof officeCode2 === "string" ? officeCode2.replace(/\D/g, "") : "";
+    const num2pre = typeof driverNumber2 === "string" ? driverNumber2.replace(/\D/g, "") : "";
+    const code2 =
+      oc2pre.length === 6 && num2pre.length === 6 ? `${resolvedCompany}${num2pre}`.toUpperCase() : null;
+    const codesToCheck = code2 ? [code1, code2] : [code1];
+    const { data: dupCodes, error: dupErr } = await supabase
+      .from("driver_identities")
+      .select("driver_code")
+      .in("driver_code", codesToCheck);
+    if (dupErr) {
+      console.error(dupErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    if ((dupCodes ?? []).length > 0) {
+      return NextResponse.json(
+        { error: "このドライバーコードは既に使用されています" },
+        { status: 400 },
+      );
+    }
 
     const { data: listRows } = await supabase
       .from("drivers")
@@ -232,6 +256,8 @@ export async function POST(req: NextRequest) {
       .single();
     if (identErr || !identity) {
       console.error(identErr);
+      // 補償: 直前に作成した drivers 行を取り消し、孤児を残さない。
+      await supabase.from("drivers").delete().eq("id", driver.id);
       return NextResponse.json({ error: "アイデンティティの作成に失敗しました" }, { status: 500 });
     }
     await supabase.from("drivers").update({ identity_id: identity.id }).eq("id", driver.id);
@@ -249,6 +275,16 @@ export async function POST(req: NextRequest) {
 
     if (iErr || !ident1) {
       console.error(iErr);
+      // 補償: drivers / identities を取り消して孤児を残さない。
+      await supabase.from("drivers").delete().eq("id", driver.id);
+      await supabase.from("identities").delete().eq("id", identity.id);
+      // driver_code の一意制約(23505)＝事前検査をすり抜けた競合。明確なメッセージで返す。
+      if ((iErr as { code?: string } | null)?.code === "23505") {
+        return NextResponse.json(
+          { error: "このドライバーコードは既に使用されています" },
+          { status: 400 },
+        );
+      }
       return NextResponse.json({ error: "勤務区分の作成に失敗しました" }, { status: 500 });
     }
 
@@ -261,18 +297,15 @@ export async function POST(req: NextRequest) {
       await supabase.from("driver_courses").insert(courseLinks);
     }
 
-    const oc2 = typeof officeCode2 === "string" ? officeCode2.replace(/\D/g, "") : "";
-    const num2 = typeof driverNumber2 === "string" ? driverNumber2.replace(/\D/g, "") : "";
-    if (oc2.length === 6 && num2.length === 6 && /^\d{6}$/.test(oc2) && /^\d{6}$/.test(num2)) {
-      const full2 = `${resolvedCompany}${num2}`.toUpperCase();
-      if (full2.slice(0, 3) === resolvedCompany) {
+    if (code2 && oc2pre.length === 6 && /^\d{6}$/.test(oc2pre)) {
+      if (code2.slice(0, 3) === resolvedCompany) {
         const { data: ident2, error: e2 } = await supabase
           .from("driver_identities")
           .insert({
             driver_id: driver.id,
             slot: 2,
-            driver_code: full2,
-            office_code: oc2,
+            driver_code: code2,
+            office_code: oc2pre,
           })
           .select("id")
           .single();

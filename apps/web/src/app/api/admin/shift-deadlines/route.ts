@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAllRules, saveRules, type DeadlineRuleInput } from "@/server/shiftDeadline/config";
@@ -19,7 +19,7 @@ const clampOffset = (o: number) => (o < -2 ? -2 : o > 2 ? 2 : o);
 
 // GET: ルール一覧 + ドライバー一覧
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_shifts");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
 // 提出締切の設定はシフト管理の一部のため、閲覧専用アカウント(ADMIN_VIEWER)にも許可する
 // （フロントの canEditShifts と整合。他の管理機能は ADMIN のままにする）。
 export async function PUT(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_manage_shifts");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

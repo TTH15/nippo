@@ -10,7 +10,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
 import { Button } from "@/lib/ui/button";
 import { faChevronRight, faTrash } from "@fortawesome/free-solid-svg-icons";
@@ -35,6 +35,7 @@ type Driver = {
   name: string;
   display_name?: string | null;
   role?: string;
+  role_id?: string | null;
   company_code?: string;
   office_code: string;
   driver_code: string;
@@ -163,6 +164,7 @@ export default function UsersPage() {
     bankNumber: "",
     bankHolder: "",
     licenseExpiryDate: "",
+    roleId: "", // §2-6 ロール割当（roles.id）。空＝変更しない
   });
   const [leaseForm, setLeaseForm] = useState<LeaseForm>(EMPTY_LEASE);
   const [leaseLoading, setLeaseLoading] = useState(false);
@@ -201,6 +203,14 @@ export default function UsersPage() {
       dedupingInterval: 30 * 60 * 1000,
     },
   );
+
+  // §2-6 ロール割当用の選択肢（org のロール一覧）。
+  const { data: rolesRes } = useSWR<{ roles: { id: string; label: string }[] }>(
+    "/api/admin/roles",
+    (url: string) => apiFetch<{ roles: { id: string; label: string }[] }>(url),
+    { revalidateOnFocus: false, dedupingInterval: 30 * 60 * 1000 },
+  );
+  const roleOptions = rolesRes?.roles ?? [];
   const courses = coursesRes?.courses ?? [];
 
   const hasMore = (usersPages?.[usersPages.length - 1]?.hasMore ?? false) && !usersValidating;
@@ -214,7 +224,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     const stored = getStoredDriver();
-    setCanWrite(canAdminWrite(stored?.role));
+    setCanWrite(hasCapability("can_manage_members"));
     if (stored?.companyCode) {
       setCompanyCode(stored.companyCode);
     }
@@ -264,6 +274,7 @@ export default function UsersPage() {
       bankNumber: "",
       bankHolder: "",
       licenseExpiryDate: "",
+      roleId: "",
     });
     setLeaseForm({ ...EMPTY_LEASE, validFrom: currentMonthStartStr() });
     setShowModal(true);
@@ -322,6 +333,7 @@ export default function UsersPage() {
           full.license_expiry_date && /^\d{4}-\d{2}-\d{2}$/.test(full.license_expiry_date)
             ? full.license_expiry_date
             : "",
+        roleId: full.role_id ?? "",
       });
       setShowModal(true);
     } catch (e) {
@@ -464,6 +476,7 @@ export default function UsersPage() {
             bankNo: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
             bankHolder: form.bankHolder.trim() || null,
             licenseExpiryDate: form.licenseExpiryDate.trim() || null,
+            roleId: form.roleId || null,
           }),
         });
         setDrivers((prev) =>
@@ -776,6 +789,27 @@ export default function UsersPage() {
                 />
                 <p className="text-xs text-slate-500 mt-1">シフト・日報などで表示します。空欄の場合は苗字のみ表示されます。</p>
               </div>
+
+              {editingDriver && roleOptions.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">ロール・権限</label>
+                  <select
+                    value={form.roleId}
+                    onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  >
+                    <option value="">（変更しない）</option>
+                    {roleOptions.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    権限の内容は「設定 → ロール・権限」で編集できます。
+                  </p>
+                </div>
+              )}
 
               <p className="text-xs font-semibold text-slate-600 pt-1">勤務区分1</p>
               <div>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { syncSalesLogDriverReward } from "@/server/salesLogDriverReward";
@@ -28,7 +28,7 @@ export type SalesLogEntryRow = {
 
 // GET: 期間内のログ明細（種別名・ドライバー名・車両ラベル付き）
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requirePermission(req, "can_view_billing");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
@@ -107,7 +107,7 @@ type CreateEntryBody = {
 
 // POST: 1件追加
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN");
+  const user = await requirePermission(req, "can_manage_billing");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

@@ -10,6 +10,8 @@ export type StoredDriver = {
   companyCode?: string;
   officeCode?: string;
   driverCode?: string;
+  /** §2-6: この membership が持つ capability（can_*）。UI の権限出し分けに使う。 */
+  capabilities?: string[];
 };
 
 /**

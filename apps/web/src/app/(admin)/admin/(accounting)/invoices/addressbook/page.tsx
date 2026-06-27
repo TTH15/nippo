@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { canAdminWrite } from "@/lib/authz";
+import { hasCapability } from "@/lib/capabilities";
 import { Button } from "@/lib/ui/button";
 
 type Address = {
@@ -56,7 +56,7 @@ export default function AddressBookPage() {
 
   useEffect(() => {
     const stored = getStoredDriver();
-    setCanWrite(canAdminWrite(stored?.role));
+    setCanWrite(hasCapability("can_manage_billing"));
     if (stored?.companyCode) {
       setCompanyCode(stored.companyCode);
     }
