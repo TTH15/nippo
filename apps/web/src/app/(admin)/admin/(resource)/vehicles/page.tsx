@@ -998,8 +998,8 @@ export default function VehiclesPage() {
       {/* 車両編集モーダル */}
       {showModal && canWrite && (
         <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-          <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
+          <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 flex flex-col min-h-0 flex-1">
               <div className="flex items-start justify-between mb-4">
                 <h2 className="text-lg font-semibold text-slate-900">
                   {editingVehicle ? "車両情報編集" : "新規車両追加"}
@@ -1037,62 +1037,12 @@ export default function VehiclesPage() {
                 ))}
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
                 {vehTab === "basic" && (
                 <>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="flex items-center justify-between px-3 py-2 rounded border border-slate-200 bg-slate-50">
-                      <span className="text-sm font-medium text-slate-700">廃車にする</span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={form.isDisposed}
-                        onClick={() => setForm((f) => ({ ...f, isDisposed: !f.isDisposed }))}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          form.isDisposed ? "bg-red-600" : "bg-slate-300"
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                            form.isDisposed ? "translate-x-5" : "translate-x-1"
-                          }`}
-                        />
-                      </button>
-                    </label>
-                    {form.isDisposed && (
-                      <p className="text-xs text-red-600 mt-1">
-                        廃車にすると一覧でナンバーに斜線が入ります（番号は保持されます）。
-                      </p>
-                    )}
-                  </div>
-                  <div className="col-span-2">
-                    <label className="flex items-center justify-between px-3 py-2 rounded border border-slate-200 bg-slate-50">
-                      <span className="text-sm font-medium text-slate-700">EV（電気自動車）</span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={form.isEv}
-                        onClick={() => setForm((f) => ({ ...f, isEv: !f.isEv }))}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          form.isEv ? "bg-emerald-600" : "bg-slate-300"
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                            form.isEv ? "translate-x-5" : "translate-x-1"
-                          }`}
-                        />
-                      </button>
-                    </label>
-                    {form.isEv && (
-                      <p className="text-xs text-emerald-700 mt-1">
-                        EV 車は日報フォームで走行距離（メーター）入力欄を表示しません。
-                      </p>
-                    )}
-                  </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">メーカー名</label>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">メーカー名</label>
                     <input
                       type="text"
                       value={form.manufacturer}
@@ -1102,7 +1052,7 @@ export default function VehiclesPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">ブランド名</label>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">ブランド名</label>
                     <input
                       type="text"
                       value={form.brand}
@@ -1114,7 +1064,7 @@ export default function VehiclesPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">ナンバープレート</label>
+                  <label className="block text-sm font-medium text-slate-500 mb-1">ナンバープレート</label>
                   <div className="grid grid-cols-3 gap-2 mb-2">
                     <input
                       type="text"
@@ -1205,6 +1155,56 @@ export default function VehiclesPage() {
                     })()}
                   </div>
                 </div>
+                <div>
+                  <label className="flex items-center justify-between px-3 py-2 rounded border border-slate-200 bg-slate-50">
+                    <span className="text-sm font-medium text-slate-500">廃車にする</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={form.isDisposed}
+                      onClick={() => setForm((f) => ({ ...f, isDisposed: !f.isDisposed }))}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        form.isDisposed ? "bg-red-600" : "bg-slate-300"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                          form.isDisposed ? "translate-x-5" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </label>
+                  {form.isDisposed && (
+                    <p className="text-xs text-red-600 mt-1">
+                      廃車にすると一覧でナンバーに斜線が入ります（番号は保持されます）。
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="flex items-center justify-between px-3 py-2 rounded border border-slate-200 bg-slate-50">
+                    <span className="text-sm font-medium text-slate-500">EV（電気自動車）</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={form.isEv}
+                      onClick={() => setForm((f) => ({ ...f, isEv: !f.isEv }))}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        form.isEv ? "bg-emerald-600" : "bg-slate-300"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                          form.isEv ? "translate-x-5" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </label>
+                  {form.isEv && (
+                    <p className="text-xs text-emerald-700 mt-1">
+                      EV 車は日報フォームで走行距離（メーター）入力欄を表示しません。
+                    </p>
+                  )}
+                </div>
                 </>
                 )}
 
@@ -1212,7 +1212,7 @@ export default function VehiclesPage() {
                 <>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-sm font-medium text-slate-700">利用ドライバー</label>
+                    <label className="text-sm font-medium text-slate-500">利用ドライバー</label>
                     <button
                       type="button"
                       onClick={() => setDriverOpen((o) => !o)}
@@ -1258,7 +1258,7 @@ export default function VehiclesPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">現在メーター (km)</label>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">現在メーター (km)</label>
                     <input
                       type="number"
                       value={form.currentMileage}
@@ -1268,7 +1268,7 @@ export default function VehiclesPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">前回オイル交換時 (km)</label>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">前回オイル交換時 (km)</label>
                     <input
                       type="number"
                       value={form.lastOilChangeMileage}
@@ -1279,7 +1279,7 @@ export default function VehiclesPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">交換間隔 (km)</label>
+                  <label className="block text-sm font-medium text-slate-500 mb-1">交換間隔 (km)</label>
                   <input
                     type="number"
                     value={form.oilChangeInterval}
@@ -1295,7 +1295,7 @@ export default function VehiclesPage() {
                 {vehTab === "cost" && (
                 <>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">購入費用明細 (円)</label>
+                  <label className="block text-sm font-medium text-slate-500 mb-1">購入費用明細 (円)</label>
                   <div className="border border-slate-200 rounded-md overflow-hidden">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50">
@@ -1415,7 +1415,7 @@ export default function VehiclesPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">月々保険料 (円)</label>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">月々保険料 (円)</label>
                     <input
                       type="number"
                       value={form.monthlyInsurance}
@@ -1425,7 +1425,7 @@ export default function VehiclesPage() {
                     <p className="text-xs text-slate-500 mt-1">リース代から差し引きます</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">月々リース代 (円)</label>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">月々リース代 (円)</label>
                     <input
                       type="number"
                       value={form.leaseCost}
@@ -1438,7 +1438,7 @@ export default function VehiclesPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">回収開始月</label>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">回収開始月</label>
                     <MonthYearPicker
                       value={
                         /^\d{4}-\d{2}/.test(form.recoveryStartMonth)
@@ -1452,7 +1452,7 @@ export default function VehiclesPage() {
                     <p className="text-xs text-slate-500 mt-1">初期費用回収のカレンダー月の起点</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">繰越（移行済み回収）(円)</label>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">繰越（移行済み回収）(円)</label>
                     <input
                       type="number"
                       value={form.recoveryCarryover}
@@ -1470,7 +1470,7 @@ export default function VehiclesPage() {
                 <>
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="block text-sm font-medium text-slate-700">車両画像</label>
+                    <label className="block text-sm font-medium text-slate-500">車両画像</label>
                     <span className="text-[11px] text-slate-500">ドラッグ&ドロップ / クリックで選択</span>
                   </div>
                   <div
@@ -1541,7 +1541,7 @@ export default function VehiclesPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">次回車検予定日</label>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">次回車検予定日</label>
                     <DatePicker
                       value={
                         form.nextShakenDate && /^\d{4}-\d{2}-\d{2}$/.test(form.nextShakenDate)
@@ -1555,7 +1555,7 @@ export default function VehiclesPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">自賠責の更新月</label>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">自賠責の更新月</label>
                     <MonthYearPicker
                       value={
                         /^\d{4}-\d{2}$/.test(form.jibaisekiRenewalMonth)
@@ -1572,14 +1572,13 @@ export default function VehiclesPage() {
                         }))
                       }
                     />
-                    <p className="text-xs text-slate-500 mt-1">例: 2026-04</p>
                   </div>
                 </div>
                 </>
                 )}
               </div>
 
-              <div className="flex flex-col gap-3 mt-6">
+              <div className="flex flex-col gap-3 pt-4 mt-4 border-t border-slate-100 shrink-0">
                 <div className="flex justify-end gap-2">
                   <button
                     onClick={() => setShowModal(false)}
