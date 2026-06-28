@@ -6,6 +6,8 @@ import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan, faEye, faSt
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { Button } from "@/lib/ui/button";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { hasCapability } from "@/lib/capabilities";
@@ -120,6 +122,8 @@ export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<SavedInvoice[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showCreatePicker, setShowCreatePicker] = useState(false);
+  // 作成ピッカーで選ぶ請求先（法人アドレスID）。売上は取引先ごとに明細経路で作成する。
+  const [createCounterpartyId, setCreateCounterpartyId] = useState<string>("");
   const [selectedMonth, setSelectedMonth] = useState(() => {
     if (initialFinderState.selectedMonth && /^\d{4}-\d{2}$/.test(initialFinderState.selectedMonth)) {
       return initialFinderState.selectedMonth;
@@ -145,6 +149,7 @@ export default function InvoicesPage() {
   );
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const [drivers, setDrivers] = useState<DriverFolder[]>([]);
   const [uploading, setUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -250,6 +255,18 @@ export default function InvoicesPage() {
     if (driversData) setDrivers(driversData);
   }, [driversData]);
 
+  // 法人アドレス（請求先）一覧。作成ピッカーの取引先選択に使う。
+  const { data: addressesData } = useApi<{ addresses: { id: string; name: string }[] }>(
+    "/api/admin/invoice-addresses",
+  );
+  const invoiceAddresses = useMemo(
+    () =>
+      (addressesData?.addresses ?? [])
+        .map((a) => ({ value: a.id, label: a.name }))
+        .sort((a, b) => a.label.localeCompare(b.label, "ja")),
+    [addressesData],
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const state: FinderState = {
@@ -346,9 +363,16 @@ export default function InvoicesPage() {
     }
   };
 
-  const deleteInvoice = async (invoiceId: string) => {
+  const deleteInvoice = (invoiceId: string) => {
     if (!canWrite) return;
-    if (!window.confirm("この請求書を削除しますか？")) return;
+    setConfirmState({
+      message: "この請求書を削除しますか？",
+      onConfirm: () => void performDeleteInvoice(invoiceId),
+    });
+  };
+
+  const performDeleteInvoice = async (invoiceId: string) => {
+    if (!canWrite) return;
     setDeletingId(invoiceId);
     try {
       await apiFetch(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`, {
@@ -431,28 +455,23 @@ export default function InvoicesPage() {
   return (
     <AdminLayout>
       <div className="w-full">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">請求書一覧</h1>
-            <p className="text-sm text-slate-500 mt-0.5">登録済みの請求データから請求書を作成・管理</p>
-            <p className="text-xs text-slate-400 mt-1">
-              <a href="/admin/counterparties" className="underline hover:text-slate-600">
-                取引先
-              </a>
-              からコース単位の集計を見ながら、ワンクリックで下書きを開けます。
-            </p>
-          </div>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+            <FontAwesomeIcon icon={faFileInvoice} className="w-5 h-5 text-slate-400" />
+            請求書一覧
+          </h1>
           {canWrite && (
-            <button
-              type="button"
-              onClick={() => setShowCreatePicker(true)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-            >
+            <Button variant="default" size="default" onClick={() => setShowCreatePicker(true)}>
               <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
               保存先を選んで作成
-            </button>
+            </Button>
           )}
         </div>
+        <p className="text-xs text-slate-500 mb-5 leading-relaxed">
+          登録済みの請求データから請求書を作成・管理します。
+          <a href="/admin/counterparties" className="underline hover:text-slate-700">取引先</a>
+          からコース単位の集計を見ながら、ワンクリックで下書きを開けます。
+        </p>
 
         {errorMessage && (
           <div className="mb-4 px-3 py-2 text-sm rounded border border-amber-200 bg-amber-50 text-amber-800">
@@ -460,7 +479,7 @@ export default function InvoicesPage() {
           </div>
         )}
 
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <div className="soft-rise bg-white rounded-lg border border-slate-200 overflow-hidden">
           <div className="grid grid-cols-1 xl:grid-cols-[160px_180px_240px_1fr]">
             <div className="border-r border-slate-200 min-h-[520px]">
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">年月</div>
@@ -837,10 +856,12 @@ export default function InvoicesPage() {
       </div>
 
       {showCreatePicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowCreatePicker(false)}>
-          <div className="w-full max-w-md rounded-lg bg-white border border-slate-200 p-5" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-base font-semibold text-slate-900 mb-3">保存先フォルダを選択</h2>
-            <div className="space-y-3">
+        <div className="modal-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowCreatePicker(false)}>
+          <div className="modal-panel-in w-full max-w-md rounded-lg bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-3 border-b border-slate-200">
+              <h2 className="text-base font-semibold text-slate-900">保存先フォルダを選択</h2>
+            </div>
+            <div className="px-5 py-4 space-y-3">
               <div>
                 <label className="block text-xs text-slate-600 mb-1">対象月フォルダ</label>
                 <MonthYearPicker
@@ -862,25 +883,66 @@ export default function InvoicesPage() {
                   size="default"
                 />
               </div>
+              {selectedDirection === "outgoing" && (
+                <div>
+                  <label className="block text-xs text-slate-600 mb-1">請求先（取引先）</label>
+                  <CustomSelect
+                    options={invoiceAddresses}
+                    value={createCounterpartyId}
+                    onChange={(v) => setCreateCounterpartyId(v)}
+                    placeholder="取引先を選択…"
+                    clearable={false}
+                    size="default"
+                  />
+                  <p className="mt-1.5 text-[11px] text-slate-400 leading-relaxed">
+                    取引先ごとに当月の売上明細を自動集計して下書きを作成します。
+                    {invoiceAddresses.length === 0 && (
+                      <>
+                        {" "}
+                        <a href="/admin/invoices/addressbook" className="underline hover:text-slate-600">
+                          法人アドレス帳
+                        </a>
+                        で取引先を登録してください。
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
             </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button
-                type="button"
-                onClick={() => setShowCreatePicker(false)}
-                className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800"
-              >
+            <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
+              <Button variant="ghost" size="sm" onClick={() => setShowCreatePicker(false)}>
                 キャンセル
-              </button>
-              <a
-                href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&direction=${encodeURIComponent(selectedDirection)}&section=${encodeURIComponent(selectedDirection === "incoming" ? "郵便局" : "ヤマト運輸")}`}
-                className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700"
-              >
-                この保存先で作成
-              </a>
+              </Button>
+              {selectedDirection === "outgoing" ? (
+                <Button asChild variant="default" size="sm" className={!createCounterpartyId ? "pointer-events-none opacity-50" : undefined}>
+                  <a
+                    href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&kind=outgoing&direction=outgoing&section=${encodeURIComponent("ヤマト運輸")}&counterparty=${encodeURIComponent(createCounterpartyId)}`}
+                    aria-disabled={!createCounterpartyId}
+                  >
+                    この取引先で作成
+                  </a>
+                </Button>
+              ) : (
+                <Button asChild variant="default" size="sm">
+                  <a
+                    href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&kind=incoming&direction=incoming&section=${encodeURIComponent("郵便局")}`}
+                  >
+                    この保存先で作成
+                  </a>
+                </Button>
+              )}
             </div>
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmState}
+        message={confirmState?.message ?? ""}
+        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onClose={() => setConfirmState(null)}
+        confirmLabel="削除"
+      />
     </AdminLayout>
   );
 }

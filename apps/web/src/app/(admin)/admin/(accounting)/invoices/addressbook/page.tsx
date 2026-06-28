@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faAddressBook, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -178,16 +180,21 @@ export default function AddressBookPage() {
   return (
     <AdminLayout>
       <div className="w-full">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">法人アドレス帳</h1>
-          </div>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+            <FontAwesomeIcon icon={faAddressBook} className="w-5 h-5 text-slate-400" />
+            法人アドレス帳
+          </h1>
           {canWrite && (
             <Button variant="default" size="default" onClick={openNew}>
+              <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
               新規追加
             </Button>
           )}
         </div>
+        <p className="text-xs text-slate-500 mb-5 leading-relaxed">
+          請求書作成時に請求先（法人）として選択できる宛先を管理します。個人（ドライバー）はドライバー管理で登録してください。
+        </p>
 
         {loading ? (
           <div className="space-y-3">
@@ -217,12 +224,10 @@ export default function AddressBookPage() {
               請求書作成時に請求先として選択できます。個人（ドライバー）はドライバー管理で登録してください。
             </p>
             {canWrite && (
-              <button
-                onClick={openNew}
-                className="px-4 py-2 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
-              >
+              <Button variant="default" size="default" onClick={openNew}>
+                <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
                 法人を追加
-              </button>
+              </Button>
             )}
           </div>
         ) : (
@@ -230,7 +235,7 @@ export default function AddressBookPage() {
             {addresses.map((a) => (
               <div
                 key={a.id}
-                className="bg-white rounded-lg border border-slate-200 p-4 hover:border-slate-300 transition-colors"
+                className="soft-rise bg-white rounded-lg border border-slate-200 p-4 hover:border-slate-300 transition-colors"
               >
                 <div className="flex items-start justify-between">
                   <div>
@@ -268,13 +273,15 @@ export default function AddressBookPage() {
       </div>
 
       {showModal && canWrite && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">
-              {editingAddress ? "法人を編集" : "法人を追加"}
-            </h2>
+        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+          <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-md max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-3 border-b border-slate-200">
+              <h2 className="text-base font-semibold text-slate-900">
+                {editingAddress ? "法人を編集" : "法人を追加"}
+              </h2>
+            </div>
 
-            <div className="space-y-4">
+            <div className="px-5 py-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">会社名 *</label>
                 <input
@@ -328,20 +335,13 @@ export default function AddressBookPage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
-              >
+            <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
+              <Button variant="ghost" size="sm" onClick={() => setShowModal(false)}>
                 キャンセル
-              </button>
-              <button
-                onClick={save}
-                disabled={saving || !form.name.trim()}
-                className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
-              >
+              </Button>
+              <Button variant="default" size="sm" onClick={save} disabled={saving || !form.name.trim()}>
                 {saving ? "保存中..." : "保存"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

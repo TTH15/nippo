@@ -53,12 +53,16 @@ async function buildNextInvoiceNo(
 ): Promise<string> {
   const base = buildInvoiceNo(params);
   const prefix = `${base}-R`;
+  // invoice_no を降順で取得し最大リビジョンを確定する。
+  // 旧実装は無順序 .limit(300) のため 300 件超でページング欠落→採番重複の恐れがあった。
+  // ゼロ詰め2桁前提なので降順上位を見れば十分（書式ゆらぎに備え reduce で最大値を取る）。
   const { data, error } = await supabase
     .from("invoice_documents")
     .select("invoice_no")
     .eq("org_id", orgId)
     .like("invoice_no", `${prefix}%`)
-    .limit(300);
+    .order("invoice_no", { ascending: false })
+    .limit(100);
   if (error) throw error;
   const maxRevision = (data ?? []).reduce((max, row: Record<string, unknown>) => {
     const no = String(row.invoice_no ?? "");
@@ -68,8 +72,9 @@ async function buildNextInvoiceNo(
     if (!Number.isFinite(n)) return max;
     return Math.max(max, n);
   }, -1);
-  const next = Math.min(maxRevision + 1, 99);
-  return `${prefix}${String(next).padStart(2, "0")}`;
+  // R99 到達時はクランプすると重複するため、3桁へ桁上げして重複を避ける。
+  const nextRevision = maxRevision + 1;
+  return `${prefix}${String(nextRevision).padStart(2, "0")}`;
 }
 
 function getMonthRange(monthParam: string | null): { month: string; startDate: string; endDate: string } {
@@ -245,7 +250,8 @@ export async function GET(req: NextRequest) {
   const tableData = {
     main: [
       {
-        title: `${section} ${range.month} 売上`,
+        // データが無い月は UUID 経路と表記を揃える（明細なしを明示）。
+        title: total > 0 ? `${section} ${range.month} 売上` : `${section} ${range.month} 分（明細なし）`,
         qty: 1,
         price: total,
       },
