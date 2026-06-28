@@ -1,15 +1,24 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { exportInvoicePdf, invoicePdfFileName } from "@/lib/invoicePdf";
+import { CustomSelect } from "@/lib/components/CustomSelect";
+import { DatePicker } from "@/lib/components/DatePicker";
+import { ErrorDialog } from "@/lib/components/ErrorDialog";
+import { Button } from "@/lib/ui/button";
 import { InvoiceSheet } from "./InvoiceSheet";
 import {
   type EditorState,
   blankEditorState,
   saveBodyFromEditor,
+  validateForSave,
+  parsePeriodJa,
+  formatPeriodJa,
+  parseIsoDate,
+  toIsoDate,
 } from "./editorModel";
 import { type InvoiceKind } from "./invoiceKinds";
 
@@ -29,15 +38,18 @@ function addrHtml(postal?: string | null, address?: string | null): string {
   return p ? `〒${p}<br/>${a}` : a;
 }
 
-const barBtn = "rounded-lg px-3 py-1.5 text-sm border border-slate-300 bg-white text-slate-700 hover:bg-slate-50";
-
 export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mode: "new" | "edit" }) {
   const router = useRouter();
   const [st, setSt] = useState<EditorState>(initial);
   const [saving, setSaving] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[] | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+
+  const period = parsePeriodJa(st.period);
+  const setPeriod = (start?: Date, end?: Date) =>
+    setSt((p) => ({ ...p, period: formatPeriodJa(start, end) }));
 
   const { data: addrData } = useApi<{ addresses: AddressRow[] }>(
     st.kind === "outgoing" ? "/api/admin/invoice-addresses" : null,
@@ -67,6 +79,16 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     }));
   };
 
+  // 取引先指定の下書き（ピッカー→明細経路）では counterpartyInvoiceAddressId のみ入り、
+  // 帳票の請求先名称が空のまま＝保存バリデーションに掛かる。アドレス取得後に自動補完する。
+  useEffect(() => {
+    if (st.kind !== "outgoing") return;
+    if (!st.counterpartyInvoiceAddressId || st.toName.trim()) return;
+    const a = addresses.find((x) => x.id === st.counterpartyInvoiceAddressId);
+    if (a) selectCounterparty(a.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addresses, st.counterpartyInvoiceAddressId, st.toName, st.kind]);
+
   const selectDriver = (id: string) => {
     const d = drivers.find((x) => x.id === id);
     setSt((prev) => ({
@@ -82,6 +104,11 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   };
 
   const save = async () => {
+    const problems = validateForSave(st);
+    if (problems.length > 0) {
+      setValidationErrors(problems);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -123,36 +150,61 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
           ))}
         </div>
 
-        {st.kind === "outgoing" ? (
-          <select className={barBtn} value={st.counterpartyInvoiceAddressId ?? ""} onChange={(e) => selectCounterparty(e.target.value)}>
-            <option value="">請求先（取引先）を選択…</option>
-            {addresses.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        ) : (
-          <select className={barBtn} value={st.parties.fromParty.startsWith("drv-") ? st.parties.fromParty.slice(4) : ""} onChange={(e) => selectDriver(e.target.value)}>
-            <option value="">請求元（ドライバー）を選択…</option>
-            {drivers.map((d) => <option key={d.id} value={d.id}>{d.display_name || d.name}</option>)}
-          </select>
-        )}
+        <div className="w-60">
+          {st.kind === "outgoing" ? (
+            <CustomSelect
+              size="sm"
+              placeholder="請求先（取引先）を選択…"
+              value={st.counterpartyInvoiceAddressId ?? ""}
+              onChange={(v) => selectCounterparty(v)}
+              options={addresses.map((a) => ({ value: a.id, label: a.name }))}
+            />
+          ) : (
+            <CustomSelect
+              size="sm"
+              placeholder="請求元（ドライバー）を選択…"
+              value={st.parties.fromParty.startsWith("drv-") ? st.parties.fromParty.slice(4) : ""}
+              onChange={(v) => selectDriver(v)}
+              options={drivers.map((d) => ({ value: d.id, label: d.display_name || d.name }))}
+            />
+          )}
+        </div>
 
+        {/* 消費税は当面「あり」を前提。税率のみ編集可（有無や文言は将来org設定で調整）。 */}
         <label className="flex items-center gap-1.5 text-sm text-slate-700">
-          <input type="checkbox" checked={st.taxEnabled} onChange={(e) => setSt((p) => ({ ...p, taxEnabled: e.target.checked }))} />
           消費税
-          <input className="w-14 rounded border border-slate-300 px-2 py-1 text-sm text-right" value={st.taxRatePercent} inputMode="decimal" onChange={(e) => setSt((p) => ({ ...p, taxRatePercent: e.target.value }))} />%
+          <input className="w-12 rounded border border-slate-300 px-2 py-1 text-sm text-right" value={st.taxRatePercent} inputMode="decimal" onChange={(e) => setSt((p) => ({ ...p, taxRatePercent: e.target.value }))} />%
         </label>
 
         <div className="ml-auto flex items-center gap-2">
           {error ? <span className="text-sm text-red-600">{error}</span> : null}
-          <button onClick={() => window.print()} className={barBtn}>印刷</button>
-          <button onClick={downloadPdf} disabled={pdfBusy} className={barBtn + " disabled:opacity-50"}>{pdfBusy ? "PDF生成中…" : "PDF"}</button>
-          <button onClick={save} disabled={saving} className="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">{saving ? "保存中…" : "保存"}</button>
+          <Button variant="outline" size="sm" onClick={() => window.print()}>印刷</Button>
+          <Button variant="outline" size="sm" onClick={downloadPdf} disabled={pdfBusy}>{pdfBusy ? "PDF生成中…" : "PDF"}</Button>
+          <Button variant="default" size="sm" onClick={save} disabled={saving}>{saving ? "保存中…" : "保存"}</Button>
         </div>
+      </div>
+
+      {/* 日付ツールバー（対象期間・振込期日。帳票には文字列で反映） */}
+      <div className="hide-print flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 bg-slate-50 border-b border-slate-200 text-sm">
+        <span className="font-medium text-slate-600">対象期間</span>
+        <DatePicker className="w-40 h-8" value={period.start} onChange={(d) => setPeriod(d, period.end)} placeholder="開始日" />
+        <span className="text-slate-400">〜</span>
+        <DatePicker className="w-40 h-8" value={period.end} onChange={(d) => setPeriod(period.start, d)} placeholder="終了日" />
+        <span className="ml-3 font-medium text-slate-600">振込期日</span>
+        <DatePicker className="w-40 h-8" value={parseIsoDate(st.dueDate)} onChange={(d) => setSt((p) => ({ ...p, dueDate: toIsoDate(d) }))} placeholder="未設定" />
       </div>
 
       {/* 帳票（直接インライン編集） */}
       <div className="flex-1 overflow-auto">
         <InvoiceSheet state={st} onChange={setSt} sheetRef={sheetRef} />
       </div>
+
+      <ErrorDialog
+        open={!!validationErrors}
+        title="保存できません"
+        message={(validationErrors ?? []).map((e) => `・${e}`).join("\n")}
+        onClose={() => setValidationErrors(null)}
+      />
     </div>
   );
 }

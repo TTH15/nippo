@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faTrophy } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -153,7 +155,10 @@ export default function EventsPage() {
     <AdminLayout>
       <div className="max-w-full">
         <div className="mb-6">
-          <h1 className="text-xl font-bold text-slate-900">イベント（チーム戦）</h1>
+          <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+            <FontAwesomeIcon icon={faTrophy} className="w-5 h-5 text-slate-400" />
+            イベント（チーム戦）
+          </h1>
           <p className="text-xs text-slate-500 mt-1">
             イベントの期間・チーム・採点ルールを設計し、承認済み日報の数量を集計して累計ポイントで競います。
           </p>
@@ -240,7 +245,7 @@ export default function EventsPage() {
                 <Skeleton className="h-40 w-full" />
               </div>
             ) : (
-              <div>
+              <div key={detail.event.id} className="soft-rise">
                 <div className="flex items-center gap-3 mb-4 flex-wrap">
                   <h2 className="text-lg font-bold text-slate-900">{detail.event.name}</h2>
                   <span className="text-xs text-slate-400">

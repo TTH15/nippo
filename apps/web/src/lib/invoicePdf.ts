@@ -49,18 +49,30 @@ export async function exportInvoicePdf(sheet: HTMLElement, fileName: string): Pr
     .filter((y) => y > 0 && y < sheet.scrollHeight)
     .sort((a, b) => a - b);
 
-  // ページ区間を決める（最低45%は埋める）。
+  // 強制改ページ（[data-force-break]）の上端。ここを跨がず、直前で必ずページを切る。
+  const forceYs = Array.from(sheet.querySelectorAll("[data-force-break]"))
+    .map((el) => el.getBoundingClientRect().top - sheetRect.top)
+    .filter((y) => y > 0 && y < sheet.scrollHeight)
+    .sort((a, b) => a - b);
+
+  // ページ区間を決める（最低45%は埋める。ただし強制改ページは優先し短いページも許す）。
   const segments: [number, number][] = [];
   const minSegment = pageHeightDomPx * 0.45;
   let start = 0;
   while (start < sheet.scrollHeight - 1) {
     const idealEnd = start + pageHeightDomPx;
-    if (idealEnd >= sheet.scrollHeight) {
+    const forcedBefore = forceYs.filter((y) => y > start + 1 && y <= idealEnd);
+    let end: number;
+    if (forcedBefore.length > 0) {
+      // 強制改ページの直前で切る（最も手前のものを採用）。
+      end = forcedBefore[0];
+    } else if (idealEnd >= sheet.scrollHeight) {
       segments.push([start, sheet.scrollHeight]);
       break;
+    } else {
+      const candidates = breakYs.filter((y) => y > start + minSegment && y <= idealEnd);
+      end = candidates.length > 0 ? candidates[candidates.length - 1] : idealEnd;
     }
-    const candidates = breakYs.filter((y) => y > start + minSegment && y <= idealEnd);
-    const end = candidates.length > 0 ? candidates[candidates.length - 1] : idealEnd;
     segments.push([start, end]);
     start = end;
   }

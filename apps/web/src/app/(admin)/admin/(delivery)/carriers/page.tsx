@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faPenToSquare, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faPenToSquare, faTrash, faTruck } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -11,6 +11,7 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { hasCapability } from "@/lib/capabilities";
 import { CustomSelect } from "@/lib/components/CustomSelect";
+import { Button } from "@/lib/ui/button";
 
 type BillingType = "PER_PIECE" | "FIXED";
 type InputType = "INT" | "TEXT" | "TIME" | "BOOL";
@@ -131,7 +132,18 @@ export default function CarriersPage() {
   return (
     <AdminLayout>
       <div className="max-w-5xl mx-auto px-4 py-6">
-        <h1 className="text-lg font-semibold text-slate-900 mb-1">キャリア / 報告フォーム設計</h1>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+            <FontAwesomeIcon icon={faTruck} className="w-5 h-5 text-slate-400" />
+            キャリア / 報告フォーム設計
+          </h1>
+          {canWrite && (
+            <Button variant="default" size="default" onClick={() => setCarrierModal({ mode: "create" })}>
+              <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
+              キャリアを追加
+            </Button>
+          )}
+        </div>
         <p className="text-xs text-slate-500 mb-5 leading-relaxed">
           ドライバーが日報で「何を報告するか」をここで設計します。<br />
           <b>キャリア</b>（ヤマト / Amazon など）の中に <b>型(unit)</b>（宅急便・ネコポス等の集計単位）を作り、
@@ -161,12 +173,12 @@ export default function CarriersPage() {
                       </button>
                     </li>
                   ))}
+                  {carriers.length === 0 && (
+                    <li className="px-3 py-6 text-center text-xs text-slate-400">
+                      キャリアがありません。右上の「キャリアを追加」から作成してください。
+                    </li>
+                  )}
                 </ul>
-                {canWrite && (
-                  <button onClick={() => setCarrierModal({ mode: "create" })} className="w-full px-3 py-2.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-1.5">
-                    <FontAwesomeIcon icon={faPlus} /> キャリアを追加
-                  </button>
-                )}
               </div>
             </div>
 
@@ -189,7 +201,7 @@ export default function CarriersPage() {
                   {selected.units.length === 0 && <p className="text-xs text-slate-400">まだ型(unit)がありません。「型を追加」から作成してください。</p>}
 
                   {selected.units.map((u) => (
-                    <div key={u.id} className="rounded-lg border border-slate-200 bg-white">
+                    <div key={u.id} className="soft-rise rounded-lg border border-slate-200 bg-white">
                       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold text-slate-800">{u.name}</span>
@@ -294,8 +306,8 @@ function PreviewInput({ type }: { type: InputType }) {
 
 function PresetPicker({ onPick, onCustom, onClose }: { onPick: (p: Preset) => void; onCustom: () => void; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-5 pb-2 border-b border-slate-200">
           <h2 className="text-sm font-semibold text-slate-900">何を報告させますか？</h2>
           <p className="text-[11px] text-slate-500 mt-0.5">よく使う項目から選ぶか、カスタムで自由に作成できます。</p>
@@ -324,8 +336,8 @@ function PresetPicker({ onPick, onCustom, onClose }: { onPick: (p: Preset) => vo
 
 function ModalShell({ title, children, onClose, onSave }: { title: string; children: React.ReactNode; onClose: () => void; onSave: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-5 pb-3 border-b border-slate-200"><h2 className="text-sm font-semibold text-slate-900">{title}</h2></div>
         <div className="px-5 py-4 space-y-3 text-sm">{children}</div>
         <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">

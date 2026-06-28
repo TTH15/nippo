@@ -8,6 +8,7 @@ import {
   faChevronRight,
   faFileInvoice,
   faFloppyDisk,
+  faBuilding,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -113,7 +114,10 @@ export default function CounterpartiesPage() {
       <div className="w-full max-w-6xl">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">取引先</h1>
+            <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+              <FontAwesomeIcon icon={faBuilding} className="w-5 h-5 text-slate-400" />
+              取引先
+            </h1>
             <p className="text-sm text-slate-500 mt-0.5">
               コース別の自動集計、売上ログ（単発案件など）、手入力の加算・控除をまとめて管理します。
             </p>
