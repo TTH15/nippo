@@ -7,6 +7,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faDesktop } from "@fortawesome/free-solid-svg-icons";
 import { hasCapability } from "@/lib/capabilities";
 import { useApi } from "@/lib/useApi";
+import { Button } from "@/lib/ui/button";
 import { InvoiceSheetEditor } from "../_components/InvoiceSheetEditor";
 import {
   blankEditorState,
@@ -121,7 +122,9 @@ function InvoiceNewPageContent() {
             </span>
             <h1 className="text-base font-semibold text-slate-900">請求書の作成はPCでご利用ください</h1>
             <p className="mt-2 text-sm leading-relaxed text-slate-500">請求書の作成・編集は幅の広い画面が必要です。PCのブラウザからアクセスしてください。</p>
-            <a href="/admin/invoices" className="mt-5 inline-flex items-center justify-center rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">請求書一覧へ戻る</a>
+            <Button asChild variant="default" size="default" className="mt-5">
+              <a href="/admin/invoices">請求書一覧へ戻る</a>
+            </Button>
           </div>
         </div>
       </AdminLayout>
