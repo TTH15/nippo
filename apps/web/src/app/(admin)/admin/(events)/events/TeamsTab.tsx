@@ -393,10 +393,10 @@ export function TeamsTab({
       {/* タップ割当: ドライバーをタップ→チーム選択（ドラッグできない端末向け） */}
       {pickFor && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          className="modal-backdrop-in fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
           onClick={() => setPickFor(null)}
         >
-          <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel-in w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 text-sm font-semibold text-slate-800">「{getDisplayName(pickFor)}」をチームへ</div>
             <div className="space-y-1.5">
               {teams.map((t) => {
