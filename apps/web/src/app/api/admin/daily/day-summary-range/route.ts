@@ -143,6 +143,7 @@ export async function GET(req: NextRequest) {
         driver_id: r.driver_id,
         report_date: r.report_date,
         course_id: r.course_id ?? null,
+        course_name: r.course_name ?? null,
         content: contentByReport.get(r.id) ?? [],
         takuhaibin_completed: Number(r.takuhaibin_completed) ?? 0,
         takuhaibin_returned: Number(r.takuhaibin_returned) ?? 0,
