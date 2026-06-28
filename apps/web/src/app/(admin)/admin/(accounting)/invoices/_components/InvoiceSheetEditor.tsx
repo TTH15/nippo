@@ -1,20 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faRotateLeft, faRotateRight, faCloud, faCloudArrowUp, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { exportInvoicePdf, invoicePdfFileName } from "@/lib/invoicePdf";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { DatePicker } from "@/lib/components/DatePicker";
-import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { Button } from "@/lib/ui/button";
 import { InvoiceSheet } from "./InvoiceSheet";
 import {
   type EditorState,
   blankEditorState,
   saveBodyFromEditor,
-  validateForSave,
   parsePeriodJa,
   formatPeriodJa,
   parseIsoDate,
@@ -22,8 +21,8 @@ import {
 } from "./editorModel";
 import { type InvoiceKind } from "./invoiceKinds";
 
-// WYSIWYG エディタ。帳票上で直接インライン編集（InvoiceSheet）し、上部のスリムな
-// ツールバーでインライン化できない操作（種別・消費税・取引先/ドライバー選択・保存・PDF）を行う。
+// WYSIWYG エディタ。帳票上で直接インライン編集（InvoiceSheet）。変更は自動保存し、
+// 既存レコードを更新する（保存のたびに新規作成＝フォルダに増やさない）。Undo/Redo対応。
 
 type AddressRow = { id: string; name: string; postal_code?: string; address?: string; phone?: string; invoice_no?: string };
 type DriverRow = {
@@ -38,14 +37,70 @@ function addrHtml(postal?: string | null, address?: string | null): string {
   return p ? `〒${p}<br/>${a}` : a;
 }
 
+const HISTORY_COALESCE_MS = 500; // 連続入力はこの間隔でまとめて1ステップにする
+const AUTOSAVE_DEBOUNCE_MS = 1200;
+
 export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mode: "new" | "edit" }) {
-  const router = useRouter();
-  const [st, setSt] = useState<EditorState>(initial);
-  const [saving, setSaving] = useState(false);
+  const [st, setStRaw] = useState<EditorState>(initial);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [validationErrors, setValidationErrors] = useState<string[] | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+
+  // ── Undo/Redo 履歴 ──
+  const [past, setPast] = useState<EditorState[]>([]);
+  const [future, setFuture] = useState<EditorState[]>([]);
+  const stRef = useRef(st);
+  stRef.current = st;
+  const lastSnapRef = useRef(0);
+
+  // 履歴を考慮した setState。連続入力は HISTORY_COALESCE_MS でまとめる。
+  const setSt = useCallback((updater: SetStateAction<EditorState>) => {
+    const now = Date.now();
+    if (now - lastSnapRef.current > HISTORY_COALESCE_MS) {
+      setPast((p) => [...p.slice(-99), stRef.current]);
+      setFuture([]);
+      lastSnapRef.current = now;
+    }
+    setStRaw(updater);
+  }, []);
+
+  const undo = useCallback(() => {
+    setPast((p) => {
+      if (p.length === 0) return p;
+      const prev = p[p.length - 1];
+      setFuture((f) => [...f, stRef.current]);
+      setStRaw(prev);
+      lastSnapRef.current = 0;
+      return p.slice(0, -1);
+    });
+  }, []);
+
+  const redo = useCallback(() => {
+    setFuture((f) => {
+      if (f.length === 0) return f;
+      const next = f[f.length - 1];
+      setPast((p) => [...p, stRef.current]);
+      setStRaw(next);
+      lastSnapRef.current = 0;
+      return f.slice(0, -1);
+    });
+  }, []);
+
+  // Cmd/Ctrl+Z = 戻る / Cmd/Ctrl+Shift+Z（または Ctrl+Y）= やり直し
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+      } else if (meta && (e.key === "y" || e.key === "Y")) {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
 
   const period = parsePeriodJa(st.period);
   const setPeriod = (start?: Date, end?: Date) =>
@@ -79,8 +134,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     }));
   };
 
-  // 取引先指定の下書き（ピッカー→明細経路）では counterpartyInvoiceAddressId のみ入り、
-  // 帳票の請求先名称が空のまま＝保存バリデーションに掛かる。アドレス取得後に自動補完する。
+  // 取引先指定の下書きでは counterpartyInvoiceAddressId のみ入る。アドレス取得後に名称等を補完。
   useEffect(() => {
     if (st.kind !== "outgoing") return;
     if (!st.counterpartyInvoiceAddressId || st.toName.trim()) return;
@@ -103,27 +157,50 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     }));
   };
 
-  const save = async () => {
-    const problems = validateForSave(st);
-    if (problems.length > 0) {
-      setValidationErrors(problems);
-      return;
-    }
-    setSaving(true);
+  // ── 自動保存（同一レコードを更新。初回のみ作成し、以降はPATCH） ──
+  const [savedId, setSavedId] = useState<string | undefined>(initial.id);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const lastSavedBodyRef = useRef<string>(JSON.stringify(saveBodyFromEditor(initial)));
+  const savingRef = useRef(false);
+
+  const persist = useCallback(async (state: EditorState) => {
+    if (savingRef.current) return;
+    const id = savedId ?? state.id;
+    const body = saveBodyFromEditor({ ...state, id });
+    const serialized = JSON.stringify(body);
+    if (serialized === lastSavedBodyRef.current) return; // 変更なし
+    savingRef.current = true;
+    setSaveStatus("saving");
     setError(null);
     try {
-      const body = saveBodyFromEditor(st);
-      const isEdit = mode === "edit" && Boolean(st.id);
-      const url = isEdit ? `/api/admin/invoices/${encodeURIComponent(st.id as string)}` : "/api/admin/invoices";
-      const res = (await apiFetch(url, { method: isEdit ? "PATCH" : "POST", body: JSON.stringify(body) })) as { invoice?: { id?: string }; id?: string };
-      const id = res?.invoice?.id ?? res?.id ?? st.id;
-      router.push(id ? `/admin/invoices/${encodeURIComponent(id)}/preview` : "/admin/invoices");
+      const isUpdate = Boolean(id);
+      const url = isUpdate ? `/api/admin/invoices/${encodeURIComponent(id as string)}` : "/api/admin/invoices";
+      const res = (await apiFetch(url, { method: isUpdate ? "PATCH" : "POST", body: serialized })) as {
+        invoice?: { id?: string };
+        id?: string;
+      };
+      const newId = res?.invoice?.id ?? res?.id ?? id;
+      lastSavedBodyRef.current = JSON.stringify(saveBodyFromEditor({ ...state, id: newId }));
+      if (!isUpdate && newId) {
+        setSavedId(newId);
+        setStRaw((p) => ({ ...p, id: newId }));
+        // リロード時に同一レコードを編集できるよう URL を差し替え（再マウントは伴わない）。
+        window.history.replaceState(null, "", `/admin/invoices/${encodeURIComponent(newId)}/edit`);
+      }
+      setSaveStatus("saved");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "保存に失敗しました");
+      setSaveStatus("error");
+      setError(e instanceof Error ? e.message : "自動保存に失敗しました");
     } finally {
-      setSaving(false);
+      savingRef.current = false;
     }
-  };
+  }, [savedId]);
+
+  // st が変わったらデバウンスして自動保存。
+  useEffect(() => {
+    const t = setTimeout(() => { void persist(st); }, AUTOSAVE_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [st, persist]);
 
   const downloadPdf = async () => {
     if (!sheetRef.current) return;
@@ -134,6 +211,13 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
       setPdfBusy(false);
     }
   };
+
+  const saveStatusUi = (() => {
+    if (saveStatus === "saving") return { icon: faCloudArrowUp, text: "保存中…", cls: "text-slate-500" };
+    if (saveStatus === "error") return { icon: faTriangleExclamation, text: "保存エラー", cls: "text-red-600" };
+    if (saveStatus === "saved") return { icon: faCloud, text: "自動保存済み", cls: "text-emerald-600" };
+    return { icon: faCloud, text: "自動保存", cls: "text-slate-400" };
+  })();
 
   return (
     <div className="flex flex-col h-[calc(100vh-52px)]">
@@ -177,10 +261,18 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
         </label>
 
         <div className="ml-auto flex items-center gap-2">
-          {error ? <span className="text-sm text-red-600">{error}</span> : null}
+          <Button variant="outline" size="sm" onClick={undo} disabled={past.length === 0} title="戻る（⌘Z）">
+            <FontAwesomeIcon icon={faRotateLeft} className="h-3.5 w-3.5" />戻る
+          </Button>
+          <Button variant="outline" size="sm" onClick={redo} disabled={future.length === 0} title="やり直し（⌘⇧Z）">
+            <FontAwesomeIcon icon={faRotateRight} className="h-3.5 w-3.5" />やり直し
+          </Button>
+          <span className={`inline-flex items-center gap-1.5 px-1.5 text-xs ${saveStatusUi.cls}`} title={error ?? undefined}>
+            <FontAwesomeIcon icon={saveStatusUi.icon} className="h-3.5 w-3.5" />
+            {saveStatusUi.text}
+          </span>
           <Button variant="outline" size="sm" onClick={() => window.print()}>印刷</Button>
           <Button variant="outline" size="sm" onClick={downloadPdf} disabled={pdfBusy}>{pdfBusy ? "PDF生成中…" : "PDF"}</Button>
-          <Button variant="default" size="sm" onClick={save} disabled={saving}>{saving ? "保存中…" : "保存"}</Button>
         </div>
       </div>
 
@@ -198,13 +290,6 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
       <div className="flex-1 overflow-auto">
         <InvoiceSheet state={st} onChange={setSt} sheetRef={sheetRef} />
       </div>
-
-      <ErrorDialog
-        open={!!validationErrors}
-        title="保存できません"
-        message={(validationErrors ?? []).map((e) => `・${e}`).join("\n")}
-        onClose={() => setValidationErrors(null)}
-      />
     </div>
   );
 }
