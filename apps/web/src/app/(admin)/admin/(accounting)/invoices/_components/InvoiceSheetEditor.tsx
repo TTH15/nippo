@@ -150,30 +150,30 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
           ))}
         </div>
 
-        {st.kind === "outgoing" ? (
-          <CustomSelect
-            className="w-56"
-            size="sm"
-            placeholder="請求先（取引先）を選択…"
-            value={st.counterpartyInvoiceAddressId ?? ""}
-            onChange={(v) => selectCounterparty(v)}
-            options={addresses.map((a) => ({ value: a.id, label: a.name }))}
-          />
-        ) : (
-          <CustomSelect
-            className="w-56"
-            size="sm"
-            placeholder="請求元（ドライバー）を選択…"
-            value={st.parties.fromParty.startsWith("drv-") ? st.parties.fromParty.slice(4) : ""}
-            onChange={(v) => selectDriver(v)}
-            options={drivers.map((d) => ({ value: d.id, label: d.display_name || d.name }))}
-          />
-        )}
+        <div className="w-60">
+          {st.kind === "outgoing" ? (
+            <CustomSelect
+              size="sm"
+              placeholder="請求先（取引先）を選択…"
+              value={st.counterpartyInvoiceAddressId ?? ""}
+              onChange={(v) => selectCounterparty(v)}
+              options={addresses.map((a) => ({ value: a.id, label: a.name }))}
+            />
+          ) : (
+            <CustomSelect
+              size="sm"
+              placeholder="請求元（ドライバー）を選択…"
+              value={st.parties.fromParty.startsWith("drv-") ? st.parties.fromParty.slice(4) : ""}
+              onChange={(v) => selectDriver(v)}
+              options={drivers.map((d) => ({ value: d.id, label: d.display_name || d.name }))}
+            />
+          )}
+        </div>
 
+        {/* 消費税は当面「あり」を前提。税率のみ編集可（有無や文言は将来org設定で調整）。 */}
         <label className="flex items-center gap-1.5 text-sm text-slate-700">
-          <input type="checkbox" checked={st.taxEnabled} onChange={(e) => setSt((p) => ({ ...p, taxEnabled: e.target.checked }))} />
           消費税
-          <input className="w-14 rounded border border-slate-300 px-2 py-1 text-sm text-right" value={st.taxRatePercent} inputMode="decimal" onChange={(e) => setSt((p) => ({ ...p, taxRatePercent: e.target.value }))} />%
+          <input className="w-12 rounded border border-slate-300 px-2 py-1 text-sm text-right" value={st.taxRatePercent} inputMode="decimal" onChange={(e) => setSt((p) => ({ ...p, taxRatePercent: e.target.value }))} />%
         </label>
 
         <div className="ml-auto flex items-center gap-2">
