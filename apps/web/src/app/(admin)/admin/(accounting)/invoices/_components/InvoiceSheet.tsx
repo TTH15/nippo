@@ -1,4 +1,5 @@
 import {
+  Fragment,
   type Ref,
   type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -35,6 +36,7 @@ type Section = "main" | "deduct";
 /** 明細テーブルのスプレッドシート編集API（!readOnly のときだけ供給）。 */
 type GridApi = {
   isFillTarget: (section: Section, row: number, col: number) => boolean;
+  isActive: (section: Section, row: number, col: number) => boolean;
   cellProps: (
     section: Section,
     row: number,
@@ -46,7 +48,7 @@ type GridApi = {
     onPaste: (e: ReactClipboardEvent<HTMLInputElement>) => void;
   };
   fillHandle: (section: Section, row: number, col: number) => ReactNode;
-  rowControls: (section: Section, row: number) => ReactNode;
+  rowControls: (section: Section, row: number, hasBreak: boolean) => ReactNode;
   rowProps: (
     section: Section,
     row: number,
@@ -117,7 +119,7 @@ function T({
       onKeyDown={onKeyDown}
       onPaste={onPaste}
       onChange={(e) => onChange?.(e.target.value)}
-      className={cn("bg-transparent outline-none focus:bg-blue-50 rounded-sm w-full", bold && "font-bold", className)}
+      className={cn("bg-transparent outline-none w-full", bold && "font-bold", className)}
       style={{ textAlign: align }}
     />
   );
@@ -138,7 +140,6 @@ function LineTable({
   taxLabel,
   classNameTbl,
   setLine,
-  addLine,
   grid,
 }: {
   readOnly: boolean;
@@ -154,7 +155,6 @@ function LineTable({
   taxLabel: string;
   classNameTbl?: string;
   setLine: (section: Section, i: number, patch: Partial<EditorLine>) => void;
-  addLine: (section: Section) => void;
   grid?: GridApi;
 }) {
   return (
@@ -184,30 +184,57 @@ function LineTable({
               <td className="text-right px-2 bg-white" style={{ border: `1px solid ${color}` }}>0</td>
             </tr>
           ) : (
-            lines.map((ln, i) => (
-              <tr key={i} className="group" {...(grid ? grid.rowProps(section, i) : {})}>
-                <td className={cn("py-[2.5px] px-2 leading-[1.3] bg-white relative", grid?.isFillTarget(section, i, 0) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
-                  <T readOnly={readOnly} value={ln.title} placeholder="摘要" onChange={(v) => setLine(section, i, { title: v })} {...(grid ? grid.cellProps(section, i, 0) : {})} />
-                  {grid ? grid.fillHandle(section, i, 0) : null}
-                </td>
-                <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 1) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
-                  <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { qty: v })} {...(grid ? grid.cellProps(section, i, 1) : {})} />
-                  {grid ? grid.fillHandle(section, i, 1) : null}
-                </td>
-                <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 2) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
-                  <T readOnly={readOnly} value={ln.unit} align="center" placeholder="件" onChange={(v) => setLine(section, i, { unit: v })} {...(grid ? grid.cellProps(section, i, 2) : {})} />
-                  {grid ? grid.fillHandle(section, i, 2) : null}
-                </td>
-                <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 3) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
-                  <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : ln.price} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { price: v })} {...(grid ? grid.cellProps(section, i, 3) : {})} />
-                  {grid ? grid.fillHandle(section, i, 3) : null}
-                </td>
-                <td className={cn("py-[2.5px] px-2 text-right bg-white", grid && "relative")} style={{ border: `1px solid ${color}` }}>
-                  {jpy(Math.round(num(ln.qty) * num(ln.price)))}
-                  {grid ? grid.rowControls(section, i) : null}
-                </td>
-              </tr>
-            ))
+            lines.map((ln, i) => {
+              const cellCls = (col: number, extra?: string) =>
+                cn(
+                  "py-[2.5px] px-2 bg-white relative",
+                  extra,
+                  grid?.isFillTarget(section, i, col) && "bg-blue-50",
+                  grid?.isActive(section, i, col) && "ring-2 ring-inset ring-blue-500",
+                );
+              return (
+                <Fragment key={i}>
+                  {grid && ln.pageBreakBefore ? (
+                    <tr className="hide-print">
+                      <td colSpan={5} className="px-0 pt-1.5 pb-0.5">
+                        <div className="flex items-center gap-2 text-[10px] font-medium text-blue-500">
+                          <span className="h-px flex-1 border-t border-dashed border-blue-300" />
+                          <FontAwesomeIcon icon={faScissors} className="h-2.5 w-2.5" />
+                          ここから次のページ
+                          <span className="h-px flex-1 border-t border-dashed border-blue-300" />
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  <tr
+                    className={cn("group", ln.pageBreakBefore && "break-before-page")}
+                    data-force-break={ln.pageBreakBefore ? "true" : undefined}
+                    {...(grid ? grid.rowProps(section, i) : {})}
+                  >
+                    <td className={cellCls(0, "leading-[1.3]")} style={{ border: `1px solid ${color}` }}>
+                      <T readOnly={readOnly} value={ln.title} placeholder="摘要" onChange={(v) => setLine(section, i, { title: v })} {...(grid ? grid.cellProps(section, i, 0) : {})} />
+                      {grid ? grid.fillHandle(section, i, 0) : null}
+                    </td>
+                    <td className={cellCls(1)} style={{ border: `1px solid ${color}` }}>
+                      <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { qty: v })} {...(grid ? grid.cellProps(section, i, 1) : {})} />
+                      {grid ? grid.fillHandle(section, i, 1) : null}
+                    </td>
+                    <td className={cellCls(2)} style={{ border: `1px solid ${color}` }}>
+                      <T readOnly={readOnly} value={ln.unit} align="center" placeholder="件" onChange={(v) => setLine(section, i, { unit: v })} {...(grid ? grid.cellProps(section, i, 2) : {})} />
+                      {grid ? grid.fillHandle(section, i, 2) : null}
+                    </td>
+                    <td className={cellCls(3)} style={{ border: `1px solid ${color}` }}>
+                      <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : ln.price} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { price: v })} {...(grid ? grid.cellProps(section, i, 3) : {})} />
+                      {grid ? grid.fillHandle(section, i, 3) : null}
+                    </td>
+                    <td className={cn("py-[2.5px] px-2 text-right bg-white", grid && "relative")} style={{ border: `1px solid ${color}` }}>
+                      {jpy(Math.round(num(ln.qty) * num(ln.price)))}
+                      {grid ? grid.rowControls(section, i, Boolean(ln.pageBreakBefore)) : null}
+                    </td>
+                  </tr>
+                </Fragment>
+              );
+            })
           )}
         </tbody>
         <tfoot>
@@ -227,16 +254,6 @@ function LineTable({
           </tr>
         </tfoot>
       </table>
-      {grid ? (
-        <button
-          type="button"
-          onClick={() => addLine(section)}
-          className="hide-print mt-1.5 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800"
-        >
-          <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
-          行を追加
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -271,8 +288,6 @@ export function InvoiceSheet({
   const set = (patch: Partial<EditorState>) => onChange?.({ ...st, ...patch });
   const setLine = (section: Section, i: number, patch: Partial<EditorLine>) =>
     set({ [section]: st[section].map((l, idx) => (idx === i ? { ...l, ...patch } : l)) } as Partial<EditorState>);
-  const addLine = (section: Section) =>
-    set({ [section]: [...st[section], emptyLine()] } as Partial<EditorState>);
 
   // ── スプレッドシート編集（選択/フィル/並べ替え）。状態は描画用＋最新参照用 ref の二重持ち ──
   const [active, setActive] = useState<{ section: Section; row: number; col: number } | null>(null);
@@ -302,6 +317,7 @@ export function InvoiceSheet({
           const hi = Math.max(fill.fromRow, fill.toRow);
           return row >= lo && row <= hi;
         },
+        isActive: (section, row, col) => !!active && active.section === section && active.row === row && active.col === col,
         cellProps: (section, row, col) => ({
           "data-cell": `${section}|${row}|${col}`,
           onFocus: () => setActive({ section, row, col }),
@@ -373,8 +389,8 @@ export function InvoiceSheet({
         },
         // 行操作は帳票の外（右マージン）にホバー時だけ表示。テーブル列は増やさず
         // 編集と印刷のレイアウトを一致させる（hide-print）。
-        rowControls: (section, row) => (
-          <div className="hide-print absolute inset-y-0 right-[-3.6rem] z-10 flex items-center gap-2 pl-2 text-slate-300 opacity-0 transition-opacity group-hover:opacity-100">
+        rowControls: (section, row, hasBreak) => (
+          <div className="hide-print absolute inset-y-0 right-[-4.8rem] z-10 flex items-center gap-2 pl-2 text-slate-300 opacity-0 transition-opacity group-hover:opacity-100">
             <span
               draggable
               onDragStart={(e) => {
@@ -388,6 +404,19 @@ export function InvoiceSheet({
             </span>
             <button type="button" onClick={() => setLines(section, insertLineAt(stRef.current[section], row + 1))} title="下に行を追加" className="hover:text-slate-600">
               <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setLines(
+                  section,
+                  stRef.current[section].map((l, idx) => (idx === row ? { ...l, pageBreakBefore: !l.pageBreakBefore } : l)),
+                )
+              }
+              title={hasBreak ? "この行の前の改ページを解除" : "この行の前で改ページ"}
+              className={cn("hover:text-blue-600", hasBreak && "text-blue-600")}
+            >
+              <FontAwesomeIcon icon={faScissors} className="h-3 w-3" />
             </button>
             <button type="button" onClick={() => setLines(section, removeLineAt(stRef.current[section], row))} title="行を削除" className="hover:text-red-500">
               <FontAwesomeIcon icon={faTrashCan} className="h-3 w-3" />
@@ -535,51 +564,26 @@ export function InvoiceSheet({
           subtotalLabel="小計（税抜）"
           taxLabel={st.taxEnabled ? `消費税額（小計分 ${ratePct}%）` : ""}
           setLine={setLine}
-          addLine={addLine}
           grid={grid}
         />
 
-        {/* 改ページトグル（編集時のみ・印刷には出さない）。お支払い/控除の前で改ページ。 */}
-        {!readOnly && config.showDeductTable ? (
-          <button
-            type="button"
-            onClick={() => set({ pageBreakBeforeDeduct: !st.pageBreakBeforeDeduct })}
-            className={cn(
-              "hide-print mt-3 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors",
-              st.pageBreakBeforeDeduct
-                ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
-            )}
-            title={`${config.deductSectionTitle}を次のページから始めます`}
-          >
-            <FontAwesomeIcon icon={faScissors} className="h-3 w-3" />
-            {st.pageBreakBeforeDeduct ? `${config.deductSectionTitle}の前で改ページ中（解除）` : `${config.deductSectionTitle}の前で改ページ`}
-          </button>
-        ) : null}
-
         {config.showDeductTable ? (
-          <div
-            className={cn(st.pageBreakBeforeDeduct && "break-before-page")}
-            data-force-break={st.pageBreakBeforeDeduct ? "true" : undefined}
-          >
-            <LineTable
-              readOnly={readOnly}
-              section="deduct"
-              lines={st.deduct}
-              title={config.deductSectionTitle}
-              color={C.deduct}
-              soft={C.deductSoft}
-              subtotal={totals.deductSubtotal}
-              tax={totals.deductTax}
-              gross={totals.deductGross}
-              subtotalLabel={`${config.deductSectionTitle}小計（税抜）`}
-              taxLabel={st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : ""}
-              setLine={setLine}
-              addLine={addLine}
-              grid={grid}
-              classNameTbl="mt-[34px]"
-            />
-          </div>
+          <LineTable
+            readOnly={readOnly}
+            section="deduct"
+            lines={st.deduct}
+            title={config.deductSectionTitle}
+            color={C.deduct}
+            soft={C.deductSoft}
+            subtotal={totals.deductSubtotal}
+            tax={totals.deductTax}
+            gross={totals.deductGross}
+            subtotalLabel={`${config.deductSectionTitle}小計（税抜）`}
+            taxLabel={st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : ""}
+            setLine={setLine}
+            grid={grid}
+            classNameTbl="mt-[34px]"
+          />
         ) : null}
 
         {/* 振込先 */}
