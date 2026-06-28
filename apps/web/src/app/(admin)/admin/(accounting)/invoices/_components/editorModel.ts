@@ -151,6 +151,8 @@ export type EditorState = {
   bankNo: string;
   bankHolder: string;
   notes: string;
+  // レイアウト（お支払い/控除テーブルの前で強制改ページ）
+  pageBreakBeforeDeduct: boolean;
   // 管理（保存時のトップレベル列・payload保持）
   section: string;
   counterpartyInvoiceAddressId: string | null;
@@ -201,6 +203,7 @@ export function blankEditorState(kind: InvoiceKind): EditorState {
     bankNo: isIncoming ? "" : issuer.bankNo,
     bankHolder: isIncoming ? "" : issuer.bankHolder,
     notes: "",
+    pageBreakBeforeDeduct: false,
     section: "Amazon",
     counterpartyInvoiceAddressId: null,
     status: "draft",
@@ -266,6 +269,7 @@ export function editorFromInvoice(inv: ApiInvoice): EditorState {
     bankNo: s(p.bankNo) || base.bankNo,
     bankHolder: s(p.bankHolder) || base.bankHolder,
     notes: s(p.notes),
+    pageBreakBeforeDeduct: Boolean(p.pageBreakBeforeDeduct),
     section: s(inv.section) || base.section,
     counterpartyInvoiceAddressId: inv.counterpartyInvoiceAddressId ?? null,
     status: inv.status ?? "draft",
@@ -354,6 +358,7 @@ export function payloadFromEditor(st: EditorState): Record<string, unknown> {
     taxSettings: { enabled: st.taxEnabled, rate: n(st.taxRatePercent) },
     loanRepay: n(st.loanRepay),
     extraOutsourcing: n(st.extraOutsourcing),
+    pageBreakBeforeDeduct: st.pageBreakBeforeDeduct,
     parties: st.parties,
   };
 }
