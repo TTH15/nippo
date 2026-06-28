@@ -196,12 +196,12 @@ function LineTable({
                 <Fragment key={i}>
                   {grid && ln.pageBreakBefore ? (
                     <tr className="hide-print">
-                      <td colSpan={5} className="px-0 pt-1.5 pb-0.5">
-                        <div className="flex items-center gap-2 text-[10px] font-medium text-blue-500">
-                          <span className="h-px flex-1 border-t border-dashed border-blue-300" />
-                          <FontAwesomeIcon icon={faScissors} className="h-2.5 w-2.5" />
-                          ここから次のページ
-                          <span className="h-px flex-1 border-t border-dashed border-blue-300" />
+                      <td colSpan={5} className="px-0 py-1">
+                        <div className="flex justify-center">
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-300 bg-blue-50 px-3 py-0.5 text-[10px] font-medium text-blue-600">
+                            <FontAwesomeIcon icon={faScissors} className="h-2.5 w-2.5" />
+                            ここから次のページ
+                          </span>
                         </div>
                       </td>
                     </tr>
@@ -457,20 +457,19 @@ export function InvoiceSheet({
     return (
       <>
         {marker}
-        <div className="hide-print group/brk flex h-4 items-center">
+        <div className="hide-print group/brk flex h-6 items-center justify-center">
           <button
             type="button"
             onClick={toggle}
-            title={activeBreak ? "ここの改ページを解除" : "ここで改ページ"}
             className={cn(
-              "flex w-full items-center gap-1.5 text-[10px] font-medium transition-opacity",
-              activeBreak ? "text-blue-500" : "text-slate-400 opacity-0 group-hover/brk:opacity-100 hover:text-blue-600",
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-0.5 text-[10px] font-medium transition",
+              activeBreak
+                ? "border-blue-300 bg-blue-50 text-blue-600"
+                : "border-slate-200 bg-white text-slate-400 opacity-0 group-hover/brk:opacity-100 hover:border-blue-300 hover:text-blue-600",
             )}
           >
-            <span className={cn("h-px flex-1 border-t border-dashed", activeBreak ? "border-blue-300" : "border-slate-300")} />
             <FontAwesomeIcon icon={faScissors} className="h-2.5 w-2.5" />
-            {activeBreak ? "ここで改ページ（解除）" : "ここで改ページ"}
-            <span className={cn("h-px flex-1 border-t border-dashed", activeBreak ? "border-blue-300" : "border-slate-300")} />
+            {activeBreak ? "改ページ（解除）" : "改ページ"}
           </button>
         </div>
       </>
@@ -567,12 +566,26 @@ export function InvoiceSheet({
                     {row.label}
                   </td>
                   <td className="py-[3.5px] px-[9px] text-right font-bold w-[22%]" style={{ border: `1px solid ${C.brand}`, borderTop: isFirst ? `2.5px solid ${C.brand}` : undefined, borderRight: `2.5px solid ${C.brand}` }}>
-                    {row.minus ? "▲" : ""}
-                    {editable && field ? (
-                      <T readOnly={false} value={field === "loanRepay" ? st.loanRepay : st.extraOutsourcing} align="right" className="inline-block w-20" inputMode="decimal" onChange={(v) => set(field === "loanRepay" ? { loanRepay: v } : { extraOutsourcing: v })} />
-                    ) : (
-                      jpy(resolveSummaryValue(row.value, totals, st))
-                    )}
+                    <span className="inline-flex items-baseline justify-end">
+                      {row.minus ? <span>▲</span> : null}
+                      {editable && field ? (
+                        (() => {
+                          const v = field === "loanRepay" ? st.loanRepay : st.extraOutsourcing;
+                          return (
+                            <input
+                              value={v}
+                              inputMode="decimal"
+                              placeholder="0"
+                              onChange={(e) => set(field === "loanRepay" ? { loanRepay: e.target.value } : { extraOutsourcing: e.target.value })}
+                              className="bg-transparent outline-none text-right font-bold"
+                              style={{ width: `${Math.max(2, v.length)}ch` }}
+                            />
+                          );
+                        })()
+                      ) : (
+                        <span>{jpy(resolveSummaryValue(row.value, totals, st))}</span>
+                      )}
+                    </span>
                   </td>
                 </tr>
               );
