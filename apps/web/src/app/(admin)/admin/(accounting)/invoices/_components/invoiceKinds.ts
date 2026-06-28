@@ -78,8 +78,6 @@ export const INVOICE_KIND_CONFIG: Record<InvoiceKind, InvoiceKindConfig> = {
     summaryRows: [
       { label: "請求額 税込合計", value: { kind: "total", key: "billGross" } },
       { label: "お支払い分 税込合計", value: { kind: "total", key: "deductGross" }, minus: true },
-      { label: "借入返済", value: { kind: "manual", field: "loanRepay" }, minus: true, editable: true },
-      { label: "追加外注支払い（税込）", value: { kind: "manual", field: "extraOutsourcing" }, editable: true },
     ],
     finalLabel: "差引き請求額",
     theme: COOL,
@@ -95,6 +93,8 @@ export const INVOICE_KIND_CONFIG: Record<InvoiceKind, InvoiceKindConfig> = {
     summaryRows: [
       { label: "報酬額 税込合計", value: { kind: "total", key: "billGross" } },
       { label: "控除 税込合計", value: { kind: "total", key: "deductGross" }, minus: true },
+      { label: "借入返済", value: { kind: "manual", field: "loanRepay" }, minus: true, editable: true },
+      { label: "追加外注支払い（税込）", value: { kind: "manual", field: "extraOutsourcing" }, editable: true },
     ],
     finalLabel: "差引き支払額",
     theme: WARM,
