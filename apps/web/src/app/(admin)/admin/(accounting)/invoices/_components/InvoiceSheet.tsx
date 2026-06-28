@@ -446,6 +446,37 @@ export function InvoiceSheet({
         }),
       };
 
+  // ブロック境界の改ページ。マーカー（break-before-page / data-force-break）は印刷/PDF両対応で
+  // 常時描画し、編集時はホバーで出る「ここで改ページ」帯から ON/OFF する（帯は hide-print）。
+  const renderBreakZone = (id: string) => {
+    const activeBreak = st.blockBreaks.includes(id);
+    const marker = activeBreak ? <div className="break-before-page" data-force-break="true" aria-hidden /> : null;
+    if (readOnly) return marker;
+    const toggle = () =>
+      set({ blockBreaks: activeBreak ? st.blockBreaks.filter((x) => x !== id) : [...st.blockBreaks, id] });
+    return (
+      <>
+        {marker}
+        <div className="hide-print group/brk flex h-4 items-center">
+          <button
+            type="button"
+            onClick={toggle}
+            title={activeBreak ? "ここの改ページを解除" : "ここで改ページ"}
+            className={cn(
+              "flex w-full items-center gap-1.5 text-[10px] font-medium transition-opacity",
+              activeBreak ? "text-blue-500" : "text-slate-400 opacity-0 group-hover/brk:opacity-100 hover:text-blue-600",
+            )}
+          >
+            <span className={cn("h-px flex-1 border-t border-dashed", activeBreak ? "border-blue-300" : "border-slate-300")} />
+            <FontAwesomeIcon icon={faScissors} className="h-2.5 w-2.5" />
+            {activeBreak ? "ここで改ページ（解除）" : "ここで改ページ"}
+            <span className={cn("h-px flex-1 border-t border-dashed", activeBreak ? "border-blue-300" : "border-slate-300")} />
+          </button>
+        </div>
+      </>
+    );
+  };
+
   return (
     <div className={cn("bg-slate-100 overflow-auto py-6", className)}>
       <div
@@ -509,6 +540,8 @@ export function InvoiceSheet({
           </div>
         </div>
 
+        {renderBreakZone("summary")}
+
         {/* 金額見出し */}
         <div className="flex items-center justify-between w-3/5 pb-[5px] mt-3 mb-2" style={{ borderBottom: `2px solid ${C.brand}` }}>
           <div className="text-[12.5px] font-semibold">{config.amountHeadlineLabel}</div>
@@ -551,6 +584,8 @@ export function InvoiceSheet({
           </tbody>
         </table>
 
+        {renderBreakZone("main")}
+
         <LineTable
           readOnly={readOnly}
           section="main"
@@ -568,9 +603,11 @@ export function InvoiceSheet({
         />
 
         {config.showDeductTable ? (
-          <LineTable
-            readOnly={readOnly}
-            section="deduct"
+          <>
+            {renderBreakZone("deduct")}
+            <LineTable
+              readOnly={readOnly}
+              section="deduct"
             lines={st.deduct}
             title={config.deductSectionTitle}
             color={C.deduct}
@@ -583,8 +620,11 @@ export function InvoiceSheet({
             setLine={setLine}
             grid={grid}
             classNameTbl="mt-[34px]"
-          />
+            />
+          </>
         ) : null}
+
+        {renderBreakZone("bank")}
 
         {/* 振込先 */}
         <div className="mt-[14px] pt-2 text-[11.5px] leading-[1.4]" style={{ borderTop: `2.5px solid ${C.brand}` }}>
