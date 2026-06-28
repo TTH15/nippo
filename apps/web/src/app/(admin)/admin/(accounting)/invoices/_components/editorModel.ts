@@ -57,6 +57,59 @@ export function defaultTargetPeriod(now: Date = new Date()): string {
   return `${y}年${m}月1日〜${y}年${m}月${lastDay}日`;
 }
 
+// ── 日付の相互変換（DatePicker ⇔ 保存文字列）。期間は表示文字列を正本に保つ ──
+
+/** ISO日付(YYYY-MM-DD…) → Date（解析不能なら undefined）。 */
+export function parseIsoDate(v: string | null | undefined): Date | undefined {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v ?? ""));
+  if (!m) return undefined;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/** Date → ISO日付(YYYY-MM-DD)。undefined は空文字。 */
+export function toIsoDate(d: Date | undefined): string {
+  if (!d) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** 日付文字列を「YYYY年M月D日」で表示。ISO以外（自由入力の旧値）はそのまま返す。 */
+export function formatDateJa(v: string | null | undefined): string {
+  const d = parseIsoDate(v);
+  if (d) return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  return String(v ?? "");
+}
+
+/** "YYYY-MM" → その月の1日〜末日の対象期間文字列。請求月に対象期間を一致させる。 */
+export function periodForMonth(month: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(month ?? ""));
+  if (!m) return "";
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const lastDay = new Date(y, mo, 0).getDate();
+  return formatPeriodJa(new Date(y, mo - 1, 1), new Date(y, mo - 1, lastDay));
+}
+
+/** 開始/終了 → 「YYYY年M月D日〜YYYY年M月D日」。片方のみでも可。 */
+export function formatPeriodJa(start?: Date, end?: Date): string {
+  const f = (d: Date) => `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  if (start && end) return `${f(start)}〜${f(end)}`;
+  if (start) return f(start);
+  if (end) return f(end);
+  return "";
+}
+
+/** 期間表示文字列 → 開始/終了（「YYYY年M月D日」を最大2件拾う）。解析できなければ空。 */
+export function parsePeriodJa(period: string | null | undefined): { start?: Date; end?: Date } {
+  const re = /(\d{4})年(\d{1,2})月(\d{1,2})日/g;
+  const dates: Date[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(String(period ?? ""))) !== null) {
+    dates.push(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  }
+  return { start: dates[0], end: dates[1] };
+}
+
 // 請求書エディタの編集状態（純粋データ）と、表示/保存への変換。
 // 入力欄は自由入力のため数値は string で保持し、変換時に数値化する。
 
@@ -303,6 +356,28 @@ export function payloadFromEditor(st: EditorState): Record<string, unknown> {
     extraOutsourcing: n(st.extraOutsourcing),
     parties: st.parties,
   };
+}
+
+/** 保存前バリデーション。問題があればユーザー向けメッセージの配列を返す（空＝OK）。 */
+export function validateForSave(st: EditorState): string[] {
+  const errors: string[] = [];
+  if (st.kind === "outgoing") {
+    if (!st.counterpartyInvoiceAddressId) {
+      errors.push("請求先（取引先）が選択されていません。上部のメニューから請求先を選んでください。");
+    }
+    if (!st.toName.trim()) errors.push("請求先の名称が空です。");
+  } else {
+    if (!st.parties.fromParty.startsWith("drv-")) {
+      errors.push("請求元（ドライバー）が選択されていません。上部のメニューから請求元を選んでください。");
+    }
+    if (!st.fromName.trim()) errors.push("請求元の名称が空です。");
+  }
+  const hasMainLine = st.main.some((l) => l.title.trim() !== "" && (n(l.qty) !== 0 || n(l.price) !== 0));
+  if (!hasMainLine) {
+    errors.push(`${st.kind === "incoming" ? "報酬明細" : "請求分"}に有効な明細が1行もありません（摘要と金額を入力してください）。`);
+  }
+  if (!st.period.trim()) errors.push("対象期間が未設定です。");
+  return errors;
 }
 
 /** POST/PATCH 用の保存ボディ。 */

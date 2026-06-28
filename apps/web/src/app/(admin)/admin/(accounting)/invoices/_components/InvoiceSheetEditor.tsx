@@ -1,17 +1,24 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { exportInvoicePdf, invoicePdfFileName } from "@/lib/invoicePdf";
 import { CustomSelect } from "@/lib/components/CustomSelect";
+import { DatePicker } from "@/lib/components/DatePicker";
+import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { Button } from "@/lib/ui/button";
 import { InvoiceSheet } from "./InvoiceSheet";
 import {
   type EditorState,
   blankEditorState,
   saveBodyFromEditor,
+  validateForSave,
+  parsePeriodJa,
+  formatPeriodJa,
+  parseIsoDate,
+  toIsoDate,
 } from "./editorModel";
 import { type InvoiceKind } from "./invoiceKinds";
 
@@ -37,7 +44,12 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   const [saving, setSaving] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[] | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+
+  const period = parsePeriodJa(st.period);
+  const setPeriod = (start?: Date, end?: Date) =>
+    setSt((p) => ({ ...p, period: formatPeriodJa(start, end) }));
 
   const { data: addrData } = useApi<{ addresses: AddressRow[] }>(
     st.kind === "outgoing" ? "/api/admin/invoice-addresses" : null,
@@ -67,6 +79,16 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     }));
   };
 
+  // 取引先指定の下書き（ピッカー→明細経路）では counterpartyInvoiceAddressId のみ入り、
+  // 帳票の請求先名称が空のまま＝保存バリデーションに掛かる。アドレス取得後に自動補完する。
+  useEffect(() => {
+    if (st.kind !== "outgoing") return;
+    if (!st.counterpartyInvoiceAddressId || st.toName.trim()) return;
+    const a = addresses.find((x) => x.id === st.counterpartyInvoiceAddressId);
+    if (a) selectCounterparty(a.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addresses, st.counterpartyInvoiceAddressId, st.toName, st.kind]);
+
   const selectDriver = (id: string) => {
     const d = drivers.find((x) => x.id === id);
     setSt((prev) => ({
@@ -82,6 +104,11 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   };
 
   const save = async () => {
+    const problems = validateForSave(st);
+    if (problems.length > 0) {
+      setValidationErrors(problems);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -157,10 +184,27 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
         </div>
       </div>
 
+      {/* 日付ツールバー（対象期間・振込期日。帳票には文字列で反映） */}
+      <div className="hide-print flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 bg-slate-50 border-b border-slate-200 text-sm">
+        <span className="font-medium text-slate-600">対象期間</span>
+        <DatePicker className="w-40 h-8" value={period.start} onChange={(d) => setPeriod(d, period.end)} placeholder="開始日" />
+        <span className="text-slate-400">〜</span>
+        <DatePicker className="w-40 h-8" value={period.end} onChange={(d) => setPeriod(period.start, d)} placeholder="終了日" />
+        <span className="ml-3 font-medium text-slate-600">振込期日</span>
+        <DatePicker className="w-40 h-8" value={parseIsoDate(st.dueDate)} onChange={(d) => setSt((p) => ({ ...p, dueDate: toIsoDate(d) }))} placeholder="未設定" />
+      </div>
+
       {/* 帳票（直接インライン編集） */}
       <div className="flex-1 overflow-auto">
         <InvoiceSheet state={st} onChange={setSt} sheetRef={sheetRef} />
       </div>
+
+      <ErrorDialog
+        open={!!validationErrors}
+        title="保存できません"
+        message={(validationErrors ?? []).map((e) => `・${e}`).join("\n")}
+        onClose={() => setValidationErrors(null)}
+      />
     </div>
   );
 }

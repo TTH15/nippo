@@ -122,6 +122,8 @@ export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<SavedInvoice[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showCreatePicker, setShowCreatePicker] = useState(false);
+  // 作成ピッカーで選ぶ請求先（法人アドレスID）。売上は取引先ごとに明細経路で作成する。
+  const [createCounterpartyId, setCreateCounterpartyId] = useState<string>("");
   const [selectedMonth, setSelectedMonth] = useState(() => {
     if (initialFinderState.selectedMonth && /^\d{4}-\d{2}$/.test(initialFinderState.selectedMonth)) {
       return initialFinderState.selectedMonth;
@@ -252,6 +254,18 @@ export default function InvoicesPage() {
   useEffect(() => {
     if (driversData) setDrivers(driversData);
   }, [driversData]);
+
+  // 法人アドレス（請求先）一覧。作成ピッカーの取引先選択に使う。
+  const { data: addressesData } = useApi<{ addresses: { id: string; name: string }[] }>(
+    "/api/admin/invoice-addresses",
+  );
+  const invoiceAddresses = useMemo(
+    () =>
+      (addressesData?.addresses ?? [])
+        .map((a) => ({ value: a.id, label: a.name }))
+        .sort((a, b) => a.label.localeCompare(b.label, "ja")),
+    [addressesData],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -869,18 +883,54 @@ export default function InvoicesPage() {
                   size="default"
                 />
               </div>
+              {selectedDirection === "outgoing" && (
+                <div>
+                  <label className="block text-xs text-slate-600 mb-1">請求先（取引先）</label>
+                  <CustomSelect
+                    options={invoiceAddresses}
+                    value={createCounterpartyId}
+                    onChange={(v) => setCreateCounterpartyId(v)}
+                    placeholder="取引先を選択…"
+                    clearable={false}
+                    size="default"
+                  />
+                  <p className="mt-1.5 text-[11px] text-slate-400 leading-relaxed">
+                    取引先ごとに当月の売上明細を自動集計して下書きを作成します。
+                    {invoiceAddresses.length === 0 && (
+                      <>
+                        {" "}
+                        <a href="/admin/invoices/addressbook" className="underline hover:text-slate-600">
+                          法人アドレス帳
+                        </a>
+                        で取引先を登録してください。
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
             </div>
             <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
               <Button variant="ghost" size="sm" onClick={() => setShowCreatePicker(false)}>
                 キャンセル
               </Button>
-              <Button asChild variant="default" size="sm">
-                <a
-                  href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&direction=${encodeURIComponent(selectedDirection)}&section=${encodeURIComponent(selectedDirection === "incoming" ? "郵便局" : "ヤマト運輸")}`}
-                >
-                  この保存先で作成
-                </a>
-              </Button>
+              {selectedDirection === "outgoing" ? (
+                <Button asChild variant="default" size="sm" className={!createCounterpartyId ? "pointer-events-none opacity-50" : undefined}>
+                  <a
+                    href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&kind=outgoing&direction=outgoing&section=${encodeURIComponent("ヤマト運輸")}&counterparty=${encodeURIComponent(createCounterpartyId)}`}
+                    aria-disabled={!createCounterpartyId}
+                  >
+                    この取引先で作成
+                  </a>
+                </Button>
+              ) : (
+                <Button asChild variant="default" size="sm">
+                  <a
+                    href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&kind=incoming&direction=incoming&section=${encodeURIComponent("郵便局")}`}
+                  >
+                    この保存先で作成
+                  </a>
+                </Button>
+              )}
             </div>
           </div>
         </div>
