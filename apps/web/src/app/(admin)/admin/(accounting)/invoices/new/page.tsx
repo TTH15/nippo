@@ -12,12 +12,14 @@ import { InvoiceSheetEditor } from "../_components/InvoiceSheetEditor";
 import {
   blankEditorState,
   emptyLine,
+  periodForMonth,
   type EditorState,
   type EditorLine,
 } from "../_components/editorModel";
 import type { InvoiceKind } from "../_components/invoiceKinds";
 
 type DraftResp = {
+  month?: string;
   section?: string;
   issueDate?: string;
   dueDate?: string;
@@ -45,6 +47,7 @@ function buildInitial(kind: InvoiceKind, draft: DraftResp | undefined): EditorSt
   return {
     ...base,
     section: draft.section ?? base.section,
+    period: draft.month ? periodForMonth(draft.month) : base.period,
     invoiceNo: draft.invoiceNo ?? "",
     dueDate: draft.dueDate ?? "",
     counterpartyInvoiceAddressId: draft.counterparty_invoice_address_id ?? null,

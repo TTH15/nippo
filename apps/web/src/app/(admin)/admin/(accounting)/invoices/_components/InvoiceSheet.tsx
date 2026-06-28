@@ -8,6 +8,7 @@ import {
   type EditorLine,
   emptyLine,
   docDataFromEditor,
+  formatDateJa,
 } from "./editorModel";
 
 // 御請求書（A4帳票）。編集とプレビューを同一にした WYSIWYG コンポーネント。
@@ -40,6 +41,7 @@ function T({
   className,
   align = "left",
   bold,
+  inputMode,
 }: {
   readOnly: boolean;
   value: string;
@@ -48,12 +50,14 @@ function T({
   className?: string;
   align?: "left" | "right" | "center";
   bold?: boolean;
+  inputMode?: "decimal" | "numeric";
 }) {
   if (readOnly) return <span className={cn(bold && "font-bold", className)}>{value}</span>;
   return (
     <input
       value={value}
       placeholder={placeholder}
+      inputMode={inputMode}
       onChange={(e) => onChange?.(e.target.value)}
       className={cn("bg-transparent outline-none focus:bg-blue-50 rounded-sm w-full", bold && "font-bold", className)}
       style={{ textAlign: align }}
@@ -131,13 +135,13 @@ function LineTable({
                 <T readOnly={readOnly} value={ln.title} placeholder="摘要" onChange={(v) => setLine(section, i, { title: v })} />
               </td>
               <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
-                <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" onChange={(v) => setLine(section, i, { qty: v })} />
+                <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { qty: v })} />
               </td>
               <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
                 <T readOnly={readOnly} value={ln.unit} align="center" placeholder="件" onChange={(v) => setLine(section, i, { unit: v })} />
               </td>
               <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
-                <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : ln.price} align="right" placeholder="0" onChange={(v) => setLine(section, i, { price: v })} />
+                <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : ln.price} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { price: v })} />
               </td>
               <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>
                 {jpy(Math.round(num(ln.qty) * num(ln.price)))}
@@ -253,7 +257,9 @@ export function InvoiceSheet({
               <img src="/invoice/ACE_CREATION_stamp_1.png" alt="" className="absolute right-0 top-8 w-20 opacity-90" />
             ) : null}
             <div className="text-[12px] leading-[1.7]">
-              <div className="flex"><b className="shrink-0">対象期間：</b><T readOnly={readOnly} value={st.period} placeholder="2025年5月1日〜2025年5月31日" onChange={(v) => set({ period: v })} /></div>
+              <div className="flex"><b className="shrink-0">対象期間：</b>
+                {st.period ? <span>{st.period}</span> : <span className="text-slate-400">{readOnly ? "" : "（上部で選択）"}</span>}
+              </div>
               <div className="flex"><b className="shrink-0">請求書番号：</b><T readOnly={readOnly} value={st.invoiceNo} placeholder="INV-..." onChange={(v) => set({ invoiceNo: v })} /></div>
             </div>
             <div className="mt-3 text-[12px] leading-[1.6]">
@@ -304,7 +310,7 @@ export function InvoiceSheet({
                   <td className="py-[3.5px] px-[9px] text-right font-bold w-[22%]" style={{ border: `1px solid ${C.brand}`, borderTop: isFirst ? `2.5px solid ${C.brand}` : undefined, borderRight: `2.5px solid ${C.brand}` }}>
                     {row.minus ? "▲" : ""}
                     {editable && field ? (
-                      <T readOnly={false} value={field === "loanRepay" ? st.loanRepay : st.extraOutsourcing} align="right" className="inline-block w-20" onChange={(v) => set(field === "loanRepay" ? { loanRepay: v } : { extraOutsourcing: v })} />
+                      <T readOnly={false} value={field === "loanRepay" ? st.loanRepay : st.extraOutsourcing} align="right" className="inline-block w-20" inputMode="decimal" onChange={(v) => set(field === "loanRepay" ? { loanRepay: v } : { extraOutsourcing: v })} />
                     ) : (
                       jpy(resolveSummaryValue(row.value, totals, st))
                     )}
@@ -358,7 +364,9 @@ export function InvoiceSheet({
 
         {/* 振込先 */}
         <div className="mt-[14px] pt-2 text-[11.5px] leading-[1.4]" style={{ borderTop: `2.5px solid ${C.brand}` }}>
-          <div className="grid grid-cols-[80px_1fr] items-center"><b>振込期日</b><T readOnly={readOnly} value={st.dueDate} onChange={(v) => set({ dueDate: v })} /></div>
+          <div className="grid grid-cols-[80px_1fr] items-center"><b>振込期日</b>
+            {st.dueDate ? <span>{formatDateJa(st.dueDate)}</span> : <span className="text-slate-400">{readOnly ? "" : "（上部で選択）"}</span>}
+          </div>
           <div className="grid grid-cols-[80px_1fr] items-center"><b>振込先</b><T readOnly={readOnly} value={st.bankName} onChange={(v) => set({ bankName: v })} /></div>
           <div className="grid grid-cols-[80px_1fr] items-center"><span /><T readOnly={readOnly} value={st.bankNo} onChange={(v) => set({ bankNo: v })} /></div>
           <div className="grid grid-cols-[80px_1fr] items-center"><span /><T readOnly={readOnly} value={st.bankHolder} onChange={(v) => set({ bankHolder: v })} /></div>
