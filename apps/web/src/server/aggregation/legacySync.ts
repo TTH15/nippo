@@ -87,10 +87,12 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
     .maybeSingle();
 
   let reportId: string;
+  let isExisting = false;
   if (existing?.id) {
     await supabase.from("daily_reports_v2").update(header).eq("id", existing.id);
     reportId = existing.id;
-    await supabase.from("report_entries").delete().eq("report_id", reportId);
+    isExisting = true;
+    // 注意: ここで entries を即削除しない。削除は「再挿入する行が確定」してから行う（下記）。
   } else {
     const { data, error } = await supabase.from("daily_reports_v2").insert(header).select("id").single();
     if (error || !data) {
@@ -100,7 +102,7 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
     reportId = data.id;
   }
 
-  // entries
+  // entries（旧固定カラム→縦持ち）
   const rows: { report_id: string; unit_id: string; field_key: string; value_num: number }[] = [];
   const push = (code: string, fieldKey: string, value: number) => {
     const unitId = unitByCode.get(code);
@@ -119,7 +121,23 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
     push("AMAZON_DELIVERY", "four_mochidashi", n(r.amazon_4_mochidashi));
     push("AMAZON_DELIVERY", "four_completed", n(r.amazon_4_completed));
   }
-  if (rows.length > 0) await supabase.from("report_entries").insert(rows);
+
+  // ── データ消失防止（現運用は /submit が V2 で report_entries に直接書く。旧テーブルを
+  //    正本に上書きすると V2 実データを潰しうるため、破壊的更新を抑止する）──
+  // 1) 再挿入する行が無い（対象外carrier / unitコード不一致）ときは既存entriesを温存。
+  if (rows.length === 0) return;
+  // 2) 既存に明細があり、今回がすべて0なら上書きしない（実数を0で潰さない）。
+  const hasMeaningful = rows.some((x) => x.value_num !== 0);
+  if (isExisting && !hasMeaningful) {
+    const { count } = await supabase
+      .from("report_entries")
+      .select("id", { count: "exact", head: true })
+      .eq("report_id", reportId);
+    if ((count ?? 0) > 0) return; // 既存の実データを保護
+  }
+  // 安全と判断できたときだけ置換する。
+  await supabase.from("report_entries").delete().eq("report_id", reportId);
+  await supabase.from("report_entries").insert(rows);
 }
 
 /** 旧 daily_reports の承認/却下状態を、対応する v2 にミラーする（driver+date 単位）。 */
