@@ -44,6 +44,7 @@ type GridApi = {
   ) => {
     "data-cell": string;
     onFocus: () => void;
+    onBlur: () => void;
     onKeyDown: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
     onPaste: (e: ReactClipboardEvent<HTMLInputElement>) => void;
   };
@@ -92,6 +93,7 @@ function T({
   inputMode,
   dataCell,
   onFocus,
+  onBlur,
   onKeyDown,
   onPaste,
 }: {
@@ -105,6 +107,7 @@ function T({
   inputMode?: "decimal" | "numeric";
   dataCell?: string;
   onFocus?: () => void;
+  onBlur?: () => void;
   onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
   onPaste?: (e: ReactClipboardEvent<HTMLInputElement>) => void;
 }) {
@@ -116,6 +119,7 @@ function T({
       inputMode={inputMode}
       data-cell={dataCell}
       onFocus={onFocus}
+      onBlur={onBlur}
       onKeyDown={onKeyDown}
       onPaste={onPaste}
       onChange={(e) => onChange?.(e.target.value)}
@@ -321,6 +325,9 @@ export function InvoiceSheet({
         cellProps: (section, row, col) => ({
           "data-cell": `${section}|${row}|${col}`,
           onFocus: () => setActive({ section, row, col }),
+          // フォーカスが外れたらアクティブ枠/フィルハンドルを消す。
+          // フィルハンドルの mousedown は preventDefault でフォーカスを保持するため drag は維持される。
+          onBlur: () => setActive((cur) => (cur && cur.section === section && cur.row === row && cur.col === col ? null : cur)),
           onKeyDown: (e) => {
             const lines = stRef.current[section];
             if (e.key === "Enter") {
@@ -528,12 +535,12 @@ export function InvoiceSheet({
               {readOnly ? (
                 st.fromTel ? <div>電話：{st.fromTel}</div> : null
               ) : (
-                <div className="flex">電話：<T readOnly={readOnly} value={st.fromTel} onChange={(v) => set({ fromTel: v })} /></div>
+                <div className="flex items-baseline"><span className="shrink-0 whitespace-nowrap">電話：</span><T readOnly={readOnly} value={st.fromTel} onChange={(v) => set({ fromTel: v })} /></div>
               )}
               {readOnly ? (
                 st.fromReg ? <div>登録番号：{st.fromReg}</div> : null
               ) : (
-                <div className="flex">登録番号：<T readOnly={readOnly} value={st.fromReg} onChange={(v) => set({ fromReg: v })} /></div>
+                <div className="flex items-baseline"><span className="shrink-0 whitespace-nowrap">登録番号：</span><T readOnly={readOnly} value={st.fromReg} onChange={(v) => set({ fromReg: v })} /></div>
               )}
             </div>
           </div>
