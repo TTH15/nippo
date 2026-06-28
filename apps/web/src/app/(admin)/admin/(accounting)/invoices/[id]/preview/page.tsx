@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useRef, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { Button } from "@/lib/ui/button";
 import { useApi } from "@/lib/useApi";
 import { InvoiceSheet } from "../../_components/InvoiceSheet";
 import {
@@ -60,14 +61,14 @@ export default function AdminInvoicePreviewPage() {
       <div className="-m-6">
         <div className="px-6 py-3 bg-white border-b border-slate-200 flex items-center justify-between">
           <a href="/admin/invoices" className="text-sm text-slate-600 underline hover:text-slate-900">一覧へ戻る</a>
-          <div className="flex items-center gap-3">
-            <a href={`/admin/invoices/${encodeURIComponent(id)}/edit`} className="text-sm text-slate-600 underline hover:text-slate-900">編集</a>
-            <button onClick={() => window.print()} disabled={!state} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+          <div className="flex items-center gap-2">
+            <a href={`/admin/invoices/${encodeURIComponent(id)}/edit`} className="text-sm text-slate-600 underline hover:text-slate-900 mr-1">編集</a>
+            <Button variant="outline" size="sm" onClick={() => window.print()} disabled={!state}>
               印刷
-            </button>
-            <button onClick={downloadPdf} disabled={pdfBusy || !state} className="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+            </Button>
+            <Button variant="default" size="sm" onClick={downloadPdf} disabled={pdfBusy || !state}>
               {pdfBusy ? "PDF生成中…" : "PDFダウンロード"}
-            </button>
+            </Button>
           </div>
         </div>
 

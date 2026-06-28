@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { exportInvoicePdf, invoicePdfFileName } from "@/lib/invoicePdf";
+import { CustomSelect } from "@/lib/components/CustomSelect";
+import { Button } from "@/lib/ui/button";
 import { InvoiceSheet } from "./InvoiceSheet";
 import {
   type EditorState,
@@ -28,8 +30,6 @@ function addrHtml(postal?: string | null, address?: string | null): string {
   if (!p && !a) return "";
   return p ? `〒${p}<br/>${a}` : a;
 }
-
-const barBtn = "rounded-lg px-3 py-1.5 text-sm border border-slate-300 bg-white text-slate-700 hover:bg-slate-50";
 
 export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mode: "new" | "edit" }) {
   const router = useRouter();
@@ -124,15 +124,23 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
         </div>
 
         {st.kind === "outgoing" ? (
-          <select className={barBtn} value={st.counterpartyInvoiceAddressId ?? ""} onChange={(e) => selectCounterparty(e.target.value)}>
-            <option value="">請求先（取引先）を選択…</option>
-            {addresses.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
+          <CustomSelect
+            className="w-56"
+            size="sm"
+            placeholder="請求先（取引先）を選択…"
+            value={st.counterpartyInvoiceAddressId ?? ""}
+            onChange={(v) => selectCounterparty(v)}
+            options={addresses.map((a) => ({ value: a.id, label: a.name }))}
+          />
         ) : (
-          <select className={barBtn} value={st.parties.fromParty.startsWith("drv-") ? st.parties.fromParty.slice(4) : ""} onChange={(e) => selectDriver(e.target.value)}>
-            <option value="">請求元（ドライバー）を選択…</option>
-            {drivers.map((d) => <option key={d.id} value={d.id}>{d.display_name || d.name}</option>)}
-          </select>
+          <CustomSelect
+            className="w-56"
+            size="sm"
+            placeholder="請求元（ドライバー）を選択…"
+            value={st.parties.fromParty.startsWith("drv-") ? st.parties.fromParty.slice(4) : ""}
+            onChange={(v) => selectDriver(v)}
+            options={drivers.map((d) => ({ value: d.id, label: d.display_name || d.name }))}
+          />
         )}
 
         <label className="flex items-center gap-1.5 text-sm text-slate-700">
@@ -143,9 +151,9 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
 
         <div className="ml-auto flex items-center gap-2">
           {error ? <span className="text-sm text-red-600">{error}</span> : null}
-          <button onClick={() => window.print()} className={barBtn}>印刷</button>
-          <button onClick={downloadPdf} disabled={pdfBusy} className={barBtn + " disabled:opacity-50"}>{pdfBusy ? "PDF生成中…" : "PDF"}</button>
-          <button onClick={save} disabled={saving} className="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">{saving ? "保存中…" : "保存"}</button>
+          <Button variant="outline" size="sm" onClick={() => window.print()}>印刷</Button>
+          <Button variant="outline" size="sm" onClick={downloadPdf} disabled={pdfBusy}>{pdfBusy ? "PDF生成中…" : "PDF"}</Button>
+          <Button variant="default" size="sm" onClick={save} disabled={saving}>{saving ? "保存中…" : "保存"}</Button>
         </div>
       </div>
 
