@@ -27,6 +27,7 @@ type ReportLike = {
   id?: string;
   carrier?: string | null;
   carrier_name?: string | null;
+  course_name?: string | null;
   content?: ReportContentUnit[];
   takuhaibin_completed?: number;
   nekopos_completed?: number;
@@ -138,8 +139,11 @@ export function PendingDriverCard({
           {reps.map((r) => (
             <div key={r.id} className="border-t border-slate-100 pt-2 first:border-t-0 first:pt-0">
               <div className="flex items-center justify-between gap-2">
-                <CarrierBadge carrier={r.carrier} carrierName={r.carrier_name} muted={muted} />
-                <span className="text-[11px] text-slate-400 tabular-nums">{fmtTime(r.submitted_at)} 送信</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <CarrierBadge carrier={r.carrier} carrierName={r.carrier_name} muted={muted} />
+                  {r.course_name && <span className="truncate text-xs text-slate-500">{r.course_name}</span>}
+                </div>
+                <span className="text-[11px] text-slate-400 tabular-nums shrink-0">{fmtTime(r.submitted_at)} 送信</span>
               </div>
               <div className="mt-1.5 flex items-center gap-2">
                 {hasPlate(r.vehicle_plate) ? (
@@ -220,7 +224,10 @@ export function AllReportCard({
     <CardShell>
       <div className="flex items-center justify-between gap-2">
         <span className="font-semibold text-slate-900">{getDisplayName(driver)}</span>
-        <CarrierBadge carrier={report.carrier} carrierName={report.carrier_name} />
+        <div className="flex items-center gap-2 min-w-0">
+          {report.course_name && <span className="truncate text-xs text-slate-500">{report.course_name}</span>}
+          <CarrierBadge carrier={report.carrier} carrierName={report.carrier_name} />
+        </div>
       </div>
       <div className="mt-1.5 flex items-center justify-between gap-2">
         <ReportContent r={report} />

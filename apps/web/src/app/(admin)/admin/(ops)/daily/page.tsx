@@ -44,6 +44,7 @@ type ReportData = {
   submitted_at: string;
   carrier?: "YAMATO" | "AMAZON";
   carrier_name?: string | null;
+  course_name?: string | null;
   content?: ReportContentUnit[];
   approved_at?: string | null;
   rejected_at?: string | null;
@@ -82,6 +83,7 @@ type DaySummaryReport = {
   driver_id: string;
   report_date: string;
   course_id?: string | null;
+  course_name?: string | null;
   content?: ReportContentUnit[];
   takuhaibin_completed: number;
   takuhaibin_returned: number;
@@ -598,10 +600,13 @@ export default function AdminDailyPage() {
                                 });
                                 const dash = <span className="inline-block w-full text-center text-slate-400 text-xs">—</span>;
                                 const carrierBadge = (r: DaySummaryReport) => (
-                                  <span
-                                    className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${carrierBadgeTone(r.carrier, r.carrier_name, isGray)}`}
-                                  >
-                                    {carrierBadgeLabel(r.carrier, r.carrier_name)}
+                                  <span className="inline-flex flex-col items-center gap-0.5">
+                                    <span
+                                      className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${carrierBadgeTone(r.carrier, r.carrier_name, isGray)}`}
+                                    >
+                                      {carrierBadgeLabel(r.carrier, r.carrier_name)}
+                                    </span>
+                                    {r.course_name && <span className="max-w-[130px] truncate text-[10px] text-slate-500" title={r.course_name}>{r.course_name}</span>}
                                   </span>
                                 );
                                 const reportContent = (r: DaySummaryReport) => (
@@ -854,11 +859,14 @@ export default function AdminDailyPage() {
                               <tr key={`${e.driver.id}-${group.date}`} className="border-b border-slate-100 hover:bg-slate-50">
                                 <td className="py-3 px-4 font-medium align-middle">{getDisplayName(e.driver)}</td>
                                 <td className="py-3 px-3 text-center align-middle">
-                                  <span
-                                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${carrierBadgeTone(carrier, r.carrier_name)}`}
-                                  >
-                                    {carrierBadgeLabel(carrier, r.carrier_name)}
-                                  </span>
+                                  <div className="inline-flex flex-col items-center gap-0.5">
+                                    <span
+                                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${carrierBadgeTone(carrier, r.carrier_name)}`}
+                                    >
+                                      {carrierBadgeLabel(carrier, r.carrier_name)}
+                                    </span>
+                                    {r.course_name && <span className="max-w-[130px] truncate text-[10px] text-slate-500" title={r.course_name}>{r.course_name}</span>}
+                                  </div>
                                 </td>
                                 <td className="py-3 px-3 text-left align-middle">
                                   <div className="pl-6">
