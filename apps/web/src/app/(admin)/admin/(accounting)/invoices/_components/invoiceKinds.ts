@@ -58,11 +58,11 @@ const COOL: InvoiceTheme = {
 };
 
 const WARM: InvoiceTheme = {
-  brand: "#155e63", // ティール
-  brandSoft: "#e3f0f0",
-  bill: "#1f7a7a",
-  billSoft: "#e3f1f1",
-  deduct: "#9a6a1f", // アンバー
+  brand: "#9a3412", // テラコッタ（タイトル・サマリー・差引帯）
+  brandSoft: "#fbeae0",
+  bill: "#c2410c", // オレンジ（報酬明細）
+  billSoft: "#fdeee4",
+  deduct: "#92400e", // 焦茶・アンバー（控除）
   deductSoft: "#f5ecdc",
 };
 

@@ -159,10 +159,10 @@ function LineTable({
 }) {
   return (
     <div className={cn("relative", classNameTbl)}>
-      <table className="w-full border-collapse text-[11.5px]" style={{ border: `4px solid ${color}` }}>
+      <table className="w-full border-collapse text-[11.5px]" style={{ border: `6px solid ${color}` }}>
         <thead>
           <tr>
-            <th colSpan={5} className="bg-white py-[3px] px-2 text-center text-[12.5px] font-bold tracking-[4px]" style={{ color, border: `1px solid ${color}` }}>
+            <th colSpan={5} className="bg-white py-[4px] px-2 text-center text-[14px] font-black tracking-[5px]" style={{ color, border: `2px solid ${color}` }}>
               {title}
             </th>
           </tr>
@@ -577,8 +577,8 @@ export function InvoiceSheet({
                               inputMode="decimal"
                               placeholder="0"
                               onChange={(e) => set(field === "loanRepay" ? { loanRepay: e.target.value } : { extraOutsourcing: e.target.value })}
-                              className="bg-transparent outline-none text-right font-bold"
-                              style={{ width: `${Math.max(2, v.length)}ch` }}
+                              className="bg-transparent outline-none text-right font-bold p-0"
+                              style={{ width: `calc(${Math.max(1, v.length)}ch + 2px)` }}
                             />
                           );
                         })()
