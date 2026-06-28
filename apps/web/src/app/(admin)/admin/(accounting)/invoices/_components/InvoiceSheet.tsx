@@ -1,4 +1,14 @@
-import type { Ref } from "react";
+import {
+  type Ref,
+  type ReactNode,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
+  useRef,
+  useState,
+} from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faGripVertical, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { computeInvoiceTotals } from "@repo/core/logic/reward";
 import type { InvoiceTotals } from "@repo/core/types";
 import { cn } from "@/lib/ui/utils";
@@ -10,6 +20,42 @@ import {
   docDataFromEditor,
   formatDateJa,
 } from "./editorModel";
+import {
+  COL_COUNT,
+  parseClipboardGrid,
+  applyPaste,
+  fillColumn,
+  insertLineAt,
+  removeLineAt,
+  moveLine,
+} from "./lineGrid";
+
+type Section = "main" | "deduct";
+
+/** 明細テーブルのスプレッドシート編集API（!readOnly のときだけ供給）。 */
+type GridApi = {
+  isFillTarget: (section: Section, row: number, col: number) => boolean;
+  cellProps: (
+    section: Section,
+    row: number,
+    col: number,
+  ) => {
+    "data-cell": string;
+    onFocus: () => void;
+    onKeyDown: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
+    onPaste: (e: ReactClipboardEvent<HTMLInputElement>) => void;
+  };
+  fillHandle: (section: Section, row: number, col: number) => ReactNode;
+  rowControls: (section: Section, row: number) => ReactNode;
+  rowProps: (
+    section: Section,
+    row: number,
+  ) => {
+    onMouseEnter: () => void;
+    onDragOver: (e: ReactDragEvent) => void;
+    onDrop: (e: ReactDragEvent) => void;
+  };
+};
 
 // 御請求書（A4帳票）。編集とプレビューを同一にした WYSIWYG コンポーネント。
 // readOnly=false のとき、帳票上のテキスト・明細セルを直接インライン編集する（Word風）。
@@ -42,6 +88,10 @@ function T({
   align = "left",
   bold,
   inputMode,
+  dataCell,
+  onFocus,
+  onKeyDown,
+  onPaste,
 }: {
   readOnly: boolean;
   value: string;
@@ -51,6 +101,10 @@ function T({
   align?: "left" | "right" | "center";
   bold?: boolean;
   inputMode?: "decimal" | "numeric";
+  dataCell?: string;
+  onFocus?: () => void;
+  onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
+  onPaste?: (e: ReactClipboardEvent<HTMLInputElement>) => void;
 }) {
   if (readOnly) return <span className={cn(bold && "font-bold", className)}>{value}</span>;
   return (
@@ -58,14 +112,16 @@ function T({
       value={value}
       placeholder={placeholder}
       inputMode={inputMode}
+      data-cell={dataCell}
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
+      onPaste={onPaste}
       onChange={(e) => onChange?.(e.target.value)}
       className={cn("bg-transparent outline-none focus:bg-blue-50 rounded-sm w-full", bold && "font-bold", className)}
       style={{ textAlign: align }}
     />
   );
 }
-
-type Section = "main" | "deduct";
 
 /** 明細テーブル（請求/報酬・お支払い/控除）。モジュールレベル定義（再マウント防止）。 */
 function LineTable({
@@ -83,7 +139,7 @@ function LineTable({
   classNameTbl,
   setLine,
   addLine,
-  removeLine,
+  grid,
 }: {
   readOnly: boolean;
   section: Section;
@@ -99,7 +155,7 @@ function LineTable({
   classNameTbl?: string;
   setLine: (section: Section, i: number, patch: Partial<EditorLine>) => void;
   addLine: (section: Section) => void;
-  removeLine: (section: Section, i: number) => void;
+  grid?: GridApi;
 }) {
   return (
     <table className={cn("w-full border-collapse text-[11.5px]", classNameTbl)} style={{ border: `4px solid ${color}` }}>
@@ -115,7 +171,7 @@ function LineTable({
           <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "9%" }}>単位</th>
           <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "18%" }}>税抜単価（円）</th>
           <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "22%" }}>税抜合計（円）</th>
-          {!readOnly ? <th className="w-7" style={{ border: "none" }} /> : null}
+          {!readOnly ? <th className="w-14 hide-print" style={{ border: "none" }} /> : null}
         </tr>
       </thead>
       <tbody>
@@ -130,25 +186,29 @@ function LineTable({
           </tr>
         ) : (
           lines.map((ln, i) => (
-            <tr key={i}>
-              <td className="py-[2.5px] px-2 leading-[1.3] bg-white" style={{ border: `1px solid ${color}` }}>
-                <T readOnly={readOnly} value={ln.title} placeholder="摘要" onChange={(v) => setLine(section, i, { title: v })} />
+            <tr key={i} {...(grid ? grid.rowProps(section, i) : {})}>
+              <td className={cn("py-[2.5px] px-2 leading-[1.3] bg-white relative", grid?.isFillTarget(section, i, 0) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
+                <T readOnly={readOnly} value={ln.title} placeholder="摘要" onChange={(v) => setLine(section, i, { title: v })} {...(grid ? grid.cellProps(section, i, 0) : {})} />
+                {grid ? grid.fillHandle(section, i, 0) : null}
               </td>
-              <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
-                <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { qty: v })} />
+              <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 1) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
+                <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { qty: v })} {...(grid ? grid.cellProps(section, i, 1) : {})} />
+                {grid ? grid.fillHandle(section, i, 1) : null}
               </td>
-              <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
-                <T readOnly={readOnly} value={ln.unit} align="center" placeholder="件" onChange={(v) => setLine(section, i, { unit: v })} />
+              <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 2) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
+                <T readOnly={readOnly} value={ln.unit} align="center" placeholder="件" onChange={(v) => setLine(section, i, { unit: v })} {...(grid ? grid.cellProps(section, i, 2) : {})} />
+                {grid ? grid.fillHandle(section, i, 2) : null}
               </td>
-              <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>
-                <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : ln.price} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { price: v })} />
+              <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 3) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
+                <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : ln.price} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { price: v })} {...(grid ? grid.cellProps(section, i, 3) : {})} />
+                {grid ? grid.fillHandle(section, i, 3) : null}
               </td>
               <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>
                 {jpy(Math.round(num(ln.qty) * num(ln.price)))}
               </td>
-              {!readOnly ? (
-                <td className="text-center align-middle">
-                  <button type="button" onClick={() => removeLine(section, i)} className="text-slate-400 hover:text-red-500 text-sm hide-print">×</button>
+              {grid ? (
+                <td className="align-middle pl-1 hide-print" style={{ border: "none" }}>
+                  {grid.rowControls(section, i)}
                 </td>
               ) : null}
             </tr>
@@ -217,8 +277,147 @@ export function InvoiceSheet({
     set({ [section]: st[section].map((l, idx) => (idx === i ? { ...l, ...patch } : l)) } as Partial<EditorState>);
   const addLine = (section: Section) =>
     set({ [section]: [...st[section], emptyLine()] } as Partial<EditorState>);
-  const removeLine = (section: Section, i: number) =>
-    set({ [section]: st[section].filter((_, idx) => idx !== i) } as Partial<EditorState>);
+
+  // ── スプレッドシート編集（選択/フィル/並べ替え）。状態は描画用＋最新参照用 ref の二重持ち ──
+  const [active, setActive] = useState<{ section: Section; row: number; col: number } | null>(null);
+  const [fill, setFill] = useState<{ section: Section; col: number; fromRow: number; toRow: number } | null>(null);
+  const stRef = useRef(st);
+  stRef.current = st;
+  const fillRef = useRef(fill);
+  const dragRef = useRef<{ section: Section; row: number } | null>(null);
+
+  const setLines = (section: Section, next: EditorLine[]) =>
+    onChange?.({ ...stRef.current, [section]: next });
+
+  const focusCell = (section: Section, row: number, col: number) => {
+    const el = document.querySelector(`[data-cell="${section}|${row}|${col}"]`) as HTMLInputElement | null;
+    if (el) {
+      el.focus();
+      el.select();
+    }
+  };
+
+  const grid: GridApi | undefined = readOnly
+    ? undefined
+    : {
+        isFillTarget: (section, row, col) => {
+          if (!fill || fill.section !== section || fill.col !== col) return false;
+          const lo = Math.min(fill.fromRow, fill.toRow);
+          const hi = Math.max(fill.fromRow, fill.toRow);
+          return row >= lo && row <= hi;
+        },
+        cellProps: (section, row, col) => ({
+          "data-cell": `${section}|${row}|${col}`,
+          onFocus: () => setActive({ section, row, col }),
+          onKeyDown: (e) => {
+            const lines = stRef.current[section];
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (row + 1 >= lines.length) setLines(section, [...lines.map((l) => ({ ...l })), emptyLine()]);
+              setTimeout(() => focusCell(section, row + 1, col), 0);
+            } else if (e.key === "Tab") {
+              e.preventDefault();
+              const dir = e.shiftKey ? -1 : 1;
+              let nc = col + dir;
+              let nr = row;
+              if (nc >= COL_COUNT) {
+                nc = 0;
+                nr = row + 1;
+              }
+              if (nc < 0) {
+                nc = COL_COUNT - 1;
+                nr = row - 1;
+              }
+              if (nr < 0) return;
+              if (nr >= lines.length && dir > 0) setLines(section, [...lines.map((l) => ({ ...l })), emptyLine()]);
+              setTimeout(() => focusCell(section, nr, nc), 0);
+            } else if (e.key === "ArrowDown") {
+              if (row + 1 < lines.length) {
+                e.preventDefault();
+                focusCell(section, row + 1, col);
+              }
+            } else if (e.key === "ArrowUp") {
+              if (row > 0) {
+                e.preventDefault();
+                focusCell(section, row - 1, col);
+              }
+            }
+          },
+          onPaste: (e) => {
+            const text = e.clipboardData?.getData("text") ?? "";
+            // 単一値（タブ/改行なし）は通常の貼り付けに任せる
+            if (!text.includes("\t") && !text.includes("\n")) return;
+            e.preventDefault();
+            setLines(section, applyPaste(stRef.current[section], row, col, parseClipboardGrid(text)));
+          },
+        }),
+        fillHandle: (section, row, col) => {
+          if (!active || active.section !== section || active.row !== row || active.col !== col) return null;
+          return (
+            <span
+              role="presentation"
+              title="ドラッグで下の行へコピー"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const f = { section, col, fromRow: row, toRow: row };
+                fillRef.current = f;
+                setFill(f);
+                const onUp = () => {
+                  const cur = fillRef.current;
+                  if (cur) setLines(cur.section, fillColumn(stRef.current[cur.section], cur.col, cur.fromRow, cur.toRow));
+                  fillRef.current = null;
+                  setFill(null);
+                  window.removeEventListener("mouseup", onUp);
+                };
+                window.addEventListener("mouseup", onUp);
+              }}
+              className="hide-print absolute bottom-[-3px] right-[-3px] z-10 h-2 w-2 cursor-crosshair rounded-[1px] bg-blue-600 ring-1 ring-white"
+            />
+          );
+        },
+        rowControls: (section, row) => (
+          <div className="flex items-center gap-2 text-slate-300">
+            <span
+              draggable
+              onDragStart={(e) => {
+                dragRef.current = { section, row };
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              title="ドラッグで並べ替え"
+              className="cursor-grab hover:text-slate-500"
+            >
+              <FontAwesomeIcon icon={faGripVertical} className="h-3 w-3" />
+            </span>
+            <button type="button" onClick={() => setLines(section, insertLineAt(stRef.current[section], row + 1))} title="下に行を追加" className="hover:text-slate-600">
+              <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
+            </button>
+            <button type="button" onClick={() => setLines(section, removeLineAt(stRef.current[section], row))} title="行を削除" className="hover:text-red-500">
+              <FontAwesomeIcon icon={faTrashCan} className="h-3 w-3" />
+            </button>
+          </div>
+        ),
+        rowProps: (section, row) => ({
+          onMouseEnter: () => {
+            const cur = fillRef.current;
+            if (cur && cur.section === section) {
+              const nf = { ...cur, toRow: row };
+              fillRef.current = nf;
+              setFill(nf);
+            }
+          },
+          onDragOver: (e) => {
+            if (dragRef.current && dragRef.current.section === section) e.preventDefault();
+          },
+          onDrop: (e) => {
+            const d = dragRef.current;
+            if (d && d.section === section) {
+              e.preventDefault();
+              setLines(section, moveLine(stRef.current[section], d.row, row));
+              dragRef.current = null;
+            }
+          },
+        }),
+      };
 
   return (
     <div className={cn("bg-slate-100 overflow-auto py-6", className)}>
@@ -339,7 +538,7 @@ export function InvoiceSheet({
           taxLabel={st.taxEnabled ? `消費税額（小計分 ${ratePct}%）` : ""}
           setLine={setLine}
           addLine={addLine}
-          removeLine={removeLine}
+          grid={grid}
         />
 
         {config.showDeductTable ? (
@@ -357,7 +556,7 @@ export function InvoiceSheet({
             taxLabel={st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : ""}
             setLine={setLine}
             addLine={addLine}
-            removeLine={removeLine}
+            grid={grid}
             classNameTbl="mt-[34px]"
           />
         ) : null}
