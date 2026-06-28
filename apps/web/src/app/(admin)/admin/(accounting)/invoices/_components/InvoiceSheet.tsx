@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faGripVertical, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { faGripVertical, faPlus, faTrashCan, faScissors } from "@fortawesome/free-solid-svg-icons";
 import { computeInvoiceTotals } from "@repo/core/logic/reward";
 import type { InvoiceTotals } from "@repo/core/types";
 import { cn } from "@/lib/ui/utils";
@@ -158,90 +158,86 @@ function LineTable({
   grid?: GridApi;
 }) {
   return (
-    <table className={cn("w-full border-collapse text-[11.5px]", classNameTbl)} style={{ border: `4px solid ${color}` }}>
-      <thead>
-        <tr>
-          <th colSpan={readOnly ? 5 : 6} className="bg-white py-[3px] px-2 text-center text-[12.5px] font-bold tracking-[4px]" style={{ color, border: `1px solid ${color}` }}>
-            {title}
-          </th>
-        </tr>
-        <tr className="text-white font-semibold">
-          <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "40%" }}>摘要</th>
-          <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "11%" }}>数量</th>
-          <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "9%" }}>単位</th>
-          <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "18%" }}>税抜単価（円）</th>
-          <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "22%" }}>税抜合計（円）</th>
-          {!readOnly ? <th className="w-14 hide-print" style={{ border: "none" }} /> : null}
-        </tr>
-      </thead>
-      <tbody>
-        {lines.length === 0 ? (
+    <div className={cn("relative", classNameTbl)}>
+      <table className="w-full border-collapse text-[11.5px]" style={{ border: `4px solid ${color}` }}>
+        <thead>
           <tr>
-            <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>&nbsp;</td>
-            <td className="bg-white" style={{ border: `1px solid ${color}` }} />
-            <td className="bg-white" style={{ border: `1px solid ${color}` }} />
-            <td className="bg-white" style={{ border: `1px solid ${color}` }} />
-            <td className="text-right px-2 bg-white" style={{ border: `1px solid ${color}` }}>0</td>
-            {!readOnly ? <td /> : null}
+            <th colSpan={5} className="bg-white py-[3px] px-2 text-center text-[12.5px] font-bold tracking-[4px]" style={{ color, border: `1px solid ${color}` }}>
+              {title}
+            </th>
           </tr>
-        ) : (
-          lines.map((ln, i) => (
-            <tr key={i} {...(grid ? grid.rowProps(section, i) : {})}>
-              <td className={cn("py-[2.5px] px-2 leading-[1.3] bg-white relative", grid?.isFillTarget(section, i, 0) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
-                <T readOnly={readOnly} value={ln.title} placeholder="摘要" onChange={(v) => setLine(section, i, { title: v })} {...(grid ? grid.cellProps(section, i, 0) : {})} />
-                {grid ? grid.fillHandle(section, i, 0) : null}
-              </td>
-              <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 1) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
-                <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { qty: v })} {...(grid ? grid.cellProps(section, i, 1) : {})} />
-                {grid ? grid.fillHandle(section, i, 1) : null}
-              </td>
-              <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 2) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
-                <T readOnly={readOnly} value={ln.unit} align="center" placeholder="件" onChange={(v) => setLine(section, i, { unit: v })} {...(grid ? grid.cellProps(section, i, 2) : {})} />
-                {grid ? grid.fillHandle(section, i, 2) : null}
-              </td>
-              <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 3) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
-                <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : ln.price} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { price: v })} {...(grid ? grid.cellProps(section, i, 3) : {})} />
-                {grid ? grid.fillHandle(section, i, 3) : null}
-              </td>
-              <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>
-                {jpy(Math.round(num(ln.qty) * num(ln.price)))}
-              </td>
-              {grid ? (
-                <td className="align-middle pl-1 hide-print" style={{ border: "none" }}>
-                  {grid.rowControls(section, i)}
-                </td>
-              ) : null}
+          <tr className="text-white font-semibold">
+            <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "40%" }}>摘要</th>
+            <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "11%" }}>数量</th>
+            <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "9%" }}>単位</th>
+            <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "18%" }}>税抜単価（円）</th>
+            <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "22%" }}>税抜合計（円）</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.length === 0 ? (
+            <tr>
+              <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>&nbsp;</td>
+              <td className="bg-white" style={{ border: `1px solid ${color}` }} />
+              <td className="bg-white" style={{ border: `1px solid ${color}` }} />
+              <td className="bg-white" style={{ border: `1px solid ${color}` }} />
+              <td className="text-right px-2 bg-white" style={{ border: `1px solid ${color}` }}>0</td>
             </tr>
-          ))
-        )}
-        {!readOnly ? (
-          <tr className="hide-print">
-            <td colSpan={6} className="py-1 px-2" style={{ border: "none" }}>
-              <button type="button" onClick={() => addLine(section)} className="text-xs text-slate-600 underline hover:text-slate-900">＋ 行を追加</button>
-            </td>
-          </tr>
-        ) : null}
-      </tbody>
-      <tfoot>
-        <tr>
-          <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{subtotalLabel}</td>
-          <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(subtotal)}</td>
-          {!readOnly ? <td /> : null}
-        </tr>
-        {taxLabel ? (
+          ) : (
+            lines.map((ln, i) => (
+              <tr key={i} className="group" {...(grid ? grid.rowProps(section, i) : {})}>
+                <td className={cn("py-[2.5px] px-2 leading-[1.3] bg-white relative", grid?.isFillTarget(section, i, 0) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
+                  <T readOnly={readOnly} value={ln.title} placeholder="摘要" onChange={(v) => setLine(section, i, { title: v })} {...(grid ? grid.cellProps(section, i, 0) : {})} />
+                  {grid ? grid.fillHandle(section, i, 0) : null}
+                </td>
+                <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 1) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
+                  <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { qty: v })} {...(grid ? grid.cellProps(section, i, 1) : {})} />
+                  {grid ? grid.fillHandle(section, i, 1) : null}
+                </td>
+                <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 2) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
+                  <T readOnly={readOnly} value={ln.unit} align="center" placeholder="件" onChange={(v) => setLine(section, i, { unit: v })} {...(grid ? grid.cellProps(section, i, 2) : {})} />
+                  {grid ? grid.fillHandle(section, i, 2) : null}
+                </td>
+                <td className={cn("py-[2.5px] px-2 bg-white relative", grid?.isFillTarget(section, i, 3) && "bg-blue-50")} style={{ border: `1px solid ${color}` }}>
+                  <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : ln.price} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { price: v })} {...(grid ? grid.cellProps(section, i, 3) : {})} />
+                  {grid ? grid.fillHandle(section, i, 3) : null}
+                </td>
+                <td className={cn("py-[2.5px] px-2 text-right bg-white", grid && "relative")} style={{ border: `1px solid ${color}` }}>
+                  {jpy(Math.round(num(ln.qty) * num(ln.price)))}
+                  {grid ? grid.rowControls(section, i) : null}
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+        <tfoot>
           <tr>
-            <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{taxLabel}</td>
-            <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(tax)}</td>
-            {!readOnly ? <td /> : null}
+            <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{subtotalLabel}</td>
+            <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(subtotal)}</td>
           </tr>
-        ) : null}
-        <tr className="font-bold text-white">
-          <td colSpan={4} className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>税込合計</td>
-          <td className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>{jpy(gross)}</td>
-          {!readOnly ? <td /> : null}
-        </tr>
-      </tfoot>
-    </table>
+          {taxLabel ? (
+            <tr>
+              <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{taxLabel}</td>
+              <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(tax)}</td>
+            </tr>
+          ) : null}
+          <tr className="font-bold text-white">
+            <td colSpan={4} className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>税込合計</td>
+            <td className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>{jpy(gross)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      {grid ? (
+        <button
+          type="button"
+          onClick={() => addLine(section)}
+          className="hide-print mt-1.5 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800"
+        >
+          <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
+          行を追加
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -375,8 +371,10 @@ export function InvoiceSheet({
             />
           );
         },
+        // 行操作は帳票の外（右マージン）にホバー時だけ表示。テーブル列は増やさず
+        // 編集と印刷のレイアウトを一致させる（hide-print）。
         rowControls: (section, row) => (
-          <div className="flex items-center gap-2 text-slate-300">
+          <div className="hide-print absolute inset-y-0 right-[-3.6rem] z-10 flex items-center gap-2 pl-2 text-slate-300 opacity-0 transition-opacity group-hover:opacity-100">
             <span
               draggable
               onDragStart={(e) => {
@@ -541,24 +539,47 @@ export function InvoiceSheet({
           grid={grid}
         />
 
+        {/* 改ページトグル（編集時のみ・印刷には出さない）。お支払い/控除の前で改ページ。 */}
+        {!readOnly && config.showDeductTable ? (
+          <button
+            type="button"
+            onClick={() => set({ pageBreakBeforeDeduct: !st.pageBreakBeforeDeduct })}
+            className={cn(
+              "hide-print mt-3 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors",
+              st.pageBreakBeforeDeduct
+                ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
+            )}
+            title={`${config.deductSectionTitle}を次のページから始めます`}
+          >
+            <FontAwesomeIcon icon={faScissors} className="h-3 w-3" />
+            {st.pageBreakBeforeDeduct ? `${config.deductSectionTitle}の前で改ページ中（解除）` : `${config.deductSectionTitle}の前で改ページ`}
+          </button>
+        ) : null}
+
         {config.showDeductTable ? (
-          <LineTable
-            readOnly={readOnly}
-            section="deduct"
-            lines={st.deduct}
-            title={config.deductSectionTitle}
-            color={C.deduct}
-            soft={C.deductSoft}
-            subtotal={totals.deductSubtotal}
-            tax={totals.deductTax}
-            gross={totals.deductGross}
-            subtotalLabel={`${config.deductSectionTitle}小計（税抜）`}
-            taxLabel={st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : ""}
-            setLine={setLine}
-            addLine={addLine}
-            grid={grid}
-            classNameTbl="mt-[34px]"
-          />
+          <div
+            className={cn(st.pageBreakBeforeDeduct && "break-before-page")}
+            data-force-break={st.pageBreakBeforeDeduct ? "true" : undefined}
+          >
+            <LineTable
+              readOnly={readOnly}
+              section="deduct"
+              lines={st.deduct}
+              title={config.deductSectionTitle}
+              color={C.deduct}
+              soft={C.deductSoft}
+              subtotal={totals.deductSubtotal}
+              tax={totals.deductTax}
+              gross={totals.deductGross}
+              subtotalLabel={`${config.deductSectionTitle}小計（税抜）`}
+              taxLabel={st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : ""}
+              setLine={setLine}
+              addLine={addLine}
+              grid={grid}
+              classNameTbl="mt-[34px]"
+            />
+          </div>
         ) : null}
 
         {/* 振込先 */}
