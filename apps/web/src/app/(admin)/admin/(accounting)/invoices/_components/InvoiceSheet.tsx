@@ -488,7 +488,7 @@ export function InvoiceSheet({
       <div
         ref={sheetRef}
         className="invoice-print-root mx-auto bg-white text-[#111] shadow-md w-[210mm] min-h-[297mm]"
-        style={{ padding: "8mm 14mm 10mm 14mm", boxSizing: "border-box" }}
+        style={{ padding: "5mm 14mm 8mm 14mm", boxSizing: "border-box" }}
       >
         {/* タイトル */}
         <div className="text-center font-bold text-[20px] tracking-[0.4em] pb-[6px] mb-[14px]" style={{ color: C.brand, borderBottom: `3px solid ${C.brand}` }}>
@@ -639,7 +639,7 @@ export function InvoiceSheet({
             taxLabel={st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : ""}
             setLine={setLine}
             grid={grid}
-            classNameTbl="mt-[34px]"
+            classNameTbl="mt-[18px]"
             />
           </>
         ) : null}
