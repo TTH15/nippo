@@ -244,10 +244,11 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
           )}
         </div>
 
-        {/* 消費税は当面「あり」を前提。税率のみ編集可（有無や文言は将来org設定で調整）。 */}
+        {/* 消費税の ON/OFF と税率。OFF（免税事業者など）の請求書もここで再ONできる。 */}
         <label className="flex items-center gap-1.5 text-sm text-slate-700">
+          <input type="checkbox" className="h-4 w-4 accent-slate-700" checked={st.taxEnabled} onChange={(e) => setSt((p) => ({ ...p, taxEnabled: e.target.checked }))} />
           消費税
-          <input className="w-12 rounded border border-slate-300 px-2 py-1 text-sm text-right" value={st.taxRatePercent} inputMode="decimal" onChange={(e) => setSt((p) => ({ ...p, taxRatePercent: e.target.value }))} />%
+          <input className="w-12 rounded border border-slate-300 px-2 py-1 text-sm text-right disabled:bg-slate-100 disabled:text-slate-400" value={st.taxRatePercent} inputMode="decimal" disabled={!st.taxEnabled} onChange={(e) => setSt((p) => ({ ...p, taxRatePercent: e.target.value }))} />%
         </label>
 
         <div className="ml-auto flex items-center gap-2">
