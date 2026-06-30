@@ -36,6 +36,47 @@ export async function exportInvoicePdf(sheet: HTMLElement, fileName: string): Pr
     backgroundColor: "#ffffff",
     windowWidth: sheet.scrollWidth,
     windowHeight: sheet.scrollHeight,
+    // html2canvas は <input>/<textarea> のテキストを正しく縦位置レンダリングできず、
+    // 編集モードのまま PDF 化すると各行の文字が上半分で切れる。クローン側だけで
+    // 入力欄を等価な静的テキストに差し替え、画面の見たまま（WYSIWYG）に揃える。
+    onclone: (_clonedDoc, clonedSheet) => {
+      const view = clonedSheet.ownerDocument.defaultView;
+      if (!view) return;
+      const fields = clonedSheet.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+        "input, textarea",
+      );
+      fields.forEach((el) => {
+        const cs = view.getComputedStyle(el);
+        const isTextarea = el.tagName === "TEXTAREA";
+        const span = clonedSheet.ownerDocument.createElement("div");
+        span.textContent = el.value ?? "";
+        span.style.display = "block";
+        span.style.margin = "0";
+        span.style.padding = "0";
+        span.style.boxSizing = "border-box";
+        span.style.width = cs.width;
+        span.style.color = cs.color;
+        span.style.fontFamily = cs.fontFamily;
+        span.style.fontSize = cs.fontSize;
+        span.style.fontWeight = cs.fontWeight;
+        span.style.fontStyle = cs.fontStyle;
+        span.style.letterSpacing = cs.letterSpacing;
+        span.style.textAlign = cs.textAlign;
+        span.style.overflow = "hidden";
+        if (isTextarea) {
+          // 複数行は改行を保持し、内容に応じて伸びる。
+          span.style.whiteSpace = "pre-wrap";
+          span.style.lineHeight = cs.lineHeight;
+          span.style.minHeight = cs.height;
+        } else {
+          // 1行入力は高さ＝行高として縦中央に揃える（input の見た目を再現）。
+          span.style.whiteSpace = "nowrap";
+          span.style.height = cs.height;
+          span.style.lineHeight = cs.height;
+        }
+        el.parentNode?.replaceChild(span, el);
+      });
+    },
   });
 
   const pageWidthMm = 210;
