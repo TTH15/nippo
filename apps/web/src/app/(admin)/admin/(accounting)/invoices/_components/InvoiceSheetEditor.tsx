@@ -5,7 +5,6 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faRotateLeft, faRotateRight, faCloud, faCloudArrowUp, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { exportInvoicePdf, invoicePdfFileName } from "@/lib/invoicePdf";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { Button } from "@/lib/ui/button";
@@ -42,7 +41,6 @@ const AUTOSAVE_DEBOUNCE_MS = 1200;
 
 export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mode: "new" | "edit" }) {
   const [st, setStRaw] = useState<EditorState>(initial);
-  const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -202,16 +200,6 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     return () => clearTimeout(t);
   }, [st, persist]);
 
-  const downloadPdf = async () => {
-    if (!sheetRef.current) return;
-    setPdfBusy(true);
-    try {
-      await exportInvoicePdf(sheetRef.current, invoicePdfFileName(st.period, st.fromName));
-    } finally {
-      setPdfBusy(false);
-    }
-  };
-
   const saveStatusUi = (() => {
     if (saveStatus === "saving") return { icon: faCloudArrowUp, text: "保存中…", cls: "text-slate-500" };
     if (saveStatus === "error") return { icon: faTriangleExclamation, text: "保存エラー", cls: "text-red-600" };
@@ -271,8 +259,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
             <FontAwesomeIcon icon={saveStatusUi.icon} className="h-3.5 w-3.5" />
             {saveStatusUi.text}
           </span>
-          <Button variant="outline" size="sm" onClick={() => window.print()}>印刷</Button>
-          <Button variant="outline" size="sm" onClick={downloadPdf} disabled={pdfBusy}>{pdfBusy ? "PDF生成中…" : "PDF"}</Button>
+          <Button variant="outline" size="sm" onClick={() => window.print()}>印刷（PDF保存）</Button>
         </div>
       </div>
 

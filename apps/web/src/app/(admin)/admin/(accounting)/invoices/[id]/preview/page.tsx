@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Button } from "@/lib/ui/button";
 import { useApi } from "@/lib/useApi";
@@ -11,7 +11,6 @@ import {
   applyCounterparty,
   type CounterpartyAddress,
 } from "../../_components/editorModel";
-import { exportInvoicePdf, invoicePdfFileName } from "@/lib/invoicePdf";
 
 type InvoiceResp = {
   invoice: {
@@ -32,7 +31,6 @@ export default function AdminInvoicePreviewPage() {
   const params = useParams<{ id: string }>();
   const id = String(params?.id ?? "");
   const sheetRef = useRef<HTMLDivElement>(null);
-  const [pdfBusy, setPdfBusy] = useState(false);
 
   const { data, isInitialLoading, error } = useApi<InvoiceResp>(
     id ? `/api/admin/invoices/${encodeURIComponent(id)}` : null,
@@ -46,16 +44,6 @@ export default function AdminInvoicePreviewPage() {
     ? applyCounterparty(editorFromInvoice(data.invoice), counterparty)
     : null;
 
-  const downloadPdf = async () => {
-    if (!sheetRef.current || !state) return;
-    setPdfBusy(true);
-    try {
-      await exportInvoicePdf(sheetRef.current, invoicePdfFileName(state.period, state.fromName));
-    } finally {
-      setPdfBusy(false);
-    }
-  };
-
   return (
     <AdminLayout>
       <div className="-m-6">
@@ -63,11 +51,8 @@ export default function AdminInvoicePreviewPage() {
           <a href="/admin/invoices" className="text-sm text-slate-600 underline hover:text-slate-900">一覧へ戻る</a>
           <div className="flex items-center gap-2">
             <a href={`/admin/invoices/${encodeURIComponent(id)}/edit`} className="text-sm text-slate-600 underline hover:text-slate-900 mr-1">編集</a>
-            <Button variant="outline" size="sm" onClick={() => window.print()} disabled={!state}>
-              印刷
-            </Button>
-            <Button variant="default" size="sm" onClick={downloadPdf} disabled={pdfBusy || !state}>
-              {pdfBusy ? "PDF生成中…" : "PDFダウンロード"}
+            <Button variant="default" size="sm" onClick={() => window.print()} disabled={!state}>
+              印刷（PDF保存）
             </Button>
           </div>
         </div>
