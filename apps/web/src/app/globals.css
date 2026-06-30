@@ -225,8 +225,17 @@ input[type="number"] {
     left: 0;
     top: 0;
     width: 210mm;
+    /* 画面用の min-height:297mm と内側パディングが合算されて 1 ページを僅かに超え、
+       下端が見切れるのを防ぐ。印刷では内容なりの高さにする。 */
+    min-height: 0 !important;
     margin: 0 !important;
     box-shadow: none !important;
+  }
+  /* 色付きの罫線・背景が印刷で細く/薄くならないよう、忠実出力を強制する。 */
+  .invoice-print-root,
+  .invoice-print-root * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
   /* 編集中のインライン入力欄は印刷では枠・背景を消してプレーン表示に */
   .invoice-print-root input,
