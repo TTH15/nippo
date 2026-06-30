@@ -1,6 +1,6 @@
 import { computeInvoiceTotals } from "@repo/core/logic/reward";
 import { getInvoiceIssuer } from "@/config/companies";
-import { resolveInvoiceKind, type InvoiceKind } from "./invoiceKinds";
+import { INVOICE_KIND_CONFIG, resolveInvoiceKind, type InvoiceKind } from "./invoiceKinds";
 
 /** 帳票1行（税抜単価モデル・数値化済み）。 */
 export type InvoiceDocLine = {
@@ -408,6 +408,20 @@ export function saveBodyFromEditor(st: EditorState): Record<string, unknown> {
     amount: amountFromEditor(st),
     payload: payloadFromEditor(st),
   };
+}
+
+/**
+ * 印刷（PDF保存）時の既定ファイル名。ブラウザは document.title を初期ファイル名に使うため、
+ * 印刷直前にこの文字列を title へ差し替える。例: "202605_御請求書_合同会社fiants"
+ */
+export function invoiceFileName(st: EditorState): string {
+  const { start } = parsePeriodJa(st.period);
+  const ym = start ? `${start.getFullYear()}${String(start.getMonth() + 1).padStart(2, "0")}` : "";
+  const docTitle = (INVOICE_KIND_CONFIG[st.kind]?.docTitle ?? "請求書").replace(/\s+/g, "");
+  // 売上＝請求先(取引先)、受領＝請求元(ドライバー)を識別名に使う。
+  const party = st.kind === "incoming" ? st.fromName : st.toName;
+  const sanitize = (x: string) => x.replace(/[\\/:*?"<>|]/g, "").trim();
+  return [ym, docTitle, sanitize(party)].filter(Boolean).join("_") || "請求書";
 }
 
 /** 請求先住所が空のとき、紐づく取引先アドレスで補完（読み取りプレビュー用）。 */

@@ -9,8 +9,10 @@ import { InvoiceSheet } from "../../_components/InvoiceSheet";
 import {
   editorFromInvoice,
   applyCounterparty,
+  invoiceFileName,
   type CounterpartyAddress,
 } from "../../_components/editorModel";
+import { printInvoice } from "../../_components/printInvoice";
 
 type InvoiceResp = {
   invoice: {
@@ -51,7 +53,7 @@ export default function AdminInvoicePreviewPage() {
           <a href="/admin/invoices" className="text-sm text-slate-600 underline hover:text-slate-900">一覧へ戻る</a>
           <div className="flex items-center gap-2">
             <a href={`/admin/invoices/${encodeURIComponent(id)}/edit`} className="text-sm text-slate-600 underline hover:text-slate-900 mr-1">編集</a>
-            <Button variant="default" size="sm" onClick={() => window.print()} disabled={!state}>
+            <Button variant="default" size="sm" onClick={() => state && printInvoice(invoiceFileName(state))} disabled={!state}>
               印刷（PDF保存）
             </Button>
           </div>
