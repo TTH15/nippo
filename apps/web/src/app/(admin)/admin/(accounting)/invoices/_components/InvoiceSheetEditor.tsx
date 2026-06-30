@@ -17,7 +17,9 @@ import {
   formatPeriodJa,
   parseIsoDate,
   toIsoDate,
+  invoiceFileName,
 } from "./editorModel";
+import { printInvoice } from "./printInvoice";
 import { type InvoiceKind } from "./invoiceKinds";
 
 // WYSIWYG エディタ。帳票上で直接インライン編集（InvoiceSheet）。変更は自動保存し、
@@ -259,7 +261,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
             <FontAwesomeIcon icon={saveStatusUi.icon} className="h-3.5 w-3.5" />
             {saveStatusUi.text}
           </span>
-          <Button variant="outline" size="sm" onClick={() => window.print()}>印刷（PDF保存）</Button>
+          <Button variant="outline" size="sm" onClick={() => printInvoice(invoiceFileName(st))}>印刷（PDF保存）</Button>
         </div>
       </div>
 
