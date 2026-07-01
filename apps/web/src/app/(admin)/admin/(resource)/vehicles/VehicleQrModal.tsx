@@ -121,21 +121,23 @@ export function VehicleQrModal({
     return html2canvas(labelRef.current, { backgroundColor: "#ffffff", scale: 3 });
   }
 
-  async function activate() {
+  function activate() {
     if (!qr) return;
+    // 楽観的更新: クリックで即座にバッジを「有効」へ切り替え、保存はバックグラウンドで進める
+    const prevQr = qr;
+    setQr({ ...qr, status: "active", attachedConfirmedAt: new Date().toISOString() });
     setBusy(true);
     setError(null);
-    try {
-      await apiFetch(`/api/admin/vehicle-qr/activate`, {
-        method: "POST",
-        body: JSON.stringify({ token: qr.token }),
-      });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "有効化に失敗しました");
-    } finally {
-      setBusy(false);
-    }
+    apiFetch(`/api/admin/vehicle-qr/activate`, {
+      method: "POST",
+      body: JSON.stringify({ token: qr.token }),
+    })
+      .then(() => load())
+      .catch((e) => {
+        setQr(prevQr); // 失敗時は元の状態に巻き戻す
+        setError(e instanceof Error ? e.message : "有効化に失敗しました");
+      })
+      .finally(() => setBusy(false));
   }
 
   async function downloadPdf() {
