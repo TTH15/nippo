@@ -6,8 +6,6 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
   faTrash,
-  faArrowUp,
-  faArrowDown,
   faUserShield,
   faLock,
   faChevronRight,
@@ -73,6 +71,20 @@ export default function RolesPage() {
     return m;
   }, [members]);
 
+  // 権限ごとに「組織全体で何人が持っているか」を集計（ロールをまたいで合算。ADMIN は全権限を持つ扱い）。
+  const memberCountByCap = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of roles) {
+      const count = membersByRole.get(r.id)?.length ?? 0;
+      if (count === 0) continue;
+      const capKeys = r.isSystem && r.key === ADMIN_KEY ? catalog.map((c) => c.key) : r.capabilities;
+      for (const capKey of capKeys) {
+        counts.set(capKey, (counts.get(capKey) ?? 0) + count);
+      }
+    }
+    return counts;
+  }, [roles, membersByRole, catalog]);
+
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
   const [newLabel, setNewLabel] = useState("");
@@ -91,23 +103,30 @@ export default function RolesPage() {
       return next;
     });
 
-  // 権限トグル（その場で PATCH。ADMIN は固定なので呼ばない）
-  const toggleCap = async (role: Role, cap: string) => {
+  // 権限トグル（クリックで即座に色を反映し、保存はバックグラウンドで進める。ADMIN は固定なので呼ばない）
+  const toggleCap = (role: Role, cap: string) => {
     if (role.isSystem && role.key === ADMIN_KEY) return;
     const has = role.capabilities.includes(cap);
     const nextCaps = has ? role.capabilities.filter((c) => c !== cap) : [...role.capabilities, cap];
-    setBusy(true);
-    try {
-      await apiFetch(`/api/admin/roles/${role.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ capabilities: nextCaps }),
+
+    // 楽観的更新: レスポンスを待たずにチップの色を切り替える
+    void mutate(
+      (prev) =>
+        prev
+          ? { ...prev, roles: prev.roles.map((r) => (r.id === role.id ? { ...r, capabilities: nextCaps } : r)) }
+          : prev,
+      { revalidate: false },
+    );
+
+    void apiFetch(`/api/admin/roles/${role.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ capabilities: nextCaps }),
+    })
+      .then(() => mutate())
+      .catch((e) => {
+        setError({ title: "更新に失敗", message: e instanceof Error ? e.message : "不明なエラー" });
+        void mutate(); // 失敗時はサーバーの値に巻き戻す
       });
-      await mutate();
-    } catch (e) {
-      setError({ title: "更新に失敗", message: e instanceof Error ? e.message : "不明なエラー" });
-    } finally {
-      setBusy(false);
-    }
   };
 
   const createRole = async () => {
@@ -135,21 +154,6 @@ export default function RolesPage() {
       await mutate();
     } catch (e) {
       setError({ title: "削除に失敗", message: e instanceof Error ? e.message : "不明なエラー" });
-    }
-  };
-
-  const reorder = async (index: number, dir: -1 | 1) => {
-    const a = roles[index];
-    const b = roles[index + dir];
-    if (!a || !b) return;
-    try {
-      await Promise.all([
-        apiFetch(`/api/admin/roles/${a.id}`, { method: "PATCH", body: JSON.stringify({ sortOrder: b.sortOrder }) }),
-        apiFetch(`/api/admin/roles/${b.id}`, { method: "PATCH", body: JSON.stringify({ sortOrder: a.sortOrder }) }),
-      ]);
-      await mutate();
-    } catch (e) {
-      setError({ title: "並べ替えに失敗", message: e instanceof Error ? e.message : "不明なエラー" });
     }
   };
 
@@ -233,7 +237,7 @@ export default function RolesPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {roles.map((r, i) => {
+            {roles.map((r) => {
               const isAdmin = r.isSystem && r.key === ADMIN_KEY;
               const open = expanded.has(r.id);
               const roleMembers = membersByRole.get(r.id) ?? [];
@@ -273,19 +277,11 @@ export default function RolesPage() {
                         {roleMembers.length}人 / {r.capabilities.length}権限
                       </span>
                     </button>
-                    {canWrite && (
+                    {canWrite && !r.isSystem && (
                       <div className="flex shrink-0 items-center gap-1">
-                        <button onClick={() => reorder(i, -1)} disabled={i === 0} className="rounded p-2 text-slate-400 hover:bg-slate-50 disabled:opacity-30" aria-label="上へ">
-                          <FontAwesomeIcon icon={faArrowUp} />
+                        <button onClick={() => setConfirmDelete(r)} className="rounded p-2 text-red-600 hover:bg-red-50" aria-label="削除">
+                          <FontAwesomeIcon icon={faTrash} />
                         </button>
-                        <button onClick={() => reorder(i, 1)} disabled={i === roles.length - 1} className="rounded p-2 text-slate-400 hover:bg-slate-50 disabled:opacity-30" aria-label="下へ">
-                          <FontAwesomeIcon icon={faArrowDown} />
-                        </button>
-                        {!r.isSystem && (
-                          <button onClick={() => setConfirmDelete(r)} className="rounded p-2 text-red-600 hover:bg-red-50" aria-label="削除">
-                            <FontAwesomeIcon icon={faTrash} />
-                          </button>
-                        )}
                       </div>
                     )}
                   </div>
@@ -305,16 +301,23 @@ export default function RolesPage() {
                               <div className="flex flex-wrap gap-1.5">
                                 {items.map((c) => {
                                   const on = isAdmin || r.capabilities.includes(c.key);
+                                  const holderCount = memberCountByCap.get(c.key) ?? 0;
                                   return (
                                     <button
                                       key={c.key}
-                                      disabled={!canWrite || isAdmin || busy}
+                                      disabled={!canWrite || isAdmin}
                                       onClick={() => toggleCap(r, c.key)}
+                                      title={holderCount > 0 ? `組織全体で${holderCount}人がこの権限を持っています` : "この権限を持つメンバーはいません"}
                                       className={`rounded-full px-3 py-1 text-xs transition-colors ${
                                         on ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-600 hover:bg-slate-50"
                                       } ${!canWrite || isAdmin ? "cursor-default opacity-90" : ""}`}
                                     >
                                       {c.label}
+                                      {holderCount > 0 && (
+                                        <span className={`ml-1 ${on ? "text-slate-300" : "text-slate-400"}`}>
+                                          ({holderCount}人)
+                                        </span>
+                                      )}
                                     </button>
                                   );
                                 })}
@@ -328,7 +331,7 @@ export default function RolesPage() {
                       <div className="mb-2 mt-5 text-sm font-semibold text-slate-700">
                         メンバー（{roleMembers.length}）
                       </div>
-                      <div className="flex min-h-[2.5rem] flex-wrap gap-1.5 rounded-lg bg-slate-50 p-2">
+                      <div className="flex min-h-[2.5rem] flex-wrap gap-2 rounded-lg bg-slate-50 p-3">
                         {roleMembers.length === 0 && (
                           <span className="px-1 py-0.5 text-xs text-slate-400">
                             ここにメンバーをドラッグ、または下から選択
@@ -343,7 +346,7 @@ export default function RolesPage() {
                               setDragMember(null);
                               setDropTarget(null);
                             }}
-                            className={`inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 ${canWrite ? "cursor-grab active:cursor-grabbing" : ""}`}
+                            className={`inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700 ${canWrite ? "cursor-grab active:cursor-grabbing" : ""}`}
                           >
                             {canWrite && <FontAwesomeIcon icon={faGripVertical} className="text-[10px] text-slate-300" />}
                             {m.name}
@@ -356,7 +359,7 @@ export default function RolesPage() {
                             value=""
                             onChange={(e) => e.target.value && assignMember(e.target.value, r.id)}
                             disabled={busy}
-                            className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-600"
+                            className="rounded-lg border border-slate-200 px-3.5 py-2 text-xs text-slate-600"
                           >
                             <option value="">＋ 他のロールから追加…</option>
                             {others.map((m) => (

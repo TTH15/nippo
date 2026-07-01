@@ -88,19 +88,19 @@ export default function AttendancePage() {
     load();
   }, [load]);
 
-  async function decide(id: string, action: "approve" | "reject") {
+  function decide(id: string, action: "approve" | "reject") {
+    // 楽観的更新: クリックで即座に承認状態を反映し、保存はバックグラウンドで進める
+    const nextStatus = action === "approve" ? "approved" : "rejected";
+    setItems((prev) => prev.map((r) => (r.id === id ? { ...r, approvalStatus: nextStatus } : r)));
     setBusyId(id);
-    try {
-      await apiFetch(`/api/admin/attendance/${id}`, {
-        method: "POST",
-        body: JSON.stringify({ action }),
-      });
-      await load();
-    } catch {
-      // noop（UIは再読込で整合）
-    } finally {
-      setBusyId(null);
-    }
+    apiFetch(`/api/admin/attendance/${id}`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    })
+      .catch(() => {
+        void load(); // 失敗時はサーバーの値に巻き戻す
+      })
+      .finally(() => setBusyId(null));
   }
 
   return (
