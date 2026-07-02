@@ -83,6 +83,7 @@ export function PendingDriverCard({
   reps,
   status,
   needsProxy,
+  missingCount,
   canWrite,
   onApprove,
   onReject,
@@ -92,8 +93,10 @@ export function PendingDriverCard({
   driver: DriverLike;
   reps: ReportLike[];
   status: "off" | "unsubmitted" | "approved" | "pending";
-  /** 担当コースの一部だけ未提出 → 代理入力が必要（承認済みでもボタンを出す） */
+  /** 担当コースの一部だけ未提出、または内容未入力 → 代理入力が必要（承認済みでもボタンを出す） */
   needsProxy?: boolean;
+  /** 未提出のコース数（0なら「内容未入力」側の理由） */
+  missingCount?: number;
   canWrite: boolean;
   onApprove: () => void;
   onReject: () => void;
@@ -138,7 +141,9 @@ export function PendingDriverCard({
       </div>
 
       {showProxy && reps.length > 0 && (
-        <p className="mt-2 text-[11px] font-semibold text-red-600">未提出のコースがあります</p>
+        <p className="mt-2 text-[11px] font-semibold text-red-600">
+          {(missingCount ?? 0) > 0 ? "未提出のコースがあります" : "報告内容が未入力です"}
+        </p>
       )}
 
       {reps.length > 0 && (
