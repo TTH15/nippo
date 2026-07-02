@@ -195,13 +195,14 @@ export const CourseRateEditor = forwardRef<
         <p className="text-[11px] text-slate-500 mt-0.5">従量（個数×単価）と固定（日当）は加算されます。両方0なら計上なし。</p>
       </div>
 
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-slate-500">売上の入力単位</span>
+      <div className="flex items-center gap-4">
+        <span className="text-[11px] text-slate-500">入力単位</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-slate-400">売上</span>
           <TaxModeToggle value={revenueTaxMode} onChange={setRevenueTaxMode} />
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-slate-500">支払の入力単位</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-slate-400">支払</span>
           <TaxModeToggle value={payoutTaxMode} onChange={setPayoutTaxMode} />
         </div>
       </div>
@@ -245,7 +246,7 @@ export const CourseRateEditor = forwardRef<
                         hint={hintFor(revenueTaxMode, rates[u.id]?.revenue_per_unit ?? 0)}
                       />
                       <NumField
-                        label="利益/個（自動計算・税抜）"
+                        label="利益/個（自動計算）"
                         value={rates[u.id]?.profit_per_unit ?? 0}
                         hint={`税込 ¥${toIncl(rates[u.id]?.profit_per_unit ?? 0).toLocaleString()}`}
                         readOnly
@@ -274,7 +275,7 @@ export const CourseRateEditor = forwardRef<
                 hint={hintFor(revenueTaxMode, fixed.fixed_revenue)}
               />
               <NumField
-                label="利益（自動計算・税抜）"
+                label="利益（自動計算）"
                 value={fixed.fixed_profit}
                 hint={`税込 ¥${toIncl(fixed.fixed_profit).toLocaleString()}`}
                 readOnly
