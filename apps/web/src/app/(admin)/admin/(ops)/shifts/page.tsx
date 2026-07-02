@@ -1310,8 +1310,8 @@ export default function ShiftsPage() {
             <div className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-auto max-h-[calc(100vh-260px)] table-scroll">
               <table className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/95">
-                    <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-slate-200/95 align-bottom">
+                  <tr className="bg-slate-50/95">
+                    <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
                       <span className="block text-[10px] font-normal text-slate-400 leading-none">上段＝稼働人数</span>
                       ドライバー
                     </th>
@@ -1323,7 +1323,7 @@ export default function ShiftsPage() {
                         <th
                           key={date}
                           className={cn(
-                            `${SHIFT_COL_WIDTH_CLASS} sticky top-0 z-20 border-l border-slate-200/90 px-1 py-2 text-center font-medium overflow-hidden align-top bg-slate-50/95 ${tone.header}`,
+                            `${SHIFT_COL_WIDTH_CLASS} sticky top-0 z-20 border-l border-b border-slate-200/90 px-1 py-2 text-center font-medium overflow-hidden align-top bg-slate-50/95 ${tone.header}`,
                             isToday && TODAY_RULE_TOP,
                           )}
                         >
@@ -1342,10 +1342,16 @@ export default function ShiftsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {driversWithCourses.map((driver) => {
+                  {driversWithCourses.map((driver, driverIdx) => {
+                    const isLastDriver = driverIdx === driversWithCourses.length - 1;
                     return (
-                      <tr key={driver.id} className="border-b border-slate-200/90 last:border-b-0">
-                        <td className="sticky left-0 z-10 bg-white py-2 px-3 align-middle border-r border-slate-200/95">
+                      <tr key={driver.id}>
+                        <td
+                          className={cn(
+                            "sticky left-0 z-10 bg-white py-2 px-3 align-middle border-r border-slate-200/95",
+                            !isLastDriver && "border-b-2 border-slate-300",
+                          )}
+                        >
                           <span className="font-medium text-slate-800">{getDisplayName(driver)}</span>
                         </td>
                         {displayDates.map((date) => {
@@ -1431,6 +1437,7 @@ export default function ShiftsPage() {
                               key={`${driver.id}-${date}`}
                               className={cn(
                                 `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-1`,
+                                !isLastDriver && "border-b-2 border-slate-300",
                                 off ? "align-middle bg-amber-50" : `align-top ${tone.body}`,
                                 isToday && TODAY_RULE_SIDES,
                               )}
@@ -1638,8 +1645,8 @@ export default function ShiftsPage() {
                       </tr>
                     );
                   })}
-                  <tr className="border-t border-slate-200 bg-slate-50/93">
-                    <td className="sticky left-0 z-10 py-2 px-3 text-xs font-medium text-slate-600 bg-slate-50 border-r border-slate-200/95">
+                  <tr className="bg-slate-50/93">
+                    <td className="sticky left-0 z-10 py-2 px-3 text-xs font-medium text-slate-600 bg-slate-50 border-r border-t border-slate-200/95">
                       <span className="block text-[10px] font-normal text-slate-400 leading-none">タップで一覧</span>
                       未割当
                     </td>
@@ -1653,7 +1660,7 @@ export default function ShiftsPage() {
                           <td
                             key={`off-${date}`}
                             className={cn(
-                              `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-center text-[11px] text-slate-400 align-middle ${tone.body}`,
+                              `${SHIFT_COL_WIDTH_CLASS} border-l border-t border-slate-200/90 px-1 py-2 text-center text-[11px] text-slate-400 align-middle ${tone.body}`,
                               isToday && TODAY_RULE_BOTTOM,
                             )}
                           >
@@ -1665,7 +1672,7 @@ export default function ShiftsPage() {
                         <td
                           key={`off-${date}`}
                           className={cn(
-                            `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-0.5 py-0.5 align-top ${tone.body}`,
+                            `${SHIFT_COL_WIDTH_CLASS} border-l border-t border-slate-200/90 px-0.5 py-0.5 align-top ${tone.body}`,
                             isToday && TODAY_RULE_BOTTOM,
                           )}
                         >
