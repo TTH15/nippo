@@ -8,7 +8,7 @@ import { useApi } from "@/lib/useApi";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { Button } from "@/lib/ui/button";
-import { InvoiceSheet } from "./InvoiceSheet";
+import { PaginatedInvoiceSheet } from "./PaginatedInvoiceSheet";
 import {
   type EditorState,
   blankEditorState,
@@ -276,9 +276,9 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
         <DatePicker className="w-40 h-8" value={parseIsoDate(st.dueDate)} onChange={(d) => setSt((p) => ({ ...p, dueDate: toIsoDate(d) }))} placeholder="未設定" />
       </div>
 
-      {/* 帳票（直接インライン編集） */}
+      {/* 帳票（直接インライン編集。実際の改ページ位置をライブに可視化） */}
       <div className="flex-1 overflow-auto">
-        <InvoiceSheet state={st} onChange={setSt} sheetRef={sheetRef} />
+        <PaginatedInvoiceSheet state={st} onChange={setSt} sheetRef={sheetRef} />
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import { useRef } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Button } from "@/lib/ui/button";
 import { useApi } from "@/lib/useApi";
-import { InvoiceSheet } from "../../_components/InvoiceSheet";
+import { PaginatedInvoiceSheet } from "../../_components/PaginatedInvoiceSheet";
 import {
   editorFromInvoice,
   applyCounterparty,
@@ -64,7 +64,7 @@ export default function AdminInvoicePreviewPage() {
         ) : error || !state ? (
           <div className="p-10 text-center text-red-600">請求書を読み込めませんでした。</div>
         ) : (
-          <InvoiceSheet state={state} readOnly sheetRef={sheetRef} />
+          <PaginatedInvoiceSheet state={state} readOnly sheetRef={sheetRef} />
         )}
       </div>
     </AdminLayout>
