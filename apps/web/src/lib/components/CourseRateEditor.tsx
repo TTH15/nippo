@@ -17,12 +17,17 @@ type UnitRate = {
 };
 type Fixed = { fixed_revenue: number; fixed_profit: number; fixed_payout: number };
 
-// 単価は税抜（円）で保存する。税込表示・入力は下記レートで換算するのみ。
+// 単価は税抜（円）で保存する。税抜/税込モードの切替では入力値を再計算せず、保存時のみ換算する。
+// 売上は税込で提示されることが多い一方、支払（ドライバー）は税抜の確定額で渡されることが多いため、
+// 売上と支払で税区分モードを別々に持てるようにしている。
+type TaxMode = "excl" | "incl";
 const TAX_RATE = 0.1;
 const toIncl = (excl: number) => Math.round(excl * (1 + TAX_RATE));
 const toExcl = (incl: number) => Math.round(incl / (1 + TAX_RATE));
+const toExclFor = (mode: TaxMode, raw: number) => (mode === "incl" ? toExcl(raw) : raw);
 
 // 会社利益は手入力させず、売上 − 支払 で自動計算する（入力ミスで合計が合わなくなるのを防ぐ）。
+// 売上・支払それぞれのモードに関わらず、両方を税抜に揃えてから差し引く。
 const deriveProfit = (revenue: number, payout: number) => revenue - payout;
 
 type LoadResponse = {
@@ -63,7 +68,8 @@ export const CourseRateEditor = forwardRef<
   const [carrierMissing, setCarrierMissing] = useState(false);
   const [rates, setRates] = useState<Record<string, UnitRate>>({});
   const [fixed, setFixed] = useState<Fixed>({ fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 });
-  const [taxMode, setTaxMode] = useState<"excl" | "incl">("excl");
+  const [revenueTaxMode, setRevenueTaxMode] = useState<TaxMode>("excl");
+  const [payoutTaxMode, setPayoutTaxMode] = useState<TaxMode>("excl");
 
   // 作成モード（courseId 無し）でキャリア未選択なら、まだ何も読まない。
   const createModeNoCarrier = !courseId && !carrierId;
@@ -74,6 +80,8 @@ export const CourseRateEditor = forwardRef<
       setRates({});
       setFixed({ fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 });
       setCarrierMissing(false);
+      setRevenueTaxMode("excl");
+      setPayoutTaxMode("excl");
       setLoading(false);
       return;
     }
@@ -84,6 +92,9 @@ export const CourseRateEditor = forwardRef<
         const qs = courseId ? `course_id=${courseId}` : `carrier_id=${carrierId}`;
         const res = await apiFetch<LoadResponse>(`/api/admin/course-billing?${qs}`);
         if (cancelled) return;
+        // サーバー値は常に税抜。読み込み直後はモードを税抜に揃えて表示とズレないようにする。
+        setRevenueTaxMode("excl");
+        setPayoutTaxMode("excl");
         setCarrierMissing(!res.carrierId);
         setUnits(res.units ?? []);
         const map: Record<string, UnitRate> = {};
@@ -123,33 +134,59 @@ export const CourseRateEditor = forwardRef<
       async save(overrideCourseId?: string) {
         const id = overrideCourseId ?? courseId;
         if (!id) return;
+        // 保存は常に税抜。税込モードで入力していた場合はここで初めて換算する
+        // （入力中・切替中は数値をそのまま保持し、再計算しない）。売上と支払は別モードで換算する。
+        const unitRates = Object.values(rates).map((r) => {
+          const revenue_per_unit = toExclFor(revenueTaxMode, r.revenue_per_unit);
+          const payout_per_unit = toExclFor(payoutTaxMode, r.payout_per_unit);
+          return {
+            unit_id: r.unit_id,
+            revenue_per_unit,
+            payout_per_unit,
+            profit_per_unit: deriveProfit(revenue_per_unit, payout_per_unit),
+          };
+        });
+        const fixed_revenue = toExclFor(revenueTaxMode, fixed.fixed_revenue);
+        const fixed_payout = toExclFor(payoutTaxMode, fixed.fixed_payout);
         await apiFetch("/api/admin/course-billing", {
           method: "PUT",
           body: JSON.stringify({
             course_id: id,
-            unitRates: Object.values(rates),
-            fixed,
+            unitRates,
+            fixed: { fixed_revenue, fixed_payout, fixed_profit: deriveProfit(fixed_revenue, fixed_payout) },
           }),
         });
       },
     }),
-    [courseId, rates, fixed],
+    [courseId, rates, fixed, revenueTaxMode, payoutTaxMode],
   );
+
+  // 利益は常に税抜ベース。売上・支払それぞれのモードを税抜に揃えてから差し引く。
+  function recomputeProfit(revenueRaw: number, payoutRaw: number) {
+    return deriveProfit(toExclFor(revenueTaxMode, revenueRaw), toExclFor(payoutTaxMode, payoutRaw));
+  }
 
   function setRate(unitId: string, key: "revenue_per_unit" | "payout_per_unit", value: number) {
     setRates((prev) => {
       const cur = prev[unitId] ?? { unit_id: unitId, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0 };
       const next = { ...cur, [key]: value };
-      next.profit_per_unit = deriveProfit(next.revenue_per_unit, next.payout_per_unit);
+      next.profit_per_unit = recomputeProfit(next.revenue_per_unit, next.payout_per_unit);
       return { ...prev, [unitId]: next };
     });
   }
 
-  // 単価欄への表示値・入力値は税抜/税込モードに応じて換算する。保存値は常に税抜。
-  const displayValue = (excl: number) => (taxMode === "incl" ? toIncl(excl) : excl);
-  const fromDisplay = (v: number) => (taxMode === "incl" ? toExcl(v) : v);
-  const hintFor = (excl: number) =>
-    taxMode === "incl" ? `税抜 ¥${excl.toLocaleString()}` : `税込 ¥${toIncl(excl).toLocaleString()}`;
+  function setFixedField(key: "fixed_revenue" | "fixed_payout", value: number) {
+    setFixed((f) => {
+      const next = { ...f, [key]: value };
+      next.fixed_profit = recomputeProfit(next.fixed_revenue, next.fixed_payout);
+      return next;
+    });
+  }
+
+  // 入力欄には常に入力した数値をそのまま表示する（税抜/税込の切替では再計算しない）。
+  // hint は「今の数値をもう一方の税区分だと仮に換算するといくらか」の参考表示。
+  const hintFor = (mode: TaxMode, raw: number) =>
+    mode === "incl" ? `税抜 ¥${toExcl(raw).toLocaleString()}` : `税込 ¥${toIncl(raw).toLocaleString()}`;
 
   return (
     <div className="space-y-4 text-sm">
@@ -158,26 +195,19 @@ export const CourseRateEditor = forwardRef<
         <p className="text-[11px] text-slate-500 mt-0.5">従量（個数×単価）と固定（日当）は加算されます。両方0なら計上なし。</p>
       </div>
 
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] text-slate-500">単価入力</span>
-        <div className="inline-flex rounded border border-slate-300 overflow-hidden text-[11px]">
-          <button
-            type="button"
-            onClick={() => setTaxMode("excl")}
-            className={`px-2.5 py-1 ${taxMode === "excl" ? "bg-slate-800 text-white" : "bg-white text-slate-600"}`}
-          >
-            税抜
-          </button>
-          <button
-            type="button"
-            onClick={() => setTaxMode("incl")}
-            className={`px-2.5 py-1 border-l border-slate-300 ${taxMode === "incl" ? "bg-slate-800 text-white" : "bg-white text-slate-600"}`}
-          >
-            税込
-          </button>
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-500">売上の入力単位</span>
+          <TaxModeToggle value={revenueTaxMode} onChange={setRevenueTaxMode} />
         </div>
-        <span className="text-[10px] text-slate-400">消費税10%で換算（保存は税抜）</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-500">支払の入力単位</span>
+          <TaxModeToggle value={payoutTaxMode} onChange={setPayoutTaxMode} />
+        </div>
       </div>
+      <p className="text-[10px] text-slate-400">
+        切替時は数値そのまま／保存時のみ税抜に換算（10%）。利益は税抜ベースで自動計算されます。
+      </p>
 
       {createModeNoCarrier ? (
         <div className="rounded bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
@@ -210,21 +240,21 @@ export const CourseRateEditor = forwardRef<
                     <div className="grid grid-cols-3 gap-2">
                       <NumField
                         label="売上/個"
-                        value={displayValue(rates[u.id]?.revenue_per_unit ?? 0)}
-                        onChange={(v) => setRate(u.id, "revenue_per_unit", fromDisplay(v))}
-                        hint={hintFor(rates[u.id]?.revenue_per_unit ?? 0)}
+                        value={rates[u.id]?.revenue_per_unit ?? 0}
+                        onChange={(v) => setRate(u.id, "revenue_per_unit", v)}
+                        hint={hintFor(revenueTaxMode, rates[u.id]?.revenue_per_unit ?? 0)}
                       />
                       <NumField
-                        label="利益/個（自動計算）"
-                        value={displayValue(rates[u.id]?.profit_per_unit ?? 0)}
-                        hint={hintFor(rates[u.id]?.profit_per_unit ?? 0)}
+                        label="利益/個（自動計算・税抜）"
+                        value={rates[u.id]?.profit_per_unit ?? 0}
+                        hint={`税込 ¥${toIncl(rates[u.id]?.profit_per_unit ?? 0).toLocaleString()}`}
                         readOnly
                       />
                       <NumField
                         label="支払/個"
-                        value={displayValue(rates[u.id]?.payout_per_unit ?? 0)}
-                        onChange={(v) => setRate(u.id, "payout_per_unit", fromDisplay(v))}
-                        hint={hintFor(rates[u.id]?.payout_per_unit ?? 0)}
+                        value={rates[u.id]?.payout_per_unit ?? 0}
+                        onChange={(v) => setRate(u.id, "payout_per_unit", v)}
+                        hint={hintFor(payoutTaxMode, rates[u.id]?.payout_per_unit ?? 0)}
                       />
                     </div>
                   </div>
@@ -239,31 +269,21 @@ export const CourseRateEditor = forwardRef<
             <div className="grid grid-cols-3 gap-2">
               <NumField
                 label="売上"
-                value={displayValue(fixed.fixed_revenue)}
-                onChange={(v) =>
-                  setFixed((f) => {
-                    const fixed_revenue = fromDisplay(v);
-                    return { ...f, fixed_revenue, fixed_profit: deriveProfit(fixed_revenue, f.fixed_payout) };
-                  })
-                }
-                hint={hintFor(fixed.fixed_revenue)}
+                value={fixed.fixed_revenue}
+                onChange={(v) => setFixedField("fixed_revenue", v)}
+                hint={hintFor(revenueTaxMode, fixed.fixed_revenue)}
               />
               <NumField
-                label="利益（自動計算）"
-                value={displayValue(fixed.fixed_profit)}
-                hint={hintFor(fixed.fixed_profit)}
+                label="利益（自動計算・税抜）"
+                value={fixed.fixed_profit}
+                hint={`税込 ¥${toIncl(fixed.fixed_profit).toLocaleString()}`}
                 readOnly
               />
               <NumField
                 label="支払"
-                value={displayValue(fixed.fixed_payout)}
-                onChange={(v) =>
-                  setFixed((f) => {
-                    const fixed_payout = fromDisplay(v);
-                    return { ...f, fixed_payout, fixed_profit: deriveProfit(f.fixed_revenue, fixed_payout) };
-                  })
-                }
-                hint={hintFor(fixed.fixed_payout)}
+                value={fixed.fixed_payout}
+                onChange={(v) => setFixedField("fixed_payout", v)}
+                hint={hintFor(payoutTaxMode, fixed.fixed_payout)}
               />
             </div>
             <p className="text-[10px] text-slate-400 mt-1">混在コース（歩合＋日当）は従量と固定の両方を入力してください。</p>
@@ -273,6 +293,27 @@ export const CourseRateEditor = forwardRef<
     </div>
   );
 });
+
+function TaxModeToggle({ value, onChange }: { value: TaxMode; onChange: (v: TaxMode) => void }) {
+  return (
+    <div className="inline-flex rounded border border-slate-300 overflow-hidden text-[11px]">
+      <button
+        type="button"
+        onClick={() => onChange("excl")}
+        className={`px-2.5 py-1 ${value === "excl" ? "bg-slate-800 text-white" : "bg-white text-slate-600"}`}
+      >
+        税抜
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("incl")}
+        className={`px-2.5 py-1 border-l border-slate-300 ${value === "incl" ? "bg-slate-800 text-white" : "bg-white text-slate-600"}`}
+      >
+        税込
+      </button>
+    </div>
+  );
+}
 
 function NumField({
   label,
