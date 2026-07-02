@@ -587,7 +587,9 @@ export default function AdminDailyPage() {
                             </thead>
                             <tbody>
                               {rows.map(({ driver, reps, status, needsProxy }) => {
-                                const isGray = status === "off" || status === "approved";
+                                // 提出済み分は承認済みでも、他コースが未提出のままなら「対応済み」表示にしない
+                                const isResolved = status === "approved" && !needsProxy;
+                                const isGray = status === "off" || isResolved;
                                 const stack = reps.length > 1;
                                 const stackCls = stack ? "flex flex-col gap-2 items-center" : "";
                                 const driverEntry: Entry = {
@@ -657,7 +659,8 @@ export default function AdminDailyPage() {
                                       )}
                                     </td>
                                     <td className="py-3 px-2 text-center align-middle">
-                                      {status === "approved" && <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700"><FontAwesomeIcon icon={faCircleCheck} className="mr-1" />承認済み</span>}
+                                      {isResolved && <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700"><FontAwesomeIcon icon={faCircleCheck} className="mr-1" />承認済み</span>}
+                                      {status === "approved" && needsProxy && <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700">一部未提出</span>}
                                       {status === "pending" && canWrite && (
                                         <div className="flex items-center justify-center gap-2">
                                           <button type="button" onClick={() => handleApprove(driverEntry, summary.date)} className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700">承認</button>

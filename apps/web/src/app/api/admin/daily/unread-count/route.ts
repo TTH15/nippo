@@ -16,10 +16,12 @@ export async function GET(req: NextRequest) {
   const businessToday = reportDateDefaultJST();
 
   if (!startParam || !endParam) {
+    // 要対応(未解決)である限り、経過日数に関わらずバッジに出続けるべきなので
+    // 既定の遡り幅は広めに取る（未解決以外の日は結果に含まれないため表示は増えない）。
     const end = businessToday;
     const base = new Date(end + "T12:00:00+09:00");
     const start = new Date(base);
-    start.setDate(start.getDate() - 13);
+    start.setDate(start.getDate() - 89);
     startParam = start.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
     endParam = end;
   }

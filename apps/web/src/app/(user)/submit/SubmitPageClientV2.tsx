@@ -169,6 +169,20 @@ export default function SubmitPageClientV2() {
     [selectedVehicle, meter],
   );
 
+  // 走行距離の「前回値」は日付に応じて都度取得する。vehicles.current_mileage は
+  // 承認済みの最新値を指す単一キャッシュのため、後からシフトを追加して過去日を
+  // 遡って提出する場合はそれより後の日付の値と誤って比較されてしまう。
+  const meterBaselineKey =
+    vehicleId && reportFormDateStr
+      ? `/api/reports/meter-baseline?vehicleId=${vehicleId}&date=${reportFormDateStr}`
+      : null;
+  const { data: meterBaselineData } = useApi<{ prevKm: number }>(meterBaselineKey);
+  const meterVehicle = useMemo(() => {
+    if (!selectedVehicle) return selectedVehicle;
+    if (meterBaselineData?.prevKm == null) return selectedVehicle;
+    return { ...selectedVehicle, current_mileage: meterBaselineData.prevKm };
+  }, [selectedVehicle, meterBaselineData]);
+
   // 確認は「車両×日付」単位で1度だけ強制（同セッション内）。
   const oilAckKey = useMemo(
     () => (vehicleId ? `oilAck:${vehicleId}:${dateToReportDateStr(reportDate)}` : null),
@@ -209,8 +223,7 @@ export default function SubmitPageClientV2() {
 
   async function submit() {
     // 走行距離の妥当性（未入力・前回値以下）を判定。表示と同一ロジックで送信もブロックする。
-    const selVehicle = findVehicle(vehicles, unlinkedVehicles, vehicleId);
-    const meterState = evaluateMeter(meter, selVehicle);
+    const meterState = evaluateMeter(meter, meterVehicle);
     if (!meterState.canSubmit) {
       setMeterRequiredError(true);
       setMessage({
@@ -380,7 +393,7 @@ export default function SubmitPageClientV2() {
 
         {/* メーター（車両選択あり & EV でない時のみ） */}
         {(() => {
-          const sel = findVehicle(vehicles, unlinkedVehicles, vehicleId);
+          const sel = meterVehicle;
           if (!sel || sel.is_ev) return null;
           const meterState = evaluateMeter(meter, sel);
           const prevKm = meterState.prevKm;
