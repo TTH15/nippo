@@ -172,7 +172,7 @@ export default function EventsPage() {
                 <input
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && createEvent()}
+                  onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && createEvent()}
                   placeholder="新しいイベント名"
                   className="flex-1 min-w-0 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                 />

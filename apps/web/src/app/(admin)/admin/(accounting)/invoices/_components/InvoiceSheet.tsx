@@ -379,6 +379,7 @@ export function InvoiceSheet({
           onKeyDown: (e) => {
             const lines = stRef.current[section];
             if (e.key === "Enter") {
+              if (e.nativeEvent.isComposing) return;
               e.preventDefault();
               if (row + 1 >= lines.length) setLines(section, [...lines.map((l) => ({ ...l })), emptyLine()]);
               setTimeout(() => focusCell(section, row + 1, col), 0);

@@ -256,7 +256,7 @@ export function TeamsTab({
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addTeam()}
+              onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && addTeam()}
               placeholder="チーム名"
               className="px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
             />
