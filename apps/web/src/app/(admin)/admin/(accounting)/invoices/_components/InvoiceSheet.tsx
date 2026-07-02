@@ -558,54 +558,54 @@ export function InvoiceSheet({
         </div>
 
         {/* サマリー表（二重線の外枠で強調） */}
-        <div className="mt-2" style={{ border: `4px double ${C.brand}`, padding: "3px", marginBottom: "1.2cm" }}>
-        <table className="w-full border-collapse text-[12px]">
-          <thead>
-            <tr>
-              <th className="border-0 bg-transparent" />
-              <th className="border-0 bg-transparent text-right font-semibold text-[11px] py-[1px] px-[9px]" style={{ color: C.brand }}>（円）</th>
-            </tr>
-          </thead>
-          <tbody>
-            {config.summaryRows.map((row, i) => {
-              const editable = !readOnly && row.value.kind === "manual";
-              const field = row.value.kind === "manual" ? row.value.field : null;
-              return (
-                <tr key={i}>
-                  <td className="py-[3.5px] px-[9px] text-left font-bold" style={{ border: `1px solid ${C.brand}`, backgroundColor: C.brandSoft }}>
-                    {withTaxNote(row.label)}
-                  </td>
-                  <td className="py-[3.5px] px-[9px] text-right font-bold w-[22%]" style={{ border: `1px solid ${C.brand}` }}>
-                    <span className="inline-flex items-baseline justify-end">
-                      {row.minus ? <span>▲</span> : null}
-                      {editable && field ? (
-                        (() => {
-                          const v = field === "loanRepay" ? st.loanRepay : st.extraOutsourcing;
-                          return (
-                            <input
-                              value={v}
-                              inputMode="decimal"
-                              placeholder="0"
-                              onChange={(e) => set(field === "loanRepay" ? { loanRepay: e.target.value } : { extraOutsourcing: e.target.value })}
-                              className="bg-transparent outline-none text-right font-bold p-0"
-                              style={{ width: `calc(${Math.max(1, v.length)}ch + 2px)` }}
-                            />
-                          );
-                        })()
-                      ) : (
-                        <span>{jpy(resolveSummaryValue(row.value, totals, st))}</span>
-                      )}
-                    </span>
-                  </td>
+        <div className="mt-2" style={{ marginBottom: "1.2cm" }}>
+          <div className="flex">
+            <div className="flex-1" />
+            <div className="w-[22%] text-right font-semibold text-[11px] py-[1px] px-[9px]" style={{ color: C.brand }}>（円）</div>
+          </div>
+          <div style={{ border: `8px double ${C.brand}`, padding: "3px" }}>
+            <table className="w-full border-collapse text-[12px]">
+              <tbody>
+                {config.summaryRows.map((row, i) => {
+                  const editable = !readOnly && row.value.kind === "manual";
+                  const field = row.value.kind === "manual" ? row.value.field : null;
+                  return (
+                    <tr key={i}>
+                      <td className="py-[3.5px] px-[9px] text-left font-bold" style={{ border: `1px solid ${C.brand}`, backgroundColor: C.brandSoft }}>
+                        {withTaxNote(row.label)}
+                      </td>
+                      <td className="py-[3.5px] px-[9px] text-right font-bold w-[22%]" style={{ border: `1px solid ${C.brand}` }}>
+                        <span className="inline-flex items-baseline justify-end">
+                          {row.minus ? <span>▲</span> : null}
+                          {editable && field ? (
+                            (() => {
+                              const v = field === "loanRepay" ? st.loanRepay : st.extraOutsourcing;
+                              return (
+                                <input
+                                  value={v}
+                                  inputMode="decimal"
+                                  placeholder="0"
+                                  onChange={(e) => set(field === "loanRepay" ? { loanRepay: e.target.value } : { extraOutsourcing: e.target.value })}
+                                  className="bg-transparent outline-none text-right font-bold p-0"
+                                  style={{ width: `calc(${Math.max(1, v.length)}ch + 2px)` }}
+                                />
+                              );
+                            })()
+                          ) : (
+                            <span>{jpy(resolveSummaryValue(row.value, totals, st))}</span>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="text-white font-bold text-[15px]">
+                  <td className="py-[3.5px] px-[9px] text-left" style={{ border: `1px solid ${C.brand}`, backgroundColor: C.brand }}>{config.finalLabel}</td>
+                  <td className="py-[3.5px] px-[9px] text-right" style={{ border: `1px solid ${C.brand}`, backgroundColor: C.brand }}>{jpy(totals.total)}</td>
                 </tr>
-              );
-            })}
-            <tr className="text-white font-bold text-[15px]">
-              <td className="py-[3.5px] px-[9px] text-left" style={{ border: `1px solid ${C.brand}`, backgroundColor: C.brand }}>{config.finalLabel}</td>
-              <td className="py-[3.5px] px-[9px] text-right" style={{ border: `1px solid ${C.brand}`, backgroundColor: C.brand }}>{jpy(totals.total)}</td>
-            </tr>
-          </tbody>
-        </table>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {renderBreakZone("main")}
