@@ -526,7 +526,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Main content */}
-        <main className="relative z-0 flex-1 overflow-auto">
+        <main className="relative flex-1 overflow-auto">
           <div className="px-3 py-4 md:p-6">{children}</div>
         </main>
       </div>
