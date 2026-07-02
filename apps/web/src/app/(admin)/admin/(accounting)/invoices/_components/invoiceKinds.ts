@@ -57,13 +57,13 @@ const COOL: InvoiceTheme = {
   deductSoft: "#e6f3ed",
 };
 
-const WARM: InvoiceTheme = {
-  brand: "#9a3412", // テラコッタ（タイトル・サマリー・差引帯）
-  brandSoft: "#fbeae0",
-  bill: "#c2410c", // オレンジ（報酬明細）
-  billSoft: "#fdeee4",
-  deduct: "#92400e", // 焦茶・アンバー（控除）
-  deductSoft: "#f5ecdc",
+const FOREST: InvoiceTheme = {
+  brand: "#2f5d3a", // 深緑（タイトル・サマリー・差引帯）。売上請求書（紺）・赤系との混同を避ける
+  brandSoft: "#e9f2eb",
+  bill: "#3d7a4a", // 明緑（報酬明細）
+  billSoft: "#e7f3ea",
+  deduct: "#6b7f3a", // オリーブ（控除）
+  deductSoft: "#f0f2e2",
 };
 
 export const INVOICE_KIND_CONFIG: Record<InvoiceKind, InvoiceKindConfig> = {
@@ -96,10 +96,10 @@ export const INVOICE_KIND_CONFIG: Record<InvoiceKind, InvoiceKindConfig> = {
       { label: "請求額 税込合計", value: { kind: "total", key: "billGross" } },
       { label: "お支払い分 税込合計", value: { kind: "total", key: "deductGross" }, minus: true },
       { label: "借入返済", value: { kind: "manual", field: "loanRepay" }, minus: true, editable: true },
-      { label: "追加外注支払い（税込）", value: { kind: "manual", field: "extraOutsourcing" }, editable: true },
+      { label: "追加外注請求分（税込）", value: { kind: "manual", field: "extraOutsourcing" }, editable: true },
     ],
     finalLabel: "差引き請求額",
-    theme: WARM,
+    theme: FOREST,
   },
 };
 
