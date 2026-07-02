@@ -60,10 +60,10 @@ const COOL: InvoiceTheme = {
 const FOREST: InvoiceTheme = {
   brand: "#2f5d3a", // 深緑（タイトル・サマリー・差引帯）。売上請求書（紺）・赤系との混同を避ける
   brandSoft: "#e9f2eb",
-  bill: "#3d7a4a", // 明緑（報酬明細）
-  billSoft: "#e7f3ea",
-  deduct: "#6b7f3a", // オリーブ（控除）
-  deductSoft: "#f0f2e2",
+  bill: "#0f766e", // ティール（請求分）。brand の緑とはっきり見分けがつく色相に
+  billSoft: "#e6f2f0",
+  deduct: "#8a5a1f", // 琥珀・茶（お支払い分）。brand/bill とも見分けがつく暖色に
+  deductSoft: "#f5ecdc",
 };
 
 export const INVOICE_KIND_CONFIG: Record<InvoiceKind, InvoiceKindConfig> = {
