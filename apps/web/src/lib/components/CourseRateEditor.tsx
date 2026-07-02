@@ -329,14 +329,37 @@ function NumField({
   hint?: string;
   readOnly?: boolean;
 }) {
+  // type="number" を value=0 で制御すると、全消去した瞬間に "0" が居座り、続きの入力が
+  // "059" のように積み上がる。編集中はテキストをそのまま保持し、外部からの変更（自動計算・
+  // 読み込み直後など）のときだけ同期する。
+  const [text, setText] = useState(String(value));
+
+  useEffect(() => {
+    if (Number(text) !== value) setText(String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
   return (
     <label className="block">
       <span className="block text-[10px] text-slate-500 mb-1">{label}</span>
       <input
-        type="number"
-        value={value}
-        onChange={readOnly ? undefined : (e) => onChange?.(Number(e.target.value) || 0)}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={text}
         readOnly={readOnly}
+        onChange={
+          readOnly
+            ? undefined
+            : (e) => {
+                const digits = e.target.value.replace(/\D/g, "");
+                setText(digits);
+                onChange?.(digits === "" ? 0 : Number(digits));
+              }
+        }
+        onBlur={() => {
+          if (!readOnly && text === "") setText("0");
+        }}
         className={`w-full px-2.5 py-2 border rounded text-right ${
           readOnly ? "border-slate-200 bg-slate-50 text-slate-500" : "border-slate-300"
         }`}

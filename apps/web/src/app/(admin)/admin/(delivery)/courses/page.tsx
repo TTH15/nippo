@@ -556,8 +556,8 @@ export default function CoursesPage() {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-6xl max-h-[95vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">新規コース追加</h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
-              {/* 列1: 基本情報 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+              {/* 列1: 基本情報＋請求関連・人数・色 */}
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">キャリア</label>
@@ -605,10 +605,6 @@ export default function CoursesPage() {
                   />
                   <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
                 </div>
-              </div>
-
-              {/* 列2: 請求関連・人数・色 */}
-              <div className="space-y-4 lg:border-l lg:border-slate-100 lg:pl-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">取引先（請求先）</label>
                   <CustomSelect
@@ -666,8 +662,8 @@ export default function CoursesPage() {
                 </div>
               </div>
 
-              {/* 列3: 日額リース＋単価設定 */}
-              <div className="space-y-4 md:border-l md:border-slate-100 md:pl-6 md:col-span-2 lg:col-span-1">
+              {/* 列2: 日額リース＋単価設定 */}
+              <div className="space-y-4 md:border-l md:border-slate-100 md:pl-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">日額リース代（円/稼働日）</label>
                   <input
@@ -717,8 +713,8 @@ export default function CoursesPage() {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-6xl max-h-[95vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">コース編集</h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
-              {/* 列1: 基本情報 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+              {/* 列1: 基本情報＋請求関連・人数・色 */}
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">キャリア</label>
@@ -763,10 +759,6 @@ export default function CoursesPage() {
                   />
                   <p className="mt-1 text-xs text-slate-500">未入力の場合はコース名を表示します。</p>
                 </div>
-              </div>
-
-              {/* 列2: 請求関連・人数・色 */}
-              <div className="space-y-4 lg:border-l lg:border-slate-100 lg:pl-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">取引先（請求先）</label>
                   <CustomSelect
@@ -824,8 +816,8 @@ export default function CoursesPage() {
                 </div>
               </div>
 
-              {/* 列3: 日額リース＋単価設定 */}
-              <div className="space-y-4 md:border-l md:border-slate-100 md:pl-6 md:col-span-2 lg:col-span-1">
+              {/* 列2: 日額リース＋単価設定 */}
+              <div className="space-y-4 md:border-l md:border-slate-100 md:pl-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">日額リース代（円/稼働日）</label>
                   <input
