@@ -22,6 +22,9 @@ const TAX_RATE = 0.1;
 const toIncl = (excl: number) => Math.round(excl * (1 + TAX_RATE));
 const toExcl = (incl: number) => Math.round(incl / (1 + TAX_RATE));
 
+// 会社利益は手入力させず、売上 − 支払 で自動計算する（入力ミスで合計が合わなくなるのを防ぐ）。
+const deriveProfit = (revenue: number, payout: number) => revenue - payout;
+
 type LoadResponse = {
   courseName: string;
   carrierId: string | null;
@@ -86,18 +89,22 @@ export const CourseRateEditor = forwardRef<
         const map: Record<string, UnitRate> = {};
         (res.units ?? []).forEach((u) => {
           const found = (res.unitRates ?? []).find((r) => r.unit_id === u.id);
+          const revenue = found?.revenue_per_unit ?? 0;
+          const payout = found?.payout_per_unit ?? 0;
           map[u.id] = {
             unit_id: u.id,
-            revenue_per_unit: found?.revenue_per_unit ?? 0,
-            profit_per_unit: found?.profit_per_unit ?? 0,
-            payout_per_unit: found?.payout_per_unit ?? 0,
+            revenue_per_unit: revenue,
+            profit_per_unit: deriveProfit(revenue, payout),
+            payout_per_unit: payout,
           };
         });
         setRates(map);
+        const fixedRevenue = res.fixed?.fixed_revenue ?? 0;
+        const fixedPayout = res.fixed?.fixed_payout ?? 0;
         setFixed({
-          fixed_revenue: res.fixed?.fixed_revenue ?? 0,
-          fixed_profit: res.fixed?.fixed_profit ?? 0,
-          fixed_payout: res.fixed?.fixed_payout ?? 0,
+          fixed_revenue: fixedRevenue,
+          fixed_profit: deriveProfit(fixedRevenue, fixedPayout),
+          fixed_payout: fixedPayout,
         });
       } catch (e) {
         onError(e instanceof Error ? e.message : "単価の読み込みに失敗しました");
@@ -129,8 +136,13 @@ export const CourseRateEditor = forwardRef<
     [courseId, rates, fixed],
   );
 
-  function setRate(unitId: string, key: keyof Omit<UnitRate, "unit_id">, value: number) {
-    setRates((prev) => ({ ...prev, [unitId]: { ...prev[unitId], [key]: value } }));
+  function setRate(unitId: string, key: "revenue_per_unit" | "payout_per_unit", value: number) {
+    setRates((prev) => {
+      const cur = prev[unitId] ?? { unit_id: unitId, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0 };
+      const next = { ...cur, [key]: value };
+      next.profit_per_unit = deriveProfit(next.revenue_per_unit, next.payout_per_unit);
+      return { ...prev, [unitId]: next };
+    });
   }
 
   // 単価欄への表示値・入力値は税抜/税込モードに応じて換算する。保存値は常に税抜。
@@ -203,10 +215,10 @@ export const CourseRateEditor = forwardRef<
                         hint={hintFor(rates[u.id]?.revenue_per_unit ?? 0)}
                       />
                       <NumField
-                        label="利益/個"
+                        label="利益/個（自動計算）"
                         value={displayValue(rates[u.id]?.profit_per_unit ?? 0)}
-                        onChange={(v) => setRate(u.id, "profit_per_unit", fromDisplay(v))}
                         hint={hintFor(rates[u.id]?.profit_per_unit ?? 0)}
+                        readOnly
                       />
                       <NumField
                         label="支払/個"
@@ -228,19 +240,29 @@ export const CourseRateEditor = forwardRef<
               <NumField
                 label="売上"
                 value={displayValue(fixed.fixed_revenue)}
-                onChange={(v) => setFixed((f) => ({ ...f, fixed_revenue: fromDisplay(v) }))}
+                onChange={(v) =>
+                  setFixed((f) => {
+                    const fixed_revenue = fromDisplay(v);
+                    return { ...f, fixed_revenue, fixed_profit: deriveProfit(fixed_revenue, f.fixed_payout) };
+                  })
+                }
                 hint={hintFor(fixed.fixed_revenue)}
               />
               <NumField
-                label="利益"
+                label="利益（自動計算）"
                 value={displayValue(fixed.fixed_profit)}
-                onChange={(v) => setFixed((f) => ({ ...f, fixed_profit: fromDisplay(v) }))}
                 hint={hintFor(fixed.fixed_profit)}
+                readOnly
               />
               <NumField
                 label="支払"
                 value={displayValue(fixed.fixed_payout)}
-                onChange={(v) => setFixed((f) => ({ ...f, fixed_payout: fromDisplay(v) }))}
+                onChange={(v) =>
+                  setFixed((f) => {
+                    const fixed_payout = fromDisplay(v);
+                    return { ...f, fixed_payout, fixed_profit: deriveProfit(f.fixed_revenue, fixed_payout) };
+                  })
+                }
                 hint={hintFor(fixed.fixed_payout)}
               />
             </div>
@@ -257,11 +279,13 @@ function NumField({
   value,
   onChange,
   hint,
+  readOnly,
 }: {
   label: string;
   value: number;
-  onChange: (v: number) => void;
+  onChange?: (v: number) => void;
   hint?: string;
+  readOnly?: boolean;
 }) {
   return (
     <label className="block">
@@ -269,8 +293,11 @@ function NumField({
       <input
         type="number"
         value={value}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
-        className="w-full px-2.5 py-2 border border-slate-300 rounded text-right"
+        onChange={readOnly ? undefined : (e) => onChange?.(Number(e.target.value) || 0)}
+        readOnly={readOnly}
+        className={`w-full px-2.5 py-2 border rounded text-right ${
+          readOnly ? "border-slate-200 bg-slate-50 text-slate-500" : "border-slate-300"
+        }`}
       />
       {hint && <span className="block text-[10px] text-slate-400 mt-0.5 text-right">{hint}</span>}
     </label>
