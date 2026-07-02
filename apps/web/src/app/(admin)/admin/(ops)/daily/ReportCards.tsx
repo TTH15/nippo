@@ -100,7 +100,9 @@ export function PendingDriverCard({
   onEdit: (rep: ReportLike) => void;
   onProxyEntry?: () => void;
 }) {
-  const muted = status === "off" || status === "approved";
+  // 提出済み分は承認済みでも、他コースが未提出のままなら「対応済み」表示にしない
+  const isResolved = status === "approved" && !needsProxy;
+  const muted = status === "off" || isResolved;
   // unsubmitted 以外でも未提出コースが残っていれば代理入力を出す（1日複数コース対応）
   const showProxy = canWrite && !!onProxyEntry && !!needsProxy;
   return (
@@ -108,10 +110,15 @@ export function PendingDriverCard({
       <div className="flex items-center justify-between gap-2">
         <span className="font-semibold text-slate-900">{getDisplayName(driver)}</span>
         <div className="flex items-center gap-2">
-          {status === "approved" && (
+          {isResolved && (
             <span className="inline-flex items-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
               <FontAwesomeIcon icon={faCircleCheck} className="mr-1" />
               承認済み
+            </span>
+          )}
+          {status === "approved" && needsProxy && (
+            <span className="inline-flex items-center px-2 h-6 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700">
+              一部未提出
             </span>
           )}
           {status === "unsubmitted" && (

@@ -40,10 +40,12 @@ export async function GET(req: NextRequest) {
   const businessToday = reportDateDefaultJST();
 
   if (!startParam || !endParam) {
+    // 「要対応」タブは未解決の日だけが描画対象なので、遡り幅を広げても表示は増えない。
+    // 経過日数だけで一覧・バッジから消えてしまわないよう既定の遡り幅は広めに取る。
     const end = businessToday;
     const base = new Date(end + "T12:00:00+09:00");
     const start = new Date(base);
-    start.setDate(start.getDate() - 13);
+    start.setDate(start.getDate() - 89);
     startParam = start.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
     endParam = end;
   }
