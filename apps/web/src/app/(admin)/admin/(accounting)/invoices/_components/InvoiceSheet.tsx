@@ -288,6 +288,9 @@ export function InvoiceSheet({
     extraOutsourcing: num(st.extraOutsourcing),
   });
   const ratePct = Math.round(num(st.taxRatePercent));
+  // 「（税込）」表記には必ず税率を添える（税OFFなら0%）。
+  const taxNote = st.taxEnabled ? `${ratePct}%` : "0%";
+  const withTaxNote = (label: string) => label.replace("（税込）", `（税込 ${taxNote}）`);
 
   const set = (patch: Partial<EditorState>) => onChange?.({ ...st, ...patch });
   const setLine = (section: Section, i: number, patch: Partial<EditorLine>) =>
@@ -551,11 +554,12 @@ export function InvoiceSheet({
         {/* 金額見出し */}
         <div className="flex items-center justify-between w-3/5 pb-[5px] mt-3 mb-2" style={{ borderBottom: `2px solid ${C.brand}` }}>
           <div className="text-[12.5px] font-semibold">{config.amountHeadlineLabel}</div>
-          <div className="text-[18px] font-bold text-right" style={{ color: C.brand }}>¥{jpy(totals.total)}（税込）</div>
+          <div className="text-[18px] font-bold text-right" style={{ color: C.brand }}>¥{jpy(totals.total)}（税込 {taxNote}）</div>
         </div>
 
-        {/* サマリー表 */}
-        <table className="w-full border-collapse text-[12px] mt-2 mb-[26px]">
+        {/* サマリー表（二重線の外枠で強調） */}
+        <div className="mt-2" style={{ border: `4px double ${C.brand}`, padding: "3px", marginBottom: "1.2cm" }}>
+        <table className="w-full border-collapse text-[12px]">
           <thead>
             <tr>
               <th className="border-0 bg-transparent" />
@@ -564,15 +568,14 @@ export function InvoiceSheet({
           </thead>
           <tbody>
             {config.summaryRows.map((row, i) => {
-              const isFirst = i === 0;
               const editable = !readOnly && row.value.kind === "manual";
               const field = row.value.kind === "manual" ? row.value.field : null;
               return (
                 <tr key={i}>
-                  <td className="py-[3.5px] px-[9px] text-left font-bold" style={{ border: `1px solid ${C.brand}`, borderTop: isFirst ? `2.5px solid ${C.brand}` : undefined, borderLeft: `2.5px solid ${C.brand}`, backgroundColor: C.brandSoft }}>
-                    {row.label}
+                  <td className="py-[3.5px] px-[9px] text-left font-bold" style={{ border: `1px solid ${C.brand}`, backgroundColor: C.brandSoft }}>
+                    {withTaxNote(row.label)}
                   </td>
-                  <td className="py-[3.5px] px-[9px] text-right font-bold w-[22%]" style={{ border: `1px solid ${C.brand}`, borderTop: isFirst ? `2.5px solid ${C.brand}` : undefined, borderRight: `2.5px solid ${C.brand}` }}>
+                  <td className="py-[3.5px] px-[9px] text-right font-bold w-[22%]" style={{ border: `1px solid ${C.brand}` }}>
                     <span className="inline-flex items-baseline justify-end">
                       {row.minus ? <span>▲</span> : null}
                       {editable && field ? (
@@ -598,11 +601,12 @@ export function InvoiceSheet({
               );
             })}
             <tr className="text-white font-bold text-[15px]">
-              <td className="py-[3.5px] px-[9px] text-left" style={{ border: `1px solid ${C.brand}`, borderBottom: `2.5px solid ${C.brand}`, borderLeft: `2.5px solid ${C.brand}`, backgroundColor: C.brand }}>{config.finalLabel}</td>
-              <td className="py-[3.5px] px-[9px] text-right" style={{ border: `1px solid ${C.brand}`, borderBottom: `2.5px solid ${C.brand}`, borderRight: `2.5px solid ${C.brand}`, backgroundColor: C.brand }}>{jpy(totals.total)}</td>
+              <td className="py-[3.5px] px-[9px] text-left" style={{ border: `1px solid ${C.brand}`, backgroundColor: C.brand }}>{config.finalLabel}</td>
+              <td className="py-[3.5px] px-[9px] text-right" style={{ border: `1px solid ${C.brand}`, backgroundColor: C.brand }}>{jpy(totals.total)}</td>
             </tr>
           </tbody>
         </table>
+        </div>
 
         {renderBreakZone("main")}
 
@@ -639,7 +643,7 @@ export function InvoiceSheet({
             taxLabel={st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : ""}
             setLine={setLine}
             grid={grid}
-            classNameTbl="mt-[18px]"
+            classNameTbl="mt-[1cm]"
             />
           </>
         ) : null}

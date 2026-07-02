@@ -188,7 +188,7 @@ describe("computeInvoiceTotals", () => {
     expect(t.total).toBe(25454);
   });
 
-  it("小数単価は行ごと四捨五入してから税計算", () => {
+  it("小数単価は行ごと四捨五入してから税計算（消費税額は円未満切り捨て）", () => {
     const t = computeInvoiceTotals({
       main: [{ qty: 254, price: 27.3 }, { qty: 1453, price: 136.36 }],
       deduct: [],
@@ -197,10 +197,10 @@ describe("computeInvoiceTotals", () => {
       loanRepay: 0,
       extraOutsourcing: 0,
     });
-    // 6934 + 198131 = 205065, tax 20506.5→20507
+    // 6934 + 198131 = 205065, tax 20506.5→20506（切り捨て）
     expect(t.billSubtotal).toBe(205065);
-    expect(t.billTax).toBe(20507);
-    expect(t.total).toBe(225572);
+    expect(t.billTax).toBe(20506);
+    expect(t.total).toBe(225571);
   });
 
   it("欠損入力でも落ちない（NaN→0）", () => {

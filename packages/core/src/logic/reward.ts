@@ -99,7 +99,7 @@ export function sumRowsRounded(rows: InvoiceRow[]): number {
 /**
  * 請求書の合計を計算する（新仕様：税抜単価モデル）。
  * - 各行 税抜合計 = round(qty × 税抜単価)、小計はその合算
- * - 消費税は各セクション小計への外税（taxEnabled=false なら 0）
+ * - 消費税は各セクション小計への外税（円未満切り捨て。taxEnabled=false なら 0）
  * - 差引き請求額（税込）= 請求税込 − お支払い税込 − 借入返済 + 追加外注支払い
  * 支払いに直結するためここに集約し、テストで固定する。
  */
@@ -109,8 +109,8 @@ export function computeInvoiceTotals(input: InvoiceTotalsInput): InvoiceTotals {
   const billSubtotal = sumRowsRounded(input.main);
   const deductSubtotal = sumRowsRounded(input.deduct);
 
-  const billTax = Math.round(billSubtotal * rate);
-  const deductTax = Math.round(deductSubtotal * rate);
+  const billTax = Math.floor(billSubtotal * rate);
+  const deductTax = Math.floor(deductSubtotal * rate);
 
   const billGross = billSubtotal + billTax;
   const deductGross = deductSubtotal + deductTax;
