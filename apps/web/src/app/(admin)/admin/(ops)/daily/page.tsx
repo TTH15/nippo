@@ -485,16 +485,20 @@ export default function AdminDailyPage() {
                   const missingCount = hasShift
                     ? shiftCourses.filter((c) => !reportedCourseIds.has(c)).length
                     : 0;
+                  // コース自体は提出されているが、報告項目(個数等)が1件も無い行
+                  // （キャリア未設定など構造的な原因で個数欄が出せなかった場合に起きる）
+                  const emptyContentCount = reps.filter((r) => !r.content || r.content.length === 0).length;
                   const hasUnapproved = reps.some((r) => !r.approved_at);
                   let status: Status;
                   if (!hasShift) status = "off";
                   else if (reps.length === 0) status = "unsubmitted";
                   else if (hasUnapproved) status = "pending";
                   else status = "approved";
-                  // 全コース未提出(unsubmitted) または 一部コースだけ未提出 → 代理入力が必要
-                  const needsProxy = hasShift && (status === "unsubmitted" || missingCount > 0);
+                  // 全コース未提出(unsubmitted) または 一部コースだけ未提出 または 内容が空 → 代理入力が必要
+                  const needsProxy =
+                    hasShift && (status === "unsubmitted" || missingCount > 0 || emptyContentCount > 0);
                   const actionable = needsProxy || hasUnapproved;
-                  return { driver, reps, status, needsProxy, actionable };
+                  return { driver, reps, status, needsProxy, missingCount, emptyContentCount, actionable };
                 };
 
                 const withActionable = filteredSummaries.map((s) => {
@@ -535,7 +539,7 @@ export default function AdminDailyPage() {
                         <>
                         {/* スマホ: カード表示 */}
                         <div className="md:hidden space-y-2">
-                          {rows.map(({ driver, reps, status, needsProxy }) => {
+                          {rows.map(({ driver, reps, status, needsProxy, missingCount }) => {
                             const driverEntry: Entry = {
                               driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
                               report: { report_date: summary.date, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" } as ReportData,
@@ -547,6 +551,7 @@ export default function AdminDailyPage() {
                                 reps={reps}
                                 status={status}
                                 needsProxy={needsProxy}
+                                missingCount={missingCount}
                                 canWrite={canWrite}
                                 onApprove={() => handleApprove(driverEntry, summary.date)}
                                 onReject={() => handleReject(driverEntry, summary.date)}
@@ -586,7 +591,7 @@ export default function AdminDailyPage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {rows.map(({ driver, reps, status, needsProxy }) => {
+                              {rows.map(({ driver, reps, status, needsProxy, missingCount }) => {
                                 // 提出済み分は承認済みでも、他コースが未提出のままなら「対応済み」表示にしない
                                 const isResolved = status === "approved" && !needsProxy;
                                 const isGray = status === "off" || isResolved;
@@ -655,7 +660,9 @@ export default function AdminDailyPage() {
                                         </div>
                                       )}
                                       {needsProxy && reps.length > 0 && (
-                                        <span className="block mt-1 text-[11px] font-semibold text-red-600">未提出のコースがあります</span>
+                                        <span className="block mt-1 text-[11px] font-semibold text-red-600">
+                                          {missingCount > 0 ? "未提出のコースがあります" : "報告内容が未入力です"}
+                                        </span>
                                       )}
                                     </td>
                                     <td className="py-3 px-2 text-center align-middle">

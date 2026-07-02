@@ -428,6 +428,20 @@ export default function ShiftsPage() {
   const [autoSaving, setAutoSaving] = useState(0);
   const [generating, setGenerating] = useState(false);
 
+  // ページ上部の見出し〜操作行〜自動保存表示を固定表示するための高さ計測。
+  // 高さはレスポンシブでボタン列が折り返すため実測して追従させる。
+  const stickyHeaderRef = useRef<HTMLDivElement>(null);
+  const [stickyHeaderHeight, setStickyHeaderHeight] = useState(0);
+  useEffect(() => {
+    const el = stickyHeaderRef.current;
+    if (!el) return;
+    const update = () => setStickyHeaderHeight(el.offsetHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const [localShifts, setLocalShifts] = useState<Map<string, string | null>>(new Map());
   const [localVehicleByDriverDay, setLocalVehicleByDriverDay] = useState<Map<string, string | null>>(
     new Map(),
@@ -1169,6 +1183,7 @@ export default function ShiftsPage() {
   return (
     <AdminLayout>
       <div className="max-w-full">
+        <div ref={stickyHeaderRef} className="sticky top-0 z-30 bg-white pt-1 -mt-1">
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div className="w-full md:w-auto">
             <h1 className="text-xl font-bold text-slate-900">シフト管理</h1>
@@ -1268,6 +1283,7 @@ export default function ShiftsPage() {
             {autoSaving > 0 ? "自動保存中…" : "変更は自動保存されます"}
           </div>
         )}
+        </div>
 
         {loading ? (
           <div className="space-y-3">
@@ -1309,7 +1325,10 @@ export default function ShiftsPage() {
               <table className="w-full text-sm min-w-[720px] border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/95">
-                    <th className="sticky left-0 z-20 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-slate-200/95 align-bottom">
+                    <th
+                      className="sticky left-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-slate-200/95 align-bottom"
+                      style={{ top: stickyHeaderHeight }}
+                    >
                       <span className="block text-[10px] font-normal text-slate-400 leading-none">上段＝稼働人数</span>
                       ドライバー
                     </th>
@@ -1321,9 +1340,10 @@ export default function ShiftsPage() {
                         <th
                           key={date}
                           className={cn(
-                            `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-2 text-center font-medium overflow-hidden align-top ${tone.header}`,
+                            `${SHIFT_COL_WIDTH_CLASS} sticky z-20 border-l border-slate-200/90 px-1 py-2 text-center font-medium overflow-hidden align-top bg-slate-50/95 ${tone.header}`,
                             isToday && TODAY_RULE_TOP,
                           )}
+                          style={{ top: stickyHeaderHeight }}
                         >
                           <span
                             className={`block leading-none mb-1 text-[11px] font-bold tabular-nums ${count > 0 ? "text-slate-700" : "text-slate-300"}`}
