@@ -30,8 +30,42 @@ import {
   removeLineAt,
   moveLine,
 } from "./lineGrid";
+import { TOP_PAD_PX, BOTTOM_PAD_PX } from "./paginate";
 
 type Section = "main" | "deduct";
+
+// 改ページの継ぎ目バンド（画面専用の視覚的な目安。hide-print で印刷には出さない）。
+// 実際の印刷ページ分割は既存の break-before-page / data-force-break（手動トグルのみ）に委ねる。
+const GAP_UI_PX = 28;
+
+/** ブロック単位（div）の継ぎ目バンド。 */
+function PageGapBlock({ manual }: { manual?: boolean }) {
+  return (
+    <div className="hide-print" aria-hidden>
+      <div style={{ height: BOTTOM_PAD_PX }} />
+      <div className="relative flex items-center justify-center border-y border-slate-300 bg-slate-200" style={{ height: GAP_UI_PX }}>
+        {manual ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-300 bg-blue-50 px-3 py-0.5 text-[10px] font-medium text-blue-600">
+            <FontAwesomeIcon icon={faScissors} className="h-2.5 w-2.5" />
+            ここから次のページ
+          </span>
+        ) : null}
+      </div>
+      <div style={{ height: TOP_PAD_PX }} />
+    </div>
+  );
+}
+
+/** テーブル行単位（tr）の継ぎ目バンド。tbody/tfoot 内で使う。 */
+function PageGapRow({ manual }: { manual?: boolean }) {
+  return (
+    <tr className="hide-print" aria-hidden>
+      <td colSpan={5} className="p-0">
+        <PageGapBlock manual={manual} />
+      </td>
+    </tr>
+  );
+}
 
 /** 明細テーブルのスプレッドシート編集API（!readOnly のときだけ供給）。 */
 type GridApi = {
@@ -143,6 +177,8 @@ function LineTable({
   subtotalLabel,
   taxLabel,
   classNameTbl,
+  sectionForceBreak,
+  breakBeforeIds,
   setLine,
   grid,
 }: {
@@ -158,13 +194,17 @@ function LineTable({
   subtotalLabel: string;
   taxLabel: string;
   classNameTbl?: string;
+  /** 改ページ計算用。このテーブルの直前で手動改ページが有効かどうか（st.blockBreaks 由来）。 */
+  sectionForceBreak?: boolean;
+  /** 自動検出された改ページ位置（ユニットid集合）。 */
+  breakBeforeIds?: Set<string>;
   setLine: (section: Section, i: number, patch: Partial<EditorLine>) => void;
   grid?: GridApi;
 }) {
   return (
     <div className={cn("relative", classNameTbl)}>
       <table className="w-full border-collapse text-[11.5px]" style={{ border: `6px solid ${color}` }}>
-        <thead>
+        <thead data-page-unit data-unit-id={`${section}-head`} data-force-break={sectionForceBreak ? "true" : undefined}>
           <tr>
             <th colSpan={5} className="bg-white py-[4px] px-2 text-center text-[14px] font-black tracking-[5px]" style={{ color, border: `2px solid ${color}` }}>
               {title}
@@ -180,7 +220,7 @@ function LineTable({
         </thead>
         <tbody>
           {lines.length === 0 ? (
-            <tr>
+            <tr data-page-unit data-unit-id={`${section}-row-empty`}>
               <td className="py-[2.5px] px-2 bg-white" style={{ border: `1px solid ${color}` }}>&nbsp;</td>
               <td className="bg-white" style={{ border: `1px solid ${color}` }} />
               <td className="bg-white" style={{ border: `1px solid ${color}` }} />
@@ -196,23 +236,17 @@ function LineTable({
                   grid?.isFillTarget(section, i, col) && "bg-blue-50",
                   grid?.isActive(section, i, col) && "ring-2 ring-inset ring-blue-500",
                 );
+              const rowId = `${section}-row-${i}`;
+              const manualBreak = Boolean(ln.pageBreakBefore);
+              const showGap = manualBreak || Boolean(breakBeforeIds?.has(rowId));
               return (
                 <Fragment key={i}>
-                  {grid && ln.pageBreakBefore ? (
-                    <tr className="hide-print">
-                      <td colSpan={5} className="px-0 py-1">
-                        <div className="flex justify-center">
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-300 bg-blue-50 px-3 py-0.5 text-[10px] font-medium text-blue-600">
-                            <FontAwesomeIcon icon={faScissors} className="h-2.5 w-2.5" />
-                            ここから次のページ
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : null}
+                  {showGap ? <PageGapRow manual={manualBreak} /> : null}
                   <tr
-                    className={cn("group", ln.pageBreakBefore && "break-before-page")}
-                    data-force-break={ln.pageBreakBefore ? "true" : undefined}
+                    className={cn("group", manualBreak && "break-before-page")}
+                    data-page-unit
+                    data-unit-id={rowId}
+                    data-force-break={manualBreak ? "true" : undefined}
                     {...(grid ? grid.rowProps(section, i) : {})}
                   >
                     <td className={cellCls(0, "leading-[1.3]")} style={{ border: `1px solid ${color}` }}>
@@ -242,17 +276,22 @@ function LineTable({
           )}
         </tbody>
         <tfoot>
-          <tr>
+          {breakBeforeIds?.has(`${section}-subtotal`) ? <PageGapRow /> : null}
+          <tr data-page-unit data-unit-id={`${section}-subtotal`}>
             <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{subtotalLabel}</td>
             <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(subtotal)}</td>
           </tr>
           {taxLabel ? (
-            <tr>
-              <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{taxLabel}</td>
-              <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(tax)}</td>
-            </tr>
+            <>
+              {breakBeforeIds?.has(`${section}-tax`) ? <PageGapRow /> : null}
+              <tr data-page-unit data-unit-id={`${section}-tax`}>
+                <td colSpan={4} className="py-[2.5px] px-2 text-right font-semibold" style={{ border: `1px solid ${color}`, backgroundColor: soft }}>{taxLabel}</td>
+                <td className="py-[2.5px] px-2 text-right bg-white" style={{ border: `1px solid ${color}` }}>{jpy(tax)}</td>
+              </tr>
+            </>
           ) : null}
-          <tr className="font-bold text-white">
+          {breakBeforeIds?.has(`${section}-total`) ? <PageGapRow /> : null}
+          <tr className="font-bold text-white" data-page-unit data-unit-id={`${section}-total`}>
             <td colSpan={4} className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>税込合計</td>
             <td className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>{jpy(gross)}</td>
           </tr>
@@ -268,12 +307,18 @@ export function InvoiceSheet({
   onChange,
   sheetRef,
   className,
+  printRoot = true,
+  breakBeforeIds,
 }: {
   state: EditorState;
   readOnly?: boolean;
   onChange?: (next: EditorState) => void;
   sheetRef?: Ref<HTMLDivElement>;
   className?: string;
+  /** false の場合 "invoice-print-root" クラスを付けない（画面専用の装飾コピーが印刷CSSに拾われないようにする）。既定 true。 */
+  printRoot?: boolean;
+  /** 自動検出された改ページ位置（ユニットid集合）。PaginatedInvoiceSheet が計測して渡す。 */
+  breakBeforeIds?: Set<string>;
 }) {
   const st = state;
   const config = INVOICE_KIND_CONFIG[st.kind] ?? INVOICE_KIND_CONFIG.outgoing;
@@ -456,44 +501,49 @@ export function InvoiceSheet({
         }),
       };
 
-  // ブロック境界の改ページ。マーカー（break-before-page / data-force-break）は印刷/PDF両対応で
-  // 常時描画し、編集時はホバーで出る「ここで改ページ」帯から ON/OFF する（帯は hide-print）。
-  const renderBreakZone = (id: string) => {
-    const activeBreak = st.blockBreaks.includes(id);
-    const marker = activeBreak ? <div className="break-before-page" data-force-break="true" aria-hidden /> : null;
-    if (readOnly) return marker;
+  // ブロック境界の改ページ。
+  // - マーカー（break-before-page / data-force-break）は実際の印刷に使う。手動トグルのみが制御する。
+  // - 継ぎ目バンド（PageGapBlock, hide-print）は画面専用の視覚的な目安。手動トグル or 自動検出のどちらかで表示する。
+  // - トグルボタンの ON/OFF 表示は手動フラグのみを反映する（自然な溢れと明示的な指定を区別できるように）。
+  const renderBreakZone = (id: string, autoId?: string) => {
+    const manualBreak = st.blockBreaks.includes(id);
+    const autoBreak = Boolean(autoId && breakBeforeIds?.has(autoId));
+    const marker = manualBreak ? <div className="break-before-page" data-force-break="true" aria-hidden /> : null;
+    const band = manualBreak || autoBreak ? <PageGapBlock manual={manualBreak} /> : null;
+    if (readOnly) return (<>{marker}{band}</>);
     const toggle = () =>
-      set({ blockBreaks: activeBreak ? st.blockBreaks.filter((x) => x !== id) : [...st.blockBreaks, id] });
+      set({ blockBreaks: manualBreak ? st.blockBreaks.filter((x) => x !== id) : [...st.blockBreaks, id] });
     return (
       <>
         {marker}
+        {band}
         <div className="hide-print group/brk flex h-6 items-center justify-center">
           <button
             type="button"
             onClick={toggle}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full border px-3 py-0.5 text-[10px] font-medium transition",
-              activeBreak
+              manualBreak
                 ? "border-blue-300 bg-blue-50 text-blue-600"
                 : "border-slate-200 bg-white text-slate-400 opacity-0 group-hover/brk:opacity-100 hover:border-blue-300 hover:text-blue-600",
             )}
           >
             <FontAwesomeIcon icon={faScissors} className="h-2.5 w-2.5" />
-            {activeBreak ? "改ページ（解除）" : "改ページ"}
+            {manualBreak ? "改ページ（解除）" : "改ページ"}
           </button>
         </div>
       </>
     );
   };
 
-  return (
-    <div className={cn("bg-slate-100 overflow-auto py-6", className)}>
+  const sheet = (
       <div
         ref={sheetRef}
-        className="invoice-print-root mx-auto bg-white text-[#111] shadow-md w-[210mm] min-h-[297mm]"
+        className={cn(printRoot && "invoice-print-root", "mx-auto bg-white text-[#111] shadow-md w-[210mm] min-h-[297mm]")}
         style={{ padding: "5mm 14mm 8mm 14mm", boxSizing: "border-box" }}
       >
-        {/* タイトル */}
+        {/* タイトル＋宛先/自社（改ページ計算上は1ユニット） */}
+        <div data-page-unit data-unit-id="header">
         <div className="text-center font-bold text-[20px] tracking-[0.4em] pb-[6px] mb-[14px]" style={{ color: C.brand, borderBottom: `3px solid ${C.brand}` }}>
           {config.docTitle}
         </div>
@@ -548,10 +598,12 @@ export function InvoiceSheet({
             </div>
           </div>
         </div>
+        </div>
 
-        {renderBreakZone("summary")}
+        {renderBreakZone("summary", "summary")}
 
-        {/* 金額見出し */}
+        {/* 金額見出し＋サマリー表（改ページ計算上は1ユニット） */}
+        <div data-page-unit data-unit-id="summary" data-force-break={st.blockBreaks.includes("summary") ? "true" : undefined}>
         <div className="flex items-center justify-between w-3/5 pb-[5px] mt-3 mb-2" style={{ borderBottom: `2px solid ${C.brand}` }}>
           <div className="text-[12.5px] font-semibold">{config.amountHeadlineLabel}</div>
           <div className="text-[18px] font-bold text-right" style={{ color: C.brand }}>¥{jpy(totals.total)}（税込 {taxNote}）</div>
@@ -607,8 +659,9 @@ export function InvoiceSheet({
             </table>
           </div>
         </div>
+        </div>
 
-        {renderBreakZone("main")}
+        {renderBreakZone("main", "main-head")}
 
         <LineTable
           readOnly={readOnly}
@@ -622,13 +675,15 @@ export function InvoiceSheet({
           gross={totals.billGross}
           subtotalLabel="小計（税抜）"
           taxLabel={st.taxEnabled ? `消費税額（小計分 ${ratePct}%）` : ""}
+          sectionForceBreak={st.blockBreaks.includes("main")}
+          breakBeforeIds={breakBeforeIds}
           setLine={setLine}
           grid={grid}
         />
 
         {config.showDeductTable ? (
           <>
-            {renderBreakZone("deduct")}
+            {renderBreakZone("deduct", "deduct-head")}
             <LineTable
               readOnly={readOnly}
               section="deduct"
@@ -641,6 +696,8 @@ export function InvoiceSheet({
             gross={totals.deductGross}
             subtotalLabel={`${config.deductSectionTitle}小計（税抜）`}
             taxLabel={st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : ""}
+            sectionForceBreak={st.blockBreaks.includes("deduct")}
+            breakBeforeIds={breakBeforeIds}
             setLine={setLine}
             grid={grid}
             classNameTbl="mt-[1cm]"
@@ -648,10 +705,10 @@ export function InvoiceSheet({
           </>
         ) : null}
 
-        {renderBreakZone("bank")}
+        {renderBreakZone("bank", "bank")}
 
         {/* 振込先 */}
-        <div className="mt-[14px] pt-2 text-[11.5px] leading-[1.4]" style={{ borderTop: `2.5px solid ${C.brand}` }}>
+        <div data-page-unit data-unit-id="bank" data-force-break={st.blockBreaks.includes("bank") ? "true" : undefined} className="mt-[14px] pt-2 text-[11.5px] leading-[1.4]" style={{ borderTop: `2.5px solid ${C.brand}` }}>
           <div className="grid grid-cols-[80px_1fr] items-center"><b>振込期日</b>
             {st.dueDate ? <span>{formatDateJa(st.dueDate)}</span> : <span className="text-slate-400">{readOnly ? "" : "（上部で選択）"}</span>}
           </div>
@@ -660,6 +717,9 @@ export function InvoiceSheet({
           <div className="grid grid-cols-[80px_1fr] items-center"><span /><T readOnly={readOnly} value={st.bankHolder} onChange={(v) => set({ bankHolder: v })} /></div>
         </div>
       </div>
-    </div>
   );
+  // printRoot=false は画面専用の非表示計測クローン（PaginatedInvoiceSheet 参照）。
+  // 印刷対象になる外側の灰色ラッパー（bg-slate-100 py-6）は不要なので素の帳票のみ返す。
+  if (!printRoot) return sheet;
+  return <div className={cn("bg-slate-100 overflow-auto py-6", className)}>{sheet}</div>;
 }
