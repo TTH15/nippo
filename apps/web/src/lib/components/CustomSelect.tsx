@@ -36,18 +36,36 @@ export function CustomSelect({
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
-  const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [dropdownRect, setDropdownRect] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const selectedOption = options.find((opt) => opt.value === value);
 
+  const PREFERRED_MAX_HEIGHT = 280;
+
   useLayoutEffect(() => {
     if (!isOpen || typeof document === "undefined") return;
     const el = containerRef.current;
     if (!el) return;
+    const margin = 8;
     const rect = el.getBoundingClientRect();
-    setDropdownRect({ top: rect.bottom + 8, left: rect.left, width: rect.width });
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    // 下側のスペースが足りず、上側の方が広ければ上向きに開く
+    const openUp = spaceBelow < PREFERRED_MAX_HEIGHT && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(120, Math.min(PREFERRED_MAX_HEIGHT, openUp ? spaceAbove : spaceBelow));
+    setDropdownRect(
+      openUp
+        ? { bottom: window.innerHeight - rect.top + margin, left: rect.left, width: rect.width, maxHeight }
+        : { top: rect.bottom + margin, left: rect.left, width: rect.width, maxHeight },
+    );
   }, [isOpen]);
 
   useEffect(() => {
@@ -190,18 +208,19 @@ export function CustomSelect({
           <AnimatePresence>
             <motion.div
               ref={dropdownRef}
-              initial={{ opacity: 0, y: -10 }}
+              initial={{ opacity: 0, y: dropdownRect.bottom !== undefined ? 10 : -10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+              exit={{ opacity: 0, y: dropdownRect.bottom !== undefined ? 10 : -10 }}
               transition={{ duration: 0.2 }}
               className={`fixed z-[9999] bg-white border-2 border-slate-200 shadow-xl overflow-hidden ${isXs ? "rounded-lg border-slate-200" : "rounded-xl"}`}
               style={{
                 top: dropdownRect.top,
+                bottom: dropdownRect.bottom,
                 left: dropdownRect.left,
                 width: dropdownRect.width,
               }}
             >
-              <div className="max-h-[280px] overflow-y-auto">
+              <div className="overflow-y-auto" style={{ maxHeight: dropdownRect.maxHeight }}>
                 {options.length > 0 ? (
                   options.map((option, index) => {
                     const isSelected = option.value === value;

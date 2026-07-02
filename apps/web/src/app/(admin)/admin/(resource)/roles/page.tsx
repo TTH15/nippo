@@ -206,7 +206,7 @@ export default function RolesPage() {
               autoFocus
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && createRole()}
+              onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && createRole()}
               placeholder="新しいロール名（例: 経理主任）"
               className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
             />
