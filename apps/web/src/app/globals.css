@@ -220,6 +220,14 @@ input[type="number"] {
   .invoice-print-root * {
     visibility: visible;
   }
+  /* main は position:relative で .invoice-print-root（position:absolute）の
+     containing block になってしまい、その overflow:auto が絶対配置の子を
+     スクロール領域の高さでクリップしていた（下端の見切れ・改ページが効かない原因）。
+     印刷時は static に戻し、containing block をページ全体（初期包含ブロック）に
+     逃がすことで、main・その内側の overflow:auto なラッパーをすべて素通りさせる。 */
+  main {
+    position: static !important;
+  }
   .invoice-print-root {
     position: absolute;
     left: 0;
