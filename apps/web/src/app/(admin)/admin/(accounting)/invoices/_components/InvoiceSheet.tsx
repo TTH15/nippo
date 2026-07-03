@@ -421,6 +421,22 @@ export function InvoiceSheet({
                 e.preventDefault();
                 focusCell(section, row - 1, col);
               }
+            } else if (e.key === "ArrowRight") {
+              // テキストカーソルが末尾にあるときだけ右のセルへ移動する（文字入力中の移動は妨げない）。
+              const input = e.currentTarget;
+              const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+              if (atEnd && col + 1 < COL_COUNT) {
+                e.preventDefault();
+                focusCell(section, row, col + 1);
+              }
+            } else if (e.key === "ArrowLeft") {
+              // テキストカーソルが先頭にあるときだけ左のセルへ移動する。
+              const input = e.currentTarget;
+              const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
+              if (atStart && col > 0) {
+                e.preventDefault();
+                focusCell(section, row, col - 1);
+              }
             }
           },
           onPaste: (e) => {
