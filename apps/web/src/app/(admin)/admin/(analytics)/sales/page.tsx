@@ -1888,6 +1888,10 @@ export default function SalesPage() {
                     )}
                     {marginDiff == null && <span>– 粗利率変化</span>}
                   </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    1日あたり平均{" "}
+                    <span className="font-semibold tabular-nums text-slate-700">{fmt(dailyAvg.profit)}</span>
+                  </div>
                 </div>
 
                 {/* データの裏付け（信憑性）: 売上・粗利が「承認済の日報」何件に基づくか／未承認で未集計の件数／手動調整の件数 */}
