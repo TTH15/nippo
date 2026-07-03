@@ -73,10 +73,9 @@ export function insertLineAt(lines: EditorLine[], index: number): EditorLine[] {
   return next;
 }
 
-/** index の行を削除（全消しは空1行を残す）。 */
+/** index の行を削除。0行になってもよい（表自体は残る）。 */
 export function removeLineAt(lines: EditorLine[], index: number): EditorLine[] {
-  const next = lines.filter((_, i) => i !== index);
-  return next.length > 0 ? next : [emptyLine()];
+  return lines.filter((_, i) => i !== index);
 }
 
 /** from → to へ行を移動（並べ替え）。 */
