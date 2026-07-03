@@ -28,7 +28,7 @@ export async function GET(
     .from("drivers")
     .select(`
       id, name, display_name, role, role_id, identity_id, company_code, office_code, driver_code, list_no, created_at, license_expiry_date,
-      postal_code, address, phone, bank_name, bank_no, bank_holder,
+      postal_code, address, phone, bank_name, bank_no, bank_holder, status, active_from_month, active_until_month,
       driver_identities (
         id, slot, driver_code, office_code, label,
         driver_courses (
@@ -94,6 +94,8 @@ export async function PUT(
       bankHolder,
       licenseExpiryDate,
       status,
+      activeFromMonth,
+      activeUntilMonth,
       roleId,
       identities: identitiesRaw,
     } = body;
@@ -121,7 +123,9 @@ export async function PUT(
     const isCurrentlyAdmin = !!adminRole && driverRow.role_id === adminRole.id;
     const willLeaveAdmin =
       isCurrentlyAdmin &&
-      ((roleId !== undefined && roleId !== null && roleId !== adminRole!.id) || status === "rejected");
+      ((roleId !== undefined && roleId !== null && roleId !== adminRole!.id) ||
+        status === "rejected" ||
+        status === "inactive");
     if (willLeaveAdmin) {
       const { count } = await supabase
         .from("drivers")
@@ -158,8 +162,30 @@ export async function PUT(
           : null;
     }
     // Phase 7a: 参加申請の承認(active)/却下(rejected)。pending へは戻さない。
-    if (status === "active" || status === "rejected") {
+    // inactive（稼働終了）は誤操作防止のため、担当コースが1件でも残っていると弾く
+    // （先にコース割り当てを全解除してもらう）。
+    if (status === "inactive" && driverRow.status !== "inactive") {
+      const { count: assignedCourseCount } = await supabase
+        .from("driver_courses")
+        .select("id", { count: "exact", head: true })
+        .eq("driver_id", driverId);
+      if ((assignedCourseCount ?? 0) > 0) {
+        return NextResponse.json(
+          { error: "担当コースが割り当てられたままです。先にコースの割り当てをすべて解除してください" },
+          { status: 400 },
+        );
+      }
+    }
+    if (status === "active" || status === "rejected" || status === "inactive") {
       updates.status = status;
+    }
+    if (activeFromMonth !== undefined) {
+      updates.active_from_month =
+        typeof activeFromMonth === "string" && /^\d{4}-\d{2}$/.test(activeFromMonth) ? activeFromMonth : null;
+    }
+    if (activeUntilMonth !== undefined) {
+      updates.active_until_month =
+        typeof activeUntilMonth === "string" && /^\d{4}-\d{2}$/.test(activeUntilMonth) ? activeUntilMonth : null;
     }
     // §2-6: ロール割当（role_id を正本に、role テキストも key で同期＝表示・互換）。
     // 当 org のロールのみ受け付ける（他社ロールは弾く）。

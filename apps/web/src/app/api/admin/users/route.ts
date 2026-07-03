@@ -19,7 +19,13 @@ export async function GET(req: NextRequest) {
   const offset = Number.isFinite(cursorRaw) ? Math.max(0, Math.floor(cursorRaw)) : 0;
   // Phase 7a: status フィルタ。既定は active（既存ロスター挙動を維持）。?status=pending で承認待ち一覧。
   const statusRaw = url.searchParams.get("status");
-  const status = statusRaw && ["pending", "active", "rejected"].includes(statusRaw) ? statusRaw : "active";
+  const status =
+    statusRaw && ["pending", "active", "rejected", "inactive"].includes(statusRaw) ? statusRaw : "active";
+  // 過去の年月時点で在籍していたドライバーを絞り込む（請求書一覧の年月フォルダ等で使用）。
+  // 指定時は status フィルタを無視し、稼働期間(active_from_month〜active_until_month)が
+  // その年月を含むドライバーを active/inactive 問わず返す（過去は在籍済みで判定するため）。
+  const activeMonthRaw = url.searchParams.get("activeMonth");
+  const activeMonth = activeMonthRaw && /^\d{4}-\d{2}$/.test(activeMonthRaw) ? activeMonthRaw : null;
 
   // 2段階承認: stage=kyc → 本人確認(本承認)待ち。
   // active＋kyc_verified_at NULL＋本登録提出済(identities.license_photo_path あり)。
@@ -52,18 +58,25 @@ export async function GET(req: NextRequest) {
   // all=1: ページングなしで全ドライバーを返す（車両のドライバー選択など、セレクタ用途）。
   // 顔写真の署名はしない（一覧表示専用の重い処理を避ける）。
   if (url.searchParams.get("all") === "1") {
-    const { data: allRows, error: allErr } = await supabase
+    let allQuery = supabase
       .from("drivers")
       .select(`
-        id, name, display_name, role, office_code, driver_code, list_no, status,
+        id, name, display_name, role, office_code, driver_code, list_no, status, active_from_month, active_until_month,
         driver_identities (
           id, slot, driver_code, office_code, label,
           driver_courses ( course_id, courses (id, name, color) )
         )
       `)
       .eq("org_id", orgId)
-      .eq("role", "DRIVER")
-      .eq("status", status)
+      .eq("role", "DRIVER");
+    if (activeMonth) {
+      allQuery = allQuery
+        .or(`active_from_month.is.null,active_from_month.lte.${activeMonth}`)
+        .or(`active_until_month.is.null,active_until_month.gte.${activeMonth}`);
+    } else {
+      allQuery = allQuery.eq("status", status);
+    }
+    const { data: allRows, error: allErr } = await allQuery
       .order("list_no", { ascending: true, nullsFirst: false })
       .order("name", { ascending: true })
       .order("id", { ascending: true });
@@ -78,7 +91,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers, error } = await supabase
     .from("drivers")
     .select(`
-      id, name, display_name, role, role_id, identity_id, office_code, driver_code, list_no, license_expiry_date, status, created_at,
+      id, name, display_name, role, role_id, identity_id, office_code, driver_code, list_no, license_expiry_date, status, active_from_month, active_until_month, created_at,
       postal_code, address, phone, bank_name, bank_no, bank_holder,
       driver_identities (
         id, slot, driver_code, office_code, label,

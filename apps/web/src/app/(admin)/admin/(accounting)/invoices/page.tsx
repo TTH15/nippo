@@ -235,19 +235,15 @@ export default function InvoicesPage() {
   // 書き込み後の再取得（旧 load の代替）。
   const load = useCallback(() => mutateInvoices(), [mutateInvoices]);
 
-  // ドライバ一覧（ページング全件取得）も SWR でキャッシュ。
-  const { data: driversData } = useApi<DriverFolder[]>("admin/invoices:drivers", {
+  // ドライバ一覧はフォルダで選択中の年月時点で在籍していたドライバーだけに絞る
+  // （稼働開始月/終了月ベース。status不問＝過去はinactiveでも当時在籍していれば出す）。
+  // selectedMonth をキーに含めることで、年月フォルダを切り替えるたびに再取得する。
+  const { data: driversData } = useApi<DriverFolder[]>(`admin/invoices:drivers:${selectedMonth}`, {
     fetcher: async () => {
-      const all: DriverFolder[] = [];
-      let cursor: string | null = "0";
-      while (cursor !== null) {
-        const res: { drivers: DriverFolder[]; nextCursor: string | null } = await apiFetch(
-          `/api/admin/users?limit=100&cursor=${encodeURIComponent(cursor)}`,
-        );
-        all.push(...(res.drivers ?? []));
-        cursor = res.nextCursor;
-      }
-      return all;
+      const res: { drivers: DriverFolder[] } = await apiFetch(
+        `/api/admin/users?all=1&activeMonth=${encodeURIComponent(selectedMonth)}`,
+      );
+      return res.drivers ?? [];
     },
   });
 
