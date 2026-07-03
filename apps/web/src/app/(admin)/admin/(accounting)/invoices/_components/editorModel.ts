@@ -122,6 +122,22 @@ export type EditorLine = {
   pageBreakBefore?: boolean;
 };
 
+/** 帳票の余白（mm単位）。編集画面のツールバーから自分で調整できる。 */
+export type LayoutSettings = {
+  /** タイトル／宛先・自社ブロック下の余白。 */
+  headerGapMm: number;
+  /** サマリー表 → 請求分テーブルの間。 */
+  summaryGapMm: number;
+  /** 請求分 → お支払い分テーブルの間。 */
+  deductGapMm: number;
+};
+
+export const DEFAULT_LAYOUT: LayoutSettings = {
+  headerGapMm: 4,
+  summaryGapMm: 12,
+  deductGapMm: 10,
+};
+
 export type EditorState = {
   id?: string;
   kind: InvoiceKind;
@@ -155,6 +171,8 @@ export type EditorState = {
   notes: string;
   // レイアウト（ブロック境界の改ページ。値は "main"/"deduct"/"bank" 等のキー集合）
   blockBreaks: string[];
+  // レイアウト（余白の微調整、mm単位）
+  layout: LayoutSettings;
   // 管理（保存時のトップレベル列・payload保持）
   section: string;
   counterpartyInvoiceAddressId: string | null;
@@ -206,6 +224,7 @@ export function blankEditorState(kind: InvoiceKind): EditorState {
     bankHolder: isIncoming ? "" : issuer.bankHolder,
     notes: "",
     blockBreaks: [],
+    layout: { ...DEFAULT_LAYOUT },
     section: "Amazon",
     counterpartyInvoiceAddressId: null,
     status: "draft",
@@ -226,6 +245,17 @@ type ApiInvoice = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload?: any;
 };
+
+function layoutFromPayload(v: unknown): LayoutSettings {
+  const o = (v ?? {}) as Record<string, unknown>;
+  const pick = (key: keyof LayoutSettings) =>
+    o[key] != null && Number.isFinite(Number(o[key])) ? Number(o[key]) : DEFAULT_LAYOUT[key];
+  return {
+    headerGapMm: pick("headerGapMm"),
+    summaryGapMm: pick("summaryGapMm"),
+    deductGapMm: pick("deductGapMm"),
+  };
+}
 
 function linesFromPayload(v: unknown): EditorLine[] {
   // 配列でない（＝未保存・旧データ）場合だけ空1行を補う。保存済みの空配列（＝ユーザーが
@@ -277,6 +307,7 @@ export function editorFromInvoice(inv: ApiInvoice): EditorState {
     blockBreaks: Array.isArray(p.blockBreaks)
       ? p.blockBreaks.filter((x: unknown): x is string => typeof x === "string")
       : [],
+    layout: layoutFromPayload(p.layout),
     section: s(inv.section) || base.section,
     counterpartyInvoiceAddressId: inv.counterpartyInvoiceAddressId ?? null,
     status: inv.status ?? "draft",
@@ -372,6 +403,7 @@ export function payloadFromEditor(st: EditorState): Record<string, unknown> {
     loanRepay: n(st.loanRepay),
     extraOutsourcing: n(st.extraOutsourcing),
     blockBreaks: st.blockBreaks,
+    layout: st.layout,
     parties: st.parties,
   };
 }
