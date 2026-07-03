@@ -53,4 +53,42 @@ describe("InvoiceSheet", () => {
     await user.type(qty, "254");
     expect((qty as HTMLInputElement).value).toBe("254");
   });
+
+  it("矢印キーで上下左右のセルへフォーカス移動する（data-cell属性でセルを特定できる）", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <Harness
+        init={{
+          ...blankEditorState("outgoing"),
+          main: [
+            { title: "行1", qty: "1", unit: "個", price: "100" },
+            { title: "行2", qty: "2", unit: "個", price: "200" },
+          ],
+          deduct: [],
+        }}
+      />,
+    );
+    const cell = (id: string) => container.querySelector(`[data-cell="${id}"]`) as HTMLInputElement;
+    // data-cell 属性が実際にDOMへ出ていること（focusCellのquerySelectorが機能する前提）
+    expect(cell("main|0|0")).not.toBeNull();
+
+    await user.click(cell("main|0|0"));
+    expect(document.activeElement).toBe(cell("main|0|0"));
+
+    await user.keyboard("{ArrowDown}");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(document.activeElement).toBe(cell("main|1|0"));
+
+    await user.keyboard("{ArrowUp}");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(document.activeElement).toBe(cell("main|0|0"));
+
+    await user.keyboard("{ArrowRight}");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(document.activeElement).toBe(cell("main|0|1"));
+
+    await user.keyboard("{ArrowLeft}");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(document.activeElement).toBe(cell("main|0|0"));
+  });
 });
