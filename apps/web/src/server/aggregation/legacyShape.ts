@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchAllRows } from "./pagination";
 
 // ============================================================
 // Phase9 移行ヘルパ: daily_reports_v2 + report_entries から
@@ -50,8 +51,6 @@ export type LegacyDailyRow = {
   rejected_at: string | null;
   rejected_by: string | null;
 };
-
-const BIG = 100000;
 
 type Filters = {
   start?: string;
@@ -106,26 +105,26 @@ export async function loadLegacyDailyRows(
   filters: Filters,
   options: Options = {},
 ): Promise<LegacyDailyRow[]> {
-  let q = supabase
-    .from("daily_reports_v2")
-    .select(
-      "id, legacy_report_id, driver_id, identity_id, report_date, course_id, carrier_id, vehicle_id, meter_value, submitted_at, approved_at, approved_by, rejected_at, rejected_by",
-    )
-    .limit(BIG);
-  if (filters.start) q = q.gte("report_date", filters.start);
-  if (filters.end) q = q.lte("report_date", filters.end);
-  if (filters.driverId) q = q.eq("driver_id", filters.driverId);
-  if (filters.driverIdentityId) q = q.eq("identity_id", filters.driverIdentityId);
-  if (filters.vehicleId) q = q.eq("vehicle_id", filters.vehicleId);
+  const buildQuery = (from: number, to: number) => {
+    let q = supabase
+      .from("daily_reports_v2")
+      .select(
+        "id, legacy_report_id, driver_id, identity_id, report_date, course_id, carrier_id, vehicle_id, meter_value, submitted_at, approved_at, approved_by, rejected_at, rejected_by",
+      );
+    if (filters.start) q = q.gte("report_date", filters.start);
+    if (filters.end) q = q.lte("report_date", filters.end);
+    if (filters.driverId) q = q.eq("driver_id", filters.driverId);
+    if (filters.driverIdentityId) q = q.eq("identity_id", filters.driverIdentityId);
+    if (filters.vehicleId) q = q.eq("vehicle_id", filters.vehicleId);
+    return q.range(from, to);
+  };
 
-  const [{ data: reportRows, error: rErr }, { data: carrierRows }, { data: unitRows }, { data: courseRows }] =
-    await Promise.all([
-      q,
-      supabase.from("carriers").select("id, code, name"),
-      supabase.from("units").select("id, code"),
-      supabase.from("courses").select("id, name"),
-    ]);
-  if (rErr) throw rErr;
+  const [reportRows, { data: carrierRows }, { data: unitRows }, { data: courseRows }] = await Promise.all([
+    fetchAllRows(buildQuery),
+    supabase.from("carriers").select("id, code, name"),
+    supabase.from("units").select("id, code"),
+    supabase.from("courses").select("id, name"),
+  ]);
   if (!reportRows?.length) return [];
 
   const carrierCodeById = new Map<string, string>();
@@ -166,12 +165,14 @@ export async function loadLegacyDailyRows(
   const entriesByReport = new Map<string, { unitId: string; fieldKey: string; valueNum: number }[]>();
   for (let i = 0; i < ids.length; i += 1000) {
     const slice = ids.slice(i, i + 1000);
-    const { data: entRows } = await supabase
-      .from("report_entries")
-      .select("report_id, unit_id, field_key, value_num")
-      .in("report_id", slice)
-      .limit(BIG);
-    (entRows ?? []).forEach(
+    const entRows = await fetchAllRows((from, to) =>
+      supabase
+        .from("report_entries")
+        .select("report_id, unit_id, field_key, value_num")
+        .in("report_id", slice)
+        .range(from, to),
+    );
+    entRows.forEach(
       (e: { report_id: string; unit_id: string; field_key: string; value_num: number | null }) => {
         const arr = entriesByReport.get(e.report_id) ?? [];
         arr.push({ unitId: e.unit_id, fieldKey: e.field_key, valueNum: Number(e.value_num) || 0 });
