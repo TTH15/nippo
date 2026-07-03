@@ -47,6 +47,9 @@ type Driver = {
   list_no?: number | null;
   created_at?: string;
   license_expiry_date?: string | null;
+  status?: string;
+  active_from_month?: string | null;
+  active_until_month?: string | null;
   postal_code?: string | null;
   address?: string | null;
   phone?: string | null;
@@ -180,6 +183,9 @@ export default function UsersPage() {
     bankHolder: "",
     licenseExpiryDate: "",
     roleId: "", // §2-6 ロール割当（roles.id）。空＝変更しない
+    status: "active" as "active" | "inactive",
+    activeFromMonth: "", // 'YYYY-MM'。空＝不明
+    activeUntilMonth: "", // 'YYYY-MM'。空＝現在も稼働中
   });
   const [leaseForm, setLeaseForm] = useState<LeaseForm>(EMPTY_LEASE);
   const [leaseLoading, setLeaseLoading] = useState(false);
@@ -196,10 +202,13 @@ export default function UsersPage() {
     detail?: string;
   } | null>(null);
 
+  // 稼働中/稼働終了の切替（既定は稼働中＝従来の一覧挙動）。
+  const [statusFilter, setStatusFilter] = useState<"active" | "inactive">("active");
+
   const usersPageKey = (pageIndex: number, previousPageData: UsersPageResponse | null) => {
     if (previousPageData && !previousPageData.hasMore) return null;
     const cursor = previousPageData?.nextCursor ?? "0";
-    return `/api/admin/users?limit=${USERS_PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`;
+    return `/api/admin/users?limit=${USERS_PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}&status=${statusFilter}`;
   };
 
   const { data: usersPages, isLoading: usersLoading, isValidating: usersValidating, setSize } =
@@ -244,6 +253,14 @@ export default function UsersPage() {
     }
   }, []);
 
+  // 稼働中/稼働終了タブの切替時は、前のタブのローカルキャッシュ(drivers state)を
+  // 引き継がずクリアする（切替直後に別ステータスの一覧が混ざって見えるのを防ぐ）。
+  useEffect(() => {
+    setDrivers([]);
+    void setSize(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
+
   useEffect(() => {
     setDrivers((prev) => {
       if (flattenedDrivers.length === 0 && prev.length === 0) return prev;
@@ -283,6 +300,9 @@ export default function UsersPage() {
       bankHolder: "",
       licenseExpiryDate: "",
       roleId: "",
+      status: "active",
+      activeFromMonth: "",
+      activeUntilMonth: "",
     });
     setLeaseForm({ ...EMPTY_LEASE, validFrom: currentMonthStartStr() });
     setShowModal(true);
@@ -334,6 +354,11 @@ export default function UsersPage() {
           ? full.license_expiry_date
           : "",
       roleId: full.role_id ?? "",
+      status: full.status === "inactive" ? "inactive" : "active",
+      activeFromMonth:
+        full.active_from_month && /^\d{4}-\d{2}$/.test(full.active_from_month) ? full.active_from_month : "",
+      activeUntilMonth:
+        full.active_until_month && /^\d{4}-\d{2}$/.test(full.active_until_month) ? full.active_until_month : "",
     });
   };
 
@@ -515,6 +540,9 @@ export default function UsersPage() {
             bankHolder: form.bankHolder.trim() || null,
             licenseExpiryDate: form.licenseExpiryDate.trim() || null,
             roleId: form.roleId || null,
+            status: form.status,
+            activeFromMonth: form.activeFromMonth || null,
+            activeUntilMonth: form.activeUntilMonth || null,
           }),
         });
         setDrivers((prev) =>
@@ -534,6 +562,9 @@ export default function UsersPage() {
                     bank_no: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
                     bank_holder: form.bankHolder.trim() || null,
                     license_expiry_date: form.licenseExpiryDate.trim() || null,
+                    status: form.status,
+                    active_from_month: form.activeFromMonth || null,
+                    active_until_month: form.activeUntilMonth || null,
                     driver_identities: nextIdentities,
                   }
                 : d,
@@ -760,6 +791,26 @@ export default function UsersPage() {
               新規追加
             </Button>
           )}
+        </div>
+
+        <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-lg mb-4">
+          {(
+            [
+              { key: "active" as const, label: "稼働中" },
+              { key: "inactive" as const, label: "稼働終了" },
+            ]
+          ).map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => setStatusFilter(o.key)}
+              className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                statusFilter === o.key ? "bg-white text-slate-900 shadow-sm font-medium" : "text-slate-500 hover:text-slate-900"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
         </div>
 
         {loading ? (
@@ -1136,6 +1187,93 @@ export default function UsersPage() {
 
               {modalTab === "contract" && (
               <>
+              <div className="pt-1">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-1">
+                  <FontAwesomeIcon icon={faCircleCheck} className="w-3.5 h-3.5 text-slate-400" />
+                  稼働状況
+                </h3>
+                <p className="text-xs text-slate-500 mb-3">
+                  「稼働終了」にすると通常の一覧・ピッカーには出てこなくなります。過去の請求書一覧では、稼働開始月〜終了月の期間に該当すれば引き続き表示されます。
+                </p>
+                <div className="flex gap-2 mb-3">
+                  {(
+                    [
+                      { key: "active" as const, label: "稼働中" },
+                      { key: "inactive" as const, label: "稼働終了" },
+                    ]
+                  ).map((o) => {
+                    const active = form.status === o.key;
+                    const hasCourses = form.courseIds.length > 0 || form.courseIds2.length > 0;
+                    const disabled = o.key === "inactive" && form.status !== "inactive" && hasCourses;
+                    return (
+                      <button
+                        key={o.key}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setForm((f) => ({ ...f, status: o.key }))}
+                        title={disabled ? "先に担当コースの割り当てをすべて解除してください" : undefined}
+                        className={`px-4 py-1.5 rounded text-sm font-medium border transition-colors ${
+                          active
+                            ? "bg-slate-800 text-white border-slate-800"
+                            : disabled
+                              ? "text-slate-300 border-slate-100 bg-slate-50 cursor-not-allowed"
+                              : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
+                        }`}
+                      >
+                        {o.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {form.status === "inactive" && (form.courseIds.length > 0 || form.courseIds2.length > 0) && (
+                  <p className="text-xs text-amber-600 mb-3">
+                    <FontAwesomeIcon icon={faTriangleExclamation} className="w-3 h-3 mr-1" />
+                    担当コースが割り当てられたままです。保存前に「基本情報」タブでコースの割り当てをすべて解除してください。
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">稼働開始月</label>
+                    <MonthYearPicker
+                      value={
+                        form.activeFromMonth && /^\d{4}-\d{2}$/.test(form.activeFromMonth)
+                          ? { year: Number(form.activeFromMonth.slice(0, 4)), month: Number(form.activeFromMonth.slice(5, 7)) }
+                          : undefined
+                      }
+                      onChange={({ year, month }) =>
+                        setForm((f) => ({ ...f, activeFromMonth: `${year}-${String(month).padStart(2, "0")}` }))
+                      }
+                      placeholder="不明"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">稼働終了月</label>
+                    <div className="flex items-center gap-2">
+                      <MonthYearPicker
+                        value={
+                          form.activeUntilMonth && /^\d{4}-\d{2}$/.test(form.activeUntilMonth)
+                            ? { year: Number(form.activeUntilMonth.slice(0, 4)), month: Number(form.activeUntilMonth.slice(5, 7)) }
+                            : undefined
+                        }
+                        onChange={({ year, month }) =>
+                          setForm((f) => ({ ...f, activeUntilMonth: `${year}-${String(month).padStart(2, "0")}` }))
+                        }
+                        placeholder="現在も稼働中"
+                      />
+                      {form.activeUntilMonth && (
+                        <button
+                          type="button"
+                          onClick={() => setForm((f) => ({ ...f, activeUntilMonth: "" }))}
+                          className="text-xs text-slate-400 hover:text-slate-600 whitespace-nowrap"
+                        >
+                          クリア
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="pt-4 mt-4 border-t border-slate-200">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-1">
                   <FontAwesomeIcon icon={faIdCard} className="w-3.5 h-3.5 text-slate-400" />
