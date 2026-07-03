@@ -57,7 +57,7 @@ type GridApi = {
     row: number,
     col: number,
   ) => {
-    "data-cell": string;
+    dataCell: string;
     onFocus: () => void;
     onBlur: () => void;
     onKeyDown: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
@@ -383,7 +383,7 @@ export function InvoiceSheet({
         },
         isActive: (section, row, col) => !!active && active.section === section && active.row === row && active.col === col,
         cellProps: (section, row, col) => ({
-          "data-cell": `${section}|${row}|${col}`,
+          dataCell: `${section}|${row}|${col}`,
           onFocus: () => setActive({ section, row, col }),
           // フォーカスが外れたらアクティブ枠/フィルハンドルを消す。
           // フィルハンドルの mousedown は preventDefault でフォーカスを保持するため drag は維持される。
@@ -414,28 +414,24 @@ export function InvoiceSheet({
             } else if (e.key === "ArrowDown") {
               if (row + 1 < lines.length) {
                 e.preventDefault();
-                focusCell(section, row + 1, col);
+                setTimeout(() => focusCell(section, row + 1, col), 0);
               }
             } else if (e.key === "ArrowUp") {
               if (row > 0) {
                 e.preventDefault();
-                focusCell(section, row - 1, col);
+                setTimeout(() => focusCell(section, row - 1, col), 0);
               }
             } else if (e.key === "ArrowRight") {
-              // テキストカーソルが末尾にあるときだけ右のセルへ移動する（文字入力中の移動は妨げない）。
-              const input = e.currentTarget;
-              const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
-              if (atEnd && col + 1 < COL_COUNT) {
+              // 上下キーと同様、常に右のセルへ移動する。
+              if (col + 1 < COL_COUNT) {
                 e.preventDefault();
-                focusCell(section, row, col + 1);
+                setTimeout(() => focusCell(section, row, col + 1), 0);
               }
             } else if (e.key === "ArrowLeft") {
-              // テキストカーソルが先頭にあるときだけ左のセルへ移動する。
-              const input = e.currentTarget;
-              const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
-              if (atStart && col > 0) {
+              // 上下キーと同様、常に左のセルへ移動する。
+              if (col > 0) {
                 e.preventDefault();
-                focusCell(section, row, col - 1);
+                setTimeout(() => focusCell(section, row, col - 1), 0);
               }
             }
           },
