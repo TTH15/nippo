@@ -1,36 +1,27 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
+import { useLayoutEffect, useRef, useState, type Ref } from "react";
 import { InvoiceSheet } from "./InvoiceSheet";
 import type { EditorState } from "./editorModel";
-import { collectPageUnits, computeBreakUnitIds, PAGE_CONTENT_HEIGHT_PX } from "./paginate";
+import { collectPageUnits, computePageIndices, PAGE_CONTENT_HEIGHT_PX } from "./paginate";
 
-function mergeRefs<T>(...refs: (Ref<T> | undefined)[]) {
-  return (node: T | null) => {
-    for (const ref of refs) {
-      if (!ref) continue;
-      if (typeof ref === "function") ref(node);
-      else (ref as { current: T | null }).current = node;
-    }
-  };
-}
-
-function sameIds(a: Set<string>, b: Set<string>) {
+function sameIndices(a: Map<string, number>, b: Map<string, number>) {
   if (a.size !== b.size) return false;
-  for (const id of a) if (!b.has(id)) return false;
+  for (const [id, page] of a) if (b.get(id) !== page) return false;
   return true;
 }
 
-const EMPTY_IDS: Set<string> = new Set();
+const EMPTY_INDICES: Map<string, number> = new Map();
 
 /**
- * 請求書シートに「実際に印刷される改ページ位置」をライブで可視化するラッパー。
+ * 請求書シートに「実際に印刷されるページ境界」をライブで可視化するラッパー。
  * プレビュー画面と編集画面の区別をなくすため、readOnly の両モードで共通に使う
  * （InvoiceSheetEditor / [id]/preview/page.tsx の双方から利用）。
  *
- * 常設の非表示・計測専用クローン（printRoot=false）を1つ持ち、そこだけを計測して
- * 改ページが必要なユニットの id 集合を求める。実際に表示・編集される InvoiceSheet 自体は
- * 一切自己計測しない（継ぎ目バンド挿入→再計測のカスケードを避けるため）。
+ * 常設の非表示・計測専用クローン（printRoot=false, 素の連続レイアウト）を1つ持ち、
+ * そこだけを計測してアトミックブロックごとのページ番号を求める。実際に表示・編集
+ * される InvoiceSheet（pageIndexOf 付き）はその結果でページコンテナへグルーピング
+ * して描画し、そちらがそのまま印刷対象になる（画面と印刷が同じ計算結果を共有する）。
  */
 export function PaginatedInvoiceSheet({
   state,
@@ -46,8 +37,7 @@ export function PaginatedInvoiceSheet({
   className?: string;
 }) {
   const measureRef = useRef<HTMLDivElement>(null);
-  const [breakBeforeIds, setBreakBeforeIds] = useState<Set<string>>(EMPTY_IDS);
-  const measureCallbackRef = useMemo(() => mergeRefs(measureRef), []);
+  const [pageIndices, setPageIndices] = useState<Map<string, number>>(EMPTY_INDICES);
 
   // レイアウトに影響する項目のみを依存にする（グリッドの選択状態などは対象外）。
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -55,8 +45,8 @@ export function PaginatedInvoiceSheet({
     const root = measureRef.current;
     if (!root) return;
     const units = collectPageUnits(root);
-    const next = computeBreakUnitIds(units, PAGE_CONTENT_HEIGHT_PX);
-    setBreakBeforeIds((prev) => (sameIds(prev, next) ? prev : next));
+    const next = computePageIndices(units, PAGE_CONTENT_HEIGHT_PX);
+    setPageIndices((prev) => (sameIndices(prev, next) ? prev : next));
   }, [
     state.kind,
     state.main,
@@ -81,19 +71,22 @@ export function PaginatedInvoiceSheet({
     state.bankHolder,
   ]);
 
+  const pageIndexOf = (unitId: string) => pageIndices.get(unitId) ?? 0;
+
   return (
     <>
-      {/* 計測専用の隠しコピー。編集中と同じ readOnly で計測し、見た目・折り返しのズレを防ぐ。 */}
+      {/* 計測専用の隠しコピー（素の連続レイアウト）。印刷対象ではない。 */}
       <div style={{ position: "absolute", left: 0, top: 0, zIndex: -1, visibility: "hidden", pointerEvents: "none" }} aria-hidden>
-        <InvoiceSheet state={state} readOnly={readOnly} printRoot={false} sheetRef={measureCallbackRef} />
+        <InvoiceSheet state={state} readOnly={readOnly} printRoot={false} sheetRef={measureRef} />
       </div>
+      {/* 実際に表示・編集され、そのまま印刷対象になる実体。 */}
       <InvoiceSheet
         state={state}
         readOnly={readOnly}
         onChange={onChange}
         sheetRef={sheetRef}
         className={className}
-        breakBeforeIds={breakBeforeIds}
+        pageIndexOf={pageIndexOf}
       />
     </>
   );

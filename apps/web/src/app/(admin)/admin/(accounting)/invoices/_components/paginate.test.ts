@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computePageBreaks, computeBreakUnitIds, type PageUnit } from "./paginate";
+import { computePageBreaks, computeBreakUnitIds, computePageIndices, type PageUnit } from "./paginate";
 
 let seq = 0;
 const unit = (top: number, height: number, forceBreak = false, id?: string): PageUnit => ({
@@ -73,5 +73,40 @@ describe("computeBreakUnitIds", () => {
   it("ページ先頭ちょうどのユニットには forceBreak があっても id を追加しない", () => {
     const units = [unit(0, 50, false, "a"), unit(50, 0, true, "b"), unit(50, 20, true, "c")];
     expect(computeBreakUnitIds(units, 100)).toEqual(new Set(["b"]));
+  });
+});
+
+describe("computePageIndices", () => {
+  it("すべて1ページに収まる場合は全ユニットが 0", () => {
+    const units = [unit(0, 20, false, "a"), unit(20, 20, false, "b")];
+    expect(computePageIndices(units, 100)).toEqual(
+      new Map([
+        ["a", 0],
+        ["b", 0],
+      ]),
+    );
+  });
+
+  it("改ページごとにページ番号が1つずつ増える", () => {
+    const units = [unit(0, 90, false, "a"), unit(90, 90, false, "b"), unit(180, 90, false, "c"), unit(270, 90, false, "d")];
+    expect(computePageIndices(units, 100)).toEqual(
+      new Map([
+        ["a", 0],
+        ["b", 1],
+        ["c", 2],
+        ["d", 3],
+      ]),
+    );
+  });
+
+  it("強制改行でもページ番号が増える", () => {
+    const units = [unit(0, 10, false, "a"), unit(10, 10, true, "b"), unit(20, 10, false, "c")];
+    expect(computePageIndices(units, 1000)).toEqual(
+      new Map([
+        ["a", 0],
+        ["b", 1],
+        ["c", 1],
+      ]),
+    );
   });
 });

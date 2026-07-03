@@ -52,11 +52,27 @@ export function computePageBreaks(units: PageUnit[], pageHeightPx: number): numb
   return breaks;
 }
 
-/** 改ページ直前に来るユニットの id 集合を返す（画面上の継ぎ目バンド描画に使う）。 */
+/** 改ページ直前に来るユニットの id 集合を返す。 */
 export function computeBreakUnitIds(units: PageUnit[], pageHeightPx: number): Set<string> {
   const ids = new Set<string>();
   walkBreaks(units, pageHeightPx, (unit) => ids.add(unit.id));
   return ids;
+}
+
+/**
+ * 各ユニットの id → ページ番号（0始まり）を返す。
+ * 改ページ位置の判定（walkBreaks／computeBreakUnitIds と同じ1つのロジック）に対して
+ * 素直にカウンタを1つ増やすだけなので、判定結果と番号付けが食い違うことはない。
+ */
+export function computePageIndices(units: PageUnit[], pageHeightPx: number): Map<string, number> {
+  const breakIds = computeBreakUnitIds(units, pageHeightPx);
+  const indices = new Map<string, number>();
+  let page = 0;
+  for (const unit of units) {
+    if (breakIds.has(unit.id)) page += 1;
+    indices.set(unit.id, page);
+  }
+  return indices;
 }
 
 /** DOM 計測結果から PageUnit 配列を組み立てる。root 自身との差分で top を出す（offsetTop は使わない）。 */
