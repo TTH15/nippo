@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchAllRows } from "./pagination";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "./pagination";
 
 // ============================================================
 // Phase9 移行ヘルパ: daily_reports_v2 + report_entries から
@@ -163,8 +163,8 @@ export async function loadLegacyDailyRows(
 
   const ids = reportRows.map((r: { id: string }) => r.id);
   const entriesByReport = new Map<string, { unitId: string; fieldKey: string; valueNum: number }[]>();
-  for (let i = 0; i < ids.length; i += 1000) {
-    const slice = ids.slice(i, i + 1000);
+  for (let i = 0; i < ids.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const slice = ids.slice(i, i + IN_CLAUSE_BATCH_SIZE);
     const entRows = await fetchAllRows((from, to) =>
       supabase
         .from("report_entries")

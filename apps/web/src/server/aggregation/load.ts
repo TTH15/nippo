@@ -5,7 +5,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadOrgCarrierIds } from "@/server/carriers/orgCarriers";
-import { fetchAllRows } from "./pagination";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "./pagination";
 import type {
   CourseFixedRate,
   CourseUnitRate,
@@ -103,8 +103,8 @@ export async function loadAggregationData(
   const reportIds = (reportRows ?? []).map((r: any) => r.id);
   const entriesByReport = new Map<string, ReportEntry[]>();
   if (reportIds.length > 0) {
-    for (let i = 0; i < reportIds.length; i += 1000) {
-      const slice = reportIds.slice(i, i + 1000);
+    for (let i = 0; i < reportIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+      const slice = reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
       const entRows = await fetchAllRows((from, to) =>
         supabase
           .from("report_entries")

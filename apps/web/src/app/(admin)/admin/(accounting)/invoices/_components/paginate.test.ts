@@ -2,11 +2,12 @@ import { describe, it, expect } from "vitest";
 import { computePageBreaks, computeBreakUnitIds, computePageIndices, type PageUnit } from "./paginate";
 
 let seq = 0;
-const unit = (top: number, height: number, forceBreak = false, id?: string): PageUnit => ({
+const unit = (top: number, height: number, forceBreak = false, id?: string, keepWithNext = false): PageUnit => ({
   id: id ?? `u${seq++}`,
   top,
   height,
   forceBreak,
+  keepWithNext,
 });
 
 describe("computePageBreaks", () => {
@@ -46,6 +47,20 @@ describe("computePageBreaks", () => {
 
   it("空配列は先頭ページのみ", () => {
     expect(computePageBreaks([], 100)).toEqual([0]);
+  });
+
+  it("keepWithNext が無い場合、直後のユニット単独だけが次ページへ送られる（振込先だけ浮くバグの再現）", () => {
+    const units = [unit(0, 70), unit(70, 20), unit(90, 20)];
+    // 3つ目(top=90, height=20)を置くと 90+20=110 > 100 で溢れる→3つ目の手前で改ページ。
+    // 2つ目（テーブル）はページ1に残ったまま、3つ目（振込先）だけが単独でページ2へ。
+    expect(computePageBreaks(units, 100)).toEqual([0, 90]);
+  });
+
+  it("keepWithNext を付けると、テーブルの最終セグメントと振込先ブロックが道連れで次ページへ送られる", () => {
+    const units = [unit(0, 70), unit(70, 20, false, undefined, true), unit(90, 20)];
+    // 2つ目に keepWithNext を付けると、2つ目+3つ目のグループ合計(70〜110)で溢れ判定。
+    // グループごと次ページへ送られるため、テーブルと振込先が同じページに揃う。
+    expect(computePageBreaks(units, 100)).toEqual([0, 70]);
   });
 });
 

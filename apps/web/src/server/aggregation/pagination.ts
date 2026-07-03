@@ -1,6 +1,14 @@
 const PAGE_SIZE = 1000;
 
 /**
+ * `.in("col", ids)` の ids 件数が多いと、UUID(36文字)の羅列でURLが
+ * PostgRESTのヘッダ上限(既定16KB)を超え `Bad Request` / ヘッダオーバーフローで
+ * サイレントに失敗する（Supabase公式エラーメッセージでも200件超で要注意と明示）。
+ * 安全側に倒し、IN句に渡すID件数はこの値以下に分割する。
+ */
+export const IN_CLAUSE_BATCH_SIZE = 200;
+
+/**
  * Supabase/PostgREST は `db-max-rows`（既定1000件）を超える行数を、
  * クライアント側の `.limit()` 指定に関わらず黙って切り詰める。
  * `.range()` でページングして全件を取得する。
