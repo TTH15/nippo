@@ -75,9 +75,12 @@ export function PaginatedInvoiceSheet({
 
   return (
     <>
-      {/* 計測専用の隠しコピー（素の連続レイアウト）。印刷対象ではない。 */}
+      {/* 計測専用の隠しコピー（素の連続レイアウト）。印刷対象ではない。
+          interactive=false で data-cell 等のグリッドAPIを出さない
+          （実体と同じ data-cell を持つと document.querySelector によるフォーカス移動が
+          こちらの見えない・操作できないクローンを誤って拾ってしまうため）。 */}
       <div style={{ position: "absolute", left: 0, top: 0, zIndex: -1, visibility: "hidden", pointerEvents: "none" }} aria-hidden>
-        <InvoiceSheet state={state} readOnly={readOnly} printRoot={false} sheetRef={measureRef} />
+        <InvoiceSheet state={state} readOnly={readOnly} printRoot={false} interactive={false} sheetRef={measureRef} />
       </div>
       {/* 実際に表示・編集され、そのまま印刷対象になる実体。 */}
       <InvoiceSheet

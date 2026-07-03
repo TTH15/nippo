@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type SetStateAction } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faRotateLeft, faRotateRight, faCloud, faCloudArrowUp, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch } from "@/lib/api";
@@ -202,6 +202,23 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     return () => clearTimeout(t);
   }, [st, persist]);
 
+  // アンマウント時（画面遷移など）にデバウンス中の保存が消えないよう、最後の状態を必ず1回保存する。
+  // st/persist は毎レンダー更新される ref 経由で参照し、cleanup 自体は初回のみ登録する。
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
+  useEffect(() => {
+    return () => {
+      void persistRef.current(stRef.current);
+    };
+  }, []);
+
+  // 「一覧」へ戻る前にも同様に保存を確定させてから遷移する（デバウンス待ちで消えるのを防ぐ）。
+  const goToList = async (e: ReactMouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    await persist(stRef.current);
+    window.location.href = "/admin/invoices";
+  };
+
   const saveStatusUi = (() => {
     if (saveStatus === "saving") return { icon: faCloudArrowUp, text: "保存中…", cls: "text-slate-500" };
     if (saveStatus === "error") return { icon: faTriangleExclamation, text: "保存エラー", cls: "text-red-600" };
@@ -213,7 +230,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     <div className="flex flex-col h-[calc(100vh-52px)]">
       {/* スリムなツールバー（PDFには含めない） */}
       <div className="hide-print flex flex-wrap items-center gap-3 px-4 py-2 bg-white border-b border-slate-200">
-        <a href="/admin/invoices" className="text-sm text-slate-600 underline hover:text-slate-900">一覧</a>
+        <a href="/admin/invoices" onClick={goToList} className="text-sm text-slate-600 underline hover:text-slate-900">一覧</a>
 
         <div className="flex gap-1">
           {(["outgoing", "incoming"] as const).map((k) => (

@@ -296,6 +296,7 @@ export function InvoiceSheet({
   className,
   printRoot = true,
   pageIndexOf,
+  interactive = true,
 }: {
   state: EditorState;
   readOnly?: boolean;
@@ -306,6 +307,10 @@ export function InvoiceSheet({
   printRoot?: boolean;
   /** 各アトミックブロックの id → ページ番号。指定時はページごとに .invoice-page へグルーピングして描画する。未指定時は素の連続レイアウト（計測用）。 */
   pageIndexOf?: (unitId: string) => number;
+  /** false の場合、readOnly=false でも data-cell やホバー操作などのグリッドAPIを供給しない
+   * （画面専用の計測用クローンが、実体と同じ data-cell を持って document.querySelector を
+   * 誤誘導しないようにするため。入力欄自体の見た目/サイズは readOnly の値どおりに保つ）。既定 true。 */
+  interactive?: boolean;
 }) {
   const st = state;
   const config = INVOICE_KIND_CONFIG[st.kind] ?? INVOICE_KIND_CONFIG.outgoing;
@@ -347,7 +352,7 @@ export function InvoiceSheet({
     }
   };
 
-  const grid: GridApi | undefined = readOnly
+  const grid: GridApi | undefined = readOnly || !interactive
     ? undefined
     : {
         isFillTarget: (section, row, col) => {
