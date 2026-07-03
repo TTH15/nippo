@@ -76,7 +76,8 @@ describe("insert / remove / move", () => {
   });
   it("行削除、全消し時は空1行を残す", () => {
     expect(removeLineAt([line("a"), line("b")], 0).map((l) => l.title)).toEqual(["b"]);
-    expect(removeLineAt([line("only")], 0)).toEqual([emptyLine()]);
+    // 最後の1行を消しても0行になってよい（表自体は残る仕様）
+    expect(removeLineAt([line("only")], 0)).toEqual([]);
   });
   it("行を並べ替える", () => {
     const next = moveLine([line("a"), line("b"), line("c")], 0, 2);

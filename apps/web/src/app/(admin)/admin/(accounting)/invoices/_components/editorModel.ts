@@ -228,7 +228,9 @@ type ApiInvoice = {
 };
 
 function linesFromPayload(v: unknown): EditorLine[] {
-  if (!Array.isArray(v) || v.length === 0) return [emptyLine()];
+  // 配列でない（＝未保存・旧データ）場合だけ空1行を補う。保存済みの空配列（＝ユーザーが
+  // 意図的に0行にした）はそのまま空配列として尊重する（再読込で復活しないように）。
+  if (!Array.isArray(v)) return [emptyLine()];
   return v.map((r) => ({
     title: s(r?.title),
     qty: r?.qty == null ? "" : String(r.qty),
