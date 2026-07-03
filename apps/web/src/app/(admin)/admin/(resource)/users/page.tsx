@@ -757,8 +757,11 @@ export default function UsersPage() {
   };
 
   // 自動保存（編集モード）: 入力変更を1秒デバウンスで PUT。populate直後・無効入力・新規はスキップ。
+  // showModal は依存に含めない: モーダルを閉じても保留中の保存タイマーを打ち切らず、
+  // バックグラウンドで完了させるため（閉じた直後の変更が保存されずに消えるのを防ぐ）。
   useEffect(() => {
-    if (!showModal || modalLoading || !editingDriver || !canWrite || !isFormValid) return;
+    if (modalLoading || !editingDriver || !canWrite || !isFormValid) return;
+    if (!showModal) return; // モーダルが開いている間の変更だけを新規にスケジュールする
     if (skipAutoSave.current) {
       skipAutoSave.current = false;
       return;
@@ -772,7 +775,7 @@ export default function UsersPage() {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, leaseForm, showModal, modalLoading, editingDriver, isFormValid]);
+  }, [form, leaseForm, modalLoading, editingDriver, isFormValid]);
 
   return (
     <AdminLayout>
