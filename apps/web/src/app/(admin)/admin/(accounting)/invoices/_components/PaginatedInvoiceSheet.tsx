@@ -78,9 +78,14 @@ export function PaginatedInvoiceSheet({
       {/* 計測専用の隠しコピー（素の連続レイアウト）。印刷対象ではない。
           interactive=false で data-cell 等のグリッドAPIを出さない
           （実体と同じ data-cell を持つと document.querySelector によるフォーカス移動が
-          こちらの見えない・操作できないクローンを誤って拾ってしまうため）。 */}
+          こちらの見えない・操作できないクローンを誤って拾ってしまうため）。
+          readOnly は常に true で計測する。編集画面(readOnly=false)では
+          breakToggle 等の hide-print UI（画面には表示され印刷時のみ display:none）が
+          通常フローに高さを持って乗るため、編集中の見た目のまま計測すると
+          実際の印刷より過大な高さになり、本来1ページに収まる内容でも
+          不要な改ページが入ってしまう。ページ割りは常に「印刷される見た目」で判定する。 */}
       <div style={{ position: "absolute", left: 0, top: 0, zIndex: -1, visibility: "hidden", pointerEvents: "none" }} aria-hidden>
-        <InvoiceSheet state={state} readOnly={readOnly} printRoot={false} interactive={false} sheetRef={measureRef} />
+        <InvoiceSheet state={state} readOnly printRoot={false} interactive={false} sheetRef={measureRef} />
       </div>
       {/* 実際に表示・編集され、そのまま印刷対象になる実体。 */}
       <InvoiceSheet
