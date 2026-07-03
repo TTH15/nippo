@@ -147,7 +147,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     const d = drivers.find((x) => x.id === id);
     setSt((prev) => ({
       ...prev,
-      fromName: d ? d.display_name || d.name : prev.fromName,
+      fromName: d ? d.name : prev.fromName,
       fromAddrHtml: d ? addrHtml(d.postal_code, d.address) : prev.fromAddrHtml,
       fromTel: d ? d.phone ?? "" : prev.fromTel,
       bankName: d ? d.bank_name ?? "" : prev.bankName,
