@@ -27,7 +27,7 @@ import { type InvoiceKind } from "./invoiceKinds";
 
 type AddressRow = { id: string; name: string; postal_code?: string; address?: string; phone?: string; invoice_no?: string };
 type DriverRow = {
-  id: string; name: string; display_name?: string | null;
+  id: string; name: string; display_name?: string | null; status?: string;
   postal_code?: string | null; address?: string | null; phone?: string | null;
   bank_name?: string | null; bank_no?: string | null; bank_holder?: string | null;
 };
@@ -110,8 +110,10 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     st.kind === "outgoing" ? "/api/admin/invoice-addresses" : null,
   );
   const addresses = addrData?.addresses ?? [];
+  // status=all: 稼働終了(inactive)済みのドライバーも選べるようにする
+  // （過去に遡って請求書を作成するケースがあるため）。
   const { data: driverData } = useApi<{ drivers: DriverRow[] }>(
-    st.kind === "incoming" ? "/api/admin/users?limit=500" : null,
+    st.kind === "incoming" ? "/api/admin/users?limit=500&status=all" : null,
   );
   const drivers = driverData?.drivers ?? [];
 
@@ -256,7 +258,10 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
               placeholder="請求元（ドライバー）を選択…"
               value={st.parties.fromParty.startsWith("drv-") ? st.parties.fromParty.slice(4) : ""}
               onChange={(v) => selectDriver(v)}
-              options={drivers.map((d) => ({ value: d.id, label: d.display_name || d.name }))}
+              options={drivers.map((d) => ({
+                value: d.id,
+                label: (d.display_name || d.name) + (d.status === "inactive" ? "（稼働終了）" : ""),
+              }))}
             />
           )}
         </div>

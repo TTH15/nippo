@@ -18,9 +18,12 @@ export async function GET(req: NextRequest) {
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 20;
   const offset = Number.isFinite(cursorRaw) ? Math.max(0, Math.floor(cursorRaw)) : 0;
   // Phase 7a: status フィルタ。既定は active（既存ロスター挙動を維持）。?status=pending で承認待ち一覧。
+  // status=all は「active または inactive」（請求書のドライバー選択など、稼働終了済みも
+  // 選べる必要がある画面向け。pending/rejected はメンバーではないため対象外）。
   const statusRaw = url.searchParams.get("status");
   const status =
-    statusRaw && ["pending", "active", "rejected", "inactive"].includes(statusRaw) ? statusRaw : "active";
+    statusRaw && ["pending", "active", "rejected", "inactive", "all"].includes(statusRaw) ? statusRaw : "active";
+  const statusIn = status === "all" ? ["active", "inactive"] : [status];
   // 過去の年月時点で在籍していたドライバーを絞り込む（請求書一覧の年月フォルダ等で使用）。
   // 指定時は status フィルタを無視し、稼働期間(active_from_month〜active_until_month)が
   // その年月を含むドライバーを active/inactive 問わず返す（過去は在籍済みで判定するため）。
@@ -74,7 +77,7 @@ export async function GET(req: NextRequest) {
         .or(`active_from_month.is.null,active_from_month.lte.${activeMonth}`)
         .or(`active_until_month.is.null,active_until_month.gte.${activeMonth}`);
     } else {
-      allQuery = allQuery.eq("status", status);
+      allQuery = allQuery.in("status", statusIn);
     }
     const { data: allRows, error: allErr } = await allQuery
       .order("list_no", { ascending: true, nullsFirst: false })
@@ -103,7 +106,7 @@ export async function GET(req: NextRequest) {
     `)
     .eq("org_id", orgId)
     .eq("role", "DRIVER")
-    .eq("status", status)
+    .in("status", statusIn)
     .order("list_no", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true })
     .order("id", { ascending: true })
@@ -119,7 +122,7 @@ export async function GET(req: NextRequest) {
     .select("id", { count: "exact", head: true })
     .eq("org_id", orgId)
     .eq("role", "DRIVER")
-    .eq("status", status);
+    .in("status", statusIn);
   const total = countRes.count ?? 0;
   const returned = drivers?.length ?? 0;
   // ページが limit 未満＝最終ページ。total(件数)が実データとズレても空ページを無限に
