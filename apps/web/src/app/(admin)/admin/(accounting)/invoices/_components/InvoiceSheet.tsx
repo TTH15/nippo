@@ -65,6 +65,8 @@ type GridApi = {
   };
   fillHandle: (section: Section, row: number, col: number) => ReactNode;
   rowControls: (section: Section, row: number, hasBreak: boolean) => ReactNode;
+  /** 明細が0行のテーブルに最初の1行を追加する（行が無いとホバー操作の起点が無いため）。 */
+  addFirstLine: (section: Section) => void;
   rowProps: (
     section: Section,
     row: number,
@@ -168,7 +170,7 @@ function buildLineTableBlocks({
   gross,
   subtotalLabel,
   taxLabel,
-  classNameFirst,
+  styleFirst,
   sectionForceBreak,
   breakToggle,
   setLine,
@@ -185,7 +187,7 @@ function buildLineTableBlocks({
   gross: number;
   subtotalLabel: string;
   taxLabel: string;
-  classNameFirst?: string;
+  styleFirst?: CSSProperties;
   sectionForceBreak: boolean;
   breakToggle: ReactNode;
   setLine: (section: Section, i: number, patch: Partial<EditorLine>) => void;
@@ -210,7 +212,7 @@ function buildLineTableBlocks({
     const forceBreak = isFirst ? sectionForceBreak : true;
 
     const node = (
-      <div data-page-unit data-unit-id={id} data-force-break={forceBreak ? "true" : undefined} className={cn("relative", isFirst && classNameFirst)}>
+      <div data-page-unit data-unit-id={id} data-force-break={forceBreak ? "true" : undefined} className="relative" style={isFirst ? styleFirst : undefined}>
         {isFirst ? breakToggle : null}
         <table className="w-full border-collapse text-[11.5px]" style={{ border: `6px solid ${color}` }}>
           <thead>
@@ -228,6 +230,20 @@ function buildLineTableBlocks({
             </tr>
           </thead>
           <tbody>
+            {segLines.length === 0 && grid ? (
+              <tr className="hide-print">
+                <td colSpan={5} className="py-[6px] text-center bg-white">
+                  <button
+                    type="button"
+                    onClick={() => grid.addFirstLine(section)}
+                    className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-blue-600"
+                  >
+                    <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
+                    行を追加
+                  </button>
+                </td>
+              </tr>
+            ) : null}
             {segLines.map((ln, localI) => {
               const i = seg.start + localI;
               const cellCls = (col: number, extra?: string) =>
@@ -471,6 +487,7 @@ export function InvoiceSheet({
             </button>
           </div>
         ),
+        addFirstLine: (section) => setLines(section, insertLineAt(stRef.current[section], 0)),
         rowProps: (section, row) => ({
           onMouseEnter: () => {
             const cur = fillRef.current;
@@ -528,12 +545,12 @@ export function InvoiceSheet({
       node: (
         <div data-page-unit data-unit-id="header">
           {/* タイトル */}
-          <div className="text-center font-bold text-[20px] tracking-[0.4em] pb-[6px] mb-[14px]" style={{ color: C.brand, borderBottom: `3px solid ${C.brand}` }}>
+          <div className="text-center font-bold text-[20px] tracking-[0.4em] pb-[6px]" style={{ color: C.brand, borderBottom: `3px solid ${C.brand}`, marginBottom: `${st.layout.headerGapMm}mm` }}>
             {config.docTitle}
           </div>
 
           {/* 宛先 / 自社 */}
-          <div className="flex justify-between gap-5 mb-[14px]">
+          <div className="flex justify-between gap-5" style={{ marginBottom: `${st.layout.headerGapMm}mm` }}>
             <div className="flex-1">
               <div className="flex items-end justify-between border-b border-black pb-1">
                 <span className="text-[16px] font-bold flex-1">
@@ -598,7 +615,7 @@ export function InvoiceSheet({
           </div>
 
           {/* サマリー表（二重線の外枠で強調） */}
-          <div className="mt-2" style={{ marginBottom: "1.2cm" }}>
+          <div className="mt-2" style={{ marginBottom: `${st.layout.summaryGapMm}mm` }}>
             <div className="flex">
               <div className="flex-1" />
               <div className="w-[22%] text-right font-semibold text-[11px] py-[1px] px-[9px]" style={{ color: C.brand }}>（円）</div>
@@ -680,7 +697,7 @@ export function InvoiceSheet({
           gross: totals.deductGross,
           subtotalLabel: `${config.deductSectionTitle}小計（税抜）`,
           taxLabel: st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : "",
-          classNameFirst: "mt-[1cm]",
+          styleFirst: { marginTop: `${st.layout.deductGapMm}mm` },
           sectionForceBreak: st.blockBreaks.includes("deduct"),
           breakToggle: breakToggle("deduct"),
           setLine,

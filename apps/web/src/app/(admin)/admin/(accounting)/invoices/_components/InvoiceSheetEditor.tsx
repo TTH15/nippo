@@ -291,6 +291,29 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
         <DatePicker className="w-40 h-8" value={period.end} onChange={(d) => setPeriod(period.start, d)} placeholder="終了日" />
         <span className="ml-3 font-medium text-slate-600">振込期日</span>
         <DatePicker className="w-40 h-8" value={parseIsoDate(st.dueDate)} onChange={(d) => setSt((p) => ({ ...p, dueDate: toIsoDate(d) }))} placeholder="未設定" />
+
+        {/* 余白の微調整（mm）。1ページに収まらないときにここで詰められる。 */}
+        <span className="ml-3 pl-3 border-l border-slate-300 font-medium text-slate-600">余白（mm）</span>
+        {(
+          [
+            { key: "headerGapMm", label: "上部", title: "タイトル・宛先/自社ブロック下の余白" },
+            { key: "summaryGapMm", label: "サマリー〜表", title: "サマリー表と請求分テーブルの間" },
+            { key: "deductGapMm", label: "表と表の間", title: "請求分とお支払い分テーブルの間" },
+          ] as const
+        ).map(({ key, label, title }) => (
+          <label key={key} className="flex items-center gap-1 text-slate-700" title={title}>
+            {label}
+            <input
+              type="number"
+              min={0}
+              max={40}
+              step={1}
+              value={st.layout[key]}
+              onChange={(e) => setSt((p) => ({ ...p, layout: { ...p.layout, [key]: Number(e.target.value) || 0 } }))}
+              className="w-14 rounded border border-slate-300 px-1.5 py-1 text-sm text-right"
+            />
+          </label>
+        ))}
       </div>
 
       {/* 帳票（直接インライン編集。実際の改ページ位置をライブに可視化） */}
