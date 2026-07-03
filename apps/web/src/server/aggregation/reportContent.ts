@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "./pagination";
 
 // ============================================================
 // 日報の「内容」を送信画面と同じ動的構造(unit → fields → value)で取得するローダー。
@@ -37,14 +38,16 @@ export async function loadReportContents(
     value_text: string | null;
   };
   const entries: EntryRow[] = [];
-  for (let i = 0; i < reportIds.length; i += 1000) {
-    const slice = reportIds.slice(i, i + 1000);
-    const { data } = await supabase
-      .from("report_entries")
-      .select("report_id, unit_id, field_key, value_num, value_text")
-      .in("report_id", slice)
-      .limit(100000);
-    (data ?? []).forEach((e: EntryRow) => entries.push(e));
+  for (let i = 0; i < reportIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const slice = reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+    const data = await fetchAllRows<EntryRow>((from, to) =>
+      supabase
+        .from("report_entries")
+        .select("report_id, unit_id, field_key, value_num, value_text")
+        .in("report_id", slice)
+        .range(from, to),
+    );
+    data.forEach((e: EntryRow) => entries.push(e));
   }
   if (!entries.length) return result;
 

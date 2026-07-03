@@ -22,7 +22,28 @@ export type PageUnit = {
   height: number;
   /** true の場合、残り高さに関わらずこのユニットの直前で必ず改ページする。 */
   forceBreak: boolean;
+  /**
+   * true の場合、このユニットと直後のユニットを同じページに保つ（間で自然改ページしない）。
+   * 直後のユニットが次ページへ送られる際は、このユニットも道連れで次ページへ送る
+   * （例: 「お支払い」テーブルの最終セグメントを「振込先」ブロックと同じページに保つ）。
+   */
+  keepWithNext?: boolean;
 };
+
+/** 連続する keepWithNext のユニットをひとまとまりのグループにする。 */
+function groupUnits(units: PageUnit[]): PageUnit[][] {
+  const groups: PageUnit[][] = [];
+  let current: PageUnit[] = [];
+  for (const unit of units) {
+    current.push(unit);
+    if (!unit.keepWithNext) {
+      groups.push(current);
+      current = [];
+    }
+  }
+  if (current.length > 0) groups.push(current);
+  return groups;
+}
 
 /**
  * ユニット列を先頭から走査し、改ページが必要になるたびに onBreak(unit) を呼ぶ。
@@ -30,17 +51,21 @@ export type PageUnit = {
  * - 現在のページに収まらないユニットは（既にページ先頭でない限り）次ページへ送る
  * どちらの条件も「ページ先頭ちょうどにあるユニット」には適用しない
  * （空白ページや冗長な改ページを作らないため）。
+ * keepWithNext で連結されたユニット群は、グループ単位でこの判定を行う
+ * （グループの合計高さが収まらなければグループ全体を次ページへ送る）。
  */
 function walkBreaks(units: PageUnit[], pageHeightPx: number, onBreak: (unit: PageUnit) => void): void {
   let pageStart = 0;
-  for (const unit of units) {
-    const atPageStart = unit.top <= pageStart;
+  for (const group of groupUnits(units)) {
+    const first = group[0];
+    const last = group[group.length - 1];
+    const atPageStart = first.top <= pageStart;
     if (atPageStart) continue;
-    const forcedOverflow = unit.forceBreak;
-    const naturalOverflow = unit.top + unit.height - pageStart > pageHeightPx;
+    const forcedOverflow = group.some((u) => u.forceBreak);
+    const naturalOverflow = last.top + last.height - pageStart > pageHeightPx;
     if (forcedOverflow || naturalOverflow) {
-      onBreak(unit);
-      pageStart = unit.top;
+      onBreak(first);
+      pageStart = first.top;
     }
   }
 }
@@ -86,6 +111,7 @@ export function collectPageUnits(rootEl: HTMLElement): PageUnit[] {
       top: rect.top - rootRect.top,
       height: rect.height,
       forceBreak: el.dataset.forceBreak === "true",
+      keepWithNext: el.dataset.keepWithNext === "true",
     };
   });
 }

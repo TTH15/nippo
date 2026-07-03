@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "@/server/aggregation/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,6 @@ export const dynamic = "force-dynamic";
 //   従量unit: 課金数量フィールドの合計。固定unit: 稼働=1/日（個数に依らない）。
 //   → 「宅/ネ」等のハードコードを廃し、設定した型がそのまま行になる。
 // ============================================================
-
-const BIG = 100000;
 
 type UnitMeta = { id: string; name: string; billingType: string; sortOrder: number };
 
@@ -29,16 +28,17 @@ export async function GET(req: NextRequest) {
   if (!start || !end) return NextResponse.json({ units: [], byDriver: {} });
 
   // 対象日報（却下以外）
-  let q = supabase
-    .from("daily_reports_v2")
-    .select("id, driver_id, report_date")
-    .eq("org_id", orgId)
-    .gte("report_date", start)
-    .lte("report_date", end)
-    .is("rejected_at", null)
-    .limit(BIG);
-  if (driverId) q = q.eq("driver_id", driverId);
-  const { data: reports } = await q;
+  const reports = await fetchAllRows((from, to) => {
+    let q = supabase
+      .from("daily_reports_v2")
+      .select("id, driver_id, report_date")
+      .eq("org_id", orgId)
+      .gte("report_date", start)
+      .lte("report_date", end)
+      .is("rejected_at", null);
+    if (driverId) q = q.eq("driver_id", driverId);
+    return q.range(from, to);
+  });
   const reportInfo = new Map<string, { driverId: string; date: string }>();
   (reports ?? []).forEach((r: any) => reportInfo.set(r.id, { driverId: r.driver_id, date: r.report_date }));
   const reportIds = Array.from(reportInfo.keys());
@@ -62,14 +62,16 @@ export async function GET(req: NextRequest) {
   // report_entries（分割取得）
   type Entry = { report_id: string; unit_id: string; field_key: string; value_num: number | null };
   const entries: Entry[] = [];
-  for (let i = 0; i < reportIds.length; i += 1000) {
-    const slice = reportIds.slice(i, i + 1000);
-    const { data } = await supabase
-      .from("report_entries")
-      .select("report_id, unit_id, field_key, value_num")
-      .in("report_id", slice)
-      .limit(BIG);
-    (data ?? []).forEach((e: any) => entries.push(e));
+  for (let i = 0; i < reportIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const slice = reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+    const data = await fetchAllRows((from, to) =>
+      supabase
+        .from("report_entries")
+        .select("report_id, unit_id, field_key, value_num")
+        .in("report_id", slice)
+        .range(from, to),
+    );
+    data.forEach((e: any) => entries.push(e));
   }
 
   // レポートごとに unit 単位で集計（従量=課金数量合計 / 固定=稼働1）

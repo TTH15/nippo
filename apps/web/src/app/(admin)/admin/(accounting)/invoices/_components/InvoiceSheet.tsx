@@ -175,6 +175,7 @@ function buildLineTableBlocks({
   breakToggle,
   setLine,
   grid,
+  keepLastWithNext,
 }: {
   readOnly: boolean;
   section: Section;
@@ -192,6 +193,8 @@ function buildLineTableBlocks({
   breakToggle: ReactNode;
   setLine: (section: Section, i: number, patch: Partial<EditorLine>) => void;
   grid?: GridApi;
+  /** true の場合、この明細テーブルの最終セグメントを直後のブロック（振込先等）と同じページに保つ。 */
+  keepLastWithNext?: boolean;
 }): Block[] {
   const splitPoints = lines
     .map((ln, i) => i)
@@ -210,9 +213,10 @@ function buildLineTableBlocks({
     const segLines = lines.slice(seg.start, seg.end);
     const id = segments.length === 1 ? `${section}-table` : `${section}-table-${segIdx}`;
     const forceBreak = isFirst ? sectionForceBreak : true;
+    const keepWithNext = isLast && keepLastWithNext;
 
     const node = (
-      <div data-page-unit data-unit-id={id} data-force-break={forceBreak ? "true" : undefined} className="relative" style={isFirst ? styleFirst : undefined}>
+      <div data-page-unit data-unit-id={id} data-force-break={forceBreak ? "true" : undefined} data-keep-with-next={keepWithNext ? "true" : undefined} className="relative" style={isFirst ? styleFirst : undefined}>
         {isFirst ? breakToggle : null}
         <table className="w-full border-collapse text-[11.5px]" style={{ border: `6px solid ${color}` }}>
           <thead>
@@ -683,6 +687,7 @@ export function InvoiceSheet({
       breakToggle: breakToggle("main"),
       setLine,
       grid,
+      keepLastWithNext: !config.showDeductTable,
     }),
     ...(config.showDeductTable
       ? buildLineTableBlocks({
@@ -702,6 +707,7 @@ export function InvoiceSheet({
           breakToggle: breakToggle("deduct"),
           setLine,
           grid,
+          keepLastWithNext: true,
         })
       : []),
     {
