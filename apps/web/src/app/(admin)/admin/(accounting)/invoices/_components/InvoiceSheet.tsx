@@ -98,6 +98,19 @@ const num = (v: unknown) => {
 const priceDisplay = (v: unknown) =>
   Number(num(v)).toLocaleString("ja-JP", { maximumFractionDigits: 2 });
 
+/**
+ * 編集可能な数量/単価セルの表示用フォーマット。
+ * フォーカス中（入力中）は生の文字列のまま返す（カンマ挿入でカーソル位置がずれるのを防ぐ）。
+ * フォーカスが外れているときだけ3桁カンマ区切りで見やすく表示する。
+ */
+function editableNumDisplay(raw: string, isActive: boolean): string {
+  if (isActive) return raw;
+  if (!raw) return raw;
+  const n = num(raw);
+  if (!Number.isFinite(n) || n === 0) return raw;
+  return n.toLocaleString("ja-JP", { maximumFractionDigits: 2 });
+}
+
 function resolveSummaryValue(ref: SummaryRowDef["value"], totals: InvoiceTotals, st: EditorState): number {
   if (ref.kind === "total") return totals[ref.key];
   return num(ref.field === "loanRepay" ? st.loanRepay : st.extraOutsourcing);
@@ -264,7 +277,7 @@ function buildLineTableBlocks({
                     {grid ? grid.fillHandle(section, i, 0) : null}
                   </td>
                   <td className={cellCls(1)} style={{ border: `1px solid ${color}` }}>
-                    <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : ln.qty} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { qty: v })} {...(grid ? grid.cellProps(section, i, 1) : {})} />
+                    <T readOnly={readOnly} value={readOnly ? (ln.qty ? jpy(num(ln.qty)) : "") : editableNumDisplay(ln.qty, grid?.isActive(section, i, 1) ?? false)} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { qty: v })} {...(grid ? grid.cellProps(section, i, 1) : {})} />
                     {grid ? grid.fillHandle(section, i, 1) : null}
                   </td>
                   <td className={cellCls(2)} style={{ border: `1px solid ${color}` }}>
@@ -272,7 +285,7 @@ function buildLineTableBlocks({
                     {grid ? grid.fillHandle(section, i, 2) : null}
                   </td>
                   <td className={cellCls(3)} style={{ border: `1px solid ${color}` }}>
-                    <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : ln.price} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { price: v })} {...(grid ? grid.cellProps(section, i, 3) : {})} />
+                    <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : editableNumDisplay(ln.price, grid?.isActive(section, i, 3) ?? false)} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { price: v })} {...(grid ? grid.cellProps(section, i, 3) : {})} />
                     {grid ? grid.fillHandle(section, i, 3) : null}
                   </td>
                   <td className={cn("py-[2.5px] px-2 text-right bg-white", grid && "relative")} style={{ border: `1px solid ${color}` }}>
@@ -356,6 +369,9 @@ export function InvoiceSheet({
   // ── スプレッドシート編集（選択/フィル/並べ替え）。状態は描画用＋最新参照用 ref の二重持ち ──
   const [active, setActive] = useState<{ section: Section; row: number; col: number } | null>(null);
   const [fill, setFill] = useState<{ section: Section; col: number; fromRow: number; toRow: number } | null>(null);
+  // サマリー欄（借入返済/追加外注請求分・売上追加分）のフォーカス中フィールド。
+  // フォーカス外れ時だけカンマ区切り表示にする（入力中のカーソル位置ずれを防ぐ）。
+  const [summaryFocus, setSummaryFocus] = useState<"loanRepay" | "extraOutsourcing" | null>(null);
   const stRef = useRef(st);
   stRef.current = st;
   const fillRef = useRef(fill);
@@ -653,14 +669,17 @@ export function InvoiceSheet({
                             {editable && field ? (
                               (() => {
                                 const v = field === "loanRepay" ? st.loanRepay : st.extraOutsourcing;
+                                const display = editableNumDisplay(v, summaryFocus === field);
                                 return (
                                   <input
-                                    value={v}
+                                    value={display}
                                     inputMode="decimal"
                                     placeholder="0"
+                                    onFocus={() => setSummaryFocus(field)}
+                                    onBlur={() => setSummaryFocus((cur) => (cur === field ? null : cur))}
                                     onChange={(e) => set(field === "loanRepay" ? { loanRepay: e.target.value } : { extraOutsourcing: e.target.value })}
                                     className="bg-transparent outline-none text-right font-bold p-0"
-                                    style={{ width: `calc(${Math.max(1, v.length)}ch + 2px)` }}
+                                    style={{ width: `calc(${Math.max(1, display.length)}ch + 2px)` }}
                                   />
                                 );
                               })()
