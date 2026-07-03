@@ -229,21 +229,24 @@ input[type="number"] {
     position: static !important;
   }
   .invoice-print-root {
+    /* .invoice-page を複数持つだけの素のラッパー。サイズは各ページ側が持つ。 */
     position: absolute;
     left: 0;
     top: 0;
+    margin: 0 !important;
+  }
+  /* ページ本体。1ページ＝1つの箱として、その境界で確実に改ページする
+     （ブラウザ任せの自然な改ページ予測はやめ、JS側で計算した境界をそのまま強制する）。 */
+  .invoice-page {
     width: 210mm;
-    /* 画面用の min-height:297mm と内側パディングが合算されて 1 ページを僅かに超え、
-       下端が見切れるのを防ぐ。印刷では内容なりの高さにする。 */
     min-height: 0 !important;
     margin: 0 !important;
     box-shadow: none !important;
-    /* 複数ページに分割された際、上下 padding は既定（box-decoration-break:slice）だと
-       最初/最後のページにしか乗らず、中間・境界ページで本文が用紙端まで詰まってしまう。
-       全ページに同じ padding を複製し、プレビュー側のページ計算（1ページ＝297mm−上下padding）
-       と実際の印刷結果を一致させる。 */
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
+    break-after: page;
+    break-inside: avoid;
+  }
+  .invoice-page:last-child {
+    break-after: auto;
   }
   /* 色付きの罫線・背景が印刷で細く/薄くならないよう、忠実出力を強制する。 */
   .invoice-print-root,
