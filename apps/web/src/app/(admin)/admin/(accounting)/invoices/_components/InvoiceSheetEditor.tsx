@@ -25,6 +25,15 @@ import { type InvoiceKind } from "./invoiceKinds";
 // WYSIWYG エディタ。帳票上で直接インライン編集（InvoiceSheet）。変更は自動保存し、
 // 既存レコードを更新する（保存のたびに新規作成＝フォルダに増やさない）。Undo/Redo対応。
 
+type PairedInfo = {
+  id: string;
+  invoiceNo: string;
+  amount: number;
+  variant: "client_inclusive" | "tax_exclusive" | null;
+  mainQtyTotal: number;
+  deductQtyTotal: number;
+  lineCount: number;
+};
 type AddressRow = { id: string; name: string; postal_code?: string; address?: string; phone?: string; invoice_no?: string };
 type DriverRow = {
   id: string; name: string; display_name?: string | null; status?: string;
@@ -228,6 +237,38 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     return { icon: faCloud, text: "自動保存", cls: "text-slate-400" };
   })();
 
+  // ── 税込/税抜ペア（取引先送付用⇔税務提出用）。保存済みの請求書のみ対象。 ──
+  const pairKey = savedId ? `/api/admin/invoices/${encodeURIComponent(savedId)}/pair` : null;
+  const { data: pairData, refresh: refreshPair } = useApi<{ paired: PairedInfo | null }>(pairKey);
+  const paired = pairData?.paired ?? null;
+  const [pairBusy, setPairBusy] = useState(false);
+  const [pairError, setPairError] = useState<string | null>(null);
+
+  const createPair = async () => {
+    if (!savedId || pairBusy) return;
+    setPairBusy(true);
+    setPairError(null);
+    try {
+      await persist(stRef.current); // 変換元の未保存分をまず確定させる
+      const res = await apiFetch<{ pairedInvoiceId: string }>(
+        `/api/admin/invoices/${encodeURIComponent(savedId)}/pair`,
+        { method: "POST" },
+      );
+      await refreshPair();
+      window.open(`/admin/invoices/${res.pairedInvoiceId}/edit`, "_blank");
+    } catch (e) {
+      setPairError(e instanceof Error ? e.message : "ペアの作成に失敗しました");
+    } finally {
+      setPairBusy(false);
+    }
+  };
+
+  const myMainQtyTotal = st.main.reduce((a, l) => a + (Number(l.qty) || 0), 0);
+  const myDeductQtyTotal = st.deduct.reduce((a, l) => a + (Number(l.qty) || 0), 0);
+  const qtyMatches = paired ? myMainQtyTotal === paired.mainQtyTotal && myDeductQtyTotal === paired.deductQtyTotal : null;
+  const pairedVariantLabel = (v: PairedInfo["variant"]) =>
+    v === "tax_exclusive" ? "税抜・税務提出用" : v === "client_inclusive" ? "税込・取引先送付用" : "";
+
   return (
     <div className="flex flex-col h-[calc(100vh-52px)]">
       {/* スリムなツールバー（PDFには含めない） */}
@@ -287,6 +328,44 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
           <Button variant="outline" size="sm" onClick={() => printInvoice(invoiceFileName(st))}>印刷（PDF保存）</Button>
         </div>
       </div>
+
+      {/* 税込/税抜ペア: 取引先送付用と税務提出用を2枚セットで保管・検算する */}
+      {savedId && (
+        <div className="hide-print flex flex-wrap items-center gap-3 px-4 py-2 bg-amber-50 border-b border-amber-200 text-sm">
+          {!paired ? (
+            <>
+              <span className="text-amber-800">
+                取引先送付用（税込）と税務提出用（税抜）を2枚セットで保存できます。
+              </span>
+              <Button variant="outline" size="sm" onClick={createPair} disabled={pairBusy}>
+                {pairBusy ? "作成中…" : "税込⇔税抜ペアを作成"}
+              </Button>
+              {pairError && <span className="text-red-600 text-xs">{pairError}</span>}
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-amber-800">ペア: {pairedVariantLabel(paired.variant)}</span>
+              <span className="text-slate-700">{paired.invoiceNo}　¥{paired.amount.toLocaleString("ja-JP")}</span>
+              {qtyMatches === true ? (
+                <span className="text-emerald-700">✅ 数量一致</span>
+              ) : (
+                <span className="text-red-600">
+                  ⚠️ 数量不一致（このページ: 請求分{myMainQtyTotal} / 支払分{myDeductQtyTotal}、ペア: 請求分
+                  {paired.mainQtyTotal} / 支払分{paired.deductQtyTotal}）
+                </span>
+              )}
+              <a
+                href={`/admin/invoices/${paired.id}/edit`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-slate-600 underline hover:text-slate-900"
+              >
+                ペアを開く
+              </a>
+            </>
+          )}
+        </div>
+      )}
 
       {/* 日付ツールバー（対象期間・振込期日。帳票には文字列で反映） */}
       <div className="hide-print flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 bg-slate-50 border-b border-slate-200 text-sm">

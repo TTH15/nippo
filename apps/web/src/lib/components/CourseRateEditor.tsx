@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { exclusiveOf, inclusiveOf } from "@repo/core/logic/taxBasis";
 
 type Unit = {
   id: string;
@@ -20,10 +21,11 @@ type Fixed = { fixed_revenue: number; fixed_profit: number; fixed_payout: number
 // 単価は税抜（円）で保存する。税抜/税込モードの切替では入力値を再計算せず、保存時のみ換算する。
 // 売上は税込で提示されることが多い一方、支払（ドライバー）は税抜の確定額で渡されることが多いため、
 // 売上と支払で税区分モードを別々に持てるようにしている。
+// このモードはコースに「契約上の真の基準」として永続化され（revenue_tax_basis/payout_tax_basis）、
+// 請求書の税込/税抜ペア生成機能から参照される。
 type TaxMode = "excl" | "incl";
-const TAX_RATE = 0.1;
-const toIncl = (excl: number) => Math.round(excl * (1 + TAX_RATE));
-const toExcl = (incl: number) => Math.round(incl / (1 + TAX_RATE));
+const toIncl = (excl: number) => inclusiveOf(excl, "exclusive");
+const toExcl = (incl: number) => exclusiveOf(incl, "inclusive");
 const toExclFor = (mode: TaxMode, raw: number) => (mode === "incl" ? toExcl(raw) : raw);
 
 // 会社利益は手入力させず、売上 − 支払 で自動計算する（入力ミスで合計が合わなくなるのを防ぐ）。
@@ -33,10 +35,15 @@ const deriveProfit = (revenue: number, payout: number) => revenue - payout;
 type LoadResponse = {
   courseName: string;
   carrierId: string | null;
+  revenueTaxBasis?: "exclusive" | "inclusive";
+  payoutTaxBasis?: "exclusive" | "inclusive";
   units: Unit[];
   unitRates: UnitRate[];
   fixed: Fixed;
 };
+
+const basisToMode = (b: "exclusive" | "inclusive" | undefined): TaxMode => (b === "inclusive" ? "incl" : "excl");
+const modeToBasis = (m: TaxMode): "exclusive" | "inclusive" => (m === "incl" ? "inclusive" : "exclusive");
 
 export type CourseRateEditorHandle = {
   /**
@@ -92,29 +99,35 @@ export const CourseRateEditor = forwardRef<
         const qs = courseId ? `course_id=${courseId}` : `carrier_id=${carrierId}`;
         const res = await apiFetch<LoadResponse>(`/api/admin/course-billing?${qs}`);
         if (cancelled) return;
-        // サーバー値は常に税抜。読み込み直後はモードを税抜に揃えて表示とズレないようにする。
-        setRevenueTaxMode("excl");
-        setPayoutTaxMode("excl");
+        // サーバー値は常に税抜で保存されている。表示モードはコースに記録された「契約上の真の基準」を復元する。
+        // 真の基準が税込のコースは、保存されている税抜値を税込へ逆算して表示する
+        // （端数は保存時点で失われているため厳密な逆算ではないが、近似として表示する）。
+        const rMode = basisToMode(res.revenueTaxBasis);
+        const pMode = basisToMode(res.payoutTaxBasis);
+        setRevenueTaxMode(rMode);
+        setPayoutTaxMode(pMode);
         setCarrierMissing(!res.carrierId);
         setUnits(res.units ?? []);
         const map: Record<string, UnitRate> = {};
         (res.units ?? []).forEach((u) => {
           const found = (res.unitRates ?? []).find((r) => r.unit_id === u.id);
-          const revenue = found?.revenue_per_unit ?? 0;
-          const payout = found?.payout_per_unit ?? 0;
+          const revenue = rMode === "incl" ? toIncl(found?.revenue_per_unit ?? 0) : found?.revenue_per_unit ?? 0;
+          const payout = pMode === "incl" ? toIncl(found?.payout_per_unit ?? 0) : found?.payout_per_unit ?? 0;
           map[u.id] = {
             unit_id: u.id,
             revenue_per_unit: revenue,
-            profit_per_unit: deriveProfit(revenue, payout),
+            profit_per_unit: recomputeProfitWith(rMode, pMode, revenue, payout),
             payout_per_unit: payout,
           };
         });
         setRates(map);
-        const fixedRevenue = res.fixed?.fixed_revenue ?? 0;
-        const fixedPayout = res.fixed?.fixed_payout ?? 0;
+        const fixedRevenueRaw = res.fixed?.fixed_revenue ?? 0;
+        const fixedPayoutRaw = res.fixed?.fixed_payout ?? 0;
+        const fixedRevenue = rMode === "incl" ? toIncl(fixedRevenueRaw) : fixedRevenueRaw;
+        const fixedPayout = pMode === "incl" ? toIncl(fixedPayoutRaw) : fixedPayoutRaw;
         setFixed({
           fixed_revenue: fixedRevenue,
-          fixed_profit: deriveProfit(fixedRevenue, fixedPayout),
+          fixed_profit: recomputeProfitWith(rMode, pMode, fixedRevenue, fixedPayout),
           fixed_payout: fixedPayout,
         });
       } catch (e) {
@@ -154,6 +167,8 @@ export const CourseRateEditor = forwardRef<
             course_id: id,
             unitRates,
             fixed: { fixed_revenue, fixed_payout, fixed_profit: deriveProfit(fixed_revenue, fixed_payout) },
+            revenueTaxBasis: modeToBasis(revenueTaxMode),
+            payoutTaxBasis: modeToBasis(payoutTaxMode),
           }),
         });
       },
@@ -162,8 +177,11 @@ export const CourseRateEditor = forwardRef<
   );
 
   // 利益は常に税抜ベース。売上・支払それぞれのモードを税抜に揃えてから差し引く。
+  function recomputeProfitWith(rMode: TaxMode, pMode: TaxMode, revenueRaw: number, payoutRaw: number) {
+    return deriveProfit(toExclFor(rMode, revenueRaw), toExclFor(pMode, payoutRaw));
+  }
   function recomputeProfit(revenueRaw: number, payoutRaw: number) {
-    return deriveProfit(toExclFor(revenueTaxMode, revenueRaw), toExclFor(payoutTaxMode, payoutRaw));
+    return recomputeProfitWith(revenueTaxMode, payoutTaxMode, revenueRaw, payoutRaw);
   }
 
   function setRate(unitId: string, key: "revenue_per_unit" | "payout_per_unit", value: number) {
