@@ -12,12 +12,6 @@ export const dynamic = "force-dynamic";
 
 type Section = "Amazon" | "ヤマト運輸" | "郵便局";
 
-function sectionCode(section: Section) {
-  if (section === "Amazon") return "AMZ";
-  if (section === "ヤマト運輸") return "YMT";
-  return "PST";
-}
-
 function normalizeCounterpartyToken(name: string | null | undefined) {
   const token = String(name ?? "")
     .toUpperCase()
@@ -28,25 +22,22 @@ function normalizeCounterpartyToken(name: string | null | undefined) {
 
 function buildInvoiceNo(params: {
   month: string;
-  section: Section;
   counterpartyId?: string | null;
   counterpartyName?: string | null;
 }) {
   const ym = params.month.replace("-", "");
-  const sec = sectionCode(params.section);
   const byName = normalizeCounterpartyToken(params.counterpartyName);
   const byId = params.counterpartyId
     ? params.counterpartyId.replace(/-/g, "").slice(0, 4).toUpperCase()
     : null;
   const cp = byName || byId || "GEN";
-  return `INV-${ym}-${sec}-${cp}`;
+  return `INV-${ym}-${cp}`;
 }
 
 async function buildNextInvoiceNo(
   orgId: string,
   params: {
     month: string;
-    section: Section;
     counterpartyId?: string | null;
     counterpartyName?: string | null;
   }
@@ -201,7 +192,6 @@ export async function GET(req: NextRequest) {
       dueDate,
       invoiceNo: await buildNextInvoiceNo(orgId, {
         month: range.month,
-        section,
         counterpartyId: counterpartyParam,
         counterpartyName: addr.name,
       }),
@@ -266,7 +256,6 @@ export async function GET(req: NextRequest) {
     dueDate,
     invoiceNo: await buildNextInvoiceNo(orgId, {
       month: range.month,
-      section,
       counterpartyId: counterpartyInvoiceAddressId,
     }),
     counterparty_invoice_address_id: counterpartyInvoiceAddressId,

@@ -203,7 +203,14 @@ export function RankingTab({
   };
 
   const deleteManual = (entry: ManualPointRow) => {
-    onConfirm("この手動加点を削除しますか？", async () => {
+    if (entry.id.startsWith("optimistic-")) {
+      onError("削除に失敗しました", "反映中です。少し待ってからもう一度削除してください。");
+      return;
+    }
+    const target = entry.driver_id ? nameOf(entry.driver_id) : `${teamName(entry.team_id)}（チーム）`;
+    const sign = entry.points > 0 ? "+" : "";
+    const detail = `${target} ${sign}${entry.points}pt${entry.reason ? `（${entry.reason}）` : ""}`;
+    onConfirm(`この手動加点を削除しますか？\n\n${detail}`, async () => {
       // 楽観的削除
       const prevManual = manual;
       const prevRanking = ranking;
