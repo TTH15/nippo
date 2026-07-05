@@ -26,15 +26,19 @@ export async function GET(req: NextRequest) {
   // 既存コース: コースからキャリアを引く。新規作成: パラメータのキャリアをそのまま使う。
   let carrierId: string | null = carrierIdParam || null;
   let courseName = "";
+  let revenueTaxBasis: "exclusive" | "inclusive" = "exclusive";
+  let payoutTaxBasis: "exclusive" | "inclusive" = "exclusive";
   if (courseId) {
     const { data: course } = await supabase
       .from("courses")
-      .select("id, name, carrier_id")
+      .select("id, name, carrier_id, revenue_tax_basis, payout_tax_basis")
       .eq("id", courseId)
       .maybeSingle();
     if (!course) return NextResponse.json({ error: "コースが見つかりません" }, { status: 404 });
     carrierId = (course as any).carrier_id as string | null;
     courseName = (course as any).name ?? "";
+    revenueTaxBasis = (course as any).revenue_tax_basis === "inclusive" ? "inclusive" : "exclusive";
+    payoutTaxBasis = (course as any).payout_tax_basis === "inclusive" ? "inclusive" : "exclusive";
   }
 
   const [{ data: units }, { data: unitRates }, { data: fixed }] = await Promise.all([
@@ -65,6 +69,8 @@ export async function GET(req: NextRequest) {
     courseId: courseId || null,
     courseName,
     carrierId,
+    revenueTaxBasis,
+    payoutTaxBasis,
     units: units ?? [],
     unitRates: unitRates ?? [],
     fixed: fixed ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 },
@@ -94,6 +100,20 @@ export async function PUT(req: NextRequest) {
   const fixedRevenue = num(fixed.fixed_revenue);
   const fixedProfit = num(fixed.fixed_profit);
   const fixedPayout = num(fixed.fixed_payout);
+  const revenueTaxBasis = body.revenueTaxBasis === "inclusive" ? "inclusive" : "exclusive";
+  const payoutTaxBasis = body.payoutTaxBasis === "inclusive" ? "inclusive" : "exclusive";
+
+  // コースに「契約上の真の基準」を記録する（保存値自体は従来どおり常に税抜）。
+  {
+    const { error } = await supabase
+      .from("courses")
+      .update({ revenue_tax_basis: revenueTaxBasis, payout_tax_basis: payoutTaxBasis })
+      .eq("id", courseId);
+    if (error) {
+      console.error(error);
+      return NextResponse.json({ error: "税区分の保存に失敗しました" }, { status: 500 });
+    }
+  }
 
   // --- 新: course_unit_rates ---
   if (unitRates.length > 0) {
