@@ -13,6 +13,11 @@ export async function DELETE(
   if (isAuthError(user)) return user;
   const { id: eventId, entryId } = await params;
 
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entryId);
+  if (!isUuid) {
+    return NextResponse.json({ error: "削除に失敗しました" }, { status: 400 });
+  }
+
   const { error } = await supabase
     .from("event_point_entries")
     .delete()
