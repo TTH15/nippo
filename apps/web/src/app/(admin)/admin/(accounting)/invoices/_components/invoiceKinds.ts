@@ -79,7 +79,8 @@ export const INVOICE_KIND_CONFIG: Record<InvoiceKind, InvoiceKindConfig> = {
       { label: "請求額 税込合計", value: { kind: "total", key: "billGross" } },
       { label: "お支払い分 税込合計", value: { kind: "total", key: "deductGross" }, minus: true },
       // 売上側の手入力プラス調整。内部フィールドは extraOutsourcing を流用（売上/受領は排他）。
-      { label: "売上追加分（税込）", value: { kind: "manual", field: "extraOutsourcing" }, editable: true },
+      // 「（税込）」等の基準表記は表示モード(displayBasis)に応じて描画側で動的に付与する。
+      { label: "売上追加分", value: { kind: "manual", field: "extraOutsourcing" }, editable: true },
     ],
     finalLabel: "差引き請求額",
     theme: COOL,
@@ -96,7 +97,7 @@ export const INVOICE_KIND_CONFIG: Record<InvoiceKind, InvoiceKindConfig> = {
       { label: "請求額 税込合計", value: { kind: "total", key: "billGross" } },
       { label: "お支払い分 税込合計", value: { kind: "total", key: "deductGross" }, minus: true },
       { label: "借入返済", value: { kind: "manual", field: "loanRepay" }, minus: true, editable: true },
-      { label: "追加外注請求分（税込）", value: { kind: "manual", field: "extraOutsourcing" }, editable: true },
+      { label: "追加外注請求分", value: { kind: "manual", field: "extraOutsourcing" }, editable: true },
     ],
     finalLabel: "差引き請求額",
     theme: FOREST,

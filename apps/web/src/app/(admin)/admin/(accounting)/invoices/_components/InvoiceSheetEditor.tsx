@@ -25,15 +25,6 @@ import { type InvoiceKind } from "./invoiceKinds";
 // WYSIWYG エディタ。帳票上で直接インライン編集（InvoiceSheet）。変更は自動保存し、
 // 既存レコードを更新する（保存のたびに新規作成＝フォルダに増やさない）。Undo/Redo対応。
 
-type PairedInfo = {
-  id: string;
-  invoiceNo: string;
-  amount: number;
-  variant: "client_inclusive" | "tax_exclusive" | null;
-  mainQtyTotal: number;
-  deductQtyTotal: number;
-  lineCount: number;
-};
 type AddressRow = { id: string; name: string; postal_code?: string; address?: string; phone?: string; invoice_no?: string };
 type DriverRow = {
   id: string; name: string; display_name?: string | null; status?: string;
@@ -237,38 +228,6 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     return { icon: faCloud, text: "自動保存", cls: "text-slate-400" };
   })();
 
-  // ── 税込/税抜ペア（取引先送付用⇔税務提出用）。保存済みの請求書のみ対象。 ──
-  const pairKey = savedId ? `/api/admin/invoices/${encodeURIComponent(savedId)}/pair` : null;
-  const { data: pairData, refresh: refreshPair } = useApi<{ paired: PairedInfo | null }>(pairKey);
-  const paired = pairData?.paired ?? null;
-  const [pairBusy, setPairBusy] = useState(false);
-  const [pairError, setPairError] = useState<string | null>(null);
-
-  const createPair = async () => {
-    if (!savedId || pairBusy) return;
-    setPairBusy(true);
-    setPairError(null);
-    try {
-      await persist(stRef.current); // 変換元の未保存分をまず確定させる
-      const res = await apiFetch<{ pairedInvoiceId: string }>(
-        `/api/admin/invoices/${encodeURIComponent(savedId)}/pair`,
-        { method: "POST" },
-      );
-      await refreshPair();
-      window.open(`/admin/invoices/${res.pairedInvoiceId}/edit`, "_blank");
-    } catch (e) {
-      setPairError(e instanceof Error ? e.message : "ペアの作成に失敗しました");
-    } finally {
-      setPairBusy(false);
-    }
-  };
-
-  const myMainQtyTotal = st.main.reduce((a, l) => a + (Number(l.qty) || 0), 0);
-  const myDeductQtyTotal = st.deduct.reduce((a, l) => a + (Number(l.qty) || 0), 0);
-  const qtyMatches = paired ? myMainQtyTotal === paired.mainQtyTotal && myDeductQtyTotal === paired.deductQtyTotal : null;
-  const pairedVariantLabel = (v: PairedInfo["variant"]) =>
-    v === "tax_exclusive" ? "税抜・税務提出用" : v === "client_inclusive" ? "税込・取引先送付用" : "";
-
   return (
     <div className="flex flex-col h-[calc(100vh-52px)]">
       {/* スリムなツールバー（PDFには含めない） */}
@@ -314,6 +273,33 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
           <input className="w-12 rounded border border-slate-300 px-2 py-1 text-sm text-right disabled:bg-slate-100 disabled:text-slate-400" value={st.taxRatePercent} inputMode="decimal" disabled={!st.taxEnabled} onChange={(e) => setSt((p) => ({ ...p, taxRatePercent: e.target.value }))} />%
         </label>
 
+        {/* 帳票全体の表示基準。行ごとの入力(税抜/税込)と異なる行は自動換算して表示する。
+            取引先送付用と税務提出用を、同じ請求書のまま切り替えて確認・印刷できる。 */}
+        <div className="flex items-center gap-1.5" title="明細の単価がどちらの基準の行でも、ここで選んだ基準に揃えて表示・計算する">
+          <span className="text-sm text-slate-600">表示</span>
+          <div className="inline-flex rounded border border-slate-300 overflow-hidden text-xs">
+            {(
+              [
+                { key: "exclusive" as const, label: "税抜（税務提出用）" },
+                { key: "inclusive" as const, label: "税込（取引先送付用）" },
+              ]
+            ).map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSt((p) => ({ ...p, displayBasis: key }))}
+                className={
+                  "px-2.5 py-1.5 " +
+                  (st.displayBasis === key ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50") +
+                  (key === "inclusive" ? " border-l border-slate-300" : "")
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="ml-auto flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={undo} disabled={past.length === 0} title="戻る（⌘Z）">
             <FontAwesomeIcon icon={faRotateLeft} className="h-3.5 w-3.5" />戻る
@@ -328,44 +314,6 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
           <Button variant="outline" size="sm" onClick={() => printInvoice(invoiceFileName(st))}>印刷（PDF保存）</Button>
         </div>
       </div>
-
-      {/* 税込/税抜ペア: 取引先送付用と税務提出用を2枚セットで保管・検算する */}
-      {savedId && (
-        <div className="hide-print flex flex-wrap items-center gap-3 px-4 py-2 bg-amber-50 border-b border-amber-200 text-sm">
-          {!paired ? (
-            <>
-              <span className="text-amber-800">
-                取引先送付用（税込）と税務提出用（税抜）を2枚セットで保存できます。
-              </span>
-              <Button variant="outline" size="sm" onClick={createPair} disabled={pairBusy}>
-                {pairBusy ? "作成中…" : "税込⇔税抜ペアを作成"}
-              </Button>
-              {pairError && <span className="text-red-600 text-xs">{pairError}</span>}
-            </>
-          ) : (
-            <>
-              <span className="font-medium text-amber-800">ペア: {pairedVariantLabel(paired.variant)}</span>
-              <span className="text-slate-700">{paired.invoiceNo}　¥{paired.amount.toLocaleString("ja-JP")}</span>
-              {qtyMatches === true ? (
-                <span className="text-emerald-700">✅ 数量一致</span>
-              ) : (
-                <span className="text-red-600">
-                  ⚠️ 数量不一致（このページ: 請求分{myMainQtyTotal} / 支払分{myDeductQtyTotal}、ペア: 請求分
-                  {paired.mainQtyTotal} / 支払分{paired.deductQtyTotal}）
-                </span>
-              )}
-              <a
-                href={`/admin/invoices/${paired.id}/edit`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-slate-600 underline hover:text-slate-900"
-              >
-                ペアを開く
-              </a>
-            </>
-          )}
-        </div>
-      )}
 
       {/* 日付ツールバー（対象期間・振込期日。帳票には文字列で反映） */}
       <div className="hide-print flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 bg-slate-50 border-b border-slate-200 text-sm">

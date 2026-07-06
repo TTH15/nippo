@@ -9,7 +9,13 @@ import {
 } from "./lineGrid";
 import { emptyLine, type EditorLine } from "./editorModel";
 
-const line = (title: string, qty = "", unit = "", price = ""): EditorLine => ({ title, qty, unit, price });
+const line = (title: string, qty = "", unit = "", price = ""): EditorLine => ({
+  title,
+  qty,
+  unit,
+  price,
+  priceBasis: "exclusive",
+});
 
 describe("parseClipboardGrid", () => {
   it("TSVを行列に分解する", () => {

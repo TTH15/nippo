@@ -39,11 +39,11 @@ describe("amountFromEditor", () => {
   it("差引き＝請求-お支払い-借入返済+追加外注", () => {
     const st: EditorState = {
       ...blankEditorState("outgoing"),
-      main: [{ title: "A", qty: "1", unit: "回", price: "100000" }],
-      deduct: [{ title: "B", qty: "1", unit: "件", price: "30000" }],
+      main: [{ title: "A", qty: "1", unit: "回", price: "100000", priceBasis: "exclusive" }],
+      deduct: [{ title: "B", qty: "1", unit: "件", price: "30000", priceBasis: "exclusive" }],
       taxRatePercent: "10",
       loanRepay: "5000",
-      extraOutsourcing: "2000",
+      extraOutsourcingExclusive: "2000",
     };
     // 110000 - 33000 - 5000 + 2000
     expect(amountFromEditor(st)).toBe(74000);
@@ -55,8 +55,8 @@ describe("payloadFromEditor", () => {
     const st: EditorState = {
       ...blankEditorState("outgoing"),
       main: [
-        { title: "A", qty: "2", unit: "回", price: "100" },
-        { title: "", qty: "", unit: "", price: "" },
+        { title: "A", qty: "2", unit: "回", price: "100", priceBasis: "exclusive" },
+        { title: "", qty: "", unit: "", price: "", priceBasis: "exclusive" },
       ],
       deduct: [],
     };

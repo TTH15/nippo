@@ -39,21 +39,28 @@ export type RewardsSummary = {
   optionalDetails?: OptionalExpenseDetail[];
 };
 
+/** 単価が契約上どちらの基準で決まっているか（コースのtax_basisと同じ考え方）。 */
+export type TaxBasis = "exclusive" | "inclusive";
+
 /** 請求書プレビューの明細行（payload.tableData.main / deduct の各行） */
 export type InvoiceRow = {
   title?: string;
   qty?: number | string;
   /** 単位（新仕様。例: 件 / 回 / 式）。未設定でも後方互換。 */
   unit?: string;
-  /** 税抜単価。 */
+  /** 入力した単価（priceBasisの基準での値）。 */
   price?: number | string;
+  /** priceの基準。未設定は "exclusive"（従来どおり税抜）として扱う。 */
+  priceBasis?: TaxBasis;
 };
 
 /**
- * 請求書合計計算の入力（新仕様：税抜単価モデル）。
+ * 請求書合計計算の入力（税抜/税込どちらの基準で表示するかを選べるモデル）。
  * - main: 請求分、deduct: お支払い分（控除）
+ * - 各行は priceBasis と displayBasis が一致すればそのまま、異なれば換算してから計算する
  * - 税は各セクションの税抜小計に対する外税
- * - loanRepay（借入返済）はマイナス、extraOutsourcing（追加外注支払い・税込）はプラス
+ * - loanRepay（借入返済）はマイナス、extraOutsourcing（追加外注支払い）はプラス
+ *   （どちらも displayBasis 側の値を渡す＝画面ごとに別の値を持てる想定）
  */
 export type InvoiceTotalsInput = {
   main: InvoiceRow[];
@@ -62,6 +69,8 @@ export type InvoiceTotalsInput = {
   taxRatePercent: number;
   loanRepay: number;
   extraOutsourcing: number;
+  /** 計算結果をどちらの基準で出すか。未指定は "exclusive"（従来どおり）。 */
+  displayBasis?: TaxBasis;
 };
 
 /** 請求書合計計算の出力。 */
