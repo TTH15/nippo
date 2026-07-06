@@ -13,6 +13,7 @@ import {
   roundedRowAmount,
   sumRowsRounded,
   computeInvoiceTotals,
+  resolveRowPrice,
 } from "./reward";
 import type { RewardLogDetail, RewardsSummary, MyInvoice } from "../types";
 
@@ -213,5 +214,34 @@ describe("computeInvoiceTotals", () => {
       extraOutsourcing: NaN as unknown as number,
     });
     expect(t.total).toBe(0);
+  });
+
+  it("priceBasis=inclusiveの行はdisplayBasis=exclusiveのとき換算される", () => {
+    // 160円税込 → 税抜145円（floor(160/1.1)）
+    expect(resolveRowPrice({ price: 160, priceBasis: "inclusive" }, "exclusive")).toBe(145);
+    // priceBasisと一致する側はそのまま
+    expect(resolveRowPrice({ price: 160, priceBasis: "inclusive" }, "inclusive")).toBe(160);
+    // priceBasis未設定はexclusive扱い（従来どおり）
+    expect(resolveRowPrice({ price: 180 }, "exclusive")).toBe(180);
+    expect(resolveRowPrice({ price: 180 }, "inclusive")).toBe(198);
+  });
+
+  it("displayBasis=inclusiveでcomputeInvoiceTotalsを計算できる（税込単価そのまま・税抜行は換算、税は内税で逆算＝二重課税しない）", () => {
+    const t = computeInvoiceTotals({
+      main: [{ qty: 10, price: 160, priceBasis: "inclusive" }, { qty: 5, price: 180, priceBasis: "exclusive" }],
+      deduct: [],
+      taxEnabled: true,
+      taxRatePercent: 10,
+      loanRepay: 0,
+      extraOutsourcing: 0,
+      displayBasis: "inclusive",
+    });
+    // 10×160(そのまま) + 5×198(180の税込換算) = 1600 + 990 = 2590（税込合計＝billGross）
+    expect(t.billGross).toBe(2590);
+    // 税抜相当額は内税で逆算: floor(2590/1.1)=2354、消費税相当額=2590-2354=236
+    expect(t.billSubtotal).toBe(2354);
+    expect(t.billTax).toBe(236);
+    // 二重課税していないことの確認（billSubtotal + billTax は加算ではなく一致するだけ）
+    expect(t.billSubtotal + t.billTax).toBe(t.billGross);
   });
 });

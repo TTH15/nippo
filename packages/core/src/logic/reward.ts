@@ -8,8 +8,10 @@ import type {
   InvoiceAttachment,
   InvoiceTotalsInput,
   InvoiceTotals,
+  TaxBasis,
 } from "../types";
 import { formatMonthDayJP } from "./calendar";
+import { exclusiveOf, inclusiveOf } from "./taxBasis";
 
 /** 金額を符号付き「N円」表記にする（負値は -N円、3桁区切り）。 */
 export function formatYen(amount: number): string {
@@ -85,35 +87,60 @@ export function invoiceLines(inv: MyInvoice): {
   };
 }
 
-/** 明細行1行の税抜合計（数量×税抜単価、円未満は四捨五入）。 */
-export function roundedRowAmount(row: InvoiceRow): number {
-  const { qty, price } = parseRow(row);
-  return Math.round(qty * price);
+/**
+ * 行の入力値(price, priceBasis基準)を、指定した基準(displayBasis)での単価に換算する。
+ * priceBasis未設定の行は "exclusive"（従来どおり税抜）として扱う。
+ * 基準が一致していればそのまま、異なれば taxBasis のヘルパーで換算する。
+ */
+export function resolveRowPrice(row: InvoiceRow, displayBasis: TaxBasis = "exclusive"): number {
+  const price = Number(row?.price) || 0;
+  const basis: TaxBasis = row?.priceBasis === "inclusive" ? "inclusive" : "exclusive";
+  return displayBasis === "exclusive" ? exclusiveOf(price, basis) : inclusiveOf(price, basis);
 }
 
-/** 明細行の税抜小計（各行を四捨五入してから合算＝表示と一致）。 */
-export function sumRowsRounded(rows: InvoiceRow[]): number {
-  return rows.reduce((acc, row) => acc + roundedRowAmount(row), 0);
+/** 明細行1行の合計（displayBasis側の単価×数量、円未満は四捨五入）。 */
+export function roundedRowAmount(row: InvoiceRow, displayBasis: TaxBasis = "exclusive"): number {
+  const qty = Number(row?.qty) || 0;
+  return Math.round(qty * resolveRowPrice(row, displayBasis));
+}
+
+/** 明細行の小計（各行を四捨五入してから合算＝表示と一致）。 */
+export function sumRowsRounded(rows: InvoiceRow[], displayBasis: TaxBasis = "exclusive"): number {
+  return rows.reduce((acc, row) => acc + roundedRowAmount(row, displayBasis), 0);
 }
 
 /**
- * 請求書の合計を計算する（新仕様：税抜単価モデル）。
- * - 各行 税抜合計 = round(qty × 税抜単価)、小計はその合算
- * - 消費税は各セクション小計への外税（円未満切り捨て。taxEnabled=false なら 0）
- * - 差引き請求額（税込）= 請求税込 − お支払い税込 − 借入返済 + 追加外注支払い
+ * 請求書の合計を計算する（税抜/税込どちらの基準で表示するかを選べるモデル）。
+ * - 各行 合計 = round(qty × displayBasis側の単価)、小計はその合算
+ * - displayBasis="exclusive": 行の合算は税抜小計。消費税は外税で加算する（円未満切り捨て）。
+ * - displayBasis="inclusive": 行の合算は税込合計そのもの。税抜小計・消費税額は内税として
+ *   逆算する（billGross/deductGrossを二重課税しないよう、税を「足す」のではなく「按分で戻す」）。
+ * - 差引き請求額 = 請求 − お支払い − 借入返済 + 追加外注支払い（すべてdisplayBasis側の値）
  * 支払いに直結するためここに集約し、テストで固定する。
  */
 export function computeInvoiceTotals(input: InvoiceTotalsInput): InvoiceTotals {
   const rate = input.taxEnabled ? (Number(input.taxRatePercent) || 0) / 100 : 0;
+  const displayBasis: TaxBasis = input.displayBasis === "inclusive" ? "inclusive" : "exclusive";
 
-  const billSubtotal = sumRowsRounded(input.main);
-  const deductSubtotal = sumRowsRounded(input.deduct);
+  const rowsTotal = (rows: InvoiceRow[]): { subtotal: number; tax: number; gross: number } => {
+    const sum = sumRowsRounded(rows, displayBasis);
+    if (displayBasis === "exclusive") {
+      const tax = Math.floor(sum * rate);
+      return { subtotal: sum, tax, gross: sum + tax };
+    }
+    // inclusive: sum は既に税込。税抜相当額を内税で逆算する（rate=0ならそのまま）。
+    const subtotal = Math.floor(sum / (1 + rate));
+    return { subtotal, tax: sum - subtotal, gross: sum };
+  };
 
-  const billTax = Math.floor(billSubtotal * rate);
-  const deductTax = Math.floor(deductSubtotal * rate);
-
-  const billGross = billSubtotal + billTax;
-  const deductGross = deductSubtotal + deductTax;
+  const bill = rowsTotal(input.main);
+  const deduct = rowsTotal(input.deduct);
+  const billSubtotal = bill.subtotal;
+  const deductSubtotal = deduct.subtotal;
+  const billTax = bill.tax;
+  const deductTax = deduct.tax;
+  const billGross = bill.gross;
+  const deductGross = deduct.gross;
 
   const loanRepay = Number(input.loanRepay) || 0;
   const extraOutsourcing = Number(input.extraOutsourcing) || 0;

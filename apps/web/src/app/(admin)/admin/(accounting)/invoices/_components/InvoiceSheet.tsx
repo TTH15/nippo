@@ -11,16 +11,18 @@ import {
 } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical, faPlus, faTrashCan, faScissors } from "@fortawesome/free-solid-svg-icons";
-import { computeInvoiceTotals } from "@repo/core/logic/reward";
+import { computeInvoiceTotals, resolveRowPrice } from "@repo/core/logic/reward";
 import type { InvoiceTotals } from "@repo/core/types";
 import { cn } from "@/lib/ui/utils";
 import { INVOICE_KIND_CONFIG, type SummaryRowDef } from "./invoiceKinds";
 import {
   type EditorState,
   type EditorLine,
+  type TaxBasis,
   emptyLine,
   docDataFromEditor,
   formatDateJa,
+  currentExtraOutsourcing,
 } from "./editorModel";
 import {
   COL_COUNT,
@@ -113,7 +115,7 @@ function editableNumDisplay(raw: string, isActive: boolean): string {
 
 function resolveSummaryValue(ref: SummaryRowDef["value"], totals: InvoiceTotals, st: EditorState): number {
   if (ref.kind === "total") return totals[ref.key];
-  return num(ref.field === "loanRepay" ? st.loanRepay : st.extraOutsourcing);
+  return ref.field === "loanRepay" ? num(st.loanRepay) : currentExtraOutsourcing(st);
 }
 
 /** インライン編集テキスト（readOnly のときは素のテキスト）。 */
@@ -183,6 +185,8 @@ function buildLineTableBlocks({
   gross,
   subtotalLabel,
   taxLabel,
+  grossLabel,
+  displayBasis,
   styleFirst,
   sectionForceBreak,
   breakToggle,
@@ -201,6 +205,8 @@ function buildLineTableBlocks({
   gross: number;
   subtotalLabel: string;
   taxLabel: string;
+  grossLabel: string;
+  displayBasis: TaxBasis;
   styleFirst?: CSSProperties;
   sectionForceBreak: boolean;
   breakToggle: ReactNode;
@@ -242,8 +248,8 @@ function buildLineTableBlocks({
               <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "40%" }}>摘要</th>
               <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "11%" }}>数量</th>
               <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "9%" }}>単位</th>
-              <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "18%" }}>税抜単価（円）</th>
-              <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "22%" }}>税抜合計（円）</th>
+              <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "18%" }}>{displayBasis === "inclusive" ? "税込単価（円）" : "税抜単価（円）"}</th>
+              <th className="py-[3px] px-2 text-center" style={{ backgroundColor: color, border: `1px solid ${color}`, width: "22%" }}>{displayBasis === "inclusive" ? "税込合計（円）" : "税抜合計（円）"}</th>
             </tr>
           </thead>
           <tbody>
@@ -285,11 +291,46 @@ function buildLineTableBlocks({
                     {grid ? grid.fillHandle(section, i, 2) : null}
                   </td>
                   <td className={cellCls(3)} style={{ border: `1px solid ${color}` }}>
-                    <T readOnly={readOnly} value={readOnly ? (ln.price ? priceDisplay(ln.price) : "") : editableNumDisplay(ln.price, grid?.isActive(section, i, 3) ?? false)} align="right" placeholder="0" inputMode="decimal" onChange={(v) => setLine(section, i, { price: v })} {...(grid ? grid.cellProps(section, i, 3) : {})} />
+                    <div className="flex items-center justify-end gap-1">
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLine(section, i, { priceBasis: ln.priceBasis === "inclusive" ? "exclusive" : "inclusive" })
+                          }
+                          title={
+                            ln.priceBasis === "inclusive"
+                              ? "この行は税込で入力（クリックで税抜入力に切替。数値はそのまま、基準だけ変わる）"
+                              : "この行は税抜で入力（クリックで税込入力に切替。数値はそのまま、基準だけ変わる）"
+                          }
+                          className={cn(
+                            "hide-print shrink-0 rounded px-1 text-[9px] font-bold leading-[14px]",
+                            ln.priceBasis === "inclusive" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500",
+                          )}
+                        >
+                          {ln.priceBasis === "inclusive" ? "込" : "抜"}
+                        </button>
+                      )}
+                      <T
+                        readOnly={readOnly}
+                        value={
+                          readOnly
+                            ? resolveRowPrice(ln, displayBasis)
+                              ? priceDisplay(resolveRowPrice(ln, displayBasis))
+                              : ""
+                            : editableNumDisplay(ln.price, grid?.isActive(section, i, 3) ?? false)
+                        }
+                        align="right"
+                        placeholder="0"
+                        inputMode="decimal"
+                        onChange={(v) => setLine(section, i, { price: v })}
+                        {...(grid ? grid.cellProps(section, i, 3) : {})}
+                      />
+                    </div>
                     {grid ? grid.fillHandle(section, i, 3) : null}
                   </td>
                   <td className={cn("py-[2.5px] px-2 text-right bg-white", grid && "relative")} style={{ border: `1px solid ${color}` }}>
-                    {jpy(Math.round(num(ln.qty) * num(ln.price)))}
+                    {jpy(Math.round(num(ln.qty) * resolveRowPrice(ln, displayBasis)))}
                     {grid ? grid.rowControls(section, i, Boolean(ln.pageBreakBefore)) : null}
                   </td>
                 </tr>
@@ -309,7 +350,7 @@ function buildLineTableBlocks({
                 </tr>
               ) : null}
               <tr className="font-bold text-white">
-                <td colSpan={4} className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>税込合計</td>
+                <td colSpan={4} className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>{grossLabel}</td>
                 <td className="py-[2.5px] px-2 text-right" style={{ border: `1px solid ${color}`, backgroundColor: color }}>{jpy(gross)}</td>
               </tr>
             </tfoot>
@@ -355,7 +396,8 @@ export function InvoiceSheet({
     taxEnabled: st.taxEnabled,
     taxRatePercent: num(st.taxRatePercent),
     loanRepay: num(st.loanRepay),
-    extraOutsourcing: num(st.extraOutsourcing),
+    extraOutsourcing: currentExtraOutsourcing(st),
+    displayBasis: st.displayBasis,
   });
   const ratePct = Math.round(num(st.taxRatePercent));
   // 「（税込）」表記には必ず税率を添える（税OFFなら0%）。
@@ -643,7 +685,10 @@ export function InvoiceSheet({
           {/* 金額見出し */}
           <div className="flex items-center justify-between w-3/5 pb-[5px] mt-3 mb-2" style={{ borderBottom: `2px solid ${C.brand}` }}>
             <div className="text-[12.5px] font-semibold">{config.amountHeadlineLabel}</div>
-            <div className="text-[18px] font-bold text-right" style={{ color: C.brand }}>¥{jpy(totals.total)}（税込 {taxNote}）</div>
+            <div className="text-[18px] font-bold text-right" style={{ color: C.brand }}>
+              ¥{jpy(totals.total)}
+              {st.taxEnabled ? `（税込 ${taxNote}）` : ""}
+            </div>
           </div>
 
           {/* サマリー表（二重線の外枠で強調） */}
@@ -658,17 +703,24 @@ export function InvoiceSheet({
                   {config.summaryRows.map((row, i) => {
                     const editable = !readOnly && row.value.kind === "manual";
                     const field = row.value.kind === "manual" ? row.value.field : null;
+                    // extraOutsourcing欄は現在の表示モードに応じて「税込」「税抜」を動的に付与する
+                    // （行ごとにpriceBasisが異なりうるため、帳票全体でどちらの基準の値かを明示する）。
+                    const label =
+                      field === "extraOutsourcing"
+                        ? `${row.label}（${st.displayBasis === "inclusive" ? "税込" : "税抜"}）`
+                        : withTaxNote(row.label);
                     return (
                       <tr key={i}>
                         <td className="py-[3.5px] px-[9px] text-left font-bold" style={{ border: `1px solid ${C.brand}`, backgroundColor: C.brandSoft }}>
-                          {withTaxNote(row.label)}
+                          {label}
                         </td>
                         <td className="py-[3.5px] px-[9px] text-right font-bold w-[22%]" style={{ border: `1px solid ${C.brand}` }}>
                           <span className="inline-flex items-baseline justify-end">
                             {row.minus ? <span>▲</span> : null}
                             {editable && field ? (
                               (() => {
-                                const v = field === "loanRepay" ? st.loanRepay : st.extraOutsourcing;
+                                const extraKey = st.displayBasis === "inclusive" ? "extraOutsourcingInclusive" : "extraOutsourcingExclusive";
+                                const v = field === "loanRepay" ? st.loanRepay : st[extraKey];
                                 const display = editableNumDisplay(v, summaryFocus === field);
                                 return (
                                   <input
@@ -677,7 +729,7 @@ export function InvoiceSheet({
                                     placeholder="0"
                                     onFocus={() => setSummaryFocus(field)}
                                     onBlur={() => setSummaryFocus((cur) => (cur === field ? null : cur))}
-                                    onChange={(e) => set(field === "loanRepay" ? { loanRepay: e.target.value } : { extraOutsourcing: e.target.value })}
+                                    onChange={(e) => set(field === "loanRepay" ? { loanRepay: e.target.value } : { [extraKey]: e.target.value })}
                                     className="bg-transparent outline-none text-right font-bold p-0"
                                     style={{ width: `calc(${Math.max(1, display.length)}ch + 2px)` }}
                                   />
@@ -712,8 +764,10 @@ export function InvoiceSheet({
       subtotal: totals.billSubtotal,
       tax: totals.billTax,
       gross: totals.billGross,
-      subtotalLabel: "小計（税抜）",
+      subtotalLabel: st.taxEnabled ? "小計（税抜）" : "小計",
       taxLabel: st.taxEnabled ? `消費税額（小計分 ${ratePct}%）` : "",
+      grossLabel: st.taxEnabled ? "税込合計" : "合計",
+      displayBasis: st.displayBasis,
       sectionForceBreak: st.blockBreaks.includes("main"),
       breakToggle: breakToggle("main"),
       setLine,
@@ -731,8 +785,10 @@ export function InvoiceSheet({
           subtotal: totals.deductSubtotal,
           tax: totals.deductTax,
           gross: totals.deductGross,
-          subtotalLabel: `${config.deductSectionTitle}小計（税抜）`,
+          subtotalLabel: st.taxEnabled ? `${config.deductSectionTitle}小計（税抜）` : `${config.deductSectionTitle}小計`,
           taxLabel: st.taxEnabled ? `消費税額（${config.deductSectionTitle} ${ratePct}%）` : "",
+          grossLabel: st.taxEnabled ? "税込合計" : "合計",
+          displayBasis: st.displayBasis,
           styleFirst: { marginTop: `${st.layout.deductGapMm}mm` },
           sectionForceBreak: st.blockBreaks.includes("deduct"),
           breakToggle: breakToggle("deduct"),

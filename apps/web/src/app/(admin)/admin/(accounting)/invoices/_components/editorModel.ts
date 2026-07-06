@@ -2,12 +2,16 @@ import { computeInvoiceTotals } from "@repo/core/logic/reward";
 import { getInvoiceIssuer } from "@/config/companies";
 import { INVOICE_KIND_CONFIG, resolveInvoiceKind, type InvoiceKind } from "./invoiceKinds";
 
-/** 帳票1行（税抜単価モデル・数値化済み）。 */
+/** 単価が契約上どちらの基準で決まっているか。未設定は"exclusive"（従来どおり税抜）。 */
+export type TaxBasis = "exclusive" | "inclusive";
+
+/** 帳票1行（数値化済み）。price は priceBasis 基準での入力値。 */
 export type InvoiceDocLine = {
   title: string;
   qty: number;
   unit: string;
   price: number;
+  priceBasis: TaxBasis;
 };
 
 /** 帳票表示データ（数値化済み）。 */
@@ -31,6 +35,7 @@ export type InvoiceDocData = {
   deduct: InvoiceDocLine[];
   loanRepay: number;
   extraOutsourcing: number;
+  displayBasis: TaxBasis;
   dueDate: string;
   bankName: string;
   bankNo: string;
@@ -117,7 +122,10 @@ export type EditorLine = {
   title: string;
   qty: string;
   unit: string;
+  /** 入力した単価（priceBasis基準での値）。 */
   price: string;
+  /** priceの基準。コース単価と同じ考え方（税抜/税込どちらで入力したか）。既定は"exclusive"。 */
+  priceBasis: TaxBasis;
   /** この行の直前で改ページする（任意位置の改ページ。行に紐づくので並べ替えにも追従）。 */
   pageBreakBefore?: boolean;
 };
@@ -162,7 +170,12 @@ export type EditorState = {
   main: EditorLine[];
   deduct: EditorLine[];
   loanRepay: string;
-  extraOutsourcing: string;
+  /** 追加外注請求分/売上追加分。税抜表示・税込表示それぞれで独立に持つ（端数の蓄積で
+   *  一致しない実額に、モードごとにぴったり合わせられるようにするため）。 */
+  extraOutsourcingExclusive: string;
+  extraOutsourcingInclusive: string;
+  /** 帳票全体の表示基準（税抜/税込）。行のpriceBasisと異なる行は自動換算して表示する。 */
+  displayBasis: TaxBasis;
   // 振込先
   dueDate: string;
   bankName: string;
@@ -188,7 +201,7 @@ const n = (v: unknown): number => {
 const s = (v: unknown): string => (v == null ? "" : String(v));
 
 export function emptyLine(): EditorLine {
-  return { title: "", qty: "", unit: "", price: "" };
+  return { title: "", qty: "", unit: "", price: "", priceBasis: "exclusive" };
 }
 
 /** 種別ごとの空エディタ状態。自社（請求元）情報は config/companies から自動補完。 */
@@ -216,7 +229,9 @@ export function blankEditorState(kind: InvoiceKind): EditorState {
     main: [emptyLine()],
     deduct: [emptyLine()],
     loanRepay: "0",
-    extraOutsourcing: "0",
+    extraOutsourcingExclusive: "0",
+    extraOutsourcingInclusive: "0",
+    displayBasis: "exclusive",
     dueDate: "",
     // 振込先：売上＝自社口座 / 受領＝ドライバー口座（未入力）
     bankName: isIncoming ? "" : issuer.bankName,
@@ -266,6 +281,7 @@ function linesFromPayload(v: unknown): EditorLine[] {
     qty: r?.qty == null ? "" : String(r.qty),
     unit: s(r?.unit),
     price: r?.price == null ? "" : String(r.price),
+    priceBasis: r?.priceBasis === "inclusive" ? "inclusive" : "exclusive",
     pageBreakBefore: r?.pageBreakBefore ? true : undefined,
   }));
 }
@@ -298,7 +314,16 @@ export function editorFromInvoice(inv: ApiInvoice): EditorState {
     main: linesFromPayload(p?.tableData?.main),
     deduct: linesFromPayload(p?.tableData?.deduct),
     loanRepay: p.loanRepay != null ? String(p.loanRepay) : "0",
-    extraOutsourcing: p.extraOutsourcing != null ? String(p.extraOutsourcing) : "0",
+    // 旧仕様(単一のextraOutsourcing)からの後方互換: 専用フィールドが無ければ旧値を
+    // exclusive側に引き継ぐ（旧データは常にexclusive表示で計算されていたため）。
+    extraOutsourcingExclusive:
+      p.extraOutsourcingExclusive != null
+        ? String(p.extraOutsourcingExclusive)
+        : p.extraOutsourcing != null
+          ? String(p.extraOutsourcing)
+          : "0",
+    extraOutsourcingInclusive: p.extraOutsourcingInclusive != null ? String(p.extraOutsourcingInclusive) : "0",
+    displayBasis: p.displayBasis === "inclusive" ? "inclusive" : "exclusive",
     dueDate: s(p.dueDate),
     bankName: s(p.bankName) || base.bankName,
     bankNo: s(p.bankNo) || base.bankNo,
@@ -324,7 +349,13 @@ function toDocLines(lines: EditorLine[]): InvoiceDocLine[] {
     qty: n(l.qty),
     unit: l.unit,
     price: n(l.price),
+    priceBasis: l.priceBasis === "inclusive" ? "inclusive" : "exclusive",
   }));
+}
+
+/** 現在の表示基準(displayBasis)側の追加外注請求分/売上追加分。 */
+export function currentExtraOutsourcing(st: EditorState): number {
+  return n(st.displayBasis === "inclusive" ? st.extraOutsourcingInclusive : st.extraOutsourcingExclusive);
 }
 
 /** エディタ状態 → 帳票表示データ（ライブプレビュー用）。 */
@@ -348,7 +379,8 @@ export function docDataFromEditor(st: EditorState): InvoiceDocData {
     main: toDocLines(st.main),
     deduct: toDocLines(st.deduct),
     loanRepay: n(st.loanRepay),
-    extraOutsourcing: n(st.extraOutsourcing),
+    extraOutsourcing: currentExtraOutsourcing(st),
+    displayBasis: st.displayBasis,
     dueDate: st.dueDate,
     bankName: st.bankName,
     bankNo: st.bankNo,
@@ -357,7 +389,7 @@ export function docDataFromEditor(st: EditorState): InvoiceDocData {
   };
 }
 
-/** 差引き請求額（税込）＝保存する amount。 */
+/** 差引き請求額（現在の表示基準での金額）＝保存する amount。 */
 export function amountFromEditor(st: EditorState): number {
   return computeInvoiceTotals({
     main: toDocLines(st.main),
@@ -365,7 +397,8 @@ export function amountFromEditor(st: EditorState): number {
     taxEnabled: st.taxEnabled,
     taxRatePercent: n(st.taxRatePercent),
     loanRepay: n(st.loanRepay),
-    extraOutsourcing: n(st.extraOutsourcing),
+    extraOutsourcing: currentExtraOutsourcing(st),
+    displayBasis: st.displayBasis,
   }).total;
 }
 
@@ -379,6 +412,7 @@ export function payloadFromEditor(st: EditorState): Record<string, unknown> {
         qty: n(l.qty),
         unit: l.unit,
         price: n(l.price),
+        priceBasis: l.priceBasis === "inclusive" ? "inclusive" : "exclusive",
         ...(l.pageBreakBefore ? { pageBreakBefore: true } : {}),
       }));
   return {
@@ -401,7 +435,11 @@ export function payloadFromEditor(st: EditorState): Record<string, unknown> {
     tableData: { main: cleanLines(st.main), deduct: cleanLines(st.deduct) },
     taxSettings: { enabled: st.taxEnabled, rate: n(st.taxRatePercent) },
     loanRepay: n(st.loanRepay),
-    extraOutsourcing: n(st.extraOutsourcing),
+    extraOutsourcingExclusive: n(st.extraOutsourcingExclusive),
+    extraOutsourcingInclusive: n(st.extraOutsourcingInclusive),
+    displayBasis: st.displayBasis,
+    // 旧仕様の読み手（存在すれば）向けに、現在の表示基準側の値を引き続き書いておく。
+    extraOutsourcing: currentExtraOutsourcing(st),
     blockBreaks: st.blockBreaks,
     layout: st.layout,
     parties: st.parties,

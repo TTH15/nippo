@@ -38,6 +38,7 @@ function mapLines(rows?: { title?: string; qty?: number; price?: number }[]): Ed
     qty: r.qty == null ? "" : String(r.qty),
     unit: "",
     price: r.price == null ? "" : String(r.price),
+    priceBasis: "exclusive",
   }));
 }
 

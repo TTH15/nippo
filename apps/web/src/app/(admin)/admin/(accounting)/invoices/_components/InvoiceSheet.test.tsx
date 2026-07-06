@@ -14,10 +14,10 @@ function sample(): EditorState {
   return {
     ...blankEditorState("outgoing"),
     toName: "テスト株式会社",
-    main: [{ title: "Amazon", qty: "1", unit: "回", price: "100000" }],
-    deduct: [{ title: "リース代", qty: "1", unit: "件", price: "30000" }],
+    main: [{ title: "Amazon", qty: "1", unit: "回", price: "100000", priceBasis: "exclusive" }],
+    deduct: [{ title: "リース代", qty: "1", unit: "件", price: "30000", priceBasis: "exclusive" }],
     loanRepay: "5000",
-    extraOutsourcing: "2000",
+    extraOutsourcingExclusive: "2000",
   };
 }
 
@@ -43,7 +43,7 @@ describe("InvoiceSheet", () => {
 
   it("連続入力でフォーカスが外れない（複数桁を入力できる）", async () => {
     const user = userEvent.setup();
-    render(<Harness init={{ ...blankEditorState("outgoing"), main: [{ title: "", qty: "", unit: "", price: "" }], deduct: [] }} />);
+    render(<Harness init={{ ...blankEditorState("outgoing"), main: [{ title: "", qty: "", unit: "", price: "", priceBasis: "exclusive" }], deduct: [] }} />);
     const title = screen.getByPlaceholderText("摘要");
     await user.click(title);
     await user.type(title, "ネコポス");
@@ -61,8 +61,8 @@ describe("InvoiceSheet", () => {
         init={{
           ...blankEditorState("outgoing"),
           main: [
-            { title: "行1", qty: "1", unit: "個", price: "100" },
-            { title: "行2", qty: "2", unit: "個", price: "200" },
+            { title: "行1", qty: "1", unit: "個", price: "100", priceBasis: "exclusive" },
+            { title: "行2", qty: "2", unit: "個", price: "200", priceBasis: "exclusive" },
           ],
           deduct: [],
         }}
