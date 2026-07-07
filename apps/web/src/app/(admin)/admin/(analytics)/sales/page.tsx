@@ -1349,19 +1349,19 @@ export default function SalesPage() {
     return totals;
   }, [totals]);
 
-  const dailyAvg = useMemo(() => {
-    const len = displayData.length || 1;
-    return {
-      revenue: Math.round(displayTotals.total / len),
-      profit: Math.round(displayTotals.profit / len),
-    };
-  }, [displayTotals, displayData.length]);
-
   const daysCount = daysInRange.length || 1;
   const activeDays = useMemo(
     () => displayData.filter((d) => d.yamato + d.amazon > 0).length,
     [displayData],
   );
+
+  const dailyAvg = useMemo(() => {
+    const len = activeDays || 1;
+    return {
+      revenue: Math.round(displayTotals.total / len),
+      profit: Math.round(displayTotals.profit / len),
+    };
+  }, [displayTotals, activeDays]);
   const activeDriverCount = useMemo(() => {
     let count = 0;
     filteredDrivers.forEach((drv) => {
