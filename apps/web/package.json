@@ -22,6 +22,8 @@
     "@radix-ui/react-popover": "^1.1.6",
     "@radix-ui/react-slot": "^1.1.2",
     "@repo/core": "*",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.2",
     "@supabase/supabase-js": "^2.45.0",
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.1",

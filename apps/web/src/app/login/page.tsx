@@ -2,8 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { startAuthentication } from "@simplewebauthn/browser";
 import { apiFetch, setAuth } from "@/lib/api";
 import { getCompany } from "@/config/companies";
+
+type LoginResult = {
+  token: string;
+  driver: { id: string; name: string; role: string; companyCode?: string };
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,7 +17,54 @@ export default function LoginPage() {
   const [driverPin, setDriverPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [passkeyError, setPasskeyError] = useState("");
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
+
+  const goToHome = (driver: LoginResult["driver"]) => {
+    if (driver.role === "ADMIN") {
+      router.push("/admin");
+    } else {
+      router.push("/submit");
+    }
+  };
+
+  const handlePasskeyLogin = async () => {
+    setPasskeyLoading(true);
+    setPasskeyError("");
+    try {
+      const { options, challengeToken } = await apiFetch<{
+        options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
+        challengeToken: string;
+      }>(
+        "/api/auth/webauthn/login/options",
+        { method: "POST" },
+        { skipAuthRedirect: true },
+      );
+
+      const authResponse = await startAuthentication({ optionsJSON: options });
+
+      const res = await apiFetch<LoginResult>(
+        "/api/auth/webauthn/login/verify",
+        {
+          method: "POST",
+          body: JSON.stringify({ response: authResponse, challengeToken }),
+        },
+        { skipAuthRedirect: true },
+      );
+
+      setAuth(res.token, res.driver);
+      goToHome(res.driver);
+    } catch (err: unknown) {
+      // ユーザーがブラウザのPasskeyダイアログをキャンセルした場合は無言で戻す
+      if (err instanceof Error && err.name !== "NotAllowedError") {
+        setPasskeyError(err.message || "Passkeyでのログインに失敗しました");
+      }
+      console.error("Passkey login error:", err);
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,12 +93,7 @@ export default function LoginPage() {
       );
 
       setAuth(res.token, res.driver);
-
-      if (res.driver.role === "ADMIN") {
-        router.push("/admin");
-      } else {
-        router.push("/submit");
-      }
+      goToHome(res.driver);
     } catch (err: unknown) {
       let errorMessage = "ログインに失敗しました";
       if (err instanceof Error) {
@@ -143,6 +191,25 @@ export default function LoginPage() {
               {loading ? "ログイン中..." : "ログイン"}
             </button>
           </form>
+
+          <div className="px-5 pb-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex-1 h-px bg-slate-200" />
+              <span className="text-xs text-slate-400">または</span>
+              <div className="flex-1 h-px bg-slate-200" />
+            </div>
+            {passkeyError && (
+              <p className="text-sm text-red-600 text-center mb-2">{passkeyError}</p>
+            )}
+            <button
+              type="button"
+              onClick={handlePasskeyLogin}
+              disabled={passkeyLoading}
+              className="w-full py-2.5 bg-white text-slate-900 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {passkeyLoading ? "確認中..." : "Passkeyでログイン"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
