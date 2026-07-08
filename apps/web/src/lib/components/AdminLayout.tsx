@@ -389,6 +389,12 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                 <FontAwesomeIcon icon={faRightFromBracket} className="w-4 h-4" />
               </button>
             </div>
+            <Link
+              href="/submit"
+              className="mt-2 inline-block text-[11px] text-slate-400 hover:text-slate-700 transition-colors"
+            >
+              ドライバー画面へ切り替え
+            </Link>
           </div>
         </aside>
 
@@ -512,6 +518,13 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                     {company.name}
                     {isViewer ? "（閲覧）" : ""}
                   </p>
+                </Link>
+                <Link
+                  href="/submit"
+                  onClick={() => setMobileNavOpen(false)}
+                  className="block mb-2 text-[11px] text-slate-400 hover:text-slate-700 transition-colors"
+                >
+                  ドライバー画面へ切り替え
                 </Link>
                 <button
                   onClick={logout}
