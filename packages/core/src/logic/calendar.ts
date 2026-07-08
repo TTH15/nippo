@@ -1,6 +1,7 @@
 // カレンダー描画・月送りのための純粋ヘルパー（プラットフォーム非依存）。
 // 注: 端末ローカルタイムの Date を用いる（JST 固定ではない）。日報送信日の
-// JST ロジックは @/lib/date を参照。ここは「画面に並べる暦」用。
+// JST ロジックは reportDateDefaultJST（本ファイル）/ Web 側 @/lib/date を参照。
+// それ以外は「画面に並べる暦」用。
 //
 // month のインデックス規約はあえて2系統あり、呼び出し側の既存実装に合わせる:
 //   - 0-indexed（0=1月）… getDaysInMonth / nowYearMonth0
@@ -66,4 +67,29 @@ export function formatYearMonth(year: number, month1: number): string {
 export function formatMonthDayJP(dateStr: string): string {
   const [, m, d] = dateStr.split("-").map(Number);
   return `${m}月${d}日`;
+}
+
+/**
+ * 日報用のデフォルト日付（日本時間 午前3:00 で日付が切り替わる）。
+ * 3:00 より前は「前日」、3:00 以降は「当日」を返す。
+ * Returns YYYY-MM-DD（JST）
+ */
+export function reportDateDefaultJST(): string {
+  const now = new Date();
+  // "ja-JP" + hour12:false の format() は "0時" のような非数値文字列を返すため、
+  // Number(format()) は常に NaN になり cutoff が効かない。formatToParts() で
+  // hour パートの値だけを取り出す。
+  const parts = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "numeric",
+    hour12: false,
+  }).formatToParts(now);
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? NaN);
+  const dateStr = now.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+  if (hour < 3) {
+    const d = new Date(dateStr + "T12:00:00+09:00");
+    d.setHours(d.getHours() - 24);
+    return d.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+  }
+  return dateStr;
 }
