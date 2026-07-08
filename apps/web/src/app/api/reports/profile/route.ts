@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { resolveIdentityId } from "@/server/identity";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,17 @@ export async function GET(req: NextRequest) {
 
   const primary = identities[0];
 
+  const identityId = await resolveIdentityId(user);
+  let phoneVerified = false;
+  if (identityId) {
+    const { data: identityRow } = await supabase
+      .from("identities")
+      .select("phone_verified_at")
+      .eq("id", identityId)
+      .maybeSingle();
+    phoneVerified = Boolean(identityRow?.phone_verified_at);
+  }
+
   return NextResponse.json({
     name: driver.name ?? "",
     officeCode: primary?.officeCode ?? driver.office_code ?? "",
@@ -53,6 +65,7 @@ export async function GET(req: NextRequest) {
     postalCode: driver.postal_code ?? "",
     address: driver.address ?? "",
     phone: driver.phone ?? "",
+    phoneVerified,
     bankName: driver.bank_name ?? "",
     bankNo: driver.bank_no ?? "",
     bankHolder: driver.bank_holder ?? "",

@@ -50,6 +50,11 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const [pinMessage, setPinMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [passkeySubmitting, setPasskeySubmitting] = useState(false);
   const [passkeyMessage, setPasskeyMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [phoneStep, setPhoneStep] = useState<"input" | "otp">("input");
+  const [phoneInput, setPhoneInput] = useState("");
+  const [phoneCode, setPhoneCode] = useState("");
+  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
+  const [phoneMessage, setPhoneMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   useBodyScrollLock(showVehicleModal);
 
   // プロフィールを SWR キャッシュ（遷移をまたいで保持＝再訪時の点滅をなくす）。
@@ -58,6 +63,10 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   );
   useEffect(() => {
     if (profileData) setProfile(profileData);
+  }, [profileData]);
+  // 既存の電話番号があれば入力欄に初期値として流し込む（再訪時に空にしない）。
+  useEffect(() => {
+    if (profileData?.phone) setPhoneInput((prev) => prev || profileData.phone);
   }, [profileData]);
 
   // 報告種別（設定マスタ）を取得。先頭を既定選択に。
@@ -183,6 +192,43 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       setPasskeyMessage({ type: "error", text: msg });
     } finally {
       setPasskeySubmitting(false);
+    }
+  };
+
+  const handleSendPhoneCode = async () => {
+    setPhoneMessage(null);
+    setPhoneSubmitting(true);
+    try {
+      await apiFetch("/api/otp/send", {
+        method: "POST",
+        body: JSON.stringify({ phone: phoneInput.trim() }),
+      });
+      setPhoneStep("otp");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "認証コードの送信に失敗しました";
+      setPhoneMessage({ type: "error", text: msg });
+    } finally {
+      setPhoneSubmitting(false);
+    }
+  };
+
+  const handleVerifyPhone = async () => {
+    setPhoneMessage(null);
+    setPhoneSubmitting(true);
+    try {
+      await apiFetch("/api/me/phone/verify", {
+        method: "POST",
+        body: JSON.stringify({ phone: phoneInput.trim(), code: phoneCode.trim() }),
+      });
+      setPhoneMessage({ type: "ok", text: "電話番号を確認しました" });
+      setPhoneStep("input");
+      setPhoneCode("");
+      setProfile((prev) => (prev ? { ...prev, phone: phoneInput.trim(), phoneVerified: true } : prev));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "確認に失敗しました";
+      setPhoneMessage({ type: "error", text: msg });
+    } finally {
+      setPhoneSubmitting(false);
     }
   };
 
@@ -570,6 +616,86 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
             {pinSubmitting ? "変更中..." : "PINを変更する"}
           </button>
         </form>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-base font-bold text-slate-900 mb-4">電話番号の確認</h2>
+        <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
+          <p className="text-sm text-slate-600">
+            {profile?.phoneVerified
+              ? "確認済みです。番号を変更する場合は入力し直してください。"
+              : "PIN・Passkeyを両方失った場合、SMSでこの番号に本人確認コードを送って復旧できるようにします。"}
+          </p>
+          {phoneStep === "input" && (
+            <>
+              <input
+                type="tel"
+                inputMode="tel"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                className="w-full py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors"
+                placeholder="090-1234-5678"
+                autoComplete="tel"
+              />
+              {phoneMessage && (
+                <p
+                  className={`text-sm ${phoneMessage.type === "ok" ? "text-green-600" : "text-red-600"
+                    }`}
+                >
+                  {phoneMessage.text}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={handleSendPhoneCode}
+                disabled={phoneSubmitting || !phoneInput.trim()}
+                className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {phoneSubmitting ? "送信中..." : "認証コードを送信"}
+              </button>
+            </>
+          )}
+          {phoneStep === "otp" && (
+            <>
+              <p className="text-sm text-slate-600">{phoneInput} に送った6桁の認証コードを入力してください。</p>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={phoneCode}
+                onChange={(e) => setPhoneCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="w-full text-center text-2xl tracking-[0.5em] font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
+                placeholder="______"
+                maxLength={6}
+              />
+              {phoneMessage && (
+                <p
+                  className={`text-sm ${phoneMessage.type === "ok" ? "text-green-600" : "text-red-600"
+                    }`}
+                >
+                  {phoneMessage.text}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={handleVerifyPhone}
+                disabled={phoneSubmitting || phoneCode.length !== 6}
+                className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {phoneSubmitting ? "確認中..." : "確認する"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPhoneStep("input");
+                  setPhoneMessage(null);
+                }}
+                className="w-full text-sm text-slate-500 hover:text-slate-700"
+              >
+                ‹ 番号を入れ直す
+              </button>
+            </>
+          )}
+        </div>
       </section>
 
       <section className="mt-10">
