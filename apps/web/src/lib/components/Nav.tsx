@@ -28,6 +28,7 @@ export function Nav({ variant = "default" }: NavProps) {
   }, [pathname]);
 
   const isAdmin = driver?.role === "ADMIN";
+  const hasAdminAccess = driver?.role === "ADMIN" || driver?.role === "ADMIN_VIEWER";
   const isUserLayout = variant === "user";
 
   const logout = () => {
@@ -69,6 +70,14 @@ export function Nav({ variant = "default" }: NavProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
+          )}
+          {isUserLayout && hasAdminAccess && (
+            <Link
+              href="/admin"
+              className="text-xs text-slate-500 hover:text-slate-900 transition-colors"
+            >
+              運営画面へ
+            </Link>
           )}
           {isUserLayout && (
             <button

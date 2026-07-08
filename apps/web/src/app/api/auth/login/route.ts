@@ -46,7 +46,6 @@ export async function POST(req: NextRequest) {
         .from("drivers")
         .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id, status")
         .eq("driver_code", code)
-        .eq("role", "DRIVER")
         .maybeSingle();
 
       if (err1 && err1.code !== "PGRST116") {
@@ -78,7 +77,6 @@ export async function POST(req: NextRequest) {
             .from("drivers")
             .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id, status")
             .eq("id", idRow.driver_id)
-            .eq("role", "DRIVER")
             .single();
           if (!err3 && d2) driver = d2;
         }
