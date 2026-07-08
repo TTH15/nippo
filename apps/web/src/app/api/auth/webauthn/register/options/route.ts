@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   const { data: driver } = await supabase
     .from("drivers")
-    .select("name, driver_code")
+    .select("name")
     .eq("id", user.driverId)
     .maybeSingle();
 
@@ -34,7 +34,8 @@ export async function POST(req: NextRequest) {
     rpName,
     rpID,
     userID: new TextEncoder().encode(user.identityId),
-    userName: driver?.driver_code || user.driverId,
+    // OS/ブラウザのPasskey選択UIに出るラベル。ドライバーコードだと無機質なので氏名を使う。
+    userName: driver?.name || "ドライバー",
     userDisplayName: driver?.name || "ドライバー",
     attestationType: "none",
     excludeCredentials: (existing ?? []).map((c) => ({

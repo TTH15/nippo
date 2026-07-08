@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { apiFetch, setAuth } from "@/lib/api";
 import { getCompany } from "@/config/companies";
@@ -209,6 +210,12 @@ export default function LoginPage() {
             >
               {passkeyLoading ? "確認中..." : "Passkeyでログイン"}
             </button>
+            <Link
+              href="/login/recover"
+              className="block w-full text-center text-sm text-slate-500 hover:text-slate-700 mt-3"
+            >
+              PIN・Passkeyを忘れた方はこちら
+            </Link>
           </div>
         </div>
       </div>
