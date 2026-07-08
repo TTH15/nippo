@@ -51,7 +51,7 @@ export function buildProfileEntries(
     { label: "営業所コード", value: profile.officeCode },
     { label: "郵便番号", value: profile.postalCode },
     { label: "住所", value: profile.address },
-    { label: "電話番号", value: profile.phone },
+    { label: "電話番号", value: formatJPPhoneDisplay(profile.phone) },
     { label: "銀行名", value: profile.bankName },
     { label: "口座番号", value: profile.bankNo },
     { label: "口座名義", value: profile.bankHolder },

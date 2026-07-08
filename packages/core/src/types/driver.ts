@@ -11,6 +11,8 @@ export type Profile = {
   phone: string;
   /** identities.phone_verified_at の有無（SMS OTPで検証済みか。Passkeyログイン等の復旧経路に必要） */
   phoneVerified: boolean;
+  /** この identity に登録済みの Passkey が1件以上あるか */
+  hasPasskey: boolean;
   bankName: string;
   bankNo: string;
   bankHolder: string;

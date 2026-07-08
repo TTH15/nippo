@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
 
   const identityId = await resolveIdentityId(user);
   let phoneVerified = false;
+  let hasPasskey = false;
   if (identityId) {
     const { data: identityRow } = await supabase
       .from("identities")
@@ -55,6 +56,12 @@ export async function GET(req: NextRequest) {
       .eq("id", identityId)
       .maybeSingle();
     phoneVerified = Boolean(identityRow?.phone_verified_at);
+
+    const { count } = await supabase
+      .from("passkey_credentials")
+      .select("id", { count: "exact", head: true })
+      .eq("identity_id", identityId);
+    hasPasskey = (count ?? 0) > 0;
   }
 
   return NextResponse.json({
@@ -66,6 +73,7 @@ export async function GET(req: NextRequest) {
     address: driver.address ?? "",
     phone: driver.phone ?? "",
     phoneVerified,
+    hasPasskey,
     bankName: driver.bank_name ?? "",
     bankNo: driver.bank_no ?? "",
     bankHolder: driver.bank_holder ?? "",
