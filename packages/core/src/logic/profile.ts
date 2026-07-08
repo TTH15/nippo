@@ -20,6 +20,25 @@ export function validatePinChange(
   return { ok: true };
 }
 
+/**
+ * E.164(+81...)形式の電話番号を日本国内の表示形式に変換する（先頭0・携帯はハイフン区切り）。
+ * 変換できない形式はそのまま返す。
+ */
+export function formatJPPhoneDisplay(phone: string): string {
+  if (!phone) return phone;
+  let digits = phone;
+  if (digits.startsWith("+81")) {
+    digits = "0" + digits.slice(3);
+  }
+  digits = digits.replace(/[^\d]/g, "");
+  if (!digits.startsWith("0")) return phone;
+  // 携帯(070/080/090) 11桁は 3-4-4 でハイフン区切り。それ以外は桁数不定なので数字のみ返す。
+  if (digits.length === 11 && /^0[789]0/.test(digits)) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  }
+  return digits;
+}
+
 /** プロフィール表示用の label/value 一覧（空値は除外、表示順を固定）。 */
 export function buildProfileEntries(
   profile: Profile | null,
