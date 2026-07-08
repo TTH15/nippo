@@ -19,8 +19,10 @@ import { toLocalDateStr, toLocalTimeStr } from "@repo/core/logic/calendar";
 import { dedupeVehiclesById, excludeVehicleId, resolvePreferredVehicleId } from "@repo/core/logic/vehicle";
 import { validatePinChange, digitsOnly, buildProfileEntries, formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { isValidReportDateTime, countAttachmentsByField } from "@repo/core/logic/report";
+import { useIsWebAuthnHost } from "@/lib/webauthnHost";
 
 export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
+  const canUsePasskey = useIsWebAuthnHost();
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get("tab");
   // 独立ページ /report からは forceReport で報告フォームを表示。
@@ -706,38 +708,40 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
         </div>
       </section>
 
-      <section className="mt-10">
-        <h2 className="text-base font-bold text-slate-900 mb-4">Passkeyの登録</h2>
-        <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
-          {profile?.hasPasskey && (
-            <div className="flex items-center gap-2 text-sm text-slate-700">
-              <FontAwesomeIcon icon={faCircleCheck} className="w-4 h-4 text-green-600" />
-              <span>登録済みです</span>
-            </div>
-          )}
-          <p className="text-sm text-slate-600">
-            {profile?.hasPasskey
-              ? "別の端末を追加で登録することもできます。"
-              : "指紋・顔認証などでログインできるようになります（PINでのログインも引き続き使えます）。"}
-          </p>
-          {passkeyMessage && (
-            <p
-              className={`text-sm ${passkeyMessage.type === "ok" ? "text-green-600" : "text-red-600"
-                }`}
-            >
-              {passkeyMessage.text}
+      {canUsePasskey && (
+        <section className="mt-10">
+          <h2 className="text-base font-bold text-slate-900 mb-4">Passkeyの登録</h2>
+          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
+            {profile?.hasPasskey && (
+              <div className="flex items-center gap-2 text-sm text-slate-700">
+                <FontAwesomeIcon icon={faCircleCheck} className="w-4 h-4 text-green-600" />
+                <span>登録済みです</span>
+              </div>
+            )}
+            <p className="text-sm text-slate-600">
+              {profile?.hasPasskey
+                ? "別の端末を追加で登録することもできます。"
+                : "指紋・顔認証などでログインできるようになります（PINでのログインも引き続き使えます）。"}
             </p>
-          )}
-          <button
-            type="button"
-            onClick={handlePasskeyRegister}
-            disabled={passkeySubmitting}
-            className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {passkeySubmitting ? "登録中..." : "この端末にPasskeyを登録する"}
-          </button>
-        </div>
-      </section>
+            {passkeyMessage && (
+              <p
+                className={`text-sm ${passkeyMessage.type === "ok" ? "text-green-600" : "text-red-600"
+                  }`}
+              >
+                {passkeyMessage.text}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={handlePasskeyRegister}
+              disabled={passkeySubmitting}
+              className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {passkeySubmitting ? "登録中..." : "この端末にPasskeyを登録する"}
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

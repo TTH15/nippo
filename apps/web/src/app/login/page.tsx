@@ -6,6 +6,7 @@ import Link from "next/link";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { apiFetch, setAuth } from "@/lib/api";
 import { getCompany } from "@/config/companies";
+import { useIsWebAuthnHost } from "@/lib/webauthnHost";
 
 type LoginResult = {
   token: string;
@@ -14,6 +15,7 @@ type LoginResult = {
 
 export default function LoginPage() {
   const router = useRouter();
+  const canUsePasskey = useIsWebAuthnHost();
   const [driverCode, setDriverCode] = useState("");
   const [driverPin, setDriverPin] = useState("");
   const [error, setError] = useState("");
@@ -194,22 +196,26 @@ export default function LoginPage() {
           </form>
 
           <div className="px-5 pb-5">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="flex-1 h-px bg-slate-200" />
-              <span className="text-xs text-slate-400">または</span>
-              <div className="flex-1 h-px bg-slate-200" />
-            </div>
-            {passkeyError && (
-              <p className="text-sm text-red-600 text-center mb-2">{passkeyError}</p>
+            {canUsePasskey && (
+              <>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex-1 h-px bg-slate-200" />
+                  <span className="text-xs text-slate-400">または</span>
+                  <div className="flex-1 h-px bg-slate-200" />
+                </div>
+                {passkeyError && (
+                  <p className="text-sm text-red-600 text-center mb-2">{passkeyError}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={handlePasskeyLogin}
+                  disabled={passkeyLoading}
+                  className="w-full py-2.5 bg-white text-slate-900 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {passkeyLoading ? "確認中..." : "Passkeyでログイン"}
+                </button>
+              </>
             )}
-            <button
-              type="button"
-              onClick={handlePasskeyLogin}
-              disabled={passkeyLoading}
-              className="w-full py-2.5 bg-white text-slate-900 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {passkeyLoading ? "確認中..." : "Passkeyでログイン"}
-            </button>
             <Link
               href="/login/recover"
               className="block w-full text-center text-sm text-slate-500 hover:text-slate-700 mt-3"
