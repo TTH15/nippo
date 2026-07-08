@@ -14,12 +14,15 @@ export function todayJST(): string {
  */
 export function reportDateDefaultJST(): string {
   const now = new Date();
-  const formatter = new Intl.DateTimeFormat("ja-JP", {
+  // "ja-JP" + hour12:false の format() は "0時" のような非数値文字列を返すため、
+  // Number(format()) は常に NaN になり cutoff が効かなかった（実害バグ）。
+  // formatToParts() で hour パートの値だけを取り出す。
+  const parts = new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
     hour: "numeric",
     hour12: false,
-  });
-  const hour = Number(formatter.format(now));
+  }).formatToParts(now);
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? NaN);
   const dateStr = now.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
   if (hour < 3) {
     const d = new Date(dateStr + "T12:00:00+09:00");

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text, TextInput, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { apiFetch } from "@repo/core/api";
 import type { DriverIdentity, SubmitVehicle, ShiftForm, ValueMap, VehiclePlateData } from "@repo/core/types";
-import { toLocalDateStr, formatMonthDayJP } from "@repo/core/logic/calendar";
+import { toLocalDateStr, formatMonthDayJP, reportDateDefaultJST } from "@repo/core/logic/calendar";
 import {
   buildInitialValues,
   parseMeter,
@@ -32,7 +32,9 @@ const plateText = (v: VehiclePlateData): string =>
   [v.number_class, v.number_hiragana, v.number_numeric].filter(Boolean).join(" ") || v.id;
 
 export function SubmitScreen() {
-  const [reportDate, setReportDate] = useState(() => toLocalDateStr(new Date()));
+  // 午前3時までは前日扱い（日報の締め時刻）。深夜便の送信で日付がズレて
+  // 「未提出」表示になってしまう不具合を避けるため、Web/管理画面と同じ基準日を使う。
+  const [reportDate, setReportDate] = useState(() => reportDateDefaultJST());
   const [identities, setIdentities] = useState<DriverIdentity[]>([]);
   const [identityId, setIdentityId] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<SubmitVehicle[]>([]);
