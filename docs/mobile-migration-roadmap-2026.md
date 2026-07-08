@@ -109,12 +109,13 @@
 
 ## 5. リスク / 前提
 
-- **Apple Developer / Google Play アカウント** と Team ID 確定（bundleId・TestFlight・将来公開に必須）。
+- **Apple Developer Program登録がブロック中(2026-07-09判明)**: 法人設立の登記完了が令和8年8月8日(2026-08-08)予定で、Apple Developer Program(組織アカウント)はD-U-N-S番号・登記情報の確認が必要なため**登記完了後でないと申請できず、審査にさらに数日〜数週間かかる見込み**。bundleIdは`jp.hakotora.driver`で合意済みだが、Team ID確定・TestFlight配布・ネイティブPasskey(AASA/assetlinks)は全てこれに依存する。**iOS版の9/1公開は物理的に間に合わない可能性が高い**とユーザーも認識(2026-07-09)。→ 対応方針は次項参照。
+- **Google Play**は法人登記と無関係に進められる可能性あり(個人アカウントでも可、EASのAndroid内部テスト=APKサイドロードはストアアカウント自体不要)。Apple Developer登録を待つ間、Android側の内部テストは並行して進められる。
 - **LINE Messaging API** チャネル開設・公式アカウント審査の所要時間。
-- **hakotora.jp** が AASA/assetlinks を配信できる状態（Passky・ディープリンク用）。
+- **hakotora.jp** が AASA/assetlinks を配信できる状態（Passky・ディープリンク用）。ただしAASA/assetlinksの中身にbundleId/Team IDが必要なため、これも上記Apple Developer登録待ち。
 - 端末でのOCR精度（オドメーター7セグは「写真が真実＋手入力補助」方針）。
 - デザイン（qr_flow v2.0）は体験の核＝**反復が必要**。W2–3 にバッファ込みで確保。
-- 移行は **PWA併走→段階移行**で安全に（いきなり全停止しない）。
+- 移行は **PWA併走→段階移行**で安全に（いきなり全停止しない）。**この設計のおかげで、Apple Developer登録の遅延があってもドライバーの業務は止まらない**（Web PWAが引き続き稼働）。9/1という日付そのものが後ろ倒しになるだけで、移行計画自体が破綻するわけではない。
 
 ## 6. 完成（モバイル完全移行）の定義（DoD）
 

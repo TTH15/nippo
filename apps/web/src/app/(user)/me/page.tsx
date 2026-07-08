@@ -185,6 +185,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       });
 
       setPasskeyMessage({ type: "ok", text: "Passkeyを登録しました" });
+      setProfile((prev) => (prev ? { ...prev, hasPasskey: true } : prev));
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "NotAllowedError") {
         // ユーザーがブラウザのPasskeyダイアログをキャンセルした場合は無言で戻す
@@ -708,8 +709,16 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       <section className="mt-10">
         <h2 className="text-base font-bold text-slate-900 mb-4">Passkeyの登録</h2>
         <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
+          {profile?.hasPasskey && (
+            <div className="flex items-center gap-2 text-sm text-slate-700">
+              <FontAwesomeIcon icon={faCircleCheck} className="w-4 h-4 text-green-600" />
+              <span>登録済みです</span>
+            </div>
+          )}
           <p className="text-sm text-slate-600">
-            指紋・顔認証などでログインできるようになります（PINでのログインも引き続き使えます）。
+            {profile?.hasPasskey
+              ? "別の端末を追加で登録することもできます。"
+              : "指紋・顔認証などでログインできるようになります（PINでのログインも引き続き使えます）。"}
           </p>
           {passkeyMessage && (
             <p
