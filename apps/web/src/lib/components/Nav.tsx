@@ -47,6 +47,8 @@ export function Nav({ variant = "default" }: NavProps) {
             <Image
               src="/logo/hakotora-logo_secondary_logo.svg"
               alt="ハコ虎"
+              width={72}
+              height={48}
               className="h-12 w-auto"
               priority
             />

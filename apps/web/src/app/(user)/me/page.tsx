@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { startRegistration } from "@simplewebauthn/browser";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -47,6 +48,8 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const [confirmPin, setConfirmPin] = useState("");
   const [pinSubmitting, setPinSubmitting] = useState(false);
   const [pinMessage, setPinMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [passkeySubmitting, setPasskeySubmitting] = useState(false);
+  const [passkeyMessage, setPasskeyMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   useBodyScrollLock(showVehicleModal);
 
   // プロフィールを SWR キャッシュ（遷移をまたいで保持＝再訪時の点滅をなくす）。
@@ -151,6 +154,35 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       setPinMessage({ type: "error", text: msg });
     } finally {
       setPinSubmitting(false);
+    }
+  };
+
+  const handlePasskeyRegister = async () => {
+    setPasskeyMessage(null);
+    setPasskeySubmitting(true);
+    try {
+      const { options, challengeToken } = await apiFetch<{
+        options: Parameters<typeof startRegistration>[0]["optionsJSON"];
+        challengeToken: string;
+      }>("/api/auth/webauthn/register/options", { method: "POST" });
+
+      const registrationResponse = await startRegistration({ optionsJSON: options });
+
+      await apiFetch("/api/auth/webauthn/register/verify", {
+        method: "POST",
+        body: JSON.stringify({ response: registrationResponse, challengeToken }),
+      });
+
+      setPasskeyMessage({ type: "ok", text: "Passkeyを登録しました" });
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "NotAllowedError") {
+        // ユーザーがブラウザのPasskeyダイアログをキャンセルした場合は無言で戻す
+        return;
+      }
+      const msg = err instanceof Error ? err.message : "Passkeyの登録に失敗しました";
+      setPasskeyMessage({ type: "error", text: msg });
+    } finally {
+      setPasskeySubmitting(false);
     }
   };
 
@@ -538,6 +570,31 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
             {pinSubmitting ? "変更中..." : "PINを変更する"}
           </button>
         </form>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-base font-bold text-slate-900 mb-4">Passkeyの登録</h2>
+        <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
+          <p className="text-sm text-slate-600">
+            指紋・顔認証などでログインできるようになります（PINでのログインも引き続き使えます）。
+          </p>
+          {passkeyMessage && (
+            <p
+              className={`text-sm ${passkeyMessage.type === "ok" ? "text-green-600" : "text-red-600"
+                }`}
+            >
+              {passkeyMessage.text}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={handlePasskeyRegister}
+            disabled={passkeySubmitting}
+            className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {passkeySubmitting ? "登録中..." : "この端末にPasskeyを登録する"}
+          </button>
+        </div>
       </section>
     </div>
   );
