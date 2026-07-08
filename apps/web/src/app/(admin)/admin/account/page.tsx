@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { startRegistration } from "@simplewebauthn/browser";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch, getStoredDriver, type StoredDriver } from "@/lib/api";
+import { useIsWebAuthnHost } from "@/lib/webauthnHost";
 
 export default function AdminAccountPage() {
+  const canUsePasskey = useIsWebAuthnHost();
   const [driver, setDriver] = useState<StoredDriver | null>(null);
   const [passkeySubmitting, setPasskeySubmitting] = useState(false);
   const [passkeyMessage, setPasskeyMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
@@ -52,30 +54,32 @@ export default function AdminAccountPage() {
           <h2 className="text-base font-bold text-slate-900 mb-4">{driver?.name}</h2>
         </section>
 
-        <section className="mt-4">
-          <h2 className="text-base font-bold text-slate-900 mb-4">Passkeyの登録</h2>
-          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
-            <p className="text-sm text-slate-600">
-              指紋・顔認証などでログインできるようになります（パスワードでのログインも引き続き使えます）。
-            </p>
-            {passkeyMessage && (
-              <p
-                className={`text-sm ${passkeyMessage.type === "ok" ? "text-green-600" : "text-red-600"
-                  }`}
-              >
-                {passkeyMessage.text}
+        {canUsePasskey && (
+          <section className="mt-4">
+            <h2 className="text-base font-bold text-slate-900 mb-4">Passkeyの登録</h2>
+            <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
+              <p className="text-sm text-slate-600">
+                指紋・顔認証などでログインできるようになります（パスワードでのログインも引き続き使えます）。
               </p>
-            )}
-            <button
-              type="button"
-              onClick={handlePasskeyRegister}
-              disabled={passkeySubmitting}
-              className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {passkeySubmitting ? "登録中..." : "この端末にPasskeyを登録する"}
-            </button>
-          </div>
-        </section>
+              {passkeyMessage && (
+                <p
+                  className={`text-sm ${passkeyMessage.type === "ok" ? "text-green-600" : "text-red-600"
+                    }`}
+                >
+                  {passkeyMessage.text}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={handlePasskeyRegister}
+                disabled={passkeySubmitting}
+                className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {passkeySubmitting ? "登録中..." : "この端末にPasskeyを登録する"}
+              </button>
+            </div>
+          </section>
+        )}
       </div>
     </AdminLayout>
   );
