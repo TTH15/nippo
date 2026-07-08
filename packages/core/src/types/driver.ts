@@ -9,6 +9,8 @@ export type Profile = {
   postalCode: string;
   address: string;
   phone: string;
+  /** identities.phone_verified_at の有無（SMS OTPで検証済みか。Passkeyログイン等の復旧経路に必要） */
+  phoneVerified: boolean;
   bankName: string;
   bankNo: string;
   bankHolder: string;
