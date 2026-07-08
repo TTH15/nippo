@@ -26,6 +26,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const { data: existingIdentity } = await supabase
+    .from("identities")
+    .select("phone_verified_at")
+    .eq("id", identityId)
+    .maybeSingle();
+  if (existingIdentity?.phone_verified_at) {
+    return NextResponse.json(
+      { error: "既に電話番号が確認済みです。変更する場合は運営にご連絡ください" },
+      { status: 409 },
+    );
+  }
+
   const body = await req.json();
   const phone = toE164JP(typeof body.phone === "string" ? body.phone : "");
   const code = typeof body.code === "string" ? body.code.trim() : "";

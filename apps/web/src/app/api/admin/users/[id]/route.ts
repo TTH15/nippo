@@ -103,7 +103,7 @@ export async function PUT(
 
     const { data: driverRow, error: driverFetchErr } = await supabase
       .from("drivers")
-      .select("id, company_code, driver_code, pin_hash, role_id, status")
+      .select("id, company_code, driver_code, pin_hash, role_id, status, phone, identity_id")
       .eq("id", driverId)
       .eq("org_id", orgId)
       .single();
@@ -151,7 +151,23 @@ export async function PUT(
     }
     if (postalCode !== undefined) updates.postal_code = typeof postalCode === "string" ? postalCode.trim() || null : null;
     if (address !== undefined) updates.address = typeof address === "string" ? address.trim() || null : null;
-    if (phone !== undefined) updates.phone = typeof phone === "string" ? phone.trim() || null : null;
+    if (phone !== undefined) {
+      const nextPhone = typeof phone === "string" ? phone.trim() || null : null;
+      if (nextPhone !== driverRow.phone && driverRow.identity_id) {
+        const { data: idn } = await supabase
+          .from("identities")
+          .select("phone_verified_at")
+          .eq("id", driverRow.identity_id)
+          .maybeSingle();
+        if (idn?.phone_verified_at) {
+          return NextResponse.json(
+            { error: "認証済みの電話番号は運営画面から変更できません。ドライバー本人にマイページでの再確認をご案内ください" },
+            { status: 400 },
+          );
+        }
+      }
+      updates.phone = nextPhone;
+    }
     if (bankName !== undefined) updates.bank_name = typeof bankName === "string" ? bankName.trim() || null : null;
     if (bankNo !== undefined) updates.bank_no = typeof bankNo === "string" ? bankNo.trim() || null : null;
     if (bankHolder !== undefined) updates.bank_holder = typeof bankHolder === "string" ? bankHolder.trim() || null : null;

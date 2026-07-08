@@ -12,6 +12,7 @@ import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
+import { formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { Button } from "@/lib/ui/button";
 import { faTrash, faUser, faPhone, faCircleCheck, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
@@ -676,6 +677,29 @@ export default function UsersPage() {
             message:
               "サーバーでエラーが発生したため、このドライバーを削除できませんでした。\n\n" +
               "このドライバーに紐付いたシフトや日報が原因の可能性があります。時間をおいて再度お試しいただくか、システム管理者に連絡してください。",
+            detail: reason || undefined,
+          });
+        }
+      },
+    });
+  };
+
+  const unlinkPhone = async (id: string) => {
+    if (!canWrite) return;
+    setConfirmState({
+      message:
+        "電話番号の確認状態を解除しますか？解除後、ドライバー本人がマイページから番号を確認し直せるようになります。",
+      onConfirm: async () => {
+        try {
+          await apiFetch(`/api/admin/users/${id}/phone`, { method: "DELETE" });
+          setEditingDriver((prev) => (prev ? { ...prev, phone_verified_at: null } : prev));
+          setForm((f) => ({ ...f, phone: "" }));
+        } catch (e) {
+          console.error(e);
+          const reason = e instanceof Error ? e.message : "";
+          setErrorState({
+            title: "電話番号の削除に失敗しました",
+            message: "サーバーでエラーが発生したため、電話番号を削除できませんでした。",
             detail: reason || undefined,
           });
         }
@@ -1458,15 +1482,30 @@ export default function UsersPage() {
                     </label>
                     <input
                       type="text"
-                      value={form.phone}
+                      value={editingDriver?.phone_verified_at ? formatJPPhoneDisplay(form.phone) : form.phone}
                       onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                       onBlur={(e) => {
                         const half = toHalfWidth((e.target as HTMLInputElement).value);
                         setForm((f) => ({ ...f, phone: half }));
                       }}
                       placeholder="03-1234-5678"
-                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      disabled={!!editingDriver?.phone_verified_at}
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-400"
                     />
+                    {editingDriver?.phone_verified_at && (
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <p className="text-[11px] text-slate-400">
+                          認証済みのため編集できません。番号を変える場合は削除してください。
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => unlinkPhone(editingDriver.id)}
+                          className="shrink-0 text-[11px] text-red-600 hover:text-red-700 hover:underline"
+                        >
+                          削除
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

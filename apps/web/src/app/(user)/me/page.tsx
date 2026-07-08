@@ -3,6 +3,8 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { startRegistration } from "@simplewebauthn/browser";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -15,7 +17,7 @@ import { validateAnswers, type AnswerAttachment } from "@/server/reportKinds/fie
 import type { Profile, VehiclePlateData as Vehicle, ReportKindOption } from "@repo/core/types";
 import { toLocalDateStr, toLocalTimeStr } from "@repo/core/logic/calendar";
 import { dedupeVehiclesById, excludeVehicleId, resolvePreferredVehicleId } from "@repo/core/logic/vehicle";
-import { validatePinChange, digitsOnly, buildProfileEntries } from "@repo/core/logic/profile";
+import { validatePinChange, digitsOnly, buildProfileEntries, formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { isValidReportDateTime, countAttachmentsByField } from "@repo/core/logic/report";
 
 export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
@@ -199,7 +201,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     setPhoneMessage(null);
     setPhoneSubmitting(true);
     try {
-      await apiFetch("/api/otp/send", {
+      await apiFetch("/api/me/phone/send", {
         method: "POST",
         body: JSON.stringify({ phone: phoneInput.trim() }),
       });
@@ -621,12 +623,17 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       <section className="mt-10">
         <h2 className="text-base font-bold text-slate-900 mb-4">電話番号の確認</h2>
         <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
-          <p className="text-sm text-slate-600">
-            {profile?.phoneVerified
-              ? "確認済みです。番号を変更する場合は入力し直してください。"
-              : "PIN・Passkeyを両方失った場合、SMSでこの番号に本人確認コードを送って復旧できるようにします。"}
-          </p>
-          {phoneStep === "input" && (
+          {profile?.phoneVerified ? (
+            <div className="flex items-center gap-2 text-sm text-slate-700">
+              <FontAwesomeIcon icon={faCircleCheck} className="w-4 h-4 text-green-600" />
+              <span>{formatJPPhoneDisplay(profile.phone)} を確認済みです</span>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-600">
+              ログインできなくなった時のために、SMSで本人確認できるようにしておきます。
+            </p>
+          )}
+          {!profile?.phoneVerified && phoneStep === "input" && (
             <>
               <input
                 type="tel"
@@ -655,7 +662,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
               </button>
             </>
           )}
-          {phoneStep === "otp" && (
+          {!profile?.phoneVerified && phoneStep === "otp" && (
             <>
               <p className="text-sm text-slate-600">{phoneInput} に送った6桁の認証コードを入力してください。</p>
               <input
