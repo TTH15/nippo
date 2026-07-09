@@ -87,8 +87,6 @@ export type InvoiceTotals = {
   billGross: number;
   /** お支払い分 税込合計 */
   deductGross: number;
-  /** 消費税額（正味）＝ 請求分の消費税 − お支払い分の消費税 */
-  netTax: number;
   /** 差引き請求額（税込）＝ 請求 − お支払い − 借入返済 + 追加外注 */
   total: number;
 };

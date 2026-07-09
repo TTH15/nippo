@@ -26,6 +26,8 @@ import {
   sumRows,
   parseRow,
   invoiceLines,
+  resolveRowPrice,
+  roundedRowAmount,
 } from "@repo/core/logic/reward";
 
 export default function MeRewardsPage() {
@@ -322,6 +324,17 @@ export default function MeRewardsPage() {
                 const { main: mainLines, deduct: deductLines, attachments } = invoiceLines(inv);
                 const mainTotal = sumRows(mainLines);
                 const deductTotal = sumRows(deductLines);
+                const displayBasis: "exclusive" | "inclusive" =
+                  inv.payload?.displayBasis === "inclusive" ? "inclusive" : "exclusive";
+                const taxEnabled = inv.payload?.taxSettings?.enabled !== false;
+                const taxRate = taxEnabled ? (Number(inv.payload?.taxSettings?.rate ?? 10) || 0) / 100 : 0;
+                const rowTax = (row: InvoiceRow) => {
+                  if (taxRate <= 0) return 0;
+                  const amount = roundedRowAmount(row, displayBasis);
+                  return displayBasis === "exclusive"
+                    ? Math.floor(amount * taxRate)
+                    : amount - Math.floor(amount / (1 + taxRate));
+                };
                 return (
                   <div className="space-y-4">
                     <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
@@ -354,18 +367,22 @@ export default function MeRewardsPage() {
                                 <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">数量</th>
                                 <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">単価</th>
                                 <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">金額</th>
+                                <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">消費税</th>
                               </tr>
                             </thead>
                             <tbody>
                               {mainLines.length === 0 ? (
                                 <tr>
-                                  <td colSpan={4} className="px-3 py-3 text-center text-slate-500 text-xs">
+                                  <td colSpan={5} className="px-3 py-3 text-center text-slate-500 text-xs">
                                     売上明細はありません
                                   </td>
                                 </tr>
                               ) : (
                                 mainLines.map((row: InvoiceRow, idx: number) => {
-                                  const { qty, price, amount } = parseRow(row);
+                                  const { qty } = parseRow(row);
+                                  const price = resolveRowPrice(row, displayBasis);
+                                  const amount = roundedRowAmount(row, displayBasis);
+                                  const tax = rowTax(row);
                                   return (
                                     <tr key={`main-${idx}`} className="border-t border-slate-100">
                                       <td className="px-3 py-2 text-slate-800 max-w-[20ch] truncate whitespace-nowrap" title={row?.title || "明細"}>
@@ -374,6 +391,7 @@ export default function MeRewardsPage() {
                                       <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{qty.toLocaleString("ja-JP")}</td>
                                       <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{price.toLocaleString("ja-JP")}円</td>
                                       <td className="px-3 py-2 text-right tabular-nums font-medium whitespace-nowrap">{amount.toLocaleString("ja-JP")}円</td>
+                                      <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{tax.toLocaleString("ja-JP")}円</td>
                                     </tr>
                                   );
                                 })
@@ -423,18 +441,22 @@ export default function MeRewardsPage() {
                                   <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">数量</th>
                                   <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">単価</th>
                                   <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">金額</th>
+                                  <th className="text-right px-3 py-2 font-medium text-slate-600 whitespace-nowrap">消費税</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {deductLines.length === 0 ? (
                                   <tr>
-                                    <td colSpan={4} className="px-3 py-3 text-center text-slate-500 text-xs">
+                                    <td colSpan={5} className="px-3 py-3 text-center text-slate-500 text-xs">
                                       控除明細はありません
                                     </td>
                                   </tr>
                                 ) : (
                                   deductLines.map((row: InvoiceRow, idx: number) => {
-                                    const { qty, price, amount } = parseRow(row);
+                                    const { qty } = parseRow(row);
+                                    const price = resolveRowPrice(row, displayBasis);
+                                    const amount = roundedRowAmount(row, displayBasis);
+                                    const tax = rowTax(row);
                                     return (
                                       <tr key={`deduct-${idx}`} className="border-t border-slate-100">
                                         <td className="px-3 py-2 text-slate-800 max-w-[20ch] truncate whitespace-nowrap" title={row?.title || "控除"}>
@@ -443,6 +465,7 @@ export default function MeRewardsPage() {
                                         <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{qty.toLocaleString("ja-JP")}</td>
                                         <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{price.toLocaleString("ja-JP")}円</td>
                                         <td className="px-3 py-2 text-right tabular-nums font-medium whitespace-nowrap">{amount.toLocaleString("ja-JP")}円</td>
+                                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{tax.toLocaleString("ja-JP")}円</td>
                                       </tr>
                                     );
                                   })
