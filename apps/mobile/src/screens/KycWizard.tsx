@@ -20,7 +20,7 @@ const STEP_KEYS = ["license", "face", "address", "bank"] as const;
 type StepKey = (typeof STEP_KEYS)[number];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const INPUT = "bg-white border border-slate-300 rounded-lg py-3 px-3.5 text-base";
+const INPUT = "bg-white border border-brand-200 rounded-lg py-2.5 px-4 text-base text-brand-900";
 
 const STEP_LABEL: Record<StepKey, string> = {
   license: "免許",
@@ -75,7 +75,7 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
 
   if (!reg) {
     return (
-      <View className="flex-1 justify-center items-center gap-3 bg-slate-100">
+      <View className="flex-1 justify-center items-center gap-3 bg-white">
         <ActivityIndicator />
         {error ? <Text className="text-red-600">{error}</Text> : null}
       </View>
@@ -167,11 +167,11 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
   const progress = (step + (canNext ? 1 : 0)) / STEP_KEYS.length;
 
   return (
-    <KeyboardAvoidingView className="flex-1 bg-slate-100" behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <View className="pt-[60px] px-5 pb-3 gap-2 bg-white border-b border-slate-200">
-        <Text className="text-[13px] text-slate-500 font-semibold">本登録　{step + 1} / {STEP_KEYS.length}</Text>
-        <View className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
-          <View className="h-1.5 rounded-full bg-slate-900" style={{ width: `${Math.round(progress * 100)}%` }} />
+    <KeyboardAvoidingView className="flex-1 bg-white" behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <View className="pt-[60px] px-5 pb-3 gap-2 bg-white border-b border-brand-100">
+        <Text className="text-[13px] text-brand-500 font-semibold">本登録　{step + 1} / {STEP_KEYS.length}</Text>
+        <View className="h-1.5 rounded-full bg-brand-100 overflow-hidden">
+          <View className="h-1.5 rounded-full bg-accent-500" style={{ width: `${Math.round(progress * 100)}%` }} />
         </View>
       </View>
 
@@ -179,10 +179,10 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
         {key === "license" && (
           <View className="gap-2.5">
             <PhotoBox title="免許証の写真" done={reg.hasLicensePhoto} previewUri={previews.license} busy={busy} onPick={(c) => pickPhoto("license", c)} />
-            <Text className="text-[13px] text-slate-500 mt-2">免許の有効期限</Text>
+            <Text className="text-[13px] text-brand-500 mt-2">免許の有効期限</Text>
             <TextInput className={INPUT} value={reg.licenseExpiry} onChangeText={(t) => { set("licenseExpiry", formatDateInput(t)); setOcrNote(""); }} placeholder="例: 20280822（数字のみ）" keyboardType="number-pad" maxLength={10} />
-            {ocrNote ? <Text className="text-xs text-blue-600">{ocrNote}</Text> : null}
-            <Text className="text-[13px] text-slate-500 mt-2">生年月日（任意）</Text>
+            {ocrNote ? <Text className="text-xs text-accent-600">{ocrNote}</Text> : null}
+            <Text className="text-[13px] text-brand-500 mt-2">生年月日（任意）</Text>
             <TextInput className={INPUT} value={reg.dob} onChangeText={(t) => set("dob", formatDateInput(t))} placeholder="例: 20030722（数字のみ）" keyboardType="number-pad" maxLength={10} />
           </View>
         )}
@@ -193,14 +193,14 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
         )}
         {key === "address" && (
           <View className="gap-2.5">
-            <Text className="text-xl font-bold text-slate-900">住所</Text>
+            <Text className="text-xl font-bold text-brand-900">住所</Text>
             <TextInput className={INPUT} value={reg.postalCode} onChangeText={(t) => set("postalCode", t)} placeholder="郵便番号" keyboardType="number-pad" autoFocus />
             <TextInput className={INPUT} value={reg.address} onChangeText={(t) => set("address", t)} placeholder="住所" />
           </View>
         )}
         {key === "bank" && (
           <View className="gap-2.5">
-            <Text className="text-xl font-bold text-slate-900">銀行口座</Text>
+            <Text className="text-xl font-bold text-brand-900">銀行口座</Text>
             <TextInput className={INPUT} value={reg.bankName} onChangeText={(t) => set("bankName", t)} placeholder="銀行名・支店" autoFocus />
             <TextInput className={INPUT} value={reg.bankNo} onChangeText={(t) => set("bankNo", t)} placeholder="口座番号" />
             <TextInput className={INPUT} value={reg.bankHolder} onChangeText={(t) => set("bankHolder", t)} placeholder="口座名義（カナ）" />
@@ -210,14 +210,14 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
         {error ? <Text className="text-red-600 mt-3">{error}</Text> : null}
       </View>
 
-      <View className="flex-row gap-3 p-5 pb-8 bg-white border-t border-slate-200">
+      <View className="flex-row gap-3 p-5 pb-8 bg-white border-t border-brand-100">
         {step > 0 && (
-          <Pressable className="py-3.5 px-5 rounded-lg border border-slate-300 items-center justify-center" onPress={() => { setError(""); setStep(step - 1); }} disabled={busy}>
-            <Text className="text-slate-700 font-semibold">戻る</Text>
+          <Pressable className="py-2.5 px-5 rounded-lg border border-brand-200 items-center justify-center" onPress={() => { setError(""); setStep(step - 1); }} disabled={busy}>
+            <Text className="text-brand-700 font-medium">戻る</Text>
           </Pressable>
         )}
-        <Pressable className={`flex-1 bg-slate-900 py-3.5 rounded-lg items-center active:opacity-80 ${!canNext || busy ? "opacity-40" : ""}`} onPress={next} disabled={!canNext || busy}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-bold text-base">{step === STEP_KEYS.length - 1 ? "完了" : "次へ"}</Text>}
+        <Pressable className={`flex-1 bg-brand-900 py-2.5 rounded-lg items-center active:opacity-80 ${!canNext || busy ? "opacity-50" : ""}`} onPress={next} disabled={!canNext || busy}>
+          {busy ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium text-base">{step === STEP_KEYS.length - 1 ? "完了" : "次へ"}</Text>}
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -227,27 +227,27 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
 function PhotoBox({ title, done, previewUri, busy, onPick }: { title: string; done: boolean; previewUri?: string; busy: boolean; onPick: (camera: boolean) => void }) {
   return (
     <View className="gap-2.5">
-      <Text className="text-xl font-bold text-slate-900">{title}</Text>
-      <View className={`h-[200px] rounded-[10px] border items-center justify-center bg-white overflow-hidden ${done ? "border-green-600 bg-green-50" : "border-slate-300 border-dashed"}`}>
+      <Text className="text-xl font-bold text-brand-900">{title}</Text>
+      <View className={`h-[200px] rounded-[10px] border items-center justify-center bg-white overflow-hidden ${done ? "border-emerald-600 bg-emerald-50" : "border-brand-200 border-dashed"}`}>
         {previewUri ? (
           <Image source={{ uri: previewUri }} className="w-full h-full" resizeMode="cover" />
         ) : busy ? (
           <ActivityIndicator />
         ) : (
-          <Text className={done ? "text-green-600 font-semibold" : "text-slate-400"}>{done ? "✓ 登録済み（撮り直し可）" : "写真を選択してください"}</Text>
+          <Text className={done ? "text-emerald-600 font-semibold" : "text-brand-400"}>{done ? "✓ 登録済み（撮り直し可）" : "写真を選択してください"}</Text>
         )}
         {previewUri && done ? (
-          <View className="absolute top-2 right-2 bg-green-600/90 rounded-md px-2 py-0.5">
+          <View className="absolute top-2 right-2 bg-emerald-600/90 rounded-md px-2 py-0.5">
             <Text className="text-white text-[11px] font-bold">✓ 登録済み</Text>
           </View>
         ) : null}
       </View>
       <View className="flex-row gap-2.5">
-        <Pressable className="flex-1 border border-slate-300 rounded-lg py-3 items-center bg-white active:opacity-80" onPress={() => onPick(false)} disabled={busy}>
-          <Text className="text-slate-700 font-semibold">ライブラリ</Text>
+        <Pressable className="flex-1 border border-brand-200 rounded-lg py-3 items-center bg-white active:opacity-80" onPress={() => onPick(false)} disabled={busy}>
+          <Text className="text-brand-700 font-semibold">ライブラリ</Text>
         </Pressable>
-        <Pressable className="flex-1 border border-slate-300 rounded-lg py-3 items-center bg-white active:opacity-80" onPress={() => onPick(true)} disabled={busy}>
-          <Text className="text-slate-700 font-semibold">カメラ</Text>
+        <Pressable className="flex-1 border border-brand-200 rounded-lg py-3 items-center bg-white active:opacity-80" onPress={() => onPick(true)} disabled={busy}>
+          <Text className="text-brand-700 font-semibold">カメラ</Text>
         </Pressable>
       </View>
     </View>

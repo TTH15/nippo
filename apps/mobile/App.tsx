@@ -16,8 +16,8 @@ import { KycPending } from "./src/screens/KycPending";
 import { MeScreen } from "./src/screens/MeScreen";
 import { RewardsScreen } from "./src/screens/RewardsScreen";
 import { ShiftsScreen } from "./src/screens/ShiftsScreen";
-import { SubmitScreen } from "./src/screens/SubmitScreen";
 import { WorkScreen } from "./src/screens/WorkScreen";
+import { BottomTabBar } from "./src/components/BottomTabBar";
 
 const Tab = createBottomTabNavigator();
 
@@ -115,12 +115,11 @@ export default function App() {
     <SafeAreaProvider>
       <AuthContext.Provider value={{ driver, logout: () => { clearAuth(); setDriver(null); } }}>
         <NavigationContainer>
-          <Tab.Navigator screenOptions={{ headerShown: false }}>
-            <Tab.Screen name="業務" component={WorkScreen} />
-            <Tab.Screen name="日報" component={SubmitScreen} />
-            <Tab.Screen name="希望休" component={ShiftsScreen} />
-            <Tab.Screen name="報酬" component={RewardsScreen} />
+          <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <BottomTabBar {...props} />}>
             <Tab.Screen name="マイページ" component={MeScreen} />
+            <Tab.Screen name="希望休" component={ShiftsScreen} />
+            <Tab.Screen name="業務" component={WorkScreen} />
+            <Tab.Screen name="報酬" component={RewardsScreen} />
           </Tab.Navigator>
         </NavigationContainer>
       </AuthContext.Provider>
@@ -130,5 +129,5 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f1f5f9" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f6f7f8" },
 });

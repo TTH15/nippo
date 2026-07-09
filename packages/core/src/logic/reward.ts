@@ -146,12 +146,14 @@ export function computeInvoiceTotals(input: InvoiceTotalsInput): InvoiceTotals {
   const extraOutsourcing = Number(input.extraOutsourcing) || 0;
 
   const total = billGross - deductGross - loanRepay + extraOutsourcing;
+  const netTax = billTax - deductTax;
 
   return {
     billSubtotal,
     deductSubtotal,
     billTax,
     deductTax,
+    netTax,
     billGross,
     deductGross,
     total,
