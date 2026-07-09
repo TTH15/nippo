@@ -6,7 +6,7 @@ export type InvoiceKind = "outgoing" | "incoming";
 
 /** サマリー行の金額ソース。 */
 export type SummaryValueRef =
-  | { kind: "total"; key: "billSubtotal" | "deductSubtotal" | "billGross" | "deductGross" | "netTax" | "total" }
+  | { kind: "total"; key: "billSubtotal" | "deductSubtotal" | "billGross" | "deductGross" | "total" }
   | { kind: "manual"; field: "loanRepay" | "extraOutsourcing" };
 
 /** サマリー行（差引き行は finalLabel で別途レンダリング）。 */
@@ -96,7 +96,6 @@ export const INVOICE_KIND_CONFIG: Record<InvoiceKind, InvoiceKindConfig> = {
     summaryRows: [
       { label: "請求額 税込合計", value: { kind: "total", key: "billGross" } },
       { label: "お支払い分 税込合計", value: { kind: "total", key: "deductGross" }, minus: true },
-      { label: "消費税額", value: { kind: "total", key: "netTax" } },
       { label: "借入返済", value: { kind: "manual", field: "loanRepay" }, minus: true, editable: true },
       { label: "追加外注請求分", value: { kind: "manual", field: "extraOutsourcing" }, editable: true },
     ],
