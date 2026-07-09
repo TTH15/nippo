@@ -23,11 +23,11 @@ import {
   pendingInvoices,
   formatYen,
   logLabel,
-  sumRows,
   parseRow,
   invoiceLines,
   resolveRowPrice,
   roundedRowAmount,
+  computeInvoiceTotals,
 } from "@repo/core/logic/reward";
 
 export default function MeRewardsPage() {
@@ -322,12 +322,28 @@ export default function MeRewardsPage() {
                 }
                 const isDoc = isUploadedDocument(inv);
                 const { main: mainLines, deduct: deductLines, attachments } = invoiceLines(inv);
-                const mainTotal = sumRows(mainLines);
-                const deductTotal = sumRows(deductLines);
                 const displayBasis: "exclusive" | "inclusive" =
                   inv.payload?.displayBasis === "inclusive" ? "inclusive" : "exclusive";
                 const taxEnabled = inv.payload?.taxSettings?.enabled !== false;
                 const taxRate = taxEnabled ? (Number(inv.payload?.taxSettings?.rate ?? 10) || 0) / 100 : 0;
+                // 売上合計・控除合計は「合計請求額」(税込)と差引きが一致するよう、税込(gross)で表示する
+                // （税抜の単純合計だと、合計請求額との差が消費税分だけズレて計算が誤っているように見えるため）。
+                const totals = computeInvoiceTotals({
+                  main: mainLines,
+                  deduct: deductLines,
+                  taxEnabled,
+                  taxRatePercent: taxEnabled ? Number(inv.payload?.taxSettings?.rate ?? 10) || 0 : 0,
+                  loanRepay: Number(inv.payload?.loanRepay) || 0,
+                  extraOutsourcing:
+                    Number(
+                      displayBasis === "inclusive"
+                        ? inv.payload?.extraOutsourcingInclusive
+                        : inv.payload?.extraOutsourcingExclusive,
+                    ) || 0,
+                  displayBasis,
+                });
+                const mainTotal = totals.billGross;
+                const deductTotal = totals.deductGross;
                 const rowTax = (row: InvoiceRow) => {
                   if (taxRate <= 0) return 0;
                   const amount = roundedRowAmount(row, displayBasis);
@@ -477,16 +493,16 @@ export default function MeRewardsPage() {
 
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
                           <div className="flex justify-between py-1">
-                            <span className="text-slate-600">売上合計</span>
+                            <span className="text-slate-600">売上合計（税込）</span>
                             <span className="tabular-nums font-medium">{mainTotal.toLocaleString("ja-JP")}円</span>
                           </div>
                           <div className="flex justify-between py-1">
-                            <span className="text-slate-600">控除合計</span>
+                            <span className="text-slate-600">控除合計（税込）</span>
                             <span className="tabular-nums font-medium">-{deductTotal.toLocaleString("ja-JP")}円</span>
                           </div>
                           <div className="flex justify-between pt-2 mt-2 border-t border-slate-200">
                             <span className="font-semibold text-slate-900">合計請求額</span>
-                            <span className="tabular-nums font-bold text-slate-900">{Number(inv.amount || 0).toLocaleString("ja-JP")}円</span>
+                            <span className="tabular-nums font-bold text-slate-900">{totals.total.toLocaleString("ja-JP")}円</span>
                           </div>
                         </div>
                       </>
