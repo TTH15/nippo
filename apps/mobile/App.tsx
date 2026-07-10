@@ -17,7 +17,12 @@ import { MeScreen } from "./src/screens/MeScreen";
 import { RewardsScreen } from "./src/screens/RewardsScreen";
 import { ShiftsScreen } from "./src/screens/ShiftsScreen";
 import { WorkScreen } from "./src/screens/WorkScreen";
+import { AdminDailyScreen } from "./src/screens/admin/AdminDailyScreen";
+import { AdminSalesScreen } from "./src/screens/admin/AdminSalesScreen";
+import { AdminDriversScreen } from "./src/screens/admin/AdminDriversScreen";
+import { AdminVehiclesScreen } from "./src/screens/admin/AdminVehiclesScreen";
 import { BottomTabBar } from "./src/components/BottomTabBar";
+import { ModeSwitchFab } from "./src/components/ModeSwitchFab";
 
 const Tab = createBottomTabNavigator();
 
@@ -25,6 +30,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [driver, setDriver] = useState<StoredDriver | null>(null);
   const [authView, setAuthView] = useState<"login" | "register">("login");
+  const [adminMode, setAdminMode] = useState(false);
   // ハードゲート判定: null=確認中 / {complete=本登録, kycVerified=本承認}
   const [regState, setRegState] = useState<{ complete: boolean; kycVerified: boolean } | null>(null);
 
@@ -111,17 +117,31 @@ export default function App() {
   }
 
   // ③本承認済 → アプリ本体（タブ）。
+  // 運営capabilityを1つでも持つアカウントは、フローティングボタンでドライバー画面⇄
+  // 運営モード（最低限機能）を切り替えられる。画面構成の刷新はM-D統合時に行う。
+  const canUseAdminMode = (driver.capabilities?.length ?? 0) > 0;
+
   return (
     <SafeAreaProvider>
       <AuthContext.Provider value={{ driver, logout: () => { clearAuth(); setDriver(null); } }}>
         <NavigationContainer>
-          <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <BottomTabBar {...props} />}>
-            <Tab.Screen name="マイページ" component={MeScreen} />
-            <Tab.Screen name="希望休" component={ShiftsScreen} />
-            <Tab.Screen name="業務" component={WorkScreen} />
-            <Tab.Screen name="報酬" component={RewardsScreen} />
-          </Tab.Navigator>
+          {adminMode && canUseAdminMode ? (
+            <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <BottomTabBar {...props} />}>
+              <Tab.Screen name="日報承認" component={AdminDailyScreen} />
+              <Tab.Screen name="売上" component={AdminSalesScreen} />
+              <Tab.Screen name="ドライバー" component={AdminDriversScreen} />
+              <Tab.Screen name="車両" component={AdminVehiclesScreen} />
+            </Tab.Navigator>
+          ) : (
+            <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <BottomTabBar {...props} />}>
+              <Tab.Screen name="マイページ" component={MeScreen} />
+              <Tab.Screen name="希望休" component={ShiftsScreen} />
+              <Tab.Screen name="業務" component={WorkScreen} />
+              <Tab.Screen name="報酬" component={RewardsScreen} />
+            </Tab.Navigator>
+          )}
         </NavigationContainer>
+        {canUseAdminMode && <ModeSwitchFab adminMode={adminMode} onToggle={() => setAdminMode((v) => !v)} />}
       </AuthContext.Provider>
       <StatusBar style="auto" />
     </SafeAreaProvider>

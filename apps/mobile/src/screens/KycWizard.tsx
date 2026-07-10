@@ -75,7 +75,7 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
 
   if (!reg) {
     return (
-      <View className="flex-1 justify-center items-center gap-3 bg-white">
+      <View className="flex-1 justify-center items-center gap-3 bg-brand-50">
         <ActivityIndicator />
         {error ? <Text className="text-red-600">{error}</Text> : null}
       </View>
@@ -167,7 +167,7 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
   const progress = (step + (canNext ? 1 : 0)) / STEP_KEYS.length;
 
   return (
-    <KeyboardAvoidingView className="flex-1 bg-white" behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView className="flex-1 bg-brand-50" behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View className="pt-[60px] px-5 pb-3 gap-2 bg-white border-b border-brand-100">
         <Text className="text-[13px] text-brand-500 font-semibold">本登録　{step + 1} / {STEP_KEYS.length}</Text>
         <View className="h-1.5 rounded-full bg-brand-100 overflow-hidden">
@@ -176,36 +176,38 @@ export function KycWizard({ onComplete }: { onComplete: () => void }) {
       </View>
 
       <View className="flex-1 p-5">
-        {key === "license" && (
-          <View className="gap-2.5">
-            <PhotoBox title="免許証の写真" done={reg.hasLicensePhoto} previewUri={previews.license} busy={busy} onPick={(c) => pickPhoto("license", c)} />
-            <Text className="text-[13px] text-brand-500 mt-2">免許の有効期限</Text>
-            <TextInput className={INPUT} value={reg.licenseExpiry} onChangeText={(t) => { set("licenseExpiry", formatDateInput(t)); setOcrNote(""); }} placeholder="例: 20280822（数字のみ）" keyboardType="number-pad" maxLength={10} />
-            {ocrNote ? <Text className="text-xs text-accent-600">{ocrNote}</Text> : null}
-            <Text className="text-[13px] text-brand-500 mt-2">生年月日（任意）</Text>
-            <TextInput className={INPUT} value={reg.dob} onChangeText={(t) => set("dob", formatDateInput(t))} placeholder="例: 20030722（数字のみ）" keyboardType="number-pad" maxLength={10} />
-          </View>
-        )}
-        {key === "face" && (
-          <View className="gap-2.5">
-            <PhotoBox title="顔写真" done={reg.hasFacePhoto} previewUri={previews.face} busy={busy} onPick={(c) => pickPhoto("face", c)} />
-          </View>
-        )}
-        {key === "address" && (
-          <View className="gap-2.5">
-            <Text className="text-xl font-bold text-brand-900">住所</Text>
-            <TextInput className={INPUT} value={reg.postalCode} onChangeText={(t) => set("postalCode", t)} placeholder="郵便番号" keyboardType="number-pad" autoFocus />
-            <TextInput className={INPUT} value={reg.address} onChangeText={(t) => set("address", t)} placeholder="住所" />
-          </View>
-        )}
-        {key === "bank" && (
-          <View className="gap-2.5">
-            <Text className="text-xl font-bold text-brand-900">銀行口座</Text>
-            <TextInput className={INPUT} value={reg.bankName} onChangeText={(t) => set("bankName", t)} placeholder="銀行名・支店" autoFocus />
-            <TextInput className={INPUT} value={reg.bankNo} onChangeText={(t) => set("bankNo", t)} placeholder="口座番号" />
-            <TextInput className={INPUT} value={reg.bankHolder} onChangeText={(t) => set("bankHolder", t)} placeholder="口座名義（カナ）" />
-          </View>
-        )}
+        <View className="bg-white rounded-2xl border border-brand-200 shadow-sm p-5">
+          {key === "license" && (
+            <View className="gap-2.5">
+              <PhotoBox title="免許証の写真" done={reg.hasLicensePhoto} previewUri={previews.license} busy={busy} onPick={(c) => pickPhoto("license", c)} />
+              <Text className="text-[13px] text-brand-500 mt-2">免許の有効期限</Text>
+              <TextInput className={INPUT} value={reg.licenseExpiry} onChangeText={(t) => { set("licenseExpiry", formatDateInput(t)); setOcrNote(""); }} placeholder="例: 20280822（数字のみ）" keyboardType="number-pad" maxLength={10} />
+              {ocrNote ? <Text className="text-xs text-accent-600">{ocrNote}</Text> : null}
+              <Text className="text-[13px] text-brand-500 mt-2">生年月日（任意）</Text>
+              <TextInput className={INPUT} value={reg.dob} onChangeText={(t) => set("dob", formatDateInput(t))} placeholder="例: 20030722（数字のみ）" keyboardType="number-pad" maxLength={10} />
+            </View>
+          )}
+          {key === "face" && (
+            <View className="gap-2.5">
+              <PhotoBox title="顔写真" done={reg.hasFacePhoto} previewUri={previews.face} busy={busy} onPick={(c) => pickPhoto("face", c)} />
+            </View>
+          )}
+          {key === "address" && (
+            <View className="gap-2.5">
+              <Text className="text-xl font-bold text-brand-900">住所</Text>
+              <TextInput className={INPUT} value={reg.postalCode} onChangeText={(t) => set("postalCode", t)} placeholder="郵便番号" keyboardType="number-pad" autoFocus />
+              <TextInput className={INPUT} value={reg.address} onChangeText={(t) => set("address", t)} placeholder="住所" />
+            </View>
+          )}
+          {key === "bank" && (
+            <View className="gap-2.5">
+              <Text className="text-xl font-bold text-brand-900">銀行口座</Text>
+              <TextInput className={INPUT} value={reg.bankName} onChangeText={(t) => set("bankName", t)} placeholder="銀行名・支店" autoFocus />
+              <TextInput className={INPUT} value={reg.bankNo} onChangeText={(t) => set("bankNo", t)} placeholder="口座番号" />
+              <TextInput className={INPUT} value={reg.bankHolder} onChangeText={(t) => set("bankHolder", t)} placeholder="口座名義（カナ）" />
+            </View>
+          )}
+        </View>
 
         {error ? <Text className="text-red-600 mt-3">{error}</Text> : null}
       </View>
