@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { isCountableReport } from "@/server/aggregation/compute";
+import { inclusiveOf } from "@repo/core/logic/taxBasis";
 
 // ============================================================
 // ドライバーの「自動算出 報酬(payout)」を v2 集計モデルから算出する共有ロジック。
@@ -53,7 +54,13 @@ export async function computeDriverAutoPayout(
   driverId: string,
   startDate: string,
   endDate: string,
+  options?: { taxInclusive?: boolean },
 ): Promise<DriverAutoPayout> {
+  // 保存値(course_unit_rates/course_fixed_rates)は常に税抜。ドライバー向け表示（今日の報酬・今月の報酬）
+  // では実際の支払額に近い税込表示にするため、taxInclusive指定時のみ+10%して返す
+  // （会計・請求書側の集計(admin/payments等)は税抜のまま扱うためデフォルトはfalse）。
+  const taxInclusive = options?.taxInclusive ?? false;
+  const toDisplay = (price: number): number => (taxInclusive ? inclusiveOf(price, "exclusive") : price);
   const data = await loadAggregationData(supabase, orgId, startDate, endDate);
   const unitById = new Map(data.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
@@ -131,14 +138,14 @@ export async function computeDriverAutoPayout(
       if (!billable || qty === 0) continue;
       const rate = rateByCourseUnit.get(`${courseId}:${e.unitId}`);
       if (!rate) continue;
-      dayPayout += qty * rate.payoutPerUnit;
+      dayPayout += qty * toDisplay(rate.payoutPerUnit);
       linePuQty.set(`${courseId}:${e.unitId}`, (linePuQty.get(`${courseId}:${e.unitId}`) ?? 0) + qty);
     }
 
     // 固定
     const fx = fixedByCourse.get(courseId);
     if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
-      dayPayout += fx.fixedPayout;
+      dayPayout += toDisplay(fx.fixedPayout);
       fixedDaysByCourse.set(courseId, (fixedDaysByCourse.get(courseId) ?? 0) + 1);
     }
 
@@ -166,8 +173,8 @@ export async function computeDriverAutoPayout(
       unitId,
       title: `${unitNameById.get(unitId) ?? ""}（${short}）`,
       qty,
-      unitPrice: rate.payoutPerUnit,
-      amount: qty * rate.payoutPerUnit,
+      unitPrice: toDisplay(rate.payoutPerUnit),
+      amount: qty * toDisplay(rate.payoutPerUnit),
     });
   }
   for (const [courseId, dayCount] of fixedDaysByCourse) {
@@ -181,8 +188,8 @@ export async function computeDriverAutoPayout(
       unitId: null,
       title: `${short}（固定）`,
       qty: dayCount,
-      unitPrice: fx.fixedPayout,
-      amount: dayCount * fx.fixedPayout,
+      unitPrice: toDisplay(fx.fixedPayout),
+      amount: dayCount * toDisplay(fx.fixedPayout),
     });
   }
   lines.sort((a, b) => a.title.localeCompare(b.title, "ja"));

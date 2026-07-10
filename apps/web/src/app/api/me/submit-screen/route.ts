@@ -6,6 +6,7 @@ import { loadAggregationData } from "@/server/aggregation/load";
 import { loadSubmitScreenConfig } from "@/server/submitScreen/config";
 import { resolveBlocks, normalizeBlocks, defaultBlocksFromConfig } from "@/server/submitScreen/blocks";
 import { loadDriverLease, loadCourseDailyLease, leaseDailyRateForCourse } from "@/server/billing/driverLease";
+import { inclusiveOf } from "@repo/core/logic/taxBasis";
 
 export const dynamic = "force-dynamic";
 
@@ -39,11 +40,12 @@ export async function GET(req: NextRequest) {
       const billable = unit?.fields.find((x) => x.fieldKey === e.fieldKey)?.isBillable;
       if (!billable) continue;
       const rate = rateByCourseUnit.get(`${r.courseId}:${e.unitId}`);
-      if (rate) todayReward += (e.valueNum ?? 0) * rate.payoutPerUnit;
+      // 保存値(payoutPerUnit)は常に税抜。ドライバー本人向けの見込み額は実際の支払額に近い税込で見せる。
+      if (rate) todayReward += (e.valueNum ?? 0) * inclusiveOf(rate.payoutPerUnit, "exclusive");
     }
     const fx = fixedByCourse.get(r.courseId);
     if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
-      todayReward += fx.fixedPayout;
+      todayReward += inclusiveOf(fx.fixedPayout, "exclusive");
     }
     leaseToday = Math.max(leaseToday, leaseDailyRateForCourse(lease, r.courseId, courseDailyLease));
   }

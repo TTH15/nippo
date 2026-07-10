@@ -496,12 +496,18 @@ export function invoiceFileName(st: EditorState): string {
   return [ym, docTitle, sanitize(party)].filter(Boolean).join("_") || "請求書";
 }
 
+/** 郵便番号・住所から表示用HTML（〒付き）を組み立てる。取引先・ドライバー双方の住所補完で共用する。 */
+export function addrHtml(postal?: string | null, address?: string | null): string {
+  const p = s(postal);
+  const a = s(address);
+  if (!p && !a) return "";
+  return p ? `〒${p}<br/>${a}` : a;
+}
+
 /** 請求先住所が空のとき、紐づく取引先アドレスで補完（読み取りプレビュー用）。 */
 export function applyCounterparty(st: EditorState, addr?: CounterpartyAddress): EditorState {
   if (!addr) return st;
-  const p = s(addr.postal_code);
-  const a = s(addr.address);
-  const html = !p && !a ? "" : p ? `〒${p}<br/>${a}` : a;
+  const html = addrHtml(addr.postal_code, addr.address);
   return {
     ...st,
     toName: st.toName || s(addr.name),
