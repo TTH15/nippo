@@ -310,18 +310,23 @@ export async function GET(req: NextRequest) {
 
   const total = await computeTotalForSection(orgId, range.startDate, range.endDate, section);
 
-  // section と月内シフトから、請求先ID（取引先ID）を頻度ベースで決める
+  // section と月内シフトから、請求先ID（取引先ID）を頻度ベースで決める。
+  // shifts に org_id 列が無いため、まず自org のコースだけを取得し、shifts 側を
+  // その course_id 集合で絞り込む（他orgのシフト/コースが頻度カウントに混入し、
+  // 誤った他org宛の取引先IDを返してしまわないようにする）。
+  const { data: coursesForTo } = await supabase
+    .from("courses")
+    .select("id, counterparty_invoice_address_id")
+    .eq("org_id", orgId);
+  const cMap = new Map<string, any>();
+  (coursesForTo ?? []).forEach((c: any) => cMap.set(c.id, c));
+  const orgCourseIds = Array.from(cMap.keys());
   const { data: shiftsForTo } = await supabase
     .from("shifts")
     .select("course_id, shift_date")
     .gte("shift_date", range.startDate)
-    .lte("shift_date", range.endDate);
-  const { data: coursesForTo } = await supabase
-    .from("courses")
-    .select("id, counterparty_invoice_address_id")
-    .in("id", Array.from(new Set((shiftsForTo ?? []).map((s: any) => s.course_id).filter(Boolean))));
-  const cMap = new Map<string, any>();
-  (coursesForTo ?? []).forEach((c: any) => cMap.set(c.id, c));
+    .lte("shift_date", range.endDate)
+    .in("course_id", orgCourseIds);
   // carrier 判定は carriers マスタ（carrier_id → code）由来
   const carrierCodeByCourse = await loadCarrierCodeByCourse(supabase);
   const counterpartyCount = new Map<string, number>();

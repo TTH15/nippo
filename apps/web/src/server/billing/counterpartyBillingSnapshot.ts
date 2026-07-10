@@ -80,6 +80,7 @@ export async function buildMergeCandidateMap(
   const { data: sl } = await supabase
     .from("sales_log_entries")
     .select("id, content, revenue, profit, sales_log_types ( name )")
+    .eq("org_id", orgId)
     .eq("counterparty_invoice_address_id", invoiceAddressId)
     .gte("log_date", startDate)
     .lte("log_date", endDate);
@@ -220,6 +221,7 @@ export async function buildCounterpartyBillingSnapshot(
   const { data: slRows, error: slErr } = await supabase
     .from("sales_log_entries")
     .select("id, log_date, content, revenue, profit, sales_log_types ( name )")
+    .eq("org_id", orgId)
     .eq("counterparty_invoice_address_id", invoiceAddressId)
     .gte("log_date", startDate)
     .lte("log_date", endDate)

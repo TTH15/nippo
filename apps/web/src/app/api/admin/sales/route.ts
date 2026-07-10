@@ -133,6 +133,7 @@ export async function GET(req: NextRequest) {
   const logQuery = supabase
     .from("sales_log_entries")
     .select("log_date, revenue, profit, target_driver_id")
+    .eq("org_id", orgId)
     .gte("log_date", startDate)
     .lte("log_date", endDate);
   const { data: logRows } = driverId ? await logQuery.eq("target_driver_id", driverId) : await logQuery;
