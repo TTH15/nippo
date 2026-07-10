@@ -10,6 +10,10 @@ const ICONS: Record<string, React.ComponentProps<typeof FontAwesome6>["name"]> =
   希望休: "calendar-days",
   業務: "truck",
   報酬: "gift",
+  日報承認: "clipboard-check",
+  売上: "chart-line",
+  ドライバー: "address-book",
+  車両: "car",
 };
 
 const CENTER_ROUTE = "業務";
