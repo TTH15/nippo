@@ -155,6 +155,7 @@ export async function GET(req: NextRequest) {
   const { data: slRows, error: slErr } = await supabase
     .from("sales_log_entries")
     .select("counterparty_invoice_address_id, revenue, profit")
+    .eq("org_id", orgId)
     .gte("log_date", range.startDate)
     .lte("log_date", range.endDate)
     .not("counterparty_invoice_address_id", "is", null);
