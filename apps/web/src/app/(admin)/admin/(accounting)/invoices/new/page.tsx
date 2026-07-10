@@ -13,10 +13,22 @@ import {
   blankEditorState,
   emptyLine,
   periodForMonth,
+  addrHtml,
   type EditorState,
   type EditorLine,
 } from "../_components/editorModel";
 import type { InvoiceKind } from "../_components/invoiceKinds";
+
+type DraftDriver = {
+  id: string;
+  name: string;
+  postalCode?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  bankName?: string | null;
+  bankNo?: string | null;
+  bankHolder?: string | null;
+};
 
 type DraftResp = {
   month?: string;
@@ -25,18 +37,19 @@ type DraftResp = {
   dueDate?: string;
   invoiceNo?: string;
   counterparty_invoice_address_id?: string | null;
+  driver?: DraftDriver;
   tableData?: {
-    main?: { title?: string; qty?: number; price?: number }[];
-    deduct?: { title?: string; qty?: number; price?: number }[];
+    main?: { title?: string; qty?: number; price?: number; unit?: string }[];
+    deduct?: { title?: string; qty?: number; price?: number; unit?: string }[];
   };
 };
 
-function mapLines(rows?: { title?: string; qty?: number; price?: number }[]): EditorLine[] {
+function mapLines(rows?: { title?: string; qty?: number; price?: number; unit?: string }[]): EditorLine[] {
   if (!rows || rows.length === 0) return [emptyLine()];
   return rows.map((r) => ({
     title: String(r.title ?? ""),
     qty: r.qty == null ? "" : String(r.qty),
-    unit: "",
+    unit: r.unit ?? "",
     price: r.price == null ? "" : String(r.price),
     priceBasis: "exclusive",
   }));
@@ -45,6 +58,7 @@ function mapLines(rows?: { title?: string; qty?: number; price?: number }[]): Ed
 function buildInitial(kind: InvoiceKind, draft: DraftResp | undefined): EditorState {
   const base = blankEditorState(kind);
   if (!draft) return base;
+  const driver = kind === "incoming" ? draft.driver : undefined;
   return {
     ...base,
     section: draft.section ?? base.section,
@@ -54,6 +68,17 @@ function buildInitial(kind: InvoiceKind, draft: DraftResp | undefined): EditorSt
     counterpartyInvoiceAddressId: draft.counterparty_invoice_address_id ?? null,
     main: mapLines(draft.tableData?.main),
     deduct: mapLines(draft.tableData?.deduct),
+    ...(driver
+      ? {
+          fromName: driver.name,
+          fromAddrHtml: addrHtml(driver.postalCode, driver.address),
+          fromTel: driver.phone ?? "",
+          bankName: driver.bankName ?? "",
+          bankNo: driver.bankNo ?? "",
+          bankHolder: driver.bankHolder ?? "",
+          parties: { ...base.parties, fromParty: `drv-${driver.id}` },
+        }
+      : {}),
   };
 }
 
@@ -82,9 +107,12 @@ function InvoiceNewPageContent() {
   const month = searchParams?.get("month") ?? "";
   const section = searchParams?.get("section") ?? "";
   const counterparty = searchParams?.get("counterparty") ?? "";
-  const wantDraft = Boolean(month && section);
+  const driver = searchParams?.get("driver") ?? "";
+  const wantDraft = kind === "incoming" ? Boolean(month && driver) : Boolean(month && section);
   const draftKey = wantDraft
-    ? `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(section)}${counterparty ? `&counterparty=${encodeURIComponent(counterparty)}` : ""}`
+    ? kind === "incoming"
+      ? `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&driver=${encodeURIComponent(driver)}`
+      : `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(section)}${counterparty ? `&counterparty=${encodeURIComponent(counterparty)}` : ""}`
     : null;
   const { data: draft, isInitialLoading: draftLoading } = useApi<DraftResp>(draftKey);
 

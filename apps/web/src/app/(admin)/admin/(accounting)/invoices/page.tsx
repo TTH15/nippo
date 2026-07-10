@@ -124,6 +124,8 @@ export default function InvoicesPage() {
   const [showCreatePicker, setShowCreatePicker] = useState(false);
   // 作成ピッカーで選ぶ請求先（法人アドレスID）。売上は取引先ごとに明細経路で作成する。
   const [createCounterpartyId, setCreateCounterpartyId] = useState<string>("");
+  // 作成ピッカーで選ぶドライバー。受領はドライバーごとに自動集計して作成する。
+  const [createDriverId, setCreateDriverId] = useState<string>("");
   const [selectedMonth, setSelectedMonth] = useState(() => {
     if (initialFinderState.selectedMonth && /^\d{4}-\d{2}$/.test(initialFinderState.selectedMonth)) {
       return initialFinderState.selectedMonth;
@@ -261,6 +263,14 @@ export default function InvoicesPage() {
         .map((a) => ({ value: a.id, label: a.name }))
         .sort((a, b) => a.label.localeCompare(b.label, "ja")),
     [addressesData],
+  );
+  // 作成ピッカーの受領（ドライバー）選択に使う。フォルダ表示用に取得済みの drivers を流用する。
+  const driverOptions = useMemo(
+    () =>
+      drivers
+        .map((d) => ({ value: d.id, label: d.display_name || d.name }))
+        .sort((a, b) => a.label.localeCompare(b.label, "ja")),
+    [drivers],
   );
 
   useEffect(() => {
@@ -904,6 +914,22 @@ export default function InvoicesPage() {
                   </p>
                 </div>
               )}
+              {selectedDirection === "incoming" && (
+                <div>
+                  <label className="block text-xs text-slate-600 mb-1">請求元（ドライバー）</label>
+                  <CustomSelect
+                    options={driverOptions}
+                    value={createDriverId}
+                    onChange={(v) => setCreateDriverId(v)}
+                    placeholder="ドライバーを選択…"
+                    clearable={false}
+                    size="default"
+                  />
+                  <p className="mt-1.5 text-[11px] text-slate-400 leading-relaxed">
+                    ドライバーごとに当月の日報実績・固定経費・臨時経費を自動集計して下書きを作成します。
+                  </p>
+                </div>
+              )}
             </div>
             <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
               <Button variant="ghost" size="sm" onClick={() => setShowCreatePicker(false)}>
@@ -919,11 +945,12 @@ export default function InvoicesPage() {
                   </a>
                 </Button>
               ) : (
-                <Button asChild variant="default" size="sm">
+                <Button asChild variant="default" size="sm" className={!createDriverId ? "pointer-events-none opacity-50" : undefined}>
                   <a
-                    href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&kind=incoming&direction=incoming&section=${encodeURIComponent("郵便局")}`}
+                    href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&kind=incoming&direction=incoming&section=${encodeURIComponent("郵便局")}&driver=${encodeURIComponent(createDriverId)}`}
+                    aria-disabled={!createDriverId}
                   >
-                    この保存先で作成
+                    このドライバーで作成
                   </a>
                 </Button>
               )}

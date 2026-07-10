@@ -7,6 +7,8 @@ import {
   computeSectionMonthRevenue,
   loadCarrierCodeByCourse,
 } from "@/server/billing/computeCounterpartyMonthRevenue";
+import { computeDriverAutoPayout } from "@/server/billing/driverPayout";
+import { loadDriverLease, loadCourseDailyLease, computeLeaseDeduction } from "@/server/billing/driverLease";
 
 export const dynamic = "force-dynamic";
 
@@ -34,19 +36,14 @@ function buildInvoiceNo(params: {
   return `INV-${ym}-${cp}`;
 }
 
-async function buildNextInvoiceNo(
-  orgId: string,
-  params: {
-    month: string;
-    counterpartyId?: string | null;
-    counterpartyName?: string | null;
-  }
-): Promise<string> {
-  const base = buildInvoiceNo(params);
+/**
+ * "{base}-R{NN}" 形式の次リビジョン番号を確定する（outgoing/incoming共用）。
+ * invoice_no を降順で取得し最大リビジョンを確定する。
+ * 旧実装は無順序 .limit(300) のため 300 件超でページング欠落→採番重複の恐れがあった。
+ * ゼロ詰め2桁前提なので降順上位を見れば十分（書式ゆらぎに備え reduce で最大値を取る）。
+ */
+async function nextRevisionForBase(orgId: string, base: string): Promise<string> {
   const prefix = `${base}-R`;
-  // invoice_no を降順で取得し最大リビジョンを確定する。
-  // 旧実装は無順序 .limit(300) のため 300 件超でページング欠落→採番重複の恐れがあった。
-  // ゼロ詰め2桁前提なので降順上位を見れば十分（書式ゆらぎに備え reduce で最大値を取る）。
   const { data, error } = await supabase
     .from("invoice_documents")
     .select("invoice_no")
@@ -66,6 +63,28 @@ async function buildNextInvoiceNo(
   // R99 到達時はクランプすると重複するため、3桁へ桁上げして重複を避ける。
   const nextRevision = maxRevision + 1;
   return `${prefix}${String(nextRevision).padStart(2, "0")}`;
+}
+
+async function buildNextInvoiceNo(
+  orgId: string,
+  params: {
+    month: string;
+    counterpartyId?: string | null;
+    counterpartyName?: string | null;
+  }
+): Promise<string> {
+  return nextRevisionForBase(orgId, buildInvoiceNo(params));
+}
+
+/** 受領請求書（ドライバー宛）の番号ベース："IN-{yyyymm}-{driverIdの先頭4桁16進を大文字化}"。 */
+function buildIncomingInvoiceNo(driverId: string, month: string): string {
+  const ym = month.replace("-", "");
+  const token = driverId.replace(/-/g, "").slice(0, 4).toUpperCase();
+  return `IN-${ym}-${token}`;
+}
+
+async function buildNextIncomingInvoiceNo(orgId: string, driverId: string, month: string): Promise<string> {
+  return nextRevisionForBase(orgId, buildIncomingInvoiceNo(driverId, month));
 }
 
 function getMonthRange(monthParam: string | null): { month: string; startDate: string; endDate: string } {
@@ -133,6 +152,95 @@ export async function GET(req: NextRequest) {
   const issueDate = todayIsoDate();
   const dueDate = nextMonthEndDate(range.month);
   const counterpartyParam = req.nextUrl.searchParams.get("counterparty")?.trim() ?? "";
+  const driverParam = req.nextUrl.searchParams.get("driver")?.trim() ?? "";
+
+  // 受領請求書（ドライバー宛）: コース単価×日報実績＋固定経費・臨時経費を自動集計する。
+  if (driverParam && UUID_RE.test(driverParam)) {
+    const { data: driver, error: driverErr } = await supabase
+      .from("drivers")
+      .select("id, name, postal_code, address, phone, bank_name, bank_no, bank_holder")
+      .eq("id", driverParam)
+      .eq("org_id", orgId)
+      .maybeSingle();
+
+    if (driverErr) {
+      console.error(driverErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    if (!driver) {
+      return NextResponse.json({ error: "ドライバーが見つかりません" }, { status: 404 });
+    }
+
+    const autoPayout = await computeDriverAutoPayout(supabase, orgId, driverParam, range.startDate, range.endDate);
+    const main: { title: string; qty: number; price: number; unit?: string }[] = autoPayout.lines.map((l) => ({
+      title: l.title,
+      qty: l.qty,
+      price: l.unitPrice,
+      unit: l.unitId ? "個" : "日",
+    }));
+    const deduct: { title: string; qty: number; price: number; unit?: string }[] = [];
+
+    // 固定経費（driver_fixed_expenses・月額）→ お支払い分。
+    const { data: fixedExpRows } = await supabase
+      .from("driver_fixed_expenses")
+      .select("name, amount")
+      .eq("driver_id", driverParam)
+      .eq("cycle", "MONTHLY")
+      .lte("valid_from", range.endDate)
+      .or(`valid_to.is.null,valid_to.gte.${range.startDate}`);
+    (fixedExpRows ?? []).forEach((r: { name: string; amount: number }) => {
+      deduct.push({ title: r.name, qty: 1, price: Number(r.amount) || 0, unit: "" });
+    });
+
+    // 臨時経費（driver_ad_hoc_expenses・当月）: 正=控除（お支払い分）、負=手当（請求分へ加算）。
+    const { data: adHocRows } = await supabase
+      .from("driver_ad_hoc_expenses")
+      .select("name, amount")
+      .eq("driver_id", driverParam)
+      .eq("month", range.month);
+    (adHocRows ?? []).forEach((r: { name: string; amount: number }) => {
+      const amount = Number(r.amount) || 0;
+      if (amount > 0) {
+        deduct.push({ title: r.name, qty: 1, price: amount, unit: "" });
+      } else if (amount < 0) {
+        main.push({ title: `${r.name}（手当）`, qty: 1, price: -amount, unit: "" });
+      }
+    });
+
+    // リース控除（driver_leases・専用概念）。DAILYはコース日額(courses.daily_lease)由来。
+    const [lease, courseDailyLease] = await Promise.all([
+      loadDriverLease(supabase, driverParam, range.startDate, range.endDate),
+      loadCourseDailyLease(supabase),
+    ]);
+    const perDay = autoPayout.days.map((d) => ({ date: d.date, courseId: d.courseId }));
+    const leaseDeduction = computeLeaseDeduction(lease, perDay, courseDailyLease);
+    if (leaseDeduction > 0) {
+      deduct.push({ title: "リース代", qty: 1, price: leaseDeduction, unit: "" });
+    }
+
+    if (main.length === 0) {
+      main.push({ title: `${driver.name} ${range.month}分（明細なし）`, qty: 1, price: 0 });
+    }
+
+    return NextResponse.json({
+      month: range.month,
+      section,
+      issueDate,
+      dueDate,
+      invoiceNo: await buildNextIncomingInvoiceNo(orgId, driverParam, range.month),
+      driver: {
+        id: driver.id,
+        name: driver.name,
+        postalCode: driver.postal_code,
+        address: driver.address,
+        phone: driver.phone,
+        bankName: driver.bank_name,
+        bankNo: driver.bank_no,
+        bankHolder: driver.bank_holder,
+      },
+      tableData: { main, deduct },
+    });
+  }
 
   if (counterpartyParam && UUID_RE.test(counterpartyParam)) {
     const { data: addr, error: addrErr } = await supabase

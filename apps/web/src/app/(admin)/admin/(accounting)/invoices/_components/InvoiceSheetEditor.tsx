@@ -18,6 +18,7 @@ import {
   parseIsoDate,
   toIsoDate,
   invoiceFileName,
+  addrHtml,
 } from "./editorModel";
 import { printInvoice } from "./printInvoice";
 import { type InvoiceKind } from "./invoiceKinds";
@@ -31,12 +32,6 @@ type DriverRow = {
   postal_code?: string | null; address?: string | null; phone?: string | null;
   bank_name?: string | null; bank_no?: string | null; bank_holder?: string | null;
 };
-
-function addrHtml(postal?: string | null, address?: string | null): string {
-  const p = postal ?? ""; const a = address ?? "";
-  if (!p && !a) return "";
-  return p ? `〒${p}<br/>${a}` : a;
-}
 
 const HISTORY_COALESCE_MS = 500; // 連続入力はこの間隔でまとめて1ステップにする
 const AUTOSAVE_DEBOUNCE_MS = 1200;

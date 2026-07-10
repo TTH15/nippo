@@ -47,7 +47,7 @@ function GreetingBlockView({ title, message }: { title: string; message: string 
 function RewardBlockView({ todayReward }: { todayReward: number }) {
   return (
     <Card className="px-5 py-5 text-center">
-      <div className="text-xs font-medium text-slate-500">今日の報酬（見込み）</div>
+      <div className="text-xs font-medium text-slate-500">今日の報酬（見込み・目安）</div>
       <CountUp
         value={todayReward}
         durationMs={900}

@@ -4,6 +4,7 @@ import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { computeDriverAutoPayout } from "@/server/billing/driverPayout";
 import { loadDriverLease, loadCourseDailyLease, computeLeaseDeduction, leaseDailyRateForCourse } from "@/server/billing/driverLease";
+import { inclusiveOf } from "@repo/core/logic/taxBasis";
 
 export const dynamic = "force-dynamic";
 
@@ -72,8 +73,11 @@ export async function GET(req: NextRequest) {
 
   const driverId = user.driverId as string;
 
-  // 自動算出の報酬は v2 集計モデル（admin/payments と一致）
-  const autoPayout = await computeDriverAutoPayout(supabase, orgId, driverId, startDate, endDate);
+  // 自動算出の報酬は v2 集計モデル（admin/payments と一致）。
+  // ドライバー本人向けの表示は実際の支払額に近い税込にする（taxInclusive: true）。
+  const autoPayout = await computeDriverAutoPayout(supabase, orgId, driverId, startDate, endDate, {
+    taxInclusive: true,
+  });
   const calculatedIncome = autoPayout.total;
 
   // リース控除（driver_leases・専用概念）。DAILY はコース日額(courses.daily_lease)由来で日当へ反映。
@@ -124,7 +128,8 @@ export async function GET(req: NextRequest) {
   let rewardAdjustments = 0;
   let variableDeductions = 0;
   const logDetails: RewardLogDetail[] = (adHocRows ?? []).map((row: any) => {
-    const rawAmount = Number(row.amount) || 0;
+    // 保存値は常に税抜。ドライバー本人向けの表示は実際の支払額に近い税込にする。
+    const rawAmount = inclusiveOf(Number(row.amount) || 0, "exclusive");
     // driver_ad_hoc_expenses の符号を、ドライバー目線の表示符号に変換
     // (+) 報酬加算、(-) 報酬減算
     const amount = -rawAmount;
@@ -163,7 +168,8 @@ export async function GET(req: NextRequest) {
 
   let fixedDeductions = 0;
   const fixedDetails: FixedExpenseDetail[] = (fixedRows ?? []).map((row: any) => {
-    const amount = Number(row.amount) || 0;
+    // 保存値は常に税抜。ドライバー本人向けの表示は実際の支払額に近い税込にする。
+    const amount = inclusiveOf(Number(row.amount) || 0, "exclusive");
     fixedDeductions += amount;
     return {
       id: String(row.id ?? ""),

@@ -31,6 +31,7 @@ export function PaymentSummary({
       <div className="mb-4">
         <p className="text-sm text-slate-600 mb-2">
           今月の{isCurrentMonth ? "暫定" : ""}報酬
+          <span className="ml-1 text-xs font-normal text-slate-400">（目安）</span>
         </p>
         <p className="text-4xl font-bold text-slate-900">
           {formatCurrency(total)}円
