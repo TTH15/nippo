@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireTenant } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { todayJST } from "@/lib/date";
-import { resolveScanTarget, parseIntOrNull, normGpsStatus } from "@/server/vehicleQr/session";
+import { resolveScanTarget, parseIntOrNull, normGpsStatus, parseInspectionPhotos, saveInspection } from "@/server/vehicleQr/session";
 
 export const dynamic = "force-dynamic";
 
@@ -70,16 +70,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Failed to check in" }, { status: 500 });
   }
 
-  // 4) オドメーター写真があれば pre 点検として保存（承認まで保持・§7）
-  if (body?.odometerPhotoPath) {
-    await supabase.from("vehicle_inspections").insert({
-      session_id: session.id,
-      vehicle_id: target.vehicleId,
-      org_id: orgId,
-      recorded_by: user.driverId,
+  // 4) オドメーター写真・4方向点検写真があれば pre 点検として保存（承認まで保持・§7）
+  const inspectionPhotos = parseInspectionPhotos(body?.inspectionPhotos);
+  if (body?.odometerPhotoPath || inspectionPhotos.length > 0) {
+    await saveInspection(supabase, {
+      sessionId: session.id,
+      vehicleId: target.vehicleId,
+      orgId,
+      recordedBy: user.driverId,
       phase: "pre",
-      odometer_reading: startOdometer,
-      odometer_photo_path: String(body.odometerPhotoPath),
+      odometerReading: startOdometer,
+      odometerPhotoPath: body?.odometerPhotoPath ? String(body.odometerPhotoPath) : null,
+      photos: inspectionPhotos,
     });
   }
 

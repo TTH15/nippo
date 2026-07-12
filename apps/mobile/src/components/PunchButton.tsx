@@ -23,11 +23,14 @@ export function PunchButton({
   mode,
   busy,
   onScanned,
+  onFallback,
 }: {
   mode: "start" | "end";
   busy: boolean;
   // QR読み取り成功時に呼ばれる。戻り値 true=認証成功（成功演出へ）/ false=失敗（idleへ戻す。エラー表示は呼び出し側の責務）
   onScanned: (data: string) => Promise<boolean>;
+  // 「QRが読めない」タップ時（退避ルート・vehicle-session-flow.md §8.5）。カメラ状態のときのみ表示。
+  onFallback?: () => void;
 }) {
   const { width } = useWindowDimensions();
   // カメラ状態では読み取りやすいよう円を大きく広げる。長押しした指が自然に退く広さを確保する。
@@ -155,6 +158,16 @@ export function PunchButton({
         </Pressable>
       </Animated.View>
       <Text className="text-brand-500 text-[13px]">{caption}</Text>
+      {state === "camera" && onFallback && (
+        <Pressable
+          onPress={() => {
+            resetToIdle();
+            onFallback();
+          }}
+        >
+          <Text className="text-brand-400 text-[13px] underline">QRが読めない場合はこちら</Text>
+        </Pressable>
+      )}
     </View>
   );
 }

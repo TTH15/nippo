@@ -62,7 +62,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   useBodyScrollLock(showVehicleModal);
 
   // プロフィールを SWR キャッシュ（遷移をまたいで保持＝再訪時の点滅をなくす）。
-  const { data: profileData, isInitialLoading: profileLoading } = useApi<Profile>(
+  const { data: profileData, isInitialLoading: profileLoading, refresh: refreshProfile } = useApi<Profile>(
     "/api/reports/profile",
   );
   useEffect(() => {
@@ -190,7 +190,16 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       setProfile((prev) => (prev ? { ...prev, hasPasskey: true } : prev));
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "NotAllowedError") {
-        // ユーザーがブラウザのPasskeyダイアログをキャンセルした場合は無言で戻す
+        // ユーザーの明示的キャンセルだけでなく、この端末に登録済みのPasskeyと
+        // 重複した場合やタイムアウトでもブラウザは同じ NotAllowedError を返す。
+        // 実際に登録済みかどうかをサーバーに問い合わせて画面に反映する。
+        const latest = await refreshProfile();
+        if (!latest?.hasPasskey) {
+          setPasskeyMessage({
+            type: "error",
+            text: "登録できませんでした。この端末に既に登録済みか、時間切れの可能性があります。",
+          });
+        }
         return;
       }
       const msg = err instanceof Error ? err.message : "Passkeyの登録に失敗しました";
