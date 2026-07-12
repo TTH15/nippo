@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireTenant } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { todayJST } from "@/lib/date";
-import { resolveScanTarget, parseIntOrNull, normGpsStatus } from "@/server/vehicleQr/session";
+import { resolveScanTarget, parseIntOrNull, normGpsStatus, parseInspectionPhotos, saveInspection } from "@/server/vehicleQr/session";
 
 export const dynamic = "force-dynamic";
 
@@ -83,16 +83,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Failed to check out" }, { status: 500 });
   }
 
-  // 5) オドメーター写真があれば post 点検として保存（承認まで保持・§7）
-  if (body?.odometerPhotoPath) {
-    await supabase.from("vehicle_inspections").insert({
-      session_id: session.id,
-      vehicle_id: session.vehicle_id,
-      org_id: orgId,
-      recorded_by: user.driverId,
+  // 5) オドメーター写真・4方向点検写真があれば post 点検として保存（承認まで保持・§7）
+  const inspectionPhotos = parseInspectionPhotos(body?.inspectionPhotos);
+  if (body?.odometerPhotoPath || inspectionPhotos.length > 0) {
+    await saveInspection(supabase, {
+      sessionId: session.id,
+      vehicleId: session.vehicle_id,
+      orgId,
+      recordedBy: user.driverId,
       phase: "post",
-      odometer_reading: endOdometer,
-      odometer_photo_path: String(body.odometerPhotoPath),
+      odometerReading: endOdometer,
+      odometerPhotoPath: body?.odometerPhotoPath ? String(body.odometerPhotoPath) : null,
+      photos: inspectionPhotos,
     });
   }
 

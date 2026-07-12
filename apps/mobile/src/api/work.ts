@@ -33,6 +33,8 @@ export type QrResolve = {
 
 export type GpsStatus = "captured" | "denied" | "unavailable";
 
+export type InspectionAngle = "front" | "right" | "rear" | "left";
+
 export type CheckInBody = {
   token?: string;
   method?: "qr" | "plate_ocr" | "manual";
@@ -42,6 +44,9 @@ export type CheckInBody = {
   lng?: number | null;
   gpsStatus?: GpsStatus | null;
   odometerPhotoPath?: string;
+  inspectionPhotos?: Array<{ angle: InspectionAngle; path: string }>;
+  platePhotoPath?: string;
+  fallbackReason?: string;
 };
 
 export type CheckOutBody = CheckInBody & { sessionId?: string };
@@ -81,6 +86,22 @@ export function checkOut(body: CheckOutBody): Promise<WorkActionResult> {
 // メーター写真を Storage にアップロードし保存パスを返す（出退勤の odometerPhotoPath に渡す）。
 export function uploadMeterPhoto(base64: string, mime = "image/jpeg"): Promise<{ path: string }> {
   return apiFetch<{ path: string }>("/api/work/meter-photo", {
+    method: "POST",
+    body: JSON.stringify({ base64, mime }),
+  });
+}
+
+// 車両点検写真（前後左右4方向）を Storage にアップロードし保存パスを返す（出退勤の inspectionPhotos に渡す）。
+export function uploadInspectionPhoto(base64: string, mime = "image/jpeg"): Promise<{ path: string }> {
+  return apiFetch<{ path: string }>("/api/work/inspection-photo", {
+    method: "POST",
+    body: JSON.stringify({ base64, mime }),
+  });
+}
+
+// ナンバープレート写真（QR退避ルート・§8.5）を Storage にアップロードし保存パスを返す（platePhotoPath に渡す）。
+export function uploadPlatePhoto(base64: string, mime = "image/jpeg"): Promise<{ path: string }> {
+  return apiFetch<{ path: string }>("/api/work/plate-photo", {
     method: "POST",
     body: JSON.stringify({ base64, mime }),
   });
