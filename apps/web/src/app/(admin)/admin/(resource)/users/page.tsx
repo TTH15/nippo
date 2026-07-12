@@ -41,6 +41,8 @@ type Driver = {
   faceUrl?: string | null;
   /** 電話番号が Twilio(SMS OTP) 認証済みか（identities.phone_verified_at）。 */
   phone_verified_at?: string | null;
+  /** Passkeyを1件以上登録済みか（identities.id経由のpasskey_credentials）。 */
+  has_passkey?: boolean;
   company_code?: string;
   office_code: string;
   driver_code: string;
@@ -1505,6 +1507,19 @@ export default function UsersPage() {
                           削除
                         </button>
                       </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Passkey</label>
+                    {editingDriver?.has_passkey ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700">
+                        <FontAwesomeIcon icon={faCircleCheck} className="w-2.5 h-2.5" />
+                        登録済み
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500">
+                        未登録
+                      </span>
                     )}
                   </div>
                 </div>

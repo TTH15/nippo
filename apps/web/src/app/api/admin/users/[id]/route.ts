@@ -53,6 +53,7 @@ export async function GET(
   }
   // 電話番号が Twilio(SMS OTP) で認証済みか（identities.phone_verified_at・仮登録で刻まれる）。
   let phoneVerifiedAt: string | null = null;
+  let hasPasskey = false;
   const identId = (driver as { identity_id?: string | null }).identity_id;
   if (identId) {
     const { data: idn } = await supabase
@@ -61,8 +62,15 @@ export async function GET(
       .eq("id", identId)
       .maybeSingle();
     phoneVerifiedAt = (idn?.phone_verified_at as string | null) ?? null;
+
+    const { count } = await supabase
+      .from("passkey_credentials")
+      .select("id", { count: "exact", head: true })
+      .eq("identity_id", identId);
+    hasPasskey = (count ?? 0) > 0;
   }
   (driver as Record<string, unknown>).phone_verified_at = phoneVerifiedAt;
+  (driver as Record<string, unknown>).has_passkey = hasPasskey;
 
   const response = NextResponse.json({ driver });
   response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=300");
