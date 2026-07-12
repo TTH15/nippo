@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { startRegistration } from "@simplewebauthn/browser";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch, getStoredDriver, type StoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
 
 export default function AdminAccountPage() {
@@ -11,6 +14,9 @@ export default function AdminAccountPage() {
   const [driver, setDriver] = useState<StoredDriver | null>(null);
   const [passkeySubmitting, setPasskeySubmitting] = useState(false);
   const [passkeyMessage, setPasskeyMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const { data: account, refresh: refreshAccount } = useApi<{ hasPasskey: boolean }>(
+    "/api/admin/account",
+  );
 
   useEffect(() => {
     setDriver(getStoredDriver());
@@ -33,9 +39,19 @@ export default function AdminAccountPage() {
       });
 
       setPasskeyMessage({ type: "ok", text: "Passkeyを登録しました" });
+      await refreshAccount();
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "NotAllowedError") {
-        // ユーザーがブラウザのPasskeyダイアログをキャンセルした場合は無言で戻す
+        // ユーザーの明示的キャンセルだけでなく、この端末に登録済みのPasskeyと
+        // 重複した場合やタイムアウトでもブラウザは同じ NotAllowedError を返す。
+        // 実際に登録済みかどうかをサーバーに問い合わせて画面に反映する。
+        const latest = await refreshAccount();
+        if (!latest?.hasPasskey) {
+          setPasskeyMessage({
+            type: "error",
+            text: "登録できませんでした。この端末に既に登録済みか、時間切れの可能性があります。",
+          });
+        }
         return;
       }
       const msg = err instanceof Error ? err.message : "Passkeyの登録に失敗しました";
@@ -58,8 +74,16 @@ export default function AdminAccountPage() {
           <section className="mt-4">
             <h2 className="text-base font-bold text-slate-900 mb-4">Passkeyの登録</h2>
             <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
+              {account?.hasPasskey && (
+                <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <FontAwesomeIcon icon={faCircleCheck} className="w-4 h-4 text-green-600" />
+                  <span>登録済みです</span>
+                </div>
+              )}
               <p className="text-sm text-slate-600">
-                指紋・顔認証などでログインできるようになります（パスワードでのログインも引き続き使えます）。
+                {account?.hasPasskey
+                  ? "別の端末を追加で登録することもできます。"
+                  : "指紋・顔認証などでログインできるようになります（パスワードでのログインも引き続き使えます）。"}
               </p>
               {passkeyMessage && (
                 <p
