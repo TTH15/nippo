@@ -1,0 +1,8 @@
+# CLI デプロイ時のアップロード除外（web ビルドに不要なもの）
+node_modules
+.git
+apps/mobile
+sample
+invoice
+docs
+*.log
