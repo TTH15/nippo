@@ -94,7 +94,7 @@ export function DateRangeDualPicker({
                 range_middle: "bg-slate-100",
               }}
               defaultMonth={value?.startDate}
-              initialFocus
+              autoFocus
             />
           </PopoverContent>
         </Popover>
@@ -131,7 +131,7 @@ export function DateRangeDualPicker({
                 range_middle: "bg-slate-100",
               }}
               defaultMonth={value?.endDate}
-              initialFocus
+              autoFocus
             />
           </PopoverContent>
         </Popover>

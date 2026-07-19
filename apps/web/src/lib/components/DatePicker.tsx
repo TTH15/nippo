@@ -76,7 +76,7 @@ export function DatePicker({
                 }
               : undefined
           }
-          initialFocus
+          autoFocus
         />
       </PopoverContent>
     </Popover>

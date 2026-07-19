@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { format } from "date-fns";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
-import { DayPicker, useNavigation } from "react-day-picker";
 import { ja } from "date-fns/locale";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
+import { DayPicker, useDayPicker, type MonthCaptionProps } from "react-day-picker";
+import { ja as rdpJa } from "react-day-picker/locale";
 
 import { cn } from "./utils";
 import { buttonVariants } from "./button";
@@ -101,7 +102,8 @@ function MonthYearWheel({
 }
 
 function CaptionLabelButton(props: { displayMonth: Date }) {
-  const { goToMonth } = useNavigation();
+  // v9: useNavigation は廃止され、goToMonth は useDayPicker が提供する
+  const { goToMonth } = useDayPicker();
   const panelRef = React.useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = React.useState(false);
   const [selectedYear, setSelectedYear] = React.useState(props.displayMonth.getFullYear());
@@ -178,6 +180,15 @@ function CaptionLabelButton(props: { displayMonth: Date }) {
   );
 }
 
+// v9: CaptionLabel(displayMonth) は廃止。MonthCaption が calendarMonth を受け取る
+function CustomMonthCaption({ calendarMonth, displayIndex: _displayIndex, ...divProps }: MonthCaptionProps) {
+  return (
+    <div {...divProps}>
+      <CaptionLabelButton displayMonth={calendarMonth.date} />
+    </div>
+  );
+}
+
 function Calendar({
   className,
   classNames,
@@ -186,7 +197,7 @@ function Calendar({
 }: React.ComponentProps<typeof DayPicker>) {
   return (
     <DayPicker
-      locale={ja}
+      locale={rdpJa}
       showOutsideDays={showOutsideDays}
       className={cn("p-4", className)}
       modifiers={{
@@ -197,56 +208,64 @@ function Calendar({
         saturday: "text-blue-600",
         sunday: "text-red-600",
       }}
+      // v9 の classNames キー体系(v8: caption→month_caption, table→month_grid,
+      // cell→day, day→day_button 等)。aria-selected/data 属性は td(day)側に付く
       classNames={{
-        months: "flex flex-col sm:flex-row gap-2",
+        months: "relative flex flex-col sm:flex-row gap-2",
         month: "flex flex-col gap-4",
-        caption: "flex justify-center pt-1 relative items-center w-full",
+        month_caption: "flex justify-center pt-1 relative items-center w-full",
         caption_label: "text-sm font-medium",
-        nav: "flex items-center gap-1",
-        nav_button: cn(
+        nav: "absolute inset-x-0 top-0 flex items-center justify-between",
+        button_previous: cn(
           buttonVariants({ variant: "outline" }),
-          "size-9 bg-transparent p-0 opacity-50 hover:opacity-100",
+          "size-9 bg-transparent p-0 opacity-50 hover:opacity-100 z-10 ml-1",
         ),
-        nav_button_previous: "absolute left-1",
-        nav_button_next: "absolute right-1",
-        table: "w-full border-collapse space-x-1",
-        head_row: "flex",
-        head_cell:
-          "text-slate-400 rounded-md w-12 font-normal text-[0.8rem]",
-        row: "flex w-full mt-2",
-        cell: cn(
-          "relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-slate-100 [&:has([aria-selected].day-range-end)]:rounded-r-md",
-          props.mode === "range"
-            ? "[&:has(>.day-range-end)]:rounded-r-md [&:has(>.day-range-start)]:rounded-l-md first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md"
-            : "[&:has([aria-selected])]:rounded-md",
+        button_next: cn(
+          buttonVariants({ variant: "outline" }),
+          "size-9 bg-transparent p-0 opacity-50 hover:opacity-100 z-10 mr-1",
         ),
+        month_grid: "w-full border-collapse space-x-1",
+        weekdays: "flex",
+        weekday: "text-slate-400 rounded-md w-12 font-normal text-[0.8rem]",
+        week: "flex w-full mt-2",
         day: cn(
-          buttonVariants({ variant: "ghost" }),
-          "size-12 p-0 font-normal aria-selected:opacity-100 text-base hover:bg-slate-100",
+          "relative p-0 text-center text-sm focus-within:relative focus-within:z-20 aria-selected:bg-slate-100",
+          props.mode === "range"
+            ? "first:aria-selected:rounded-l-md last:aria-selected:rounded-r-md"
+            : "aria-selected:rounded-md",
         ),
-        day_range_start:
-          "day-range-start aria-selected:bg-slate-900 aria-selected:text-white",
-        day_range_end:
-          "day-range-end aria-selected:bg-slate-900 aria-selected:text-white",
-        day_selected:
-          "bg-slate-900 text-white hover:bg-slate-800 hover:text-white focus:bg-slate-900 focus:text-white",
-        day_today: "bg-slate-100 text-slate-900 font-semibold",
-        day_outside:
-          "day-outside text-slate-300 aria-selected:text-slate-300 opacity-40",
-        day_disabled: "text-slate-300 opacity-50",
-        day_range_middle:
-          "aria-selected:bg-slate-100 aria-selected:text-slate-900",
-        day_hidden: "invisible",
+        day_button: cn(
+          buttonVariants({ variant: "ghost" }),
+          "size-12 p-0 font-normal text-base hover:bg-slate-100",
+        ),
+        range_start:
+          "rounded-l-md [&>button]:bg-slate-900 [&>button]:text-white [&>button:hover]:bg-slate-800 [&>button:hover]:text-white",
+        range_end:
+          "rounded-r-md [&>button]:bg-slate-900 [&>button]:text-white [&>button:hover]:bg-slate-800 [&>button:hover]:text-white",
+        selected:
+          "[&>button]:bg-slate-900 [&>button]:text-white [&>button:hover]:bg-slate-800 [&>button:hover]:text-white [&>button:focus]:bg-slate-900 [&>button:focus]:text-white",
+        range_middle:
+          "bg-slate-100 [&>button]:bg-transparent [&>button]:text-slate-900",
+        today: "[&>button]:bg-slate-100 [&>button]:text-slate-900 [&>button]:font-semibold",
+        outside: "text-slate-300 opacity-40",
+        disabled: "text-slate-300 opacity-50",
+        hidden: "invisible",
         ...classNames,
       }}
       components={{
-        CaptionLabel: ({ displayMonth }) => <CaptionLabelButton displayMonth={displayMonth} />,
-        IconLeft: ({ className, ...props }) => (
-          <ChevronLeft className={cn("size-4", className)} {...props} />
-        ),
-        IconRight: ({ className, ...props }) => (
-          <ChevronRight className={cn("size-4", className)} {...props} />
-        ),
+        MonthCaption: CustomMonthCaption,
+        // v9: IconLeft/IconRight は Chevron に統合された
+        Chevron: ({ orientation, className: chevronClassName }) => {
+          const Icon =
+            orientation === "left"
+              ? ChevronLeft
+              : orientation === "right"
+                ? ChevronRight
+                : orientation === "up"
+                  ? ChevronUp
+                  : ChevronDown;
+          return <Icon className={cn("size-4", chevronClassName)} />;
+        },
       }}
       {...props}
     />
@@ -254,4 +273,3 @@ function Calendar({
 }
 
 export { Calendar };
-
