@@ -32,6 +32,7 @@ import { clearAuth, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite, isAdminViewerRole } from "@/lib/authz";
+import { ModeSwitchFab } from "@/lib/components/ModeSwitchFab";
 
 type NavChild = { href: string; label: string; icon?: IconDefinition };
 type NavItem =
@@ -190,33 +191,34 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      {/* モバイルヘッダー */}
-      <header className="sticky top-0 z-30 flex items-center justify-between gap-2 px-3 py-2.5 border-b border-slate-200 bg-white/95 backdrop-blur shadow-sm md:hidden">
+    <div className="min-h-screen flex flex-col bg-slate-50 max-md:bg-transparent">
+      {/* モバイルヘッダー（運営モードの外枠。ダークで「運営に居る」ことを示す） */}
+      <header className="sticky top-0 z-30 flex items-center justify-between gap-2 px-3 py-2.5 border-b border-brand-700 bg-brand-800/95 backdrop-blur shadow-sm md:hidden">
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}
-          className="inline-flex items-center justify-center w-9 h-9 rounded-md border border-slate-300 text-slate-700 bg-white"
+          className="inline-flex flex-col items-center justify-center w-9 h-9 rounded-md border border-brand-600 bg-brand-700"
           aria-label="メニューを開く"
         >
           <span className="sr-only">メニュー</span>
-          <span className="block w-4 h-0.5 bg-slate-700 rounded-sm" />
-          <span className="block w-4 h-0.5 bg-slate-700 rounded-sm mt-1" />
-          <span className="block w-4 h-0.5 bg-slate-700 rounded-sm mt-1" />
+          <span className="block w-4 h-0.5 bg-slate-100 rounded-sm" />
+          <span className="block w-4 h-0.5 bg-slate-100 rounded-sm mt-1" />
+          <span className="block w-4 h-0.5 bg-slate-100 rounded-sm mt-1" />
         </button>
-        <Link href="/admin" className="inline-flex items-center">
+        {/* ロゴは濃色の塗りを含むため、ダークヘッダーでは白チップに載せて視認性を保つ */}
+        <Link href="/admin" className="inline-flex items-center rounded-lg bg-white px-1.5">
           <Image
             src={"/logo/hakotora-logo_secondary_logo.svg"}
             alt="ハコ虎"
             width={120}
             height={40}
-            className="h-10 w-auto"
+            className="h-9 w-auto"
             priority
           />
         </Link>
         <button
           onClick={logout}
-          className="px-2.5 py-1 rounded-md font-bold text-slate-500 hover:text-slate-800"
+          className="px-2.5 py-1 rounded-md font-bold text-slate-300 hover:text-white"
           title="ログアウト"
         >
           <FontAwesomeIcon icon={faRightFromBracket} className="w-4 h-4" />
@@ -389,12 +391,6 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                 <FontAwesomeIcon icon={faRightFromBracket} className="w-4 h-4" />
               </button>
             </div>
-            <Link
-              href="/submit"
-              className="mt-2 inline-block text-[11px] text-slate-400 hover:text-slate-700 transition-colors"
-            >
-              ドライバー画面へ切り替え
-            </Link>
           </div>
         </aside>
 
@@ -519,13 +515,6 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                     {isViewer ? "（閲覧）" : ""}
                   </p>
                 </Link>
-                <Link
-                  href="/submit"
-                  onClick={() => setMobileNavOpen(false)}
-                  className="block mb-2 text-[11px] text-slate-400 hover:text-slate-700 transition-colors"
-                >
-                  ドライバー画面へ切り替え
-                </Link>
                 <button
                   onClick={logout}
                   className="w-full mt-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-slate-100 text-slate-800 hover:bg-slate-200 text-sm font-semibold"
@@ -538,11 +527,14 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        {/* Main content */}
-        <main className="relative flex-1 overflow-auto">
+        {/* Main content。スマホ幅ではダークな外枠の上に載るライトのシートにする
+            （既存 admin ページの配色を変えずにモード識別色を成立させるため） */}
+        <main className="relative flex-1 overflow-auto max-md:mt-1.5 max-md:rounded-t-2xl max-md:bg-slate-50">
           <div className="px-3 py-4 md:p-6">{children}</div>
         </main>
       </div>
+      {/* スマホ幅のみ: ドライバー画面への切替 FAB（旧サイドバー/ドロワーのリンクを置換） */}
+      <ModeSwitchFab mode="admin" />
     </div>
   );
 }

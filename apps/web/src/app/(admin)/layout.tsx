@@ -13,7 +13,13 @@ export default function AdminGroupLayout({
 }) {
   return (
     <Providers>
-      <div className="min-h-screen bg-[var(--color-bg)]">{children}</div>
+      {/* data-mode: スマホ幅では globals.css がこれを見て body をチャコール化する */}
+      <div
+        data-mode="admin"
+        className="min-h-screen bg-[var(--color-bg)] max-md:bg-[var(--mode-admin-bg)]"
+      >
+        {children}
+      </div>
     </Providers>
   );
 }

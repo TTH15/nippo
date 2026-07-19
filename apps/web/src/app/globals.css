@@ -32,6 +32,12 @@
   --color-success: #22c55e;
   --color-text: #0f172a;
   --color-muted: #64748b;
+
+  /* モード識別色: 運営⇄ドライバー切替のインク演出と外枠キャンバスで共有。
+     OS のライト/ダーク設定とは無関係に「今どちらのモードか」を色で表す。
+     ModeSwitchFab がインク色としてこの変数を参照する */
+  --mode-admin-bg: #252a30; /* brand-800 (Charcoal) */
+  --mode-driver-bg: #f8fafc; /* --color-bg と同じ */
 }
 
 body {
@@ -69,6 +75,15 @@ body {
 :root {
   --bottom-nav-safe-space: max(env(safe-area-inset-bottom, 0px), 8px);
   --bottom-nav-total-height: calc(64px + var(--bottom-nav-safe-space));
+}
+
+/* スマホ幅の運営モードは外枠（body キャンバス）をチャコール化する。
+   コンテンツ本体は AdminLayout がライトのシートに載せるため、
+   個々の admin ページは配色変更なしで済む（オーバースクロール領域も暗色に）。 */
+@media (max-width: 767.98px) {
+  body:has([data-mode="admin"]) {
+    background-color: var(--mode-admin-bg);
+  }
 }
 
 .user-main-with-bottom-nav {
