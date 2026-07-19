@@ -1,8 +1,8 @@
-// 認証まわりのプラットフォーム非依存な型。
-// Web は localStorage + window.location、RN は SecureStore + navigation を
-// それぞれ KeyValueStorage / UnauthorizedHandler として注入する。
+// 認証まわりの型。ストレージ/遷移ハンドラの抽象は @platform/auth へ昇格(ADR-0002)。
+// StoredDriver はドメイン型(ドライバー)のためこのリポジトリに残す。
+export type { KeyValueStorage, UnauthorizedHandler } from "@platform/auth";
 
-/** ログイン中ドライバーの最小プロフィール（トークンと共に保持） */
+/** ログイン中ドライバーの最小プロフィール(トークンと共に保持) */
 export type StoredDriver = {
   id: string;
   name: string;
@@ -10,21 +10,6 @@ export type StoredDriver = {
   companyCode?: string;
   officeCode?: string;
   driverCode?: string;
-  /** §2-6: この membership が持つ capability（can_*）。UI の権限出し分けに使う。 */
+  /** §2-6: この membership が持つ capability(can_*)。UI の権限出し分けに使う。 */
   capabilities?: string[];
 };
-
-/**
- * 同期キー値ストレージの抽象。
- * - Web: window.localStorage（同期）
- * - RN: 起動時に SecureStore/AsyncStorage から読み込んだ値をメモリに保持し、
- *       そのメモリキャッシュを同期で読み書きする実装を注入する想定。
- */
-export interface KeyValueStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
-}
-
-/** 認証切れ（401）検出時の遷移ハンドラ。Web=window.location / RN=navigation。 */
-export type UnauthorizedHandler = () => void;
