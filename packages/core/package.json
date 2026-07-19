@@ -10,5 +10,9 @@
     "./auth": "./src/auth/index.ts",
     "./api": "./src/api/index.ts",
     "./logic/*": "./src/logic/*.ts"
+  },
+  "dependencies": {
+    "@platform/api-client": "*",
+    "@platform/auth": "*"
   }
 }
