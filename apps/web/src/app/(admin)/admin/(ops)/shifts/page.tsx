@@ -670,6 +670,29 @@ export default function ShiftsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayDates, courses, localShifts, shifts]);
 
+  // その日の定員割れ（コース別の空き枠）。ヘッダーの「空きN」バッジ用（A3）。
+  const openSlotsByDate = useMemo(() => {
+    const m = new Map<string, { total: number; byCourse: { course: Course; open: number }[] }>();
+    for (const date of displayDates) {
+      let total = 0;
+      const byCourse: { course: Course; open: number }[] = [];
+      for (const c of courses) {
+        const maxSlots = Math.max(1, c.max_drivers ?? 1);
+        let open = 0;
+        for (let slot = 1; slot <= maxSlots; slot++) {
+          if (!getCurrentDriverId(date, c.id, slot)) open++;
+        }
+        if (open > 0) {
+          total += open;
+          byCourse.push({ course: c, open });
+        }
+      }
+      m.set(date, { total, byCourse });
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayDates, courses, localShifts, shifts]);
+
   /** バッチ更新用: Map を重ねて効いている driverId を返す */
   const getEffectiveIdFromMap = (
     localMap: Map<string, string | null>,
@@ -961,6 +984,117 @@ export default function ShiftsPage() {
     }
     // 外したセルを即時保存（driverId=null。車両はサーバー側で連動クリア）
     for (const slot of clearedSlots) void persistAssignment(date, courseId, slot, null);
+  };
+
+  // ============================================================
+  // D&D コピー（A3）: 割当済みセルをドラッグしてコース割当を複製する。
+  //   同一ドライバーの行 → ドロップ位置までの範囲フィル（連日コピー）
+  //   別ドライバーのセル → その日へ単セルコピー（担当可能コースのみ）
+  // 車両・時間上書きは複製しない（車両は日毎の配車、時間はコース標準が効く）。
+  // ============================================================
+  const [dragSource, setDragSource] = useState<{
+    date: string;
+    driverId: string;
+    courseIds: string[];
+  } | null>(null);
+  const [dragOverCell, setDragOverCell] = useState<{ date: string; driverId: string } | null>(null);
+
+  /** ドロップ可能か（自セル・全休日・担当可能コースなしは不可）。 */
+  const isValidDropTarget = (date: string, driverId: string): boolean => {
+    if (!dragSource || !canWrite) return false;
+    if (dragSource.date === date && dragSource.driverId === driverId) return false;
+    if (isDriverOffDay(driverId, date)) return false;
+    if (driverId !== dragSource.driverId) {
+      const d = drivers.find((x) => x.id === driverId);
+      if (!d) return false;
+      const allowed = new Set(getDriverCourseIds(d));
+      if (!dragSource.courseIds.some((c) => allowed.has(c))) return false;
+    }
+    return true;
+  };
+
+  /**
+   * コース割当を対象ドライバー×対象日へ複製する。希望休・担当外・定員満はスキップし、
+   * スキップがあった場合のみまとめて通知する（1件ずつダイアログは出さない）。
+   */
+  const copyCoursesTo = (srcCourseIds: string[], targetDriverId: string, targetDates: string[]) => {
+    const driver = drivers.find((d) => d.id === targetDriverId);
+    if (!driver) return;
+    const allowed = new Set(getDriverCourseIds(driver));
+    const notes: string[] = [];
+    let applied = 0;
+    const updates = new Map<string, string>(); // cellKey → driverId（同一バッチ内の空き枠判定にも使う）
+    for (const date of targetDates) {
+      if (isDriverOffDay(targetDriverId, date)) {
+        notes.push(`${formatDate(date)}: 希望休（全休）のためスキップ`);
+        continue;
+      }
+      for (const courseId of srcCourseIds) {
+        const course = courses.find((c) => c.id === courseId);
+        if (!course) continue;
+        if (!allowed.has(courseId)) {
+          notes.push(`${formatDate(date)} ${courseShiftLabel(course)}: 担当可能コースでないためスキップ`);
+          continue;
+        }
+        // すでに同コースに入っている日は黙ってスキップ（コピーの意図は満たされている）
+        if (
+          findDriverPlacementsOnDate(localShifts, date, targetDriverId).some(
+            (p) => p.courseId === courseId,
+          )
+        ) {
+          continue;
+        }
+        const maxSlots = Math.max(1, course.max_drivers ?? 1);
+        let slot: number | null = null;
+        for (let s = 1; s <= maxSlots; s++) {
+          const k = getCellKey(date, courseId, s);
+          const eff = updates.has(k) ? updates.get(k) : getEffectiveIdFromMap(localShifts, date, courseId, s);
+          if (!eff) {
+            slot = s;
+            break;
+          }
+        }
+        if (slot == null) {
+          notes.push(`${formatDate(date)} ${courseShiftLabel(course)}: 定員に空きがないためスキップ`);
+          continue;
+        }
+        updates.set(getCellKey(date, courseId, slot), targetDriverId);
+        applied++;
+        void persistAssignment(date, courseId, slot, targetDriverId);
+      }
+    }
+    if (updates.size > 0) {
+      setLocalShifts((prev) => {
+        const next = new Map(prev);
+        for (const [k, v] of updates) next.set(k, v);
+        return next;
+      });
+    }
+    if (notes.length > 0) {
+      setErrorState({
+        title: "一部コピーできませんでした",
+        message: `${applied} 件コピーしました。以下はスキップしています。\n\n${notes.join("\n")}`,
+      });
+    }
+  };
+
+  const handleCellDrop = (targetDate: string, targetDriverId: string) => {
+    if (!dragSource) return;
+    const { date: srcDate, driverId: srcDriverId, courseIds } = dragSource;
+    setDragSource(null);
+    setDragOverCell(null);
+    if (courseIds.length === 0) return;
+    if (targetDriverId === srcDriverId) {
+      // 横フィル: ドラッグ元〜ドロップ位置の全日（元日を除く）へ連日コピー
+      const si = displayDates.indexOf(srcDate);
+      const ti = displayDates.indexOf(targetDate);
+      if (si < 0 || ti < 0) return;
+      const [a, b] = si < ti ? [si, ti] : [ti, si];
+      const dates = displayDates.slice(a, b + 1).filter((d) => d !== srcDate);
+      copyCoursesTo(courseIds, srcDriverId, dates);
+    } else {
+      copyCoursesTo(courseIds, targetDriverId, [targetDate]);
+    }
   };
 
   /**
@@ -1443,6 +1577,20 @@ export default function ShiftsPage() {
                             title={`稼働 ${count} 人`}
                           >
                             稼働 {count}
+                            {(() => {
+                              const open = openSlotsByDate.get(date);
+                              if (!open || open.total === 0) return null;
+                              return (
+                                <span
+                                  className="ml-1 text-amber-600"
+                                  title={`空き枠: ${open.byCourse
+                                    .map((x) => `${courseShiftLabel(x.course)} 空${x.open}`)
+                                    .join("・")}`}
+                                >
+                                  空{open.total}
+                                </span>
+                              );
+                            })()}
                           </span>
                           <span className="line-clamp-2 leading-tight break-words" title={formatDate(date)}>
                             {formatDate(date)}
@@ -1512,14 +1660,43 @@ export default function ShiftsPage() {
                           // 配車のみの担当は割当済みセル（車両を選べる）だけ開ける。
                           const canOpenCell = canWrite || (canDispatch && hasAny);
 
+                          // D&D コピーのドロップ予告ハイライト（横フィルは範囲、別ドライバーは単セル）
+                          const inDropPreview = (() => {
+                            if (!dragSource || !dragOverCell) return false;
+                            if (dragOverCell.driverId !== driver.id) return false;
+                            if (dragSource.driverId === driver.id) {
+                              const si = displayDates.indexOf(dragSource.date);
+                              const ti = displayDates.indexOf(dragOverCell.date);
+                              const di = displayDates.indexOf(date);
+                              if (si < 0 || ti < 0 || di < 0) return false;
+                              const [a, b] = si < ti ? [si, ti] : [ti, si];
+                              return di >= a && di <= b && date !== dragSource.date;
+                            }
+                            return dragOverCell.date === date;
+                          })();
+
                           return (
                             <td
                               key={`${driver.id}-${date}`}
+                              onDragOver={(e) => {
+                                if (!isValidDropTarget(date, driver.id)) return;
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = "copy";
+                                if (dragOverCell?.date !== date || dragOverCell?.driverId !== driver.id) {
+                                  setDragOverCell({ date, driverId: driver.id });
+                                }
+                              }}
+                              onDrop={(e) => {
+                                if (!isValidDropTarget(date, driver.id)) return;
+                                e.preventDefault();
+                                handleCellDrop(date, driver.id);
+                              }}
                               className={cn(
                                 `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-1`,
                                 !isLastDriver && "border-b-2 border-slate-300",
                                 off ? "align-middle bg-amber-50" : `align-top ${tone.body}`,
                                 isToday && TODAY_RULE_SIDES,
+                                inDropPreview && "bg-sky-50 ring-2 ring-inset ring-sky-400",
                               )}
                             >
                               {off ? (
@@ -1541,7 +1718,28 @@ export default function ShiftsPage() {
                                       type="button"
                                       disabled={!canOpenCell}
                                       onClick={() => setEditingCell({ date, driverId: driver.id })}
-                                      title={canOpenCell ? "クリックして編集" : vehicleTitle}
+                                      draggable={canWrite && hasAny}
+                                      onDragStart={(e) => {
+                                        if (!canWrite || !hasAny) return;
+                                        e.dataTransfer.setData("text/plain", "shift-copy");
+                                        e.dataTransfer.effectAllowed = "copy";
+                                        setDragSource({
+                                          date,
+                                          driverId: driver.id,
+                                          courseIds: [...new Set(placements.map((p) => p.courseId))],
+                                        });
+                                      }}
+                                      onDragEnd={() => {
+                                        setDragSource(null);
+                                        setDragOverCell(null);
+                                      }}
+                                      title={
+                                        canOpenCell
+                                          ? canWrite && hasAny
+                                            ? "クリックして編集／ドラッグでコピー"
+                                            : "クリックして編集"
+                                          : vehicleTitle
+                                      }
                                       className={cn(
                                         "group flex min-h-[3.25rem] w-full flex-col gap-1 rounded-lg px-1.5 py-1.5 text-left transition-colors",
                                         canOpenCell && !isEditing && "hover:bg-white/70",
@@ -1695,6 +1893,13 @@ export default function ShiftsPage() {
                 <div className="flex items-center gap-1.5 basis-full md:basis-auto">
                   <span className="text-slate-500">
                     車両は紐づけ一覧を優先表示し、「その他の車両」からマスタ上のその他の車両も選べます。
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 basis-full">
+                  <span className="text-slate-500">
+                    割当済みセルはドラッグでコピーできます（同じ行＝離した日まで連日コピー／別ドライバーの行＝その日へコピー。
+                    希望休・担当外・定員満の日は自動でスキップ。車両はコピーされません）。
+                    ヘッダーの「空きN」はその日の定員割れ（ホバーでコース別内訳）。
                   </span>
                 </div>
               </div>
