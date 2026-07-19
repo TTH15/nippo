@@ -194,7 +194,6 @@ function VehicleOptionList({
   loanedIds,
   onChange,
   onSelectExternal,
-  onToggleLoan,
   disabled,
 }: {
   valueId: string | null;
@@ -208,8 +207,6 @@ function VehicleOptionList({
   loanedIds?: Set<string>;
   onChange: (id: string | null) => void;
   onSelectExternal?: () => void;
-  /** その日の貸出中トグル（can_dispatch 保持時のみ渡す）。選択中・他者使用中の行には出さない */
-  onToggleLoan?: (vehicleId: string) => void;
   disabled?: boolean;
 }) {
   const row = (v: VehiclePlateData) => {
@@ -218,58 +215,39 @@ function VehicleOptionList({
     const takenByName = !selected ? takenBy?.get(v.id) : undefined;
     // 他ドライバー使用中はクリック可（確認後に重複割り当て）。貸出中のみ不可。
     return (
-      <div key={v.id} className="relative">
-        <button
-          type="button"
-          disabled={disabled || isLoaned}
-          title={
-            isLoaned
-              ? "貸出中"
-              : takenByName
-                ? `${takenByName} さんが使用中（クリックで重複割り当ての確認）`
-                : undefined
-          }
-          className={cn(
-            "w-full rounded-md p-0.5 flex flex-col items-center gap-0.5 transition-colors",
-            isLoaned
-              ? "opacity-45 cursor-not-allowed"
-              : takenByName
-                ? "opacity-60 hover:bg-slate-50/90"
-                : selected
-                  ? "bg-slate-100/95 ring-1 ring-slate-400/40"
-                  : "hover:bg-slate-50/90",
-          )}
-          onClick={() => {
-            if (isLoaned) return;
-            onChange(v.id);
-          }}
-        >
-          <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
-          {isLoaned || takenByName ? (
-            <span className="text-[9px] font-medium text-rose-500 leading-none pb-0.5">
-              {isLoaned ? "貸出中" : `${takenByName} さん使用中`}
-            </span>
-          ) : null}
-        </button>
-        {onToggleLoan && !selected && !takenByName ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleLoan(v.id);
-            }}
-            title={isLoaned ? "貸出中を解除する" : "この日を貸出中にする"}
-            className={cn(
-              "absolute right-1 top-1 z-10 rounded border px-1 py-0.5 text-[9px] font-semibold leading-none transition-colors",
-              isLoaned
-                ? "border-amber-600 bg-amber-600 text-white hover:bg-amber-500"
-                : "border-slate-200 bg-white/90 text-slate-400 hover:border-amber-400 hover:text-amber-600",
-            )}
-          >
-            貸
-          </button>
+      <button
+        key={v.id}
+        type="button"
+        disabled={disabled || isLoaned}
+        title={
+          isLoaned
+            ? "貸出中"
+            : takenByName
+              ? `${takenByName} さんが使用中（クリックで重複割り当ての確認）`
+              : undefined
+        }
+        className={cn(
+          "w-full rounded-md p-0.5 flex flex-col items-center gap-0.5 transition-colors",
+          isLoaned
+            ? "opacity-45 cursor-not-allowed"
+            : takenByName
+              ? "opacity-60 hover:bg-slate-50/90"
+              : selected
+                ? "bg-slate-100/95 ring-1 ring-slate-400/40"
+                : "hover:bg-slate-50/90",
+        )}
+        onClick={() => {
+          if (isLoaned) return;
+          onChange(v.id);
+        }}
+      >
+        <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
+        {isLoaned || takenByName ? (
+          <span className="text-[9px] font-medium text-rose-500 leading-none pb-0.5">
+            {isLoaned ? "貸出中" : `${takenByName} さん使用中`}
+          </span>
         ) : null}
-      </div>
+      </button>
     );
   };
 
@@ -513,6 +491,12 @@ export default function ShiftsPage() {
   const [editingCell, setEditingCell] = useState<{ date: string; driverId: string } | null>(null);
   // 未割当セルのポップオーバーを開いている日付（null＝閉）。
   const [unassignedOpenDate, setUnassignedOpenDate] = useState<string | null>(null);
+  // 表示軸（A3）: driver=行がドライバー（既定）/ course=行がコースで埋まり具合を俯瞰。
+  const [viewAxis, setViewAxis] = useState<"driver" | "course">("driver");
+  // コース軸ビューのセル（コース×日）モーダル。担当可能ドライバーの追加・解除を行う。
+  const [courseCellModal, setCourseCellModal] = useState<{ courseId: string; date: string } | null>(
+    null,
+  );
   // 希望休セルをクリックして開く「日単位の管理モーダル」（driver×date）。
   const [offModal, setOffModal] = useState<{ driverId: string; date: string } | null>(null);
   const [offHistory, setOffHistory] = useState<ShiftLog[] | null>(null);
@@ -609,7 +593,7 @@ export default function ShiftsPage() {
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, displayDates]);
+  }, [loading, displayDates, viewAxis]);
 
   // 自動保存のため未保存確認は不要。そのまま切り替える。
   const handleYearMonthChange = (value: { year: number; month: number }) => {
@@ -665,29 +649,6 @@ export default function ShiftsPage() {
         }
       }
       m.set(date, set.size);
-    }
-    return m;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayDates, courses, localShifts, shifts]);
-
-  // その日の定員割れ（コース別の空き枠）。ヘッダーの「空きN」バッジ用（A3）。
-  const openSlotsByDate = useMemo(() => {
-    const m = new Map<string, { total: number; byCourse: { course: Course; open: number }[] }>();
-    for (const date of displayDates) {
-      let total = 0;
-      const byCourse: { course: Course; open: number }[] = [];
-      for (const c of courses) {
-        const maxSlots = Math.max(1, c.max_drivers ?? 1);
-        let open = 0;
-        for (let slot = 1; slot <= maxSlots; slot++) {
-          if (!getCurrentDriverId(date, c.id, slot)) open++;
-        }
-        if (open > 0) {
-          total += open;
-          byCourse.push({ course: c, open });
-        }
-      }
-      m.set(date, { total, byCourse });
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -844,6 +805,47 @@ export default function ShiftsPage() {
   };
 
   const isVehicleLoaned = (vehicleId: string, date: string) => loanedByDate.get(date)?.has(vehicleId) ?? false;
+
+  // ============================================================
+  // 貸出表の一括設定（A3）: セルを押しながらなぞると、始点の反転値（ON/OFF）で塗る。
+  // ON へ塗るとき、同日のシフトに紐付いている車両はスキップし、離した時にまとめて通知。
+  // ============================================================
+  const loanPaintRef = useRef<{ loaned: boolean; skipped: number } | null>(null);
+
+  const applyLoanPaint = (vehicleId: string, date: string) => {
+    const paint = loanPaintRef.current;
+    if (!paint) return;
+    if (isVehicleLoaned(vehicleId, date) === paint.loaned) return;
+    if (paint.loaned && vehicleHoldersByDate.get(date)?.has(vehicleId)) {
+      paint.skipped++;
+      return;
+    }
+    void toggleVehicleLoan(vehicleId, date);
+  };
+
+  const startLoanPaint = (vehicleId: string, date: string) => {
+    if (!canDispatch) return;
+    loanPaintRef.current = { loaned: !isVehicleLoaned(vehicleId, date), skipped: 0 };
+    applyLoanPaint(vehicleId, date);
+  };
+
+  useEffect(() => {
+    const endLoanPaint = () => {
+      const paint = loanPaintRef.current;
+      if (!paint) return;
+      loanPaintRef.current = null;
+      if (paint.skipped > 0) {
+        setErrorState({
+          title: "一部は貸出中にできませんでした",
+          message:
+            `${paint.skipped} 件は同日のシフトに車両が紐付いているため、貸出中にできません。\n` +
+            "先にシフト側の紐付けを解除してください。",
+        });
+      }
+    };
+    window.addEventListener("mouseup", endLoanPaint);
+    return () => window.removeEventListener("mouseup", endLoanPaint);
+  }, []);
 
   /** 車両の日毎の貸出中をトグル（楽観更新＋失敗時リロード）。 */
   const toggleVehicleLoan = async (vehicleId: string, date: string) => {
@@ -1451,6 +1453,27 @@ export default function ShiftsPage() {
                 後半（16日〜）
               </button>
             </div>
+            {/* 表示軸の切替（A3）: ドライバー軸/コース軸 */}
+            <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+              <button
+                type="button"
+                onClick={() => setViewAxis("driver")}
+                className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium transition-colors ${
+                  viewAxis === "driver" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                ドライバー軸
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewAxis("course")}
+                className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium transition-colors border-l border-slate-300 ${
+                  viewAxis === "course" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                コース軸
+              </button>
+            </div>
             <MonthYearPicker
               value={yearMonth}
               onChange={handleYearMonthChange}
@@ -1548,6 +1571,121 @@ export default function ShiftsPage() {
           </div>
         ) : (
           <div className="space-y-6">
+            {viewAxis === "course" ? (
+              /* コース軸ビュー（A3）: 行=コース・セル=割当ドライバー。定員割れセルをアンバー強調 */
+              <div
+                ref={gridScrollRef}
+                className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-auto max-h-[calc(100vh-260px)] table-scroll"
+              >
+                <table className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
+                  <thead>
+                    <tr className="bg-slate-50/95">
+                      <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
+                        <span className="block text-[10px] font-normal text-slate-400 leading-none">上段＝稼働人数</span>
+                        コース
+                      </th>
+                      {displayDates.map((date) => {
+                        const tone = shiftDayTone(date, today);
+                        const count = workingCountByDate.get(date) ?? 0;
+                        const isToday = date.trim() === today;
+                        return (
+                          <th
+                            key={date}
+                            data-today={isToday || undefined}
+                            className={cn(
+                              `${SHIFT_COL_WIDTH_CLASS} sticky top-0 z-20 border-l border-b border-slate-200/90 px-1 py-2 text-center font-medium overflow-hidden align-top bg-slate-50/95 ${tone.header}`,
+                              isToday && TODAY_RULE_TOP,
+                            )}
+                          >
+                            <span
+                              className={`block leading-none mb-1 text-[11px] font-bold tabular-nums ${count > 0 ? "text-slate-700" : "text-slate-300"}`}
+                              title={`稼働 ${count} 人`}
+                            >
+                              稼働 {count}
+                            </span>
+                            <span className="line-clamp-2 leading-tight break-words" title={formatDate(date)}>
+                              {formatDate(date)}
+                            </span>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {courses.map((course, courseIdx) => {
+                      const maxSlots = Math.max(1, course.max_drivers ?? 1);
+                      const isLastCourse = courseIdx === courses.length - 1;
+                      return (
+                        <tr key={course.id}>
+                          <td
+                            className={cn(
+                              "sticky left-0 z-10 bg-white py-2 px-3 align-middle border-r border-slate-200/95",
+                              !isLastCourse && "border-b-2 border-slate-300",
+                            )}
+                          >
+                            <span
+                              title={courseAbbrevTooltip(course)}
+                              className="inline-flex h-6 max-w-full items-center truncate rounded-[6px] px-2 text-[11px] font-semibold text-slate-900"
+                              style={courseCellSurface(course.color)}
+                            >
+                              {courseShiftLabel(course)}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] text-slate-400">
+                              {slotLabelById(course.slot_id) ? `${slotLabelById(course.slot_id)}・` : ""}
+                              定員{maxSlots}
+                            </span>
+                          </td>
+                          {displayDates.map((date) => {
+                            const tone = shiftDayTone(date, today);
+                            const isToday = date.trim() === today;
+                            const assigned: { driverId: string; slot: number }[] = [];
+                            for (let s = 1; s <= maxSlots; s++) {
+                              const did = getCurrentDriverId(date, course.id, s);
+                              if (did) assigned.push({ driverId: did, slot: s });
+                            }
+                            const open = maxSlots - assigned.length;
+                            return (
+                              <td
+                                key={`${course.id}-${date}`}
+                                className={cn(
+                                  `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-1 align-top ${tone.body}`,
+                                  !isLastCourse && "border-b-2 border-slate-300",
+                                  isToday && TODAY_RULE_SIDES,
+                                )}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => setCourseCellModal({ courseId: course.id, date })}
+                                  title="クリックして割当を確認・変更"
+                                  className="flex min-h-[3.25rem] w-full flex-col gap-1 rounded-lg px-1.5 py-1.5 text-left transition-colors cursor-pointer hover:bg-white/70"
+                                >
+                                  {assigned.map((a) => {
+                                    const d = drivers.find((x) => x.id === a.driverId);
+                                    return (
+                                      <span
+                                        key={a.slot}
+                                        className="flex h-6 w-full min-w-0 items-center truncate rounded-[6px] bg-slate-100 px-1.5 text-[11px] font-semibold text-slate-800"
+                                      >
+                                        {d ? getDisplayName(d) : "（不明）"}
+                                      </span>
+                                    );
+                                  })}
+                                  {open > 0 && (
+                                    <span className="flex flex-1 items-center justify-center text-[10px] font-medium text-slate-300">
+                                      {assigned.length === 0 ? "＋" : `空${open}`}
+                                    </span>
+                                  )}
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
             <div
               ref={gridScrollRef}
               className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-auto max-h-[calc(100vh-260px)] table-scroll"
@@ -1577,20 +1715,6 @@ export default function ShiftsPage() {
                             title={`稼働 ${count} 人`}
                           >
                             稼働 {count}
-                            {(() => {
-                              const open = openSlotsByDate.get(date);
-                              if (!open || open.total === 0) return null;
-                              return (
-                                <span
-                                  className="ml-1 text-amber-600"
-                                  title={`空き枠: ${open.byCourse
-                                    .map((x) => `${courseShiftLabel(x.course)} 空${x.open}`)
-                                    .join("・")}`}
-                                >
-                                  空{open.total}
-                                </span>
-                              );
-                            })()}
                           </span>
                           <span className="line-clamp-2 leading-tight break-words" title={formatDate(date)}>
                             {formatDate(date)}
@@ -1869,6 +1993,7 @@ export default function ShiftsPage() {
                 </tbody>
               </table>
             </div>
+            )}
 
             {/* 希望休の一覧/解除は上のグリッドのセルクリック（管理モーダル）に集約。下部の一覧は廃止。 */}
 
@@ -1899,7 +2024,7 @@ export default function ShiftsPage() {
                   <span className="text-slate-500">
                     割当済みセルはドラッグでコピーできます（同じ行＝離した日まで連日コピー／別ドライバーの行＝その日へコピー。
                     希望休・担当外・定員満の日は自動でスキップ。車両はコピーされません）。
-                    ヘッダーの「空きN」はその日の定員割れ（ホバーでコース別内訳）。
+                    「コース軸」に切り替えると、行=コースで埋まり具合を確認できます。
                   </span>
                 </div>
               </div>
@@ -1911,7 +2036,8 @@ export default function ShiftsPage() {
               hint={`この期間 ${vehicleLoans.filter((l) => displayDates.includes(l.loan_date)).length} 件`}
             >
               <p className="text-[11px] text-slate-500 mb-3">
-                貸出中にした日は、その車両をシフトに紐付けできません（セルをタップで切替・「貸」=貸出中）。
+                貸出中にした日は、その車両をシフトに紐付けできません（「貸」=貸出中）。
+                セルをタップで切替、押しながらなぞると複数日をまとめて設定できます。
               </p>
               <div className="overflow-x-auto table-scroll">
                 <table className="text-xs border-collapse">
@@ -1946,10 +2072,14 @@ export default function ShiftsPage() {
                               <button
                                 type="button"
                                 disabled={!canDispatch}
-                                onClick={() => toggleVehicleLoan(v.id, date)}
-                                title={on ? "貸出中（タップで解除）" : "タップで貸出中に"}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  startLoanPaint(v.id, date);
+                                }}
+                                onMouseEnter={() => applyLoanPaint(v.id, date)}
+                                title={on ? "貸出中（タップで解除・なぞって一括）" : "タップで貸出中に（なぞって一括）"}
                                 className={cn(
-                                  "w-9 h-9 rounded-md border text-[11px] font-semibold transition-colors disabled:opacity-50",
+                                  "w-9 h-9 rounded-md border text-[11px] font-semibold transition-colors disabled:opacity-50 select-none",
                                   on
                                     ? "bg-amber-600 border-amber-600 text-white"
                                     : "border-slate-200 bg-white text-slate-300 hover:border-slate-300",
@@ -2339,6 +2469,134 @@ export default function ShiftsPage() {
         );
       })()}
 
+      {/* コース×日モーダル（コース軸ビューのセルクリックで開く。割当ドライバーの確認・追加・解除） */}
+      {courseCellModal && (() => {
+        const { courseId, date } = courseCellModal;
+        const course = courses.find((c) => c.id === courseId);
+        if (!course) return null;
+        const maxSlots = Math.max(1, course.max_drivers ?? 1);
+        const assigned: { driverId: string; slot: number }[] = [];
+        for (let s = 1; s <= maxSlots; s++) {
+          const did = getCurrentDriverId(date, courseId, s);
+          if (did) assigned.push({ driverId: did, slot: s });
+        }
+        const open = maxSlots - assigned.length;
+        const assignedIds = new Set(assigned.map((a) => a.driverId));
+        // 追加候補: このコースを担当可能・未割当（このコースに）・全休でない
+        const candidates = driversWithCourses.filter(
+          (d) =>
+            getDriverCourseIds(d).includes(courseId) &&
+            !assignedIds.has(d.id) &&
+            !isDriverOffDay(d.id, date),
+        );
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onClick={() => setCourseCellModal(null)}
+          >
+            <div
+              className="flex max-h-[85vh] w-full max-w-sm flex-col rounded-xl bg-white shadow-lg"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-slate-200/70 px-4 py-3">
+                <span
+                  title={courseAbbrevTooltip(course)}
+                  className="inline-flex h-7 max-w-[60%] items-center truncate rounded-[6px] px-2.5 text-[13px] font-semibold text-slate-900"
+                  style={courseCellSurface(course.color)}
+                >
+                  {courseShiftLabel(course)}
+                </span>
+                <span className="shrink-0 text-xs text-slate-500">{formatDate(date)}</span>
+              </div>
+
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    割当済み（定員{maxSlots}・空き{open}）
+                  </p>
+                  {assigned.length === 0 ? (
+                    <p className="text-xs text-slate-400">まだ誰も入っていません。</p>
+                  ) : (
+                    assigned.map((a) => {
+                      const d = drivers.find((x) => x.id === a.driverId);
+                      return (
+                        <div
+                          key={a.slot}
+                          className="flex h-9 items-center justify-between rounded-lg border border-slate-200/90 px-3"
+                        >
+                          <span className="truncate text-[13px] font-medium text-slate-800">
+                            {d ? getDisplayName(d) : "（不明）"}
+                          </span>
+                          {canWrite && d && (
+                            <button
+                              type="button"
+                              onClick={() => removeDriverFromCourseOnDate(date, d.id, courseId)}
+                              className="shrink-0 text-xs font-medium text-rose-500 hover:text-rose-700"
+                            >
+                              外す
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {canWrite && open > 0 ? (
+                  <div className="space-y-1.5 border-t border-slate-200/70 pt-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      追加できるドライバー
+                    </p>
+                    {candidates.length === 0 ? (
+                      <p className="text-xs text-slate-400">
+                        追加できるドライバーがいません（担当可能・希望休なしが対象）。
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {candidates.map((d) => {
+                          const busy = findDriverPlacementsOnDate(localShifts, date, d.id).length > 0;
+                          return (
+                            <button
+                              key={d.id}
+                              type="button"
+                              onClick={() => addDriverToCourseOnDate(date, d.id, courseId)}
+                              title={busy ? "この日は他コースにも割当があります" : undefined}
+                              className="inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-2.5 py-1.5 text-[13px] font-medium text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-100"
+                            >
+                              ＋{getDisplayName(d)}
+                              {busy && <span className="text-[9px] text-amber-600">他コースあり</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex items-center justify-between border-t border-slate-200/80 px-4 py-3">
+                <span className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <span
+                    className={cn(
+                      "inline-block h-2 w-2 rounded-full",
+                      autoSaving > 0 ? "bg-amber-400 animate-pulse" : "bg-emerald-500",
+                    )}
+                  />
+                  {autoSaving > 0 ? "保存中…" : "✓ 保存済み"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCourseCellModal(null)}
+                  className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-900"
+                >
+                  完了
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* 未割当ドライバーモーダル（未割当行のクリックで開く。一覧＋その場割当） */}
       {unassignedOpenDate && (() => {
         const date = unassignedOpenDate;
@@ -2541,7 +2799,6 @@ export default function ShiftsPage() {
                         loanedIds={loanedByDate.get(date)}
                         onChange={(id) => setVehicleForDriverOnDate(date, driverId, id)}
                         onSelectExternal={() => setExternalForDriverOnDate(date, driverId, true)}
-                        onToggleLoan={canDispatch ? (vid) => toggleVehicleLoan(vid, date) : undefined}
                         disabled={!canDispatch}
                       />
                     </div>
