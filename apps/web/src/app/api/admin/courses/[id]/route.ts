@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { normalizeTimeInput, normalizePlaceInput } from "@/server/shiftSlots/timeInput";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,12 @@ export async function PUT(
     if (dailyLeaseRaw !== undefined) {
       updates.daily_lease = Math.max(0, Math.trunc(Number(dailyLeaseRaw) || 0));
     }
+    // 標準時間・集合場所（A2 時間モデル。キーが来た項目のみ更新。空・不正は null=未設定）
+    const bodyRec = body as Record<string, unknown>;
+    if ("meeting_place" in bodyRec) updates.meeting_place = normalizePlaceInput(bodyRec.meeting_place);
+    if ("meeting_time" in bodyRec) updates.meeting_time = normalizeTimeInput(bodyRec.meeting_time);
+    if ("arrival_time" in bodyRec) updates.arrival_time = normalizeTimeInput(bodyRec.arrival_time);
+    if ("end_time" in bodyRec) updates.end_time = normalizeTimeInput(bodyRec.end_time);
 
     if (principalInvoiceAddressIdRaw !== undefined) {
       const principalInvoiceAddressId =

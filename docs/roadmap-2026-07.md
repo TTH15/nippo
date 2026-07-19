@@ -14,10 +14,13 @@
       migration 105 で can_manage_shifts 保持ロールへ can_dispatch を付与（挙動維持）。
       UI はセル単位で出し分け: コース割当=can_manage_shifts / 車両・貸出=can_dispatch、
       配車のみの担当は割当済みセルだけ編集ポップオーバーを開ける。
-- [ ] **A2: コース／シフトの時間モデル** — コースに標準時間・場所を持たせる:
-      集合場所 / 集合時刻 / 着車時刻 / 終業時刻（＋シフト個別の上書き）。スキーマ案を先に合意
-      （courses に default 列を足すか、time_profiles を別テーブルにするか）。
-      シフト表・ドライバー画面・（将来の）AI の時間認識の土台になる。
+- [x] **A2: コース／シフトの時間モデル** ✅ 2026-07-20 — 合意: 標準時間はコースごとに一定
+      （曜日別パターンなし）→ courses に default 列 meeting_place / meeting_time / arrival_time /
+      end_time、shifts に同名の上書き列（NULL=コース標準、実効値 = shifts.* ?? courses.*）。
+      migration 106。コース設定モーダルに標準時間・集合場所の入力、シフトのセル編集モーダルに
+      実効値の表示＋日別上書き（POST /api/admin/shifts/times、can_manage_shifts。
+      「コース標準に戻す」で上書き解除）。セルのコースツールチップにも標準時間を併記。
+      **残り: ドライバー画面（/api/me/shifts 系）への時間表示は未**（mobile 刷新時 or A3 で）。
 - [ ] **A3: シフト画面のUI改善（「色々ある」の洗い出し）** — A1/A2 実装後に不満点を列挙して個別対応。
 
 ### B. 管理画面のレスポンシブ（スマホ）対応
