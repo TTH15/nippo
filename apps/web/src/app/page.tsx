@@ -10,9 +10,15 @@ export default function Home() {
 
   useEffect(() => {
     const goTo = (driver: StoredDriver | null) => {
+      // 運営画面へは capability 保持で判定（ACCOUNTING・カスタムロールも対象）。
+      // capabilities 未取得の旧キャッシュに備えて role でもフォールバックする。
+      const hasAdminAccess =
+        (driver?.capabilities?.length ?? 0) > 0 ||
+        driver?.role === "ADMIN" ||
+        driver?.role === "ADMIN_VIEWER";
       if (!driver) {
         router.replace("/login");
-      } else if (driver.role === "ADMIN" || driver.role === "ADMIN_VIEWER") {
+      } else if (hasAdminAccess) {
         router.replace("/admin");
       } else {
         router.replace("/submit");
