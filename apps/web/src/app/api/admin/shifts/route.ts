@@ -102,22 +102,19 @@ export async function GET(req: NextRequest) {
 }
 
 // POST: シフト登録/更新
-// 閲覧専用アカウント（ADMIN_VIEWER）にもシフトの編集を許可する運用要件のため ADMIN_OR_VIEWER。
+// 車両割当は独立エンドポイント /api/admin/shifts/vehicle（can_dispatch）に分離（A1）。
+// ここではドライバー割当のみを扱い、割当解除時だけ車両も連動クリアする。
 export async function POST(req: NextRequest) {
   const user = await requirePermission(req, "can_manage_shifts");
   if (isAuthError(user)) return user;
 
   try {
     const body = await req.json();
-    const { shiftDate, courseId, driverId, slot, vehicleId, usesExternalVehicle } = body as {
+    const { shiftDate, courseId, driverId, slot } = body as {
       shiftDate?: string;
       courseId?: string;
       driverId?: string | null;
       slot?: number;
-      /** 明示的に null で車両のみクリアすることも許可 */
-      vehicleId?: string | null;
-      /** 他社の車両を利用するフラグ */
-      usesExternalVehicle?: boolean;
     };
 
     if (!shiftDate || !courseId) {
@@ -126,30 +123,6 @@ export async function POST(req: NextRequest) {
 
     const slotNumber = Number.isFinite(slot) && Number(slot) >= 1 ? Math.floor(Number(slot)) : 1;
 
-    let resolvedVehicleId: string | null | undefined = undefined;
-    if ("vehicleId" in body) {
-      resolvedVehicleId = vehicleId && typeof vehicleId === "string" ? vehicleId : null;
-    }
-    // 他社車両フラグが立っているときは自社フリート車両をクリアする。
-    const external = usesExternalVehicle === true;
-    if (external) resolvedVehicleId = null;
-
-    // 貸出中の車両はその日付に紐付け不可。
-    if (resolvedVehicleId) {
-      const { data: loan } = await supabase
-        .from("vehicle_loans")
-        .select("id")
-        .eq("vehicle_id", resolvedVehicleId)
-        .eq("loan_date", shiftDate)
-        .maybeSingle();
-      if (loan) {
-        return NextResponse.json(
-          { error: "この車両は同日が貸出中のため、シフトに紐付けできません。" },
-          { status: 409 },
-        );
-      }
-    }
-
     const upsertRow: Record<string, unknown> = {
       shift_date: shiftDate,
       course_id: courseId,
@@ -157,11 +130,10 @@ export async function POST(req: NextRequest) {
       driver_id: driverId || null,
       updated_at: new Date().toISOString(),
     };
-    if (resolvedVehicleId !== undefined) {
-      upsertRow.vehicle_id = resolvedVehicleId;
-    }
-    if ("usesExternalVehicle" in body) {
-      upsertRow.uses_external_vehicle = external;
+    // ドライバーを外した行に車両だけ残ると配車表示が浮くため連動クリア。
+    if (!driverId) {
+      upsertRow.vehicle_id = null;
+      upsertRow.uses_external_vehicle = false;
     }
 
     // Upsert

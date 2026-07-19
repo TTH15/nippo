@@ -5,9 +5,10 @@ import { supabase } from "@/server/db/client";
 export const dynamic = "force-dynamic";
 
 // POST: 車両の日毎の貸出中を設定/解除（loaned で切替）。
+// 貸出管理は配車ドメインのため can_dispatch でゲート（A1）。
 //   { vehicleId, date, loaned }
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_shifts");
+  const user = await requirePermission(req, "can_dispatch");
   if (isAuthError(user)) return user;
 
   const body = await req.json().catch(() => ({}));
