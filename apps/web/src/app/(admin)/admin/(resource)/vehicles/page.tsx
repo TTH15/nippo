@@ -173,11 +173,17 @@ export default function VehiclesPage() {
     fetcher: async () => {
       const [vehiclesRes, driversRes] = await Promise.all([
         apiFetch<{ vehicles: Vehicle[] }>("/api/admin/vehicles"),
-        apiFetch<{ drivers: Array<Driver & { role?: string }> }>("/api/admin/users?all=1"),
+        // 名簿（can_view_members）の権限が無いロールでは 403 になる。失敗しても
+        // 車両一覧まで巻き込まない（使用者の割当候補が空になるだけに留める）。
+        apiFetch<{ drivers: Array<Driver & { role?: string }> }>("/api/admin/users?all=1").catch(
+          () => ({ drivers: [] as Array<Driver & { role?: string }> }),
+        ),
       ]);
       return {
         vehicles: sortVehicles(vehiclesRes.vehicles),
-        drivers: driversRes.drivers.filter((d) => !d.role || d.role === "DRIVER"),
+        // API 側が works_as_driver=true で絞るため、role による除外はしない
+        //（管理者等でもドライバー稼働中なら使用者に割当可能）。
+        drivers: driversRes.drivers,
       };
     },
   });

@@ -52,16 +52,12 @@ export async function requireAuth(
       );
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    // DRIVERが要求された場合、ADMINもアクセス可能
-    if (
-      requiredRole === "DRIVER" &&
-      user.role !== "DRIVER" &&
-      user.role !== "ADMIN" &&
-      user.role !== "ADMIN_VIEWER"
-    ) {
-      console.log(`[Auth] Forbidden: required DRIVER, got ${user.role}`);
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // 「DRIVER」要求 = ドライバー本人系のセルフスコープルート（/api/me/* 等）。
+    // 対象は常にトークンの driverId 自身なので、ロールでは絞らない。
+    // 旧実装は DRIVER/ADMIN/ADMIN_VIEWER のホワイトリストで、ACCOUNTING や
+    // カスタムロール（CUSTOM_*）のメンバーが自分のプロフィール・日報・Passkey 状態
+    // まで 403 になっていた（§2-6a）。細粒度化は own スコープ移行で段階対応する
+    // （シフト系は requireScopedPermission へ移行済み）。
     return user;
   } catch (err) {
     console.log(`[Auth] Unauthorized:`, err);
