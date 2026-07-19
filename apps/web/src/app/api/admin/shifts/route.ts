@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
       )
     `)
     .eq("org_id", orgId)
-    .eq("role", "DRIVER")
+    .eq("works_as_driver", true)
     .eq("status", "active")
     .order("name");
 

@@ -6,11 +6,21 @@ export type { AuthUser, MembershipRole } from "./types";
 export { authProvider, signToken } from "./jwt";
 export { requirePermission, hasCapability, getCapabilities, resolveCapabilities } from "./permissions";
 export {
+  checkPermission,
+  resolveGrants,
+  requireScopedPermission,
+  type Grants,
+  type PermissionScope,
+  type PermissionSpec,
+} from "./authorize";
+export {
   CAPABILITIES,
   DEFAULT_ROLE_CAPABILITIES,
   CAPABILITY_META,
   CAPABILITY_GROUP_ORDER,
+  OWN_PERMISSIONS,
   type Capability,
+  type OwnPermission,
 } from "./capabilities";
 
 /**

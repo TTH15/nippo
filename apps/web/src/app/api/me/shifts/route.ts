@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requireScopedPermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,12 @@ type MeShift = {
 };
 
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "DRIVER");
+  // own スコープ移行(§2-6): 自分のシフト閲覧。works_as_driver を持つメンバーは
+  // ロールに関わらず own で通り、シフト閲覧権限(any)持ちも自分の分を見られる。
+  const user = await requireScopedPermission(req, {
+    own: "own_view_shifts",
+    any: "can_view_shifts",
+  });
   if (isAuthError(user)) return user;
 
   const url = req.nextUrl;

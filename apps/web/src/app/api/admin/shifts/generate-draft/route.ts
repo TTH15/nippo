@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
         .from("drivers")
         .select("id, name, driver_identities(driver_courses(course_id))")
         .eq("org_id", orgId)
-        .eq("role", "DRIVER")
+        .eq("works_as_driver", true)
         .eq("status", "active")
         .order("name"),
       supabase

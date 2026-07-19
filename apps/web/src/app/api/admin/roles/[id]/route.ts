@@ -42,11 +42,34 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       update.label = label;
     }
     if (typeof body.sortOrder === "number") update.sort_order = body.sortOrder;
+    // 「ドライバーとして扱う」フラグ。system の DRIVER ロールは常に ON（外すと
+    // 全ドライバーがシフト・名簿から消えるため固定）。
+    if (typeof body.worksAsDriver === "boolean") {
+      if (role.is_system && role.key === "DRIVER" && !body.worksAsDriver) {
+        return NextResponse.json(
+          { error: "ドライバーロールは常にドライバーとして扱われます" },
+          { status: 400 },
+        );
+      }
+      update.works_as_driver = body.worksAsDriver;
+    }
     if (Object.keys(update).length) {
       const { error } = await supabase.from("roles").update(update).eq("id", id).eq("org_id", orgId);
       if (error) {
         console.error("[roles] update error", error);
         return NextResponse.json({ error: "更新に失敗しました" }, { status: 500 });
+      }
+      // drivers.works_as_driver は抽出クエリ用の非正規化コピー。ロール設定の変更を
+      // このロールが割り当てられた全メンバーへ同期する。
+      if ("works_as_driver" in update) {
+        const { error: syncErr } = await supabase
+          .from("drivers")
+          .update({ works_as_driver: update.works_as_driver })
+          .eq("role_id", id);
+        if (syncErr) {
+          console.error("[roles] works_as_driver sync error", syncErr);
+          return NextResponse.json({ error: "メンバーへの反映に失敗しました" }, { status: 500 });
+        }
       }
     }
 

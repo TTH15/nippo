@@ -27,6 +27,26 @@ export const CAPABILITIES = [
 
 export type Capability = (typeof CAPABILITIES)[number];
 
+// ============================================================
+// own スコープ権限 — 「自分のリソースに対してだけ」行える操作のカタログ。
+// 既存の can_*（org 全体 = any スコープ）とは独立の軸。
+// 付与ルール: works_as_driver（ドライバーとして扱う）を持つメンバーに全 own 権限を
+// 一括付与する（現状はロール別の細分化はしない。将来 role_capabilities への行追加や
+// パスキー紐づけの個人グラントに正本を移せるよう、判定は checkPermission に集約）。
+// ハコ虎AI（エージェント）は委任元の own 権限の範囲でのみツールを実行できる想定。
+//   設計: docs/platform-design.md §2-6
+// ============================================================
+
+export const OWN_PERMISSIONS = [
+  "own_submit_reports", // 自分の日報の送信・修正
+  "own_manage_shift_requests", // 自分の希望休の提出・変更
+  "own_view_shifts", // 自分のシフト・便の閲覧
+  "own_view_rewards", // 自分の報酬の閲覧
+  "own_manage_profile", // 自分のプロフィール・口座の管理
+] as const;
+
+export type OwnPermission = (typeof OWN_PERMISSIONS)[number];
+
 // 権限設定 UI 用のメタ（日本語ラベル＋グループ）。チェックボックスをグループ表示するための情報。
 export const CAPABILITY_GROUP_ORDER = [
   "日報",

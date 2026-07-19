@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
       .from("drivers")
       .select("id, name, phone, created_at, identities ( license_photo_path )")
       .eq("org_id", orgId)
-      .eq("role", "DRIVER")
+      .eq("works_as_driver", true)
       .eq("status", "active")
       .is("kyc_verified_at", null)
       .order("created_at", { ascending: true });
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
         )
       `)
       .eq("org_id", orgId)
-      .eq("role", "DRIVER");
+      .eq("works_as_driver", true);
     if (activeMonth) {
       allQuery = allQuery
         .or(`active_from_month.is.null,active_from_month.lte.${activeMonth}`)
@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
       )
     `)
     .eq("org_id", orgId)
-    .eq("role", "DRIVER")
+    .eq("works_as_driver", true)
     .in("status", statusIn)
     .order("list_no", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true })
@@ -121,7 +121,7 @@ export async function GET(req: NextRequest) {
     .from("drivers")
     .select("id", { count: "exact", head: true })
     .eq("org_id", orgId)
-    .eq("role", "DRIVER")
+    .eq("works_as_driver", true)
     .in("status", statusIn);
   const total = countRes.count ?? 0;
   const returned = drivers?.length ?? 0;
@@ -260,7 +260,7 @@ export async function POST(req: NextRequest) {
       .from("drivers")
       .select("list_no")
       .eq("org_id", orgId)
-      .eq("role", "DRIVER");
+      .eq("works_as_driver", true);
 
     const maxNo = Math.max(
       0,
@@ -279,6 +279,7 @@ export async function POST(req: NextRequest) {
         name: name.trim(),
         display_name: typeof displayName === "string" && displayName.trim() ? displayName.trim() : null,
         role: "DRIVER",
+        works_as_driver: true,
         pin_hash: pinHash,
         company_code: resolvedCompany,
         office_code: officeCode,

@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   const [config, { data: drivers }, { data: carriers }, { data: units }, { data: fields }, { data: events }] =
     await Promise.all([
       loadSubmitScreenConfig(supabase, orgId),
-      supabase.from("drivers").select("id, name, display_name").eq("org_id", orgId).eq("role", "DRIVER").order("name"),
+      supabase.from("drivers").select("id, name, display_name").eq("org_id", orgId).eq("works_as_driver", true).order("name"),
       orgCarrierIds ? carriersQ.in("id", orgCarrierIds) : carriersQ,
       orgCarrierIds ? unitsQ.in("carrier_id", orgCarrierIds) : unitsQ,
       supabase.from("unit_fields").select("*").order("sort_order"),

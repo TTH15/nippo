@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
       .from("drivers")
       .select("license_expiry_date")
       .eq("org_id", orgId)
-      .eq("role", "DRIVER");
+      .eq("works_as_driver", true);
 
     if (error) {
       console.error("[admin/users/license-alert-count] error", error);
