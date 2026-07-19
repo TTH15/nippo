@@ -235,8 +235,14 @@ export default function CoursesPage() {
     fetcher: async () => {
       const [coursesRes, usersRes, invoiceAddressesRes, carriersRes, slotsRes] = await Promise.all([
         apiFetch<{ courses: Course[] }>("/api/admin/courses"),
-        apiFetch<{ drivers: Driver[] }>("/api/admin/users"),
-        apiFetch<{ addresses: InvoiceAddress[] }>("/api/admin/invoice-addresses"),
+        // 名簿・請求の権限が無いロールでは 403 になる。コース一覧（設定権限）まで
+        // 巻き込まず、担当ドライバー・請求先の候補が空になるだけに留める。
+        apiFetch<{ drivers: Driver[] }>("/api/admin/users").catch(() => ({
+          drivers: [] as Driver[],
+        })),
+        apiFetch<{ addresses: InvoiceAddress[] }>("/api/admin/invoice-addresses").catch(() => ({
+          addresses: [] as InvoiceAddress[],
+        })),
         apiFetch<{ carriers: Carrier[] }>("/api/admin/carriers"),
         apiFetch<{ slots: TimeSlot[] }>("/api/admin/shift-slots").catch(() => ({
           slots: [] as TimeSlot[],
@@ -244,7 +250,8 @@ export default function CoursesPage() {
       ]);
       return {
         courses: coursesRes.courses,
-        drivers: usersRes.drivers.filter((d) => d.role === "DRIVER"),
+        // API 側が works_as_driver=true で絞るため、role による除外はしない
+        drivers: usersRes.drivers,
         addresses: invoiceAddressesRes.addresses ?? [],
         carriers: (carriersRes.carriers ?? []).map((c) => ({
           id: c.id,
