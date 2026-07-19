@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { normalizeTimeInput, normalizePlaceInput } from "@/server/shiftSlots/timeInput";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,10 @@ export async function POST(req: NextRequest) {
       principal_invoice_address_id?: string | null;
       counterparty_invoice_address_id?: string | null;
       slot_id?: string | null;
+      meeting_place?: string | null;
+      meeting_time?: string | null;
+      arrival_time?: string | null;
+      end_time?: string | null;
     };
 
     if (!name || typeof name !== "string") {
@@ -135,6 +140,11 @@ export async function POST(req: NextRequest) {
     if (dailyLeaseRaw !== undefined) {
       insertRow.daily_lease = Math.max(0, Math.trunc(Number(dailyLeaseRaw) || 0));
     }
+    // 標準時間・集合場所（A2 時間モデル。未指定・不正は null=未設定）
+    insertRow.meeting_place = normalizePlaceInput(body.meeting_place);
+    insertRow.meeting_time = normalizeTimeInput(body.meeting_time);
+    insertRow.arrival_time = normalizeTimeInput(body.arrival_time);
+    insertRow.end_time = normalizeTimeInput(body.end_time);
     const { data: course, error } = await supabase
       .from("courses")
       .insert(insertRow)

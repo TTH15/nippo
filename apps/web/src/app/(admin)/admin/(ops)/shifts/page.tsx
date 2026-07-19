@@ -37,7 +37,17 @@ type Course = {
   /** コース編集画面の「略記」。未設定時はコース名を表示 */
   summary_title?: string | null;
   slot_id?: string | null;
+  /** A2 時間モデル: コース標準の集合場所・集合/着車/終業時刻（NULL=未設定） */
+  meeting_place?: string | null;
+  meeting_time?: string | null;
+  arrival_time?: string | null;
+  end_time?: string | null;
 };
+
+/** DB の time 値（"HH:MM:SS"）を input type=time 用の "HH:MM" へ。 */
+function toTimeInputValue(v: string | null | undefined): string {
+  return v ? v.slice(0, 5) : "";
+}
 
 /** シフト・エクスポートで見せる文言（略記優先・なければ正式名） */
 function courseShiftLabel(course: Course): string {
@@ -63,7 +73,14 @@ function formatPlateOneLine(v: VehiclePlateData): string {
 
 function courseAbbrevTooltip(course: Course): string {
   const abbr = courseShiftLabel(course);
-  return abbr !== course.name ? `${abbr}（${course.name}）` : abbr;
+  const base = abbr !== course.name ? `${abbr}（${course.name}）` : abbr;
+  const times = [
+    course.meeting_time ? `集合 ${toTimeInputValue(course.meeting_time)}` : null,
+    course.arrival_time ? `着車 ${toTimeInputValue(course.arrival_time)}` : null,
+    course.end_time ? `終業 ${toTimeInputValue(course.end_time)}` : null,
+    course.meeting_place ? `集合場所 ${course.meeting_place}` : null,
+  ].filter(Boolean);
+  return times.length ? `${base}\n${times.join("・")}` : base;
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -364,6 +381,11 @@ type Shift = {
   uses_external_vehicle?: boolean;
   /** FK vehicle_id のネスト（0〜1台） */
   vehicles?: VehiclePlateData | VehiclePlateData[] | null;
+  /** A2 時間モデル: 個別上書き（NULL=コース標準） */
+  meeting_place?: string | null;
+  meeting_time?: string | null;
+  arrival_time?: string | null;
+  end_time?: string | null;
 };
 
 function normalizeShiftVehiclesEmbed(s: Shift): Shift & { vehicles?: VehiclePlateData | null } {
@@ -1004,6 +1026,73 @@ export default function ShiftsPage() {
           title: "車両の保存に失敗しました",
           message:
             "車両の割当をサーバーに保存できませんでした。最新の状態に戻します。\n通信状況を確認のうえ、もう一度お試しください。",
+          detail: e instanceof Error ? e.message : undefined,
+        });
+        void load({ silent: true });
+      })
+      .finally(() => setAutoSaving((n) => Math.max(0, n - 1)));
+  };
+
+  /**
+   * シフト行の時間・集合場所の個別上書きを即時保存（A2）。null=上書き解除でコース標準に戻る。
+   * ローカル shifts へ楽観反映し、応答の行で同期する（行が未取得ならそこで追補）。
+   */
+  const persistTimes = (
+    date: string,
+    courseId: string,
+    slot: number,
+    patch: {
+      meetingPlace?: string | null;
+      meetingTime?: string | null;
+      arrivalTime?: string | null;
+      endTime?: string | null;
+    },
+  ) => {
+    if (!canWrite) return;
+    setShifts((prev) =>
+      prev.map((s) =>
+        s.shift_date === date && s.course_id === courseId && s.slot === slot
+          ? {
+              ...s,
+              ...(patch.meetingPlace !== undefined ? { meeting_place: patch.meetingPlace } : {}),
+              ...(patch.meetingTime !== undefined ? { meeting_time: patch.meetingTime } : {}),
+              ...(patch.arrivalTime !== undefined ? { arrival_time: patch.arrivalTime } : {}),
+              ...(patch.endTime !== undefined ? { end_time: patch.endTime } : {}),
+            }
+          : s,
+      ),
+    );
+    setAutoSaving((n) => n + 1);
+    apiFetch<{ shift: Shift }>("/api/admin/shifts/times", {
+      method: "POST",
+      body: JSON.stringify({ shiftDate: date, courseId, slot, ...patch }),
+    })
+      .then((res) => {
+        const row = res.shift;
+        setShifts((prev) => {
+          if (prev.some((s) => s.id === row.id)) {
+            return prev.map((s) =>
+              s.id === row.id
+                ? {
+                    ...s,
+                    meeting_place: row.meeting_place ?? null,
+                    meeting_time: row.meeting_time ?? null,
+                    arrival_time: row.arrival_time ?? null,
+                    end_time: row.end_time ?? null,
+                  }
+                : s,
+            );
+          }
+          // 割当直後などでローカル未取得の行は応答で追補（drivers 等のネストは無いが表示には未使用）
+          return [...prev, { ...row, drivers: row.drivers ?? null }];
+        });
+      })
+      .catch((e) => {
+        console.error(e);
+        setErrorState({
+          title: "時間の保存に失敗しました",
+          message:
+            "時間・集合場所の変更をサーバーに保存できませんでした。最新の状態に戻します。\n通信状況を確認のうえ、もう一度お試しください。",
           detail: e instanceof Error ? e.message : undefined,
         });
         void load({ silent: true });
@@ -2250,6 +2339,111 @@ export default function ShiftsPage() {
                     </div>
                   ) : null}
                 </div>
+
+                {/* 時間・集合場所（A2）: コースごとに実効値（個別上書き ?? コース標準）を表示・編集 */}
+                {hasAny ? (
+                  <div className="mt-4 space-y-2 border-t border-slate-200/70 pt-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">時間・集合場所</p>
+                    {placements.map((p) => {
+                      const course = courses.find((c) => c.id === p.courseId);
+                      if (!course) return null;
+                      const row = shifts.find(
+                        (s) => s.shift_date === date && s.course_id === p.courseId && s.slot === p.slot,
+                      );
+                      const overridden = Boolean(
+                        row &&
+                          (row.meeting_place != null ||
+                            row.meeting_time != null ||
+                            row.arrival_time != null ||
+                            row.end_time != null),
+                      );
+                      const effMeeting = toTimeInputValue(row?.meeting_time ?? course.meeting_time);
+                      const effArrival = toTimeInputValue(row?.arrival_time ?? course.arrival_time);
+                      const effEnd = toTimeInputValue(row?.end_time ?? course.end_time);
+                      const effPlace = row?.meeting_place ?? course.meeting_place ?? "";
+                      return (
+                        <div key={`${p.courseId}-${p.slot}`} className="space-y-2 rounded-lg border border-slate-200/80 p-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className="inline-flex h-6 max-w-[50%] items-center truncate rounded-[6px] px-2 text-[11px] font-semibold text-slate-900"
+                              style={courseCellSurface(course.color)}
+                            >
+                              {courseShiftLabel(course)}
+                            </span>
+                            {overridden ? (
+                              <span className="flex items-center gap-2">
+                                <span className="text-[10px] font-semibold text-amber-600">この日だけ個別設定</span>
+                                {canWrite && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      persistTimes(date, p.courseId, p.slot, {
+                                        meetingPlace: null,
+                                        meetingTime: null,
+                                        arrivalTime: null,
+                                        endTime: null,
+                                      })
+                                    }
+                                    className="text-[11px] font-medium text-slate-500 underline hover:text-slate-800"
+                                  >
+                                    コース標準に戻す
+                                  </button>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">コース標準</span>
+                            )}
+                          </div>
+                          {canWrite ? (
+                            <>
+                              <div className="grid grid-cols-3 gap-2">
+                                {([
+                                  ["集合", effMeeting, (v: string | null) => ({ meetingTime: v })],
+                                  ["着車", effArrival, (v: string | null) => ({ arrivalTime: v })],
+                                  ["終業", effEnd, (v: string | null) => ({ endTime: v })],
+                                ] as const).map(([label, eff, mk]) => (
+                                  <div key={label}>
+                                    <span className="mb-0.5 block text-[10px] text-slate-500">{label}</span>
+                                    <input
+                                      type="time"
+                                      value={eff}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        if (v === eff) return;
+                                        persistTimes(date, p.courseId, p.slot, mk(v || null));
+                                      }}
+                                      className="w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              <input
+                                type="text"
+                                key={`place-${p.courseId}-${p.slot}-${row?.meeting_place ?? ""}`}
+                                defaultValue={effPlace}
+                                placeholder="集合場所（未入力=コース標準）"
+                                onBlur={(e) => {
+                                  const v = e.target.value.trim();
+                                  if (v === effPlace) return;
+                                  persistTimes(date, p.courseId, p.slot, { meetingPlace: v || null });
+                                }}
+                                className="w-full rounded border border-slate-200 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
+                              />
+                            </>
+                          ) : (
+                            <p className="text-xs text-slate-600">
+                              集合 {effMeeting || "—"}・着車 {effArrival || "—"}・終業 {effEnd || "—"}
+                              {effPlace ? `・${effPlace}` : ""}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <p className="text-[10px] text-slate-400">
+                      ここでの変更はこの日のこのコースだけの上書きです。毎日の標準はコース設定で変更します。
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
               {/* 保存状態 */}

@@ -38,9 +38,19 @@ type Course = {
   principal_invoice_address_id?: string | null;
   counterparty_invoice_address_id?: string | null;
   slot_id?: string | null;
+  /** A2 時間モデル: 標準の集合場所・集合/着車/終業時刻（NULL=未設定） */
+  meeting_place?: string | null;
+  meeting_time?: string | null;
+  arrival_time?: string | null;
+  end_time?: string | null;
 };
 
 type TimeSlot = { id: string; name: string; startTime: string | null; endTime: string | null };
+
+/** DB の time 値（"HH:MM:SS"）を input type=time 用の "HH:MM" へ。 */
+function toTimeInputValue(v: string | null | undefined): string {
+  return v ? v.slice(0, 5) : "";
+}
 type InvoiceAddress = { id: string; name: string };
 type Carrier = { id: string; name: string; code: string | null };
 type Driver = {
@@ -95,6 +105,10 @@ type CourseFormState = {
   principal_invoice_address_id: string;
   counterparty_invoice_address_id: string;
   slotId: string;
+  meeting_place: string;
+  meeting_time: string;
+  arrival_time: string;
+  end_time: string;
 };
 
 const EMPTY_COURSE_FORM: CourseFormState = {
@@ -107,6 +121,10 @@ const EMPTY_COURSE_FORM: CourseFormState = {
   principal_invoice_address_id: "",
   counterparty_invoice_address_id: "",
   slotId: "",
+  meeting_place: "",
+  meeting_time: "",
+  arrival_time: "",
+  end_time: "",
 };
 
 export default function CoursesPage() {
@@ -296,6 +314,10 @@ export default function CoursesPage() {
           principal_invoice_address_id: newCourse.principal_invoice_address_id || null,
           counterparty_invoice_address_id: newCourse.counterparty_invoice_address_id || null,
           slot_id: newCourse.slotId || null,
+          meeting_place: newCourse.meeting_place.trim() || null,
+          meeting_time: newCourse.meeting_time || null,
+          arrival_time: newCourse.arrival_time || null,
+          end_time: newCourse.end_time || null,
         }),
       });
       const createdCourse: Course = res.course;
@@ -334,6 +356,10 @@ export default function CoursesPage() {
       principal_invoice_address_id: course.principal_invoice_address_id ?? "",
       counterparty_invoice_address_id: course.counterparty_invoice_address_id ?? "",
       slotId: course.slot_id ?? "",
+      meeting_place: course.meeting_place ?? "",
+      meeting_time: toTimeInputValue(course.meeting_time),
+      arrival_time: toTimeInputValue(course.arrival_time),
+      end_time: toTimeInputValue(course.end_time),
     });
     setShowEditModal(true);
   };
@@ -357,6 +383,10 @@ export default function CoursesPage() {
           principal_invoice_address_id: editForm.principal_invoice_address_id || null,
           counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
           slot_id: editForm.slotId || null,
+          meeting_place: editForm.meeting_place.trim() || null,
+          meeting_time: editForm.meeting_time || null,
+          arrival_time: editForm.arrival_time || null,
+          end_time: editForm.end_time || null,
         }),
       });
       // 単価（course-billing）も保存
@@ -373,6 +403,10 @@ export default function CoursesPage() {
         principal_invoice_address_id: editForm.principal_invoice_address_id || null,
         counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
         slot_id: editForm.slotId || null,
+        meeting_place: editForm.meeting_place.trim() || null,
+        meeting_time: editForm.meeting_time || null,
+        arrival_time: editForm.arrival_time || null,
+        end_time: editForm.end_time || null,
       };
       setCourses((prev) => prev.map((c) => (c.id === editingCourse.id ? updatedCourse : c)));
       setShowEditModal(false);
@@ -454,9 +488,8 @@ export default function CoursesPage() {
           reorderWithinGroup(group.courses, draggingId, course.id);
           setDraggingId(null);
         }}
-        className={`bg-white rounded-lg border border-slate-200 p-4 border-l-4 transition-all ${
-          canWrite ? "cursor-pointer hover:border-slate-300 hover:shadow-sm active:bg-slate-50" : ""
-        } ${isDragOver ? "ring-2 ring-slate-400 ring-offset-2" : ""}`}
+        className={`bg-white rounded-lg border border-slate-200 p-4 border-l-4 transition-all ${canWrite ? "cursor-pointer hover:border-slate-300 hover:shadow-sm active:bg-slate-50" : ""
+          } ${isDragOver ? "ring-2 ring-slate-400 ring-offset-2" : ""}`}
         style={{ borderLeftColor: course.color }}
       >
         <div className="flex items-center justify-between gap-3">
@@ -589,6 +622,34 @@ export default function CoursesPage() {
                     size="md"
                   />
                   <p className="mt-1 text-xs text-slate-500">このコースの時間帯（便）。1日に時間帯違いのコースを複数入れられます。時間帯は⚙️設定で作成。</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">標準時間・集合場所</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      ["meeting_time", "集合"],
+                      ["arrival_time", "着車"],
+                      ["end_time", "終業"],
+                    ] as const).map(([key, label]) => (
+                      <div key={key}>
+                        <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
+                        <input
+                          type="time"
+                          value={newCourse[key]}
+                          onChange={(e) => setNewCourse((f) => ({ ...f, [key]: e.target.value }))}
+                          className="w-full px-2 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={newCourse.meeting_place}
+                    onChange={(e) => setNewCourse((f) => ({ ...f, meeting_place: e.target.value }))}
+                    placeholder="集合場所"
+                    className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">このコースの毎日の標準。日別の例外はシフト表のセルから個別に上書きできます。</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">コース名</label>
@@ -745,6 +806,34 @@ export default function CoursesPage() {
                     clearable={false}
                     size="md"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">標準時間・集合場所</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      ["meeting_time", "集合"],
+                      ["arrival_time", "着車"],
+                      ["end_time", "終業"],
+                    ] as const).map(([key, label]) => (
+                      <div key={key}>
+                        <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
+                        <input
+                          type="time"
+                          value={editForm[key]}
+                          onChange={(e) => setEditForm((f) => ({ ...f, [key]: e.target.value }))}
+                          className="w-full px-2 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={editForm.meeting_place}
+                    onChange={(e) => setEditForm((f) => ({ ...f, meeting_place: e.target.value }))}
+                    placeholder="集合場所（例: 横大路第2倉庫）"
+                    className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">このコースの毎日の標準。日別の例外はシフト表のセルから個別に上書きできます。</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">コース名</label>

@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
     .select(
       `
       id, shift_date, course_id, slot, driver_id, vehicle_id, uses_external_vehicle,
+      meeting_place, meeting_time, arrival_time, end_time,
       drivers (id, name, display_name)
     `,
     )
