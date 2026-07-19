@@ -79,6 +79,114 @@ export const CAPABILITY_META: Record<Capability, { label: string; group: (typeof
   can_manage_org_settings: { label: "設定の編集", group: "設定" },
 };
 
+// ============================================================
+// 権限設定 UI 用の行定義（Discord の権限上書き画面風）。
+// 1行 = 1機能ドメイン。leveled は view/manage の capability ペアを
+// 「許可なし / 閲覧のみ / 編集可能」の3択で設定し、binary は単一 capability の
+// 「許可なし / 可能」2択。編集可能 = view + manage の両方を付与（編集は閲覧を含む）。
+// ============================================================
+
+export type PermissionRow =
+  | {
+      kind: "leveled";
+      key: string;
+      label: string;
+      description: string;
+      view: Capability;
+      manage: Capability;
+    }
+  | {
+      kind: "binary";
+      key: string;
+      label: string;
+      description: string;
+      capability: Capability;
+      onLabel: string;
+    };
+
+export const PERMISSION_ROWS: PermissionRow[] = [
+  {
+    kind: "leveled",
+    key: "reports",
+    label: "日報",
+    description: "全ドライバーの日報を閲覧できます。編集可能にすると代理入力・修正もできます。",
+    view: "can_view_reports",
+    manage: "can_edit_reports",
+  },
+  {
+    kind: "leveled",
+    key: "shifts",
+    label: "シフト",
+    description: "シフト表を閲覧できます。編集可能にするとシフト確定・希望休の管理もできます。",
+    view: "can_view_shifts",
+    manage: "can_manage_shifts",
+  },
+  {
+    kind: "leveled",
+    key: "rewards",
+    label: "報酬・給与",
+    description: "報酬・給与を閲覧できます。編集可能にすると単価設定・給与締めもできます。",
+    view: "can_view_rewards",
+    manage: "can_manage_rewards",
+  },
+  {
+    kind: "leveled",
+    key: "vehicles",
+    label: "車両",
+    description: "車両情報を閲覧できます。編集可能にすると車両の登録・管理もできます。",
+    view: "can_view_vehicles",
+    manage: "can_manage_vehicles",
+  },
+  {
+    kind: "leveled",
+    key: "billing",
+    label: "請求・取引先",
+    description: "請求・取引先を閲覧できます。編集可能にすると請求の確定・取引先の編集もできます。",
+    view: "can_view_billing",
+    manage: "can_manage_billing",
+  },
+  {
+    kind: "leveled",
+    key: "members",
+    label: "ドライバー名簿",
+    description: "メンバー名簿を閲覧できます。編集可能にするとロール変更・退会処理もできます。",
+    view: "can_view_members",
+    manage: "can_manage_members",
+  },
+  {
+    kind: "binary",
+    key: "approve_members",
+    label: "参加承認・本人確認",
+    description: "参加申請の承認と本人確認（KYC）を実施できます。",
+    capability: "can_approve_members",
+    onLabel: "可能",
+  },
+  {
+    kind: "binary",
+    key: "bank_accounts",
+    label: "口座情報",
+    description: "ドライバーの銀行口座情報を閲覧できます。",
+    capability: "can_view_bank_accounts",
+    onLabel: "閲覧可能",
+  },
+  {
+    kind: "binary",
+    key: "pii",
+    label: "顔写真・免許証",
+    description: "顔写真・運転免許証など本人確認書類を閲覧できます。",
+    capability: "can_view_pii",
+    onLabel: "閲覧可能",
+  },
+  {
+    kind: "leveled",
+    key: "org_settings",
+    label: "設定",
+    description: "フォーム・締切・コース等の設定を閲覧できます。編集可能にすると編集もできます。",
+    view: "can_view_org_settings",
+    manage: "can_manage_org_settings",
+  },
+];
+
 // system 既定ロールの capability 束（migration 092 の seed と一致させること）。
 // role_id 未解決（旧データ等）のフォールバックに使う。値の正本は role_capabilities テーブル。
 export const DEFAULT_ROLE_CAPABILITIES: Record<string, Capability[]> = {

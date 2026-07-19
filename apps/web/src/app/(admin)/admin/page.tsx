@@ -14,6 +14,7 @@ import {
   faChevronRight,
   faOilCan,
   faCircleCheck,
+  faLock,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import {
@@ -27,7 +28,7 @@ import {
 } from "recharts";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { todayJST, currentMonthJST } from "@/lib/date";
 
@@ -112,9 +113,31 @@ export default function AdminDashboardPage() {
     setActiveDrivers(dash.activeDrivers);
   }, [dash]);
 
+  // 権限ガード: 日報・売上の閲覧権限が無いロールにはダッシュボードを表示しない
+  //（メニューもロック表示。API は 403 を返すため、壊れたカードの羅列ではなく明示する）。
+  const [noAccess, setNoAccess] = useState(false);
+  useEffect(() => {
+    const caps = getStoredDriver()?.capabilities;
+    setNoAccess(Array.isArray(caps) && !caps.includes("can_view_reports"));
+  }, []);
+
   const margin = sales > 0 ? Math.round((profit / sales) * 1000) / 10 : 0;
   const maxTrend = Math.max(1, ...trend.map((d) => d.total));
   const totalAlerts = (dailyUnread ?? 0) + (oilUnread ?? 0) + (oilAlert ?? 0);
+
+  if (noAccess) {
+    return (
+      <AdminLayout>
+        <div className="mx-auto max-w-5xl">
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-slate-200 bg-white px-6 py-16 text-center">
+            <FontAwesomeIcon icon={faLock} className="h-8 w-8 text-slate-300" />
+            <p className="text-sm font-semibold text-slate-700">ダッシュボードを閲覧する権限がありません</p>
+            <p className="text-xs text-slate-500">メニューから、権限のある機能をご利用ください。</p>
+          </div>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout>

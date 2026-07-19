@@ -35,8 +35,12 @@ type Role = {
   capabilities: string[];
 };
 type Member = { id: string; name: string; roleId: string | null };
-type CatalogItem = { key: string; label: string; group: string };
-type RolesRes = { roles: Role[]; members: Member[]; catalog: CatalogItem[]; groupOrder: string[] };
+// サーバーの PERMISSION_ROWS と同形（server/auth/capabilities.ts が正本）
+type PermissionRow =
+  | { kind: "leveled"; key: string; label: string; description: string; view: string; manage: string }
+  | { kind: "binary"; key: string; label: string; description: string; capability: string; onLabel: string };
+type PermissionLevel = "none" | "view" | "edit" | "on";
+type RolesRes = { roles: Role[]; members: Member[]; rows: PermissionRow[] };
 
 const ADMIN_KEY = "ADMIN";
 const DRIVER_KEY = "DRIVER";
@@ -54,15 +58,7 @@ export default function RolesPage() {
   );
   const roles = data?.roles ?? [];
   const members = data?.members ?? [];
-  const catalog = data?.catalog ?? [];
-  const groupOrder = data?.groupOrder ?? [];
-
-  const grouped = useMemo(() => {
-    const m = new Map<string, CatalogItem[]>();
-    for (const g of groupOrder) m.set(g, []);
-    for (const c of catalog) m.set(c.group, [...(m.get(c.group) ?? []), c]);
-    return m;
-  }, [catalog, groupOrder]);
+  const rows = data?.rows ?? [];
 
   const membersByRole = useMemo(() => {
     const m = new Map<string, Member[]>();
@@ -73,20 +69,6 @@ export default function RolesPage() {
     return m;
   }, [members]);
 
-  // 権限ごとに「組織全体で何人が持っているか」を集計（ロールをまたいで合算。ADMIN は全権限を持つ扱い）。
-  const memberCountByCap = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const r of roles) {
-      const count = membersByRole.get(r.id)?.length ?? 0;
-      if (count === 0) continue;
-      const capKeys = r.isSystem && r.key === ADMIN_KEY ? catalog.map((c) => c.key) : r.capabilities;
-      for (const capKey of capKeys) {
-        counts.set(capKey, (counts.get(capKey) ?? 0) + count);
-      }
-    }
-    return counts;
-  }, [roles, membersByRole, catalog]);
-
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
   const [newLabel, setNewLabel] = useState("");
@@ -96,7 +78,6 @@ export default function RolesPage() {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const capLabel = (key: string) => catalog.find((c) => c.key === key)?.label ?? key;
   const toggleExpand = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -105,13 +86,35 @@ export default function RolesPage() {
       return next;
     });
 
-  // 権限トグル（クリックで即座に色を反映し、保存はバックグラウンドで進める。ADMIN は固定なので呼ばない）
-  const toggleCap = (role: Role, cap: string) => {
-    if (role.isSystem && role.key === ADMIN_KEY) return;
-    const has = role.capabilities.includes(cap);
-    const nextCaps = has ? role.capabilities.filter((c) => c !== cap) : [...role.capabilities, cap];
+  // 行の現在レベルを capability 束から導出（manage > view > none。編集は閲覧を含む扱い）
+  const rowLevel = (role: Role, row: PermissionRow): PermissionLevel => {
+    if (role.isSystem && role.key === ADMIN_KEY) return row.kind === "leveled" ? "edit" : "on";
+    if (row.kind === "leveled") {
+      if (role.capabilities.includes(row.manage)) return "edit";
+      if (role.capabilities.includes(row.view)) return "view";
+      return "none";
+    }
+    return role.capabilities.includes(row.capability) ? "on" : "none";
+  };
 
-    // 楽観的更新: レスポンスを待たずにチップの色を切り替える
+  // レベル選択（即座に色を反映し、保存はバックグラウンド。ADMIN は固定なので呼ばない）
+  const setRowLevel = (role: Role, row: PermissionRow, level: PermissionLevel) => {
+    if (role.isSystem && role.key === ADMIN_KEY) return;
+    if (rowLevel(role, row) === level) return;
+    const rowCaps = row.kind === "leveled" ? [row.view, row.manage] : [row.capability];
+    const add =
+      row.kind === "leveled"
+        ? level === "edit"
+          ? [row.view, row.manage]
+          : level === "view"
+            ? [row.view]
+            : []
+        : level === "on"
+          ? [row.capability]
+          : [];
+    const nextCaps = [...role.capabilities.filter((c) => !rowCaps.includes(c)), ...add];
+
+    // 楽観的更新: レスポンスを待たずに選択状態を切り替える
     void mutate(
       (prev) =>
         prev
@@ -221,7 +224,7 @@ export default function RolesPage() {
         </div>
 
         <p className="mb-4 text-sm text-slate-500">
-          ロールを開いて、権限をトグルで切り替え、メンバーをドラッグ＆ドロップ（または選択）で割り当てます。
+          ロールを開いて、機能ごとの許可レベルを選び、メンバーをドラッグ＆ドロップ（または選択）で割り当てます。
           <br />
           管理者はトップ権限のため、権限は全付与固定・削除不可・最後の1人は外せません。
         </p>
@@ -302,9 +305,6 @@ export default function RolesPage() {
                       {r.worksAsDriver && (
                         <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">ドライバー稼働</span>
                       )}
-                      <span className="text-xs text-slate-400">
-                        {roleMembers.length}人 / {r.capabilities.length}権限
-                      </span>
                     </button>
                     {canWrite && !r.isSystem && (
                       <div className="flex shrink-0 items-center gap-1">
@@ -358,35 +358,49 @@ export default function RolesPage() {
                         );
                       })()}
 
-                      {/* 権限トグル */}
-                      <div className="mb-4 text-sm font-semibold text-slate-700">権限</div>
-                      <div className="space-y-3">
-                        {groupOrder.map((g) => {
-                          const items = grouped.get(g) ?? [];
-                          if (items.length === 0) return null;
+                      {/* 権限（Discord 風: 機能ごとに 許可なし/閲覧のみ/編集可能 を選択） */}
+                      <div className="mb-2 text-sm font-semibold text-slate-700">権限</div>
+                      <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                        {rows.map((row) => {
+                          const level = rowLevel(r, row);
+                          const options: { value: PermissionLevel; label: string }[] =
+                            row.kind === "leveled"
+                              ? [
+                                  { value: "none", label: "許可なし" },
+                                  { value: "view", label: "閲覧のみ" },
+                                  { value: "edit", label: "編集可能" },
+                                ]
+                              : [
+                                  { value: "none", label: "許可なし" },
+                                  { value: "on", label: row.onLabel },
+                                ];
                           return (
-                            <div key={g}>
-                              <div className="mb-1 text-xs font-semibold text-slate-400">{g}</div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {items.map((c) => {
-                                  const on = isAdmin || r.capabilities.includes(c.key);
-                                  const holderCount = memberCountByCap.get(c.key) ?? 0;
+                            <div
+                              key={row.key}
+                              className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                            >
+                              <div className="min-w-0">
+                                <div className="text-sm font-semibold text-slate-800">{row.label}</div>
+                                <div className="mt-0.5 text-xs leading-relaxed text-slate-500">{row.description}</div>
+                              </div>
+                              <div className="flex shrink-0 self-start rounded-lg bg-slate-100 p-0.5 sm:self-center">
+                                {options.map((o) => {
+                                  const selected = level === o.value;
+                                  const selectedColor =
+                                    o.value === "none" ? "text-rose-600" : o.value === "view" ? "text-slate-900" : "text-emerald-700";
                                   return (
                                     <button
-                                      key={c.key}
+                                      key={o.value}
+                                      type="button"
                                       disabled={!canWrite || isAdmin}
-                                      onClick={() => toggleCap(r, c.key)}
-                                      title={holderCount > 0 ? `組織全体で${holderCount}人がこの権限を持っています` : "この権限を持つメンバーはいません"}
-                                      className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                                        on ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-600 hover:bg-slate-50"
-                                      } ${!canWrite || isAdmin ? "cursor-default opacity-90" : ""}`}
+                                      onClick={() => setRowLevel(r, row, o.value)}
+                                      className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                                        selected
+                                          ? `bg-white shadow-sm ${selectedColor}`
+                                          : "text-slate-400 hover:text-slate-600"
+                                      } ${!canWrite || isAdmin ? "cursor-default" : ""}`}
                                     >
-                                      {c.label}
-                                      {holderCount > 0 && (
-                                        <span className={`ml-1 ${on ? "text-slate-300" : "text-slate-400"}`}>
-                                          ({holderCount}人)
-                                        </span>
-                                      )}
+                                      {o.label}
                                     </button>
                                   );
                                 })}

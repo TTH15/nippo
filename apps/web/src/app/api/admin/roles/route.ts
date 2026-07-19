@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
-import { CAPABILITIES, CAPABILITY_META, CAPABILITY_GROUP_ORDER, type Capability } from "@/server/auth";
+import { CAPABILITIES, PERMISSION_ROWS, type Capability } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
@@ -68,9 +68,8 @@ export async function GET(req: NextRequest) {
       capabilities: byRole.get(r.id) ?? [],
     })),
     members: (members ?? []).map((m) => ({ id: m.id, name: m.name, roleId: m.role_id })),
-    // capability カタログ（UI のチェックボックス描画用）
-    catalog: CAPABILITIES.map((c) => ({ key: c, label: CAPABILITY_META[c].label, group: CAPABILITY_META[c].group })),
-    groupOrder: CAPABILITY_GROUP_ORDER,
+    // 権限設定 UI の行定義（Discord 風の 許可なし/閲覧のみ/編集可能）
+    rows: PERMISSION_ROWS,
   });
 }
 
