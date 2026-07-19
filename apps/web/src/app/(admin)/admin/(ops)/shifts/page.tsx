@@ -1997,40 +1997,7 @@ export default function ShiftsPage() {
 
             {/* 希望休の一覧/解除は上のグリッドのセルクリック（管理モーダル）に集約。下部の一覧は廃止。 */}
 
-            <CollapsibleSection title="凡例・表の見かた">
-              <div className="flex flex-wrap gap-6 text-xs text-slate-500">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-8 h-6 rounded border border-slate-200 bg-slate-50" />
-                  <span>コース未登録のドライバーはこの表に含まれません</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-8 h-6 rounded border border-dashed border-slate-200 bg-white" />
-                  <span>未割当のセル（＋）。タップで割当できます</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-8 h-6 rounded border border-slate-300 bg-gradient-to-br from-slate-100 to-slate-200" />
-                  <span>割当済（コース色＝そのコース。略記／正式名は編集パネルと同じ）</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-8 h-6 rounded border border-amber-400 bg-amber-50" />
-                  <span>未保存の変更</span>
-                </div>
-                <div className="flex items-center gap-1.5 basis-full md:basis-auto">
-                  <span className="text-slate-500">
-                    車両は紐づけ一覧を優先表示し、「その他の車両」からマスタ上のその他の車両も選べます。
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 basis-full">
-                  <span className="text-slate-500">
-                    割当済みセルはドラッグでコピーできます（同じ行＝離した日まで連日コピー／別ドライバーの行＝その日へコピー。
-                    希望休・担当外・定員満の日は自動でスキップ。車両はコピーされません）。
-                    「コース軸」に切り替えると、行=コースで埋まり具合を確認できます。
-                  </span>
-                </div>
-              </div>
-            </CollapsibleSection>
-
-            {/* 車両の貸出中（日毎）— 二次情報なので既定で折りたたみ */}
+            {/* 車両の貸出中（日毎）— 運用で触る頻度が高いため凡例より上に配置 */}
             <CollapsibleSection
               title="車両の貸出中（日毎）"
               hint={`この期間 ${vehicleLoans.filter((l) => displayDates.includes(l.loan_date)).length} 件`}
@@ -2094,6 +2061,39 @@ export default function ShiftsPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection title="凡例・表の見かた">
+              <div className="flex flex-wrap gap-6 text-xs text-slate-500">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-8 h-6 rounded border border-slate-200 bg-slate-50" />
+                  <span>コース未登録のドライバーはこの表に含まれません</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-8 h-6 rounded border border-dashed border-slate-200 bg-white" />
+                  <span>未割当のセル（＋）。タップで割当できます</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-8 h-6 rounded border border-slate-300 bg-gradient-to-br from-slate-100 to-slate-200" />
+                  <span>割当済（コース色＝そのコース。略記／正式名は編集パネルと同じ）</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-8 h-6 rounded border border-amber-400 bg-amber-50" />
+                  <span>未保存の変更</span>
+                </div>
+                <div className="flex items-center gap-1.5 basis-full md:basis-auto">
+                  <span className="text-slate-500">
+                    車両は紐づけ一覧を優先表示し、「その他の車両」からマスタ上のその他の車両も選べます。
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 basis-full">
+                  <span className="text-slate-500">
+                    割当済みセルはドラッグでコピーできます（同じ行＝離した日まで連日コピー／別ドライバーの行＝その日へコピー。
+                    希望休・担当外・定員満の日は自動でスキップ。車両はコピーされません）。
+                    「コース軸」に切り替えると、行=コースで埋まり具合を確認できます。
+                  </span>
+                </div>
               </div>
             </CollapsibleSection>
           </div>
