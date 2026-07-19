@@ -416,6 +416,8 @@ type Period = "first" | "second";
 
 export default function ShiftsPage() {
   const [canWrite, setCanWrite] = useState(false);
+  // 配車（車両割当・貸出）はシフト編集と独立の can_dispatch でゲート（A1）。
+  const [canDispatch, setCanDispatch] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [yearMonth, setYearMonth] = useState(currentYearMonth());
   // デフォルトは「今日」を含む期間（1〜15日=前半 / 16日〜=後半）
@@ -550,6 +552,7 @@ export default function ShiftsPage() {
 
   useEffect(() => {
     setCanWrite(hasCapability("can_manage_shifts"));
+    setCanDispatch(hasCapability("can_dispatch"));
   }, []);
 
   // 自動保存のため未保存確認は不要。そのまま切り替える。
@@ -772,12 +775,12 @@ export default function ShiftsPage() {
     setLocalExternalByDriverDay((prev) => new Map(prev).set(dk, false));
     // 車両は1日1台。当該ドライバーの全コース行へ同じ車両を即時保存
     for (const p of findDriverPlacementsOnDate(localShifts, date, driverId)) {
-      persistOne(date, p.courseId, p.slot, driverId, vehicleId, false);
+      persistVehicle(date, p.courseId, p.slot, vehicleId, false);
     }
   };
 
   const setVehicleForDriverOnDate = (date: string, driverId: string, vehicleId: string | null) => {
-    if (!canWrite) return;
+    if (!canDispatch) return;
     if (vehicleId) {
       // 貸出中は割り当て不可（従来通り）。
       if (loanedByDate.get(date)?.has(vehicleId)) {
@@ -809,7 +812,7 @@ export default function ShiftsPage() {
 
   /** 車両の日毎の貸出中をトグル（楽観更新＋失敗時リロード）。 */
   const toggleVehicleLoan = async (vehicleId: string, date: string) => {
-    if (!canWrite) return;
+    if (!canDispatch) return;
     const loaned = !isVehicleLoaned(vehicleId, date);
     setVehicleLoans((prev) =>
       loaned
@@ -835,12 +838,12 @@ export default function ShiftsPage() {
 
   /** 他社車両フラグの設定（ON時は自社車両をクリア）。 */
   const setExternalForDriverOnDate = (date: string, driverId: string, external: boolean) => {
-    if (!canWrite) return;
+    if (!canDispatch) return;
     const dk = driverDayVehicleKey(date, driverId);
     setLocalExternalByDriverDay((prev) => new Map(prev).set(dk, external));
     if (external) setLocalVehicleByDriverDay((prev) => new Map(prev).set(dk, null));
     for (const p of findDriverPlacementsOnDate(localShifts, date, driverId)) {
-      persistOne(date, p.courseId, p.slot, driverId, external ? null : getCurrentVehicleForDriverOnDate(date, driverId), external);
+      persistVehicle(date, p.courseId, p.slot, external ? null : getCurrentVehicleForDriverOnDate(date, driverId), external);
     }
   };
 
@@ -916,8 +919,11 @@ export default function ShiftsPage() {
       next.set(getCellKey(date, courseId, slot), driverId);
       return next;
     });
-    // 既存の当日車両を引き継いで即時保存
-    persistOne(date, courseId, slot, driverId, getCurrentVehicleForDriverOnDate(date, driverId));
+    // 割当を即時保存し、既存の当日車両は配車権限がある場合のみ新しい行へ引き継ぐ（車両は1日1台）
+    const carriedVehicleId = getCurrentVehicleForDriverOnDate(date, driverId);
+    void persistAssignment(date, courseId, slot, driverId).then((ok) => {
+      if (ok && carriedVehicleId) persistVehicle(date, courseId, slot, carriedVehicleId, false);
+    });
   };
 
   /** ドライバーを指定コースから外す（他コースの割当は維持。最後の1件なら車両もクリア） */
@@ -941,35 +947,65 @@ export default function ShiftsPage() {
         return next;
       });
     }
-    // 外したセルを即時保存（driverId=null）
-    for (const slot of clearedSlots) persistOne(date, courseId, slot, null, null);
+    // 外したセルを即時保存（driverId=null。車両はサーバー側で連動クリア）
+    for (const slot of clearedSlots) void persistAssignment(date, courseId, slot, null);
   };
 
   /**
-   * 1セル分を即時バックグラウンド保存（楽観的・保存ボタン不要）。
+   * シフト割当1セル分を即時バックグラウンド保存（楽観的・保存ボタン不要）。
    * 値は呼び出し側が明示指定（setState 直後で state が未反映のため）。
-   * 失敗時は最新状態を再取得して巻き戻す。
+   * 失敗時は最新状態を再取得して巻き戻す。成功可否を返す（車両引き継ぎの連鎖用）。
    */
-  const persistOne = (
+  const persistAssignment = (
     date: string,
     courseId: string,
     slot: number,
     driverId: string | null,
-    vehicleId: string | null,
-    usesExternal?: boolean,
-  ) => {
-    if (!canWrite) return;
+  ): Promise<boolean> => {
+    if (!canWrite) return Promise.resolve(false);
     setAutoSaving((n) => n + 1);
-    apiFetch("/api/admin/shifts", {
+    return apiFetch("/api/admin/shifts", {
       method: "POST",
-      body: JSON.stringify({ shiftDate: date, courseId, slot, driverId, vehicleId, usesExternalVehicle: usesExternal ?? false }),
+      body: JSON.stringify({ shiftDate: date, courseId, slot, driverId }),
     })
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         setErrorState({
           title: "自動保存に失敗しました",
           message:
             "変更をサーバーに保存できませんでした。最新の状態に戻します。\n通信状況を確認のうえ、もう一度お試しください。",
+          detail: e instanceof Error ? e.message : undefined,
+        });
+        void load({ silent: true });
+        return false;
+      })
+      .finally(() => setAutoSaving((n) => Math.max(0, n - 1)));
+  };
+
+  /**
+   * 車両割当（配車）1セル分を即時保存。独立エンドポイント（can_dispatch ゲート）へ送る。
+   * 失敗時は最新状態を再取得して巻き戻す。
+   */
+  const persistVehicle = (
+    date: string,
+    courseId: string,
+    slot: number,
+    vehicleId: string | null,
+    usesExternal?: boolean,
+  ) => {
+    if (!canDispatch) return;
+    setAutoSaving((n) => n + 1);
+    apiFetch("/api/admin/shifts/vehicle", {
+      method: "POST",
+      body: JSON.stringify({ shiftDate: date, courseId, slot, vehicleId, usesExternalVehicle: usesExternal ?? false }),
+    })
+      .catch((e) => {
+        console.error(e);
+        setErrorState({
+          title: "車両の保存に失敗しました",
+          message:
+            "車両の割当をサーバーに保存できませんでした。最新の状態に戻します。\n通信状況を確認のうえ、もう一度お試しください。",
           detail: e instanceof Error ? e.message : undefined,
         });
         void load({ silent: true });
@@ -1259,7 +1295,7 @@ export default function ShiftsPage() {
           </div>
         </div>
 
-        {canWrite && (
+        {(canWrite || canDispatch) && (
           <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
             <span
               className={`inline-block h-2 w-2 rounded-full ${
@@ -1431,6 +1467,9 @@ export default function ShiftsPage() {
                           const isEditing =
                             editingCell?.date === date && editingCell?.driverId === driver.id;
                           const isToday = date.trim() === today;
+                          // セル単位の操作可否（A1）: シフト編集者は常に、
+                          // 配車のみの担当は割当済みセル（車両を選べる）だけ開ける。
+                          const canOpenCell = canWrite || (canDispatch && hasAny);
 
                           return (
                             <td
@@ -1466,12 +1505,12 @@ export default function ShiftsPage() {
                                   <PopoverTrigger asChild>
                                     <button
                                       type="button"
-                                      disabled={!canWrite}
-                                      title={canWrite ? "クリックして編集" : vehicleTitle}
+                                      disabled={!canOpenCell}
+                                      title={canOpenCell ? "クリックして編集" : vehicleTitle}
                                       className={cn(
                                         "group flex min-h-[3.25rem] w-full flex-col gap-1 rounded-lg px-1.5 py-1.5 text-left transition-colors",
-                                        canWrite && !isEditing && "hover:bg-white/70",
-                                        canWrite ? "cursor-pointer" : "cursor-default",
+                                        canOpenCell && !isEditing && "hover:bg-white/70",
+                                        canOpenCell ? "cursor-pointer" : "cursor-default",
                                         isEditing && "bg-white ring-2 ring-slate-400",
                                         dirty && !isEditing && "ring-2 ring-amber-400",
                                       )}
@@ -1536,7 +1575,7 @@ export default function ShiftsPage() {
                                   </PopoverTrigger>
 
                                   {/* 編集: 開いた1セルだけ。コース・車両・保存状態を表示 */}
-                                  {isEditing && canWrite ? (
+                                  {isEditing && canOpenCell ? (
                                     <PopoverContent
                                       align="start"
                                       sideOffset={6}
@@ -1566,22 +1605,24 @@ export default function ShiftsPage() {
                                                   <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-slate-900">
                                                     {courseShiftLabel(course)}
                                                   </span>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => removeDriverFromCourseOnDate(date, driver.id, course.id)}
-                                                    className="shrink-0 px-0.5 text-[13px] leading-none text-slate-500 hover:text-rose-600"
-                                                    title="このコースを外す"
-                                                    aria-label="このコースを外す"
-                                                  >
-                                                    ×
-                                                  </button>
+                                                  {canWrite && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => removeDriverFromCourseOnDate(date, driver.id, course.id)}
+                                                      className="shrink-0 px-0.5 text-[13px] leading-none text-slate-500 hover:text-rose-600"
+                                                      title="このコースを外す"
+                                                      aria-label="このコースを外す"
+                                                    >
+                                                      ×
+                                                    </button>
+                                                  )}
                                                 </div>
                                               ))}
                                             </div>
                                           ) : (
                                             <p className="text-[11px] text-slate-400">未割当</p>
                                           )}
-                                          {addable.length > 0 ? (
+                                          {canWrite && addable.length > 0 ? (
                                             <div className="flex flex-wrap gap-1 pt-0.5">
                                               {addable.map((c) => (
                                                 <button
@@ -1610,7 +1651,7 @@ export default function ShiftsPage() {
                                               loanedIds={loanedByDate.get(date)}
                                               onChange={(id) => setVehicleForDriverOnDate(date, driver.id, id)}
                                               onSelectExternal={() => setExternalForDriverOnDate(date, driver.id, true)}
-                                              disabled={!canWrite}
+                                              disabled={!canDispatch}
                                             />
                                           </div>
                                         ) : null}
@@ -1821,7 +1862,7 @@ export default function ShiftsPage() {
                             <td key={date} className="px-0.5 py-0.5 text-center">
                               <button
                                 type="button"
-                                disabled={!canWrite}
+                                disabled={!canDispatch}
                                 onClick={() => toggleVehicleLoan(v.id, date)}
                                 title={on ? "貸出中（タップで解除）" : "タップで貸出中に"}
                                 className={cn(

@@ -35,9 +35,9 @@ export type TenantContext = { user: AuthUser; orgId: string };
  */
 export async function requireTenant(
   req: NextRequest,
-  requiredRole?: "DRIVER" | "ADMIN" | "ADMIN_OR_VIEWER",
+  selfScope?: "DRIVER",
 ): Promise<TenantContext | NextResponse> {
-  const user = await requireAuth(req, requiredRole);
+  const user = await requireAuth(req, selfScope);
   if (isAuthError(user)) return user;
   // 孤児セッション（token は有効だが driver 行が削除済み等）は org を解決できない。
   // これは認証無効として 401（クライアントはログイン画面へ遷移）にする。生の500を出さない。

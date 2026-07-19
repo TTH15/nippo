@@ -10,6 +10,7 @@ export const CAPABILITIES = [
   "can_edit_reports", // 代理入力・修正
   "can_view_shifts", // シフト表の閲覧
   "can_manage_shifts", // シフト確定・希望休管理
+  "can_dispatch", // 配車（シフトへの車両割当・貸出管理）
   "can_view_rewards", // 報酬・給与の閲覧
   "can_manage_rewards", // 単価設定・給与締め
   "can_view_bank_accounts", // 口座情報の閲覧
@@ -64,6 +65,7 @@ export const CAPABILITY_META: Record<Capability, { label: string; group: (typeof
   can_edit_reports: { label: "日報の代理入力・修正", group: "日報" },
   can_view_shifts: { label: "シフトの閲覧", group: "シフト" },
   can_manage_shifts: { label: "シフトの管理（確定・希望休）", group: "シフト" },
+  can_dispatch: { label: "配車（車両割当）", group: "シフト" },
   can_view_rewards: { label: "報酬・給与の閲覧", group: "報酬" },
   can_manage_rewards: { label: "報酬の管理（単価・締め）", group: "報酬" },
   can_view_vehicles: { label: "車両の閲覧", group: "車両" },
@@ -120,6 +122,15 @@ export const PERMISSION_ROWS: PermissionRow[] = [
     description: "シフト表を閲覧できます。編集可能にするとシフト確定・希望休の管理もできます。",
     view: "can_view_shifts",
     manage: "can_manage_shifts",
+  },
+  {
+    kind: "binary",
+    key: "dispatch",
+    label: "配車（車両割当）",
+    description:
+      "シフト表で車両の割当・貸出中の切替ができます。シフトの閲覧権限と合わせて付与してください。",
+    capability: "can_dispatch",
+    onLabel: "可能",
   },
   {
     kind: "leveled",

@@ -185,6 +185,7 @@ CREATE UNIQUE INDEX uq_pii_disclosure_active
 | `can_edit_reports` | 代理入力・修正 | ✕ | ✕ | ✕ | ○ |
 | `can_view_shifts` | シフト表の閲覧 | ✕ | ○ | ○ | ○ |
 | `can_manage_shifts` | シフト確定・希望休管理 | ✕ | ✕ | ✕ | ○ |
+| `can_dispatch` | 配車（シフトへの車両割当・貸出管理）。migration 105 で追加（A1） | ✕ | ✕ | ✕ | ○ |
 | `can_view_rewards` | 報酬・給与の閲覧 | ✕ | ○ | ○ | ○ |
 | `can_manage_rewards` | 単価設定・給与締め | ✕ | ○ | ✕ | ○ |
 | `can_view_bank_accounts` | 口座情報の閲覧 | ✕ | ○ | ✕ | ○ |
@@ -427,13 +428,13 @@ CREATE TABLE company_carriers (
 
 - **Phase 5b — 整合性制約 ✅完了**（migration 091）: identity/membership の不変条件をDB化。`identities(phone)` 検証済み部分ユニーク（1人=1 identity）／`drivers(identity_id, org_id)` 却下以外で部分ユニーク（1人×1社=1所属）／`drivers.role` に `ACCOUNTING` 追加。対の `api/join/route.ts` を find-or-create 冪等化（複数行で壊れない・並行/再送の 23505 を「申請済み」に吸収）。検証=tsc clean・258緑。
 
-- **Phase 9 — 基盤の作り込み（設計合意済・実装これから）**: 以下は複数所属の本番運用に必要で、相互に絡む。
-  - **認可モデル（§2-6）**: `roles`/`role_capabilities` 追加＋`drivers.role_id` 移行。`requirePermission(cap)` 導入し約163か所の3段ハードコードを機微順に置換。system 既定 role を seed。`ACCOUNTING` を JWT/`requireAuth` に通す（091 の置き土産解消）。
+- **Phase 9 — 基盤の作り込み（一部完了）**: 以下は複数所属の本番運用に必要で、相互に絡む。
+  - **認可モデル（§2-6）✅完了**（2026-07-20、migration 092-094・104）: `roles`/`role_capabilities`＋`drivers.role_id` 移行、`requirePermission(cap)` 置換、ロール管理UI（Discord 風の許可なし/閲覧のみ/編集可能）、`works_as_driver`（個人単位・§2-6a）、own/any スコープ権限の土台（`checkPermission`/`requireScopedPermission`）、旧 `requireAuth` のロール階層ゲート**全撤廃**（ADMIN/ADMIN_OR_VIEWER 分岐削除・DRIVER=セルフスコープの目印のみ。091 の置き土産＝ACCOUNTING/カスタムロール 403 を解消）。メニューは view 権限が無いドメインをロック表示。残: 本人系ルートの own スコープ細粒度化（シフト系は移行済・他は「認証のみ」で通る過渡状態）。
   - **PII 開示同意（§2-2）**: `pii_disclosures` 追加。`kyc/route.ts` を `can_view_pii`＋開示同意の二重ゲート＋監査ログに。2社目参加ウィザードの開示同意・免許更新時の `kyc_verified_at` クリア。
   - **承認ステートマシン**: membership の状態（`status` + `kyc_verified_at` + 導出 `complete`）を1列の明示遷移（pending→approved→kyc_submitted→verified→suspended 等）に集約。
   - **invites（招待エンティティ）**: `organizations.join_code` 1個に潰れている招待を独立化（token/kind=url|qr|code・role・expires_at・max_uses・revoked_at）。join_code は「無期限 open invite」の1特殊行として内包。
 
-各 Phase は独立リリース可。**Phase 2 完了まで2社目を本番投入しない**条件はクリア済（org_id 基盤・スコープ・制約・キャリア別化・隔離テストまで完了＝技術的に2社目を載せられる土台）。認証（Phase 6b）もPasskey/SMS OTPまで完了。残りは会社切替UI（複数org選択）・LINE連携・Phase 9 の基盤作り込み。
+各 Phase は独立リリース可。**Phase 2 完了まで2社目を本番投入しない**条件はクリア済（org_id 基盤・スコープ・制約・キャリア別化・隔離テストまで完了＝技術的に2社目を載せられる土台）。認証（Phase 6b）もPasskey/SMS OTPまで完了。残りは会社切替UI（複数org選択）・LINE連携・Phase 9 の残り。**未完項目の統合管理は docs/roadmap-2026-07.md**（2026-07-20 に新規5テーマと合流）。
 
 ---
 

@@ -5,9 +5,11 @@ import { resolveIdentityId } from "@/server/identity";
 
 export const dynamic = "force-dynamic";
 
-/** ログイン中の運営(ADMIN/ADMIN_VIEWER)自身のアカウント状態（Passkey登録済みか等）。 */
+/** ログイン中の運営メンバー自身のアカウント状態（Passkey登録済みか等）。
+ * 返すのは本人の情報のみなので、ロールでは絞らない（カスタムロールも運営画面から
+ * 自分のアカウント設定を開ける。§2-6a の旧ホワイトリスト廃止と同方針）。 */
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "ADMIN_OR_VIEWER");
+  const user = await requireAuth(req);
   if (isAuthError(user)) return user;
 
   const identityId = await resolveIdentityId(user);

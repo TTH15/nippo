@@ -26,39 +26,20 @@ export {
 } from "./capabilities";
 
 /**
- * Helper: extract AuthUser from request, or return 401 response.
+ * 認証（トークン検証）のみを行う入口。認可はしない。
+ * - 引数 "DRIVER" は「ドライバー本人系のセルフスコープルート（/api/me/* 等）」の目印。
+ *   対象は常にトークンの driverId 自身なので、ロールでは絞らない（旧実装の
+ *   DRIVER/ADMIN/ADMIN_VIEWER ホワイトリストは、ACCOUNTING・カスタムロールの
+ *   メンバーが自分のプロフィール・日報・Passkey 状態まで 403 になる穴だった）。
+ * - 旧 "ADMIN"/"ADMIN_OR_VIEWER" のロール階層ゲートは全ルートが
+ *   requirePermission / requireScopedPermission へ移行済みのため撤廃（§2-6a）。
  */
 export async function requireAuth(
   req: NextRequest,
-  requiredRole?: "DRIVER" | "ADMIN" | "ADMIN_OR_VIEWER"
+  _selfScope?: "DRIVER"
 ): Promise<AuthUser | NextResponse> {
   try {
-    const user = await authProvider.verify(
-      req.headers.get("authorization")
-    );
-    // ADMINはフル権限のみ
-    if (requiredRole === "ADMIN" && user.role !== "ADMIN") {
-      console.log(`[Auth] Forbidden: required ADMIN, got ${user.role}`);
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    // ADMIN_OR_VIEWER は ADMIN / ADMIN_VIEWER 両方OK
-    if (
-      requiredRole === "ADMIN_OR_VIEWER" &&
-      user.role !== "ADMIN" &&
-      user.role !== "ADMIN_VIEWER"
-    ) {
-      console.log(
-        `[Auth] Forbidden: required ADMIN_OR_VIEWER, got ${user.role}`,
-      );
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    // 「DRIVER」要求 = ドライバー本人系のセルフスコープルート（/api/me/* 等）。
-    // 対象は常にトークンの driverId 自身なので、ロールでは絞らない。
-    // 旧実装は DRIVER/ADMIN/ADMIN_VIEWER のホワイトリストで、ACCOUNTING や
-    // カスタムロール（CUSTOM_*）のメンバーが自分のプロフィール・日報・Passkey 状態
-    // まで 403 になっていた（§2-6a）。細粒度化は own スコープ移行で段階対応する
-    // （シフト系は requireScopedPermission へ移行済み）。
-    return user;
+    return await authProvider.verify(req.headers.get("authorization"));
   } catch (err) {
     console.log(`[Auth] Unauthorized:`, err);
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
