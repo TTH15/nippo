@@ -249,6 +249,32 @@ RBAC（ロール＝capability の束）では「シフト希望は更新でき�
 - 旧 `requireAuth(req, "DRIVER")`（約41ファイル）は own スコープへの段階置換対象。
   参照実装: `/api/shifts/requests`（GET=own_manage_shift_requests/any=can_view_shifts、
   POST=own_manage_shift_requests/any=can_manage_shifts）と `/api/me/shifts`。
+- **設定 UI**: capability を直接チップで並べるのをやめ、Discord の権限上書き画面風の
+  「1機能=1行 × 許可なし/閲覧のみ/編集可能」に統一（`PERMISSION_ROWS`、編集可能=view+manage）。
+  view 権限が無いドメインは AdminLayout のメニューをロック表示（グレー＋鍵）し、
+  「そもそもアクセスできない」ことを明示する（正本はサーバーの requirePermission 403）。
+
+**AI 駆動化に耐えるための階層分離（合意事項）**
+
+1. **権限層（誰が・何を・誰のものに）** = checkPermission。own/any とリソース所有者で判定。
+2. **業務ルール層（いつ・どんな状態で）** = 各ルートのドメインロジック。希望休の締切
+   （monthPeriods → closed 期間の保護）、承認フロー、不正入力の破棄など。
+   **権限があっても業務ルールは緩まない**。ハコ虎AI は必ず本人委任のトークンで
+   同じ API ／同じドメインロジックを通す（AI 専用のバイパス経路・直接 DB 書込を作らない）。
+   → 「締切済みの希望休提出が AI 経由だとできてしまう」は構造的に起きない。
+3. **委任層（AI に何を許すか）** = 委任トークンの scopes。実効権限 =
+   本人の Grants ∩ トークン scopes（減衰のみ・昇格なし）。実装時は
+   `resolveGrants` の結果に交差を掛けて checkPermission へ渡すだけ。
+
+**リソース条件への拡張パス（例:「Amazon は見せるがヤマトは不可」）**
+
+将来、権限付与を無条件から条件付き（carrier / course 等のリソース属性で絞る）にする場合:
+- `role_capabilities`（または個人グラント表）に `conditions jsonb`（例 `{"carrier_id": [..]}`）を追加
+- `Grants` の Set を「権限 → 条件リスト」の Map に拡張し、`PermissionSpec` に
+  `resource?: { carrierId?, courseId?, ... }` を追加して checkPermission 内で条件評価
+- 判定が checkPermission 1点に集約されているため、**全ルートと AI ツールに一括で効く**。
+  ルート側の変更は「対象リソースの属性を spec に渡す」だけ。
+  それまでは条件なし＝org 全体（現状の挙動）を既定とする（昇格制: 必要になるまで実装しない）。
 - **`features` と別レイヤ**: `organizations.features`（機能ON/OFF）は「その機能が有効か」、capability は「有効な機能を誰が使えるか」。混同しない。
 - ⚠️ **`ACCOUNTING`（migration 091 で DB CHECK に追加済）は JWT verify ホワイトリスト・型に未反映**＝現状ログイン不可。本フェーズの role 化で同時に解消する。
 

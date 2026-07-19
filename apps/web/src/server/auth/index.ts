@@ -18,9 +18,11 @@ export {
   DEFAULT_ROLE_CAPABILITIES,
   CAPABILITY_META,
   CAPABILITY_GROUP_ORDER,
+  PERMISSION_ROWS,
   OWN_PERMISSIONS,
   type Capability,
   type OwnPermission,
+  type PermissionRow,
 } from "./capabilities";
 
 /**

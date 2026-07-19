@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CAPABILITIES, DEFAULT_ROLE_CAPABILITIES, type Capability } from "./capabilities";
+import { CAPABILITIES, DEFAULT_ROLE_CAPABILITIES, PERMISSION_ROWS, type Capability } from "./capabilities";
 
 // 認可カタログと system 既定束の不変条件。migration 092 の seed と一致していること。
 describe("capability catalog", () => {
@@ -16,6 +16,15 @@ describe("capability catalog", () => {
       // 束内の重複も禁止
       expect(new Set(caps).size, `${role} に重複`).toBe(caps.length);
     }
+  });
+
+  it("PERMISSION_ROWS（権限設定UIの行）は全 capability をちょうど1回ずつカバーする", () => {
+    // capability を追加したのに設定 UI に出し忘れる／二重に載せる事故を防ぐ
+    const covered = PERMISSION_ROWS.flatMap((r) =>
+      r.kind === "leveled" ? [r.view, r.manage] : [r.capability],
+    );
+    expect(new Set(covered).size).toBe(covered.length);
+    expect(new Set(covered)).toEqual(new Set(CAPABILITIES));
   });
 
   it("ADMIN は全 capability を持つ（フル権限）", () => {
