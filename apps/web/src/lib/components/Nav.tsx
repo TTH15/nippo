@@ -28,7 +28,6 @@ export function Nav({ variant = "default" }: NavProps) {
   }, [pathname]);
 
   const isAdmin = driver?.role === "ADMIN";
-  const hasAdminAccess = driver?.role === "ADMIN" || driver?.role === "ADMIN_VIEWER";
   const isUserLayout = variant === "user";
 
   const logout = () => {
@@ -71,14 +70,8 @@ export function Nav({ variant = "default" }: NavProps) {
               </svg>
             </button>
           )}
-          {isUserLayout && hasAdminAccess && (
-            <Link
-              href="/admin"
-              className="text-xs text-slate-500 hover:text-slate-900 transition-colors"
-            >
-              運営画面へ
-            </Link>
-          )}
+          {/* 運営画面への切替は ModeSwitchFab（スマホ幅の FAB）に集約。
+              PC 幅では運営画面のみ運用のためリンク自体を廃止 */}
           {isUserLayout && (
             <button
               type="button"

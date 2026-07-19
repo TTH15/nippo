@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { getCompany } from "@/config/companies";
 import { ServiceWorkerRegister } from "@/lib/components/ServiceWorkerRegister";
+import { ModeTransitionProvider } from "@/lib/components/ModeTransition";
 
 const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
@@ -43,7 +44,9 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen">
         <ServiceWorkerRegister />
-        {children}
+        {/* モード切替のインク演出はルートグループをまたいで表示し続ける必要が
+            あるため、(admin)/(user) ではなくルートに置く */}
+        <ModeTransitionProvider>{children}</ModeTransitionProvider>
       </body>
     </html>
   );
