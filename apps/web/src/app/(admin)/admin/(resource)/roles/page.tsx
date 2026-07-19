@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import { AnimatePresence, motion } from "motion/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
@@ -9,8 +10,8 @@ import {
   faUserShield,
   faLock,
   faChevronRight,
-  faChevronDown,
   faGripVertical,
+  faTruck,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -31,10 +32,9 @@ type Role = {
   label: string;
   isSystem: boolean;
   sortOrder: number;
-  worksAsDriver: boolean;
   capabilities: string[];
 };
-type Member = { id: string; name: string; roleId: string | null };
+type Member = { id: string; name: string; roleId: string | null; worksAsDriver: boolean };
 // サーバーの PERMISSION_ROWS と同形（server/auth/capabilities.ts が正本）
 type PermissionRow =
   | { kind: "leveled"; key: string; label: string; description: string; view: string; manage: string }
@@ -134,21 +134,21 @@ export default function RolesPage() {
       });
   };
 
-  // 「ドライバーとして扱う」トグル。DRIVER ロールは常に ON（サーバー側でも固定）。
-  const toggleWorksAsDriver = (role: Role) => {
-    if (role.isSystem && role.key === DRIVER_KEY) return;
-    const next = !role.worksAsDriver;
+  // 個人単位の「ドライバーとして扱う」。メンバーチップのトラックアイコンで切り替える。
+  // DRIVER ロールのメンバーは常に ON（サーバー側でも固定）。
+  const toggleMemberDriver = (m: Member) => {
+    const next = !m.worksAsDriver;
 
     void mutate(
       (prev) =>
         prev
-          ? { ...prev, roles: prev.roles.map((r) => (r.id === role.id ? { ...r, worksAsDriver: next } : r)) }
+          ? { ...prev, members: prev.members.map((x) => (x.id === m.id ? { ...x, worksAsDriver: next } : x)) }
           : prev,
       { revalidate: false },
     );
 
-    void apiFetch(`/api/admin/roles/${role.id}`, {
-      method: "PATCH",
+    void apiFetch(`/api/admin/users/${m.id}`, {
+      method: "PUT",
       body: JSON.stringify({ worksAsDriver: next }),
     })
       .then(() => mutate())
@@ -268,6 +268,7 @@ export default function RolesPage() {
           <div className="space-y-2">
             {roles.map((r) => {
               const isAdmin = r.isSystem && r.key === ADMIN_KEY;
+              const isDriverRole = r.isSystem && r.key === DRIVER_KEY;
               const open = expanded.has(r.id);
               const roleMembers = membersByRole.get(r.id) ?? [];
               const others = members.filter((m) => m.roleId !== r.id);
@@ -291,7 +292,10 @@ export default function RolesPage() {
                   {/* ヘッダ */}
                   <div className="flex items-center gap-2 p-3">
                     <button onClick={() => toggleExpand(r.id)} className="flex flex-1 items-center gap-2 text-left">
-                      <FontAwesomeIcon icon={open ? faChevronDown : faChevronRight} className="text-slate-400" />
+                      <FontAwesomeIcon
+                        icon={faChevronRight}
+                        className={`text-slate-400 transition-transform duration-200 ${open ? "rotate-90" : ""}`}
+                      />
                       <span className="font-semibold text-slate-900">{r.label}</span>
                       {isAdmin && (
                         <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
@@ -301,9 +305,6 @@ export default function RolesPage() {
                       )}
                       {r.isSystem && !isAdmin && (
                         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">既定</span>
-                      )}
-                      {r.worksAsDriver && (
-                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">ドライバー稼働</span>
                       )}
                     </button>
                     {canWrite && !r.isSystem && (
@@ -315,49 +316,17 @@ export default function RolesPage() {
                     )}
                   </div>
 
-                  {/* 展開エリア */}
-                  {open && (
+                  {/* 展開エリア（高さアニメーションで滑らかに開閉） */}
+                  <AnimatePresence initial={false}>
+                    {open && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                        className="overflow-hidden"
+                      >
                     <div className="border-t border-slate-100 p-4">
-                      {/* ドライバー稼働フラグ（役割=権限とは独立の軸。シフト・名簿への表示を決める） */}
-                      {(() => {
-                        const isDriverRole = r.isSystem && r.key === DRIVER_KEY;
-                        const locked = !canWrite || isDriverRole;
-                        return (
-                          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3">
-                            <div>
-                              <div className="text-sm font-semibold text-slate-700">
-                                ドライバーとして扱う
-                                {isDriverRole && (
-                                  <span className="ml-2 inline-flex items-center gap-1 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-normal text-slate-500">
-                                    <FontAwesomeIcon icon={faLock} className="text-[9px]" />
-                                    固定
-                                  </span>
-                                )}
-                              </div>
-                              <div className="mt-0.5 text-xs text-slate-500">
-                                ON にすると、このロールのメンバーがシフト・勤怠・名簿に表示され、日報送信や希望休の提出ができます
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={r.worksAsDriver}
-                              disabled={locked}
-                              onClick={() => toggleWorksAsDriver(r)}
-                              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                                r.worksAsDriver ? "bg-amber-500" : "bg-slate-300"
-                              } ${locked ? "cursor-default opacity-70" : ""}`}
-                            >
-                              <span
-                                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
-                                  r.worksAsDriver ? "left-[22px]" : "left-0.5"
-                                }`}
-                              />
-                            </button>
-                          </div>
-                        );
-                      })()}
-
                       {/* 権限（Discord 風: 機能ごとに 許可なし/閲覧のみ/編集可能 を選択） */}
                       <div className="mb-2 text-sm font-semibold text-slate-700">権限</div>
                       <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
@@ -420,22 +389,51 @@ export default function RolesPage() {
                             ここにメンバーをドラッグ、または下から選択
                           </span>
                         )}
-                        {roleMembers.map((m) => (
-                          <span
-                            key={m.id}
-                            draggable={canWrite}
-                            onDragStart={() => setDragMember(m.id)}
-                            onDragEnd={() => {
-                              setDragMember(null);
-                              setDropTarget(null);
-                            }}
-                            className={`inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700 ${canWrite ? "cursor-grab active:cursor-grabbing" : ""}`}
-                          >
-                            {canWrite && <FontAwesomeIcon icon={faGripVertical} className="text-[10px] text-slate-300" />}
-                            {m.name}
-                          </span>
-                        ))}
+                        {roleMembers.map((m) => {
+                          const truckLocked = !canWrite || isDriverRole;
+                          return (
+                            <span
+                              key={m.id}
+                              draggable={canWrite}
+                              onDragStart={() => setDragMember(m.id)}
+                              onDragEnd={() => {
+                                setDragMember(null);
+                                setDropTarget(null);
+                              }}
+                              className={`inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700 ${canWrite ? "cursor-grab active:cursor-grabbing" : ""}`}
+                            >
+                              {canWrite && <FontAwesomeIcon icon={faGripVertical} className="text-[10px] text-slate-300" />}
+                              {m.name}
+                              {/* 個人単位の「ドライバーとして扱う」トグル（DRIVER ロールは固定 ON） */}
+                              <button
+                                type="button"
+                                disabled={truckLocked}
+                                onClick={() => toggleMemberDriver(m)}
+                                aria-pressed={m.worksAsDriver}
+                                aria-label={`${m.name} をドライバーとして扱う`}
+                                title={
+                                  isDriverRole
+                                    ? "ドライバーロールのメンバーは常にドライバーとして扱われます"
+                                    : m.worksAsDriver
+                                      ? "ドライバーとして扱う: ON（シフト・名簿に表示）"
+                                      : "ドライバーとして扱う: OFF"
+                                }
+                                className={`transition-colors ${
+                                  m.worksAsDriver ? "text-amber-500 hover:text-amber-600" : "text-slate-300 hover:text-slate-400"
+                                } ${truckLocked ? "cursor-default" : ""}`}
+                              >
+                                <FontAwesomeIcon icon={faTruck} className="h-3.5 w-3.5" />
+                              </button>
+                            </span>
+                          );
+                        })}
                       </div>
+                      {canWrite && !isDriverRole && (
+                        <p className="mt-1.5 text-[11px] text-slate-400">
+                          <FontAwesomeIcon icon={faTruck} className="mr-1 h-2.5 w-2.5" />
+                          をタップすると、そのメンバーをドライバーとして扱う（シフト・勤怠・名簿に表示）かを個別に切り替えられます
+                        </p>
+                      )}
                       {canWrite && others.length > 0 && (
                         <div className="mt-2">
                           <select
@@ -454,7 +452,9 @@ export default function RolesPage() {
                         </div>
                       )}
                     </div>
-                  )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               );
             })}

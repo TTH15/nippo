@@ -50,9 +50,10 @@ export async function GET(req: NextRequest) {
   }
 
   // 割当 UI（ロールごとのメンバー表示・D&D）用に active メンバーを返す。
+  // works_as_driver は個人単位の「ドライバーとして扱う」設定（メンバーチップでトグル）。
   const { data: members } = await supabase
     .from("drivers")
-    .select("id, name, role_id")
+    .select("id, name, role_id, works_as_driver")
     .eq("org_id", orgId)
     .eq("status", "active")
     .order("name", { ascending: true });
@@ -67,7 +68,12 @@ export async function GET(req: NextRequest) {
       worksAsDriver: r.works_as_driver,
       capabilities: byRole.get(r.id) ?? [],
     })),
-    members: (members ?? []).map((m) => ({ id: m.id, name: m.name, roleId: m.role_id })),
+    members: (members ?? []).map((m) => ({
+      id: m.id,
+      name: m.name,
+      roleId: m.role_id,
+      worksAsDriver: m.works_as_driver === true,
+    })),
     // 権限設定 UI の行定義（Discord 風の 許可なし/閲覧のみ/編集可能）
     rows: PERMISSION_ROWS,
   });

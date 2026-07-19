@@ -105,13 +105,14 @@ export async function PUT(
       activeFromMonth,
       activeUntilMonth,
       roleId,
+      worksAsDriver,
       identities: identitiesRaw,
     } = body;
     const { id: driverId } = await params;
 
     const { data: driverRow, error: driverFetchErr } = await supabase
       .from("drivers")
-      .select("id, company_code, driver_code, pin_hash, role_id, status, phone, identity_id")
+      .select("id, company_code, driver_code, pin_hash, role, role_id, status, phone, identity_id")
       .eq("id", driverId)
       .eq("org_id", orgId)
       .single();
@@ -225,8 +226,24 @@ export async function PUT(
       }
       updates.role_id = role.id;
       updates.role = role.key;
-      // ドライバー稼働フラグもロール設定から同期（シフト・名簿の抽出クエリ用の非正規化コピー）
-      updates.works_as_driver = role.works_as_driver === true;
+      // 「ドライバーとして扱う」の正本はドライバー個人（drivers.works_as_driver）。
+      // ロール側の値は割当時の既定値としてのみ使い、ON への引き上げだけ行う
+      //（管理者へ昇格しても個人のドライバー稼働設定は失われない。DRIVER ロール割当は必ず ON）。
+      if (role.works_as_driver === true) {
+        updates.works_as_driver = true;
+      }
+    }
+    // 個人単位の「ドライバーとして扱う」設定。DRIVER ロールのメンバーは常に ON
+    //（OFF にするとシフト・名簿から消えるため固定）。
+    if (typeof worksAsDriver === "boolean") {
+      const effectiveRoleKey = typeof updates.role === "string" ? updates.role : driverRow.role;
+      if (effectiveRoleKey === "DRIVER" && !worksAsDriver) {
+        return NextResponse.json(
+          { error: "ドライバーロールのメンバーは常にドライバーとして扱われます" },
+          { status: 400 },
+        );
+      }
+      updates.works_as_driver = worksAsDriver;
     }
 
     const syncSlot1ToDriver = async (fullCode: string, office: string) => {
