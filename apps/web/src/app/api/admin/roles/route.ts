@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 
   const { data: roles, error } = await supabase
     .from("roles")
-    .select("id, key, label, is_system, sort_order")
+    .select("id, key, label, is_system, sort_order, works_as_driver")
     .eq("org_id", orgId)
     .order("sort_order", { ascending: true });
   if (error) {
@@ -64,6 +64,7 @@ export async function GET(req: NextRequest) {
       label: r.label,
       isSystem: r.is_system,
       sortOrder: r.sort_order,
+      worksAsDriver: r.works_as_driver,
       capabilities: byRole.get(r.id) ?? [],
     })),
     members: (members ?? []).map((m) => ({ id: m.id, name: m.name, roleId: m.role_id })),
@@ -82,6 +83,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const label = typeof body.label === "string" ? body.label.trim() : "";
     const capabilities: string[] = Array.isArray(body.capabilities) ? body.capabilities : [];
+    const worksAsDriver = body.worksAsDriver === true;
     if (!label) return NextResponse.json({ error: "ロール名を入力してください" }, { status: 400 });
     const invalid = capabilities.filter((c) => !VALID.has(c));
     if (invalid.length) return NextResponse.json({ error: `未知の権限: ${invalid.join(", ")}` }, { status: 400 });
@@ -102,7 +104,7 @@ export async function POST(req: NextRequest) {
       const key = genRoleKey();
       const { data, error } = await supabase
         .from("roles")
-        .insert({ org_id: orgId, key, label, is_system: false, sort_order: sortOrder })
+        .insert({ org_id: orgId, key, label, is_system: false, sort_order: sortOrder, works_as_driver: worksAsDriver })
         .select("id")
         .single();
       if (!error && data) roleId = data.id;

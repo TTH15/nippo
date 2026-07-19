@@ -223,6 +223,32 @@ ALTER TABLE drivers ADD COLUMN role_id uuid REFERENCES roles(id);
 - **移行**: 各 org に system 既定 role 4種＋既定 capability を seed → 既存 `drivers.role`(text) を対応する `role_id` にバックフィル → `drivers_role_check` 撤廃。`drivers.role`(text) は当面併存（表示・互換）。
 - **ガード**: ルートは `requirePermission(req, "can_view_rewards")`。解決は `membership.role_id → role_capabilities`。機微系（`can_view_pii`/`can_view_bank_accounts`/`can_manage_rewards`）は**都度 DB 解決（取消即時）**、軽量系は JWT にキャッシュ可。既存の3段ハードコード（約163か所）は**機微なものから段階置換**。
 - **§2-2 PII と連動**: `can_view_pii` は org 内の最小権限ゲート。これに加え、人をまたぐ開示は §2-2 の開示同意（identity×org）で二重にゲートする（「org 内の誰が見られるか＝capability」「その org に見せてよいか＝開示同意」）。
+
+#### 2-6a. スコープ付き権限（own / any）と works_as_driver ★実装済み（migration 104）
+
+RBAC（ロール＝capability の束）では「シフト希望は更新できるが**他人のものは不可**」を表現できない。
+ハコ虎AI（エージェントがドライバーの代行で `updateShift` 等を呼ぶ構想）の土台として、判定を
+**「権限 × 対象リソースの所有者」の2軸**に拡張した。
+
+- **any スコープ** = 既存の `can_*`。org 全体のリソースに対して行える（意味・データとも従来どおり）。
+- **own スコープ** = `own_*`（`own_submit_reports` / `own_manage_shift_requests` / `own_view_shifts` /
+  `own_view_rewards` / `own_manage_profile`）。対象の所有者が本人のときだけ許可。
+- 判定の正本は純関数 `checkPermission(grants, actorDriverId, {any?, own?, ownerDriverId?})`
+  （`server/auth/policy.ts`。DB・リクエスト非依存）。HTTP ルートは `requireScopedPermission`
+  （`server/auth/authorize.ts`）を使い、`scope === "own"` のときクエリを本人に絞る。
+  ハコ虎AI は「委任トークンの権限 ∩ 本人の解決済み権限」を同じ関数に通す（権限の減衰）。
+- **works_as_driver（ドライバーとして扱う）**: 役割（ロール）と稼働可否を直交化するフラグ。
+  `roles.works_as_driver` が設定の正本（ロール設定 UI でトグル、DRIVER ロールは固定 ON）、
+  `drivers.works_as_driver` は抽出クエリ用の非正規化コピー（ロール割当・ロール設定変更で同期）。
+  シフト・勤怠・名簿等のドライバー抽出は `role='DRIVER'` ハードコードからこのフラグに置換済み。
+  own 権限は現状このフラグ保持者に一括付与（ロール別細分化・パスキー紐づけの個人グラントへ
+  正本を移す場合も `resolveGrants` の返す形は変えない）。
+- **注意（クライアント互換）**: own 権限は `StoredDriver.capabilities` に**入れない**。
+  モバイルの運営モード判定（`capabilities.length > 0`）と管理ログインの
+  「capability 0個なら403」が「運営権限の有無」を capabilities で判定しているため。
+- 旧 `requireAuth(req, "DRIVER")`（約41ファイル）は own スコープへの段階置換対象。
+  参照実装: `/api/shifts/requests`（GET=own_manage_shift_requests/any=can_view_shifts、
+  POST=own_manage_shift_requests/any=can_manage_shifts）と `/api/me/shifts`。
 - **`features` と別レイヤ**: `organizations.features`（機能ON/OFF）は「その機能が有効か」、capability は「有効な機能を誰が使えるか」。混同しない。
 - ⚠️ **`ACCOUNTING`（migration 091 で DB CHECK に追加済）は JWT verify ホワイトリスト・型に未反映**＝現状ログイン不可。本フェーズの role 化で同時に解消する。
 

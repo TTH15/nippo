@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     const { data: drivers, error: driversErr } = await supabase
       .from("drivers")
       .select("id")
-      .eq("role", "DRIVER");
+      .eq("works_as_driver", true);
     if (driversErr) {
       console.error("[admin/daily/unread-count] drivers error", driversErr);
       return NextResponse.json({ error: "DB error" }, { status: 500 });

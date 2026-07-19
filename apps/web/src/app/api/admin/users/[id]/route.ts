@@ -216,7 +216,7 @@ export async function PUT(
     if (roleId !== undefined && roleId !== null) {
       const { data: role } = await supabase
         .from("roles")
-        .select("id, key")
+        .select("id, key, works_as_driver")
         .eq("id", roleId)
         .eq("org_id", orgId)
         .maybeSingle();
@@ -225,6 +225,8 @@ export async function PUT(
       }
       updates.role_id = role.id;
       updates.role = role.key;
+      // ドライバー稼働フラグもロール設定から同期（シフト・名簿の抽出クエリ用の非正規化コピー）
+      updates.works_as_driver = role.works_as_driver === true;
     }
 
     const syncSlot1ToDriver = async (fullCode: string, office: string) => {

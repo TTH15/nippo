@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers } = await supabase
     .from("drivers")
     .select("id, name, display_name")
-    .eq("role", "DRIVER")
+    .eq("works_as_driver", true)
     .order("name");
 
   // Get reports for the month

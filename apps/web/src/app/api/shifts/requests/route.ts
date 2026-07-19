@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth, isAuthError } from "@/server/auth";
+import { requireScopedPermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadDriverRule } from "@/server/shiftDeadline/config";
@@ -13,7 +13,11 @@ export const dynamic = "force-dynamic";
 
 // GET: 自分の希望休一覧（便付き）＋ 自分が使う便
 export async function GET(req: NextRequest) {
-  const user = await requireAuth(req, "DRIVER");
+  // own スコープ移行(§2-6): 対象は常に本人（ownerDriverId 省略 = 本人）。
+  const user = await requireScopedPermission(req, {
+    own: "own_manage_shift_requests",
+    any: "can_view_shifts",
+  });
   if (isAuthError(user)) return user;
 
   const month = req.nextUrl.searchParams.get("month");
@@ -44,7 +48,13 @@ type OffEntry = { date: string; slotId: string | null };
 
 // POST: 希望休の一括登録（month + offEntries[/offDates]）または単体（date + isOff）
 export async function POST(req: NextRequest) {
-  const user = await requireAuth(req, "DRIVER");
+  // own スコープ移行(§2-6): 書き込み対象は本人の希望休のみ。
+  // ハコ虎AI が代行する場合も「委任元本人の own_manage_shift_requests」で同じ判定を通す。
+  // 他人の希望休は any（can_manage_shifts）を持つ運営のみ（管理画面の別ルート）。
+  const user = await requireScopedPermission(req, {
+    own: "own_manage_shift_requests",
+    any: "can_manage_shifts",
+  });
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

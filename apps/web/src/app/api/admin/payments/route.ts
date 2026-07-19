@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     .from("drivers")
     .select("id, name, display_name")
     .eq("org_id", orgId)
-    .eq("role", "DRIVER")
+    .eq("works_as_driver", true)
     .order("name");
 
   if (driversError || !drivers?.length) {

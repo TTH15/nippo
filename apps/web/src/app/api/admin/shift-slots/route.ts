@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   const [slots, { data: drivers }] = await Promise.all([
     loadAllSlots(supabase),
-    supabase.from("drivers").select("id, name, display_name").eq("role", "DRIVER").order("name"),
+    supabase.from("drivers").select("id, name, display_name").eq("works_as_driver", true).order("name"),
   ]);
   return NextResponse.json({ slots, drivers: drivers ?? [] });
 }

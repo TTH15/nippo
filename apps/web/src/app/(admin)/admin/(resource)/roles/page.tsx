@@ -31,6 +31,7 @@ type Role = {
   label: string;
   isSystem: boolean;
   sortOrder: number;
+  worksAsDriver: boolean;
   capabilities: string[];
 };
 type Member = { id: string; name: string; roleId: string | null };
@@ -38,6 +39,7 @@ type CatalogItem = { key: string; label: string; group: string };
 type RolesRes = { roles: Role[]; members: Member[]; catalog: CatalogItem[]; groupOrder: string[] };
 
 const ADMIN_KEY = "ADMIN";
+const DRIVER_KEY = "DRIVER";
 
 export default function RolesPage() {
   const [canWrite, setCanWrite] = useState(false);
@@ -126,6 +128,30 @@ export default function RolesPage() {
       .catch((e) => {
         setError({ title: "更新に失敗", message: e instanceof Error ? e.message : "不明なエラー" });
         void mutate(); // 失敗時はサーバーの値に巻き戻す
+      });
+  };
+
+  // 「ドライバーとして扱う」トグル。DRIVER ロールは常に ON（サーバー側でも固定）。
+  const toggleWorksAsDriver = (role: Role) => {
+    if (role.isSystem && role.key === DRIVER_KEY) return;
+    const next = !role.worksAsDriver;
+
+    void mutate(
+      (prev) =>
+        prev
+          ? { ...prev, roles: prev.roles.map((r) => (r.id === role.id ? { ...r, worksAsDriver: next } : r)) }
+          : prev,
+      { revalidate: false },
+    );
+
+    void apiFetch(`/api/admin/roles/${role.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ worksAsDriver: next }),
+    })
+      .then(() => mutate())
+      .catch((e) => {
+        setError({ title: "更新に失敗", message: e instanceof Error ? e.message : "不明なエラー" });
+        void mutate();
       });
   };
 
@@ -273,6 +299,9 @@ export default function RolesPage() {
                       {r.isSystem && !isAdmin && (
                         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">既定</span>
                       )}
+                      {r.worksAsDriver && (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">ドライバー稼働</span>
+                      )}
                       <span className="text-xs text-slate-400">
                         {roleMembers.length}人 / {r.capabilities.length}権限
                       </span>
@@ -289,6 +318,46 @@ export default function RolesPage() {
                   {/* 展開エリア */}
                   {open && (
                     <div className="border-t border-slate-100 p-4">
+                      {/* ドライバー稼働フラグ（役割=権限とは独立の軸。シフト・名簿への表示を決める） */}
+                      {(() => {
+                        const isDriverRole = r.isSystem && r.key === DRIVER_KEY;
+                        const locked = !canWrite || isDriverRole;
+                        return (
+                          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3">
+                            <div>
+                              <div className="text-sm font-semibold text-slate-700">
+                                ドライバーとして扱う
+                                {isDriverRole && (
+                                  <span className="ml-2 inline-flex items-center gap-1 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-normal text-slate-500">
+                                    <FontAwesomeIcon icon={faLock} className="text-[9px]" />
+                                    固定
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-0.5 text-xs text-slate-500">
+                                ON にすると、このロールのメンバーがシフト・勤怠・名簿に表示され、日報送信や希望休の提出ができます
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={r.worksAsDriver}
+                              disabled={locked}
+                              onClick={() => toggleWorksAsDriver(r)}
+                              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                                r.worksAsDriver ? "bg-amber-500" : "bg-slate-300"
+                              } ${locked ? "cursor-default opacity-70" : ""}`}
+                            >
+                              <span
+                                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                                  r.worksAsDriver ? "left-[22px]" : "left-0.5"
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        );
+                      })()}
+
                       {/* 権限トグル */}
                       <div className="mb-4 text-sm font-semibold text-slate-700">権限</div>
                       <div className="space-y-3">
