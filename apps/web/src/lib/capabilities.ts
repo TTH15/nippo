@@ -18,3 +18,19 @@ export function hasAnyCapability(...capabilities: string[]): boolean {
   const owned = getStoredDriver()?.capabilities ?? [];
   return capabilities.some((c) => owned.includes(c));
 }
+
+/**
+ * 運営画面へ入れるアカウントか。capability を1つでも持てば運営（ACCOUNTING・
+ * カスタムロールも対象）。capabilities 未取得の旧キャッシュは role でフォールバック。
+ * ルート振り分け(app/page.tsx)・モード切替FAB・(admin) 入口ガードで共通利用。
+ */
+export function canEnterAdmin(
+  driver?: { capabilities?: string[]; role?: string } | null,
+): boolean {
+  if (!driver) return false;
+  return (
+    (driver.capabilities?.length ?? 0) > 0 ||
+    driver.role === "ADMIN" ||
+    driver.role === "ADMIN_VIEWER"
+  );
+}

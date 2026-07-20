@@ -43,15 +43,20 @@ describe("InvoiceSheet", () => {
 
   it("連続入力でフォーカスが外れない（複数桁を入力できる）", async () => {
     const user = userEvent.setup();
-    render(<Harness init={{ ...blankEditorState("outgoing"), main: [{ title: "", qty: "", unit: "", price: "", priceBasis: "exclusive" }], deduct: [] }} />);
+    const { container } = render(
+      <Harness init={{ ...blankEditorState("outgoing"), main: [{ title: "", qty: "", unit: "", price: "", priceBasis: "exclusive" }], deduct: [] }} />,
+    );
     const title = screen.getByPlaceholderText("摘要");
     await user.click(title);
     await user.type(title, "ネコポス");
     expect((title as HTMLInputElement).value).toBe("ネコポス");
-    // 数量に複数桁
-    const qty = screen.getAllByPlaceholderText("0")[0];
+    // 数量に複数桁。placeholder="0" はサマリー欄（貸付返済等、初期値"0"）にもあり
+    // DOM 順で先に来るため、data-cell で明細1行目の数量セルを正確に指す。
+    const qty = container.querySelector('[data-cell="main|0|1"]') as HTMLInputElement;
+    expect(qty).not.toBeNull();
+    await user.click(qty);
     await user.type(qty, "254");
-    expect((qty as HTMLInputElement).value).toBe("254");
+    expect(qty.value).toBe("254");
   });
 
   it("矢印キーで上下左右のセルへフォーカス移動する（data-cell属性でセルを特定できる）", async () => {
