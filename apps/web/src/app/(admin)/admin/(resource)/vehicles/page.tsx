@@ -560,7 +560,9 @@ export default function VehiclesPage() {
   return (
     <AdminLayout>
       <div className="w-full">
-        <div className="flex items-center justify-between mb-6">
+        {/* 見出しとオイル警告は追従させる（スマホはモバイルヘッダー h-14 の直下、PC はページ上端） */}
+        <div className="sticky top-14 md:top-0 z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-1 -mt-1">
+        <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
             <FontAwesomeIcon icon={faCar} className="w-5 h-5 text-slate-400" />
             車両管理
@@ -582,7 +584,7 @@ export default function VehiclesPage() {
         {/* オイル交換の警告サマリー（要交換・接近の台数を上部に強調表示） */}
         {!loading && oilAlertTotal > 0 && (
           <div
-            className={`mb-5 rounded-xl border p-4 ${
+            className={`mb-4 rounded-xl border p-3 md:p-4 ${
               oilCriticalCount > 0 ? "border-rose-300 bg-rose-50" : "border-amber-300 bg-amber-50"
             }`}
           >
@@ -609,13 +611,14 @@ export default function VehiclesPage() {
                     </span>
                   )}
                 </div>
-                <p className={`mt-1.5 text-xs ${oilCriticalCount > 0 ? "text-rose-700" : "text-amber-700"}`}>
+                <p className={`mt-1.5 hidden md:block text-xs ${oilCriticalCount > 0 ? "text-rose-700" : "text-amber-700"}`}>
                   各車両のオイルゲージを確認し、交換手配を進めてください。
                 </p>
               </div>
             </div>
           </div>
         )}
+        </div>
 
         {loading ? (
           <div className="space-y-4">
@@ -675,9 +678,10 @@ export default function VehiclesPage() {
                       : "bg-white border-slate-200"
                   }`}
                 >
-                  {/* カード上部1行: No. / 車種 / ドライバー / 次回車検・自賠責 / 編集 */}
-                  <div className="flex flex-wrap items-center gap-4 mb-6">
-                    <span className={`text-m font-medium shrink-0 ${v.is_disposed ? "text-red-700" : "text-slate-500"}`}>
+                  {/* カード上部1行: No. / 車種 / ドライバー / 次回車検・自賠責 / 編集
+                      （スマホでも詰めて並ぶよう、文字を小さめ・間隔を狭めにしている） */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 md:gap-4 mb-4 md:mb-6">
+                    <span className={`text-xs md:text-base font-medium shrink-0 ${v.is_disposed ? "text-red-700" : "text-slate-500"}`}>
                       No.{String(vehicleNo).padStart(4, "0")}
                     </span>
                     {v.is_disposed && (
@@ -698,7 +702,7 @@ export default function VehiclesPage() {
                       </span>
                     )}
                     {(v.manufacturer || v.brand) && (
-                      <span className="text-sm shrink-0 flex gap-1 items-center pl-3">
+                      <span className="text-xs md:text-sm shrink-0 flex gap-1 items-center md:pl-3">
                         {v.manufacturer && (
                           <span className="text-slate-500">{v.manufacturer}</span>
                         )}
@@ -706,18 +710,18 @@ export default function VehiclesPage() {
                           <span className="text-slate-500 mx-0.1"> </span>
                         )}
                         {v.brand && (
-                          <span className="text-lg text-slate-900 font-semibold">{v.brand}</span>
+                          <span className="text-sm md:text-lg text-slate-900 font-semibold">{v.brand}</span>
                         )}
                       </span>
                     )}
 
-                    <div className="flex items-center gap-1.5 flex-nowrap min-w-0 h-6 pl-3">
+                    <div className="flex items-center gap-1 md:gap-1.5 flex-nowrap min-w-0 h-6 md:pl-3">
                       {vehicleDrivers.length > 0 ? (
                         vehicleDrivers.length <= 2 ? (
                           vehicleDrivers.map((vd) => (
                             <span
                               key={vd.driver_id}
-                              className="inline-flex items-center h-6 px-2 rounded text-xs font-medium bg-slate-800 text-white shrink-0"
+                              className="inline-flex items-center h-5 md:h-6 px-1.5 md:px-2 rounded text-[11px] md:text-xs font-medium bg-slate-800 text-white shrink-0"
                             >
                               {getDisplayName(vd.drivers)}
                             </span>
@@ -727,7 +731,7 @@ export default function VehiclesPage() {
                             {vehicleDrivers.slice(0, 2).map((vd) => (
                               <span
                                 key={vd.driver_id}
-                                className="inline-flex items-center h-6 px-2 rounded text-xs font-medium bg-slate-800 text-white shrink-0"
+                                className="inline-flex items-center h-5 md:h-6 px-1.5 md:px-2 rounded text-[11px] md:text-xs font-medium bg-slate-800 text-white shrink-0"
                               >
                                 {getDisplayName(vd.drivers)}
                               </span>
@@ -740,7 +744,7 @@ export default function VehiclesPage() {
                                   setOpenDriverPopoverVehicleId((id) => (id === v.id ? null : v.id));
                                 }}
                                 title={vehicleDrivers.map((vd) => getDisplayName(vd.drivers)).join("、")}
-                                className="inline-flex items-center h-6 px-2 rounded text-xs font-medium bg-slate-700 text-white hover:bg-slate-600"
+                                className="inline-flex items-center h-5 md:h-6 px-1.5 md:px-2 rounded text-[11px] md:text-xs font-medium bg-slate-700 text-white hover:bg-slate-600"
                               >
                                 他{vehicleDrivers.length - 2}名
                               </button>
@@ -765,18 +769,18 @@ export default function VehiclesPage() {
                           </>
                         )
                       ) : (
-                        <span className="inline-flex items-center h-6 px-2 rounded text-xs font-medium bg-slate-50 text-slate-400 shrink-0">未設定</span>
+                        <span className="inline-flex items-center h-5 md:h-6 px-1.5 md:px-2 rounded text-[11px] md:text-xs font-medium bg-slate-50 text-slate-400 shrink-0">未設定</span>
                       )}
                     </div>
-                    {/* ラベルと値をペアで束ね、狭い画面ではペア単位で折り返す（横にはみ出さない） */}
-                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm min-w-0 md:pl-3">
-                      <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+                    {/* 車検・自賠責はスマホでも1行に収まるよう小さめに（PC は従来サイズ） */}
+                    <div className="flex flex-wrap items-baseline gap-x-2.5 md:gap-x-4 gap-y-1 text-[11px] md:text-sm min-w-0 md:pl-3">
+                      <span className="inline-flex items-baseline gap-1 md:gap-1.5 whitespace-nowrap">
                         <span className="text-slate-400">次回車検</span>
-                        <span className="font-semibold text-lg text-slate-900">{formatInspectionDate(v.next_shaken_date)}</span>
+                        <span className="font-semibold text-xs md:text-lg text-slate-900">{formatInspectionDate(v.next_shaken_date)}</span>
                       </span>
-                      <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+                      <span className="inline-flex items-baseline gap-1 md:gap-1.5 whitespace-nowrap">
                         <span className="text-slate-400">自賠責更新</span>
-                        <span className="font-semibold text-lg text-slate-900">{formatMonth(v.jibaiseki_renewal_month)}</span>
+                        <span className="font-semibold text-xs md:text-lg text-slate-900">{formatMonth(v.jibaiseki_renewal_month)}</span>
                       </span>
                     </div>
                     {canWrite && (
@@ -805,12 +809,12 @@ export default function VehiclesPage() {
                   </div>
 
                   <div className="flex flex-col md:flex-row gap-5 md:gap-8">
-                    {/* 左側: ナンバープレート、写真 */}
-                    <div className="flex-shrink-0 w-full max-w-[240px] space-y-4">
+                    {/* 左側: ナンバープレート、写真。スマホは横並び（縦の消費を半分に） */}
+                    <div className="flex-shrink-0 w-full md:max-w-[240px] flex flex-row md:flex-col items-start gap-3 md:gap-4 md:space-y-0">
                       {/* ナンバープレート */}
                       {(v.number_prefix || v.number_hiragana || v.number_numeric) && (
-                        <div className="relative w-full max-w-[240px]">
-                          <VehiclePlate vehicle={v} className="w-full max-w-[240px]" />
+                        <div className="relative w-1/2 md:w-full max-w-[240px] shrink-0">
+                          <VehiclePlate vehicle={v} className="w-full md:max-w-[240px]" />
                           {v.is_disposed && (
                             <svg
                               className="absolute inset-0 w-full h-full pointer-events-none"
@@ -834,7 +838,7 @@ export default function VehiclesPage() {
                       )}
 
                       {/* 車両画像プレースホルダー（16:9） */}
-                      <div className="w-full aspect-video bg-slate-100 rounded-lg overflow-hidden">
+                      <div className="min-w-0 flex-1 md:w-full aspect-video bg-slate-100 rounded-lg overflow-hidden">
                         {v.image_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img

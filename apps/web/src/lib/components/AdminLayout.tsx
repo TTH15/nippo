@@ -218,7 +218,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen flex flex-col bg-slate-50 max-md:bg-transparent">
       {/* モバイルヘッダー（運営モードの外枠。ダークで「運営に居る」ことを示す） */}
       {/* z-40: ページ内の sticky テーブルヘッダー（z-20〜30）より前面に置き、スクロール時の重なりを防ぐ */}
-      <header className="sticky top-0 z-40 flex items-center justify-between gap-2 px-3 py-2.5 border-b border-brand-700 bg-brand-800/95 backdrop-blur shadow-sm md:hidden">
+      {/* h-14: ページ側の sticky ツールバーが top-14 で真下に貼り付けるよう高さを固定する */}
+      <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-2 px-3 border-b border-brand-700 bg-brand-800/95 backdrop-blur shadow-sm md:hidden">
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}

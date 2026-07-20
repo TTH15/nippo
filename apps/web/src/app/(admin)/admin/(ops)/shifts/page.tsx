@@ -23,7 +23,7 @@ import {
 import { summarizeHistory, type ShiftLog } from "@/server/shiftRequests/diff";
 import { cn } from "@/lib/ui/utils";
 import { TimePicker } from "@/lib/ui/time-picker";
-import { ChevronDown, RefreshCw, Settings } from "lucide-react";
+import { ChevronDown, Download, RefreshCw, Settings } from "lucide-react";
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
@@ -508,6 +508,8 @@ export default function ShiftsPage() {
   const [refreshing, setRefreshing] = useState(false);
   // スマホの日別ビュー（B）: 表示中の1日。null=期間内の今日 or 先頭日にフォールバック。
   const [mobileDate, setMobileDate] = useState<string | null>(null);
+  // 日別ビューの絞り込みタブ。全員=在籍全員 / 稼働=割当あり / 未割当=割当なし（希望休を含む）。
+  const [mobileFilter, setMobileFilter] = useState<"all" | "working" | "unassigned">("all");
   // コース軸ビューのセル（コース×日）モーダル。担当可能ドライバーの追加・解除を行う。
   const [courseCellModal, setCourseCellModal] = useState<{ courseId: string; date: string } | null>(
     null,
@@ -1359,11 +1361,40 @@ export default function ShiftsPage() {
         ? today
         : displayDates[0] ?? "";
 
-  /** 日別ビュー用: その日の「ドライバー→割当コース」一覧（割当のある人だけ、表示名順） */
-  const getAssignedEntriesOnDate = (date: string) =>
+  /** 日別ビュー用: その日の全ドライバーの状態（割当・希望休・車両）を表示名順で返す */
+  const getDayRows = (date: string) =>
     driversWithCourses
-      .map((d) => ({ driver: d, placements: findDriverPlacementsOnDate(localShifts, date, d.id) }))
-      .filter((e) => e.placements.length > 0)
+      .map((driver) => {
+        const placements = findDriverPlacementsOnDate(localShifts, date, driver.id);
+        const assignedCourses = placements
+          .map((p) => courses.find((c) => c.id === p.courseId))
+          .filter((c): c is Course => Boolean(c))
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+        const vehicleId = getCurrentVehicleForDriverOnDate(date, driver.id);
+        // フリート未取得の車両は shifts のネスト（vehicles）へフォールバックし、必ず何かを出す
+        const plate: VehiclePlateData | null = (() => {
+          if (!vehicleId) return null;
+          const fromFleet = fleetById.get(vehicleId);
+          if (fromFleet) return fromFleet;
+          const p0 = placements[0];
+          const row = p0
+            ? shifts.find(
+                (s) => s.shift_date === date && s.course_id === p0.courseId && s.slot === p0.slot,
+              )
+            : null;
+          const embedded =
+            row?.vehicle_id === vehicleId ? normalizeShiftVehiclesEmbed(row).vehicles : null;
+          return embedded ?? { id: vehicleId };
+        })();
+        return {
+          driver,
+          placements,
+          assignedCourses,
+          plate,
+          isExternal: getCurrentExternalForDriverOnDate(date, driver.id),
+          off: isDriverOffDay(driver.id, date),
+        };
+      })
       .sort((a, b) => getDisplayName(a.driver).localeCompare(getDisplayName(b.driver), "ja"));
 
   // ベクターPDF用に、エクスポート表の内容を素データへ変換（描画ロジックと分離）。
@@ -1450,7 +1481,8 @@ export default function ShiftsPage() {
   return (
     <AdminLayout>
       <div className="max-w-full">
-        <div className="sticky top-0 z-30 bg-white pt-1 -mt-1">
+        {/* スマホはモバイルヘッダー（h-14・z-40）の真下に貼り付ける。PC はページ上端 */}
+        <div className="sticky top-14 md:top-0 z-30 bg-white pt-1 -mt-1">
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div className="w-full md:w-auto">
             <h1 className="text-xl font-bold text-slate-900">シフト管理</h1>
@@ -1459,6 +1491,12 @@ export default function ShiftsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap w-full md:w-auto">
+            {/* 操作の流れに合わせて 年月 → 前半/後半 の順に並べる */}
+            <MonthYearPicker
+              value={yearMonth}
+              onChange={handleYearMonthChange}
+              placeholder="年月を選択"
+            />
             <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white w-full sm:w-auto">
               <button
                 type="button"
@@ -1526,20 +1564,19 @@ export default function ShiftsPage() {
                 </button>
               ))}
             </div>
-            <MonthYearPicker
-              value={yearMonth}
-              onChange={handleYearMonthChange}
-              placeholder="年月を選択"
-            />
             <div className="relative">
+              {/* スマホは省スペースのためアイコンのみ（PC は従来のラベル付き） */}
               <button
                 type="button"
                 onClick={() => setExportMenuOpen((o) => !o)}
                 disabled={exporting || loading}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
+                title="エクスポート（PNG / PDF）"
+                aria-label="エクスポート"
+                className="h-9 w-9 md:w-auto md:px-3 md:py-1.5 text-xs font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1"
               >
-                {exporting ? "エクスポート中..." : "エクスポート"}
-                {!exporting && <ChevronDown className="w-3.5 h-3.5" />}
+                <Download className={cn("w-4 h-4 md:hidden", exporting && "animate-pulse")} />
+                <span className="hidden md:inline">{exporting ? "エクスポート中..." : "エクスポート"}</span>
+                {!exporting && <ChevronDown className="hidden md:block w-3.5 h-3.5" />}
               </button>
               {exportMenuOpen && !exporting && (
                 <>
@@ -1645,11 +1682,15 @@ export default function ShiftsPage() {
                 const date = activeMobileDate;
                 if (!date) return null;
                 const idx = displayDates.indexOf(date);
-                const entries = getAssignedEntriesOnDate(date);
-                const unassigned = getUnassignedDriversOnDate(date);
-                const offNames = driversWithCourses
-                  .filter((d) => isDriverOffDay(d.id, date))
-                  .map((d) => getDisplayName(d));
+                const allRows = getDayRows(date);
+                const workingRows = allRows.filter((r) => r.placements.length > 0);
+                const unassignedRows = allRows.filter((r) => r.placements.length === 0);
+                const rows =
+                  mobileFilter === "working"
+                    ? workingRows
+                    : mobileFilter === "unassigned"
+                      ? unassignedRows
+                      : allRows;
                 const count = workingCountByDate.get(date) ?? 0;
                 const isToday = date === today;
                 return (
@@ -1683,81 +1724,99 @@ export default function ShiftsPage() {
                       </button>
                     </div>
 
-                    {/* 割当済み（タップで既存のセル編集モーダル） */}
+                    {/* 絞り込みタブ（全員／稼働／未割当） */}
+                    <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+                      {(
+                        [
+                          ["all", "全員", allRows.length],
+                          ["working", "稼働", workingRows.length],
+                          ["unassigned", "未割当", unassignedRows.length],
+                        ] as const
+                      ).map(([key, label, n], i) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setMobileFilter(key)}
+                          className={cn(
+                            "flex-1 px-2 py-2 text-[13px] font-medium transition-colors",
+                            i > 0 && "border-l border-slate-300",
+                            mobileFilter === key ? "bg-slate-800 text-white" : "text-slate-600",
+                          )}
+                        >
+                          {label}
+                          <span className="ml-1 text-[11px] tabular-nums opacity-70">{n}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* 一覧（タップで編集モーダル／希望休の人は希望休モーダル） */}
                     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
-                      {entries.length === 0 ? (
+                      {rows.length === 0 ? (
                         <p className="px-4 py-6 text-center text-sm text-slate-400">
-                          この日の割当はまだありません。
+                          該当するドライバーはいません。
                         </p>
                       ) : (
-                        entries.map(({ driver, placements }) => {
-                          const assignedCourses = placements
-                            .map((p) => courses.find((c) => c.id === p.courseId))
-                            .filter((c): c is Course => Boolean(c))
-                            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-                          const vid = getCurrentVehicleForDriverOnDate(date, driver.id);
-                          const external = getCurrentExternalForDriverOnDate(date, driver.id);
-                          const plate = vid ? fleetById.get(vid) ?? null : null;
-                          const canOpen = canWrite || canDispatch;
+                        rows.map(({ driver, placements, assignedCourses, plate, isExternal, off }) => {
+                          const hasAny = placements.length > 0;
+                          const canOpen = off ? canWrite : canWrite || (canDispatch && hasAny);
                           return (
                             <button
                               key={driver.id}
                               type="button"
                               disabled={!canOpen}
-                              onClick={() => setEditingCell({ date, driverId: driver.id })}
+                              onClick={() =>
+                                off
+                                  ? openOffModal(driver.id, date)
+                                  : setEditingCell({ date, driverId: driver.id })
+                              }
                               className={cn(
                                 "flex w-full items-center gap-3 px-3 py-2.5 text-left",
-                                canOpen ? "active:bg-slate-50" : "cursor-default",
+                                off && "bg-amber-50/60",
+                                canOpen ? "active:bg-slate-100" : "cursor-default",
                               )}
                             >
                               <span className="w-20 shrink-0 truncate text-sm font-semibold text-slate-900">
                                 {getDisplayName(driver)}
                               </span>
                               <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-                                {assignedCourses.map((c) => (
-                                  <span
-                                    key={c.id}
-                                    className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
-                                    style={courseCellSurface(c.color)}
-                                  >
-                                    {courseShiftLabel(c)}
+                                {off ? (
+                                  <span className="rounded bg-amber-100 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
+                                    希望休
                                   </span>
-                                ))}
-                              </span>
-                              <span className="shrink-0 text-right">
-                                {plate ? (
-                                  <VehiclePlate vehicle={plate} compact className="!max-w-[6.5rem] pointer-events-none" />
-                                ) : external ? (
-                                  <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
+                                ) : hasAny ? (
+                                  assignedCourses.map((c) => (
+                                    <span
+                                      key={c.id}
+                                      className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
+                                      style={courseCellSurface(c.color)}
+                                    >
+                                      {courseShiftLabel(c)}
+                                    </span>
+                                  ))
                                 ) : (
-                                  <span className="text-[11px] text-slate-400">車両なし</span>
+                                  <span className="text-[12px] text-slate-400">
+                                    未割当{canWrite ? "（タップで割当）" : ""}
+                                  </span>
                                 )}
                               </span>
+                              {hasAny && (
+                                <span className="shrink-0 text-right">
+                                  {plate ? (
+                                    <VehiclePlate
+                                      vehicle={plate}
+                                      compact
+                                      className="!max-w-[6.5rem] pointer-events-none"
+                                    />
+                                  ) : isExternal ? (
+                                    <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-400">車両なし</span>
+                                  )}
+                                </span>
+                              )}
                             </button>
                           );
                         })
-                      )}
-                    </div>
-
-                    {/* 未割当・希望休のサマリー */}
-                    <div className="space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => setUnassignedOpenDate(date)}
-                        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left active:bg-slate-50"
-                      >
-                        <span className="text-[13px] font-medium text-slate-700">未割当</span>
-                        <span className="min-w-0 truncate pl-3 text-right text-[12px] text-slate-500">
-                          {unassigned.length === 0
-                            ? "なし"
-                            : `${unassigned.length}人 — ${unassigned.map((d) => getDisplayName(d)).join("、")}`}
-                        </span>
-                      </button>
-                      {offNames.length > 0 && (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
-                          <span className="text-[13px] font-medium text-amber-800">希望休</span>
-                          <span className="ml-2 text-[12px] text-amber-700">{offNames.join("、")}</span>
-                        </div>
                       )}
                     </div>
                   </>
