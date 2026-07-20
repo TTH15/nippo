@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { getStoredDriver, clearAuth } from "@/lib/api";
+import { NotificationBell } from "@/lib/components/NotificationBell";
 
 type NavProps = {
   /** ユーザー画面用: ハンバーガー廃止、下部タブで遷移 */
@@ -72,6 +73,7 @@ export function Nav({ variant = "default" }: NavProps) {
           )}
           {/* 運営画面への切替は ModeSwitchFab（スマホ幅の FAB）に集約。
               PC 幅では運営画面のみ運用のためリンク自体を廃止 */}
+          {isUserLayout && <NotificationBell />}
           {isUserLayout && (
             <button
               type="button"

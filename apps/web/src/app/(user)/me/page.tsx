@@ -20,6 +20,8 @@ import { dedupeVehiclesById, excludeVehicleId, resolvePreferredVehicleId } from 
 import { validatePinChange, digitsOnly, buildProfileEntries, formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { isValidReportDateTime, countAttachmentsByField } from "@repo/core/logic/report";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
+import { LineLinkSection } from "./LineLinkSection";
+import { PushNotificationSection } from "./PushNotificationSection";
 
 export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
   const canUsePasskey = useIsWebAuthnHost();
@@ -716,6 +718,10 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
           )}
         </div>
       </section>
+
+      <LineLinkSection />
+
+      <PushNotificationSection />
 
       {canUsePasskey && (
         <section className="mt-10">

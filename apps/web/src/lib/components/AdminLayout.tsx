@@ -27,6 +27,7 @@ import {
   faUserPlus,
   faUserShield,
   faLock,
+  faBell,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver, type StoredDriver } from "@/lib/api";
@@ -67,6 +68,7 @@ const navItems: NavItem[] = [
     ],
   },
   { href: "/admin/events", label: "イベント", icon: faTrophy, cap: "can_view_org_settings" },
+  { href: "/admin/notifications", label: "通知配信", icon: faBell, cap: "can_send_notifications" },
   {
     label: "設定",
     icon: faGear,

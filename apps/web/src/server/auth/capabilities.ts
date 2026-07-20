@@ -24,6 +24,7 @@ export const CAPABILITIES = [
   "can_manage_members", // ロール変更・退会処理
   "can_view_org_settings", // フォーム/締切/コース等の設定の閲覧
   "can_manage_org_settings", // フォーム/締切/コース等の設定の編集
+  "can_send_notifications", // 通知の一斉配信（LINE・アプリ内インボックス）
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -57,6 +58,7 @@ export const CAPABILITY_GROUP_ORDER = [
   "請求",
   "本人確認・口座",
   "メンバー",
+  "通知",
   "設定",
 ] as const;
 
@@ -77,6 +79,7 @@ export const CAPABILITY_META: Record<Capability, { label: string; group: (typeof
   can_view_members: { label: "ドライバー名簿の閲覧", group: "メンバー" },
   can_approve_members: { label: "参加承認・本人確認", group: "メンバー" },
   can_manage_members: { label: "ロール変更・退会処理", group: "メンバー" },
+  can_send_notifications: { label: "通知の一斉配信", group: "通知" },
   can_view_org_settings: { label: "設定の閲覧", group: "設定" },
   can_manage_org_settings: { label: "設定の編集", group: "設定" },
 };
@@ -187,6 +190,15 @@ export const PERMISSION_ROWS: PermissionRow[] = [
     description: "顔写真・運転免許証など本人確認書類を閲覧できます。",
     capability: "can_view_pii",
     onLabel: "閲覧可能",
+  },
+  {
+    kind: "binary",
+    key: "send_notifications",
+    label: "通知の一斉配信",
+    description:
+      "ドライバーへの一斉連絡（LINE・アプリ内インボックス）を送信できます。送信先は自社のメンバーに限られます。",
+    capability: "can_send_notifications",
+    onLabel: "可能",
   },
   {
     kind: "leveled",

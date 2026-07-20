@@ -87,6 +87,17 @@
       ※請求書の帳票（InvoiceSheet）は A4 再現が目的なので**横スクロール前提のまま**とする（作り替え非推奨）。
 - [ ] B の残り: 実機での確認と、細かい調整（運用フィードバック起点）。
 
+### G. 請求書・帳票の作り直し（将来・大きめ）
+- [ ] **方針: 現行の帳票UIはこれ以上いじらない**（2026-07-20 判断）。ブラウザ印刷＋JS でのページ分割は
+      「あと1行入らない」への対処が原理的に苦しく、微調整UI（余白3種）を足すほど複雑になるため。
+- [ ] **組版エンジンの導入を視野に**: HTML→PDF をサーバー側で確定させる方式（Playwright/Puppeteer）か、
+      組版専用（Typst 等）へ寄せる。1ページに収める縮小・行間の自動調整はエンジン側の責務にする。
+- [ ] **電子請求書（デジタルインボイス）**: PDF は「人が読む表現」、正本は構造化データという整理にする。
+      日本は JP PINT（Peppol）が標準。payload(JSON) を持つ現行設計は素地としては悪くない。
+- [ ] 税モデルの再整理: 現在は「消費税ON/税率」「行ごとの税抜/税込」「帳票全体の表示基準」の3階層。
+      行ごとの混在は他社製品では稀（文書単位が一般的）。軽減8%対応・端数処理（税率ごとに1回）も
+      このタイミングで見直す。
+
 ### C. ハコ虎AI（チャットエージェント）
 - [ ] **C1 MVP**: ドライバーが「来月は毎週月・火の午後休み希望で」→ 希望休を提出するチャット。
       土台は完成済み: own/any スコープ権限（checkPermission）＋希望休 API の own 移行＋締切保護。
@@ -96,15 +107,109 @@
       旧「叩き台生成」（ルールベース、2026-07-20 廃止）の後継はここ: シフト自動作成を
       AI 駆動の制約充足（希望休・担当可能コース・定員・時間モデル）として実装する。
 
-### D. mobile 画面作成（Expo）
-- [ ] 正本: `docs/mobile-migration-roadmap-2026.md`（目標: **9/1 ドライバー完全移行・内部配布**）。
-      本丸は M-D デザイン刷新（業務開始プロトタイプ qr_flow v2.0）＋ M1 リリース足回り。
-- [ ] web 側で先行した権限モデル（works_as_driver / capability）の mobile 追随は
-      運営モード刷新（M-D統合）時にまとめて。
+### D. mobile 画面作成（Expo）★ 残る唯一の外部期限（9/1）
+> 正本: `docs/mobile-migration-roadmap-2026.md`。**2026-07-20 にコード監査を実施し、
+> 同書 6/29 時点の記述との差分を確定**（M4・M5 は実質完了。代わりに M1・M3 が丸ごと残る）。
 
-### E. LINE 連携
-- [ ] mobile roadmap の M3。公式LINE（Messaging API）で個別通知＋一斉配信。LINEログインは不要（合意済）。
-      identity.line_user_id は確保済み。通知フロー docs/notification-flow.md と接続。
+**監査で判明（計画書の記述は古い）**
+- ✅ **M4 パリティは達成済み**: 請求書の表示・承認（`RewardsScreen.tsx`、`/api/me/invoices` + approve）、
+  PIN変更、電話番号確認は実装済み。計画書が「必須・未実装」としていた項目はクリア。
+- ✅ **M5 の穴は塞がっている**: QRフォールバック（plate OCR／手動）`QrFallback.tsx`、
+  4方向点検 `VehicleInspectionCapture.tsx`、オドメーターOCR（ROI帯フィルタ）とも実装済み。
+- ✅ **qr_flow v2.0 の中核演出も実装済み**: 円形ボタンの状態機械・長押し充填＋Haptic・
+  その場で円形カメラ・抜き打ち免許OCR（15%）。`PunchButton.tsx`。
+- 配色トークン（brand/accent）は `tailwind.config.js` にあり、NativeWind 全画面移行も完了。
+
+**残作業（規模感付き。「大」は4件）**
+- [ ] **A. リリース足回り（blocker・依存の根元、合計1〜2週）**: bundleId `com.example.nippomobile` の
+      本番化＋ネイティブ再生成【中】／ATS `NSAllowsArbitraryLoads` 除去（app.json と Info.plist の2箇所）【小】／
+      アイコン・スプラッシュ接続（素材 `assets/logo-icon.png` は既にある）【小】／`eas init` と
+      プロファイル別 env（**現状 EXPO_PUBLIC_* が dev を指したまま本番ビルドに焼き込まれるリスク**）【小】／
+      Android ネイティブ未生成【中】／expo-updates（OTA）【中】
+- [ ] **B. M-D デザイン（残り3〜4割）**: 業務ホームの再設計（円1つのホーム＋稼働情報、日報を分離）【大】／
+      終了フロー拡張（給油・返却・忘れ物）＋終了サマリー（稼働時間/件数/距離）【中〜大】／
+      BottomSheet の作り込み（現状18行のModalラッパ）【中】／デザインシステム整備
+      （タイポ・スペーシングのトークン、Button/Card/Input 共通化）【中】／他画面の視覚仕上げ【中】
+- [ ] **C. パリティの穴**: 諸報告（動的フォーム＋添付）【中、`packages/core/logic/oilChange.ts` 再利用可】／
+      チーム戦・既読系・車両preference【小・9/1は落として可】
+- [ ] **D. 通知（M3 丸ごと未着手）**: LINE公式アカウント＋Messaging APIチャネル開設【中・**外部審査待ちが
+      読めないため最優先でキックオフ**】／友だち追加導線＋userId↔driver紐付け【大】／
+      webhook・署名検証・個別push・運営一斉配信UI【大】
+- [ ] **E. 堅牢性**: Sentry【小】／トークン失効UX（現状は無言ログアウト）【小】／オフラインキュー【中】
+- [ ] **F. 運用（コード外）**: 本番 migration 089→098 適用・Storageバケット確認・ADMIN_VIEWER発行【中】
+- [ ] 運営モード4画面はスタブのまま（web の権限モデル追随も含め、9/1 スコープ外で可）
+
+**技術的注意**: Expo SDK 52 = React 18、web は Next 16 = React 19。ルートの react を 19 に上げると
+Expo が壊れる（現状は web だけ 19 をネストで持つ脆い構成）。
+
+**SDK 57 / Tailwind v4 への更新（ユーザー予定・2026-07-20 共有）**
+- SDK 52→57 は React 19 化を伴い、上記の React 二重問題が**根本解決**する。Tailwind v4 化は
+  `@platform/ui`（v4 前提）を hakotora で正式に vendor できるようになる副次効果もある。
+- **やるなら Apple 待ちの空白期間が好機**: bundleId 変更でどのみちネイティブ再生成（prebuild）が
+  必要になるため、SDK 移行とまとめて1回で済ませられる。
+- **ただし要事前確認**: ①`@react-native-ml-kit/text-recognition`（Expo 管理外）の SDK 57 対応
+  ②NativeWind の Tailwind v4 対応版の有無（現行は NativeWind 4 + Tailwind 3）
+  ③expo-camera / reanimated の破壊的変更。5世代ぶんの移行なので、動作検証は実機で。
+- 判断の分かれ目: 9/1 の配布物を「安定の 52 で出す」か「移行を済ませた 57 で出す」か。
+  Apple の遅延で 9/1 の iOS 公開自体が後ろ倒しの可能性が高い（下記）ため、**移行を先に済ませる余地はある**。
+
+**Apple Developer ブロックの再確認**（mobile roadmap `:112-118`）
+- 法人登記完了 **2026-08-08 予定** → D-U-N-S・登記情報の確認が必要な組織アカウント申請はその後。
+  審査に数日〜数週間 → **iOS の 9/1 公開は物理的に間に合わない可能性が高い**（ユーザーも認識済）。
+- **Android は無関係に進められる**（EAS の内部テスト＝APK サイドロードはストアアカウント不要）。
+  Apple 待ちの間の主力配布路にできる。
+- 移行は PWA 併走 → 段階移行の設計なので、**遅延しても業務は止まらない**（9/1 という日付が後ろ倒しになるだけ）。
+
+### E. LINE 連携 ★次セッションはここから（2026-07-20 判断）
+> **Apple Developer 登録（8/8 法人登記待ち）と完全に独立**して進められる。実装の大半が
+> サーバー（Next.js API）＋運営 web UI で、mobile 側は友だち追加導線を出す程度。
+> D の M1（bundleId・TestFlight）がブロックされている今、ここを進めるのが最も効率的。
+> 設計の正本: `docs/notification-flow.md`（統合LINE1本・テナント単位運用・アプリ内インボックスが真実）。
+
+- [ ] **①LINE公式アカウント＋Messaging API チャネル開設**【最初にやる】
+      未認証アカウントなら法人確認なしで即時作成でき、**Messaging API も未認証で使える**。
+      「今は未認証で開発 → 8/8 の登記後に認証済み（青バッジ）を申請」の順で進めれば待ちが発生しない。
+      ※料金プランでメッセージ通数の上限が変わる点だけ先に確認する。
+- [x] **②userId ↔ identity 紐付け（サーバー） ✅ 2026-07-21** — **ワンタイムコード方式**を採用
+      （LIFF/LINEログインは追加のチャネル設定・同意画面が要るため見送り。チャネル情報だけで完結する）。
+      `line_link_codes`（6桁・10分・1回限り、紛らわしい文字を除いた英数）＋ webhook 側で突合。
+      連携は **identity 単位**（既存 `identities.line_user_id` を正本とし、`line_linked_at` /
+      `line_blocked_at` を追加）。**`line_links` テーブルは作らない** — BYO-LINE の実需が出てから昇格
+      （ワークスペース規約「先回りの共通化はしない」）。unfollow は行削除でなく `line_blocked_at` で
+      記録し、再フォローで復活させる。別 identity が同じ userId を持つ場合は黙って奪わず `taken` を返す。
+- [x] **③サーバー ✅ 2026-07-21** — webhook（`POST /api/line/webhook`）＋署名検証、
+      push/multicast クライアント、生成→インボックス→配信のディスパッチャ。
+      **broadcast API は意図的に実装しない**（§1-3 レイヤ2 の最も強い担保＝呼べる関数を置かない）。
+      誤爆防止はレイヤ1（org スコープのクエリ）・レイヤ3（送信直前アサートで越境検出→バッチ中断）・
+      レイヤ4（`notifications.org_id` から配信先を導出）・レイヤ5（UI 指定は候補との積集合）を実装。
+      **レイヤ6 の越境テストを CI に投入**（`dispatch.test.ts` ＋ 署名検証 `signature.test.ts`、計15件）。
+- [x] **④運営 web UI ✅ 2026-07-21** — `/admin/notifications`（`(ops)` 配下）。件名・本文＋
+      「全員／選んで送る」、送信前に ConfirmDialog（取り消せないため）、送信結果を件数で表示。
+      **LINE 未連携者を可視化**（§1-2「未連携を可視化＝催促可能」）＋最近の送信履歴。
+      メニューはトップレベルに「通知配信」（`cap: can_send_notifications` でロック連動）。
+      capability は migration 108 で `can_manage_members` 保持ロールへ付与済み。
+- [x] **⑤アプリ内インボックス ✅ 2026-07-21** — `/notifications`（ドライバー）。未読ドット・
+      タップで既読・すべて既読。**ヘッダーに未読ベル**（`NotificationBell`、60秒ポーリング）。
+      下部タブは5個＋中央円形ボタン（CENTER_INDEX=2）の構成で6個目を足すと中央がズレるため、
+      導線はヘッダーに置いた。マイページに **LINE連携セクション**（コード発行→トークに送信）。
+      LINE 未設定環境では連携UIは出ない（`configured:false`）。
+      LINE と RN push は恒久的に並行運用の方針。
+- [x] **⑦Web Push（LINE未連携者向け） ✅ 2026-07-21** — 「LINE 未連携だとアプリを開くまで
+      気づけない」穴を塞ぐ追加チャネル。既存の PWA 構成（manifest + sw.js）に push /
+      notificationclick を追加、`push_subscriptions`（端末単位・migration 109）、
+      VAPID 署名は `web-push`。dispatch にチャネルを1本足しただけで、インボックスは変わらず真実。
+      **★iOS はホーム画面追加した PWA でのみ購読可能（Apple の制約で回避不能。Safari タブでは
+      `window.PushManager` 自体が存在しない）**。そのため**環境判別して案内を出し分ける**:
+      supported=許可ボタン／ios_needs_install=ホーム画面追加を案内＋LINE連携を推奨／
+      unsupported=何も出さない。判定は `lib/webPush.ts` に集約しテスト済み（iPadOS の
+      UA偽装＝MacIntel+タッチ数での判別を含む6件）。
+      ※ドライバーは「ブラウザで開く人が多い」ため、**iOS 勢には実質 LINE 連携が主経路**になる。
+- [ ] **⑥適用待ち**: migration 108・109 の本番適用、環境変数の設定
+      （`LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` / `VAPID_PUBLIC_KEY` /
+      `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`。VAPID鍵は `npx web-push generate-vapid-keys` で生成）、
+      LINE Developers 側の Webhook URL 登録（`https://<本番>/api/line/webhook`）。
+      **未設定でも壊れない**（`isLineConfigured()` / `isWebPushConfigured()` が false なら
+      その経路を黙ってスキップし、インボックスのみで動作）。
 
 ### F. 権限・基盤の残り（Phase 9 続き）
 - [ ] 本人系ルート（requireAuth "DRIVER" 約40箇所）の own スコープ細粒度化（現状は認証のみで通る過渡状態）。
@@ -113,16 +218,19 @@
 - [ ] invites（招待エンティティ化）→ 承認ステートマシン。
 - [ ] 会社切替UI（複数org所属）— 実需が出るまで保留（現状 409 フォールバックで安全）。
 
-## スケジュール案
+## スケジュール案（2026-07-20 に実績で改訂）
+
+**7/20 実績**: A1・A2・A3 と B（レスポンシブ）をまとめて消化。当初案の「〜8/2」ぶんを前倒しで完了。
+その結果、**残る外部期限は D（mobile 9/1 内部配布）だけ**になった。
 
 | 期間 | やること |
 |---|---|
-| **7/20（次回セッション）** | A1 実装（capability 追加＋配車エンドポイント分離＋シフトUI出し分け）。A2 の時間モデル設計を対話で確定 → スキーマ着手 |
-| **〜7/26** | A2 実装完了。B レスポンシブ（シフト・日報・名簿）。A3 洗い出し |
-| **7/27〜8/2** | C1 ハコ虎AI MVP（シフト希望チャット）。B 残り |
-| **8月上旬** | D モバイル M-D デザイン刷新に本格着手（9/1 逆算で最優先へ切替） |
-| **8月中〜下旬** | E LINE 連携（M3）。F を隙間で（own 細粒度化 → PII 開示同意 → invites） |
+| ~~7/20~~ | ~~A1~~ → **A1・A2・A3・B まで完了**（+ ロール画面改善・ダッシュボード権限出し分け・(admin)入口ガード） |
+| **〜7/26** | **D 着手**（監査済み）。①LINE公式アカウント申請を最初に出す（審査待ちが律速）②A群=足回りを一気に片付ける（bundleId・ATS・アイコン・eas env・Android・OTA） |
+| **7/27〜8月上旬** | D の B群（業務ホーム再設計・終了サマリー・BottomSheet・デザインシステム）＋ C 群（諸報告）。C1 ハコ虎AI は D の進捗を見て判断 |
+| **8月中〜下旬** | E LINE 連携（M3・D の通知と一体）。F を隙間で（own 細粒度化 → PII 開示同意 → invites） |
 | **9/1** | モバイル内部配布・ドライバー移行（mobile roadmap の既定目標） |
+| **9月以降** | G 請求書・帳票の作り直し（組版エンジン／電子請求書）。A4 場所マスタ |
 
 ## 完了済み（この整理までに）
 - 認可モデル一式（Phase 9 §2-6 ✅ 2026-07-20）: capability / ロールUI（Discord風）/ works_as_driver（個人単位）/
