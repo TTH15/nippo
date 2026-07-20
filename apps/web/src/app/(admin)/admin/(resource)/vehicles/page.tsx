@@ -560,8 +560,9 @@ export default function VehiclesPage() {
   return (
     <AdminLayout>
       <div className="w-full">
-        {/* 見出しとオイル警告は追従させる（スマホはモバイルヘッダー h-14 の直下、PC はページ上端） */}
-        <div className="sticky top-14 md:top-0 z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-1 -mt-1">
+        {/* 見出しとオイル警告は追従させる。スクロールコンテナは AdminLayout の main
+            （その上端が既にモバイルヘッダーの下）なので top-0 で真下に貼り付く */}
+        <div className="sticky top-0 z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-1 -mt-1">
         <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
             <FontAwesomeIcon icon={faCar} className="w-5 h-5 text-slate-400" />

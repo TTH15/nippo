@@ -1481,8 +1481,8 @@ export default function ShiftsPage() {
   return (
     <AdminLayout>
       <div className="max-w-full">
-        {/* スマホはモバイルヘッダー（h-14・z-40）の真下に貼り付ける。PC はページ上端 */}
-        <div className="sticky top-14 md:top-0 z-30 bg-white pt-1 -mt-1">
+        {/* スクロールコンテナは AdminLayout の main（上端が既にモバイルヘッダーの下）なので top-0 */}
+        <div className="sticky top-0 z-30 bg-white pt-1 -mt-1">
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div className="w-full md:w-auto">
             <h1 className="text-xl font-bold text-slate-900">シフト管理</h1>
