@@ -4,25 +4,26 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver, setAuth, type StoredDriver } from "@/lib/api";
+import { canEnterAdmin } from "@/lib/capabilities";
+import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
 
 export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
     const goTo = (driver: StoredDriver | null) => {
-      // 運営画面へは capability 保持で判定（ACCOUNTING・カスタムロールも対象）。
-      // capabilities 未取得の旧キャッシュに備えて role でもフォールバックする。
-      const hasAdminAccess =
-        (driver?.capabilities?.length ?? 0) > 0 ||
-        driver?.role === "ADMIN" ||
-        driver?.role === "ADMIN_VIEWER";
       if (!driver) {
         router.replace("/login");
-      } else if (hasAdminAccess) {
-        router.replace("/admin");
-      } else {
-        router.replace("/submit");
+        return;
       }
+      // 運営権限があっても、スマホで前回ドライバー画面を見ていたならそちらへ戻す
+      router.replace(
+        resolveHomePath({
+          hasAdminAccess: canEnterAdmin(driver),
+          lastMode: getLastAppMode(),
+          isMobile: isMobileWidth(),
+        }),
+      );
     };
 
     const cached = getStoredDriver();

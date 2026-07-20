@@ -1,14 +1,14 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { startRegistration } from "@simplewebauthn/browser";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, clearAuth } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 import { TeamPointsCard } from "@/lib/components/TeamPointsCard";
@@ -25,6 +25,8 @@ import { PushNotificationSection } from "./PushNotificationSection";
 
 export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
   const canUsePasskey = useIsWebAuthnHost();
+  const router = useRouter();
+  const [logoutConfirming, setLogoutConfirming] = useState(false);
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get("tab");
   // 独立ページ /report からは forceReport で報告フォームを表示。
@@ -757,6 +759,30 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
           </div>
         </section>
       )}
+
+      {/* ログアウトはここに集約（ヘッダーだと通知ベルと隣接して誤タップが起きる）。
+          破壊的操作ではないが、間違えると再ログインが要るので下端に置き控えめに見せる。 */}
+      <section className="mt-10 mb-4">
+        <button
+          type="button"
+          onClick={() => setLogoutConfirming(true)}
+          className="w-full py-2.5 text-sm text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg bg-white transition-colors"
+        >
+          ログアウト
+        </button>
+      </section>
+
+      <ConfirmDialog
+        open={logoutConfirming}
+        title="ログアウトしますか？"
+        message="次に使うときは、もう一度ログインが必要です。"
+        confirmLabel="ログアウト"
+        onConfirm={() => {
+          clearAuth();
+          router.push("/login");
+        }}
+        onClose={() => setLogoutConfirming(false)}
+      />
     </div>
   );
 }

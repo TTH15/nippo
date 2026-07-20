@@ -6,6 +6,7 @@
 // 管理画面のページ間遷移をまたいでキャッシュを共有する（再訪時の点滅をなくす）。
 import { Providers } from "@/lib/components/Providers";
 import { AdminAccessGuard } from "@/lib/components/AdminAccessGuard";
+import { AppModeRecorder } from "@/lib/components/AppModeRecorder";
 
 export default function AdminGroupLayout({
   children,
@@ -14,6 +15,8 @@ export default function AdminGroupLayout({
 }) {
   return (
     <Providers>
+      {/* 次回ログイン時にこのモードへ戻すための記録 */}
+      <AppModeRecorder mode="admin" />
       {/* data-mode: スマホ幅では globals.css がこれを見て body をチャコール化する */}
       <div
         data-mode="admin"

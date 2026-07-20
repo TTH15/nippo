@@ -5,6 +5,7 @@ import { TeamPointsBadge } from "@/lib/components/TeamPointsBadge";
 import { Providers } from "@/lib/components/Providers";
 import { ModeSwitchFab } from "@/lib/components/ModeSwitchFab";
 import { DriverDesktopNotice } from "@/lib/components/DriverDesktopNotice";
+import { AppModeRecorder } from "@/lib/components/AppModeRecorder";
 
 export default function UserLayout({
   children,
@@ -13,6 +14,8 @@ export default function UserLayout({
 }) {
   return (
     <Providers>
+      {/* 次回ログイン時にこのモードへ戻すための記録 */}
+      <AppModeRecorder mode="driver" />
       {/* ドライバー画面はスマホ幅専用。PC = 運営画面前提のため md 以上では非対応の案内を出す */}
       <div className="min-h-screen flex flex-col bg-[var(--color-bg)] md:hidden">
         <Nav variant="user" />

@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { startAuthentication } from "@simplewebauthn/browser";
-import { apiFetch, setAuth } from "@/lib/api";
+import { apiFetch, setAuth, getStoredDriver } from "@/lib/api";
+import { canEnterAdmin } from "@/lib/capabilities";
+import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
 import { getCompany } from "@/config/companies";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
 
@@ -25,11 +27,16 @@ export default function LoginPage() {
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
   const goToHome = (driver: LoginResult["driver"]) => {
-    if (driver.role === "ADMIN") {
-      router.push("/admin");
-    } else {
-      router.push("/submit");
-    }
+    // 判定は app/page.tsx と共通。role 直判定ではカスタムロール（配車担当など）が
+    // ドライバー画面へ落ちてしまうため canEnterAdmin に揃える。
+    // setAuth 済みなので capabilities はキャッシュから読める。
+    router.push(
+      resolveHomePath({
+        hasAdminAccess: canEnterAdmin(getStoredDriver() ?? driver),
+        lastMode: getLastAppMode(),
+        isMobile: isMobileWidth(),
+      }),
+    );
   };
 
   const handlePasskeyLogin = async () => {

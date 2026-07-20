@@ -14,6 +14,10 @@ import { useApi } from "@/lib/useApi";
 // LINE 未設定の環境（configured=false）ではセクションごと出さない。
 // ============================================================
 
+// 公式アカウントの友だち追加リンク（LINE Developers の「友だち追加ガイド」で発行される lin.ee URL）。
+// 未設定ならボタンを出さず、コード送信の案内だけにする。
+const ADD_FRIEND_URL = process.env.NEXT_PUBLIC_LINE_ADD_FRIEND_URL;
+
 type LineStatus = {
   configured: boolean;
   linked: boolean;
@@ -97,7 +101,19 @@ export function LineLinkSection() {
             <p className="text-sm text-slate-600">
               公式アカウントを友だち追加して、このコードをトークにそのまま送信してください。
             </p>
-            <div className="text-center text-2xl tracking-[0.3em] font-mono py-3 px-4 bg-slate-50 border border-slate-200 rounded-lg text-slate-900">
+            {ADD_FRIEND_URL && (
+              // 友だち追加を先に済ませてもらう。別タブで開き、この画面のコードは残す
+              <a
+                href={ADD_FRIEND_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full py-2.5 bg-[#06C755] text-white font-medium rounded-lg hover:brightness-95 transition-all"
+              >
+                <FontAwesomeIcon icon={faLine} className="w-5 h-5" />
+                LINEで友だち追加する
+              </a>
+            )}
+            <div className="text-center text-2xl tracking-[0.3em] font-mono py-3 px-4 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 select-all">
               {code}
             </div>
             <p className="text-xs text-slate-500">
