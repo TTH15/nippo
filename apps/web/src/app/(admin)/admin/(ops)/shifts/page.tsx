@@ -508,6 +508,8 @@ export default function ShiftsPage() {
   const [refreshing, setRefreshing] = useState(false);
   // スマホの日別ビュー（B）: 表示中の1日。null=期間内の今日 or 先頭日にフォールバック。
   const [mobileDate, setMobileDate] = useState<string | null>(null);
+  // 日別ビューの左右スワイプ判定（タッチ開始位置）
+  const swipeRef = useRef<{ x: number; y: number } | null>(null);
   // 日別ビューの絞り込みタブ。全員=在籍全員 / 稼働=割当あり / 未割当=割当なし（希望休を含む）。
   const [mobileFilter, setMobileFilter] = useState<"all" | "working" | "unassigned">("all");
   // コース軸ビューのセル（コース×日）モーダル。担当可能ドライバーの追加・解除を行う。
@@ -1676,8 +1678,27 @@ export default function ShiftsPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* スマホ: 日別ビュー（1日ずつ縦リスト。横スクロール不要） */}
-            <div className="md:hidden space-y-3">
+            {/* スマホ: 日別ビュー（1日ずつ縦リスト。横スクロール不要。左右スワイプで前後日へ） */}
+            <div
+              className="md:hidden space-y-3"
+              onTouchStart={(e) => {
+                const t = e.touches[0];
+                swipeRef.current = { x: t.clientX, y: t.clientY };
+              }}
+              onTouchEnd={(e) => {
+                const start = swipeRef.current;
+                swipeRef.current = null;
+                if (!start || !activeMobileDate) return;
+                const t = e.changedTouches[0];
+                const dx = t.clientX - start.x;
+                const dy = t.clientY - start.y;
+                // 横移動が十分大きく、かつ縦スクロールより明確に横向きのときだけ日を送る
+                if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+                const i = displayDates.indexOf(activeMobileDate);
+                if (dx < 0 && i < displayDates.length - 1) setMobileDate(displayDates[i + 1]);
+                else if (dx > 0 && i > 0) setMobileDate(displayDates[i - 1]);
+              }}
+            >
               {(() => {
                 const date = activeMobileDate;
                 if (!date) return null;
@@ -1701,7 +1722,7 @@ export default function ShiftsPage() {
                         type="button"
                         disabled={idx <= 0}
                         onClick={() => setMobileDate(displayDates[idx - 1])}
-                        className="h-9 w-9 shrink-0 rounded-lg text-slate-500 disabled:opacity-30"
+                        className="h-12 w-12 shrink-0 rounded-xl border border-slate-200 bg-white text-2xl leading-none text-slate-600 active:bg-slate-100 disabled:opacity-30"
                         aria-label="前の日"
                       >
                         ‹
@@ -1717,7 +1738,7 @@ export default function ShiftsPage() {
                         type="button"
                         disabled={idx >= displayDates.length - 1}
                         onClick={() => setMobileDate(displayDates[idx + 1])}
-                        className="h-9 w-9 shrink-0 rounded-lg text-slate-500 disabled:opacity-30"
+                        className="h-12 w-12 shrink-0 rounded-xl border border-slate-200 bg-white text-2xl leading-none text-slate-600 active:bg-slate-100 disabled:opacity-30"
                         aria-label="次の日"
                       >
                         ›
@@ -1778,42 +1799,45 @@ export default function ShiftsPage() {
                               <span className="w-20 shrink-0 truncate text-sm font-semibold text-slate-900">
                                 {getDisplayName(driver)}
                               </span>
-                              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-                                {off ? (
-                                  <span className="rounded bg-amber-100 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
-                                    希望休
-                                  </span>
-                                ) : hasAny ? (
-                                  assignedCourses.map((c) => (
-                                    <span
-                                      key={c.id}
-                                      className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
-                                      style={courseCellSurface(c.color)}
-                                    >
-                                      {courseShiftLabel(c)}
+                              {/* コースは上段、車両は下段。幅を取り合わずナンバーが必ず読める */}
+                              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                                <span className="flex flex-wrap items-center gap-1">
+                                  {off ? (
+                                    <span className="rounded bg-amber-100 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
+                                      希望休
                                     </span>
-                                  ))
-                                ) : (
-                                  <span className="text-[12px] text-slate-400">
-                                    未割当{canWrite ? "（タップで割当）" : ""}
+                                  ) : hasAny ? (
+                                    assignedCourses.map((c) => (
+                                      <span
+                                        key={c.id}
+                                        className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
+                                        style={courseCellSurface(c.color)}
+                                      >
+                                        {courseShiftLabel(c)}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-[12px] text-slate-400">
+                                      未割当{canWrite ? "（タップで割当）" : ""}
+                                    </span>
+                                  )}
+                                </span>
+                                {hasAny && (
+                                  <span className="flex items-center">
+                                    {plate ? (
+                                      <VehiclePlate
+                                        vehicle={plate}
+                                        compact
+                                        className="!max-w-[8.5rem] pointer-events-none"
+                                      />
+                                    ) : isExternal ? (
+                                      <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
+                                    ) : (
+                                      <span className="text-[11px] text-slate-400">車両なし</span>
+                                    )}
                                   </span>
                                 )}
                               </span>
-                              {hasAny && (
-                                <span className="shrink-0 text-right">
-                                  {plate ? (
-                                    <VehiclePlate
-                                      vehicle={plate}
-                                      compact
-                                      className="!max-w-[6.5rem] pointer-events-none"
-                                    />
-                                  ) : isExternal ? (
-                                    <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
-                                  ) : (
-                                    <span className="text-[11px] text-slate-400">車両なし</span>
-                                  )}
-                                </span>
-                              )}
                             </button>
                           );
                         })
