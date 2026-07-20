@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -138,6 +138,30 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     setDriver(getStoredDriver());
   }, []);
 
+  // モバイルヘッダーの実高さを CSS 変数へ公開する。ページ側の sticky ツールバーは
+  // top: var(--admin-header-h) で貼り付けるため、端末差・フォント差でズレない
+  // （PC ではヘッダーが非表示＝高さ 0 になり、そのままページ上端に貼り付く）。
+  const mobileHeaderRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const el = mobileHeaderRef.current;
+    const apply = () => {
+      const h = el?.getBoundingClientRect().height ?? 0;
+      document.documentElement.style.setProperty("--admin-header-h", `${Math.round(h)}px`);
+    };
+    apply();
+    if (!el || typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", apply);
+      return () => window.removeEventListener("resize", apply);
+    }
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    window.addEventListener("resize", apply);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", apply);
+    };
+  }, []);
+
   // ページ遷移時に最新化（キャッシュ値は保持したまま裏で再検証するのでバッジは消えない）。
   useEffect(() => {
     void dailyUnreadApi.mutate();
@@ -218,8 +242,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen flex flex-col bg-slate-50 max-md:bg-transparent">
       {/* モバイルヘッダー（運営モードの外枠。ダークで「運営に居る」ことを示す） */}
       {/* z-40: ページ内の sticky テーブルヘッダー（z-20〜30）より前面に置き、スクロール時の重なりを防ぐ */}
-      {/* h-14: ページ側の sticky ツールバーが top-14 で真下に貼り付けるよう高さを固定する */}
-      <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-2 px-3 border-b border-brand-700 bg-brand-800/95 backdrop-blur shadow-sm md:hidden">
+      {/* 高さは実測して --admin-header-h に公開する（ページ側の sticky がこの値で貼り付く） */}
+      <header
+        ref={mobileHeaderRef}
+        className="sticky top-0 z-40 flex h-14 items-center justify-between gap-2 px-3 border-b border-brand-700 bg-brand-800/95 backdrop-blur shadow-sm md:hidden"
+      >
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}
