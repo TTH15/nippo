@@ -461,7 +461,7 @@ export default function InvoicesPage() {
   return (
     <AdminLayout>
       <div className="w-full">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
             <FontAwesomeIcon icon={faFileInvoice} className="w-5 h-5 text-slate-400" />
             請求書一覧
@@ -487,9 +487,9 @@ export default function InvoicesPage() {
 
         <div className="soft-rise bg-white rounded-lg border border-slate-200 overflow-hidden">
           <div className="grid grid-cols-1 xl:grid-cols-[160px_180px_240px_1fr]">
-            <div className="border-r border-slate-200 min-h-[520px]">
+            <div className="border-r border-slate-200 xl:min-h-[520px]">
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">年月</div>
-              <div className="p-2 space-y-1">
+              <div className="p-2 space-y-1 max-h-40 overflow-y-auto xl:max-h-none xl:overflow-visible">
                 {loading ? (
                   [...Array(6)].map((_, i) => (
                     <div key={`month-skel-${i}`} className="h-8 rounded bg-slate-100 animate-pulse" />
@@ -513,9 +513,9 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            <div className="border-r border-slate-200 min-h-[520px]">
+            <div className="border-r border-slate-200 xl:min-h-[520px]">
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">請求方向</div>
-              <div className="p-2 space-y-1">
+              <div className="p-2 space-y-1 max-h-40 overflow-y-auto xl:max-h-none xl:overflow-visible">
                 {loading ? (
                   [...Array(2)].map((_, i) => (
                     <div key={`dir-skel-${i}`} className="h-8 rounded bg-slate-100 animate-pulse" />
@@ -535,9 +535,9 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            <div className="border-r border-slate-200 min-h-[520px]">
+            <div className="border-r border-slate-200 xl:min-h-[520px]">
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">取引先</div>
-              <div className="p-2 space-y-1">
+              <div className="p-2 space-y-1 max-h-40 overflow-y-auto xl:max-h-none xl:overflow-visible">
                 {loading ? (
                   [...Array(10)].map((_, i) => (
                     <div key={`cp-skel-${i}`} className="h-8 rounded bg-slate-100 animate-pulse" />
@@ -579,10 +579,10 @@ export default function InvoicesPage() {
             </div>
 
             {/* 右ペイン */}
-            <div className="min-h-[520px] max-h-[520px] overflow-y-auto">
+            <div className="xl:min-h-[520px] xl:max-h-[520px] xl:overflow-y-auto">
               <div className="sticky top-0 z-20 bg-white border-b border-slate-200">
                 {canWrite && selectedDirection === "incoming" && selectedDriver && (
-                  <div className="p-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between gap-3">
+                  <div className="p-3 border-b border-slate-100 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="text-xs text-slate-600">
                       {selectedMonth} / {selectedDriver.name} フォルダにPDF・画像をアップロード
                     </div>
@@ -608,7 +608,7 @@ export default function InvoicesPage() {
                     </div>
                   </div>
                 )}
-                <div className="flex gap-1 p-3 bg-slate-50/70">
+                <div className="flex flex-wrap gap-1 p-3 bg-slate-50/70">
                   {([
                     { key: "all", label: "すべて" },
                     { key: "draft", label: "下書き" },

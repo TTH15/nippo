@@ -48,8 +48,9 @@ export default function AdminInvoicePreviewPage() {
 
   return (
     <AdminLayout>
-      <div className="-m-6">
-        <div className="px-6 py-3 bg-white border-b border-slate-200 flex items-center justify-between">
+      {/* スマホの親パディングは 12/16px なので -m-6(24px) だと横に溢れる */}
+      <div className="-mx-3 -my-4 md:-m-6">
+        <div className="sticky top-0 z-10 px-3 md:px-6 py-3 bg-white border-b border-slate-200 flex items-center justify-between gap-2 flex-wrap">
           <a href="/admin/invoices" className="text-sm text-slate-600 underline hover:text-slate-900">一覧へ戻る</a>
           <div className="flex items-center gap-2">
             <a href={`/admin/invoices/${encodeURIComponent(id)}/edit`} className="text-sm text-slate-600 underline hover:text-slate-900 mr-1">編集</a>

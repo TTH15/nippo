@@ -3,12 +3,10 @@
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faDesktop } from "@fortawesome/free-solid-svg-icons";
 import { hasCapability } from "@/lib/capabilities";
 import { useApi } from "@/lib/useApi";
-import { Button } from "@/lib/ui/button";
 import { InvoiceSheetEditor } from "../_components/InvoiceSheetEditor";
+import { DesktopOnlyNotice } from "../_components/DesktopOnlyNotice";
 import {
   blankEditorState,
   emptyLine,
@@ -147,25 +145,14 @@ function InvoiceNewPageContent() {
   if (!isDesktop) {
     return (
       <AdminLayout>
-        <div className="mx-auto max-w-md py-10">
-          <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
-            <span className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-              <FontAwesomeIcon icon={faDesktop} className="h-6 w-6" />
-            </span>
-            <h1 className="text-base font-semibold text-slate-900">請求書の作成はPCでご利用ください</h1>
-            <p className="mt-2 text-sm leading-relaxed text-slate-500">請求書の作成・編集は幅の広い画面が必要です。PCのブラウザからアクセスしてください。</p>
-            <Button asChild variant="default" size="default" className="mt-5">
-              <a href="/admin/invoices">請求書一覧へ戻る</a>
-            </Button>
-          </div>
-        </div>
+        <DesktopOnlyNotice title="請求書の作成はPCでご利用ください" />
       </AdminLayout>
     );
   }
 
   return (
     <AdminLayout>
-      <div className="-m-6">
+      <div className="-mx-3 -my-4 md:-m-6">
         {wantDraft && draftLoading ? (
           <div className="p-10 text-center text-slate-500">下書きを読み込み中…</div>
         ) : (
