@@ -171,6 +171,56 @@ export default function CounterpartiesPage() {
     }
   };
 
+  /** 取引先から請求書の下書きを作成して編集画面へ（テーブル・カード両方から使う） */
+  const createInvoiceForCounterparty = async (r: CounterpartySummaryRow) => {
+    setCreateInvoiceError(null);
+    try {
+      const res = await apiFetch<{ month: string; issueDate: string; dueDate: string; invoiceNo: string; tableData: { main: { title: string; qty: number; price: number }[]; deduct: { title: string; qty: number; price: number }[] } }>(
+        `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(r.suggestedSection)}&counterparty=${encodeURIComponent(r.id)}`
+      );
+      const amount =
+        (res.tableData?.main ?? []).reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) -
+        (res.tableData?.deduct ?? []).reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.price) || 0), 0);
+      const issueDateJp = `${res.issueDate.slice(0, 4)}年${Number(
+        res.issueDate.slice(5, 7),
+      )}月${Number(res.issueDate.slice(8, 10))}日`;
+      const dueDateJp = `${res.dueDate.slice(0, 4)}年${Number(
+        res.dueDate.slice(5, 7),
+      )}月${Number(res.dueDate.slice(8, 10))}日`;
+      const payload = {
+        issueDate: issueDateJp,
+        dueDate: dueDateJp,
+        invoiceNo: res.invoiceNo,
+        tableData: res.tableData,
+        toName: r.name,
+        subject: `${month.slice(0, 4)}年${Number(month.slice(5, 7))}月稼働分`,
+        section: r.suggestedSection,
+      };
+      const created = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices", {
+        method: "POST",
+        body: JSON.stringify({
+          month,
+          section: r.suggestedSection,
+          counterpartyInvoiceAddressId: r.id,
+          clientName: r.name,
+          issueDate: res.issueDate,
+          invoiceNo: res.invoiceNo,
+          amount,
+          status: "draft",
+          payload,
+        }),
+      });
+      window.location.href = `/admin/invoices/new?invoiceId=${encodeURIComponent(
+        created.invoice.id,
+      )}&month=${encodeURIComponent(month)}&direction=outgoing&section=${encodeURIComponent(
+        r.suggestedSection,
+      )}&counterparty=${encodeURIComponent(r.id)}`;
+    } catch (e) {
+      console.error(e);
+      setCreateInvoiceError("請求書の保存に失敗しました。DB migration適用状況とAPIエラーをご確認ください。");
+    }
+  };
+
   return (
     <AdminLayout>
       <div className="w-full max-w-6xl">
@@ -220,7 +270,71 @@ export default function CounterpartiesPage() {
         )}
 
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* スマホ: カード表示。6列テーブルの横スクロールと、展開部との
+              二重横スクロール（外800px × 内720px）を避ける */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {loading ? (
+              <p className="px-4 py-10 text-center text-slate-400">読み込み中…</p>
+            ) : rows.length === 0 ? (
+              <div className="px-4 py-10 text-center text-slate-400">
+                <p className="mb-3">取引先がまだ登録されていません。</p>
+                {canWrite && (
+                  <Button variant="default" size="default" onClick={openAddModal}>
+                    <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
+                    取引先を追加
+                  </Button>
+                )}
+              </div>
+            ) : (
+              rows.map((r) => {
+                const open = expandedId === r.id;
+                return (
+                  <div key={r.id} className={`px-3 py-2.5 ${r.courseCount === 0 ? "opacity-60" : ""}`}>
+                    <button type="button" onClick={() => openRow(r)} className="flex w-full items-center gap-2 text-left">
+                      <FontAwesomeIcon
+                        icon={open ? faChevronDown : faChevronRight}
+                        className="w-3 h-3 shrink-0 text-slate-400"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-slate-900">{r.name}</span>
+                        <span className="mt-0.5 block text-[11px] text-slate-500">
+                          コース {r.courseCount}
+                          {r.billingNotes ? `・${r.billingNotes.replace(/\s+/g, " ").slice(0, 20)}` : ""}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right text-sm font-semibold tabular-nums text-slate-900">
+                        {fmt(r.monthTotal)}
+                      </span>
+                    </button>
+                    {canWrite && (
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => void createInvoiceForCounterparty(r)}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700"
+                        >
+                          <FontAwesomeIcon icon={faFileInvoice} className="w-3 h-3" />
+                          請求書を保存して編集
+                        </button>
+                      </div>
+                    )}
+                    {open && (
+                      <div className="mt-3">
+                        <CounterpartyBillingExpand
+                          counterpartyId={r.id}
+                          month={month}
+                          canWrite={canWrite}
+                          onRefreshSummary={() => void load()}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+          {/* PC: 従来のテーブル */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm min-w-[800px] md:min-w-0">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
@@ -306,54 +420,9 @@ export default function CounterpartiesPage() {
                             {canWrite ? (
                               <button
                                 type="button"
-                                onClick={async (e) => {
+                                onClick={(e) => {
                                   e.stopPropagation();
-                                  setCreateInvoiceError(null);
-                                  try {
-                                    const res = await apiFetch<{ month: string; issueDate: string; dueDate: string; invoiceNo: string; tableData: { main: { title: string; qty: number; price: number }[]; deduct: { title: string; qty: number; price: number }[] } }>(
-                                      `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(r.suggestedSection)}&counterparty=${encodeURIComponent(r.id)}`
-                                    );
-                                    const amount =
-                                      (res.tableData?.main ?? []).reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) -
-                                      (res.tableData?.deduct ?? []).reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.price) || 0), 0);
-                                    const issueDateJp = `${res.issueDate.slice(0, 4)}年${Number(
-                                      res.issueDate.slice(5, 7),
-                                    )}月${Number(res.issueDate.slice(8, 10))}日`;
-                                    const dueDateJp = `${res.dueDate.slice(0, 4)}年${Number(
-                                      res.dueDate.slice(5, 7),
-                                    )}月${Number(res.dueDate.slice(8, 10))}日`;
-                                    const payload = {
-                                      issueDate: issueDateJp,
-                                      dueDate: dueDateJp,
-                                      invoiceNo: res.invoiceNo,
-                                      tableData: res.tableData,
-                                      toName: r.name,
-                                      subject: `${month.slice(0, 4)}年${Number(month.slice(5, 7))}月稼働分`,
-                                      section: r.suggestedSection,
-                                    };
-                                    const created = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices", {
-                                      method: "POST",
-                                      body: JSON.stringify({
-                                        month,
-                                        section: r.suggestedSection,
-                                        counterpartyInvoiceAddressId: r.id,
-                                        clientName: r.name,
-                                        issueDate: res.issueDate,
-                                        invoiceNo: res.invoiceNo,
-                                        amount,
-                                        status: "draft",
-                                        payload,
-                                      }),
-                                    });
-                                    window.location.href = `/admin/invoices/new?invoiceId=${encodeURIComponent(
-                                      created.invoice.id,
-                                    )}&month=${encodeURIComponent(month)}&direction=outgoing&section=${encodeURIComponent(
-                                      r.suggestedSection,
-                                    )}&counterparty=${encodeURIComponent(r.id)}`;
-                                  } catch (e) {
-                                    console.error(e);
-                                    setCreateInvoiceError("請求書の保存に失敗しました。DB migration適用状況とAPIエラーをご確認ください。");
-                                  }
+                                  void createInvoiceForCounterparty(r);
                                 }}
                                 className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-900 border border-slate-200 rounded-md px-2 py-1.5 hover:bg-slate-50"
                               >

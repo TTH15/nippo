@@ -1563,7 +1563,56 @@ export default function SalesPage() {
                   <p className="text-sm text-slate-500 py-8">この期間に稼働・実績のあるドライバーがいません</p>
                 ) : (
                   <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="overflow-auto">
+                    {/* スマホ: 日別マトリクス（期間×ドライバーで 2000px 超）は収まらないため、
+                        ドライバーごとの合計に畳む。日別の内訳は PC で確認する */}
+                    <div className="md:hidden divide-y divide-slate-100">
+                      <p className="bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                        期間合計（日別の内訳はPCで表示されます）
+                      </p>
+                      {summaryRowDrivers.map((drv) => {
+                        const unitData = summaryByDriver[drv.id] ?? {};
+                        const usedUnits = summaryUnits.filter((u) => (unitData[u.id]?.total ?? 0) !== 0);
+                        const courseDays = summaryCourses
+                          .map((sc) => ({
+                            name: sc.summary_title,
+                            days: courseShiftCounts.get(sc.id)?.get(drv.id) ?? 0,
+                          }))
+                          .filter((x) => x.days > 0);
+                        return (
+                          <div key={drv.id} className="px-3 py-2.5">
+                            <p className="text-sm font-medium text-slate-900">
+                              {drv.display_name ?? drv.name}
+                            </p>
+                            {usedUnits.length === 0 && courseDays.length === 0 ? (
+                              <p className="mt-1 text-[11px] text-slate-400">実績なし</p>
+                            ) : (
+                              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+                                {usedUnits.map((u) => {
+                                  const cell = unitData[u.id];
+                                  const fixed = u.billingType === "FIXED";
+                                  return (
+                                    <span key={u.id} className="text-slate-600">
+                                      {u.name}{" "}
+                                      <span className="font-semibold tabular-nums text-slate-900">
+                                        {fixed ? `${cell?.total ?? 0}日` : (cell?.total ?? 0)}
+                                      </span>
+                                    </span>
+                                  );
+                                })}
+                                {courseDays.map((c) => (
+                                  <span key={c.name} className="text-slate-500">
+                                    ↳{c.name}{" "}
+                                    <span className="font-semibold tabular-nums text-slate-700">{c.days}日</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* PC: 日別マトリクス */}
+                    <div className="hidden md:block overflow-auto">
                       <table className="min-w-max text-xs">
                         <thead className="bg-slate-50">
                           <tr>
@@ -1834,7 +1883,8 @@ export default function SalesPage() {
                         );
                       })()}
                     </div>
-                    <div className="w-[150px]">
+                    {/* 金額が7桁になる日でも折り返せるよう、固定幅ではなく縮小可にする */}
+                    <div className="w-32 shrink-0 sm:w-[150px]">
                       <DatePicker
                         value={selectedDayIso ? new Date(selectedDayIso + "T12:00:00") : undefined}
                         onChange={(d) => setSelectedDayIso(d ? toLocalYmd(d) : "")}
