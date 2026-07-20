@@ -79,6 +79,38 @@ export async function GET(req: NextRequest) {
   });
 }
 
+// PATCH: ロールの並べ替え（{ order: roleId[] }）。org 内の全ロールを対象に 0,10,20… で振り直す。
+export async function PATCH(req: NextRequest) {
+  const user = await requirePermission(req, "can_manage_members");
+  if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
+
+  try {
+    const body = await req.json();
+    const order: string[] = Array.isArray(body.order) ? body.order : [];
+    if (order.length === 0) {
+      return NextResponse.json({ error: "order array is required" }, { status: 400 });
+    }
+    for (let i = 0; i < order.length; i++) {
+      const id = order[i];
+      if (typeof id !== "string") continue;
+      const { error } = await supabase
+        .from("roles")
+        .update({ sort_order: i * 10 })
+        .eq("id", id)
+        .eq("org_id", orgId); // 他 org のロールを触らせない
+      if (error) {
+        console.error("[roles] reorder error", error);
+        return NextResponse.json({ error: "並べ替えに失敗しました" }, { status: 500 });
+      }
+    }
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[roles] PATCH", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   const user = await requirePermission(req, "can_manage_members");
   if (isAuthError(user)) return user;

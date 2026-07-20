@@ -76,6 +76,9 @@ export default function RolesPage() {
   const [error, setError] = useState<{ title: string; message: string } | null>(null);
   const [dragMember, setDragMember] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  // ロール自体の並べ替え用（メンバーのD&Dとは別系統。ヘッダのグリップから開始する）
+  const [dragRole, setDragRole] = useState<string | null>(null);
+  const [roleDropTarget, setRoleDropTarget] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const toggleExpand = (id: string) =>
@@ -186,22 +189,60 @@ export default function RolesPage() {
     }
   };
 
-  // メンバーをロールへ割当（D&D / select 共通）。サーバーのガバナンス保護に当たれば 400 を表示。
-  const assignMember = async (memberId: string, toRoleId: string) => {
+  // メンバーをロールへ割当（D&D / select 共通）。画面は即時反映し、保存はバックグラウンド
+  // （待ち時間ゼロ。保存はサーバーに即送るのでページを離れても結果は残る）。
+  // 失敗したときだけ元のロールへ戻してエラーを出す。
+  const assignMember = (memberId: string, toRoleId: string) => {
     const mem = members.find((m) => m.id === memberId);
     if (!mem || mem.roleId === toRoleId) return;
-    setBusy(true);
-    try {
-      await apiFetch(`/api/admin/users/${memberId}`, {
-        method: "PUT",
-        body: JSON.stringify({ roleId: toRoleId }),
+    const prevRoleId = mem.roleId;
+
+    void mutate(
+      (prev) =>
+        prev
+          ? { ...prev, members: prev.members.map((x) => (x.id === memberId ? { ...x, roleId: toRoleId } : x)) }
+          : prev,
+      { revalidate: false },
+    );
+
+    void apiFetch(`/api/admin/users/${memberId}`, {
+      method: "PUT",
+      body: JSON.stringify({ roleId: toRoleId }),
+    })
+      .then(() => mutate()) // サーバー確定値で追従（works_as_driver の連動などを反映）
+      .catch((e) => {
+        setError({ title: "割当に失敗", message: e instanceof Error ? e.message : "不明なエラー" });
+        void mutate(
+          (prev) =>
+            prev
+              ? { ...prev, members: prev.members.map((x) => (x.id === memberId ? { ...x, roleId: prevRoleId } : x)) }
+              : prev,
+          { revalidate: false },
+        );
       });
-      await mutate();
-    } catch (e) {
-      setError({ title: "割当に失敗", message: e instanceof Error ? e.message : "不明なエラー" });
-    } finally {
-      setBusy(false);
-    }
+  };
+
+  // ロールの並べ替え（ヘッダのグリップをドラッグ）。楽観更新＋バックグラウンド保存。
+  const reorderRoles = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const current = [...roles];
+    const from = current.findIndex((r) => r.id === fromId);
+    const to = current.findIndex((r) => r.id === toId);
+    if (from < 0 || to < 0) return;
+    const next = [...current];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+
+    void mutate((prev) => (prev ? { ...prev, roles: next } : prev), { revalidate: false });
+
+    void apiFetch("/api/admin/roles", {
+      method: "PATCH",
+      body: JSON.stringify({ order: next.map((r) => r.id) }),
+    })
+      .catch((e) => {
+        setError({ title: "並べ替えに失敗", message: e instanceof Error ? e.message : "不明なエラー" });
+        void mutate(); // サーバーの並びに戻す
+      });
   };
 
   return (
@@ -225,6 +266,7 @@ export default function RolesPage() {
 
         <p className="mb-4 text-sm text-slate-500">
           ロールを開いて、機能ごとの許可レベルを選び、メンバーをドラッグ＆ドロップ（または選択）で割り当てます。
+          変更は自動保存されます（左のグリップ <FontAwesomeIcon icon={faGripVertical} className="text-[10px] text-slate-400" /> をドラッグするとロールを並べ替えできます）。
           <br />
           管理者はトップ権限のため、権限は全付与固定・削除不可・最後の1人は外せません。
         </p>
@@ -275,22 +317,54 @@ export default function RolesPage() {
               return (
                 <div
                   key={r.id}
-                  className={`rounded-lg border bg-white ${dropTarget === r.id ? "border-slate-900 ring-1 ring-slate-900" : "border-slate-200"}`}
+                  className={`rounded-lg border bg-white transition-colors ${
+                    dropTarget === r.id
+                      ? "border-slate-900 ring-1 ring-slate-900"
+                      : roleDropTarget === r.id
+                        ? "border-sky-400 ring-1 ring-sky-400"
+                        : "border-slate-200"
+                  } ${dragRole === r.id ? "opacity-50" : ""}`}
                   onDragOver={(e) => {
                     if (dragMember) {
                       e.preventDefault();
                       setDropTarget(r.id);
+                    } else if (dragRole && dragRole !== r.id) {
+                      e.preventDefault();
+                      setRoleDropTarget(r.id);
                     }
                   }}
-                  onDragLeave={() => dropTarget === r.id && setDropTarget(null)}
+                  onDragLeave={() => {
+                    if (dropTarget === r.id) setDropTarget(null);
+                    if (roleDropTarget === r.id) setRoleDropTarget(null);
+                  }}
                   onDrop={() => {
                     if (dragMember) assignMember(dragMember, r.id);
+                    else if (dragRole) reorderRoles(dragRole, r.id);
                     setDragMember(null);
                     setDropTarget(null);
+                    setDragRole(null);
+                    setRoleDropTarget(null);
                   }}
                 >
-                  {/* ヘッダ */}
-                  <div className="flex items-center gap-2 p-3">
+                  {/* ヘッダ（min-h: 削除ボタンの有無でカードの高さが変わらないよう固定） */}
+                  <div className="flex min-h-[56px] items-center gap-2 px-3 py-2">
+                    {canWrite && (
+                      <span
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move";
+                          setDragRole(r.id);
+                        }}
+                        onDragEnd={() => {
+                          setDragRole(null);
+                          setRoleDropTarget(null);
+                        }}
+                        title="ドラッグして並べ替え"
+                        className="shrink-0 cursor-grab px-1 py-2 text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                      >
+                        <FontAwesomeIcon icon={faGripVertical} />
+                      </span>
+                    )}
                     <button onClick={() => toggleExpand(r.id)} className="flex flex-1 items-center gap-2 text-left">
                       <FontAwesomeIcon
                         icon={faChevronRight}
@@ -307,13 +381,18 @@ export default function RolesPage() {
                         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">既定</span>
                       )}
                     </button>
-                    {canWrite && !r.isSystem && (
-                      <div className="flex shrink-0 items-center gap-1">
-                        <button onClick={() => setConfirmDelete(r)} className="rounded p-2 text-red-600 hover:bg-red-50" aria-label="削除">
+                    {/* 削除ボタンの枠は常に確保し、高さと右端の位置を全カードで揃える */}
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center">
+                      {canWrite && !r.isSystem && (
+                        <button
+                          onClick={() => setConfirmDelete(r)}
+                          className="rounded p-2 text-red-600 hover:bg-red-50"
+                          aria-label="削除"
+                        >
                           <FontAwesomeIcon icon={faTrash} />
                         </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
 
                   {/* 展開エリア（高さアニメーションで滑らかに開閉） */}
@@ -439,7 +518,6 @@ export default function RolesPage() {
                           <select
                             value=""
                             onChange={(e) => e.target.value && assignMember(e.target.value, r.id)}
-                            disabled={busy}
                             className="rounded-lg border border-slate-200 px-3.5 py-2 text-xs text-slate-600"
                           >
                             <option value="">＋ 他のロールから追加…</option>
