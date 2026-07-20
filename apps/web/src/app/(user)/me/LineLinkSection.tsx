@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
+import { faCircleCheck, faCopy, faCheck } from "@fortawesome/free-solid-svg-icons";
 import { faLine } from "@fortawesome/free-brands-svg-icons";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -28,11 +28,25 @@ type LineStatus = {
 export function LineLinkSection() {
   const { data, isInitialLoading, refresh } = useApi<LineStatus>("/api/me/line");
   const [code, setCode] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   // 未設定環境・読み込み中は何も出さない（他セクションの邪魔をしない）
   if (isInitialLoading || !data?.configured) return null;
+
+  const copyCode = async () => {
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      // 一定時間で元に戻す（次に押したときにコピーできると分かるように）
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // クリップボードが使えない環境（非 HTTPS 等）では手動選択に任せる
+      setMessage({ type: "error", text: "コピーできませんでした。コードを長押しして選択してください。" });
+    }
+  };
 
   const issueCode = async () => {
     setSubmitting(true);
@@ -40,6 +54,7 @@ export function LineLinkSection() {
     try {
       const res = await apiFetch<{ code: string }>("/api/me/line", { method: "POST" });
       setCode(res.code);
+      setCopied(false); // 再発行したら別のコードなのでコピー済み表示を消す
     } catch (err) {
       setMessage({
         type: "error",
@@ -113,11 +128,25 @@ export function LineLinkSection() {
                 LINEで友だち追加する
               </a>
             )}
-            <div className="text-center text-2xl tracking-[0.3em] font-mono py-3 px-4 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 select-all">
-              {code}
-            </div>
+            {/* コードは手打ちさせない。表示部のどこを押してもコピーできるようにする */}
+            <button
+              type="button"
+              onClick={copyCode}
+              className="w-full flex items-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 active:bg-slate-200 transition-colors"
+              aria-label="連携コードをコピーする"
+            >
+              <span className="flex-1 text-center text-2xl tracking-[0.3em] font-mono text-slate-900">
+                {code}
+              </span>
+              <FontAwesomeIcon
+                icon={copied ? faCheck : faCopy}
+                className={`w-4 h-4 shrink-0 ${copied ? "text-green-600" : "text-slate-400"}`}
+              />
+            </button>
             <p className="text-xs text-slate-500">
-              有効期限は10分です。切れた場合はもう一度発行してください。
+              {copied
+                ? "コピーしました。LINEのトークに貼り付けて送信してください。"
+                : "タップするとコピーできます。有効期限は10分です。"}
             </p>
             <button
               type="button"
