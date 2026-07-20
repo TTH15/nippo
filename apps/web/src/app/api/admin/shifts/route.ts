@@ -63,10 +63,11 @@ export async function GET(req: NextRequest) {
     .lte("loan_date", endDate);
 
   // Get drivers with their course assignments
+  // 並びはドライバー名簿と同じ list_no（No.）順に揃える。未設定は末尾、同値は名前順。
   const { data: drivers } = await supabase
     .from("drivers")
     .select(`
-      id, name, display_name, role,
+      id, name, display_name, role, list_no,
       driver_identities (
         driver_courses (course_id)
       )
@@ -74,6 +75,7 @@ export async function GET(req: NextRequest) {
     .eq("org_id", orgId)
     .eq("works_as_driver", true)
     .eq("status", "active")
+    .order("list_no", { ascending: true, nullsFirst: false })
     .order("name");
 
   // Get shift requests (希望休)。slot_id（便。NULL=全休）も含む。

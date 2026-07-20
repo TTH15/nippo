@@ -354,6 +354,8 @@ type Driver = {
   id: string;
   name: string;
   display_name?: string | null;
+  /** ドライバー名簿と同じ No.。API が list_no 昇順で返すため、画面側では並べ替えない */
+  list_no?: number | null;
   driver_identities?: { driver_courses: { course_id: string }[] }[];
   driver_courses?: { course_id: string }[];
 };
@@ -1307,13 +1309,11 @@ export default function ShiftsPage() {
         if (driverId) assignedOnDate.add(driverId);
       }
     });
-    return driversWithCourses
-      .filter((d) => !assignedOnDate.has(d.id))
-      .map((d) => getDisplayName(d))
-      .sort();
+    // エクスポートの「未割当」欄。表の行順（名簿の No. 順）と同じ並びで出す
+    return driversWithCourses.filter((d) => !assignedOnDate.has(d.id)).map((d) => getDisplayName(d));
   };
 
-  /** その日に未割当（いずれのコースにも入っていない）ドライバー実体。表示名でソート。 */
+  /** その日に未割当（いずれのコースにも入っていない）ドライバー実体。名簿と同じ No. 順。 */
   const getUnassignedDriversOnDate = (date: string): Driver[] => {
     const assignedOnDate = new Set<string>();
     courses.forEach((course) => {
@@ -1323,9 +1323,7 @@ export default function ShiftsPage() {
         if (driverId) assignedOnDate.add(driverId);
       }
     });
-    return driversWithCourses
-      .filter((d) => !assignedOnDate.has(d.id))
-      .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), "ja"));
+    return driversWithCourses.filter((d) => !assignedOnDate.has(d.id));
   };
 
   /** 「＋コース」追加用: このドライバーがまだ入っていない＆定員に空きがあるコース */
@@ -1413,8 +1411,8 @@ export default function ShiftsPage() {
           isExternal: getCurrentExternalForDriverOnDate(date, driver.id),
           off: isDriverOffDay(driver.id, date),
         };
-      })
-      .sort((a, b) => getDisplayName(a.driver).localeCompare(getDisplayName(b.driver), "ja"));
+      });
+    // 並べ替えはしない（driversWithCourses = API の list_no 昇順をそのまま使う）
 
   /** 日別ビューの1日分リスト（スワイプのプレビューで前後日も同じ関数で描く） */
   const renderDayList = (date: string) => {
@@ -1476,7 +1474,13 @@ export default function ShiftsPage() {
                   {hasAny && (
                     <span className="flex items-center">
                       {plate ? (
-                        <VehiclePlate vehicle={plate} compact className="!max-w-[8.5rem] pointer-events-none" />
+                        // w-full が無いと flex アイテムとして幅が決まらず（内部が w-full のため）
+                        // プレートが潰れて見えなくなる
+                        <VehiclePlate
+                          vehicle={plate}
+                          compact
+                          className="w-full !max-w-[8.5rem] min-w-0 pointer-events-none"
+                        />
                       ) : isExternal ? (
                         <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
                       ) : (
@@ -1577,8 +1581,9 @@ export default function ShiftsPage() {
   return (
     <AdminLayout>
       <div className="max-w-full">
-        {/* スクロールコンテナは AdminLayout の main（上端が既にモバイルヘッダーの下）なので top-0 */}
-        <div className="sticky top-0 z-30 bg-white pt-1 -mt-1">
+        {/* スクロールは body 基準なので、スマホはモバイルヘッダー（h-14）の下に貼り付ける。
+            背景は周囲と同じ slate-50 にし、下端の境界線で固定領域の終わりを示す */}
+        <div className="sticky top-14 md:top-0 z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-2 -mt-1 border-b border-slate-200/80">
         {/* 1行目: 見出し＋年月。2行目: 期間タブ＋操作ボタン（高さを抑えて表を広く見せる） */}
         <div className="flex items-center justify-between gap-2 mb-2">
           <h1 className="text-lg md:text-xl font-bold text-slate-900 shrink-0">シフト管理</h1>
