@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { isJapanPublicHolidayYmd } from "@/lib/japanHolidays";
 import { todayJST } from "@/lib/date";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -508,8 +510,23 @@ export default function ShiftsPage() {
   const [refreshing, setRefreshing] = useState(false);
   // スマホの日別ビュー（B）: 表示中の1日。null=期間内の今日 or 先頭日にフォールバック。
   const [mobileDate, setMobileDate] = useState<string | null>(null);
-  // 日別ビューの左右スワイプ判定（タッチ開始位置）
-  const swipeRef = useRef<{ x: number; y: number } | null>(null);
+  // 日別ビューの左右スワイプ（ページめくり）。指の動きに追従させるため、
+  // 再描画を挟まず track の transform を直接書き換える。
+  const swipeRef = useRef<{ x: number; y: number; axis: "?" | "x" | "y" } | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const pendingDirRef = useRef<0 | 1 | -1>(0);
+  /** 中央パネル基準の transform を設定（px=null で既定位置へ戻す） */
+  const setTrackOffset = (px: number | null, animate: boolean) => {
+    const el = trackRef.current;
+    if (!el) return;
+    el.style.transition = animate ? "transform 220ms cubic-bezier(0.22,1,0.36,1)" : "none";
+    el.style.transform = px === null ? "translateX(-100%)" : `translateX(calc(-100% + ${px}px))`;
+  };
+  // 表示日が変わったら（スワイプ確定・ボタン操作とも）中央へ戻す
+  useLayoutEffect(() => {
+    setTrackOffset(null, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileDate, period, yearMonth.year, yearMonth.month]);
   // 日別ビューの絞り込みタブ。全員=在籍全員 / 稼働=割当あり / 未割当=割当なし（希望休を含む）。
   const [mobileFilter, setMobileFilter] = useState<"all" | "working" | "unassigned">("all");
   // コース軸ビューのセル（コース×日）モーダル。担当可能ドライバーの追加・解除を行う。
@@ -1399,6 +1416,83 @@ export default function ShiftsPage() {
       })
       .sort((a, b) => getDisplayName(a.driver).localeCompare(getDisplayName(b.driver), "ja"));
 
+  /** 日別ビューの1日分リスト（スワイプのプレビューで前後日も同じ関数で描く） */
+  const renderDayList = (date: string) => {
+    const allRows = getDayRows(date);
+    const rows =
+      mobileFilter === "working"
+        ? allRows.filter((r) => r.placements.length > 0)
+        : mobileFilter === "unassigned"
+          ? allRows.filter((r) => r.placements.length === 0)
+          : allRows;
+    return (
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+        {rows.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-slate-400">該当するドライバーはいません。</p>
+        ) : (
+          rows.map(({ driver, placements, assignedCourses, plate, isExternal, off }) => {
+            const hasAny = placements.length > 0;
+            const canOpen = off ? canWrite : canWrite || (canDispatch && hasAny);
+            return (
+              <button
+                key={driver.id}
+                type="button"
+                disabled={!canOpen}
+                onClick={() =>
+                  off ? openOffModal(driver.id, date) : setEditingCell({ date, driverId: driver.id })
+                }
+                className={cn(
+                  "flex w-full items-center gap-3 px-3 py-2.5 text-left",
+                  off && "bg-amber-50/60",
+                  canOpen ? "active:bg-slate-100" : "cursor-default",
+                )}
+              >
+                <span className="w-20 shrink-0 truncate text-sm font-semibold text-slate-900">
+                  {getDisplayName(driver)}
+                </span>
+                {/* コースは上段、車両は下段。幅を取り合わずナンバーが必ず読める */}
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="flex flex-wrap items-center gap-1">
+                    {off ? (
+                      <span className="rounded bg-amber-100 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
+                        希望休
+                      </span>
+                    ) : hasAny ? (
+                      assignedCourses.map((c) => (
+                        <span
+                          key={c.id}
+                          className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
+                          style={courseCellSurface(c.color)}
+                        >
+                          {courseShiftLabel(c)}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-[12px] text-slate-400">
+                        未割当{canWrite ? "（タップで割当）" : ""}
+                      </span>
+                    )}
+                  </span>
+                  {hasAny && (
+                    <span className="flex items-center">
+                      {plate ? (
+                        <VehiclePlate vehicle={plate} compact className="!max-w-[8.5rem] pointer-events-none" />
+                      ) : isExternal ? (
+                        <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
+                      ) : (
+                        <span className="text-[11px] text-slate-400">車両なし</span>
+                      )}
+                    </span>
+                  )}
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+
   // ベクターPDF用に、エクスポート表の内容を素データへ変換（描画ロジックと分離）。
   const buildShiftPdfData = (): ShiftPdfData => {
     const rows = driversWithCourses.map((driver) => {
@@ -1485,42 +1579,43 @@ export default function ShiftsPage() {
       <div className="max-w-full">
         {/* スクロールコンテナは AdminLayout の main（上端が既にモバイルヘッダーの下）なので top-0 */}
         <div className="sticky top-0 z-30 bg-white pt-1 -mt-1">
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-          <div className="w-full md:w-auto">
-            <h1 className="text-xl font-bold text-slate-900">シフト管理</h1>
-            <p className="hidden md:block text-xs text-slate-500 mt-1">
-              セルをクリックすると、そのセルだけ編集パネルが開きコース・車両を指定できます（変更は自動保存）。「車両管理」でドライバーと車両を紐付けた車が候補の先頭に出ます。
-            </p>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap w-full md:w-auto">
-            {/* 操作の流れに合わせて 年月 → 前半/後半 の順に並べる */}
-            <MonthYearPicker
-              value={yearMonth}
-              onChange={handleYearMonthChange}
-              placeholder="年月を選択"
-            />
-            <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white w-full sm:w-auto">
+        {/* 1行目: 見出し＋年月。2行目: 期間タブ＋操作ボタン（高さを抑えて表を広く見せる） */}
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h1 className="text-lg md:text-xl font-bold text-slate-900 shrink-0">シフト管理</h1>
+          <MonthYearPicker
+            value={yearMonth}
+            onChange={handleYearMonthChange}
+            placeholder="年月を選択"
+          />
+        </div>
+        <p className="hidden md:block text-xs text-slate-500 mb-2">
+          セルをクリックすると、そのセルだけ編集パネルが開きコース・車両を指定できます（変更は自動保存）。「車両管理」でドライバーと車両を紐付けた車が候補の先頭に出ます。
+        </p>
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            {/* 期間タブ（スマホは短いラベルで幅を節約） */}
+            <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
               <button
                 type="button"
                 onClick={() => switchPeriod("first")}
-                className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium transition-colors ${
+                className={`px-3 md:px-4 py-1.5 md:py-2 text-sm font-medium transition-colors ${
                   period === "first"
                     ? "bg-slate-800 text-white"
                     : "text-slate-600 hover:bg-slate-50"
                 }`}
               >
-                前半（1〜15日）
+                前半<span className="hidden md:inline">（1〜15日）</span>
               </button>
               <button
                 type="button"
                 onClick={() => switchPeriod("second")}
-                className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium transition-colors border-l border-slate-300 ${
+                className={`px-3 md:px-4 py-1.5 md:py-2 text-sm font-medium transition-colors border-l border-slate-300 ${
                   period === "second"
                     ? "bg-slate-800 text-white"
                     : "text-slate-600 hover:bg-slate-50"
                 }`}
               >
-                後半（16日〜）
+                後半<span className="hidden md:inline">（16日〜）</span>
               </button>
             </div>
             {/* 表示軸の切替（A3）: ドライバー軸/コース軸。スマホは日別ビューのため非表示 */}
@@ -1566,6 +1661,9 @@ export default function ShiftsPage() {
                 </button>
               ))}
             </div>
+          </div>
+          {/* 操作ボタン群（エクスポート／更新／設定）は右寄せで1行にまとめる */}
+          <div className="flex items-center gap-2 shrink-0">
             <div className="relative">
               {/* スマホは省スペースのためアイコンのみ（PC は従来のラベル付き） */}
               <button
@@ -1631,7 +1729,7 @@ export default function ShiftsPage() {
         </div>
 
         {(canWrite || canDispatch) && (
-          <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+          <div className="mb-2 flex items-center gap-2 text-[11px] md:text-xs text-slate-500">
             <span
               className={`inline-block h-2 w-2 rounded-full ${
                 autoSaving > 0 ? "bg-amber-400 animate-pulse" : "bg-emerald-500"
@@ -1640,6 +1738,72 @@ export default function ShiftsPage() {
             {autoSaving > 0 ? "自動保存中…" : "変更は自動保存されます"}
           </div>
         )}
+
+        {/* スマホ: 日付ナビと絞り込みタブもヘッダーに含めて固定する
+            （下までスクロールしても「何日を見ているか」が常に分かる） */}
+        {!loading && activeMobileDate && (() => {
+          const date = activeMobileDate;
+          const idx = displayDates.indexOf(date);
+          const rows = getDayRows(date);
+          const workingCount = rows.filter((r) => r.placements.length > 0).length;
+          const unassignedCount = rows.length - workingCount;
+          const count = workingCountByDate.get(date) ?? 0;
+          const isToday = date === today;
+          return (
+            <div className="md:hidden space-y-2 pb-2">
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5">
+                <button
+                  type="button"
+                  disabled={idx <= 0}
+                  onClick={() => setMobileDate(displayDates[idx - 1])}
+                  className="h-11 w-11 shrink-0 rounded-xl border border-slate-200 bg-white text-slate-600 active:bg-slate-100 disabled:opacity-30"
+                  aria-label="前の日"
+                >
+                  <FontAwesomeIcon icon={faChevronLeft} className="h-4 w-4" />
+                </button>
+                <div className="min-w-0 text-center">
+                  <p className={cn("text-sm font-bold", isToday ? "text-amber-600" : "text-slate-900")}>
+                    {formatDate(date)}
+                    {isToday && <span className="ml-1 text-[10px]">今日</span>}
+                  </p>
+                  <p className="text-[11px] text-slate-500">稼働 {count}人</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={idx >= displayDates.length - 1}
+                  onClick={() => setMobileDate(displayDates[idx + 1])}
+                  className="h-11 w-11 shrink-0 rounded-xl border border-slate-200 bg-white text-slate-600 active:bg-slate-100 disabled:opacity-30"
+                  aria-label="次の日"
+                >
+                  <FontAwesomeIcon icon={faChevronRight} className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+                {(
+                  [
+                    ["all", "全員", rows.length],
+                    ["working", "稼働", workingCount],
+                    ["unassigned", "未割当", unassignedCount],
+                  ] as const
+                ).map(([key, label, n], i) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setMobileFilter(key)}
+                    className={cn(
+                      "flex-1 px-2 py-1.5 text-[13px] font-medium transition-colors",
+                      i > 0 && "border-l border-slate-300",
+                      mobileFilter === key ? "bg-slate-800 text-white" : "text-slate-600",
+                    )}
+                  >
+                    {label}
+                    <span className="ml-1 text-[11px] tabular-nums opacity-70">{n}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         </div>
 
         {loading ? (
@@ -1678,174 +1842,90 @@ export default function ShiftsPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* スマホ: 日別ビュー（1日ずつ縦リスト。横スクロール不要。左右スワイプで前後日へ） */}
-            <div
-              className="md:hidden space-y-3"
-              onTouchStart={(e) => {
-                const t = e.touches[0];
-                swipeRef.current = { x: t.clientX, y: t.clientY };
-              }}
-              onTouchEnd={(e) => {
-                const start = swipeRef.current;
-                swipeRef.current = null;
-                if (!start || !activeMobileDate) return;
-                const t = e.changedTouches[0];
-                const dx = t.clientX - start.x;
-                const dy = t.clientY - start.y;
-                // 横移動が十分大きく、かつ縦スクロールより明確に横向きのときだけ日を送る
-                if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-                const i = displayDates.indexOf(activeMobileDate);
-                if (dx < 0 && i < displayDates.length - 1) setMobileDate(displayDates[i + 1]);
-                else if (dx > 0 && i > 0) setMobileDate(displayDates[i - 1]);
-              }}
-            >
-              {(() => {
-                const date = activeMobileDate;
-                if (!date) return null;
-                const idx = displayDates.indexOf(date);
-                const allRows = getDayRows(date);
-                const workingRows = allRows.filter((r) => r.placements.length > 0);
-                const unassignedRows = allRows.filter((r) => r.placements.length === 0);
-                const rows =
-                  mobileFilter === "working"
-                    ? workingRows
-                    : mobileFilter === "unassigned"
-                      ? unassignedRows
-                      : allRows;
-                const count = workingCountByDate.get(date) ?? 0;
-                const isToday = date === today;
-                return (
-                  <>
-                    {/* 日付ナビ */}
-                    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-2 py-2">
-                      <button
-                        type="button"
-                        disabled={idx <= 0}
-                        onClick={() => setMobileDate(displayDates[idx - 1])}
-                        className="h-12 w-12 shrink-0 rounded-xl border border-slate-200 bg-white text-2xl leading-none text-slate-600 active:bg-slate-100 disabled:opacity-30"
-                        aria-label="前の日"
-                      >
-                        ‹
-                      </button>
-                      <div className="min-w-0 text-center">
-                        <p className={cn("text-sm font-bold", isToday ? "text-amber-600" : "text-slate-900")}>
-                          {formatDate(date)}
-                          {isToday && <span className="ml-1 text-[10px]">今日</span>}
-                        </p>
-                        <p className="text-[11px] text-slate-500">稼働 {count}人</p>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={idx >= displayDates.length - 1}
-                        onClick={() => setMobileDate(displayDates[idx + 1])}
-                        className="h-12 w-12 shrink-0 rounded-xl border border-slate-200 bg-white text-2xl leading-none text-slate-600 active:bg-slate-100 disabled:opacity-30"
-                        aria-label="次の日"
-                      >
-                        ›
-                      </button>
+            {/* スマホ: 日別ビュー。前後日を左右に並べ、スワイプで捲るように移動する
+                （前後日のデータは期間ぶんまとめて取得済みなので追加のリクエストは不要） */}
+            <div className="md:hidden overflow-hidden" style={{ touchAction: "pan-y" }}>
+              <div
+                ref={trackRef}
+                className="flex"
+                style={{ transform: "translateX(-100%)", width: "300%" }}
+                onTransitionEnd={() => {
+                  const dir = pendingDirRef.current;
+                  if (!dir || !activeMobileDate) return;
+                  pendingDirRef.current = 0;
+                  const i = displayDates.indexOf(activeMobileDate);
+                  const target = displayDates[i + dir];
+                  if (target) setMobileDate(target); // 中央への戻しは useLayoutEffect が行う
+                }}
+                onTouchStart={(e) => {
+                  if (pendingDirRef.current) return; // 収束アニメ中は受け付けない
+                  const t = e.touches[0];
+                  swipeRef.current = { x: t.clientX, y: t.clientY, axis: "?" };
+                }}
+                onTouchMove={(e) => {
+                  const st = swipeRef.current;
+                  if (!st || !activeMobileDate) return;
+                  const t = e.touches[0];
+                  const dx = t.clientX - st.x;
+                  const dy = t.clientY - st.y;
+                  if (st.axis === "?") {
+                    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+                    st.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+                  }
+                  if (st.axis !== "x") return;
+                  const i = displayDates.indexOf(activeMobileDate);
+                  const hasPrev = i > 0;
+                  const hasNext = i < displayDates.length - 1;
+                  // 端では引っ張り抵抗をかけて「これ以上ない」ことを示す
+                  const limited = (dx > 0 && !hasPrev) || (dx < 0 && !hasNext) ? dx / 4 : dx;
+                  setTrackOffset(limited, false);
+                }}
+                onTouchEnd={() => {
+                  const st = swipeRef.current;
+                  swipeRef.current = null;
+                  if (!st || st.axis !== "x" || !activeMobileDate) return;
+                  const el = trackRef.current;
+                  const moved = el
+                    ? (() => {
+                        const m = /translateX\(calc\(-100% \+ (-?[\d.]+)px\)\)/.exec(el.style.transform);
+                        return m ? parseFloat(m[1]) : 0;
+                      })()
+                    : 0;
+                  const i = displayDates.indexOf(activeMobileDate);
+                  const goNext = moved <= -56 && i < displayDates.length - 1;
+                  const goPrev = moved >= 56 && i > 0;
+                  if (goNext || goPrev) {
+                    pendingDirRef.current = goNext ? 1 : -1;
+                    const el2 = trackRef.current;
+                    if (el2) {
+                      el2.style.transition = "transform 220ms cubic-bezier(0.22,1,0.36,1)";
+                      el2.style.transform = goNext ? "translateX(-200%)" : "translateX(0%)";
+                    }
+                  } else {
+                    setTrackOffset(null, true); // 元の日へ戻す
+                  }
+                }}
+              >
+                {(() => {
+                  const date = activeMobileDate;
+                  if (!date) return null;
+                  const i = displayDates.indexOf(date);
+                  const prevDate = i > 0 ? displayDates[i - 1] : null;
+                  const nextDate = i < displayDates.length - 1 ? displayDates[i + 1] : null;
+                  const panel = (d: string | null, key: string) => (
+                    <div key={key} className="w-1/3 shrink-0 px-0.5">
+                      {d ? renderDayList(d) : null}
                     </div>
-
-                    {/* 絞り込みタブ（全員／稼働／未割当） */}
-                    <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
-                      {(
-                        [
-                          ["all", "全員", allRows.length],
-                          ["working", "稼働", workingRows.length],
-                          ["unassigned", "未割当", unassignedRows.length],
-                        ] as const
-                      ).map(([key, label, n], i) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => setMobileFilter(key)}
-                          className={cn(
-                            "flex-1 px-2 py-2 text-[13px] font-medium transition-colors",
-                            i > 0 && "border-l border-slate-300",
-                            mobileFilter === key ? "bg-slate-800 text-white" : "text-slate-600",
-                          )}
-                        >
-                          {label}
-                          <span className="ml-1 text-[11px] tabular-nums opacity-70">{n}</span>
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* 一覧（タップで編集モーダル／希望休の人は希望休モーダル） */}
-                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
-                      {rows.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-sm text-slate-400">
-                          該当するドライバーはいません。
-                        </p>
-                      ) : (
-                        rows.map(({ driver, placements, assignedCourses, plate, isExternal, off }) => {
-                          const hasAny = placements.length > 0;
-                          const canOpen = off ? canWrite : canWrite || (canDispatch && hasAny);
-                          return (
-                            <button
-                              key={driver.id}
-                              type="button"
-                              disabled={!canOpen}
-                              onClick={() =>
-                                off
-                                  ? openOffModal(driver.id, date)
-                                  : setEditingCell({ date, driverId: driver.id })
-                              }
-                              className={cn(
-                                "flex w-full items-center gap-3 px-3 py-2.5 text-left",
-                                off && "bg-amber-50/60",
-                                canOpen ? "active:bg-slate-100" : "cursor-default",
-                              )}
-                            >
-                              <span className="w-20 shrink-0 truncate text-sm font-semibold text-slate-900">
-                                {getDisplayName(driver)}
-                              </span>
-                              {/* コースは上段、車両は下段。幅を取り合わずナンバーが必ず読める */}
-                              <span className="flex min-w-0 flex-1 flex-col gap-1">
-                                <span className="flex flex-wrap items-center gap-1">
-                                  {off ? (
-                                    <span className="rounded bg-amber-100 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
-                                      希望休
-                                    </span>
-                                  ) : hasAny ? (
-                                    assignedCourses.map((c) => (
-                                      <span
-                                        key={c.id}
-                                        className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
-                                        style={courseCellSurface(c.color)}
-                                      >
-                                        {courseShiftLabel(c)}
-                                      </span>
-                                    ))
-                                  ) : (
-                                    <span className="text-[12px] text-slate-400">
-                                      未割当{canWrite ? "（タップで割当）" : ""}
-                                    </span>
-                                  )}
-                                </span>
-                                {hasAny && (
-                                  <span className="flex items-center">
-                                    {plate ? (
-                                      <VehiclePlate
-                                        vehicle={plate}
-                                        compact
-                                        className="!max-w-[8.5rem] pointer-events-none"
-                                      />
-                                    ) : isExternal ? (
-                                      <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
-                                    ) : (
-                                      <span className="text-[11px] text-slate-400">車両なし</span>
-                                    )}
-                                  </span>
-                                )}
-                              </span>
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
+                  );
+                  return (
+                    <>
+                      {panel(prevDate, "prev")}
+                      {panel(date, "cur")}
+                      {panel(nextDate, "next")}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
 
             {/* PC: 従来のグリッド（軸切替つき） */}
