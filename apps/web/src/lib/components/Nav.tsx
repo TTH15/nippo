@@ -73,16 +73,9 @@ export function Nav({ variant = "default" }: NavProps) {
           )}
           {/* 運営画面への切替は ModeSwitchFab（スマホ幅の FAB）に集約。
               PC 幅では運営画面のみ運用のためリンク自体を廃止 */}
+          {/* ログアウトはマイページ内に移設した（ベルと隣接して誤タップが起きたため）。
+              ヘッダーに残すのは通知とプロフィールのみ。 */}
           {isUserLayout && <NotificationBell />}
-          {isUserLayout && (
-            <button
-              type="button"
-              onClick={logout}
-              className="text-xs text-slate-500 hover:text-slate-900 transition-colors"
-            >
-              ログアウト
-            </button>
-          )}
           <Link
             href="/me"
             className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition-colors"
