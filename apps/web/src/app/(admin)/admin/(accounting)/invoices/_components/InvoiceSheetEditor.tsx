@@ -160,8 +160,17 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   const lastSavedBodyRef = useRef<string>(JSON.stringify(saveBodyFromEditor(initial)));
   const savingRef = useRef(false);
 
+  // 保存中に来た変更を取りこぼさないための予約フラグ。
+  // （以前は保存中の呼び出しを捨てていたため、最後の編集が保存されないことがあった）
+  const pendingRef = useRef(false);
+  // persist 内から最新の自分自身を呼ぶための ref（下で毎レンダー更新する）
+  const persistRef = useRef<(state: EditorState) => Promise<void>>(async () => {});
+
   const persist = useCallback(async (state: EditorState) => {
-    if (savingRef.current) return;
+    if (savingRef.current) {
+      pendingRef.current = true; // 進行中の保存が終わったら、その時点の最新でもう一度保存する
+      return;
+    }
     const id = savedId ?? state.id;
     const body = saveBodyFromEditor({ ...state, id });
     const serialized = JSON.stringify(body);
@@ -190,6 +199,10 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
       setError(e instanceof Error ? e.message : "自動保存に失敗しました");
     } finally {
       savingRef.current = false;
+      if (pendingRef.current) {
+        pendingRef.current = false;
+        void persistRef.current(stRef.current);
+      }
     }
   }, [savedId]);
 
@@ -201,13 +214,34 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
 
   // アンマウント時（画面遷移など）にデバウンス中の保存が消えないよう、最後の状態を必ず1回保存する。
   // st/persist は毎レンダー更新される ref 経由で参照し、cleanup 自体は初回のみ登録する。
-  const persistRef = useRef(persist);
   persistRef.current = persist;
   useEffect(() => {
     return () => {
       void persistRef.current(stRef.current);
     };
   }, []);
+
+  /** 未保存の変更があるか（デバウンス待ち・保存中を含む） */
+  const hasUnsavedChanges = useCallback(
+    () =>
+      savingRef.current ||
+      pendingRef.current ||
+      JSON.stringify(saveBodyFromEditor({ ...stRef.current, id: savedId ?? stRef.current.id })) !==
+        lastSavedBodyRef.current,
+    [savedId],
+  );
+
+  // リロード・タブを閉じる・別サイトへ移動する操作は React のアンマウントを伴わないため、
+  // デバウンス待ちの変更が失われる。未保存が残っているときだけブラウザ標準の確認を出す。
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   // 「一覧」へ戻る前にも同様に保存を確定させてから遷移する（デバウンス待ちで消えるのを防ぐ）。
   const goToList = async (e: ReactMouseEvent<HTMLAnchorElement>) => {
@@ -262,7 +296,10 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
         </div>
 
         {/* 消費税の ON/OFF と税率。OFF（免税事業者など）の請求書もここで再ONできる。 */}
-        <label className="flex items-center gap-1.5 text-sm text-slate-700">
+        <label
+          className="flex items-center gap-1.5 text-sm text-slate-700"
+          title="この請求書に消費税を課すか（OFF＝免税・税額0）。税率は税抜⇔税込の換算にも使われます。"
+        >
           <input type="checkbox" className="h-4 w-4 accent-slate-700" checked={st.taxEnabled} onChange={(e) => setSt((p) => ({ ...p, taxEnabled: e.target.checked }))} />
           消費税
           <input className="w-12 rounded border border-slate-300 px-2 py-1 text-sm text-right disabled:bg-slate-100 disabled:text-slate-400" value={st.taxRatePercent} inputMode="decimal" disabled={!st.taxEnabled} onChange={(e) => setSt((p) => ({ ...p, taxRatePercent: e.target.value }))} />%
@@ -270,7 +307,15 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
 
         {/* 帳票全体の表示基準。行ごとの入力(税抜/税込)と異なる行は自動換算して表示する。
             取引先送付用と税務提出用を、同じ請求書のまま切り替えて確認・印刷できる。 */}
-        <div className="flex items-center gap-1.5" title="明細の単価がどちらの基準の行でも、ここで選んだ基準に揃えて表示・計算する">
+        <div
+          className="flex items-center gap-1.5"
+          title={
+            "帳票をどちらの基準で並べるかの切替（金額の中身は同じ請求書のまま）。\n" +
+            "・税抜: 単価・合計を税抜で並べ、消費税を別行で加算\n" +
+            "・税込: 単価・合計を税込で並べ、内訳として税額を表示\n" +
+            "行ごとの「抜/込」（単価をどちらで入力したか）は、ここで選んだ基準へ自動換算されます。"
+          }
+        >
           <span className="text-sm text-slate-600">表示</span>
           <div className="inline-flex rounded border border-slate-300 overflow-hidden text-xs">
             {(
@@ -306,7 +351,17 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
             <FontAwesomeIcon icon={saveStatusUi.icon} className="h-3.5 w-3.5" />
             {saveStatusUi.text}
           </span>
-          <Button variant="outline" size="sm" onClick={() => printInvoice(invoiceFileName(st))}>印刷（PDF保存）</Button>
+          {/* 印刷の前に保存を確定させる（印刷ダイアログをキャンセルしても変更が残るように） */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              await persist(stRef.current);
+              printInvoice(invoiceFileName(stRef.current));
+            }}
+          >
+            印刷（PDF保存）
+          </Button>
         </div>
       </div>
 
