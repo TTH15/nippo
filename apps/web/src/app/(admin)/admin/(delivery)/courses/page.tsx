@@ -23,6 +23,7 @@ import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
 import { slotDisplayLabel } from "@/lib/timeSlot";
 import { Button } from "@/lib/ui/button";
+import { TimePicker } from "@/lib/ui/time-picker";
 
 type CourseCarrier = "YAMATO" | "AMAZON" | "OTHER";
 type Course = {
@@ -633,11 +634,11 @@ export default function CoursesPage() {
                     ] as const).map(([key, label]) => (
                       <div key={key}>
                         <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
-                        <input
-                          type="time"
-                          value={newCourse[key]}
-                          onChange={(e) => setNewCourse((f) => ({ ...f, [key]: e.target.value }))}
-                          className="w-full px-2 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        <TimePicker
+                          value={newCourse[key] || null}
+                          onChange={(v) => setNewCourse((f) => ({ ...f, [key]: v ?? "" }))}
+                          placeholder="--:--"
+                          buttonClassName="px-2.5"
                         />
                       </div>
                     ))}
@@ -817,11 +818,11 @@ export default function CoursesPage() {
                     ] as const).map(([key, label]) => (
                       <div key={key}>
                         <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
-                        <input
-                          type="time"
-                          value={editForm[key]}
-                          onChange={(e) => setEditForm((f) => ({ ...f, [key]: e.target.value }))}
-                          className="w-full px-2 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        <TimePicker
+                          value={editForm[key] || null}
+                          onChange={(v) => setEditForm((f) => ({ ...f, [key]: v ?? "" }))}
+                          placeholder="--:--"
+                          buttonClassName="px-2.5"
                         />
                       </div>
                     ))}
