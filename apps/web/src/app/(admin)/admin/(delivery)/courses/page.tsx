@@ -610,47 +610,55 @@ export default function CoursesPage() {
                     size="md"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">時間帯</label>
-                  <CustomSelect
-                    options={[
-                      { value: "", label: "終日（指定なし）" },
-                      ...slots.map((s) => ({ value: s.id, label: slotOptionLabel(s) })),
-                    ]}
-                    value={newCourse.slotId}
-                    onChange={(v) => setNewCourse((f) => ({ ...f, slotId: v }))}
-                    clearable={false}
-                    size="md"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">このコースの時間帯（便）。1日に時間帯違いのコースを複数入れられます。時間帯は⚙️設定で作成。</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">標準時間・集合場所</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {([
-                      ["meeting_time", "集合"],
-                      ["arrival_time", "着車"],
-                      ["end_time", "終業"],
-                    ] as const).map(([key, label]) => (
-                      <div key={key}>
-                        <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
-                        <TimePicker
-                          value={newCourse[key] || null}
-                          onChange={(v) => setNewCourse((f) => ({ ...f, [key]: v ?? "" }))}
-                          placeholder="--:--"
-                          buttonClassName="px-2.5"
-                        />
-                      </div>
-                    ))}
+                {/* 時間に関する設定を1箇所に集約（便区分=分類 / 標準時間=実時刻。役割は別物） */}
+                <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                  <p className="text-sm font-semibold text-slate-700">時間</p>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">便区分（時間帯）</label>
+                    <CustomSelect
+                      options={[
+                        { value: "", label: "終日（指定なし）" },
+                        ...slots.map((s) => ({ value: s.id, label: slotOptionLabel(s) })),
+                      ]}
+                      value={newCourse.slotId}
+                      onChange={(v) => setNewCourse((f) => ({ ...f, slotId: v }))}
+                      clearable={false}
+                      size="md"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      希望休（便単位）との対応と、シフト表のラベルに使う<b>分類</b>。1日に区分違いのコースを複数入れられます。区分は⚙️設定で作成。
+                    </p>
                   </div>
-                  <input
-                    type="text"
-                    value={newCourse.meeting_place}
-                    onChange={(e) => setNewCourse((f) => ({ ...f, meeting_place: e.target.value }))}
-                    placeholder="集合場所"
-                    className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">このコースの毎日の標準。日別の例外はシフト表のセルから個別に上書きできます。</p>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">標準時間（実際の集合・着車・終業）</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([
+                        ["meeting_time", "集合"],
+                        ["arrival_time", "着車"],
+                        ["end_time", "終業"],
+                      ] as const).map(([key, label]) => (
+                        <div key={key}>
+                          <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
+                          <TimePicker
+                            value={newCourse[key] || null}
+                            onChange={(v) => setNewCourse((f) => ({ ...f, [key]: v ?? "" }))}
+                            placeholder="--:--"
+                            buttonClassName="px-2.5"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      value={newCourse.meeting_place}
+                      onChange={(e) => setNewCourse((f) => ({ ...f, meeting_place: e.target.value }))}
+                      placeholder="集合場所"
+                      className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      このコースの毎日の<b>実時刻</b>。日別の例外はシフト表のセルから個別に上書きできます。
+                    </p>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">コース名</label>
@@ -795,46 +803,55 @@ export default function CoursesPage() {
                     size="md"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">時間帯</label>
-                  <CustomSelect
-                    options={[
-                      { value: "", label: "終日（指定なし）" },
-                      ...slots.map((s) => ({ value: s.id, label: slotOptionLabel(s) })),
-                    ]}
-                    value={editForm.slotId}
-                    onChange={(v) => setEditForm((f) => ({ ...f, slotId: v }))}
-                    clearable={false}
-                    size="md"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">標準時間・集合場所</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {([
-                      ["meeting_time", "集合"],
-                      ["arrival_time", "着車"],
-                      ["end_time", "終業"],
-                    ] as const).map(([key, label]) => (
-                      <div key={key}>
-                        <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
-                        <TimePicker
-                          value={editForm[key] || null}
-                          onChange={(v) => setEditForm((f) => ({ ...f, [key]: v ?? "" }))}
-                          placeholder="--:--"
-                          buttonClassName="px-2.5"
-                        />
-                      </div>
-                    ))}
+                {/* 時間に関する設定を1箇所に集約（便区分=分類 / 標準時間=実時刻。役割は別物） */}
+                <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                  <p className="text-sm font-semibold text-slate-700">時間</p>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">便区分（時間帯）</label>
+                    <CustomSelect
+                      options={[
+                        { value: "", label: "終日（指定なし）" },
+                        ...slots.map((s) => ({ value: s.id, label: slotOptionLabel(s) })),
+                      ]}
+                      value={editForm.slotId}
+                      onChange={(v) => setEditForm((f) => ({ ...f, slotId: v }))}
+                      clearable={false}
+                      size="md"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      希望休（便単位）との対応と、シフト表のラベルに使う<b>分類</b>。区分は⚙️設定で作成。
+                    </p>
                   </div>
-                  <input
-                    type="text"
-                    value={editForm.meeting_place}
-                    onChange={(e) => setEditForm((f) => ({ ...f, meeting_place: e.target.value }))}
-                    placeholder="集合場所（例: 横大路第2倉庫）"
-                    className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">このコースの毎日の標準。日別の例外はシフト表のセルから個別に上書きできます。</p>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">標準時間（実際の集合・着車・終業）</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([
+                        ["meeting_time", "集合"],
+                        ["arrival_time", "着車"],
+                        ["end_time", "終業"],
+                      ] as const).map(([key, label]) => (
+                        <div key={key}>
+                          <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
+                          <TimePicker
+                            value={editForm[key] || null}
+                            onChange={(v) => setEditForm((f) => ({ ...f, [key]: v ?? "" }))}
+                            placeholder="--:--"
+                            buttonClassName="px-2.5"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      value={editForm.meeting_place}
+                      onChange={(e) => setEditForm((f) => ({ ...f, meeting_place: e.target.value }))}
+                      placeholder="集合場所（例: 横大路第2倉庫）"
+                      className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      このコースの毎日の<b>実時刻</b>。日別の例外はシフト表のセルから個別に上書きできます。
+                    </p>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">コース名</label>
