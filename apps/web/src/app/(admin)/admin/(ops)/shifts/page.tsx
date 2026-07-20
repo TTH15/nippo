@@ -22,7 +22,7 @@ import {
 } from "@/lib/components/VehiclePlate";
 import { summarizeHistory, type ShiftLog } from "@/server/shiftRequests/diff";
 import { cn } from "@/lib/ui/utils";
-import { ChevronDown, Settings } from "lucide-react";
+import { ChevronDown, RefreshCw, Settings } from "lucide-react";
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
@@ -493,6 +493,18 @@ export default function ShiftsPage() {
   const [unassignedOpenDate, setUnassignedOpenDate] = useState<string | null>(null);
   // 表示軸（A3）: driver=行がドライバー（既定）/ course=行がコースで埋まり具合を俯瞰。
   const [viewAxis, setViewAxis] = useState<"driver" | "course">("driver");
+  // 表示密度（A3）: compact=コースのみ / standard=＋車両 / detail=＋集合時刻。localStorage に記憶。
+  const [density, setDensity] = useState<"compact" | "standard" | "detail">("standard");
+  useEffect(() => {
+    const v = localStorage.getItem("shifts_view_density");
+    if (v === "compact" || v === "standard" || v === "detail") setDensity(v);
+  }, []);
+  const changeDensity = (d: "compact" | "standard" | "detail") => {
+    setDensity(d);
+    localStorage.setItem("shifts_view_density", d);
+  };
+  // 手動リフレッシュ（A3）: 他の管理者の変更を取り込む。自動再検証は楽観更新と衝突するため手動のみ。
+  const [refreshing, setRefreshing] = useState(false);
   // コース軸ビューのセル（コース×日）モーダル。担当可能ドライバーの追加・解除を行う。
   const [courseCellModal, setCourseCellModal] = useState<{ courseId: string; date: string } | null>(
     null,
@@ -1474,6 +1486,28 @@ export default function ShiftsPage() {
                 コース軸
               </button>
             </div>
+            {/* 表示密度（A3）: 簡易=コースのみ / 標準=＋車両 / 詳細=＋集合時刻 */}
+            <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+              {(
+                [
+                  ["compact", "簡易", "コースだけを表示（1画面の情報量を最小に）"],
+                  ["standard", "標準", "コース＋車両を表示"],
+                  ["detail", "詳細", "コース＋車両＋集合時刻を表示"],
+                ] as const
+              ).map(([key, label, title], i) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => changeDensity(key)}
+                  title={title}
+                  className={`flex-1 sm:flex-none px-3 py-2 text-sm font-medium transition-colors ${
+                    i > 0 ? "border-l border-slate-300" : ""
+                  } ${density === key ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <MonthYearPicker
               value={yearMonth}
               onChange={handleYearMonthChange}
@@ -1512,6 +1546,22 @@ export default function ShiftsPage() {
                 </>
               )}
             </div>
+            <button
+              type="button"
+              onClick={async () => {
+                setRefreshing(true);
+                try {
+                  await load();
+                } finally {
+                  setRefreshing(false);
+                }
+              }}
+              disabled={loading || refreshing}
+              title="最新の状態に更新（他の管理者の変更を反映）"
+              className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
+            </button>
             <button
               type="button"
               onClick={() => setSettingsModalOpen(true)}
@@ -1909,19 +1959,44 @@ export default function ShiftsPage() {
                                               )}
                                             </span>
                                           ))}
-                                          <span className="mt-0.5 flex w-full min-w-0 items-center justify-center">
-                                            {currentVid && hoverVehiclePlate ? (
-                                              <VehiclePlate
-                                                vehicle={hoverVehiclePlate}
-                                                compact
-                                                className="!max-w-none w-full min-w-0 pointer-events-none"
-                                              />
-                                            ) : currentExternal ? (
-                                              <span className="py-0.5 text-[10px] font-semibold text-amber-600">他社車両</span>
-                                            ) : (
-                                              <span className="py-0.5 text-[10px] font-medium text-slate-400">車両なし</span>
-                                            )}
-                                          </span>
+                                          {density === "detail" &&
+                                            (() => {
+                                              // 実効集合時刻（シフト上書き ?? コース標準）をコース順に併記
+                                              const times = placements
+                                                .map((p) => {
+                                                  const c = courses.find((cc) => cc.id === p.courseId);
+                                                  if (!c) return null;
+                                                  const r = shifts.find(
+                                                    (s) =>
+                                                      s.shift_date === date &&
+                                                      s.course_id === p.courseId &&
+                                                      s.slot === p.slot,
+                                                  );
+                                                  return toTimeInputValue(r?.meeting_time ?? c.meeting_time) || null;
+                                                })
+                                                .filter((t): t is string => Boolean(t));
+                                              if (times.length === 0) return null;
+                                              return (
+                                                <span className="w-full text-center text-[9px] font-medium leading-none text-slate-500">
+                                                  集合 {times.join(" / ")}
+                                                </span>
+                                              );
+                                            })()}
+                                          {density !== "compact" && (
+                                            <span className="mt-0.5 flex w-full min-w-0 items-center justify-center">
+                                              {currentVid && hoverVehiclePlate ? (
+                                                <VehiclePlate
+                                                  vehicle={hoverVehiclePlate}
+                                                  compact
+                                                  className="!max-w-none w-full min-w-0 pointer-events-none"
+                                                />
+                                              ) : currentExternal ? (
+                                                <span className="py-0.5 text-[10px] font-semibold text-amber-600">他社車両</span>
+                                              ) : (
+                                                <span className="py-0.5 text-[10px] font-medium text-slate-400">車両なし</span>
+                                              )}
+                                            </span>
+                                          )}
                                         </>
                                       ) : (
                                         <span className="flex flex-1 items-center justify-center text-base text-slate-300 group-hover:text-slate-400">

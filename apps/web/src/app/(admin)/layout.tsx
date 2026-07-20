@@ -5,6 +5,7 @@
 // Providers(SWRConfig) はこの永続レイアウトに置くことで、
 // 管理画面のページ間遷移をまたいでキャッシュを共有する（再訪時の点滅をなくす）。
 import { Providers } from "@/lib/components/Providers";
+import { AdminAccessGuard } from "@/lib/components/AdminAccessGuard";
 
 export default function AdminGroupLayout({
   children,
@@ -18,7 +19,8 @@ export default function AdminGroupLayout({
         data-mode="admin"
         className="min-h-screen bg-[var(--color-bg)] max-md:bg-[var(--mode-admin-bg)]"
       >
-        {children}
+        {/* 運営 capability を持たないアカウントは URL 直打ちでも入れない（PC 含む） */}
+        <AdminAccessGuard>{children}</AdminAccessGuard>
       </div>
     </Providers>
   );

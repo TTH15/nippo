@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChartLine, faTruck } from "@fortawesome/free-solid-svg-icons";
 import { getStoredDriver } from "@/lib/api";
+import { canEnterAdmin } from "@/lib/capabilities";
 import { useModeTransition } from "./ModeTransition";
 
 const MODES = {
@@ -37,9 +38,8 @@ export function ModeSwitchFab({ mode }: { mode: keyof typeof MODES }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    // capability を1つでも持つ = 運営画面に入れるアカウント（mobile の canUseAdminMode と同じ判定。
-    // ロール名ではなく権限保持で判定することで ACCOUNTING・カスタムロールも切り替え可能）
-    setVisible((getStoredDriver()?.capabilities?.length ?? 0) > 0);
+    // capability を1つでも持つ = 運営画面に入れるアカウント（(admin) 入口ガードと同一判定）
+    setVisible(canEnterAdmin(getStoredDriver()));
   }, []);
 
   if (!visible) return null;
