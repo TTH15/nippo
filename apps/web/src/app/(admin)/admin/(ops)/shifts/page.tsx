@@ -514,7 +514,7 @@ export default function ShiftsPage() {
   const [mobileDate, setMobileDate] = useState<string | null>(null);
   // 日別ビューの左右スワイプ（ページめくり）。指の動きに追従させるため、
   // 再描画を挟まず track の transform を直接書き換える。
-  const swipeRef = useRef<{ x: number; y: number; axis: "?" | "x" | "y" } | null>(null);
+  const swipeRef = useRef<{ x: number; y: number; axis: "?" | "x" | "y"; dx: number } | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const pendingDirRef = useRef<0 | 1 | -1>(0);
   /** 中央パネル基準の transform を設定（px=null で既定位置へ戻す） */
@@ -1579,10 +1579,10 @@ export default function ShiftsPage() {
   return (
     <AdminLayout>
       <div className="max-w-full">
-        {/* スクロールは body 基準。貼り付き位置は AdminLayout が実測して公開する
-            モバイルヘッダー高さ（PC は 0）に合わせる */}
+        {/* ツールバーは PC のみ固定。スマホで固定するのは日付ナビ＋タブだけにして、
+            固定領域が画面を占有して一覧が隠れるのを防ぐ */}
         <div
-          className="sticky z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-2 -mt-1 border-b border-slate-200/80"
+          className="md:sticky z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-2 -mt-1 md:border-b md:border-slate-200/80"
           style={{ top: "var(--admin-header-h, 0px)" }}
         >
         {/* 1行目: 見出し＋年月。2行目: 期間タブ＋操作ボタン（高さを抑えて表を広く見せる） */}
@@ -1745,7 +1745,9 @@ export default function ShiftsPage() {
           </div>
         )}
 
-        {/* スマホ: 日付ナビと絞り込みタブもヘッダーに含めて固定する
+        </div>
+
+        {/* スマホ: 日付ナビと絞り込みタブだけを固定する
             （下までスクロールしても「何日を見ているか」が常に分かる） */}
         {!loading && activeMobileDate && (() => {
           const date = activeMobileDate;
@@ -1756,7 +1758,10 @@ export default function ShiftsPage() {
           const count = workingCountByDate.get(date) ?? 0;
           const isToday = date === today;
           return (
-            <div className="md:hidden space-y-2 pb-2">
+            <div
+              className="md:hidden sticky z-30 -mx-3 px-3 bg-slate-50 pt-1 pb-2 space-y-2 border-b border-slate-200/80"
+              style={{ top: "var(--admin-header-h, 0px)" }}
+            >
               <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5">
                 <button
                   type="button"
@@ -1810,7 +1815,6 @@ export default function ShiftsPage() {
             </div>
           );
         })()}
-        </div>
 
         {loading ? (
           <div className="space-y-3">
@@ -1868,7 +1872,7 @@ export default function ShiftsPage() {
                 onTouchStart={(e) => {
                   if (pendingDirRef.current) return; // 収束アニメ中は受け付けない
                   const t = e.touches[0];
-                  swipeRef.current = { x: t.clientX, y: t.clientY, axis: "?" };
+                  swipeRef.current = { x: t.clientX, y: t.clientY, axis: "?", dx: 0 };
                 }}
                 onTouchMove={(e) => {
                   const st = swipeRef.current;
@@ -1886,19 +1890,14 @@ export default function ShiftsPage() {
                   const hasNext = i < displayDates.length - 1;
                   // 端では引っ張り抵抗をかけて「これ以上ない」ことを示す
                   const limited = (dx > 0 && !hasPrev) || (dx < 0 && !hasNext) ? dx / 4 : dx;
+                  st.dx = limited; // 判定は必ずこの値を使う（transform 文字列はブラウザが正規化する）
                   setTrackOffset(limited, false);
                 }}
                 onTouchEnd={() => {
                   const st = swipeRef.current;
                   swipeRef.current = null;
                   if (!st || st.axis !== "x" || !activeMobileDate) return;
-                  const el = trackRef.current;
-                  const moved = el
-                    ? (() => {
-                        const m = /translateX\(calc\(-100% \+ (-?[\d.]+)px\)\)/.exec(el.style.transform);
-                        return m ? parseFloat(m[1]) : 0;
-                      })()
-                    : 0;
+                  const moved = st.dx;
                   const i = displayDates.indexOf(activeMobileDate);
                   const goNext = moved <= -56 && i < displayDates.length - 1;
                   const goPrev = moved >= 56 && i > 0;
