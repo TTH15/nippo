@@ -22,6 +22,7 @@ import {
 } from "@/lib/components/VehiclePlate";
 import { summarizeHistory, type ShiftLog } from "@/server/shiftRequests/diff";
 import { cn } from "@/lib/ui/utils";
+import { TimePicker } from "@/lib/ui/time-picker";
 import { ChevronDown, RefreshCw, Settings } from "lucide-react";
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
@@ -2944,15 +2945,15 @@ export default function ShiftsPage() {
                                 ] as const).map(([label, eff, mk]) => (
                                   <div key={label}>
                                     <span className="mb-0.5 block text-[10px] text-slate-500">{label}</span>
-                                    <input
-                                      type="time"
-                                      value={eff}
-                                      onChange={(e) => {
-                                        const v = e.target.value;
-                                        if (v === eff) return;
-                                        persistTimes(date, p.courseId, p.slot, mk(v || null));
+                                    <TimePicker
+                                      value={eff || null}
+                                      onChange={(v) => {
+                                        const next = v ?? "";
+                                        if (next === eff) return;
+                                        persistTimes(date, p.courseId, p.slot, mk(next || null));
                                       }}
-                                      className="w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
+                                      placeholder="--:--"
+                                      buttonClassName="h-8 px-2"
                                     />
                                   </div>
                                 ))}
