@@ -1445,50 +1445,48 @@ export default function ShiftsPage() {
                   canOpen ? "active:bg-slate-100" : "cursor-default",
                 )}
               >
-                <span className="w-20 shrink-0 truncate text-sm font-semibold text-slate-900">
+                <span className="w-16 shrink-0 truncate text-sm font-semibold text-slate-900">
                   {getDisplayName(driver)}
                 </span>
-                {/* コースは上段、車両は下段。幅を取り合わずナンバーが必ず読める */}
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex flex-wrap items-center gap-1">
-                    {off ? (
-                      <span className="rounded bg-amber-100 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
-                        希望休
+                {/* 名前・コース・車両を1行に収め、行の高さを揃える */}
+                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                  {off ? (
+                    <span className="rounded bg-amber-100 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
+                      希望休
+                    </span>
+                  ) : hasAny ? (
+                    assignedCourses.map((c) => (
+                      <span
+                        key={c.id}
+                        className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
+                        style={courseCellSurface(c.color)}
+                      >
+                        {courseShiftLabel(c)}
                       </span>
-                    ) : hasAny ? (
-                      assignedCourses.map((c) => (
-                        <span
-                          key={c.id}
-                          className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
-                          style={courseCellSurface(c.color)}
-                        >
-                          {courseShiftLabel(c)}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-[12px] text-slate-400">
-                        未割当{canWrite ? "（タップで割当）" : ""}
-                      </span>
-                    )}
-                  </span>
-                  {hasAny && (
-                    <span className="flex items-center">
-                      {plate ? (
-                        // w-full が無いと flex アイテムとして幅が決まらず（内部が w-full のため）
-                        // プレートが潰れて見えなくなる
-                        <VehiclePlate
-                          vehicle={plate}
-                          compact
-                          className="w-full !max-w-[8.5rem] min-w-0 pointer-events-none"
-                        />
-                      ) : isExternal ? (
-                        <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
-                      ) : (
-                        <span className="text-[11px] text-slate-400">車両なし</span>
-                      )}
+                    ))
+                  ) : (
+                    <span className="text-[12px] text-slate-400">
+                      未割当{canWrite ? "（タップで割当）" : ""}
                     </span>
                   )}
                 </span>
+                {hasAny && (
+                  <span className="flex w-[5.5rem] shrink-0 justify-end">
+                    {plate ? (
+                      // w-full が無いと flex アイテムとして幅が決まらず（内部が w-full のため）
+                      // プレートが潰れて見えなくなる
+                      <VehiclePlate
+                        vehicle={plate}
+                        compact
+                        className="w-full !max-w-none min-w-0 pointer-events-none"
+                      />
+                    ) : isExternal ? (
+                      <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
+                    ) : (
+                      <span className="text-[11px] text-slate-400">車両なし</span>
+                    )}
+                  </span>
+                )}
               </button>
             );
           })
@@ -1581,9 +1579,12 @@ export default function ShiftsPage() {
   return (
     <AdminLayout>
       <div className="max-w-full">
-        {/* スクロールは body 基準なので、スマホはモバイルヘッダー（h-14）の下に貼り付ける。
-            背景は周囲と同じ slate-50 にし、下端の境界線で固定領域の終わりを示す */}
-        <div className="sticky top-14 md:top-0 z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-2 -mt-1 border-b border-slate-200/80">
+        {/* スクロールは body 基準。貼り付き位置は AdminLayout が実測して公開する
+            モバイルヘッダー高さ（PC は 0）に合わせる */}
+        <div
+          className="sticky z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-2 -mt-1 border-b border-slate-200/80"
+          style={{ top: "var(--admin-header-h, 0px)" }}
+        >
         {/* 1行目: 見出し＋年月。2行目: 期間タブ＋操作ボタン（高さを抑えて表を広く見せる） */}
         <div className="flex items-center justify-between gap-2 mb-2">
           <h1 className="text-lg md:text-xl font-bold text-slate-900 shrink-0">シフト管理</h1>

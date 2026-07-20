@@ -560,9 +560,12 @@ export default function VehiclesPage() {
   return (
     <AdminLayout>
       <div className="w-full">
-        {/* 見出しとオイル警告は追従させる。スクロールは body 基準なので、スマホは
-            モバイルヘッダー（h-14）の下に貼り付ける（PC はページ上端） */}
-        <div className="sticky top-14 md:top-0 z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-2 -mt-1 border-b border-slate-200/80">
+        {/* 見出しとオイル警告は追従させる。貼り付き位置は AdminLayout が実測して公開する
+            モバイルヘッダー高さ（PC は 0）に合わせる */}
+        <div
+          className="sticky z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-2 -mt-1 border-b border-slate-200/80"
+          style={{ top: "var(--admin-header-h, 0px)" }}
+        >
         <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
             <FontAwesomeIcon icon={faCar} className="w-5 h-5 text-slate-400" />
