@@ -1847,8 +1847,10 @@ export default function ShiftsPage() {
             <div className="md:hidden overflow-hidden" style={{ touchAction: "pan-y" }}>
               <div
                 ref={trackRef}
+                // 幅は 100% のまま子を溢れさせる（translateX の % は自身の幅基準のため、
+                // ここを 300% にすると 1画面ぶんのつもりが 3画面ぶんずれてしまう）
                 className="flex"
-                style={{ transform: "translateX(-100%)", width: "300%" }}
+                style={{ transform: "translateX(-100%)" }}
                 onTransitionEnd={() => {
                   const dir = pendingDirRef.current;
                   if (!dir || !activeMobileDate) return;
@@ -1913,7 +1915,7 @@ export default function ShiftsPage() {
                   const prevDate = i > 0 ? displayDates[i - 1] : null;
                   const nextDate = i < displayDates.length - 1 ? displayDates[i + 1] : null;
                   const panel = (d: string | null, key: string) => (
-                    <div key={key} className="w-1/3 shrink-0 px-0.5">
+                    <div key={key} className="w-full shrink-0 px-0.5">
                       {d ? renderDayList(d) : null}
                     </div>
                   );
