@@ -25,6 +25,7 @@
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "@supabase/supabase-js": "^2.45.0",
+    "@types/web-push": "^3.6.4",
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -44,7 +45,8 @@
     "recharts": "^3.7.0",
     "swr": "^2.4.1",
     "tailwind-merge": "^3.2.0",
-    "twilio": "^6.0.2"
+    "twilio": "^6.0.2",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
