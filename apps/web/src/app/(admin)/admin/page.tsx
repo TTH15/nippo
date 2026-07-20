@@ -113,31 +113,37 @@ export default function AdminDashboardPage() {
     setActiveDrivers(dash.activeDrivers);
   }, [dash]);
 
-  // 権限ガード: 日報・売上の閲覧権限が無いロールにはダッシュボードを表示しない
-  //（メニューもロック表示。API は 403 を返すため、壊れたカードの羅列ではなく明示する）。
-  const [noAccess, setNoAccess] = useState(false);
+  // 表示するカードは capability で出し分ける（権限のあるものだけを見せる）。
+  // capabilities 未取得（旧セッション・読込前）は誤って隠さないよう全表示にフォールバックし、
+  // 最終的な防壁はサーバーの requirePermission（403）に委ねる。
+  const [caps, setCaps] = useState<string[] | null>(null);
   useEffect(() => {
-    const caps = getStoredDriver()?.capabilities;
-    setNoAccess(Array.isArray(caps) && !caps.includes("can_view_reports"));
+    const list = getStoredDriver()?.capabilities;
+    setCaps(Array.isArray(list) ? list : null);
   }, []);
+  const can = (cap: string) => caps === null || caps.includes(cap);
+  const canSales = can("can_view_billing"); // 売上・粗利・推移（/api/admin/sales）
+  const canReports = can("can_view_reports"); // 報告の未承認・オイル交換申請
+  const canVehicles = can("can_view_vehicles"); // オイル交換が迫る車両
+  const canShifts = can("can_view_shifts"); // 本日の稼働ドライバー
+  const showAlerts = canReports || canVehicles;
+  const quickLinks = [
+    { href: "/admin/sales", label: "売上", icon: faChartColumn, show: canSales },
+    { href: "/admin/daily", label: "報告", icon: faFileLines, show: canReports },
+    { href: "/admin/shifts", label: "シフト", icon: faCalendar, show: canShifts },
+    { href: "/admin/invoices", label: "請求書", icon: faFileInvoice, show: can("can_view_billing") },
+    { href: "/admin/payments", label: "ペイメント", icon: faMoneyBill1Wave, show: can("can_view_rewards") },
+    { href: "/admin/vehicles", label: "車両", icon: faCar, show: canVehicles },
+  ].filter((q) => q.show);
+  // 見せるカードが1つも無いときだけ、空状態を出す（メニューから使える機能へ誘導）。
+  const nothingToShow =
+    !canSales && !showAlerts && !canShifts && quickLinks.length === 0;
 
   const margin = sales > 0 ? Math.round((profit / sales) * 1000) / 10 : 0;
   const maxTrend = Math.max(1, ...trend.map((d) => d.total));
-  const totalAlerts = (dailyUnread ?? 0) + (oilUnread ?? 0) + (oilAlert ?? 0);
-
-  if (noAccess) {
-    return (
-      <AdminLayout>
-        <div className="mx-auto max-w-5xl">
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-slate-200 bg-white px-6 py-16 text-center">
-            <FontAwesomeIcon icon={faLock} className="h-8 w-8 text-slate-300" />
-            <p className="text-sm font-semibold text-slate-700">ダッシュボードを閲覧する権限がありません</p>
-            <p className="text-xs text-slate-500">メニューから、権限のある機能をご利用ください。</p>
-          </div>
-        </div>
-      </AdminLayout>
-    );
-  }
+  // 「対応が必要な項目はありません」の判定は、実際に表示する行だけで数える
+  const totalAlerts =
+    (canReports ? (dailyUnread ?? 0) + (oilUnread ?? 0) : 0) + (canVehicles ? (oilAlert ?? 0) : 0);
 
   return (
     <AdminLayout>
@@ -148,7 +154,16 @@ export default function AdminDashboardPage() {
           <span className="text-xs text-slate-400">{monthLabel}</span>
         </div>
 
+        {nothingToShow && (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-slate-200 bg-white px-6 py-16 text-center">
+            <FontAwesomeIcon icon={faLock} className="h-8 w-8 text-slate-300" />
+            <p className="text-sm font-semibold text-slate-700">表示できる項目がありません</p>
+            <p className="text-xs text-slate-500">メニューから、権限のある機能をご利用ください。</p>
+          </div>
+        )}
+
         {/* 今月の概況 KPI */}
+        {canSales && (
         <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           <div className="grid grid-cols-2 gap-3 sm:gap-5">
             <Kpi label="今月の売上" loading={loading} value={yen(sales)} />
@@ -160,8 +175,10 @@ export default function AdminDashboardPage() {
             />
           </div>
         </section>
+        )}
 
         {/* 直近14日の売上推移 */}
+        {canSales && (
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-[13px] font-semibold text-slate-700">直近14日の売上推移</h2>
@@ -205,9 +222,12 @@ export default function AdminDashboardPage() {
             </ResponsiveContainer>
           )}
         </section>
+        )}
 
         {/* 要対応 + 本日のシフト */}
+        {(showAlerts || canShifts) && (
         <div className="grid gap-4 md:grid-cols-2">
+          {showAlerts && (
           <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="mb-3 text-[13px] font-semibold text-slate-700">要対応</h2>
             {loading ? (
@@ -222,7 +242,7 @@ export default function AdminDashboardPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {(oilAlert ?? 0) > 0 && (
+                {canVehicles && (oilAlert ?? 0) > 0 && (
                   <AlertRow
                     icon={faOilCan}
                     label="オイル交換が迫っている車両"
@@ -231,22 +251,28 @@ export default function AdminDashboardPage() {
                     tone="danger"
                   />
                 )}
-                <AlertRow
-                  icon={faFileLines}
-                  label="未承認の報告"
-                  count={dailyUnread ?? 0}
-                  href="/admin/daily"
-                />
-                <AlertRow
-                  icon={faOilCan}
-                  label="オイル交換の申請"
-                  count={oilUnread ?? 0}
-                  href="/admin/misc-reports/others"
-                />
+                {canReports && (
+                  <>
+                    <AlertRow
+                      icon={faFileLines}
+                      label="未承認の報告"
+                      count={dailyUnread ?? 0}
+                      href="/admin/daily"
+                    />
+                    <AlertRow
+                      icon={faOilCan}
+                      label="オイル交換の申請"
+                      count={oilUnread ?? 0}
+                      href="/admin/misc-reports/others"
+                    />
+                  </>
+                )}
               </div>
             )}
           </section>
+          )}
 
+          {canShifts && (
           <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="mb-3 text-[13px] font-semibold text-slate-700">本日のシフト</h2>
             <Link
@@ -267,20 +293,21 @@ export default function AdminDashboardPage() {
               <FontAwesomeIcon icon={faChevronRight} className="h-3.5 w-3.5 text-slate-400" />
             </Link>
           </section>
+          )}
         </div>
+        )}
 
-        {/* クイックアクセス */}
+        {/* クイックアクセス（権限のある行き先だけ） */}
+        {quickLinks.length > 0 && (
         <section>
           <div className="mb-2 text-[11px] font-medium text-slate-500">クイックアクセス</div>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            <QuickLink href="/admin/sales" label="売上" icon={faChartColumn} />
-            <QuickLink href="/admin/daily" label="報告" icon={faFileLines} />
-            <QuickLink href="/admin/shifts" label="シフト" icon={faCalendar} />
-            <QuickLink href="/admin/invoices" label="請求書" icon={faFileInvoice} />
-            <QuickLink href="/admin/payments" label="ペイメント" icon={faMoneyBill1Wave} />
-            <QuickLink href="/admin/vehicles" label="車両" icon={faCar} />
+            {quickLinks.map((q) => (
+              <QuickLink key={q.href} href={q.href} label={q.label} icon={q.icon} />
+            ))}
           </div>
         </section>
+        )}
       </div>
     </AdminLayout>
   );
