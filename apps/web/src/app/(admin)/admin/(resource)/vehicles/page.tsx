@@ -768,11 +768,16 @@ export default function VehiclesPage() {
                         <span className="inline-flex items-center h-6 px-2 rounded text-xs font-medium bg-slate-50 text-slate-400 shrink-0">未設定</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-4 text-sm shrink-0 pl-3">
-                      <span className="text-slate-400">次回車検</span>
-                      <span className="font-semibold text-lg text-slate-900">{formatInspectionDate(v.next_shaken_date)}</span>
-                      <span className="text-slate-400 pl-3">自賠責更新</span>
-                      <span className="font-semibold text-lg text-slate-900">{formatMonth(v.jibaiseki_renewal_month)}</span>
+                    {/* ラベルと値をペアで束ね、狭い画面ではペア単位で折り返す（横にはみ出さない） */}
+                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm min-w-0 md:pl-3">
+                      <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+                        <span className="text-slate-400">次回車検</span>
+                        <span className="font-semibold text-lg text-slate-900">{formatInspectionDate(v.next_shaken_date)}</span>
+                      </span>
+                      <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+                        <span className="text-slate-400">自賠責更新</span>
+                        <span className="font-semibold text-lg text-slate-900">{formatMonth(v.jibaiseki_renewal_month)}</span>
+                      </span>
                     </div>
                     {canWrite && (
                       <button
@@ -852,10 +857,11 @@ export default function VehiclesPage() {
                     <div className="flex-1 space-y-4 p-2">
                       {/* オイル交換ゲージ */}
                       <div className="pt-4 pb-10">
-                        <div className="flex items-baseline justify-between pb-2">
+                        {/* 狭い画面では「現在走行距離…」のまとまりごと次行へ折り返す（語中で割らない） */}
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 pb-2">
                           <div className="text-lg font-semibold text-slate-700 leading-tight">メーター管理</div>
                           <div className="flex items-center gap-2 text-xs text-slate-500">
-                            <div>
+                            <div className="whitespace-nowrap">
                               現在走行距離{" "}
                               <span className="text-base font-semibold text-slate-900">
                                 {fmt(v.current_mileage)} km

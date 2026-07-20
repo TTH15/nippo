@@ -217,7 +217,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 max-md:bg-transparent">
       {/* モバイルヘッダー（運営モードの外枠。ダークで「運営に居る」ことを示す） */}
-      <header className="sticky top-0 z-30 flex items-center justify-between gap-2 px-3 py-2.5 border-b border-brand-700 bg-brand-800/95 backdrop-blur shadow-sm md:hidden">
+      {/* z-40: ページ内の sticky テーブルヘッダー（z-20〜30）より前面に置き、スクロール時の重なりを防ぐ */}
+      <header className="sticky top-0 z-40 flex items-center justify-between gap-2 px-3 py-2.5 border-b border-brand-700 bg-brand-800/95 backdrop-blur shadow-sm md:hidden">
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}
@@ -450,16 +451,26 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
-        {/* モバイル用ドロワーナビ */}
-        {mobileNavOpen && (
-          <div className="fixed inset-0 z-50 flex md:hidden">
-            <button
-              type="button"
-              className="flex-1 bg-black/40"
-              onClick={() => setMobileNavOpen(false)}
-              aria-label="メニューを閉じる"
-            />
-            <aside className="w-64 max-w-[80%] bg-white text-slate-700 flex flex-col">
+        {/* モバイル用ドロワーナビ。常時マウントし、開閉ともスライド＋フェードで滑らかに動かす
+            （条件付きマウントだと初期状態が無く transition が効かない） */}
+        <div
+          className={`fixed inset-0 z-50 md:hidden ${mobileNavOpen ? "" : "pointer-events-none"}`}
+          aria-hidden={!mobileNavOpen}
+        >
+          <button
+            type="button"
+            tabIndex={mobileNavOpen ? 0 : -1}
+            className={`absolute inset-0 bg-black/40 transition-opacity duration-300 ease-out ${
+              mobileNavOpen ? "opacity-100" : "opacity-0"
+            }`}
+            onClick={() => setMobileNavOpen(false)}
+            aria-label="メニューを閉じる"
+          />
+          <aside
+            className={`absolute right-0 top-0 h-full w-64 max-w-[80%] bg-white text-slate-700 flex flex-col shadow-2xl transition-transform duration-300 ease-out will-change-transform ${
+              mobileNavOpen ? "translate-x-0" : "translate-x-full"
+            }`}
+          >
               <div className="h-16 flex items-center justify-between border-b border-slate-200 px-3">
                 <Link
                   href="/admin"
@@ -613,8 +624,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
             </aside>
-          </div>
-        )}
+        </div>
 
         {/* Main content。スマホ幅ではダークな外枠の上に載るライトのシートにする
             （既存 admin ページの配色を変えずにモード識別色を成立させるため） */}

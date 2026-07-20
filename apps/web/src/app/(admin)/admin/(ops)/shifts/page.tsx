@@ -506,6 +506,8 @@ export default function ShiftsPage() {
   };
   // 手動リフレッシュ（A3）: 他の管理者の変更を取り込む。自動再検証は楽観更新と衝突するため手動のみ。
   const [refreshing, setRefreshing] = useState(false);
+  // スマホの日別ビュー（B）: 表示中の1日。null=期間内の今日 or 先頭日にフォールバック。
+  const [mobileDate, setMobileDate] = useState<string | null>(null);
   // コース軸ビューのセル（コース×日）モーダル。担当可能ドライバーの追加・解除を行う。
   const [courseCellModal, setCourseCellModal] = useState<{ courseId: string; date: string } | null>(
     null,
@@ -1349,6 +1351,21 @@ export default function ShiftsPage() {
     return newV !== oldV;
   };
 
+  // スマホ日別ビューで表示する日。期間を切り替えたら今日（無ければ先頭日）へ寄せる。
+  const activeMobileDate =
+    mobileDate && displayDates.includes(mobileDate)
+      ? mobileDate
+      : displayDates.includes(today)
+        ? today
+        : displayDates[0] ?? "";
+
+  /** 日別ビュー用: その日の「ドライバー→割当コース」一覧（割当のある人だけ、表示名順） */
+  const getAssignedEntriesOnDate = (date: string) =>
+    driversWithCourses
+      .map((d) => ({ driver: d, placements: findDriverPlacementsOnDate(localShifts, date, d.id) }))
+      .filter((e) => e.placements.length > 0)
+      .sort((a, b) => getDisplayName(a.driver).localeCompare(getDisplayName(b.driver), "ja"));
+
   // ベクターPDF用に、エクスポート表の内容を素データへ変換（描画ロジックと分離）。
   const buildShiftPdfData = (): ShiftPdfData => {
     const rows = driversWithCourses.map((driver) => {
@@ -1466,8 +1483,8 @@ export default function ShiftsPage() {
                 後半（16日〜）
               </button>
             </div>
-            {/* 表示軸の切替（A3）: ドライバー軸/コース軸 */}
-            <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+            {/* 表示軸の切替（A3）: ドライバー軸/コース軸。スマホは日別ビューのため非表示 */}
+            <div className="hidden md:flex rounded-lg border border-slate-300 overflow-hidden bg-white">
               <button
                 type="button"
                 onClick={() => setViewAxis("driver")}
@@ -1487,8 +1504,8 @@ export default function ShiftsPage() {
                 コース軸
               </button>
             </div>
-            {/* 表示密度（A3）: 簡易=コースのみ / 標準=＋車両 / 詳細=＋集合時刻 */}
-            <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+            {/* 表示密度（A3）: 簡易=コースのみ / 標準=＋車両 / 詳細=＋集合時刻。スマホは日別ビューのため非表示 */}
+            <div className="hidden md:flex rounded-lg border border-slate-300 overflow-hidden bg-white">
               {(
                 [
                   ["compact", "簡易", "コースだけを表示（1画面の情報量を最小に）"],
@@ -1622,6 +1639,134 @@ export default function ShiftsPage() {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* スマホ: 日別ビュー（1日ずつ縦リスト。横スクロール不要） */}
+            <div className="md:hidden space-y-3">
+              {(() => {
+                const date = activeMobileDate;
+                if (!date) return null;
+                const idx = displayDates.indexOf(date);
+                const entries = getAssignedEntriesOnDate(date);
+                const unassigned = getUnassignedDriversOnDate(date);
+                const offNames = driversWithCourses
+                  .filter((d) => isDriverOffDay(d.id, date))
+                  .map((d) => getDisplayName(d));
+                const count = workingCountByDate.get(date) ?? 0;
+                const isToday = date === today;
+                return (
+                  <>
+                    {/* 日付ナビ */}
+                    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-2 py-2">
+                      <button
+                        type="button"
+                        disabled={idx <= 0}
+                        onClick={() => setMobileDate(displayDates[idx - 1])}
+                        className="h-9 w-9 shrink-0 rounded-lg text-slate-500 disabled:opacity-30"
+                        aria-label="前の日"
+                      >
+                        ‹
+                      </button>
+                      <div className="min-w-0 text-center">
+                        <p className={cn("text-sm font-bold", isToday ? "text-amber-600" : "text-slate-900")}>
+                          {formatDate(date)}
+                          {isToday && <span className="ml-1 text-[10px]">今日</span>}
+                        </p>
+                        <p className="text-[11px] text-slate-500">稼働 {count}人</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={idx >= displayDates.length - 1}
+                        onClick={() => setMobileDate(displayDates[idx + 1])}
+                        className="h-9 w-9 shrink-0 rounded-lg text-slate-500 disabled:opacity-30"
+                        aria-label="次の日"
+                      >
+                        ›
+                      </button>
+                    </div>
+
+                    {/* 割当済み（タップで既存のセル編集モーダル） */}
+                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+                      {entries.length === 0 ? (
+                        <p className="px-4 py-6 text-center text-sm text-slate-400">
+                          この日の割当はまだありません。
+                        </p>
+                      ) : (
+                        entries.map(({ driver, placements }) => {
+                          const assignedCourses = placements
+                            .map((p) => courses.find((c) => c.id === p.courseId))
+                            .filter((c): c is Course => Boolean(c))
+                            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+                          const vid = getCurrentVehicleForDriverOnDate(date, driver.id);
+                          const external = getCurrentExternalForDriverOnDate(date, driver.id);
+                          const plate = vid ? fleetById.get(vid) ?? null : null;
+                          const canOpen = canWrite || canDispatch;
+                          return (
+                            <button
+                              key={driver.id}
+                              type="button"
+                              disabled={!canOpen}
+                              onClick={() => setEditingCell({ date, driverId: driver.id })}
+                              className={cn(
+                                "flex w-full items-center gap-3 px-3 py-2.5 text-left",
+                                canOpen ? "active:bg-slate-50" : "cursor-default",
+                              )}
+                            >
+                              <span className="w-20 shrink-0 truncate text-sm font-semibold text-slate-900">
+                                {getDisplayName(driver)}
+                              </span>
+                              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                                {assignedCourses.map((c) => (
+                                  <span
+                                    key={c.id}
+                                    className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
+                                    style={courseCellSurface(c.color)}
+                                  >
+                                    {courseShiftLabel(c)}
+                                  </span>
+                                ))}
+                              </span>
+                              <span className="shrink-0 text-right">
+                                {plate ? (
+                                  <VehiclePlate vehicle={plate} compact className="!max-w-[6.5rem] pointer-events-none" />
+                                ) : external ? (
+                                  <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
+                                ) : (
+                                  <span className="text-[11px] text-slate-400">車両なし</span>
+                                )}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* 未割当・希望休のサマリー */}
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setUnassignedOpenDate(date)}
+                        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left active:bg-slate-50"
+                      >
+                        <span className="text-[13px] font-medium text-slate-700">未割当</span>
+                        <span className="min-w-0 truncate pl-3 text-right text-[12px] text-slate-500">
+                          {unassigned.length === 0
+                            ? "なし"
+                            : `${unassigned.length}人 — ${unassigned.map((d) => getDisplayName(d)).join("、")}`}
+                        </span>
+                      </button>
+                      {offNames.length > 0 && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                          <span className="text-[13px] font-medium text-amber-800">希望休</span>
+                          <span className="ml-2 text-[12px] text-amber-700">{offNames.join("、")}</span>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* PC: 従来のグリッド（軸切替つき） */}
+            <div className="hidden md:block space-y-6">
             {viewAxis === "course" ? (
               /* コース軸ビュー（A3）: 行=コース・セル=割当ドライバー。定員割れセルをアンバー強調 */
               <div
@@ -2070,6 +2215,7 @@ export default function ShiftsPage() {
               </table>
             </div>
             )}
+            </div>
 
             {/* 希望休の一覧/解除は上のグリッドのセルクリック（管理モーダル）に集約。下部の一覧は廃止。 */}
 
@@ -2168,6 +2314,7 @@ export default function ShiftsPage() {
                     割当済みセルはドラッグでコピーできます（同じ行＝離した日まで連日コピー／別ドライバーの行＝その日へコピー。
                     希望休・担当外・定員満の日は自動でスキップ。車両はコピーされません）。
                     「コース軸」に切り替えると、行=コースで埋まり具合を確認できます。
+                    スマホでは1日ずつの日別ビューになります（ドラッグや軸・密度の切替はPC向けの機能です）。
                   </span>
                 </div>
               </div>

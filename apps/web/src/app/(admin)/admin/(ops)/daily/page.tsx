@@ -408,9 +408,9 @@ export default function AdminDailyPage() {
 
         {loading ? (
           <>
-            <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-3 gap-2 md:gap-4 mb-6">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="bg-white rounded-lg border border-slate-200 p-4">
+                <div key={i} className="bg-white rounded-lg border border-slate-200 p-3 md:p-4">
                   <Skeleton className="h-8 w-12 mb-1" />
                   <Skeleton className="h-3 w-16" />
                 </div>
@@ -717,17 +717,17 @@ export default function AdminDailyPage() {
 
                 return (
                   <>
-                    <div className="grid grid-cols-3 gap-4 mb-6">
-                      <div className="bg-white rounded-lg border border-slate-200 p-4">
-                        <div className="text-2xl font-bold text-slate-900">{totalActionable}</div>
+                    <div className="grid grid-cols-3 gap-2 md:gap-4 mb-6">
+                      <div className="bg-white rounded-lg border border-slate-200 p-3 md:p-4">
+                        <div className="text-xl md:text-2xl font-bold text-slate-900">{totalActionable}</div>
                         <div className="text-xs text-slate-500 mt-0.5">要対応（未提出・未承認）</div>
                       </div>
-                      <div className="bg-white rounded-lg border border-slate-200 p-4">
-                        <div className="text-2xl font-bold text-slate-900">{maxDrivers}</div>
+                      <div className="bg-white rounded-lg border border-slate-200 p-3 md:p-4">
+                        <div className="text-xl md:text-2xl font-bold text-slate-900">{maxDrivers}</div>
                         <div className="text-xs text-slate-500 mt-0.5">ドライバー数（最大）</div>
                       </div>
-                      <div className="bg-white rounded-lg border border-slate-200 p-4">
-                        <div className="text-2xl font-bold text-slate-900">{actionableSummaries.length}</div>
+                      <div className="bg-white rounded-lg border border-slate-200 p-3 md:p-4">
+                        <div className="text-xl md:text-2xl font-bold text-slate-900">{actionableSummaries.length}</div>
                         <div className="text-xs text-slate-500 mt-0.5">対象日数</div>
                       </div>
                     </div>
@@ -745,17 +745,17 @@ export default function AdminDailyPage() {
               })()
             ) : (
               <>
-                <div className="grid grid-cols-3 gap-4 mb-6">
-                  <div className="bg-white rounded-lg border border-slate-200 p-4">
-                    <div className="text-2xl font-bold text-slate-900">{totalEntries}</div>
+                <div className="grid grid-cols-3 gap-2 md:gap-4 mb-6">
+                  <div className="bg-white rounded-lg border border-slate-200 p-3 md:p-4">
+                    <div className="text-xl md:text-2xl font-bold text-slate-900">{totalEntries}</div>
                     <div className="text-xs text-slate-500 mt-0.5">全件数</div>
                   </div>
-                  <div className="bg-white rounded-lg border border-slate-200 p-4">
-                    <div className="text-2xl font-bold text-slate-900">{groups.length}</div>
+                  <div className="bg-white rounded-lg border border-slate-200 p-3 md:p-4">
+                    <div className="text-xl md:text-2xl font-bold text-slate-900">{groups.length}</div>
                     <div className="text-xs text-slate-500 mt-0.5">対象日数</div>
                   </div>
-                  <div className="bg-white rounded-lg border border-slate-200 p-4">
-                    <div className="text-2xl font-bold text-slate-900">
+                  <div className="bg-white rounded-lg border border-slate-200 p-3 md:p-4">
+                    <div className="text-xl md:text-2xl font-bold text-slate-900">
                       {groups.length > 0 && groups[0].date && groups[0].date !== "-" ? (
                         (() => {
                           const [y, m, d] = groups[0].date.split("-");

@@ -806,12 +806,12 @@ export default function UsersPage() {
   return (
     <AdminLayout>
       <div className="w-full">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div>
             <h1 className="text-xl font-bold text-slate-900">ドライバー管理</h1>
             <p className="text-sm text-slate-500 mt-0.5">
               会社コード: {companyCode}
-              <span className="text-slate-400"> · 並び順: No.（昇順）、同値時は名前順</span>
+              <span className="hidden md:inline text-slate-400"> · 並び順: No.（昇順）、同値時は名前順</span>
             </p>
           </div>
           {canWrite && (
@@ -852,7 +852,86 @@ export default function UsersPage() {
           <p className="text-sm text-slate-500">ドライバーが登録されていません</p>
         ) : (
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-            <div className="overflow-x-auto table-scroll table-scroll-fade">
+            {/* スマホ: カード一覧（横スクロール不要で全情報＋権限変更まで完結） */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {drivers.map((d, index) => {
+                const coursesOfDriver = allIdentityCourses(d);
+                const licenseStatus = getLicenseStatus(d.license_expiry_date);
+                return (
+                  <div
+                    key={d.id}
+                    onClick={() => canWrite && void openEdit(d)}
+                    className={`px-4 py-3 ${canWrite ? "cursor-pointer active:bg-slate-50" : ""}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {d.faceUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={d.faceUrl} alt="" className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0" />
+                      ) : (
+                        <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-slate-100 text-slate-400 shrink-0">
+                          <FontAwesomeIcon icon={faUser} className="w-4 h-4" />
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="flex items-baseline gap-2 min-w-0">
+                          <span className="shrink-0 text-xs text-slate-400 tabular-nums">#{d.list_no ?? index + 1}</span>
+                          <span className="truncate font-semibold text-slate-900">{d.name}</span>
+                          {getDisplayName(d) !== d.name && (
+                            <span className="truncate text-xs text-slate-500">{getDisplayName(d)}</span>
+                          )}
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          {coursesOfDriver.slice(0, 2).map((dc) => (
+                            <span
+                              key={dc.course_id}
+                              className="max-w-[110px] truncate whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] text-white"
+                              style={{ backgroundColor: dc.courses.color }}
+                              title={dc.courses.name}
+                            >
+                              {dc.courses.name}
+                            </span>
+                          ))}
+                          {coursesOfDriver.length > 2 && (
+                            <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
+                              +{coursesOfDriver.length - 2}
+                            </span>
+                          )}
+                          {coursesOfDriver.length === 0 && (
+                            <span className="text-[11px] text-slate-400">コース未設定</span>
+                          )}
+                          {d.license_expiry_date ? (
+                            <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap ${licenseStatus.className}`}>
+                              免許 {jpDate(d.license_expiry_date)}
+                            </span>
+                          ) : (
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">免許未設定</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {canWrite ? (
+                      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={d.role_id ?? ""}
+                          disabled={roleSavingId === d.id}
+                          onChange={(e) => changeRole(d, e.target.value)}
+                          className="w-full appearance-none rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100 disabled:opacity-50"
+                        >
+                          {!d.role_id && <option value="">権限: 未設定</option>}
+                          {roleOptions.map((r) => (
+                            <option key={r.id} value={r.id}>{r.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <p className="mt-1.5 text-xs text-slate-600">権限: {roleLabelOf(d)}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {/* PC: 既存テーブル */}
+            <div className="hidden md:block overflow-x-auto table-scroll table-scroll-fade">
               <table className="w-full text-sm min-w-[760px]">
                 <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                   <tr>
@@ -998,7 +1077,7 @@ export default function UsersPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">表示名</label>
                   <input
@@ -1033,7 +1112,7 @@ export default function UsersPage() {
               {modalTab === "work" && (
               <>
               <p className="text-xs font-semibold text-slate-600 pt-1">勤務区分1</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">事業所コード（6桁）</label>
                 <input
@@ -1128,7 +1207,7 @@ export default function UsersPage() {
                   別コード・別事業所で日報を分ける場合。未入力のままなら区分2は無効です。
                 </p>
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-400 mb-1.5">事業所コード（6桁）</label>
                     <input
@@ -1260,7 +1339,7 @@ export default function UsersPage() {
                     担当コースが割り当てられたままです。保存前に「基本情報」タブでコースの割り当てをすべて解除してください。
                   </p>
                 )}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-400 mb-1.5">稼働開始月</label>
                     <MonthYearPicker
@@ -1373,7 +1452,7 @@ export default function UsersPage() {
                     </div>
 
                     {leaseForm.enabled && (
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {leaseForm.mode === "MONTHLY" ? (
                           <div>
                             <label className="block text-xs font-medium text-slate-400 mb-1">月額（円 / 月・固定）</label>
@@ -1535,7 +1614,7 @@ export default function UsersPage() {
                   口座（振込先）
                 </h3>
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-400 mb-1">金融機関名（機関名）</label>
                       <input
