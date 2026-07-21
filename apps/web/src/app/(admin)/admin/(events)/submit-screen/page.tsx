@@ -242,7 +242,7 @@ export default function SubmitScreenBuilderPage() {
         method: "PUT",
         body: JSON.stringify({ ...baseConfig, blocks }),
       });
-      await load();
+      void load();
     } catch (e) {
       setError({ title: "保存に失敗しました", message: e instanceof Error ? e.message : "もう一度お試しください。" });
     } finally {

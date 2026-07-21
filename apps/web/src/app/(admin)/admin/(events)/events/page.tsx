@@ -140,15 +140,18 @@ export default function EventsPage() {
     }
   };
 
+  // 一覧と詳細は独立して取れるので直列にしない（待ち時間が半分になる）
   const reloadAll = useCallback(async () => {
-    await loadEvents();
-    if (selectedId) await loadDetail(selectedId, { silent: true });
+    await Promise.all([
+      loadEvents(),
+      selectedId ? loadDetail(selectedId, { silent: true }) : Promise.resolve(),
+    ]);
   }, [loadEvents, loadDetail, selectedId]);
 
   const onEventDeleted = async () => {
     setSelectedId(null);
     setDetail(null);
-    await loadEvents();
+    void loadEvents(); // 画面はもう空にしてあるので待たない
   };
 
   return (

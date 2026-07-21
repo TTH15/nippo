@@ -114,8 +114,14 @@ export default function CounterpartiesPage() {
       setRows((prev) =>
         prev.map((r) => (r.id === id ? { ...r, billingNotes: draftNotes[id] ?? "" } : r))
       );
+      void load(); // キャッシュも確定（待たない）
     } catch (e) {
       console.error(e);
+      // ローカルは先に書き換わっているため、黙って失敗すると保存できたように見える
+      setErrorState({
+        title: "請求メモの保存に失敗しました",
+        message: e instanceof Error ? e.message : "もう一度お試しください。",
+      });
     } finally {
       setSavingId(null);
     }
@@ -154,7 +160,7 @@ export default function CounterpartiesPage() {
         }),
       });
       setShowAddModal(false);
-      await load();
+      void load();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";

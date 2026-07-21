@@ -12,6 +12,7 @@ import { DatePicker } from "@/lib/components/DatePicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { UnderlineTabs } from "@/lib/components/UnderlineTabs";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { reportDateDefaultJST } from "@/lib/date";
 import { ChevronDown, Check } from "lucide-react";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -400,7 +401,10 @@ function LogEntryModal({
         onSaved();
         onClose();
       })
-      .catch(() => { })
+      .catch((e) => {
+        // 握り潰すと「押したのに何も起きない」状態になるため、必ず理由を出す
+        setInputError(e instanceof Error ? e.message : "保存に失敗しました");
+      })
       .finally(() => setSubmitting(false));
   };
 
@@ -416,7 +420,9 @@ function LogEntryModal({
         setNewTypeName("");
         onTypeAdded();
       })
-      .catch(() => { })
+      .catch((e) => {
+        setInputError(e instanceof Error ? e.message : "種別の追加に失敗しました");
+      })
       .finally(() => setAddingType(false));
   };
 
@@ -909,6 +915,7 @@ export default function SalesPage() {
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [logEditingEntry, setLogEditingEntry] = useState<SalesLogEntryRow | null>(null);
   const [logDeleteTarget, setLogDeleteTarget] = useState<SalesLogEntryRow | null>(null);
+  const [logDeleteError, setLogDeleteError] = useState<string | null>(null);
   const [canWrite, setCanWrite] = useState(false);
   const [selectedDayIso, setSelectedDayIso] = useState<string>("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
@@ -2033,9 +2040,21 @@ export default function SalesPage() {
             .then(() => {
               void refreshSalesCaches();
             })
-            .catch(() => { })
+            .catch((e) => {
+              // 握り潰すと「削除できていないのに一覧から消えた」状態になる
+              console.error(e);
+              setLogDeleteError(e instanceof Error ? e.message : "ログを削除できませんでした");
+              void refreshSalesCaches(); // 実際の状態に戻す
+            })
             .finally(() => setLogSavingId(null));
         }}
+      />
+
+      <ErrorDialog
+        open={!!logDeleteError}
+        title="ログの削除に失敗しました"
+        message={logDeleteError ?? ""}
+        onClose={() => setLogDeleteError(null)}
       />
     </AdminLayout>
   );

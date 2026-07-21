@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type SetStateAction } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faRotateLeft, faRotateRight, faCloud, faCloudArrowUp, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { mutate as globalMutate } from "swr";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { CustomSelect } from "@/lib/components/CustomSelect";
@@ -194,6 +195,11 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
         window.history.replaceState(null, "", `/admin/invoices/${encodeURIComponent(newId)}/edit`);
       }
       setSaveStatus("saved");
+      // 一覧・詳細（プレビュー）の SWR キャッシュを無効化する。
+      // これを怠ると、新規作成した請求書が一覧に出てこない／編集後に
+      // 一覧やプレビューが旧値のまま、という状態になる。待たない。
+      void globalMutate("/api/admin/invoices");
+      if (newId) void globalMutate(`/api/admin/invoices/${encodeURIComponent(newId)}`);
     } catch (e) {
       setSaveStatus("error");
       setError(e instanceof Error ? e.message : "自動保存に失敗しました");

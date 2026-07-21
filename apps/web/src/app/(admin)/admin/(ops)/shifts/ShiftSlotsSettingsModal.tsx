@@ -125,7 +125,8 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
         }),
       });
       // 保存後はキャッシュを最新化（次に開いたとき保存内容を反映）。
-      await refresh();
+      // 保存は確定済みなので待たずに閉じる。
+      void refresh();
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存に失敗しました");

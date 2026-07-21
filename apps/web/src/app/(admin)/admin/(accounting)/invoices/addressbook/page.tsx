@@ -67,7 +67,7 @@ export default function AddressBookPage() {
   // SWR で住所録をキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
   // addresses は楽観更新（作成/編集/削除）で setAddresses するため state を維持し、
   // 取得結果は同期エフェクトで流し込む。
-  const { data: addrData, isInitialLoading } = useApi<{ addresses: Address[] }>(
+  const { data: addrData, isInitialLoading, refresh: refreshAddresses } = useApi<{ addresses: Address[] }>(
     "/api/admin/invoice-addresses",
   );
   const loading = isInitialLoading;
@@ -138,6 +138,7 @@ export default function AddressBookPage() {
         setAddresses((prev) => sortAddresses([...prev, res.address]));
       }
       setShowModal(false);
+      void refreshAddresses(); // キャッシュも確定（待たない）
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -162,6 +163,7 @@ export default function AddressBookPage() {
         try {
           await apiFetch(`/api/admin/invoice-addresses/${id}`, { method: "DELETE" });
           setAddresses((prev) => prev.filter((a) => a.id !== id));
+          void refreshAddresses();
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";

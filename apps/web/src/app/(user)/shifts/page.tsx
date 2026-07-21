@@ -176,7 +176,7 @@ export default function ShiftsPage() {
         method: "POST",
         body: JSON.stringify({ month: monthStr, offEntries }),
       });
-      await load();
+      void load();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";

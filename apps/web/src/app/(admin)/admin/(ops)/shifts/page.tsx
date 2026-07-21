@@ -625,6 +625,25 @@ export default function ShiftsPage() {
     [mutateShifts],
   );
 
+  // 書き込み成功後のキャッシュ確定。この画面は D&D コピーなど連続操作が多いため、
+  // 1操作ごとに再取得すると通信が増え、取得結果で楽観更新が上書きされてちらつく。
+  // 操作が途切れてからまとめて1回だけ再取得する。
+  const revalidateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRevalidate = useCallback(() => {
+    if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
+    revalidateTimer.current = setTimeout(() => {
+      revalidateTimer.current = null;
+      void mutateShifts();
+    }, 1500);
+  }, [mutateShifts]);
+
+  useEffect(
+    () => () => {
+      if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
+    },
+    [],
+  );
+
   useEffect(() => {
     setCanWrite(hasCapability("can_manage_shifts"));
     setCanDispatch(hasCapability("can_dispatch"));
@@ -911,6 +930,7 @@ export default function ShiftsPage() {
         method: "POST",
         body: JSON.stringify({ vehicleId, date, loaned }),
       });
+      scheduleRevalidate(); // キャッシュ確定（連続操作をまとめる）
     } catch (e) {
       setErrorState({
         title: "貸出設定に失敗しました",
@@ -1165,7 +1185,10 @@ export default function ShiftsPage() {
       method: "POST",
       body: JSON.stringify({ shiftDate: date, courseId, slot, driverId }),
     })
-      .then(() => true)
+      .then(() => {
+        scheduleRevalidate();
+        return true;
+      })
       .catch((e) => {
         console.error(e);
         setErrorState({
@@ -1197,6 +1220,7 @@ export default function ShiftsPage() {
       method: "POST",
       body: JSON.stringify({ shiftDate: date, courseId, slot, vehicleId, usesExternalVehicle: usesExternal ?? false }),
     })
+      .then(() => scheduleRevalidate())
       .catch((e) => {
         console.error(e);
         setErrorState({
@@ -1263,6 +1287,7 @@ export default function ShiftsPage() {
           // 割当直後などでローカル未取得の行は応答で追補（drivers 等のネストは無いが表示には未使用）
           return [...prev, { ...row, drivers: row.drivers ?? null }];
         });
+        scheduleRevalidate();
       })
       .catch((e) => {
         console.error(e);
@@ -1298,6 +1323,7 @@ export default function ShiftsPage() {
         try {
           await apiFetch(`/api/admin/shifts/requests/${r.id}`, { method: "DELETE" });
           setRequests((prev) => prev.filter((x) => x.id !== r.id));
+          scheduleRevalidate();
         } catch (e) {
           console.error(e);
           setErrorState({

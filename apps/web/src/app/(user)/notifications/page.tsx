@@ -59,7 +59,7 @@ export default function NotificationsPage() {
         method: "PATCH",
         body: JSON.stringify({ all: true }),
       });
-      await refresh();
+      void refresh();
     } catch {
       // 既読化の失敗は致命的でないため黙って諦める（次回開いたときに再挑戦できる）
     } finally {
@@ -74,7 +74,7 @@ export default function NotificationsPage() {
         method: "PATCH",
         body: JSON.stringify({ ids: [id] }),
       });
-      await refresh();
+      void refresh();
     } catch {
       // 同上
     }

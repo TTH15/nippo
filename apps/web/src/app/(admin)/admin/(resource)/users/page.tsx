@@ -214,7 +214,7 @@ export default function UsersPage() {
     return `/api/admin/users?limit=${USERS_PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}&status=${statusFilter}`;
   };
 
-  const { data: usersPages, isLoading: usersLoading, isValidating: usersValidating, setSize } =
+  const { data: usersPages, isLoading: usersLoading, isValidating: usersValidating, setSize, mutate: mutateUsers } =
     useSWRInfinite<UsersPageResponse>(usersPageKey, (url: string) => apiFetch<UsersPageResponse>(url), {
       revalidateOnFocus: false,
       dedupingInterval: 10 * 60 * 1000,
@@ -264,13 +264,16 @@ export default function UsersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
+  // サーバーの取得結果をそのまま採用する。
+  // 以前はローカル優先でマージ（prevById.get(d.id) ?? d）していたが、
+  //   ・サーバー側の更新（他の管理者の変更）が永久に反映されない
+  //   ・ローカルにしか無い行を復活させるため、削除したドライバーが戻る
+  // という不具合になっていた。楽観更新は書き込み直後の一瞬だけ効けばよく、
+  // 確定は各書き込み後の mutateUsers() が担う。
   useEffect(() => {
     setDrivers((prev) => {
       if (flattenedDrivers.length === 0 && prev.length === 0) return prev;
-      const prevById = new Map(prev.map((d) => [d.id, d]));
-      const merged = flattenedDrivers.map((d) => prevById.get(d.id) ?? d);
-      const missingLocal = prev.filter((d) => !merged.some((x) => x.id === d.id));
-      return sortDrivers([...merged, ...missingLocal]);
+      return flattenedDrivers;
     });
   }, [flattenedDrivers]);
 
@@ -642,6 +645,10 @@ export default function UsersPage() {
       } else {
         setShowModal(false);
       }
+      // 一覧の SWR キャッシュも最新化する（dedupingInterval が10分あるため、
+      // これを怠ると再訪時に古い一覧で上書きされ「保存されていない」ように見える）。
+      // 保存自体は確定済みなので待たない。
+      void mutateUsers();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -671,6 +678,7 @@ export default function UsersPage() {
           await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
           setDrivers((prev) => prev.filter((d) => d.id !== id));
           setShowModal(false);
+          void mutateUsers(); // 削除したドライバーが再訪時に復活しないように
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";
@@ -744,6 +752,7 @@ export default function UsersPage() {
         method: "PUT",
         body: JSON.stringify({ roleId }),
       });
+      void mutateUsers(); // 権限変更が再訪時に元へ戻らないように
     } catch (e) {
       setDrivers((list) => list.map((x) => (x.id === d.id ? { ...x, role_id: prevRoleId } : x)));
       setErrorState({
