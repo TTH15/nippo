@@ -47,7 +47,7 @@ async function main() {
 
   const [lease, courseDailyLease] = await Promise.all([
     loadDriverLease(supabase, driverId, startDate, endDate),
-    loadCourseDailyLease(supabase),
+    loadCourseDailyLease(supabase, orgId),
   ]);
   const perDay = autoPayout.days.map((d) => ({ date: d.date, courseId: d.courseId }));
   const leaseDeduction = computeLeaseDeduction(lease, perDay, courseDailyLease);

@@ -300,7 +300,7 @@ export async function POST(req: NextRequest) {
   let error: any = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await supabase
-      .from("invoice_documents")
+      .from("invoice_documents") // tenant-scope-ok: insertRow に org_id: orgId を含む（上記 insertRow 定義）
       .insert(insertRow)
       .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, payload, updated_at")
       .single();

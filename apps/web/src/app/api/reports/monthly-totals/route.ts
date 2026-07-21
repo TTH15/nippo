@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
@@ -34,6 +35,7 @@ function rankFor(
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const reportDate = req.nextUrl.searchParams.get("reportDate");
   const driverIdentityId = req.nextUrl.searchParams.get("driverIdentityId");
@@ -61,7 +63,7 @@ export async function GET(req: NextRequest) {
   // 当該勤務区分の月間合計（v2 ソース・互換リーダー / 却下は除外）
   let myRows: { carrier: string; [k: string]: unknown }[];
   try {
-    const rows = await loadLegacyDailyRows(supabase, {
+    const rows = await loadLegacyDailyRows(supabase, orgId, {
       start: monthStart,
       end: monthEnd,
       driverIdentityId,
@@ -105,9 +107,10 @@ export async function GET(req: NextRequest) {
   });
 
   // 全勤務区分単位で集計 — ランキング算出用（表示値と整合させるため driver_identity_id 単位）
+  // ※ ランキング母集団は自社のみ。org を渡さないと他社の日報まで順位計算に混ざる。
   let allRows: { driver_identity_id: string | null; carrier: string; [k: string]: unknown }[];
   try {
-    const rows = await loadLegacyDailyRows(supabase, { start: monthStart, end: monthEnd });
+    const rows = await loadLegacyDailyRows(supabase, orgId, { start: monthStart, end: monthEnd });
     allRows = rows.filter((r) => !r.rejected_at);
   } catch {
     return NextResponse.json({ error: "順位集計に失敗しました" }, { status: 500 });

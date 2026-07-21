@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { currentMonthJST } from "@/lib/date";
 
@@ -28,6 +29,7 @@ async function getRates() {
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_rewards");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const month = req.nextUrl.searchParams.get("month") || currentMonthJST();
 
@@ -35,6 +37,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers } = await supabase
     .from("drivers")
     .select("id, name, display_name")
+    .eq("org_id", orgId)
     .eq("works_as_driver", true)
     .order("name");
 

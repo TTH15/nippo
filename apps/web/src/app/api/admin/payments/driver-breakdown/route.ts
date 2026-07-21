@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
   // リース控除（driver_leases）。lines は gross のまま・控除は別フィールドで返す。DAILYはコース日額由来。
   const [lease, courseDailyLease] = await Promise.all([
     loadDriverLease(supabase, driverId, startDate, endDate),
-    loadCourseDailyLease(supabase),
+    loadCourseDailyLease(supabase, orgId),
   ]);
   const perDay = autoPayout.days.map((d) => ({ date: d.date, courseId: d.courseId }));
   const leaseDeductions = computeLeaseDeduction(lease, perDay, courseDailyLease);

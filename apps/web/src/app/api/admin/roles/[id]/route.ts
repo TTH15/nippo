@@ -96,6 +96,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (role.is_system) return NextResponse.json({ error: "システム既定ロールは削除できません" }, { status: 400 });
 
   // 使用中（このロールの membership が存在）なら削除不可
+  // tenant-scope-ok: role は直前に org_id 一致を確認済み＝role_id で絞れば同一 org のみ
   const { count } = await supabase
     .from("drivers")
     .select("id", { count: "exact", head: true })

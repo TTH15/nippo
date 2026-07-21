@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isDataUrl, decodeDataUrl, extensionForMime } from "./dataUrl";
+import { isDataUrl, decodeDataUrl, extensionForMime, signedUrlOptions } from "./dataUrl";
 
 // data URL → Storage 移行の判定部分。
 // 既存データ（data URL のまま DB にある）と移行後（path）が混在するため、
@@ -33,6 +33,21 @@ describe("decodeDataUrl", () => {
     expect(decodeDataUrl("https://example.com/a.png")).toBeNull();
     expect(decodeDataUrl("data:image/png,notbase64")).toBeNull();
     expect(decodeDataUrl("")).toBeNull();
+  });
+});
+
+// PDF は内蔵ビューアで JS が動きうるためダウンロード強制。
+// 画像まで download にすると <img> 表示が壊れるので対象外にする。
+describe("signedUrlOptions", () => {
+  it("PDF はダウンロード強制", () => {
+    expect(signedUrlOptions("org/abc.pdf")).toEqual({ download: true });
+    expect(signedUrlOptions("org/ABC.PDF")).toEqual({ download: true });
+  });
+
+  it("画像はインライン表示のまま（表示を壊さない）", () => {
+    expect(signedUrlOptions("org/abc.png")).toBeUndefined();
+    expect(signedUrlOptions("org/abc.jpg")).toBeUndefined();
+    expect(signedUrlOptions("org/abc.webp")).toBeUndefined();
   });
 });
 

@@ -90,7 +90,7 @@ async function main() {
   };
 
   const { data, error } = await supabase
-    .from("drivers")
+    .from("drivers") // tenant-scope-ok: 開発用スクリプト（driver_code で一意・payload に org_id を含む）
     .upsert(payload, { onConflict: "driver_code" })
     .select("id, name, role, company_code, driver_code, identity_id")
     .single();

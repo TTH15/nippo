@@ -34,7 +34,7 @@ export async function GET(
       .single(),
     supabase.from("event_teams").select("*").eq("event_id", id).order("sort_order"),
     supabase.from("event_team_members").select("id, team_id, driver_id").eq("event_id", id),
-    supabase.from("drivers").select("id, name, display_name").order("name"),
+    supabase.from("drivers").select("id, name, display_name").eq("org_id", orgId).order("name"),
     supabase.from("carriers").select("*").order("sort_order"),
     supabase.from("units").select("*").order("sort_order"),
     supabase.from("unit_fields").select("*").order("sort_order"),

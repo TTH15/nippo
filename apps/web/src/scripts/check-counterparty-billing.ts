@@ -44,7 +44,7 @@ async function main() {
 
   // course -> counterparty
   const { data: courseRows } = await supabase
-    .from("courses")
+    .from("courses") // tenant-scope-ok: 開発用スクリプト（手元検証・非公開）
     .select("id, counterparty_invoice_address_id");
   const cpByCourse = new Map<string, string | null>();
   (courseRows ?? []).forEach((c: { id: string; counterparty_invoice_address_id: string | null }) =>
@@ -64,7 +64,7 @@ async function main() {
     return;
   }
 
-  const { data: addrRows } = await supabase.from("invoice_addresses").select("id, name");
+  const { data: addrRows } = await supabase.from("invoice_addresses").select("id, name"); // tenant-scope-ok: 開発用スクリプト
   const nameById = new Map<string, string>();
   (addrRows ?? []).forEach((a: { id: string; name: string | null }) =>
     nameById.set(a.id, a.name ?? a.id.slice(0, 8)),

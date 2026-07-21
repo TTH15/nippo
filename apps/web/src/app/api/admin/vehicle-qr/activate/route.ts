@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
   if (!token) return NextResponse.json({ error: "Invalid QR" }, { status: 400 });
 
   // token→QR（グローバル解決）。有効化は所有org のみ。
+  // tenant-scope-ok: 直後に qr.org_id !== orgId を 403 で弾く（他org のQRは有効化不可）
   const { data: qr } = await supabase
     .from("vehicle_qr")
     .select("id, vehicle_id, org_id, status, version")

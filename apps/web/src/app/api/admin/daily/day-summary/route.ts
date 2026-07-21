@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
@@ -31,6 +32,7 @@ function toPlatePayload(v: any): VehiclePlatePayload | null {
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_reports");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const dateParam = req.nextUrl.searchParams.get("date");
   if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
@@ -41,6 +43,7 @@ export async function GET(req: NextRequest) {
     const { data: drivers, error: driversErr } = await supabase
       .from("drivers")
       .select("id, name, display_name")
+      .eq("org_id", orgId)
       .eq("works_as_driver", true)
       .order("name");
 
@@ -82,6 +85,7 @@ export async function GET(req: NextRequest) {
     try {
       reportRows = await loadLegacyDailyRows(
         supabase,
+        orgId,
         { start: dateParam, end: dateParam },
         { idSource: "v2", withVehicle: true },
       );

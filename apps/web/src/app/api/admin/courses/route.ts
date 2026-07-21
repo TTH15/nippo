@@ -112,10 +112,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Get max sort order
+    // Get max sort order（自社コースの中での採番。org を絞らないと他社の並び順に引きずられる）
     const { data: maxData } = await supabase
       .from("courses")
       .select("sort_order")
+      .eq("org_id", orgId)
       .order("sort_order", { ascending: false })
       .limit(1)
       .single();
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
     insertRow.arrival_time = normalizeTimeInput(body.arrival_time);
     insertRow.end_time = normalizeTimeInput(body.end_time);
     const { data: course, error } = await supabase
-      .from("courses")
+      .from("courses") // tenant-scope-ok: insertRow に org_id: orgId を含む（上記 insertRow 定義）
       .insert(insertRow)
       .select()
       .single();
@@ -170,6 +171,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const user = await requirePermission(req, "can_manage_org_settings");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -182,10 +184,12 @@ export async function PATCH(req: NextRequest) {
     for (let i = 0; i < orderIds.length; i++) {
       const id = orderIds[i];
       if (typeof id !== "string") continue;
+      // id はクライアント指定。org を併せて絞らないと他社コースの並びを書き換えられる
       const { error } = await supabase
         .from("courses")
         .update({ sort_order: i })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("org_id", orgId);
       if (error) {
         console.error(error);
         return NextResponse.json({ error: error.message }, { status: 500 });

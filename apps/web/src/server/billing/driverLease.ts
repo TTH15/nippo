@@ -74,9 +74,15 @@ export async function loadDriverLease(
   return map.get(driverId) ?? null;
 }
 
-/** コースID -> 日額リース代(円/稼働日) */
-export async function loadCourseDailyLease(supabase: SupabaseClient): Promise<Map<string, number>> {
-  const { data } = await supabase.from("courses").select("id, daily_lease");
+/**
+ * コースID -> 日額リース代(円/稼働日)。
+ * コースはテナント固有マスタなので、org を跨いだ日額が混ざらないよう orgId で絞る。
+ */
+export async function loadCourseDailyLease(
+  supabase: SupabaseClient,
+  orgId: string,
+): Promise<Map<string, number>> {
+  const { data } = await supabase.from("courses").select("id, daily_lease").eq("org_id", orgId);
   const m = new Map<string, number>();
   (data ?? []).forEach((c: { id: string; daily_lease: number | null }) => {
     m.set(String(c.id), Math.max(0, Number(c.daily_lease) || 0));

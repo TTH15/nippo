@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
   if (!identityId) return NextResponse.json({ notifications: [], unreadCount: 0 });
 
   const { data, error } = await supabase
+    // tenant-scope-ok: 本人（identity_id 一致）宛てのみ。インボックスは membership をまたいで1つ（§設計）
     .from("notifications")
     .select("id, org_id, kind, title, body, payload, read_at, created_at")
     .eq("identity_id", identityId)
@@ -34,6 +35,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { count } = await supabase
+    // tenant-scope-ok: 上と同じく本人（identity_id 一致）宛ての未読数
     .from("notifications")
     .select("id", { count: "exact", head: true })
     .eq("identity_id", identityId)

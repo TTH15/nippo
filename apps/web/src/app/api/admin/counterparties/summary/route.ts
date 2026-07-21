@@ -72,6 +72,9 @@ export async function GET(req: NextRequest) {
     supabase
       .from("courses")
       .select("id, name, carrier_id, counterparty_invoice_address_id")
+      // 取引先(invoice_addresses)は org 絞り済みだが、コース側も絞らないと
+      // 他社コースが同じ取引先IDを持った場合に件数・売上へ混入する
+      .eq("org_id", orgId)
       .not("counterparty_invoice_address_id", "is", null),
     supabase.from("carriers").select("id, code"),
   ]);

@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
   }
   const [leaseByDriver, courseDailyLease] = await Promise.all([
     loadDriverLeases(supabase, driverIds, startDate, endDate),
-    loadCourseDailyLease(supabase),
+    loadCourseDailyLease(supabase, orgId),
   ]);
 
   // 臨時手当/控除（月次・既存テーブル）。amount 正=控除（net から減算）。

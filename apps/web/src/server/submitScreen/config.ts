@@ -193,6 +193,7 @@ export async function saveSubmitScreenConfig(
   if (existing?.id) {
     await supabase.from("submit_screen_config").update(row).eq("id", existing.id);
   } else {
+    // tenant-scope-ok: row に org_id を含む
     await supabase.from("submit_screen_config").insert(row);
   }
 }

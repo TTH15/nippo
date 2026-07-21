@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -22,9 +23,14 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // vehicleId はクエリ由来のため、自 org の日報だけを見る（他社の走行距離を返さない）。
+  // 貸与車（borrower が使う車）でも、その日報は借用org の org_id で記録されるため取得できる。
+  const orgId = await resolveOrgId(user.driverId);
+
   const { data: prevReport, error: reportErr } = await supabase
     .from("daily_reports_v2")
     .select("meter_value")
+    .eq("org_id", orgId)
     .eq("vehicle_id", vehicleId)
     .is("rejected_at", null)
     .not("meter_value", "is", null)

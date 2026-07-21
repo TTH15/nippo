@@ -108,6 +108,7 @@ export async function dispatchNotifications(
   }));
 
   const { data: created, error } = await supabase
+    // tenant-scope-ok: rows の各行に org_id を含む＋直前に assertSameOrg で受信者の越境を遮断
     .from("notifications")
     .upsert(rows, { onConflict: "dedupe_key", ignoreDuplicates: true })
     .select("id, identity_id, title, body");

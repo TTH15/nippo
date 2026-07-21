@@ -65,12 +65,14 @@ export async function PATCH(
         : null;
   }
 
+  // ロールバック用の更新前スナップショット。id はクライアント指定なので org も併せて絞る
   const { data: before, error: beforeErr } = await supabase
     .from("sales_log_entries")
     .select(
       "log_date, type_id, content, revenue, profit, amount, attribution, target_driver_id, vehicle_id, memo, counterparty_invoice_address_id",
     )
     .eq("id", id)
+    .eq("org_id", orgId)
     .single();
 
   if (beforeErr || !before) {
@@ -102,7 +104,7 @@ export async function PATCH(
     console.error("[sales/log PATCH] syncSalesLogDriverReward", syncErr);
     const b = before as Record<string, unknown>;
     await supabase
-      .from("sales_log_entries")
+      .from("sales_log_entries") // tenant-scope-ok: 下の .eq("id", id).eq("org_id", orgId) で絞る
       .update({
         log_date: b.log_date,
         type_id: b.type_id,

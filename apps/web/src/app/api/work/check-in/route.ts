@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
 
   // 2) 既に稼働中のセッションがあれば二重出勤を防ぐ（app は resume/退勤へ）
   const { data: openS } = await supabase
+    // tenant-scope-ok: 本人（recorded_by = user.driverId）のセッションのみ＝org をまたがない
     .from("vehicle_sessions")
     .select("id, vehicle_id, started_at")
     .eq("recorded_by", user.driverId)

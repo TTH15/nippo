@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
@@ -23,6 +24,7 @@ type MidnightRow = {
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_billing");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const url = req.nextUrl;
   const startParam = url.searchParams.get("start");
@@ -50,6 +52,7 @@ export async function GET(req: NextRequest) {
   const driversQuery = supabase
     .from("drivers")
     .select("id, name, display_name, role")
+    .eq("org_id", orgId)
     .eq("works_as_driver", true)
     .order("name");
   const { data: drivers, error: dErr } = await driversQuery;
@@ -63,7 +66,7 @@ export async function GET(req: NextRequest) {
   // ※ Amazon 行の宅急便/ネコポス列は旧テーブルでは残骸が入っていたが、v2 では正しく 0。
   let reports: ReportRow[];
   try {
-    const rows = await loadLegacyDailyRows(supabase, {
+    const rows = await loadLegacyDailyRows(supabase, orgId, {
       start: startDate,
       end: endDate,
       driverId: driverId || undefined,
@@ -84,7 +87,11 @@ export async function GET(req: NextRequest) {
   }
 
   // Amazonミッドナイト判定用にコースとシフトを取得
-  const { data: courses } = await supabase.from("courses").select("id, name, carrier, summary_title");
+  // コースはテナント固有マスタ。他社コースが集計タブに出ないよう org で絞る
+  const { data: courses } = await supabase
+    .from("courses")
+    .select("id, name, carrier, summary_title")
+    .eq("org_id", orgId);
   const courseNameMap = new Map<string, string>();
   const courseSummaryMap = new Map<string, string>();
   (courses ?? []).forEach((c: any) => {

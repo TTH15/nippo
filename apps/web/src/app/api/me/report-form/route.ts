@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
 
   // 既存 v2 レポート（prefill）
   const { data: existingReports } = await supabase
-    .from("daily_reports_v2")
+    .from("daily_reports_v2") // tenant-scope-ok: 本人（user.driverId）の日報のみ＝org をまたがない
     .select("id, course_id, vehicle_id, meter_value, approved_at, rejected_at")
     .eq("driver_id", user.driverId)
     .eq("report_date", date)

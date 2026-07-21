@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { verifyFileContent } from "@/server/storage/fileSignature";
 
 // ============================================================
 // 本登録（KYC）の免許証・顔写真（Supabase Storage・非公開バケット）入出力。
@@ -29,6 +30,9 @@ export async function uploadKycImage(
   kind: KycKind,
   file: { bytes: ArrayBuffer | Uint8Array; mime: string },
 ): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
+  // 申告 MIME は偽装できるため、中身（マジックバイト）で検証する
+  const verified = verifyFileContent(new Uint8Array(file.bytes as ArrayBuffer), ["image/jpeg", "image/png"], file.mime);
+  if (!verified.ok) return { ok: false, message: verified.message };
   const ext = file.mime === "image/png" ? "png" : "jpg";
   const path = `${identityId}/${kind}.${ext}`;
   const { error } = await supabase.storage.from(KYC_BUCKET).upload(path, file.bytes, {

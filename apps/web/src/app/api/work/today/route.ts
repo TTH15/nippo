@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
 
   const [openRes, todayRes] = await Promise.all([
     supabase
+      // tenant-scope-ok: 本人（recorded_by = user.driverId）のセッションのみ＝org をまたがない
       .from("vehicle_sessions")
       .select("*")
       .eq("recorded_by", user.driverId)
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
       .limit(1)
       .maybeSingle(),
     supabase
+      // tenant-scope-ok: 上と同じく本人のセッションのみ
       .from("vehicle_sessions")
       .select("*")
       .eq("recorded_by", user.driverId)

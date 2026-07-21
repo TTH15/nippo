@@ -110,7 +110,7 @@ async function main() {
   const orgId = org!.id as string;
 
   // 1. コース取得
-  const { data: courses, error: cErr } = await supabase.from("courses").select("id, name").order("sort_order");
+  const { data: courses, error: cErr } = await supabase.from("courses").select("id, name").order("sort_order"); // tenant-scope-ok: 開発用スクリプト
   if (cErr || !courses?.length) {
     console.error("コース取得失敗:", cErr);
     return;
@@ -180,7 +180,7 @@ async function main() {
       driverIds.push(existing.id);
       console.log(`[OK] ${d.name} を更新`);
     } else {
-      const { data: inserted, error } = await supabase.from("drivers").insert(payload).select("id").single();
+      const { data: inserted, error } = await supabase.from("drivers").insert(payload).select("id").single(); // tenant-scope-ok: 開発用スクリプト
       if (error) {
         console.error(`[NG] ${d.name} 登録失敗:`, error.message);
       } else {
@@ -248,12 +248,12 @@ async function main() {
       await supabase.from("vehicles").update(payload).eq("id", existing.id);
       vehicleIds.push(existing.id);
     } else {
-      const { data: inserted, error } = await supabase.from("vehicles").insert(payload).select("id").single();
+      const { data: inserted, error } = await supabase.from("vehicles").insert(payload).select("id").single(); // tenant-scope-ok: 開発用スクリプト
       if (!error && inserted) vehicleIds.push(inserted.id);
     }
   }
   // 既存3台も取得
-  const { data: allVehicles } = await supabase.from("vehicles").select("id").order("manufacturer").order("brand");
+  const { data: allVehicles } = await supabase.from("vehicles").select("id").order("manufacturer").order("brand"); // tenant-scope-ok: 開発用スクリプト
   const allVehicleIds = allVehicles?.map((v) => v.id) ?? vehicleIds;
   console.log(`[OK] 車両 ${allVehicleIds.length} 台`);
 
