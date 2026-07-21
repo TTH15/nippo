@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { signInvoiceAttachments } from "@/server/billing/invoiceAttachments";
 
 export const dynamic = "force-dynamic";
 
@@ -28,16 +29,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  const invoices = (data ?? []).map((r: any) => ({
-    id: r.id,
-    month: r.month_yyyy_mm,
-    issueDate: r.issue_date,
-    amount: Number(r.amount) || 0,
-    status: (r.status === "sent" ? "pending_approval" : r.status) ?? "draft",
-    invoiceNo: r.invoice_no ?? "",
-    payload: r.payload ?? {},
-    updatedAt: r.updated_at ?? null,
-  }));
+  const invoices = await Promise.all(
+    (data ?? []).map(async (r: any) => ({
+      id: r.id,
+      month: r.month_yyyy_mm,
+      issueDate: r.issue_date,
+      amount: Number(r.amount) || 0,
+      status: (r.status === "sent" ? "pending_approval" : r.status) ?? "draft",
+      invoiceNo: r.invoice_no ?? "",
+      // 添付は Storage のパスのみ持つため、表示用に署名URLを付ける
+      payload: (await signInvoiceAttachments(supabase, r.payload ?? {})) ?? {},
+      updatedAt: r.updated_at ?? null,
+    })),
+  );
 
   return NextResponse.json({ invoices });
 }

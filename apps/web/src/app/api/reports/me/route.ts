@@ -13,10 +13,12 @@ export async function GET(req: NextRequest) {
 
   try {
     // v2 ソース（互換リーダー）から取得。report_date 降順で limit 件。
-    const rows = await loadLegacyDailyRows(supabase, { driverId: user.driverId as string });
-    const reports = rows
-      .sort((a, b) => b.report_date.localeCompare(a.report_date))
-      .slice(0, limit);
+    // ★以前は全期間を取得してから JS で切っていた（在籍が長いほど遅い）。DB 側で切る。
+    const reports = await loadLegacyDailyRows(
+      supabase,
+      { driverId: user.driverId as string },
+      { limit },
+    );
     return NextResponse.json({ reports });
   } catch (e) {
     console.error(e);

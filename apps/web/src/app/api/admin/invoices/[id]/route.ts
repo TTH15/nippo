@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { storeInvoiceAttachments, signInvoiceAttachments } from "@/server/billing/invoiceAttachments";
 
 export const dynamic = "force-dynamic";
 
@@ -132,7 +133,8 @@ export async function GET(
       invoiceNo: data.invoice_no,
       starred: Boolean((data as any).is_starred),
       counterpartyInvoiceAddressId: data.counterparty_invoice_address_id,
-      payload: data.payload ?? {},
+      // 詳細では添付に署名URLを付ける（一覧は実体を持たない）
+      payload: (await signInvoiceAttachments(supabase, data.payload ?? {})) ?? {},
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     },
@@ -232,7 +234,10 @@ export async function PATCH(
     updates.section = body.section;
   }
   if (body.payload && typeof body.payload === "object") {
-    updates.payload = body.payload;
+    // 添付は Storage へ退避し、payload には path だけ残す
+    const stored = await storeInvoiceAttachments(supabase, orgId, body.payload as Record<string, unknown>);
+    if (!stored.ok) return NextResponse.json({ error: stored.message }, { status: 400 });
+    updates.payload = stored.payload;
   }
 
   // incoming（自社に請求）のドライバー起点請求書は driver_id を必須とする

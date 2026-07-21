@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +9,9 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  // 単一テナント時代の名残で org フィルタが無く、他社の車両まで返していた（姉妹APIの
+  // reports/vehicles には入っている）。テナント分離のため必須。
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     // このドライバーに紐付く車両を除外する
@@ -32,6 +36,7 @@ export async function GET(req: NextRequest) {
       .select(
         "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, last_oil_change_mileage, oil_change_interval, is_ev",
       )
+      .eq("owner_org_id", orgId)
       .eq("is_disposed", false)
       .order("manufacturer")
       .order("brand");

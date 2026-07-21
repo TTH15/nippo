@@ -5,6 +5,8 @@ import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { stripVehicleCostAll } from "@/server/vehicles/cost";
 import { filterActiveVehicleDrivers, type VehicleDriverRow } from "@/server/vehicles/activeDrivers";
+import { storeVehicleImage, VEHICLE_IMAGE_BUCKET } from "@/server/vehicles/imageStorage";
+import { resolveStoredUrls } from "@/server/storage/dataUrl";
 import {
   loadDailyLeaseByVehicleMonth,
   buildVehicleRecovery,
@@ -64,15 +66,34 @@ export async function GET(req: NextRequest) {
   }
 
   // 利用ドライバーは「稼働中」だけを返す（詳細は server/vehicles/activeDrivers.ts）。
-  const activeDriverVehicles = ((vehicles ?? []) as Array<{ id: string; [key: string]: unknown }>).map(
-    (v) => ({
-      ...v,
-      vehicle_drivers: filterActiveVehicleDrivers(v.vehicle_drivers as VehicleDriverRow[] | null),
-    }),
+  const rawVehicles: Array<{ id: string; [key: string]: unknown }> = (
+    (vehicles ?? []) as Array<{ id: string; [key: string]: unknown }>
+  ).map((v) => ({
+    ...v,
+    vehicle_drivers: filterActiveVehicleDrivers(v.vehicle_drivers as VehicleDriverRow[] | null),
+  }));
+
+  // 画像は Storage のパスを署名URLに変換して返す（既存の data URL はそのまま通る）
+  const signedUrls = await resolveStoredUrls(
+    supabase,
+    VEHICLE_IMAGE_BUCKET,
+    rawVehicles.map((v) => v.image_url as string | null),
   );
+  const activeDriverVehicles = rawVehicles.map((v, i) => ({ ...v, image_url: signedUrls[i] }));
 
   // 回収済みマークを取得
   const vehicleIds = (vehicles ?? []).map((v: { id: string }) => v.id);
+
+  // 金額情報は別 capability。持たない人には回収額を返さないので、
+  // 重い集計（日報の走査）自体を丸ごと省く。
+  const canViewCost = await hasCapability(user, "can_view_vehicle_cost");
+  if (!canViewCost) {
+    return NextResponse.json({
+      vehicles: stripVehicleCostAll(activeDriverVehicles, false),
+      canViewCost: false,
+    });
+  }
+
   const { data: collectedRows } = vehicleIds.length > 0
     ? await supabase
         .from("vehicle_recovery_collected")
@@ -95,7 +116,9 @@ export async function GET(req: NextRequest) {
           .from("vehicle_recovery_entries")
           .select("id, vehicle_id, ym, lease, insurance, note")
           .in("vehicle_id", vehicleIds),
-        loadDailyLeaseByVehicleMonth(supabase),
+        // ★vehicleIds を必ず渡す。省くと全社・全期間の承認済み日報を
+        //   最大10万件走査することになり、一覧表示が大幅に遅くなる。
+        loadDailyLeaseByVehicleMonth(supabase, vehicleIds),
       ])
     : [{ data: [] as any[] }, new Map<string, Map<string, number>>()] as const;
   const manualByVehicle = new Map<string, any[]>();
@@ -128,13 +151,8 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // 金額情報は別 capability。持たない人には値そのものを返さない
-  // （UI で隠すだけでは API 直叩きで見えてしまうため）。
-  const canViewCost = await hasCapability(user, "can_view_vehicle_cost");
-  return NextResponse.json({
-    vehicles: stripVehicleCostAll(vehiclesWithRecovery, canViewCost),
-    canViewCost,
-  });
+  // ここに来るのは canViewCost === true のときだけ（上で早期 return 済み）
+  return NextResponse.json({ vehicles: vehiclesWithRecovery, canViewCost: true });
 }
 
 // POST: 車両追加
@@ -164,6 +182,8 @@ export async function POST(req: NextRequest) {
       recoveryStartMonth = null,
       recoveryCarryover = null,
       imageUrl = null,
+      imageFocusX = 50,
+      imageFocusY = 50,
       nextShakenDate,
       jibaisekiRenewalMonth = null,
       driverIds = [],
@@ -176,6 +196,15 @@ export async function POST(req: NextRequest) {
 
     const normalizedItems = normalizePurchaseCostItems(purchaseCostItems);
     const computedPurchaseCost = normalizedItems.length > 0 ? totalFromItems(normalizedItems) : Number(purchaseCost) || 0;
+
+    // 画像は Storage へ。DB にはパスだけ持つ（data URL を直接入れない）
+    const storedImage = await storeVehicleImage(
+      supabase,
+      orgId,
+      imageUrl && String(imageUrl).trim() ? String(imageUrl).trim() : null,
+    );
+    if (!storedImage.ok) return NextResponse.json({ error: storedImage.message }, { status: 400 });
+    const storedImagePath = storedImage.path;
 
     const { data: vehicle, error } = await supabase
       .from("vehicles")
@@ -201,7 +230,9 @@ export async function POST(req: NextRequest) {
             ? `${String(recoveryStartMonth).slice(0, 7)}-01`
             : null,
         recovery_carryover: recoveryCarryover != null ? Math.max(0, Math.trunc(Number(recoveryCarryover) || 0)) : 0,
-        image_url: imageUrl && String(imageUrl).trim() ? String(imageUrl).trim() : null,
+        image_url: storedImagePath,
+        image_focus_x: Math.min(100, Math.max(0, Math.round(Number(imageFocusX) || 50))),
+        image_focus_y: Math.min(100, Math.max(0, Math.round(Number(imageFocusY) || 50))),
         next_shaken_date: nextShakenDate && String(nextShakenDate).trim() ? String(nextShakenDate).trim() : null,
         jibaiseki_renewal_month:
           jibaisekiRenewalMonth && /^\d{4}-\d{2}$/.test(String(jibaisekiRenewalMonth))

@@ -64,7 +64,13 @@ export async function GET(req: NextRequest) {
       rejected_at: string | null;
     }[];
     try {
-      reportRows = await loadLegacyDailyRows(supabase, { start: startParam, end: endParam });
+      // バッジの数字を出すだけなので実績値（report_entries）は不要。
+      // 既定で結合すると report_id を 200 件ずつ引く重い処理が走る。
+      reportRows = await loadLegacyDailyRows(
+        supabase,
+        { start: startParam, end: endParam },
+        { withEntries: false },
+      );
     } catch (e) {
       console.error("[admin/daily/unread-count] reports error", e);
       return NextResponse.json({ error: "DB error" }, { status: 500 });

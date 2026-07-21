@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { storeInvoiceAttachments } from "@/server/billing/invoiceAttachments";
 
 export const dynamic = "force-dynamic";
 
@@ -143,7 +144,12 @@ export async function GET(req: NextRequest) {
   const month = monthParam ? normalizeMonth(monthParam) : null;
   let query = supabase
     .from("invoice_documents")
-    .select("id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, is_starred, created_at, updated_at, payload")
+    // payload は添付（最大5MB/件）を含むため一覧では取らない。
+    // 一覧が payload から使うのは parties/fromName/toName だけなので、
+    // その3つだけを PostgREST の JSON 演算子で抜き出す。
+    .select(
+      "id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, is_starred, created_at, updated_at, parties:payload->parties, from_name:payload->>fromName, to_name:payload->>toName",
+    )
     .eq("org_id", orgId)
     .order("updated_at", { ascending: false });
   if (month) {
@@ -158,15 +164,15 @@ export async function GET(req: NextRequest) {
 
   const invoices = (data ?? []).map((r: any) => ({
     direction:
-      r?.payload?.parties?.toParty === "ace_creation"
+      r?.parties?.toParty === "ace_creation"
         ? ("incoming" as FolderDirection)
         : ("outgoing" as FolderDirection),
     // 一覧上の取引先名は DB の client_name を正とする（表示名揺れを避ける）
     counterpartyName:
       (typeof r?.client_name === "string" && r.client_name.trim()) ||
-      (r?.payload?.parties?.toParty === "ace_creation"
-        ? (r?.payload?.fromName ?? "未設定")
-        : (r?.payload?.toName ?? "未設定")),
+      (r?.parties?.toParty === "ace_creation"
+        ? (r?.from_name ?? "未設定")
+        : (r?.to_name ?? "未設定")),
     id: r.id,
     month: r.month_yyyy_mm,
     section: r.section as Section,
@@ -258,6 +264,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // 添付は Storage へ退避し、payload には path だけ残す
+  const storedPayload = await storeInvoiceAttachments(supabase, orgId, body.payload);
+  if (!storedPayload.ok) {
+    return NextResponse.json({ error: storedPayload.message }, { status: 400 });
+  }
+
   const insertRow = {
     org_id: orgId,
     company_code: user.companyCode,
@@ -272,7 +284,7 @@ export async function POST(req: NextRequest) {
     amount: Number(body.amount) || 0,
     status,
     is_starred: body.starred === true,
-    payload: body.payload ?? {},
+    payload: storedPayload.payload ?? {},
   };
 
   try {

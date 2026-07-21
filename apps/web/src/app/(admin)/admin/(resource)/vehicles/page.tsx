@@ -32,6 +32,8 @@ import { hasCapability } from "@/lib/capabilities";
 import { Button } from "@/lib/ui/button";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { VehicleRecoveryDetail } from "./VehicleRecoveryDetail";
+import { ImageFocusPicker } from "./ImageFocusPicker";
+import { ImageLightbox } from "@/lib/components/ImageLightbox";
 import { VehicleQrModal } from "./VehicleQrModal";
 import { VehicleQrBulkModal } from "./VehicleQrBulkModal";
 
@@ -66,6 +68,9 @@ type Vehicle = {
   lease_cost?: number | null;
   monthly_insurance: number;
   image_url?: string | null;
+  /** サムネイル（16:9）の表示中心。CSS object-position と同じ 0〜100(%)。 */
+  image_focus_x?: number | null;
+  image_focus_y?: number | null;
   next_shaken_date?: string | null;
   jibaiseki_renewal_month?: string | null; // YYYY-MM
   created_at: string;
@@ -88,6 +93,8 @@ export default function VehiclesPage() {
   const emptyPurchaseItem = () => ({ sign: "+" as "+" | "-", label: "", amount: "" });
   const [canWrite, setCanWrite] = useState(false);
   const [canViewCost, setCanViewCost] = useState(false);
+  // 原寸表示（ライトボックス）。一覧・編集モーダルの双方から開く。
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   // 利用ドライバー選択のアコーディオン（選択中は常時表示、未選択は展開で選ぶ）
   const [driverOpen, setDriverOpen] = useState(false);
@@ -117,6 +124,8 @@ export default function VehiclesPage() {
     recoveryStartMonth: "",
     recoveryCarryover: "",
     imageDataUrl: "",
+    imageFocusX: 50,
+    imageFocusY: 50,
     nextShakenDate: "",
     jibaisekiRenewalMonth: "",
     driverIds: [] as string[],
@@ -266,6 +275,8 @@ export default function VehiclesPage() {
       recoveryStartMonth: "",
       recoveryCarryover: "",
       imageDataUrl: "",
+      imageFocusX: 50,
+      imageFocusY: 50,
       nextShakenDate: "",
       jibaisekiRenewalMonth: "",
       driverIds: [],
@@ -313,6 +324,8 @@ export default function VehiclesPage() {
           : "",
       recoveryCarryover: v.recovery_carryover != null ? String(v.recovery_carryover) : "",
       imageDataUrl: v.image_url || "",
+      imageFocusX: v.image_focus_x ?? 50,
+      imageFocusY: v.image_focus_y ?? 50,
       nextShakenDate: shaken && typeof shaken === "string" ? shaken.slice(0, 10) : "",
       jibaisekiRenewalMonth:
         v.jibaiseki_renewal_month && /^\d{4}-\d{2}$/.test(v.jibaiseki_renewal_month)
@@ -350,6 +363,12 @@ export default function VehiclesPage() {
         0,
         normalizedItems.reduce((sum, it) => sum + (it.sign === "-" ? -it.amount : it.amount), 0),
       );
+      // 車両画像は data URL（base64）で保存しているため、1枚で数MBになる。
+      // 変更していないのに毎回送ると保存が目に見えて遅くなるので、
+      // 元の値と同じなら payload から外す（PUT 側は undefined の項目をスキップする）。
+      const imageUnchanged =
+        editingVehicle != null && (form.imageDataUrl.trim() || null) === (editingVehicle.image_url ?? null);
+
       const payload = {
         isDisposed: form.isDisposed,
         isEv: form.isEv,
@@ -368,7 +387,10 @@ export default function VehiclesPage() {
         monthlyInsurance: toIntOrNull(form.monthlyInsurance),
         recoveryStartMonth: form.recoveryStartMonth.trim() || null,
         recoveryCarryover: toIntOrNull(form.recoveryCarryover) ?? 0,
-        imageUrl: form.imageDataUrl.trim() || null,
+        ...(imageUnchanged ? {} : { imageUrl: form.imageDataUrl.trim() || null }),
+        // 表示位置は軽い数値なので常に送る（画像を差し替えなくても調整できる）
+        imageFocusX: form.imageFocusX,
+        imageFocusY: form.imageFocusY,
         nextShakenDate: form.nextShakenDate.trim() || null,
         jibaisekiRenewalMonth: form.jibaisekiRenewalMonth.trim() || null,
         driverIds: form.driverIds,
@@ -395,7 +417,10 @@ export default function VehiclesPage() {
           purchase_cost_items: normalizedItems,
           lease_cost: payload.leaseCost ?? DEFAULT_LEASE_COST,
           monthly_insurance: payload.monthlyInsurance ?? 0,
-          image_url: payload.imageUrl,
+          // 未変更のときは payload に含めていないので、元の値を保つ
+          image_url: imageUnchanged ? editingVehicle.image_url : form.imageDataUrl.trim() || null,
+          image_focus_x: form.imageFocusX,
+          image_focus_y: form.imageFocusY,
           next_shaken_date: payload.nextShakenDate,
           jibaiseki_renewal_month: payload.jibaisekiRenewalMonth,
           vehicle_drivers: toVehicleDrivers(payload.driverIds ?? []),
@@ -855,15 +880,29 @@ export default function VehiclesPage() {
                       {/* 車両画像プレースホルダー（16:9） */}
                       <div className="min-w-0 flex-1 md:w-full aspect-video bg-slate-100 rounded-lg overflow-hidden">
                         {v.image_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={v.image_url}
-                            alt="車両画像"
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.currentTarget as HTMLImageElement).style.display = "none";
+                          // タップ/クリックで原寸表示。カード自体のクリック（編集）とは分ける。
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setLightboxSrc(v.image_url ?? null);
                             }}
-                          />
+                            className="block h-full w-full cursor-zoom-in"
+                            title="タップで拡大"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={v.image_url}
+                              alt="車両画像"
+                              className="w-full h-full object-cover"
+                              style={{
+                                objectPosition: `${v.image_focus_x ?? 50}% ${v.image_focus_y ?? 50}%`,
+                              }}
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = "none";
+                              }}
+                            />
+                          </button>
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">
                             <span>車両画像</span>
@@ -1548,7 +1587,14 @@ export default function VehiclesPage() {
                         <img
                           src={form.imageDataUrl}
                           alt="車両画像プレビュー"
-                          className="w-full h-52 sm:h-60 object-cover rounded-md"
+                          className="w-full h-52 sm:h-60 object-cover rounded-md cursor-zoom-in"
+                          style={{
+                            objectPosition: `${form.imageFocusX}% ${form.imageFocusY}%`,
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation(); // 親のクリック（画像差し替え）を止める
+                            setLightboxSrc(form.imageDataUrl);
+                          }}
                         />
                         <button
                           type="button"
@@ -1562,7 +1608,7 @@ export default function VehiclesPage() {
                           <FontAwesomeIcon icon={faTrash} className="w-4 h-4" />
                         </button>
                         <div className="mt-2 text-xs text-slate-500">
-                          クリックすると別の画像に差し替えできます。
+                          画像をクリックで拡大。枠内の余白をクリックすると差し替えできます。
                         </div>
                       </>
                     ) : (
@@ -1576,6 +1622,18 @@ export default function VehiclesPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* 一覧サムネイル（16:9）で見せる位置を指定する */}
+                  {form.imageDataUrl && (
+                    <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                      <ImageFocusPicker
+                        src={form.imageDataUrl}
+                        value={{ x: form.imageFocusX, y: form.imageFocusY }}
+                        onChange={({ x, y }) => setForm((f) => ({ ...f, imageFocusX: x, imageFocusY: y }))}
+                        disabled={!canWrite}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -2006,6 +2064,7 @@ export default function VehiclesPage() {
         detail={errorState?.detail}
         onClose={() => setErrorState(null)}
       />
+      <ImageLightbox src={lightboxSrc} alt="車両画像" onClose={() => setLightboxSrc(null)} />
     </AdminLayout>
   );
 }

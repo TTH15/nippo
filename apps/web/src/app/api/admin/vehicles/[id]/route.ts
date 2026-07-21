@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { storeVehicleImage } from "@/server/vehicles/imageStorage";
 
 export const dynamic = "force-dynamic";
 
@@ -66,10 +67,15 @@ export async function PUT(
       recoveryStartMonth,
       recoveryCarryover,
       imageUrl,
+      imageFocusX,
+      imageFocusY,
       nextShakenDate,
       jibaisekiRenewalMonth,
       driverIds,
     } = body;
+
+    /** 表示位置は 0〜100（%）に丸める。DB 側の CHECK と揃える。 */
+    const clampFocus = (v: unknown) => Math.min(100, Math.max(0, Math.round(Number(v) || 0)));
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (manufacturer !== undefined) updates.manufacturer = manufacturer?.trim() || null;
@@ -107,7 +113,15 @@ export async function PUT(
     if (recoveryCarryover !== undefined) {
       updates.recovery_carryover = Math.max(0, Math.trunc(Number(recoveryCarryover) || 0));
     }
-    if (imageUrl !== undefined) updates.image_url = imageUrl && String(imageUrl).trim() ? String(imageUrl).trim() : null;
+    if (imageUrl !== undefined) {
+      // data URL で送られてきたら Storage へ上げ、DB にはパスだけ持つ
+      const raw = imageUrl && String(imageUrl).trim() ? String(imageUrl).trim() : null;
+      const stored = await storeVehicleImage(supabase, orgId, raw);
+      if (!stored.ok) return NextResponse.json({ error: stored.message }, { status: 400 });
+      updates.image_url = stored.path;
+    }
+    if (imageFocusX !== undefined) updates.image_focus_x = clampFocus(imageFocusX);
+    if (imageFocusY !== undefined) updates.image_focus_y = clampFocus(imageFocusY);
     if (nextShakenDate !== undefined) updates.next_shaken_date = nextShakenDate && String(nextShakenDate).trim() ? String(nextShakenDate).trim() : null;
     if (jibaisekiRenewalMonth !== undefined) {
       updates.jibaiseki_renewal_month =

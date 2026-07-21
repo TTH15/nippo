@@ -25,11 +25,21 @@ export async function GET(req: NextRequest) {
   const endParam = url.searchParams.get("end");
 
   try {
+    // 期間の指定が無いと全期間スキャンになるため、既定で直近90日に絞る。
+    // （画面側の期間選択は任意項目なので、未指定のまま開かれることがある）
+    const defaultStart = (() => {
+      const d = new Date();
+      d.setDate(d.getDate() - 90);
+      return d.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+    })();
+
     // v2 ソース（互換リーダー）。id は v2 行id。日付降順→送信時刻降順。
     const rows = (
       await loadLegacyDailyRows(
         supabase,
-        startParam && endParam ? { start: startParam, end: endParam } : {},
+        startParam && endParam
+          ? { start: startParam, end: endParam }
+          : { start: defaultStart },
         { idSource: "v2", withVehicle: true },
       )
     ).sort(
