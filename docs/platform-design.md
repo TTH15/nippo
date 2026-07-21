@@ -297,6 +297,44 @@ RBAC（ロール＝capability の束）では「シフト希望は更新でき�
     実際に vehicles-unlinked / admin/shifts / oil-alert-count / 日報系の drivers 参照などで
     org 絞り漏れが見つかった（2026-07-22 に修正）。RLS の代わりの二重防御として常設する。
 
+### 3-0. 2026-07-22 テナント分離の総点検（実施記録）
+
+**きっかけ**: 車両画面の不具合調査中に `reports/vehicles-unlinked` の org 絞り漏れを発見。
+横断検査を作って全 API を洗ったところ、**読み取りだけでなく書き込みの越境**が複数見つかった。
+
+**特に重かったもの（すべて修正済み）**
+| 箇所 | 内容 |
+|---|---|
+| `admin/daily/approve` | 他社ドライバーの日報を承認でき、**その車両の走行距離まで書き換えられた** |
+| `admin/daily/reject` | 他社の日報を却下できた |
+| `admin/daily/reports/proxy` | 他社ドライバーの日報を代理作成・上書きできた |
+| `admin/daily/report-form` | 他社ドライバーの日報内容・コース構成が閲覧できた |
+| `reports/meter-baseline` | vehicleId 差し替えで他社車両の走行距離が取れた |
+| `admin/courses` PATCH / `admin/submit-screen` PUT | `update().eq("id")` のみで他社行を書き換え可能だった |
+| `admin/carriers/[id]` DELETE | 他社の有効化行（company_carriers）まで消しうる |
+
+いずれも「リクエスト由来の driverId / vehicleId をそのまま使い org を見ていない」型。
+**共通ローダーは引数で org を必須化した**（`loadLegacyDailyRows(supabase, orgId, …)` /
+`loadCourseDailyLease(supabase, orgId)` / `loadDailyLeaseByVehicleMonth(supabase, orgId, ids?)`）。
+署名で強制する形にしたので、新しい呼び出しで org を忘れると型エラーになる。
+
+**検査スクリプト自体の穴**: 当初テーブル名の正規表現に数字が無く、`daily_reports_v2`（日報本体）を
+丸ごと見逃していた。修正後に上記の重大漏れが検出された。**「検査が通った＝安全」ではなく、
+検査の対象範囲そのものを疑うこと。**
+
+**未対応（設計判断が必要）**
+- `orgCarriers.ts` の `orgOwnsCarrier` は `company_carriers` に行が無い org を「全許可」でフォールバックする
+  （087 未適用対策）。未設定の org が共有マスタ `carriers` を編集できる。共有マスタの認可設計の問題。
+- `reports/meter-baseline` の fallback（`vehicles.current_mileage` を id 直指定）は貸与車対応のため
+  org を絞れない。UUID 直打ちで他社車両の走行距離が読める余地が残る。
+
+**越境の統合テストは未整備（2026-07-22 時点）**
+`vitest.itest.config.mts` と `src/test/itest/tenantIsolation.itest.ts` は存在するが、
+**テスト用 Supabase が消えており（DNS 解決不可）実行できない状態**。既存テストも集計3件のみで、
+今回見つかった書き込み越境をカバーしていなかった＝「テストはあるが動かず、実際の越境を防げなかった」。
+**別 org の追加が現実味を帯びた時点で、テスト環境の再作成とセットで整備する**（ユーザー判断 2026-07-22）。
+それまでは静的検査（`npm run check:tenant`）が唯一の防壁。
+
 ### 3-1. テナント列を直接持つか親経由か
 
 - **根（ルート）テーブルは org_id を直接持つ**: `drivers`✓, `invoice_addresses`✓, `courses`✕追加, `vehicles`(→§5特例), `events`✕追加, `submit_screen_config`✕追加, 締切設定系✕追加

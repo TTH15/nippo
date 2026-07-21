@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
-import { hasCapability } from "@/server/auth/permissions";
+import { hasCapabilityCached } from "@/server/auth/permissions";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { stripVehicleCostAll } from "@/server/vehicles/cost";
@@ -47,10 +47,19 @@ export async function GET(req: NextRequest) {
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
+  // ★ select("*") にしない。image_url に data URL が混ざると1台あたり数百KB になり、
+  //   一覧のレスポンスが一気に肥大する（実測: 画像込み 1630ms/3777KB → 列指定 217ms/11KB）。
+  //   列を明示しておけば、将来 data URL が紛れ込んでも一覧は太らない。
   const { data: vehicles, error } = await supabase
     .from("vehicles")
     .select(`
-      *,
+      id, owner_org_id, manufacturer, brand, is_disposed, is_ev,
+      number_prefix, number_class, number_hiragana, number_numeric,
+      current_mileage, last_oil_change_mileage, oil_change_interval,
+      purchase_cost, purchase_cost_items, lease_cost, monthly_insurance,
+      recovery_start_month, recovery_carryover,
+      image_url, image_focus_x, image_focus_y,
+      next_shaken_date, jibaiseki_renewal_month, created_at,
       vehicle_drivers (
         driver_id,
         drivers (id, name, display_name, works_as_driver, status)
@@ -86,7 +95,8 @@ export async function GET(req: NextRequest) {
 
   // 金額情報は別 capability。持たない人には回収額を返さないので、
   // 重い集計（日報の走査）自体を丸ごと省く。
-  const canViewCost = await hasCapability(user, "can_view_vehicle_cost");
+  // requirePermission が解決済みの capability を再利用（認可クエリの二重実行を避ける）
+  const canViewCost = await hasCapabilityCached(user, "can_view_vehicle_cost");
   if (!canViewCost) {
     return NextResponse.json({
       vehicles: stripVehicleCostAll(activeDriverVehicles, false),

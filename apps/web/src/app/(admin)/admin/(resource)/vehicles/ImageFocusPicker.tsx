@@ -85,37 +85,32 @@ export function ImageFocusPicker({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-slate-500">
-          {movable
-            ? "枠をドラッグすると、一覧に出す範囲を変えられます（枠の外は表示されません）。"
-            : "この画像は一覧の比率と同じなので、全体がそのまま表示されます。"}
-        </p>
-        <div className="flex shrink-0 items-center gap-1">
-          {onExpand && (
-            <button
-              type="button"
-              onClick={onExpand}
-              className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-            >
-              <FontAwesomeIcon icon={faExpand} className="h-3 w-3" />
-              拡大
-            </button>
-          )}
-          {onReplace && !disabled && (
-            <button
-              type="button"
-              onClick={onReplace}
-              className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-            >
-              <FontAwesomeIcon icon={faArrowUpFromBracket} className="h-3 w-3" />
-              差し替え
-            </button>
-          )}
-        </div>
+      {/* 操作ボタンは画像の下にまとめる（右上は削除ボタンと重なるため） */}
+      <div className="mx-auto flex w-fit max-w-full items-center justify-center gap-1">
+        {onExpand && (
+          <button
+            type="button"
+            onClick={onExpand}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+          >
+            <FontAwesomeIcon icon={faExpand} className="h-3 w-3" />
+            拡大
+          </button>
+        )}
+        {onReplace && !disabled && (
+          <button
+            type="button"
+            onClick={onReplace}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+          >
+            <FontAwesomeIcon icon={faArrowUpFromBracket} className="h-3 w-3" />
+            差し替え
+          </button>
+        )}
       </div>
 
-      <div className="relative inline-block max-w-full select-none overflow-hidden rounded-md border border-slate-200 bg-slate-900">
+      {/* 元画像は左右中央に置く */}
+      <div className="relative mx-auto block w-fit max-w-full select-none overflow-hidden rounded-md border border-slate-200 bg-slate-900">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           ref={imgRef}
@@ -185,7 +180,7 @@ export function ImageFocusPicker({
         <button
           type="button"
           onClick={() => onChange({ x: 50, y: 50 })}
-          className="block text-xs text-slate-500 hover:text-slate-700"
+          className="mx-auto block text-xs text-slate-500 hover:text-slate-700"
         >
           中央に戻す
         </button>
