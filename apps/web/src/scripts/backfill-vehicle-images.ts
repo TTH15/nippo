@@ -43,7 +43,7 @@ function extFor(mime: string): string {
 
 async function main() {
   const { data: rows, error } = await supabase
-    .from("vehicles")
+    .from("vehicles") // tenant-scope-ok: 全org を移行する運用スクリプト（保存先パスは owner_org_id で分ける）
     .select("id, owner_org_id, image_url, manufacturer, brand")
     .not("image_url", "is", null);
   if (error) throw new Error(`車両の取得に失敗: ${error.message}`);
