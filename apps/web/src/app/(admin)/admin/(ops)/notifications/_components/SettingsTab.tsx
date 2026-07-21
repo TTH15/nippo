@@ -21,6 +21,7 @@ type Settings = {
   assignmentIncludeVehicle: boolean;
   restDayEnabled: boolean;
   changeEnabled: boolean;
+  lineMonthlyLimit: number | null;
 };
 
 /** ON/OFF 行。説明を必ず添える（何が送られるのか分からないまま有効化させない）。 */
@@ -179,6 +180,31 @@ export function SettingsTab({ canWrite }: { canWrite: boolean }) {
             </span>
           </div>
         )}
+
+        {/* org 別 LINE 上限（複数org運用の土台）。空欄=上限なし。 */}
+        <div className="mt-6 border-t border-slate-100 pt-4">
+          <h3 className="text-sm font-medium text-slate-800">LINE 月間上限</h3>
+          <p className="mt-0.5 text-sm text-slate-500">
+            この会社が今月LINEで送れる通数の上限です。空欄なら上限なし。
+          </p>
+          <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="number"
+              min={0}
+              step={100}
+              value={settings.lineMonthlyLimit ?? ""}
+              disabled={!canWrite}
+              onChange={(e) =>
+                update({
+                  lineMonthlyLimit: e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
+                })
+              }
+              placeholder="上限なし"
+              className="w-32 rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-900 focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+            />
+            通 / 月
+          </label>
+        </div>
 
         <div className="mt-4 flex items-center justify-end gap-3">
           {savedAt && <span className="text-sm text-emerald-600">✓ 保存しました</span>}

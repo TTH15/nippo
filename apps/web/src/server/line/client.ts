@@ -42,6 +42,46 @@ async function callLine(path: string, body: unknown): Promise<void> {
   }
 }
 
+/** GET 系（通数照会）。エラーは呼び出し側で握って UI を止めない。 */
+async function getLine<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { Authorization: `Bearer ${getAccessToken()}` },
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`LINE API ${path} が失敗しました (${res.status}): ${detail}`);
+  }
+  return (await res.json()) as T;
+}
+
+export type LineQuota = {
+  /** 今月の上限。無制限プランなら null。 */
+  limit: number | null;
+  /** 今月これまでに送った通数（チャネル全体）。 */
+  used: number;
+  /** 残り。無制限なら null。 */
+  remaining: number | null;
+};
+
+/**
+ * チャネル全体の今月の通数を取得する。
+ * ★org 単位の内訳は LINE からは取れない（統合1本のチャネル合計のみ）。
+ * type が "none" のプランは上限なし（従量）＝ limit/remaining は null。
+ */
+export async function getMessageQuota(): Promise<LineQuota> {
+  const [quota, consumption] = await Promise.all([
+    getLine<{ type: string; value?: number }>("/message/quota"),
+    getLine<{ totalUsage: number }>("/message/quota/consumption"),
+  ]);
+  const limit = quota.type === "limited" && typeof quota.value === "number" ? quota.value : null;
+  const used = consumption.totalUsage;
+  return {
+    limit,
+    used,
+    remaining: limit === null ? null : Math.max(0, limit - used),
+  };
+}
+
 /** 単一ユーザーへ push。 */
 export async function pushText(lineUserId: string, text: string): Promise<void> {
   await callLine("/message/push", { to: lineUserId, messages: [{ type: "text", text }] });

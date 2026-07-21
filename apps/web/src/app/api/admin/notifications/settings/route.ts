@@ -19,6 +19,8 @@ type Settings = {
   assignmentIncludeVehicle: boolean;
   restDayEnabled: boolean;
   changeEnabled: boolean;
+  /** org の月間 LINE 上限（通）。null=上限なし。複数org運用の土台。 */
+  lineMonthlyLimit: number | null;
 };
 
 const DEFAULTS: Settings = {
@@ -28,6 +30,7 @@ const DEFAULTS: Settings = {
   assignmentIncludeVehicle: true,
   restDayEnabled: false,
   changeEnabled: false,
+  lineMonthlyLimit: null,
 };
 
 /** DB の time 型は "20:00:00" で返るため画面用に "20:00" へ丸める。 */
@@ -61,6 +64,7 @@ export async function GET(req: NextRequest) {
       assignmentIncludeVehicle: data.assignment_include_vehicle,
       restDayEnabled: data.rest_day_enabled,
       changeEnabled: data.change_enabled,
+      lineMonthlyLimit: (data.line_monthly_limit as number | null) ?? null,
     } satisfies Settings,
   });
 }
@@ -78,6 +82,16 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "送信時刻の形式が不正です" }, { status: 400 });
   }
 
+  // 月上限は 0 以上の整数 or null（上限なし）のみ
+  const rawLimit = input.lineMonthlyLimit;
+  let lineMonthlyLimit: number | null = null;
+  if (rawLimit !== null && rawLimit !== undefined) {
+    if (!Number.isInteger(rawLimit) || rawLimit < 0) {
+      return NextResponse.json({ error: "月間上限は0以上の整数で入力してください" }, { status: 400 });
+    }
+    lineMonthlyLimit = rawLimit;
+  }
+
   const { error } = await supabase.from("org_notification_settings").upsert(
     {
       org_id: orgId,
@@ -89,6 +103,7 @@ export async function PUT(req: NextRequest) {
         input.assignmentIncludeVehicle ?? DEFAULTS.assignmentIncludeVehicle,
       rest_day_enabled: input.restDayEnabled ?? DEFAULTS.restDayEnabled,
       change_enabled: input.changeEnabled ?? DEFAULTS.changeEnabled,
+      line_monthly_limit: lineMonthlyLimit,
       updated_at: new Date().toISOString(),
       updated_by: user.driverId,
     },

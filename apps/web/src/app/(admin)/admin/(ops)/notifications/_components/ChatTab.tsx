@@ -243,6 +243,10 @@ export function ChatTab({ canWrite }: { canWrite: boolean }) {
                     <FontAwesomeIcon icon={faPaperPlane} className="h-4 w-4" />
                   </button>
                 </div>
+                {/* 送信は LINE push なので通数を消費する。受信（相手の返信）は無料。 */}
+                <p className="px-3 pb-2 text-[11px] text-slate-400">
+                  送信するとLINEの通数を1通消費します（相手からの返信は無料です）。
+                </p>
               </>
             )}
           </div>
