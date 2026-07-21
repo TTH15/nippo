@@ -98,7 +98,7 @@ export function VehicleRecoveryDetail({
       setNewLease("");
       setNewInsurance("");
       setNewNote("");
-      await load();
+      void load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "手動行の追加に失敗しました");
     } finally {
@@ -112,7 +112,7 @@ export function VehicleRecoveryDetail({
       await apiFetch(`/api/admin/vehicles/${vehicleId}/recovery-entries?entry_id=${encodeURIComponent(entryId)}`, {
         method: "DELETE",
       });
-      await load();
+      void load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "手動行の削除に失敗しました");
     }

@@ -90,7 +90,7 @@ export function SettingsTab({ canWrite }: { canWrite: boolean }) {
         body: JSON.stringify(settings),
       });
       setSavedAt(Date.now());
-      await refresh();
+      void refresh(); // 保存は確定済み。再取得は待たない
     } catch (e) {
       setError({
         title: "保存に失敗しました",

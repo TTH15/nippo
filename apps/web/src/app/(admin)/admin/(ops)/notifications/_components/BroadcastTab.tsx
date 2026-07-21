@@ -100,7 +100,7 @@ export function BroadcastTab() {
       setTitle("");
       setBody("");
       setSelected([]);
-      await refresh();
+      void refresh(); // 送信結果は res で表示済み。履歴の再取得は待たない
     } catch (e) {
       setError({
         title: "送信に失敗しました",

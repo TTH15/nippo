@@ -192,6 +192,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
 
       setPasskeyMessage({ type: "ok", text: "Passkeyを登録しました" });
       setProfile((prev) => (prev ? { ...prev, hasPasskey: true } : prev));
+      void refreshProfile(); // キャッシュも確定（再訪時に「未登録」へ戻らないように）
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "NotAllowedError") {
         // ユーザーの明示的キャンセルだけでなく、この端末に登録済みのPasskeyと
@@ -242,6 +243,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       setPhoneStep("input");
       setPhoneCode("");
       setProfile((prev) => (prev ? { ...prev, phone: phoneInput.trim(), phoneVerified: true } : prev));
+      void refreshProfile(); // 同上（再訪時に「未確認」へ戻らないように）
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "確認に失敗しました";
       setPhoneMessage({ type: "error", text: msg });

@@ -149,7 +149,7 @@ export default function ReportKindsPage() {
       if (form.id) await apiFetch(`/api/admin/report-kinds/${form.id}`, { method: "PATCH", body: JSON.stringify(payload) });
       else await apiFetch("/api/admin/report-kinds", { method: "POST", body: JSON.stringify(payload) });
       setForm(null);
-      await load();
+      void load();
     } catch (e) {
       setError({ title: "保存に失敗しました", message: e instanceof Error ? e.message : "もう一度お試しください。" });
     } finally {
@@ -162,7 +162,7 @@ export default function ReportKindsPage() {
     try {
       await apiFetch(`/api/admin/report-kinds/${deleteTarget.id}`, { method: "DELETE" });
       setDeleteTarget(null);
-      await load();
+      void load();
     } catch (e) {
       setError({ title: "削除に失敗しました", message: e instanceof Error ? e.message : "もう一度お試しください。" });
     }

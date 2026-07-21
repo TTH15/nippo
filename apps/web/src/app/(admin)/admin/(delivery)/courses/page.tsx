@@ -203,6 +203,7 @@ export default function CoursesPage() {
         method: "PATCH",
         body: JSON.stringify({ order: newOrder.map((c) => c.id) }),
       });
+      void refreshBundle(); // 並べ替えが再訪時に戻らないようキャッシュも確定（待たない）
     } catch (e) {
       console.error(e);
       setCourses(prev); // 巻き戻し
@@ -244,6 +245,7 @@ export default function CoursesPage() {
   const {
     data: bundle,
     isInitialLoading,
+    refresh: refreshBundle,
   } = useApi<{
     courses: Course[];
     drivers: Driver[];
@@ -328,6 +330,7 @@ export default function CoursesPage() {
       setCourses(nextCourses);
       setShowModal(false);
       setNewCourse(EMPTY_COURSE_FORM);
+      void refreshBundle();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -412,6 +415,7 @@ export default function CoursesPage() {
       setCourses((prev) => prev.map((c) => (c.id === editingCourse.id ? updatedCourse : c)));
       setShowEditModal(false);
       setEditingCourse(null);
+      void refreshBundle();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -443,6 +447,7 @@ export default function CoursesPage() {
             method: "DELETE",
           });
           setCourses((prev) => prev.filter((c) => c.id !== courseId));
+          void refreshBundle(); // 削除したコースが復活しないように
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";

@@ -97,7 +97,8 @@ export default function CarriersPage() {
       message,
       onConfirm: async () => {
         setConfirmState(null);
-        try { await fn(); await load(); } catch (e) { fail(e); }
+        // 削除自体の成否は await fn() で確定する。一覧の再取得は待たない。
+        try { await fn(); void load(); } catch (e) { fail(e); }
       },
     });
   }
@@ -108,7 +109,7 @@ export default function CarriersPage() {
     try {
       if (carrierModal.mode === "create") await apiFetch("/api/admin/carriers", { method: "POST", body: JSON.stringify({ name }) });
       else await apiFetch(`/api/admin/carriers/${carrierModal.carrier!.id}`, { method: "PATCH", body: JSON.stringify({ name }) });
-      setCarrierModal(null); await load();
+      setCarrierModal(null); void load();
     } catch (e) { fail(e); }
   }
   async function saveUnit(name: string, billingType: BillingType) {
@@ -116,7 +117,7 @@ export default function CarriersPage() {
     try {
       if (unitModal.mode === "create") await apiFetch("/api/admin/units", { method: "POST", body: JSON.stringify({ carrier_id: unitModal.carrierId, name, billing_type: billingType }) });
       else await apiFetch(`/api/admin/units/${unitModal.unit!.id}`, { method: "PATCH", body: JSON.stringify({ name, billing_type: billingType }) });
-      setUnitModal(null); await load();
+      setUnitModal(null); void load();
     } catch (e) { fail(e); }
   }
   async function saveField(d: FieldDraft) {
@@ -125,7 +126,7 @@ export default function CarriersPage() {
     try {
       if (fieldModal.mode === "create") await apiFetch("/api/admin/unit-fields", { method: "POST", body: JSON.stringify({ ...body, unit_id: fieldModal.unitId }) });
       else await apiFetch(`/api/admin/unit-fields/${fieldModal.field!.id}`, { method: "PATCH", body: JSON.stringify(body) });
-      setFieldModal(null); await load();
+      setFieldModal(null); void load();
     } catch (e) { fail(e); }
   }
 

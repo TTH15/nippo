@@ -77,8 +77,9 @@ export function ChatTab({ canWrite }: { canWrite: boolean }) {
         body: JSON.stringify({ text }),
       });
       setDraft("");
-      await chatApi.refresh();
-      await threadsApi.refresh();
+      // 送信済みメッセージを出すため会話の再取得は待つが、直列にせず並列で1往復に。
+      // スレッド一覧（最終メッセージ・未読）は表示に必須ではないので同時に流す。
+      await Promise.all([chatApi.refresh(), threadsApi.refresh()]);
     } catch (e) {
       setError({
         title: "送信に失敗しました",

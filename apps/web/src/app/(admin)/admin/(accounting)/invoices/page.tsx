@@ -342,7 +342,7 @@ export default function InvoicesPage() {
           },
         }),
       });
-      await load();
+      void load();
     } catch (e: any) {
       console.error(e);
       setErrorMessage(e?.message || "アップロードに失敗しました。");
@@ -361,6 +361,7 @@ export default function InvoicesPage() {
         body: JSON.stringify({ status }),
       });
       setInvoices((prev) => prev.map((inv) => (inv.id === invoiceId ? { ...inv, status } : inv)));
+      void load(); // キャッシュも確定（待たない）
     } catch (e) {
       console.error(e);
       setErrorMessage("ステータス更新に失敗しました。");
@@ -385,6 +386,7 @@ export default function InvoicesPage() {
         method: "DELETE",
       });
       setInvoices((prev) => prev.filter((inv) => inv.id !== invoiceId));
+      void load(); // 削除した請求書が再訪時に復活しないように
     } catch (e) {
       console.error(e);
       setErrorMessage("請求書の削除に失敗しました。");
