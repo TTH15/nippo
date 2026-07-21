@@ -80,8 +80,7 @@ export async function saveDeadlineConfig(
   if (existing?.id) {
     await supabase.from("shift_request_deadline_config").update(row).eq("id", existing.id);
   } else {
-    // tenant-scope-ok: row に org_id を含む
-    await supabase.from("shift_request_deadline_config").insert(row);
+    await supabase.from("shift_request_deadline_config").insert(row); // tenant-scope-ok: row に org_id を含む
   }
 }
 
@@ -142,8 +141,7 @@ export async function saveDeadlineOverrides(
     note: o.note ?? null,
     updated_at: new Date().toISOString(),
   }));
-  // tenant-scope-ok: rows の各行に org_id を含む
-  await supabase.from("shift_request_deadline_overrides").insert(rows);
+  await supabase.from("shift_request_deadline_overrides").insert(rows); // tenant-scope-ok: rows の各行に org_id を含む
 }
 
 // ============================================================
