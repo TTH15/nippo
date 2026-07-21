@@ -183,6 +183,19 @@ Expo が壊れる（現状は web だけ 19 をネストで持つ脆い構成）
       誤爆防止はレイヤ1（org スコープのクエリ）・レイヤ3（送信直前アサートで越境検出→バッチ中断）・
       レイヤ4（`notifications.org_id` から配信先を導出）・レイヤ5（UI 指定は候補との積集合）を実装。
       **レイヤ6 の越境テストを CI に投入**（`dispatch.test.ts` ＋ 署名検証 `signature.test.ts`、計15件）。
+- [x] **⑧自動配信＋チャット＋画面リッチ化 ✅ 2026-07-21** — `/admin/notifications` を**3タブ構成**に:
+      **一斉配信**（従来）／**チャット**（連携済みドライバーと1対1。PC=2ペイン・スマホ=一覧⇄会話。
+      未読バッジ、Cmd/Ctrl+Enter 送信、ブロック中は送信不可）／**自動配信**（種別ごとの ON/OFF）。
+      migration 110 で `org_notification_settings`（送信時刻・含める項目のトグル・休み通知・変更通知。
+      **既定は全て OFF**＝入れただけでは何も自動送信されない）と `line_chat_messages`
+      （inbound/outbound、`line_message_id` UNIQUE で webhook 再送を吸収）。
+      webhook は**連携済みの人のメッセージをチャットとして保存**するよう拡張（未連携の人だけが
+      連携コードの対象）。
+      **cron 実体も実装**: `/api/cron/daily-notifications`（`CRON_SECRET` 保護、`vercel.json` で
+      毎時起動 → org ごとの送信時刻で振り分け。送信時刻が org 可変のため cron 式は固定にした）。
+      文面生成は設計 §5 に従い `@repo/core/logic/notificationMessage.ts` の純粋関数（テスト13件。
+      実効値 = shifts.* ?? courses.*、値が無い行は落とす）。冪等キーは「org×日×種別×membership」。
+      ※`shifts` に `org_id` が無いため org 絞りは `courses!inner(org_id)` 経由。
 - [x] **④運営 web UI ✅ 2026-07-21** — `/admin/notifications`（`(ops)` 配下）。件名・本文＋
       「全員／選んで送る」、送信前に ConfirmDialog（取り消せないため）、送信結果を件数で表示。
       **LINE 未連携者を可視化**（§1-2「未連携を可視化＝催促可能」）＋最近の送信履歴。
