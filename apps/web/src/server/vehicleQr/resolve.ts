@@ -107,10 +107,10 @@ export async function resolveVehicleByToken(
   onDate: string,
 ): Promise<QrResolveResult> {
   // token→QR（グローバル解決：org で絞らない）
-  // tenant-scope-ok: 貸与車を借用org がスキャンする経路があるため token はグローバル解決し、
-  //                  車両の利用可否は直後の authorizeVehicleForOrg(requesterOrgId) で判定する
   const { data: qr } = await supabase
     .from("vehicle_qr")
+    // tenant-scope-ok: 貸与車を借用org がスキャンする経路があるため token はグローバル解決し、
+    //                  車両の利用可否は直後の authorizeVehicleForOrg(requesterOrgId) で判定する
     .select("id, vehicle_id, status, version")
     .eq("token", token)
     .maybeSingle();

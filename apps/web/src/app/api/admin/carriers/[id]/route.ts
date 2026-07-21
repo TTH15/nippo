@@ -62,10 +62,10 @@ export async function DELETE(
     .select("id", { count: "exact", head: true })
     .eq("carrier_id", id);
   // 既存日報がこのキャリアを参照していないか
-  // tenant-scope-ok: carriers は org 横断の共有マスタ。参照整合の確認なので全org を数える
-  //（自 org だけ数えると他社が参照中のキャリアを消せてしまう）。結果は真偽判定のみで他社データは返さない。
   const { count: reportCount } = await supabase
     .from("daily_reports_v2")
+    // tenant-scope-ok: carriers は org 横断の共有マスタ。参照整合の確認なので全org を数える
+    //（自 org だけ数えると他社が参照中のキャリアを消せてしまう）。結果は真偽判定のみで他社データは返さない。
     .select("id", { count: "exact", head: true })
     .eq("carrier_id", id);
 

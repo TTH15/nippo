@@ -80,9 +80,9 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
   };
 
   // 既存 v2（legacy_report_id 一致）を探して update / insert
-  // tenant-scope-ok: legacy_report_id は旧 daily_reports の主キー＝1行特定（org をまたがない）
   const { data: existing } = await supabase
     .from("daily_reports_v2")
+    // tenant-scope-ok: legacy_report_id は旧 daily_reports の主キー＝1行特定（org をまたがない）
     .select("id")
     .eq("legacy_report_id", r.id)
     .maybeSingle();
@@ -95,8 +95,7 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
     isExisting = true;
     // 注意: ここで entries を即削除しない。削除は「再挿入する行が確定」してから行う（下記）。
   } else {
-    // tenant-scope-ok: header に org_id を含む（対象ドライバーの org を resolveOrgId で解決済み）
-    const { data, error } = await supabase.from("daily_reports_v2").insert(header).select("id").single();
+    const { data, error } = await supabase.from("daily_reports_v2").insert(header).select("id").single(); // tenant-scope-ok: header に org_id を含む（対象ドライバーの org を resolveOrgId で解決済み）
     if (error || !data) {
       console.error("syncLegacyReportToV2 insert failed", error);
       return;
@@ -151,8 +150,7 @@ export async function mirrorApprovalToV2(driverId: string, date: string): Promis
     .eq("report_date", date);
   for (const o of olds ?? []) {
     await supabase
-      // tenant-scope-ok: legacy_report_id で1行特定（旧行 o は同一ドライバーのものに限定済み）
-      .from("daily_reports_v2")
+      .from("daily_reports_v2") // tenant-scope-ok: legacy_report_id で1行特定（旧行 o は同一ドライバーのものに限定済み）
       .update({
         approved_at: (o as any).approved_at ?? null,
         approved_by: (o as any).approved_by ?? null,

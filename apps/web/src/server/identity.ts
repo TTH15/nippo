@@ -33,8 +33,7 @@ export async function resolveActiveDriverByIdentity(
   identityId: string,
 ): Promise<{ driver: ActiveDriverRow } | { error: "none" | "multiple" }> {
   const { data: drivers, error } = await supabase
-    // tenant-scope-ok: ログイン経路（Passkey/SMS）。org 文脈が確定する前に identity から membership を引く
-    .from("drivers")
+    .from("drivers") // tenant-scope-ok: ログイン経路（Passkey/SMS）。org 文脈が確定する前に identity から membership を引く
     .select("id, name, role, company_code, office_code, driver_code, identity_id, org_id, status")
     .eq("identity_id", identityId)
     .eq("status", "active");
