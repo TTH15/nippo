@@ -230,36 +230,42 @@ function VehicleOptionList({
               : undefined
         }
         className={cn(
-          // 選択中は ring-2＋濃色（同ファイルの「今ここ」表現と同じ語彙）。
-          // 黒地のプレート画像に埋もれないよう、非選択側を減光してコントラストを作る。
+          // 3状態を「濃さ」で明確に分ける:
+          //   選択中   … そのまま＋枠＋チェック
+          //   選択可能 … そのまま（減光しない。ここを薄くすると使用不可と区別がつかない）
+          //   使用不可 … グレースケール＋減光（黄色いプレートが灰色になるので一目で分かる）
           "relative w-full rounded-md p-0.5 flex flex-col items-center gap-0.5 transition-all",
-          isLoaned
-            ? "opacity-45 cursor-not-allowed"
-            : takenByName
-              ? "opacity-60 hover:bg-slate-50/90"
-              : selected
-                ? "bg-slate-900/5 ring-2 ring-slate-900"
-                : "opacity-70 hover:opacity-100 hover:bg-slate-50/90",
+          isLoaned || takenByName
+            ? "grayscale opacity-45"
+            : selected
+              ? "bg-slate-900/5 ring-2 ring-slate-900"
+              : "hover:bg-slate-50/90",
+          isLoaned && "cursor-not-allowed",
         )}
         onClick={() => {
           if (isLoaned) return;
           onChange(v.id);
         }}
       >
-        <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
+        <div className="relative w-full">
+          <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none mx-auto" />
+          {selected && (
+            // プレート上に重ねる（プレート自体が黒地で、下の余白だけでは目立たないため）
+            <span className="absolute -right-0.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-slate-900 text-white shadow ring-2 ring-white">
+              <Check className="h-2.5 w-2.5" strokeWidth={3} />
+            </span>
+          )}
+          {/* 使用不可の理由はプレートに重ねる。グリッドの上下行でどちらの車両の
+              ラベルか紛れるのを防ぐ（グレースケールの上なので赤が読める）。 */}
+          {(isLoaned || takenByName) && (
+            <span className="absolute inset-x-0 bottom-0 bg-white/85 px-1 py-0.5 text-[9px] font-bold leading-none text-rose-600">
+              {isLoaned ? "貸出中" : `${takenByName} さん使用中`}
+            </span>
+          )}
+        </div>
         {selected && (
-          // プレート上に重ねる（プレート自体が黒地で、下の余白だけでは目立たないため）
-          <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-slate-900 text-white shadow">
-            <Check className="h-2.5 w-2.5" strokeWidth={3} />
-          </span>
-        )}
-        {selected ? (
           <span className="text-[9px] font-bold text-slate-900 leading-none pb-0.5">選択中</span>
-        ) : isLoaned || takenByName ? (
-          <span className="text-[9px] font-medium text-rose-500 leading-none pb-0.5">
-            {isLoaned ? "貸出中" : `${takenByName} さん使用中`}
-          </span>
-        ) : null}
+        )}
       </button>
     );
   };

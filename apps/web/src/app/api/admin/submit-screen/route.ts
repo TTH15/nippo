@@ -35,6 +35,8 @@ export async function GET(req: NextRequest) {
       supabase
         .from("events")
         .select("id, name, status, starts_on, ends_on, team_ranking_visible_to_drivers")
+        // イベントはテナント固有。設定UIの選択肢に他社イベントを出さない
+        .eq("org_id", orgId)
         .order("starts_on", { ascending: false }),
     ]);
 
@@ -103,10 +105,12 @@ export async function PUT(req: NextRequest) {
     for (const ev of body.eventVisibility) {
       const id = ev && typeof ev.id === "string" ? ev.id : "";
       if (!id) continue;
+      // id はクライアント指定。org を併せて絞らないと他社イベントの公開設定を書き換えられる
       const { error: evErr } = await supabase
         .from("events")
         .update({ team_ranking_visible_to_drivers: ev.visible === true })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("org_id", orgId);
       if (evErr) console.error("[admin/submit-screen] event visibility update error", evErr);
     }
   }

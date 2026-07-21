@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { verifyFileContent } from "@/server/storage/fileSignature";
 import { randomBytes } from "crypto";
 
 // ============================================================
@@ -14,6 +15,9 @@ export async function uploadMeterPhoto(
   ctx: { orgId: string; driverId: string },
   file: { bytes: ArrayBuffer | Uint8Array; mime: string },
 ): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
+  // 申告 MIME は偽装できるため、中身（マジックバイト）で検証する
+  const verified = verifyFileContent(new Uint8Array(file.bytes as ArrayBuffer), ["image/jpeg", "image/png"], file.mime);
+  if (!verified.ok) return { ok: false, message: verified.message };
   const ext = file.mime === "image/png" ? "png" : "jpg";
   const path = `${ctx.orgId}/${ctx.driverId}/${Date.now()}-${randomBytes(4).toString("hex")}.${ext}`;
   const { error } = await supabase.storage.from(METER_BUCKET).upload(path, file.bytes, {

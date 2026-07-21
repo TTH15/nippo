@@ -26,7 +26,12 @@ export async function GET(req: NextRequest) {
   const [rules, { data: drivers }] = await Promise.all([
     loadAllRules(supabase, orgId),
     // 実ドライバーのみ（管理者・閲覧専用アカウントは除外）。
-    supabase.from("drivers").select("id, name, display_name").eq("works_as_driver", true).order("name"),
+    supabase
+      .from("drivers")
+      .select("id, name, display_name")
+      .eq("org_id", orgId)
+      .eq("works_as_driver", true)
+      .order("name"),
   ]);
   return NextResponse.json({ rules, drivers: drivers ?? [] });
 }

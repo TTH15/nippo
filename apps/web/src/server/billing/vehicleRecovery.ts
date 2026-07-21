@@ -59,9 +59,11 @@ function isDailyLeaseActiveOn(rows: LeaseRow[], date: string): boolean {
 /**
  * 日額リース自動計上を車両×月で集計: Map<vehicleId, Map<ym, number>>。
  * vehicleIds 指定で絞り込み（詳細用）、未指定で全車両（一覧用）。
+ * 未指定時は日付・車両でしか絞られないため、orgId で必ずテナントを限定する。
  */
 export async function loadDailyLeaseByVehicleMonth(
   supabase: SupabaseClient,
+  orgId: string,
   vehicleIds?: string[],
 ): Promise<Map<string, Map<string, number>>> {
   const result = new Map<string, Map<string, number>>();
@@ -69,6 +71,7 @@ export async function loadDailyLeaseByVehicleMonth(
   let q = supabase
     .from("daily_reports_v2")
     .select("report_date, course_id, vehicle_id, driver_id, approved_at, rejected_at")
+    .eq("org_id", orgId)
     .not("vehicle_id", "is", null)
     .not("approved_at", "is", null)
     .is("rejected_at", null)
@@ -78,7 +81,7 @@ export async function loadDailyLeaseByVehicleMonth(
 
   const [{ data: leaseRows }, courseDaily] = await Promise.all([
     supabase.from("driver_leases").select("driver_id, mode, valid_from, valid_to"),
-    loadCourseDailyLease(supabase),
+    loadCourseDailyLease(supabase, orgId),
   ]);
 
   const leasesByDriver = new Map<string, LeaseRow[]>();

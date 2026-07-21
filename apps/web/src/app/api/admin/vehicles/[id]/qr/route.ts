@@ -32,6 +32,7 @@ export async function GET(
   if (!vehicle) return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
 
   const { data: qr } = await supabase
+    // tenant-scope-ok: loadOwnedVehicle で owner_org_id を確認済みの vehicleId で絞る
     .from("vehicle_qr")
     .select("id, token, version, status, issued_at, attached_confirmed_at")
     .eq("vehicle_id", vehicleId)
@@ -86,6 +87,7 @@ export async function POST(
   }
 
   // 既存の有効/未確認トークン
+  // tenant-scope-ok: loadOwnedVehicle で owner_org_id を確認済みの vehicleId で絞る
   const { data: current } = await supabase
     .from("vehicle_qr")
     .select("id, version, status")

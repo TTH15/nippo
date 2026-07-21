@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,17 @@ export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get("date") ?? "";
   if (!driverId) return NextResponse.json({ error: "driverId が必要です" }, { status: 400 });
   if (!date) return NextResponse.json({ error: "date が必要です" }, { status: 400 });
+
+  // driverId はクエリ由来。対象ドライバーが自 org のメンバーであることを先に確認する
+  // （以降の shifts / courses / daily_reports_v2 の参照が他社に及ばないようにするため）。
+  const orgId = await resolveOrgId(user.driverId);
+  const { data: targetDriver } = await supabase
+    .from("drivers")
+    .select("id")
+    .eq("id", driverId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!targetDriver) return NextResponse.json({ error: "ドライバーが見つかりません" }, { status: 404 });
 
   // その日のシフト（コース）
   const { data: shiftRows } = await supabase
@@ -89,6 +101,7 @@ export async function GET(req: NextRequest) {
   const { data: existingReports } = await supabase
     .from("daily_reports_v2")
     .select("id, course_id, vehicle_id, meter_value, approved_at, rejected_at")
+    .eq("org_id", orgId)
     .eq("driver_id", driverId)
     .eq("report_date", date)
     .in("course_id", courseIds);

@@ -45,6 +45,7 @@ async function main() {
   if (error) throw error;
 
   // 既存 v2 の legacy_report_id 集合
+  // tenant-scope-ok: 全org 対象の運用バックフィルスクリプト（API 経路ではない）
   const { data: v2Rows } = await supabase
     .from("daily_reports_v2")
     .select("legacy_report_id")

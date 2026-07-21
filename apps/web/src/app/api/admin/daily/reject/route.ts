@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +8,8 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const user = await requirePermission(req, "can_edit_reports");
   if (isAuthError(user)) return user;
+  // driverId はリクエスト body 由来なので、必ず運営自身の org で絞る（他社日報の却下を防ぐ）
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const body = await req.json();
@@ -25,6 +28,7 @@ export async function POST(req: NextRequest) {
         rejected_at: new Date().toISOString(),
         rejected_by: user.driverId,
       })
+      .eq("org_id", orgId)
       .eq("driver_id", driverId)
       .eq("report_date", date)
       // 却下対象は「未却下」の日報のみ（却下済みが同日に残っていてもOK）

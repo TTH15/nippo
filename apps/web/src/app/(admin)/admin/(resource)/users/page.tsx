@@ -777,6 +777,13 @@ export default function UsersPage() {
   };
 
   const getLicenseStatus = (dateStr?: string | null): { label: string; className: string } => {
+    // 稼働終了タブでは更新を促す意味がないので、日付は出すが警告色にはしない
+    // （メニューバッジ側も status='active' のみを数える）。
+    if (statusFilter !== "active") {
+      return dateStr
+        ? { label: dateStr, className: "bg-slate-100 text-slate-500" }
+        : { label: "未設定", className: "bg-slate-100 text-slate-500" };
+    }
     switch (computeLicenseLevel(dateStr)) {
       case "unset":
         return { label: "未設定", className: "bg-slate-100 text-slate-500" };

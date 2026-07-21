@@ -133,15 +133,28 @@ type EvRow = {
 };
 const EV_COLS = "id, name, starts_on, ends_on, scoring_rule, team_ranking_visible_to_drivers";
 
-async function pickEvent(supabase: SupabaseClient, block: EventPointsBlock, date: string): Promise<EvRow | null> {
+async function pickEvent(
+  supabase: SupabaseClient,
+  orgId: string,
+  block: EventPointsBlock,
+  date: string,
+): Promise<EvRow | null> {
   if (block.source === "event") {
     if (!block.eventId) return null;
-    const { data } = await supabase.from("events").select(EV_COLS).eq("id", block.eventId).maybeSingle();
+    // eventId は自社の設定由来だが、設定が古い/不正な場合に他社イベントを引かないよう org も絞る
+    const { data } = await supabase
+      .from("events")
+      .select(EV_COLS)
+      .eq("id", block.eventId)
+      .eq("org_id", orgId)
+      .maybeSingle();
     return data && data.starts_on && data.ends_on ? (data as EvRow) : null;
   }
   const { data } = await supabase
     .from("events")
     .select(EV_COLS)
+    // 自動選択（開催中）。org を絞らないと他社の開催中イベントを拾ってしまう
+    .eq("org_id", orgId)
     .eq("status", "active")
     .lte("starts_on", date)
     .gte("ends_on", date)
@@ -174,7 +187,11 @@ export async function resolveBlocks(
   const driverNames = () => {
     if (!driverNamesPromise) {
       driverNamesPromise = (async () => {
-        const { data } = await supabase.from("drivers").select("id, name, display_name");
+        // ランキング表示名。自社ドライバーのみ（他社の氏名を読み込まない）
+        const { data } = await supabase
+          .from("drivers")
+          .select("id, name, display_name")
+          .eq("org_id", ctx.orgId);
         return new Map<string, string>((data ?? []).map((d) => [d.id, getDisplayName(d)]));
       })();
     }
@@ -212,14 +229,15 @@ async function resolveEventBlock(
   block: EventPointsBlock,
   ctx: ResolveContext,
 ): Promise<Extract<ResolvedBlock, { type: "event_points" }> | null> {
-  const ev = await pickEvent(supabase, block, ctx.date);
+  const ev = await pickEvent(supabase, ctx.orgId, block, ctx.date);
   if (!ev || !ev.starts_on || !ev.ends_on) return null;
 
   const [{ data: teamRows }, { data: memberRows }, { data: pointRows }, { data: drv }] = await Promise.all([
     supabase.from("event_teams").select("id, name, color, sort_order").eq("event_id", ev.id).order("sort_order"),
     supabase.from("event_team_members").select("team_id, driver_id").eq("event_id", ev.id),
     supabase.from("event_point_entries").select("team_id, driver_id, points, reason, entry_date").eq("event_id", ev.id).eq("source", "manual"),
-    supabase.from("drivers").select("id, name, display_name"),
+    // 個人ランキングの表示名。自社ドライバーのみ
+    supabase.from("drivers").select("id, name, display_name").eq("org_id", ctx.orgId),
   ]);
   const teams: EventTeam[] = (teamRows ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color, sortOrder: t.sort_order }));
   const members: EventMember[] = (memberRows ?? []).map((m) => ({ driverId: m.driver_id, teamId: m.team_id }));

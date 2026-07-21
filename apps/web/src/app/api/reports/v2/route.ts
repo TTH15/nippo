@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
       // 既存 entries を入れ替え
       await supabase.from("report_entries").delete().eq("report_id", reportId);
     } else {
+      // tenant-scope-ok: header に org_id を含む（本人の org）
       const { data, error } = await supabase.from("daily_reports_v2").insert(header).select("id").single();
       if (error || !data) {
         console.error(error);

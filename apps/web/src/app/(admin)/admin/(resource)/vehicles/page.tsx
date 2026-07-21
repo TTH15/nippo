@@ -92,7 +92,6 @@ type MeterLog = {
 export default function VehiclesPage() {
   const emptyPurchaseItem = () => ({ sign: "+" as "+" | "-", label: "", amount: "" });
   const [canWrite, setCanWrite] = useState(false);
-  const [canViewCost, setCanViewCost] = useState(false);
   // 原寸表示（ライトボックス）。一覧・編集モーダルの双方から開く。
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -179,10 +178,11 @@ export default function VehiclesPage() {
   const { data: bundle, isInitialLoading, refresh: refreshBundle } = useApi<{
     vehicles: Vehicle[];
     drivers: Driver[];
+    canViewCost: boolean;
   }>("admin/vehicles:bundle", {
     fetcher: async () => {
       const [vehiclesRes, driversRes] = await Promise.all([
-        apiFetch<{ vehicles: Vehicle[] }>("/api/admin/vehicles"),
+        apiFetch<{ vehicles: Vehicle[]; canViewCost?: boolean }>("/api/admin/vehicles"),
         // 名簿（can_view_members）の権限が無いロールでは 403 になる。失敗しても
         // 車両一覧まで巻き込まない（使用者の割当候補が空になるだけに留める）。
         apiFetch<{ drivers: Array<Driver & { role?: string }> }>("/api/admin/users?all=1").catch(
@@ -194,6 +194,10 @@ export default function VehiclesPage() {
         // API 側が works_as_driver=true で絞るため、role による除外はしない
         //（管理者等でもドライバー稼働中なら使用者に割当可能）。
         drivers: driversRes.drivers,
+        // 金額情報の可否はサーバーの判定を正とする。
+        // localStorage の capabilities はログイン時のスナップショットなので、
+        // 権限を足した直後は再ログインするまで古いままになる。
+        canViewCost: vehiclesRes.canViewCost === true,
       };
     },
   });
@@ -208,10 +212,12 @@ export default function VehiclesPage() {
 
   useEffect(() => {
     setCanWrite(hasCapability("can_manage_vehicles"));
-    // 金額情報（購入費用・リース代・初期費用回収）は独立 capability。
-    // 配車だけ担当する人には見せない運用ができる。値自体もサーバーが返さない。
-    setCanViewCost(hasCapability("can_view_vehicle_cost"));
   }, []);
+
+  // 金額情報（購入費用・リース代・初期費用回収）は独立 capability。
+  // サーバーの判定（API の canViewCost）を正とする — localStorage の capabilities は
+  // ログイン時のスナップショットで、権限追加後も再ログインするまで古いため。
+  const canViewCost = bundle?.canViewCost === true;
 
   const defaultRangeLast30Days = () => {
     const end = todayJST();
@@ -1582,35 +1588,26 @@ export default function VehiclesPage() {
                     />
 
                     {form.imageDataUrl ? (
-                      <>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
+                      // 画像は1枚だけ。その上で切り取り範囲（一覧に出る 16:9）を指定する。
+                      // 親のクリック（差し替え）を拾わないよう stopPropagation する。
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <ImageFocusPicker
                           src={form.imageDataUrl}
-                          alt="車両画像プレビュー"
-                          className="w-full h-52 sm:h-60 object-cover rounded-md cursor-zoom-in"
-                          style={{
-                            objectPosition: `${form.imageFocusX}% ${form.imageFocusY}%`,
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation(); // 親のクリック（画像差し替え）を止める
-                            setLightboxSrc(form.imageDataUrl);
-                          }}
+                          value={{ x: form.imageFocusX, y: form.imageFocusY }}
+                          onChange={({ x, y }) => setForm((f) => ({ ...f, imageFocusX: x, imageFocusY: y }))}
+                          onReplace={() => imageInputRef.current?.click()}
+                          onExpand={() => setLightboxSrc(form.imageDataUrl)}
+                          disabled={!canWrite}
                         />
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setForm((f) => ({ ...f, imageDataUrl: "" }));
-                          }}
-                          className="absolute top-3 right-3 inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/90 border border-slate-200 text-slate-500 shadow-sm transition-colors hover:text-red-600 hover:bg-white"
+                          onClick={() => setForm((f) => ({ ...f, imageDataUrl: "" }))}
+                          className="absolute top-3 right-3 inline-flex items-center justify-center w-9 h-9 rounded-full bg-white/90 border border-slate-200 text-slate-500 shadow-sm transition-colors hover:text-red-600 hover:bg-white"
                           title="画像を削除"
                         >
                           <FontAwesomeIcon icon={faTrash} className="w-4 h-4" />
                         </button>
-                        <div className="mt-2 text-xs text-slate-500">
-                          画像をクリックで拡大。枠内の余白をクリックすると差し替えできます。
-                        </div>
-                      </>
+                      </div>
                     ) : (
                       <div className="h-52 sm:h-60 rounded-md flex items-center justify-center text-slate-500 text-sm">
                         <div className="text-center space-y-1">
@@ -1622,18 +1619,6 @@ export default function VehiclesPage() {
                       </div>
                     )}
                   </div>
-
-                  {/* 一覧サムネイル（16:9）で見せる位置を指定する */}
-                  {form.imageDataUrl && (
-                    <div className="mt-3" onClick={(e) => e.stopPropagation()}>
-                      <ImageFocusPicker
-                        src={form.imageDataUrl}
-                        value={{ x: form.imageFocusX, y: form.imageFocusY }}
-                        onChange={({ x, y }) => setForm((f) => ({ ...f, imageFocusX: x, imageFocusY: y }))}
-                        disabled={!canWrite}
-                      />
-                    </div>
-                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

@@ -68,7 +68,8 @@ export async function computeDriverAutoPayout(
 
   // 表示用ラベル: コース名 / unit名 / unit_fields(label,input_type,group_label,sort)
   const [{ data: courseRows }, { data: unitRows }, { data: fieldRows }] = await Promise.all([
-    supabase.from("courses").select("id, name"),
+    // コースはテナント固有マスタ。表示名解決でも他社コースは読まない
+    supabase.from("courses").select("id, name").eq("org_id", orgId),
     supabase.from("units").select("id, name, sort_order"),
     supabase
       .from("unit_fields")

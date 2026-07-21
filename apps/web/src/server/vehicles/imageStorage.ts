@@ -18,7 +18,12 @@ export async function storeVehicleImage(
   value: string | null,
 ): Promise<{ ok: true; path: string | null } | { ok: false; message: string }> {
   if (!value) return { ok: true, path: null };
-  const res = await uploadDataUrl(supabase, VEHICLE_IMAGE_BUCKET, orgId, value);
+  // 車両画像に PDF は不要。受け口を狭めておく。
+  const res = await uploadDataUrl(supabase, VEHICLE_IMAGE_BUCKET, orgId, value, [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+  ]);
   return res.ok ? { ok: true, path: res.path } : res;
 }
 

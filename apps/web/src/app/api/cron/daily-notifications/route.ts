@@ -60,6 +60,7 @@ export async function GET(req: NextRequest) {
   const currentHour = jstHour();
 
   // 自動配信が有効な org だけを対象にする
+  // tenant-scope-ok: cron は全org を走査する設計（org ごとに sendForOrg でスコープを閉じる）
   const { data: settingsRows, error } = await supabase
     .from("org_notification_settings")
     .select("*")

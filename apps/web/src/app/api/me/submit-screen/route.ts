@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   // リース控除（DAILY のみ日当に反映）。当日コースの日額リース代(courses.daily_lease)を1回控除。
   const [lease, courseDailyLease] = await Promise.all([
     loadDriverLease(supabase, driverId, date, date),
-    loadCourseDailyLease(supabase),
+    loadCourseDailyLease(supabase, orgId),
   ]);
 
   let todayReward = 0;

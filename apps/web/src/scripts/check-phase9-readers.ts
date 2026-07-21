@@ -53,7 +53,9 @@ async function main() {
     .limit(100000);
   if (error) throw error;
 
-  const compat = await loadLegacyDailyRows(supabase, { start, end });
+  // 開発用スクリプト。リクエスト文脈が無いため既定テナント(ACE)で突合する。
+  const { data: org } = await supabase.from("organizations").select("id").eq("code", "ACE").single();
+  const compat = await loadLegacyDailyRows(supabase, String(org?.id ?? ""), { start, end });
   const compatById = new Map(compat.map((r) => [r.id, r]));
 
   let pass = 0;

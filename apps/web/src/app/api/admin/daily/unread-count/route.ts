@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_reports");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const url = req.nextUrl;
   let startParam = url.searchParams.get("start");
@@ -39,6 +41,7 @@ export async function GET(req: NextRequest) {
     const { data: drivers, error: driversErr } = await supabase
       .from("drivers")
       .select("id")
+      .eq("org_id", orgId)
       .eq("works_as_driver", true);
     if (driversErr) {
       console.error("[admin/daily/unread-count] drivers error", driversErr);
@@ -68,6 +71,7 @@ export async function GET(req: NextRequest) {
       // 既定で結合すると report_id を 200 件ずつ引く重い処理が走る。
       reportRows = await loadLegacyDailyRows(
         supabase,
+        orgId,
         { start: startParam, end: endParam },
         { withEntries: false },
       );

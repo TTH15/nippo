@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
@@ -18,6 +19,7 @@ export async function GET(
 ) {
   const user = await requirePermission(req, "can_view_vehicles");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: vehicleId } = await ctx.params;
   if (!vehicleId) {
@@ -49,7 +51,7 @@ export async function GET(
   try {
     // v2 ソース（互換リーダー）。meter_value あり・却下なし、日付→送信時刻 昇順。
     const rows = (
-      await loadLegacyDailyRows(supabase, { start: startParam, end: endParam, vehicleId })
+      await loadLegacyDailyRows(supabase, orgId, { start: startParam, end: endParam, vehicleId })
     )
       .filter((r) => r.meter_value != null && !r.rejected_at)
       .sort(
@@ -62,7 +64,11 @@ export async function GET(
       new Set((rows ?? []).map((r: any) => r?.driver_id).filter(Boolean))
     ) as string[];
     const { data: drivers, error: driverErr } = driverIds.length
-      ? await supabase.from("drivers").select("id, name, display_name").in("id", driverIds)
+      ? await supabase
+          .from("drivers")
+          .select("id, name, display_name")
+          .eq("org_id", orgId)
+          .in("id", driverIds)
       : { data: [], error: null };
     if (driverErr) {
       console.error("[admin/vehicles/:id/meter-logs] drivers error", driverErr);

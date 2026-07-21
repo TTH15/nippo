@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
@@ -14,8 +15,10 @@ export async function GET(req: NextRequest) {
   try {
     // v2 ソース（互換リーダー）から取得。report_date 降順で limit 件。
     // ★以前は全期間を取得してから JS で切っていた（在籍が長いほど遅い）。DB 側で切る。
+    const orgId = await resolveOrgId(user.driverId);
     const reports = await loadLegacyDailyRows(
       supabase,
+      orgId,
       { driverId: user.driverId as string },
       { limit },
     );

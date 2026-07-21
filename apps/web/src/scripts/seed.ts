@@ -65,7 +65,7 @@ async function main() {
   for (const d of DRIVERS) {
     // まず既存のドライバーをチェック
     const { data: existing } = await supabase
-      .from("drivers")
+      .from("drivers") // tenant-scope-ok: 開発用スクリプト
       .select("id")
       .eq("name", d.name)
       .single();

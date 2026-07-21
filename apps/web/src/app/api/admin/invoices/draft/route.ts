@@ -210,7 +210,7 @@ export async function GET(req: NextRequest) {
     // リース控除（driver_leases・専用概念）。DAILYはコース日額(courses.daily_lease)由来。
     const [lease, courseDailyLease] = await Promise.all([
       loadDriverLease(supabase, driverParam, range.startDate, range.endDate),
-      loadCourseDailyLease(supabase),
+      loadCourseDailyLease(supabase, orgId),
     ]);
     const perDay = autoPayout.days.map((d) => ({ date: d.date, courseId: d.courseId }));
     const leaseDeduction = computeLeaseDeduction(lease, perDay, courseDailyLease);
@@ -328,7 +328,7 @@ export async function GET(req: NextRequest) {
     .lte("shift_date", range.endDate)
     .in("course_id", orgCourseIds);
   // carrier 判定は carriers マスタ（carrier_id → code）由来
-  const carrierCodeByCourse = await loadCarrierCodeByCourse(supabase);
+  const carrierCodeByCourse = await loadCarrierCodeByCourse(supabase, orgId);
   const counterpartyCount = new Map<string, number>();
   (shiftsForTo ?? []).forEach((s: any) => {
     const c = cMap.get(s.course_id);

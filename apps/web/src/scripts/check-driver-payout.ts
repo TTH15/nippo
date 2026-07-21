@@ -42,7 +42,7 @@ async function main() {
   const auto = buildContributions(data.reports, [], ctx); // ledger 抜き = 自動算出のみ
   const expectedByDriver = sumBy(auto, (c) => c.driverId);
 
-  const { data: driverRows } = await supabase.from("drivers").select("id, name, display_name");
+  const { data: driverRows } = await supabase.from("drivers").select("id, name, display_name"); // tenant-scope-ok: 開発用スクリプト
   const nameById = new Map<string, string>();
   (driverRows ?? []).forEach((d: { id: string; name: string; display_name: string | null }) =>
     nameById.set(d.id, (d.display_name || d.name || d.id.slice(0, 6)).trim()),

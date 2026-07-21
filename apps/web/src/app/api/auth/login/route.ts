@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
       } | null = null;
 
       const { data: byDriverRow, error: err1 } = await supabase
+        // tenant-scope-ok: ログイン前は org 文脈が無い。driver_code から org を決める側の問い合わせ
         .from("drivers")
         .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id, status")
         .eq("driver_code", code)
@@ -183,6 +184,7 @@ export async function POST(req: NextRequest) {
       // §2-6: ロール名でハードコード判定せず、capability で「運営アカウントか」を判定する。
       // これにより ACCOUNTING や org が作ったカスタムロールも（管理権限を1つでも持てば）ログインできる。
       const { data: admin, error } = await supabase
+        // tenant-scope-ok: ログイン前は org 文脈が無い。driver_code + company_code で本人を特定する
         .from("drivers")
         .select("id, name, role, role_id, company_code, driver_code, pin_hash, identity_id, org_id, status")
         .eq("driver_code", full)

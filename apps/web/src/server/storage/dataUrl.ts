@@ -11,6 +11,7 @@
 // 二重解決を用意して段階移行できるようにする。
 // ============================================================
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { verifyFileContent } from "@/server/storage/fileSignature";
 
 export type DecodedDataUrl = { bytes: Uint8Array; mime: string; bytesLength: number };
 
@@ -45,11 +46,17 @@ export async function uploadDataUrl(
   bucket: string,
   prefix: string,
   value: string,
+  allowedMime: readonly string[] = ["application/pdf", "image/jpeg", "image/png"],
 ): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
   if (!isDataUrl(value)) return { ok: true, path: value };
 
   const decoded = decodeDataUrl(value);
   if (!decoded) return { ok: false, message: "ファイル形式を認識できませんでした。" };
+
+  // ★中身を検査する。data URL の MIME 部分は送信側が自由に書けるため、
+  //   これが無いと「image/png と称した HTML」を保存してしまう。
+  const verified = verifyFileContent(decoded.bytes, allowedMime, decoded.mime);
+  if (!verified.ok) return { ok: false, message: verified.message };
 
   const rand =
     typeof crypto !== "undefined" && crypto.randomUUID
@@ -81,8 +88,19 @@ export async function resolveStoredUrl(
 ): Promise<string | null> {
   if (!value) return null;
   if (isDataUrl(value)) return value;
-  const { data } = await supabase.storage.from(bucket).createSignedUrl(value, expiresInSec);
+  const { data } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(value, expiresInSec, signedUrlOptions(value));
   return data?.signedUrl ?? null;
+}
+
+/**
+ * PDF はブラウザ内蔵ビューアで JavaScript が動きうるため、
+ * インライン表示させず必ずダウンロードさせる（Content-Disposition: attachment）。
+ * 画像はマジックバイト検査済みで描画されるだけなので、表示を壊さないよう対象外。
+ */
+export function signedUrlOptions(path: string): { download: boolean } | undefined {
+  return path.toLowerCase().endsWith(".pdf") ? { download: true } : undefined;
 }
 
 /** 複数まとめて解決（署名は並列）。 */

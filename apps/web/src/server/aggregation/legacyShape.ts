@@ -109,9 +109,13 @@ function zeroCounts() {
 /**
  * v2 から旧 daily_reports 互換の行を取得する。
  * 旧の読み手の `.from("daily_reports").select(...)` 差し替え用。
+ *
+ * orgId は必須。日報も付随マスタ（コース名）も他社行を混ぜてはいけないため、
+ * 呼び出し側で解決した org_id を必ず渡す（構成A ＝ RLS 無しでアプリ層が唯一の防壁）。
  */
 export async function loadLegacyDailyRows(
   supabase: SupabaseClient,
+  orgId: string,
   filters: Filters,
   options: Options = {},
 ): Promise<LegacyDailyRow[]> {
@@ -120,7 +124,9 @@ export async function loadLegacyDailyRows(
       .from("daily_reports_v2")
       .select(
         "id, legacy_report_id, driver_id, identity_id, report_date, course_id, carrier_id, vehicle_id, meter_value, submitted_at, approved_at, approved_by, rejected_at, rejected_by",
-      );
+      )
+      // 日付だけの絞り込みでは他社の日報まで混ざるため org で必ず絞る
+      .eq("org_id", orgId);
     if (filters.start) q = q.gte("report_date", filters.start);
     if (filters.end) q = q.lte("report_date", filters.end);
     if (filters.driverId) q = q.eq("driver_id", filters.driverId);
@@ -141,7 +147,8 @@ export async function loadLegacyDailyRows(
     fetchReports,
     supabase.from("carriers").select("id, code, name"),
     supabase.from("units").select("id, code"),
-    supabase.from("courses").select("id, name"),
+    // コースはテナント固有マスタ。名前解決のためだけでも他社行は読まない
+    supabase.from("courses").select("id, name").eq("org_id", orgId),
   ]);
   if (!reportRows?.length) return [];
 
@@ -171,6 +178,8 @@ export async function loadLegacyDailyRows(
       ),
     );
     if (vIds.length) {
+      // vIds は org 絞り済みの日報由来。他社からの貸出車(vehicle_loans)も表示する必要があるため
+      // owner_org_id では絞らない（自社日報に紐づく車両だけを引く形で既にスコープ済み）。
       const { data: vRows } = await supabase
         .from("vehicles")
         .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand")

@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_ACCEPT_MIME, DEFAULT_MAX_FILE_BYTES, type AnswerAttachment } from "./fields";
+import { verifyFileContent } from "@/server/storage/fileSignature";
+import { signedUrlOptions } from "@/server/storage/dataUrl";
 
 // ============================================================
 // 諸報告の添付ファイル（Supabase Storage・非公開バケット）入出力。
@@ -24,6 +26,14 @@ export async function uploadReportFile(
   driverId: string,
   file: { bytes: ArrayBuffer | Uint8Array; name: string; mime: string },
 ): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
+  // 申告 MIME・拡張子は偽装できるため、中身（マジックバイト）で検証する
+  const verified = verifyFileContent(
+    new Uint8Array(file.bytes as ArrayBuffer),
+    DEFAULT_ACCEPT_MIME,
+    file.mime,
+  );
+  if (!verified.ok) return { ok: false, message: verified.message };
+
   const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
   const rand = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const path = `${driverId}/${rand}.${ext}`;
@@ -46,7 +56,10 @@ export async function signAttachments(
 ): Promise<(AnswerAttachment & { url: string | null })[]> {
   return Promise.all(
     attachments.map(async (a) => {
-      const { data } = await supabase.storage.from(REPORT_BUCKET).createSignedUrl(a.path, expiresInSec);
+      // PDF はダウンロード強制（内蔵ビューアの JS 実行を避ける）。画像は表示のまま。
+      const { data } = await supabase.storage
+        .from(REPORT_BUCKET)
+        .createSignedUrl(a.path, expiresInSec, signedUrlOptions(a.path));
       return { ...a, url: data?.signedUrl ?? null };
     }),
   );

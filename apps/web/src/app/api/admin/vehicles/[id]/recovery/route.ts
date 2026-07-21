@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import {
   loadDailyLeaseByVehicleMonth,
@@ -18,14 +19,17 @@ export async function GET(
   // 金額情報の capability で守る。
   const user = await requirePermission(req, "can_view_vehicle_cost");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: vehicleId } = await params;
   if (!vehicleId) return NextResponse.json({ error: "vehicle id required" }, { status: 400 });
 
+  // 車両は owner_org_id が所有テナント。他社車両の原価情報を id 直指定で覗けないよう絞る。
   const { data: vehicle, error } = await supabase
     .from("vehicles")
     .select("id, purchase_cost, lease_cost, monthly_insurance, recovery_start_month, recovery_carryover")
     .eq("id", vehicleId)
+    .eq("owner_org_id", orgId)
     .maybeSingle();
   if (error || !vehicle) {
     return NextResponse.json({ error: "車両が見つかりません" }, { status: 404 });
@@ -37,7 +41,7 @@ export async function GET(
       .select("id, vehicle_id, ym, lease, insurance, note")
       .eq("vehicle_id", vehicleId)
       .order("ym", { ascending: true }),
-    loadDailyLeaseByVehicleMonth(supabase, [vehicleId]),
+    loadDailyLeaseByVehicleMonth(supabase, orgId, [vehicleId]),
   ]);
 
   const dailyByMonth = dailyMap.get(vehicleId) ?? new Map<string, number>();

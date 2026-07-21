@@ -53,7 +53,7 @@ export async function GET(
       .select("team_id, driver_id, points, reason, entry_date")
       .eq("event_id", eventId)
       .eq("source", "manual"),
-    supabase.from("drivers").select("id, name, display_name"),
+    supabase.from("drivers").select("id, name, display_name").eq("org_id", orgId),
   ]);
 
   if (tErr || mErr || pErr || dErr) {

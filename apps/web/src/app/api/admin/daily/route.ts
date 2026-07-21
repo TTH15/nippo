@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { todayJST } from "@/lib/date";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_reports");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const date = req.nextUrl.searchParams.get("date") || todayJST();
 
@@ -33,6 +35,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers, error: dErr } = await supabase
     .from("drivers")
     .select("id, name, display_name")
+    .eq("org_id", orgId)
     .eq("works_as_driver", true)
     .order("name");
 
@@ -41,6 +44,7 @@ export async function GET(req: NextRequest) {
   // Reports for this date（v2 ソース・互換リーダー）。endDate は排他のため当日のみ。
   const reports = await loadLegacyDailyRows(
     supabase,
+    orgId,
     { start: startDate, end: startDate },
     { idSource: "v2", withVehicle: true },
   );

@@ -289,6 +289,13 @@ RBAC（ロール＝capability の束）では「シフト希望は更新でき�
 - `src/server/db/tenant.ts`（新規）に **org_id スコープを必ず付与する薄いラッパ**を用意。各ルートの手書き `.eq` は廃止していく。
 - 既存の一元化済みローダ（`src/server/aggregation/legacyShape.ts` の `loadLegacyDailyRows()`、`loadAggregationData()` 等）に **orgId 引数を必須化**して差し込む（集計の単一通り道）。
 - 「会社スコープ未適用のクエリを書けない/検出できる」状態を目標に、レビュー観点 or 簡易 lint（`from("drivers")` 直書き検出）で担保。
+  → **✅ 2026-07-22 実装**: `apps/web/src/scripts/check-tenant-scope.ts`（`npm run check:tenant`）。
+  migration から「org_id / owner_org_id を持つテーブル」を自動抽出し、それらへのクエリに
+  org 絞りがあるかを静的検査する。違反があれば exit 1（CI 用）。
+  意図的に全件を引く場合は行末に `// tenant-scope-ok: 理由` を書く。
+  ※これを入れた経緯: RLS 不使用の構成では**アプリ層の書き忘れが即・他社データ露出**になる。
+    実際に vehicles-unlinked / admin/shifts / oil-alert-count / 日報系の drivers 参照などで
+    org 絞り漏れが見つかった（2026-07-22 に修正）。RLS の代わりの二重防御として常設する。
 
 ### 3-1. テナント列を直接持つか親経由か
 

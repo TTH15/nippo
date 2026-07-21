@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 import { loadReportContents } from "@/server/aggregation/reportContent";
@@ -19,6 +20,7 @@ type ReportGroup = {
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_reports");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const url = req.nextUrl;
   const startParam = url.searchParams.get("start");
@@ -37,6 +39,7 @@ export async function GET(req: NextRequest) {
     const rows = (
       await loadLegacyDailyRows(
         supabase,
+        orgId,
         startParam && endParam
           ? { start: startParam, end: endParam }
           : { start: defaultStart },
@@ -64,6 +67,7 @@ export async function GET(req: NextRequest) {
     const { data: drivers, error: driverErr } = await supabase
       .from("drivers")
       .select("id, name, display_name")
+      .eq("org_id", orgId)
       .in("id", driverIds);
 
     if (driverErr) {

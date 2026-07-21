@@ -123,6 +123,7 @@ export async function PUT(
     return NextResponse.json({ ok: true, count: 0 });
   }
 
+  // tenant-scope-ok: allRows の各行に org_id を含む
   const { error: insErr } = await supabase.from("counterparty_monthly_custom_lines").insert(allRows);
 
   if (insErr) {

@@ -120,6 +120,7 @@ async function findLinkedDriver(
   if (!identity) return null;
 
   // 複数 org 所属は選択 UI が未実装のため、先頭の active membership に寄せる
+  // tenant-scope-ok: LINE webhook は org 文脈を持たない。連携済み identity から org を決める側
   const { data: driver } = await supabase
     .from("drivers")
     .select("id, org_id")

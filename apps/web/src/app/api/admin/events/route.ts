@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   };
 
   const { data, error } = await supabase
-    .from("events")
+    .from("events") // tenant-scope-ok: insertRow に org_id: orgId を含む（上記 insertRow 定義）
     .insert(insertRow)
     .select("id, name, description, starts_on, ends_on, status, created_at")
     .single();

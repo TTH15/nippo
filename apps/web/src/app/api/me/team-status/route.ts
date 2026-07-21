@@ -30,6 +30,8 @@ export async function GET(req: NextRequest) {
   const { data: ev } = await supabase
     .from("events")
     .select("id, name, starts_on, ends_on, scoring_rule")
+    // 自社イベントのみ。org を絞らないと他社の開催中イベントを拾ってしまう
+    .eq("org_id", orgId)
     .eq("status", "active")
     .lte("starts_on", date)
     .gte("ends_on", date)

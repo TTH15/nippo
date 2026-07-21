@@ -51,8 +51,16 @@ export async function POST(req: NextRequest) {
 
   const nowIso = new Date().toISOString();
   const savedReportIds: string[] = [];
-  // 代理入力でも org_id は「対象ドライバーの所属テナント」を刻む
-  const orgId = await resolveOrgId(driverId);
+  // driverId は body 由来。運営自身の org を正とし、対象ドライバーがその org の
+  // メンバーであることを確認してから書き込む（他社ドライバーの日報を作らせない）。
+  const orgId = await resolveOrgId(user.driverId);
+  const { data: targetDriver } = await supabase
+    .from("drivers")
+    .select("id")
+    .eq("id", driverId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!targetDriver) return NextResponse.json({ error: "ドライバーが見つかりません" }, { status: 404 });
 
   for (const item of items) {
     if (!item.courseId) continue;
@@ -61,6 +69,7 @@ export async function POST(req: NextRequest) {
     const { data: existing } = await supabase
       .from("daily_reports_v2")
       .select("id")
+      .eq("org_id", orgId)
       .eq("driver_id", driverId)
       .eq("report_date", reportDate)
       .eq("course_id", item.courseId)
@@ -93,6 +102,7 @@ export async function POST(req: NextRequest) {
       reportId = existing.id;
       await supabase.from("report_entries").delete().eq("report_id", reportId);
     } else {
+      // tenant-scope-ok: header に org_id を含む（運営自身の org）
       const { data, error } = await supabase.from("daily_reports_v2").insert(header).select("id").single();
       if (error || !data) {
         console.error(error);

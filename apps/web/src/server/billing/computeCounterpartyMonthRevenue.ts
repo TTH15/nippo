@@ -78,7 +78,8 @@ export async function computeCounterpartyMonthBillingDetail(
   // 3. 表示名・並び（unit 名/並び、ドライバー名）
   const [{ data: unitRows }, { data: driverRows }] = await Promise.all([
     supabase.from("units").select("id, name, sort_order"),
-    supabase.from("drivers").select("id, name, display_name"),
+    // 明細の担当者名。自社ドライバーだけを引く（他社の氏名を読まない）
+    supabase.from("drivers").select("id, name, display_name").eq("org_id", orgId),
   ]);
   const unitNameById = new Map<string, string>();
   const unitSortById = new Map<string, number>();
@@ -252,7 +253,7 @@ export async function computeSectionMonthRevenue(
   const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
   const contribs = buildContributions(data.reports, [], ctx); // ledger 無し = auto のみ
 
-  const carrierCodeByCourse = await loadCarrierCodeByCourse(supabase);
+  const carrierCodeByCourse = await loadCarrierCodeByCourse(supabase, orgId);
   const targetIsAmazon = section === "Amazon";
 
   let total = 0;
@@ -266,12 +267,16 @@ export async function computeSectionMonthRevenue(
   return total;
 }
 
-/** courseId -> carriers.code（carrier_id 由来）。旧 courses.carrier text / 名前推論を置換 */
+/**
+ * courseId -> carriers.code（carrier_id 由来）。旧 courses.carrier text / 名前推論を置換。
+ * courses はテナント固有マスタのため orgId 必須（carriers は全社共通マスタ）。
+ */
 export async function loadCarrierCodeByCourse(
   supabase: SupabaseClient,
+  orgId: string,
 ): Promise<Map<string, string | null>> {
   const [{ data: courseRows }, { data: carrierRows }] = await Promise.all([
-    supabase.from("courses").select("id, carrier_id"),
+    supabase.from("courses").select("id, carrier_id").eq("org_id", orgId),
     supabase.from("carriers").select("id, code"),
   ]);
   const codeByCarrierId = new Map<string, string | null>();

@@ -19,6 +19,8 @@ export async function ensureVehicleQr(
   orgId: string,
   issuedBy?: string,
 ): Promise<{ qr: QrRow; created: boolean } | null> {
+  // tenant-scope-ok: 呼び出し側が owner_org_id 一致を確認済みの vehicleId のみ渡す
+  //（vehicle_qr.org_id は常に所有org＝vehicle_id で一意に定まる）
   const { data: current } = await supabase
     .from("vehicle_qr")
     .select("token, version, status")
@@ -29,6 +31,7 @@ export async function ensureVehicleQr(
   if (current) return { qr: current as QrRow, created: false };
 
   // 次バージョン = 既存（revoked 含む）の最大 +1
+  // tenant-scope-ok: 上と同じく所有org 確認済みの vehicleId で絞る
   const { data: latest } = await supabase
     .from("vehicle_qr")
     .select("version")
@@ -54,6 +57,7 @@ export async function ensureVehicleQr(
 
   if (error || !created) {
     // 競合（部分unique）等で入らなかった場合はもう一度読み直す
+    // tenant-scope-ok: 上と同じく所有org 確認済みの vehicleId で絞る
     const { data: again } = await supabase
       .from("vehicle_qr")
       .select("token, version, status")

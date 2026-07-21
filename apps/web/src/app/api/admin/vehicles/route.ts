@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
           .in("vehicle_id", vehicleIds),
         // ★vehicleIds を必ず渡す。省くと全社・全期間の承認済み日報を
         //   最大10万件走査することになり、一覧表示が大幅に遅くなる。
-        loadDailyLeaseByVehicleMonth(supabase, vehicleIds),
+        loadDailyLeaseByVehicleMonth(supabase, orgId, vehicleIds),
       ])
     : [{ data: [] as any[] }, new Map<string, Map<string, number>>()] as const;
   const manualByVehicle = new Map<string, any[]>();

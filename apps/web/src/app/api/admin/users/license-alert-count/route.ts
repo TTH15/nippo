@@ -18,7 +18,10 @@ export async function GET(req: NextRequest) {
       .from("drivers")
       .select("license_expiry_date")
       .eq("org_id", orgId)
-      .eq("works_as_driver", true);
+      .eq("works_as_driver", true)
+      // 稼働終了・却下・承認待ちの人に免許更新を促しても意味がないため、
+      // 在籍中（active）だけを数える。
+      .eq("status", "active");
 
     if (error) {
       console.error("[admin/users/license-alert-count] error", error);

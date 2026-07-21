@@ -11,6 +11,7 @@
     "dev:reset-join": "npx tsx src/scripts/dev-reset-join.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:tenant": "npx tsx src/scripts/check-tenant-scope.ts",
     "test:itest": "vitest run --config vitest.itest.config.mts"
   },
   "dependencies": {
