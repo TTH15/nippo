@@ -87,6 +87,7 @@ type MeterLog = {
 export default function VehiclesPage() {
   const emptyPurchaseItem = () => ({ sign: "+" as "+" | "-", label: "", amount: "" });
   const [canWrite, setCanWrite] = useState(false);
+  const [canViewCost, setCanViewCost] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   // 利用ドライバー選択のアコーディオン（選択中は常時表示、未選択は展開で選ぶ）
   const [driverOpen, setDriverOpen] = useState(false);
@@ -166,7 +167,7 @@ export default function VehiclesPage() {
   // SWR で vehicles + users をまとめてキャッシュし、遷移をまたいで保持する。
   // vehicles は楽観更新（作成/編集/削除）で setVehicles するため state を維持し、
   // 取得結果は同期エフェクトで流し込む。
-  const { data: bundle, isInitialLoading } = useApi<{
+  const { data: bundle, isInitialLoading, refresh: refreshBundle } = useApi<{
     vehicles: Vehicle[];
     drivers: Driver[];
   }>("admin/vehicles:bundle", {
@@ -198,6 +199,9 @@ export default function VehiclesPage() {
 
   useEffect(() => {
     setCanWrite(hasCapability("can_manage_vehicles"));
+    // 金額情報（購入費用・リース代・初期費用回収）は独立 capability。
+    // 配車だけ担当する人には見せない運用ができる。値自体もサーバーが返さない。
+    setCanViewCost(hasCapability("can_view_vehicle_cost"));
   }, []);
 
   const defaultRangeLast30Days = () => {
@@ -405,6 +409,12 @@ export default function VehiclesPage() {
         setVehicles((prev) => sortVehicles([...prev, res.vehicle]));
       }
       setShowModal(false);
+      // ここまでで保存は確定（成否はレスポンスで判明済み）。
+      // 再取得はバックグラウンドに回して待たない — 画面は楽観更新で既に最新のため、
+      // ここで await すると「保存中」表示が無駄に長引く。
+      // ただしキャッシュ更新自体は必須（怠ると他ページから戻ったとき
+      // 古いキャッシュで上書きされ「保存されていない」ように見える）。
+      void refreshBundle();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -439,6 +449,7 @@ export default function VehiclesPage() {
         try {
           await apiFetch(`/api/admin/vehicles/${id}`, { method: "DELETE" });
           setVehicles((prev) => prev.filter((v) => v.id !== id));
+          void refreshBundle(); // 再取得は待たない（上と同じ理由）
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";
@@ -973,7 +984,9 @@ export default function VehiclesPage() {
                         )}
                       </div>
 
-                      {/* 初期費用回収ゲージ（オイルメーターに近く・細く・ラベルはゲージ上） */}
+                      {/* 初期費用回収ゲージ（オイルメーターに近く・細く・ラベルはゲージ上）
+                          金額情報は can_view_vehicle_cost 保持者のみ。 */}
+                      {canViewCost && (
                       <div className="space-y-1">
                         <div className="flex items-center justify-between pb-2">
                           <div className="text-lg font-semibold text-slate-700 leading-tight">初期費用回収率</div>
@@ -1005,6 +1018,7 @@ export default function VehiclesPage() {
                           </div>
                         </div>
                       </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1030,10 +1044,12 @@ export default function VehiclesPage() {
                       className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
                       <FontAwesomeIcon icon={faGaugeHigh} className="w-4 h-4" />
                     </button>
-                    <button type="button" title="回収状況" onClick={() => { setShowModal(false); setOpenDetail({ type: "recovery", vehicle: editingVehicle }); }}
-                      className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
-                      <FontAwesomeIcon icon={faMoneyBillWave} className="w-4 h-4" />
-                    </button>
+                    {canViewCost && (
+                      <button type="button" title="回収状況" onClick={() => { setShowModal(false); setOpenDetail({ type: "recovery", vehicle: editingVehicle }); }}
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
+                        <FontAwesomeIcon icon={faMoneyBillWave} className="w-4 h-4" />
+                      </button>
+                    )}
                     <button type="button" title="車両QR" onClick={() => { setShowModal(false); setQrVehicle(editingVehicle); }}
                       className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
                       <FontAwesomeIcon icon={faQrcode} className="w-4 h-4" />
@@ -1044,7 +1060,10 @@ export default function VehiclesPage() {
 
               {/* タブ */}
               <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
-                {([["basic", "基本", faCar], ["work", "稼働", faUsers], ["cost", "費用", faMoneyBillWave], ["record", "記録", faFileLines]] as const).map(([key, label, icon]) => (
+                {([["basic", "基本", faCar], ["work", "稼働", faUsers], ["cost", "費用", faMoneyBillWave], ["record", "記録", faFileLines]] as const)
+                  // 金額情報の権限が無ければ「費用」タブごと出さない
+                  .filter(([key]) => key !== "cost" || canViewCost)
+                  .map(([key, label, icon]) => (
                   <button
                     key={key}
                     type="button"
@@ -1312,7 +1331,7 @@ export default function VehiclesPage() {
                 </>
                 )}
 
-                {vehTab === "cost" && (
+                {vehTab === "cost" && canViewCost && (
                 <>
                 <div>
                   <label className="block text-sm font-medium text-slate-500 mb-1">購入費用明細 (円)</label>
@@ -1949,7 +1968,7 @@ export default function VehiclesPage() {
                 </>
               )}
 
-              {openDetail.type === "recovery" && (
+              {openDetail.type === "recovery" && canViewCost && (
                 <VehicleRecoveryDetail
                   vehicleId={openDetail.vehicle.id}
                   title={`${openDetail.vehicle.manufacturer ?? ""} ${openDetail.vehicle.brand ?? ""}`.trim()}
