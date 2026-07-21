@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadCourseDailyLease } from "@/server/billing/driverLease";
+import { fetchAllRows } from "@/server/aggregation/pagination";
 
 // ============================================================
 // 車両の初期費用回収（v2）。
@@ -68,19 +69,34 @@ export async function loadDailyLeaseByVehicleMonth(
 ): Promise<Map<string, Map<string, number>>> {
   const result = new Map<string, Map<string, number>>();
 
-  let q = supabase
-    .from("daily_reports_v2")
-    .select("report_date, course_id, vehicle_id, driver_id, approved_at, rejected_at")
-    .eq("org_id", orgId)
-    .not("vehicle_id", "is", null)
-    .not("approved_at", "is", null)
-    .is("rejected_at", null)
-    .limit(100000);
-  if (vehicleIds && vehicleIds.length > 0) q = q.in("vehicle_id", vehicleIds);
-  const { data: reports } = await q;
+  // ★ .limit(100000) は効かない。PostgREST は db-max-rows（既定1000）で
+  //   クライアントの limit 指定に関わらず黙って切り詰めるため、
+  //   以前は1000件で打ち切られ「エラーにならず金額が過少計上」されていた
+  //   （実測: 該当1048件のうち1000件しか読めていなかった）。
+  //   range でページングする fetchAllRows を必ず使うこと。
+  const reports = await fetchAllRows<{
+    report_date: string;
+    course_id: string | null;
+    vehicle_id: string | null;
+    driver_id: string;
+  }>((from, to) => {
+    let q = supabase
+      .from("daily_reports_v2")
+      .select("report_date, course_id, vehicle_id, driver_id, approved_at, rejected_at")
+      .eq("org_id", orgId)
+      .not("vehicle_id", "is", null)
+      .not("approved_at", "is", null)
+      .is("rejected_at", null);
+    if (vehicleIds && vehicleIds.length > 0) q = q.in("vehicle_id", vehicleIds);
+    return q.range(from, to);
+  });
 
   const [{ data: leaseRows }, courseDaily] = await Promise.all([
-    supabase.from("driver_leases").select("driver_id, mode, valid_from, valid_to"),
+    // driver_leases は org 列を持たないため driver 経由で絞る（他社の契約を混ぜない）
+    supabase
+      .from("driver_leases")
+      .select("driver_id, mode, valid_from, valid_to, drivers!inner(org_id)")
+      .eq("drivers.org_id", orgId),
     loadCourseDailyLease(supabase, orgId),
   ]);
 
