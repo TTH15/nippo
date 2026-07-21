@@ -23,7 +23,7 @@ type LineEvent = {
   type: string;
   replyToken?: string;
   source?: { userId?: string };
-  message?: { type: string; text?: string };
+  message?: { id?: string; type: string; text?: string };
 };
 
 const HELP_TEXT =
@@ -95,8 +95,63 @@ async function handleEvent(event: LineEvent): Promise<void> {
     const text = (event.message.text ?? "").trim();
     if (!text || !event.replyToken) return;
 
+    // 連携済みの人からのメッセージはチャットとして運営に届ける。
+    // 未連携の人だけがコード入力の対象（連携後に「コードを送れ」と返さない）。
+    const linked = await findLinkedDriver(lineUserId);
+    if (linked) {
+      await saveInboundMessage(linked, text, event.message.id);
+      return; // 自動応答はしない（運営が読んで返信する）
+    }
+
     const result = await consumeLinkCode(text, lineUserId);
     await replyText(event.replyToken, linkReplyText(result));
+  }
+}
+
+/** 連携済み identity から、その人の active な membership を1件解決する。 */
+async function findLinkedDriver(
+  lineUserId: string,
+): Promise<{ orgId: string; driverId: string; identityId: string } | null> {
+  const { data: identity } = await supabase
+    .from("identities")
+    .select("id")
+    .eq("line_user_id", lineUserId)
+    .maybeSingle();
+  if (!identity) return null;
+
+  // 複数 org 所属は選択 UI が未実装のため、先頭の active membership に寄せる
+  const { data: driver } = await supabase
+    .from("drivers")
+    .select("id, org_id")
+    .eq("identity_id", identity.id as string)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  if (!driver?.org_id) return null;
+
+  return {
+    orgId: driver.org_id as string,
+    driverId: driver.id as string,
+    identityId: identity.id as string,
+  };
+}
+
+async function saveInboundMessage(
+  target: { orgId: string; driverId: string; identityId: string },
+  text: string,
+  lineMessageId: string | undefined,
+): Promise<void> {
+  // line_message_id は UNIQUE。LINE の再送で二重に積まれるのを防ぐ
+  const { error } = await supabase.from("line_chat_messages").insert({
+    org_id: target.orgId,
+    driver_id: target.driverId,
+    identity_id: target.identityId,
+    direction: "inbound",
+    text,
+    line_message_id: lineMessageId ?? null,
+  });
+  if (error && error.code !== "23505") {
+    console.error("[line-webhook] 受信メッセージの保存に失敗", error);
   }
 }
 
