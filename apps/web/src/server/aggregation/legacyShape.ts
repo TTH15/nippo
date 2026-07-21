@@ -58,6 +58,8 @@ type Filters = {
   driverId?: string;
   driverIdentityId?: string;
   vehicleId?: string;
+  /** 未承認のみ（承認待ち一覧）。DB 側で絞る＝全件取得してJSで捨てるのを避ける。 */
+  pendingOnly?: boolean;
 };
 
 type Options = {
@@ -65,6 +67,14 @@ type Options = {
   idSource?: "legacy" | "v2";
   /** vehicles プレート埋め込みを付与（day-summary 等） */
   withVehicle?: boolean;
+  /**
+   * report_entries（各項目の実績値）を結合するか。既定 true。
+   * 件数カウントや日付一覧だけが必要な呼び出しでは false にすると、
+   * report_id を 200 件ずつ直列に引く重い処理をまるごと省ける。
+   */
+  withEntries?: boolean;
+  /** 取得件数の上限（新しい順）。指定時は report_date 降順で切る。 */
+  limit?: number;
 };
 
 /** report_entries の (unit code, field_key) → 旧カラム名 */
@@ -116,11 +126,19 @@ export async function loadLegacyDailyRows(
     if (filters.driverId) q = q.eq("driver_id", filters.driverId);
     if (filters.driverIdentityId) q = q.eq("identity_id", filters.driverIdentityId);
     if (filters.vehicleId) q = q.eq("vehicle_id", filters.vehicleId);
+    // 未承認のみ。DB 側で絞らないと全期間を取得してから JS で捨てることになる
+    if (filters.pendingOnly) q = q.is("approved_at", null).is("rejected_at", null);
+    if (options.limit) q = q.order("report_date", { ascending: false });
     return q.range(from, to);
   };
 
+  const fetchReports = options.limit
+    ? // 上限つきのときはページングせず1回で取る（新しい順）
+      buildQuery(0, options.limit - 1).then((res) => res.data ?? [])
+    : fetchAllRows(buildQuery);
+
   const [reportRows, { data: carrierRows }, { data: unitRows }, { data: courseRows }] = await Promise.all([
-    fetchAllRows(buildQuery),
+    fetchReports,
     supabase.from("carriers").select("id, code, name"),
     supabase.from("units").select("id, code"),
     supabase.from("courses").select("id, name"),
@@ -163,16 +181,25 @@ export async function loadLegacyDailyRows(
 
   const ids = reportRows.map((r: { id: string }) => r.id);
   const entriesByReport = new Map<string, { unitId: string; fieldKey: string; valueNum: number }[]>();
-  for (let i = 0; i < ids.length; i += IN_CLAUSE_BATCH_SIZE) {
-    const slice = ids.slice(i, i + IN_CLAUSE_BATCH_SIZE);
-    const entRows = await fetchAllRows((from, to) =>
-      supabase
-        .from("report_entries")
-        .select("report_id, unit_id, field_key, value_num")
-        .in("report_id", slice)
-        .range(from, to),
+  // 実績値が要らない呼び出し（件数カウント等）では丸ごと省く
+  if (options.withEntries !== false) {
+    // 200件ずつのバッチを直列に待つと往復が積み上がるため並列で流す
+    const batches: string[][] = [];
+    for (let i = 0; i < ids.length; i += IN_CLAUSE_BATCH_SIZE) {
+      batches.push(ids.slice(i, i + IN_CLAUSE_BATCH_SIZE));
+    }
+    const results = await Promise.all(
+      batches.map((slice) =>
+        fetchAllRows((from, to) =>
+          supabase
+            .from("report_entries")
+            .select("report_id, unit_id, field_key, value_num")
+            .in("report_id", slice)
+            .range(from, to),
+        ),
+      ),
     );
-    entRows.forEach(
+    results.flat().forEach(
       (e: { report_id: string; unit_id: string; field_key: string; value_num: number | null }) => {
         const arr = entriesByReport.get(e.report_id) ?? [];
         arr.push({ unitId: e.unit_id, fieldKey: e.field_key, valueNum: Number(e.value_num) || 0 });

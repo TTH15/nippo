@@ -21,14 +21,19 @@ export async function GET(req: NextRequest) {
 
   try {
     // v2 ソース（互換リーダー）→ 未承認かつ未却下のみ。日付降順→送信時刻降順。
-    const all = (
-      await loadLegacyDailyRows(supabase, {}, { idSource: "v2", withVehicle: true })
+    // ★以前は全期間・全件を取得してから JS で未承認だけに絞っていたため、
+    //   日報が増えるほど際限なく遅くなっていた。DB 側で絞る。
+    const rows = (
+      await loadLegacyDailyRows(
+        supabase,
+        { pendingOnly: true },
+        { idSource: "v2", withVehicle: true },
+      )
     ).sort(
       (a, b) =>
         b.report_date.localeCompare(a.report_date) ||
         String(b.submitted_at ?? "").localeCompare(String(a.submitted_at ?? "")),
     );
-    const rows = all.filter((r) => r.approved_at == null && r.rejected_at == null);
     if (!rows.length) {
       return NextResponse.json({ groups: [], totalPending: 0 });
     }

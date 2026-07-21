@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { countOilAlertVehicles, type OilVehicle } from "@repo/core/logic/oilChange";
 
@@ -10,11 +11,13 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_vehicles");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   try {
     const { data, error } = await supabase
       .from("vehicles")
       .select("current_mileage, last_oil_change_mileage, oil_change_interval, is_ev")
+      .eq("owner_org_id", orgId)
       .eq("is_disposed", false);
 
     if (error) {

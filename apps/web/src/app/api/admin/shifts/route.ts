@@ -22,11 +22,13 @@ export async function GET(req: NextRequest) {
   const { data: courses } = await supabase
     .from("courses")
     .select("*")
+    .eq("org_id", orgId)
     .order("sort_order");
 
   const { data: fleet } = await supabase
     .from("vehicles")
     .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand")
+    .eq("owner_org_id", orgId)
     .eq("is_disposed", false)
     .order("manufacturer")
     .order("brand");
