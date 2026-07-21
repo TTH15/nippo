@@ -8,10 +8,9 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const user = await requirePermission(req, "can_edit_reports");
   if (isAuthError(user)) return user;
-  // driverId はリクエスト body 由来なので、必ず運営自身の org で絞る（他社日報の承認を防ぐ）
-  const orgId = await resolveOrgId(user.driverId);
-
   try {
+    // driverId はリクエスト body 由来なので、必ず運営自身の org で絞る（他社日報の承認を防ぐ）
+    const orgId = await resolveOrgId(user.driverId);
     const body = await req.json();
     const driverId = String(body.driverId ?? "");
     const date = String(body.date ?? "");
