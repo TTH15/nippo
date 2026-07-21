@@ -67,5 +67,20 @@ export async function requirePermission(
     console.log(`[Auth] Forbidden: required ${capability}, role=${user.role}`);
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  return user;
+  // 解決済みの capability を添えて返す。同一リクエスト内で別の capability も
+  // 見たいルート（例: 車両一覧の金額可否）が、認可クエリを二重に走らせないため。
+  // 既存の呼び出しは AuthUser として扱えるので影響しない。
+  return { ...user, capabilities: caps };
+}
+
+/**
+ * requirePermission が添えた capability を使う（無ければ取得する）。
+ * hasCapability の呼び直しで drivers + role_capabilities を再取得するのを避ける。
+ */
+export async function hasCapabilityCached(
+  user: AuthUser,
+  capability: Capability,
+): Promise<boolean> {
+  if (user.capabilities) return user.capabilities.has(capability);
+  return hasCapability(user, capability);
 }

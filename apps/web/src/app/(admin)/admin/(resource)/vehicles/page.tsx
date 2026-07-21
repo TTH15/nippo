@@ -1289,6 +1289,43 @@ export default function VehiclesPage() {
                     </p>
                   )}
                 </div>
+
+                {/* 車検・自賠責は車両そのものの基礎情報なので「基本」に置く（旧: 記録タブ） */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">次回車検予定日</label>
+                    <DatePicker
+                      value={
+                        form.nextShakenDate && /^\d{4}-\d{2}-\d{2}$/.test(form.nextShakenDate)
+                          ? new Date(form.nextShakenDate + "T00:00:00")
+                          : undefined
+                      }
+                      onChange={(d) =>
+                        setForm((f) => ({ ...f, nextShakenDate: d ? format(d, "yyyy-MM-dd") : "" }))
+                      }
+                      placeholder="日付を選択"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">自賠責の更新月</label>
+                    <MonthYearPicker
+                      value={
+                        /^\d{4}-\d{2}$/.test(form.jibaisekiRenewalMonth)
+                          ? {
+                              year: Number(form.jibaisekiRenewalMonth.slice(0, 4)),
+                              month: Number(form.jibaisekiRenewalMonth.slice(5, 7)),
+                            }
+                          : undefined
+                      }
+                      onChange={(v) =>
+                        setForm((f) => ({
+                          ...f,
+                          jibaisekiRenewalMonth: `${v.year}-${String(v.month).padStart(2, "0")}`,
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
                 </>
                 )}
 
@@ -1621,41 +1658,6 @@ export default function VehiclesPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-500 mb-1">次回車検予定日</label>
-                    <DatePicker
-                      value={
-                        form.nextShakenDate && /^\d{4}-\d{2}-\d{2}$/.test(form.nextShakenDate)
-                          ? new Date(form.nextShakenDate + "T00:00:00")
-                          : undefined
-                      }
-                      onChange={(d) =>
-                        setForm((f) => ({ ...f, nextShakenDate: d ? format(d, "yyyy-MM-dd") : "" }))
-                      }
-                      placeholder="日付を選択"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-500 mb-1">自賠責の更新月</label>
-                    <MonthYearPicker
-                      value={
-                        /^\d{4}-\d{2}$/.test(form.jibaisekiRenewalMonth)
-                          ? {
-                              year: Number(form.jibaisekiRenewalMonth.slice(0, 4)),
-                              month: Number(form.jibaisekiRenewalMonth.slice(5, 7)),
-                            }
-                          : undefined
-                      }
-                      onChange={(v) =>
-                        setForm((f) => ({
-                          ...f,
-                          jibaisekiRenewalMonth: `${v.year}-${String(v.month).padStart(2, "0")}`,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
                 </>
                 )}
               </div>
