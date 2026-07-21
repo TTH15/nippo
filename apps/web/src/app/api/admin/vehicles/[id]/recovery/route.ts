@@ -14,7 +14,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await requirePermission(req, "can_view_vehicles");
+  // このルートは金額専用（初期費用回収の明細）なので、車両閲覧ではなく
+  // 金額情報の capability で守る。
+  const user = await requirePermission(req, "can_view_vehicle_cost");
   if (isAuthError(user)) return user;
 
   const { id: vehicleId } = await params;

@@ -25,7 +25,7 @@ import {
 import { summarizeHistory, type ShiftLog } from "@/server/shiftRequests/diff";
 import { cn } from "@/lib/ui/utils";
 import { TimePicker } from "@/lib/ui/time-picker";
-import { ChevronDown, Download, RefreshCw, Settings } from "lucide-react";
+import { Check, ChevronDown, Download, RefreshCw, Settings } from "lucide-react";
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
@@ -230,14 +230,16 @@ function VehicleOptionList({
               : undefined
         }
         className={cn(
-          "w-full rounded-md p-0.5 flex flex-col items-center gap-0.5 transition-colors",
+          // 選択中は ring-2＋濃色（同ファイルの「今ここ」表現と同じ語彙）。
+          // 黒地のプレート画像に埋もれないよう、非選択側を減光してコントラストを作る。
+          "relative w-full rounded-md p-0.5 flex flex-col items-center gap-0.5 transition-all",
           isLoaned
             ? "opacity-45 cursor-not-allowed"
             : takenByName
               ? "opacity-60 hover:bg-slate-50/90"
               : selected
-                ? "bg-slate-100/95 ring-1 ring-slate-400/40"
-                : "hover:bg-slate-50/90",
+                ? "bg-slate-900/5 ring-2 ring-slate-900"
+                : "opacity-70 hover:opacity-100 hover:bg-slate-50/90",
         )}
         onClick={() => {
           if (isLoaned) return;
@@ -245,7 +247,15 @@ function VehicleOptionList({
         }}
       >
         <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none" />
-        {isLoaned || takenByName ? (
+        {selected && (
+          // プレート上に重ねる（プレート自体が黒地で、下の余白だけでは目立たないため）
+          <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-slate-900 text-white shadow">
+            <Check className="h-2.5 w-2.5" strokeWidth={3} />
+          </span>
+        )}
+        {selected ? (
+          <span className="text-[9px] font-bold text-slate-900 leading-none pb-0.5">選択中</span>
+        ) : isLoaned || takenByName ? (
           <span className="text-[9px] font-medium text-rose-500 leading-none pb-0.5">
             {isLoaned ? "貸出中" : `${takenByName} さん使用中`}
           </span>
@@ -262,13 +272,14 @@ function VehicleOptionList({
           disabled={disabled}
           className={cn(
             "flex-1 text-center text-[11px] py-1.5 px-2 rounded-md border transition-colors",
+            // 選択中＝濃色（同ファイルの軸/密度トグルと同じ語彙）
             !valueId && !isExternal
-              ? "bg-slate-100 border-slate-300 font-medium text-slate-900"
+              ? "bg-slate-800 border-slate-800 font-medium text-white"
               : "border-slate-200 text-slate-600 hover:bg-slate-50",
           )}
           onClick={() => onChange(null)}
         >
-          車両なし
+          {!valueId && !isExternal ? "✓ 車両なし" : "車両なし"}
         </button>
         {onSelectExternal && (
           <button
@@ -277,12 +288,12 @@ function VehicleOptionList({
             className={cn(
               "flex-1 text-center text-[11px] py-1.5 px-2 rounded-md border transition-colors",
               isExternal
-                ? "bg-amber-50 border-amber-300 font-medium text-amber-700"
+                ? "bg-amber-500 border-amber-500 font-medium text-white"
                 : "border-slate-200 text-slate-600 hover:bg-slate-50",
             )}
             onClick={() => onSelectExternal()}
           >
-            他社車両
+            {isExternal ? "✓ 他社車両" : "他社車両"}
           </button>
         )}
       </div>
@@ -3097,6 +3108,14 @@ export default function ShiftsPage() {
         if (currentVid && currentPlate && !sortedFleet.some((v) => v.id === currentVid)) {
           otherPlates = [currentPlate, ...otherPlates].sort(byPlateLine);
         }
+        // 選択中の車両は先頭へ。「その他の車両」は max-h の内側スクロールなので、
+        // 五十音順のままだと選択中がスクロール外に隠れて「選べているか分からない」原因になる。
+        if (currentVid && !linkedIds.has(currentVid)) {
+          const idx = otherPlates.findIndex((v) => v.id === currentVid);
+          if (idx > 0) {
+            otherPlates = [otherPlates[idx], ...otherPlates.filter((_, i) => i !== idx)];
+          }
+        }
         // その日すでに他ドライバーが使用中の車両 id → 使用者名
         const takenByMap = (() => {
           const m = new Map<string, string>();
@@ -3182,7 +3201,27 @@ export default function ShiftsPage() {
                   {/* 車両（コース割当がある時のみ選択可能） */}
                   {hasAny ? (
                     <div className="space-y-2 sm:border-l sm:border-slate-200/70 sm:pl-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">車両</p>
+                      {/* 現在値のサマリ。「その他の車両」は内側スクロールのため、
+                          選択中がリスト外にあっても今の状態が分かるようにする。 */}
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">車両</p>
+                        <span
+                          className={cn(
+                            "truncate text-[11px] font-medium",
+                            currentExternal
+                              ? "text-amber-600"
+                              : currentPlate
+                                ? "text-slate-900"
+                                : "text-slate-400",
+                          )}
+                        >
+                          {currentExternal
+                            ? "他社車両"
+                            : currentPlate
+                              ? formatPlateOneLine(currentPlate)
+                              : "車両なし"}
+                        </span>
+                      </div>
                       <VehicleOptionList
                         valueId={currentVid}
                         isExternal={currentExternal}

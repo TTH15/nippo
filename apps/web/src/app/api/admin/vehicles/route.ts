@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { hasCapability } from "@/server/auth/permissions";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { stripVehicleCostAll } from "@/server/vehicles/cost";
+import { filterActiveVehicleDrivers, type VehicleDriverRow } from "@/server/vehicles/activeDrivers";
 import {
   loadDailyLeaseByVehicleMonth,
   buildVehicleRecovery,
@@ -48,7 +51,7 @@ export async function GET(req: NextRequest) {
       *,
       vehicle_drivers (
         driver_id,
-        drivers (id, name, display_name)
+        drivers (id, name, display_name, works_as_driver, status)
       )
     `)
     .eq("owner_org_id", orgId)
@@ -59,6 +62,14 @@ export async function GET(req: NextRequest) {
     console.error(error);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
+
+  // 利用ドライバーは「稼働中」だけを返す（詳細は server/vehicles/activeDrivers.ts）。
+  const activeDriverVehicles = ((vehicles ?? []) as Array<{ id: string; [key: string]: unknown }>).map(
+    (v) => ({
+      ...v,
+      vehicle_drivers: filterActiveVehicleDrivers(v.vehicle_drivers as VehicleDriverRow[] | null),
+    }),
+  );
 
   // 回収済みマークを取得
   const vehicleIds = (vehicles ?? []).map((v: { id: string }) => v.id);
@@ -102,7 +113,7 @@ export async function GET(req: NextRequest) {
   });
   const nowYm = currentYm();
 
-  const vehiclesWithRecovery = (vehicles ?? []).map((v: { id: string; [key: string]: unknown }) => {
+  const vehiclesWithRecovery = activeDriverVehicles.map((v: { id: string; [key: string]: unknown }) => {
     const rec = buildVehicleRecovery(
       v as any,
       dailyMap.get(v.id) ?? new Map<string, number>(),
@@ -117,7 +128,13 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ vehicles: vehiclesWithRecovery });
+  // 金額情報は別 capability。持たない人には値そのものを返さない
+  // （UI で隠すだけでは API 直叩きで見えてしまうため）。
+  const canViewCost = await hasCapability(user, "can_view_vehicle_cost");
+  return NextResponse.json({
+    vehicles: stripVehicleCostAll(vehiclesWithRecovery, canViewCost),
+    canViewCost,
+  });
 }
 
 // POST: 車両追加
