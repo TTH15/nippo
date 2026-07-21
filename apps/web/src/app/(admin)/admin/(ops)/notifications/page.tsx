@@ -10,6 +10,7 @@ import { hasCapability } from "@/lib/capabilities";
 import { BroadcastTab } from "./_components/BroadcastTab";
 import { ChatTab } from "./_components/ChatTab";
 import { SettingsTab } from "./_components/SettingsTab";
+import { QuotaBar } from "./_components/QuotaBar";
 
 // ============================================================
 // 通知（roadmap-2026-07 E④）。3つの役割を1画面に集約する:
@@ -60,6 +61,8 @@ export default function NotificationsPage() {
             ]}
           />
         </div>
+
+        <QuotaBar />
 
         {tab === "broadcast" && <BroadcastTab />}
         {tab === "chat" && <ChatTab canWrite={canWrite} />}

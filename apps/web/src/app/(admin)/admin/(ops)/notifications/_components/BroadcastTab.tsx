@@ -71,6 +71,15 @@ export function BroadcastTab() {
   const unlinkedCount = members.filter((m) => !m.lineLinked || m.lineBlocked).length;
   const canSend = canWrite && title.trim() !== "" && body.trim() !== "" && recipients.length > 0;
 
+  // 通数を消費するのは LINE 連携済み・非ブロックの受信者だけ（アプリのお知らせは無料）
+  const lineRecipients = recipients.filter((m) => m.lineLinked && !m.lineBlocked).length;
+  const confirmMessage =
+    `${recipients.length}名に「${title.trim()}」を送信します。` +
+    (lineRecipients > 0
+      ? `\nこのうちLINE連携済みの${lineRecipients}名にはLINEでも届き、LINEの通数を${lineRecipients}通消費します。`
+      : "") +
+    "\n送信後は取り消せません。";
+
   const toggle = (driverId: string) =>
     setSelected((s) => (s.includes(driverId) ? s.filter((x) => x !== driverId) : [...s, driverId]));
 
@@ -286,7 +295,7 @@ export function BroadcastTab() {
       <ConfirmDialog
         open={confirming}
         title="通知を送信します"
-        message={`${recipients.length}名に「${title.trim()}」を送信します。送信後は取り消せません。`}
+        message={confirmMessage}
         confirmLabel="送信する"
         onConfirm={send}
         onClose={() => setConfirming(false)}

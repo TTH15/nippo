@@ -196,6 +196,16 @@ Expo が壊れる（現状は web だけ 19 をネストで持つ脆い構成）
       文面生成は設計 §5 に従い `@repo/core/logic/notificationMessage.ts` の純粋関数（テスト13件。
       実効値 = shifts.* ?? courses.*、値が無い行は落とす）。冪等キーは「org×日×種別×membership」。
       ※`shifts` に `org_id` が無いため org 絞りは `courses!inner(org_id)` 経由。
+- [x] **⑨通数の可視化＋注記＋org上限の土台 ✅ 2026-07-21** — 送信は LINE push＝通数消費のため:
+      一斉配信の確認ダイアログに「LINE連携済みのN名に届き、N通消費します」、チャット送信欄に
+      「1通消費（返信は無料）」を明示。画面上部に**残り通数バー**（`/api/admin/notifications/quota`、
+      5分キャッシュ）。**org 別上限の設計**（ユーザー指示 2026-07-21）: 複数org運用時は LINE 実API値
+      （チャネル全体で1本・内訳を持てない）ではなく、こちらで各 org に月上限を設定し
+      `notification_deliveries` から自前集計して残数を出す。**今回は土台**: migration 111 で
+      `org_notification_settings.line_monthly_limit`、設定タブに上限入力、quota API を2階層化
+      （org上限あり=org集計 scope="org" ／なし=チャネル実値 scope="channel"）。
+      **上限超での送信ブロックは複数orgが現実になる段階で実装**（dispatch/chat の手前で remaining 判定）。
+      集計期間計算はTZ非依存に（`quotaMath.ts`、テスト6件）。
 - [x] **④運営 web UI ✅ 2026-07-21** — `/admin/notifications`（`(ops)` 配下）。件名・本文＋
       「全員／選んで送る」、送信前に ConfirmDialog（取り消せないため）、送信結果を件数で表示。
       **LINE 未連携者を可視化**（§1-2「未連携を可視化＝催促可能」）＋最近の送信履歴。
