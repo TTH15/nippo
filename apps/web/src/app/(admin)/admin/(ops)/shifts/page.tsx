@@ -3140,14 +3140,10 @@ export default function ShiftsPage() {
         if (currentVid && currentPlate && !sortedFleet.some((v) => v.id === currentVid)) {
           otherPlates = [currentPlate, ...otherPlates].sort(byPlateLine);
         }
-        // 選択中の車両は先頭へ。「その他の車両」は max-h の内側スクロールなので、
-        // 五十音順のままだと選択中がスクロール外に隠れて「選べているか分からない」原因になる。
-        if (currentVid && !linkedIds.has(currentVid)) {
-          const idx = otherPlates.findIndex((v) => v.id === currentVid);
-          if (idx > 0) {
-            otherPlates = [otherPlates[idx], ...otherPlates.filter((_, i) => i !== idx)];
-          }
-        }
+        // ※選択中を先頭に寄せる並べ替えは入れない。選んだ瞬間にプレートの位置が動いて
+        //   かえって分かりにくくなるため（2026-07-22 フィードバック）。
+        //   「今どれが選ばれているか」は、その場のリング＋チェック＋ラベルと、
+        //   セクション見出し横の現在値サマリで示す。
         // その日すでに他ドライバーが使用中の車両 id → 使用者名
         const takenByMap = (() => {
           const m = new Map<string, string>();
