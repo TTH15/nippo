@@ -31,12 +31,13 @@ export async function GET(req: NextRequest) {
     projectRef = "parse_error";
   }
 
-  // DRIVERロールのみ取得するようフィルタを追加
+  // 名簿・シフトと並び順を揃える（list_no 昇順）。status は下の絞り込みに使う。
   const { data: drivers, error: dErr } = await supabase
     .from("drivers")
-    .select("id, name, display_name")
+    .select("id, name, display_name, status, list_no")
     .eq("org_id", orgId)
     .eq("works_as_driver", true)
+    .order("list_no", { ascending: true, nullsFirst: false })
     .order("name");
 
   if (dErr) throw dErr;
@@ -53,10 +54,14 @@ export async function GET(req: NextRequest) {
 
   const reportMap = new Map(reports.map((r) => [r.driver_id, r]));
 
-  const result = (drivers ?? []).map((d) => ({
-    driver: { id: d.id, name: d.name, display_name: d.display_name ?? null },
-    report: reportMap.get(d.id) ?? null,
-  }));
+  const result = (drivers ?? [])
+    // 稼働終了（active 以外）で、その日の実績も無い人は出さない。
+    // 退職者でも在籍中に出した日報は残る（＝過去の記録・承認漏れを見失わない）。
+    .filter((d) => d.status === "active" || reportMap.has(d.id))
+    .map((d) => ({
+      driver: { id: d.id, name: d.name, display_name: d.display_name ?? null },
+      report: reportMap.get(d.id) ?? null,
+    }));
 
   return NextResponse.json({
     date,
