@@ -59,11 +59,13 @@ export async function GET(req: NextRequest) {
   const monthParam = req.nextUrl.searchParams.get("month");
   const { month, startDate, endDate } = getMonthRange(monthParam);
 
+  // 名簿・シフトと並び順を揃える（list_no 昇順）。status は下の絞り込みに使う。
   const { data: drivers, error: driversError } = await supabase
     .from("drivers")
-    .select("id, name, display_name")
+    .select("id, name, display_name, status, list_no")
     .eq("org_id", orgId)
     .eq("works_as_driver", true)
+    .order("list_no", { ascending: true, nullsFirst: false })
     .order("name");
 
   if (driversError || !drivers?.length) {
@@ -130,6 +132,10 @@ export async function GET(req: NextRequest) {
     if (adHocByDriver[row.driver_id] !== undefined) adHocByDriver[row.driver_id] += Number(row.amount) || 0;
   });
 
+  const statusById = new Map(
+    (drivers as { id: string; status: string | null }[]).map((d) => [d.id, d.status]),
+  );
+
   const rows: DriverPaymentRow[] = drivers.map((d: { id: string; name: string; display_name: string | null }) => {
     const incomeLog = autoPayoutByDriver.get(d.id)?.payout ?? 0;
     const carrier = incomeByDriverCarrier.get(d.id) ?? { yamato: 0, amazon: 0, other: 0 };
@@ -154,7 +160,18 @@ export async function GET(req: NextRequest) {
       leaseDeductions,
       net,
     };
-  });
+  })
+    // 稼働終了で、その月に報酬も控除も一切無い人は出さない。
+    // 月途中の退職者でも支払い・控除が残っていれば表示される（＝支払い漏れを防ぐ）。
+    .filter((r) => {
+      if (statusById.get(r.driverId) === "active") return true;
+      return (
+        r.incomeLog !== 0 ||
+        r.fixedDeductions !== 0 ||
+        r.adHocDeductions !== 0 ||
+        r.leaseDeductions !== 0
+      );
+    });
 
   return NextResponse.json({ month, startDate, endDate, rows });
 }

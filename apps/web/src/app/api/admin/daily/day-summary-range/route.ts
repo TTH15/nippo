@@ -63,11 +63,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // 名簿・シフトと並び順を揃える（list_no 昇順）。status は画面側の絞り込み用に返す。
     const { data: drivers, error: driversErr } = await supabase
       .from("drivers")
-      .select("id, name, display_name")
+      .select("id, name, display_name, status")
       .eq("org_id", orgId)
       .eq("works_as_driver", true)
+      .order("list_no", { ascending: true, nullsFirst: false })
       .order("name");
 
     if (driversErr) {

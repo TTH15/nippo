@@ -108,7 +108,7 @@ type DaySummaryReport = {
 
 type DaySummary = {
   date: string;
-  drivers: { id: string; name: string; display_name: string | null }[];
+  drivers: { id: string; name: string; display_name: string | null; status?: string | null }[];
   shiftDriverIds: string[];
   shiftCoursesByDriver?: Record<string, string[]>;
   reportsByDriver: Record<string, DaySummaryReport[]>;
@@ -510,7 +510,16 @@ export default function AdminDailyPage() {
                     : 0;
 
                 const renderDayTable = (summary: DaySummary, actionableCount: number) => {
-                  const baseRows = summary.drivers.map((driver) => computeDriverRow(summary, driver));
+                  const baseRows = summary.drivers
+                    // 稼働終了で、その日シフトも日報も無い人は出さない
+                    // （在籍中は休みでも表示。退職者でも実績があれば残る）。
+                    .filter(
+                      (driver) =>
+                        driver.status === "active" ||
+                        summary.shiftDriverIds.includes(driver.id) ||
+                        (summary.reportsByDriver[driver.id] ?? []).length > 0,
+                    )
+                    .map((driver) => computeDriverRow(summary, driver));
                   const isToday = summary.date === businessToday;
                   const rows = isToday ? baseRows : baseRows.filter((r) => r.actionable);
                   return (
