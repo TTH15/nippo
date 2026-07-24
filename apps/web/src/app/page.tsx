@@ -6,6 +6,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver, setAuth, type StoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
 import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
+import { markSessionSynced } from "@/lib/useSyncSession";
 
 export default function Home() {
   const router = useRouter();
@@ -38,6 +39,7 @@ export default function Home() {
     apiFetch<{ token: string; driver: StoredDriver }>("/api/auth/session")
       .then(({ token, driver }) => {
         setAuth(token, driver);
+        markSessionSynced(); // 直後に admin/user レイアウトが再同期しないように
         goTo(driver);
       })
       .catch(() => goTo(cached)); // 取得失敗時（オフライン等）は従来通りキャッシュ値で決定
