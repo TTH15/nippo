@@ -16,7 +16,8 @@ import { hasCapability } from "@/lib/capabilities";
 // ============================================================
 // ドライバーの参加・承認（Phase 7b）。
 // 参加コード（join_code）の表示/再生成と、承認待ち（status='pending'）の承認/却下。
-// 承認時に driver_code / 初期PIN を発行する（PUT /api/admin/users/[id]）。
+// 承認時に driver_code を割り当てる（PUT /api/admin/users/[id]）。初期PINは発行しない
+// （PIN撤廃・§2-1a）。本人は電話OTPでログイン→Passkey登録する。
 // ============================================================
 
 type Course = { id: string; name: string; color: string };
@@ -492,7 +493,7 @@ export default function PendingApprovalPage() {
                 </div>
               )}
               <p className="text-xs text-slate-500">
-                初期PINはドライバー番号と同じ6桁です（承認後にドライバー本人が変更できます）。
+                承認するとドライバー番号を割り当てます。本人は登録した電話番号でログインし、続けて本登録（免許・顔写真など）に進みます。
               </p>
             </div>
             <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
