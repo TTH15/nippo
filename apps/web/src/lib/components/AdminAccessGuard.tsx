@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { getStoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
+import { useSyncSession } from "@/lib/useSyncSession";
 
 /**
  * 運営のログイン画面は (admin) 配下にあるが、ガードの対象外。
@@ -23,9 +24,13 @@ export function AdminAccessGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLoginPage = isAdminLoginPath(pathname);
   const [allowed, setAllowed] = useState(false);
+  // 権限の入口判定より先に、DB の最新権限へ同期する。
+  // 古い localStorage の権限で弾かないため（例: 直前に付与された運営権限）。
+  const syncState = useSyncSession();
 
   useEffect(() => {
     if (isLoginPage) return;
+    if (syncState !== "done") return; // 同期完了まで判定を保留
     const driver = getStoredDriver();
     if (!driver) {
       router.replace("/login");
@@ -34,7 +39,7 @@ export function AdminAccessGuard({ children }: { children: React.ReactNode }) {
     } else {
       setAllowed(true);
     }
-  }, [router, isLoginPage]);
+  }, [router, isLoginPage, syncState]);
 
   // ログイン画面は判定を挟まずそのまま描画する
   if (isLoginPage) return <>{children}</>;
