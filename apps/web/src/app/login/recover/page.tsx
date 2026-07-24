@@ -2,12 +2,16 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, setAuth } from "@/lib/api";
+import { apiFetch, setAuth, getStoredDriver } from "@/lib/api";
+import { canEnterAdmin } from "@/lib/capabilities";
+import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
 
 // ============================================================
-// 公開・アカウント復旧ページ。認証不要。
-// Passkey/PINを共に失った場合に、登録済みの電話番号へのSMS OTPで本人確認しログインする。
-// ログイン後は /me へ遷移し、その場で新しい端末にPasskeyを登録し直せる。
+// 公開・電話番号でログイン（初回ログイン／機種変／復旧の共通経路）。認証不要。
+// 検証済み電話への SMS OTP で本人確認しセッション発行（§2-1a のブートストラップ）。
+// 用途: ①仮承認直後の初回ログイン（PIN 無し）②Passkey/端末を失った復旧。
+// ログイン後、本登録が未完なら /register（本登録）へ、完了済みは通常のホームへ。
+// その先で新しい端末に Passkey を登録し直せる。
 // ============================================================
 
 type Step = "phone" | "otp";
@@ -37,6 +41,28 @@ export default function RecoverPage() {
     }
   };
 
+  // ログイン後の遷移先を決める。運営はホームへ、ドライバーは本登録の完了状況で分岐。
+  const goToNext = async (driver: { role: string; companyCode?: string }) => {
+    const stored = getStoredDriver() ?? driver;
+    const hasAdmin = canEnterAdmin(stored);
+    if (!hasAdmin) {
+      try {
+        const reg = await apiFetch<{ complete: boolean; kycVerified: boolean }>("/api/me/registration");
+        // 本登録未完かつ本人確認前なら本登録へ（新規の仮承認ドライバー）。
+        // 既存ドライバーは移行時に kyc_verified_at を付与済み → 本登録をスキップしてホームへ。
+        if (!reg.complete && !reg.kycVerified) {
+          router.push("/register");
+          return;
+        }
+      } catch {
+        // 取得失敗時はホームへフォールバック
+      }
+    }
+    router.push(
+      resolveHomePath({ hasAdminAccess: hasAdmin, lastMode: getLastAppMode(), isMobile: isMobileWidth() }),
+    );
+  };
+
   const verify = async () => {
     setLoading(true);
     setError("");
@@ -50,7 +76,7 @@ export default function RecoverPage() {
         { skipAuthRedirect: true },
       );
       setAuth(res.token, res.driver);
-      router.push(res.driver.role === "ADMIN" ? "/admin" : "/me");
+      await goToNext(res.driver);
     } catch (err) {
       setError(err instanceof Error ? err.message : "確認に失敗しました");
     } finally {
@@ -74,14 +100,14 @@ export default function RecoverPage() {
               className="h-12 mb-2"
               style={{ maxWidth: "60%", height: "auto" }}
             />
-            <h1 className="text-base font-semibold text-slate-900">アカウントの復旧</h1>
+            <h1 className="text-base font-semibold text-slate-900">電話番号でログイン</h1>
           </div>
 
           <div className="p-5 space-y-4">
             {step === "phone" && (
               <>
                 <p className="text-sm text-slate-600">
-                  登録済みの電話番号にSMSで認証コードを送ります。
+                  登録済みの電話番号にSMSで認証コードを送ります。初めての方・機種変更・PIN/Passkeyを忘れた方はこちらからログインできます。
                 </p>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">電話番号</label>
