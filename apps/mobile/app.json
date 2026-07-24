@@ -50,6 +50,12 @@
           }
         }
       ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "アプリのロック解除に Face ID を使用します。"
+        }
+      ],
       "expo-font"
     ]
   }
