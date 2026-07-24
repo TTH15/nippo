@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import useSWR from "swr";
+import QRCode from "qrcode";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faRotate, faCheck, faXmark, faUserPlus, faIdCard } from "@fortawesome/free-solid-svg-icons";
+import { faRotate, faCheck, faXmark, faUserPlus, faIdCard, faCopy } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -43,6 +44,9 @@ type KycDetail = {
 export default function PendingApprovalPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [companyCode, setCompanyCode] = useState<string>(getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE).code || "");
+  const [inviteUrl, setInviteUrl] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const d = getStoredDriver();
@@ -55,6 +59,32 @@ export default function PendingApprovalPage() {
     (url: string) => apiFetch<{ joinCode: string | null }>(url),
     { revalidateOnFocus: false },
   );
+
+  // 招待リンク（?code=）と QR を join_code から生成。deferred deep link は使わず web で完結（§2-1a）。
+  const joinCode = joinCodeRes?.joinCode ?? null;
+  useEffect(() => {
+    if (!joinCode) {
+      setInviteUrl("");
+      setQrDataUrl("");
+      return;
+    }
+    const url = `${window.location.origin}/join?code=${encodeURIComponent(joinCode)}`;
+    setInviteUrl(url);
+    QRCode.toDataURL(url, { width: 320, margin: 1, errorCorrectionLevel: "M" })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(""));
+  }, [joinCode]);
+
+  const copyInvite = async () => {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // クリップボード不可の環境では無視（URL は表示済み）
+    }
+  };
   const { data: pendingRes, isLoading, mutate: mutatePending } = useSWR<{ drivers: PendingDriver[]; total: number }>(
     "/api/admin/users?status=pending&limit=100",
     (url: string) => apiFetch<{ drivers: PendingDriver[]; total: number }>(url),
@@ -196,13 +226,13 @@ export default function PendingApprovalPage() {
 
         {/* 参加コード */}
         <section className="bg-white rounded-lg border border-slate-200 p-4">
-          <h2 className="text-sm font-semibold text-slate-900 mb-2">参加コード</h2>
+          <h2 className="text-sm font-semibold text-slate-900 mb-2">参加コード・招待リンク</h2>
           <p className="text-xs text-slate-500 mb-3">
-            このコードを参加者に伝えてください。参加者は「/join」で申請でき、承認すると利用開始できます。
+            招待リンク（または QR）を参加者に送ってください。開くと参加コードが自動入力されます。リンクを開けない場合はコードを口頭で伝えても申請できます。承認後に本人確認が完了すると利用開始できます。
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 mb-4">
             <span className="inline-flex items-center px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xl font-mono tracking-widest text-slate-900">
-              {joinCodeRes?.joinCode ?? "—"}
+              {joinCode ?? "—"}
             </span>
             {canWrite && (
               <button
@@ -216,6 +246,37 @@ export default function PendingApprovalPage() {
               </button>
             )}
           </div>
+
+          {inviteUrl && (
+            <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
+              <div className="flex-1 min-w-0">
+                <label className="block text-xs font-medium text-slate-500 mb-1">招待リンク</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    readOnly
+                    value={inviteUrl}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="flex-1 min-w-0 py-2 px-3 text-xs font-mono rounded-lg bg-slate-50 border border-slate-200 text-slate-700"
+                  />
+                  <button
+                    type="button"
+                    onClick={copyInvite}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    <FontAwesomeIcon icon={copied ? faCheck : faCopy} className="h-3.5 w-3.5" />
+                    {copied ? "コピーしました" : "コピー"}
+                  </button>
+                </div>
+              </div>
+              {qrDataUrl && (
+                <div className="flex flex-col items-center gap-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={qrDataUrl} alt="招待QRコード" className="w-32 h-32 rounded-lg border border-slate-200 bg-white" />
+                  <span className="text-[11px] text-slate-400">QRで読み取り</span>
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         {/* 承認待ち */}

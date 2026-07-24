@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 
 // ============================================================
@@ -20,6 +20,25 @@ export default function JoinPage() {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // 招待リンク（?code=XXXXXX）で来た場合はコードをプリフィルし、会社名の確認まで自動で進める。
+  // deferred deep link は使わない（web 内で完結する導線・§2-1a）。
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("code");
+    const c = (raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+    if (c.length < 4) return;
+    setJoinCode(c);
+    setLoading(true);
+    apiFetch<{ organizationName: string }>(`/api/join/lookup?code=${encodeURIComponent(c)}`)
+      .then((res) => {
+        setOrgName(res.organizationName);
+        setStep("info");
+      })
+      .catch(() => {
+        // 無効なら通常の手入力ステップのまま（エラーは出さず静かにコードだけ残す）
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const lookup = async () => {
     setLoading(true);
@@ -158,7 +177,7 @@ export default function JoinPage() {
                 <p className="text-sm text-slate-600">
                   「{orgName}」の運営による承認をお待ちください。
                   <br />
-                  承認されると、運営からドライバーコードと初期PINが連絡されます。
+                  承認されると SMS でお知らせします。届いたら、この電話番号でログインして本登録（免許・顔写真など）にお進みください。
                 </p>
               </div>
             )}
