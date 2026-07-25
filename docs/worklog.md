@@ -107,3 +107,9 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 
 - 実機でカメラが狭く表示される件: ステップ切替アニメーション（transform）を持つ祖先内の fixed が祖先基準になっていたのが原因。CameraModal を createPortal(document.body) 直下に描画＋100dvh 指定で全画面化
 - 検証: web tsc クリーン。実機確認継続中
+
+## 2026-07-26 実機修正: 縦スクロール抑制・autoFocus 廃止
+
+- ルートを min-h-[100dvh] に変更（100vh がアドレスバー分はみ出して常にスクロール可能になる問題を解消）＋ overscrollBehaviorY:none で引っ張りバウンス抑制（マウント中のみ・復元あり）
+- 全ステップの autoFocus を廃止（表示直後にキーボードが出て戸惑うため、タップで入力開始）
+- 検証: web tsc クリーン / テスト 411 passed

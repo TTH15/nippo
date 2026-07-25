@@ -437,6 +437,17 @@ export function OnboardingWizard({
     }
   }, [persistDraft, sei, mei, seiKana, meiKana, dobParts, phone, termsAgreed]);
 
+  // 縦の引っ張りバウンス（オーバースクロール）を抑制して app 的な触感にする。
+  // ルートは 100dvh 基準なので、収まっている画面ではそもそもスクロールが発生しない。
+  useEffect(() => {
+    const el = document.documentElement;
+    const prev = el.style.overscrollBehaviorY;
+    el.style.overscrollBehaviorY = "none";
+    return () => {
+      el.style.overscrollBehaviorY = prev;
+    };
+  }, []);
+
   // 郵便番号→住所の自動入力（zipcloud・admin 画面と同じ API）。
   // 7桁揃った時点で検索し、住所が空 or 前回の自動入力のままの場合だけ上書きする。
   const handlePostal = (raw: string) => {
@@ -559,7 +570,7 @@ export function OnboardingWizard({
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4 py-8">
+    <div className="min-h-[100dvh] flex items-center justify-center bg-slate-100 px-4 py-6">
       <div className="w-full max-w-sm">
         <div className="bg-white rounded-lg shadow-sm border border-slate-200">
           <div className="p-3 border-b border-slate-200 flex flex-col items-center gap-2">
@@ -606,7 +617,6 @@ export function OnboardingWizard({
                   onChange={(e) => setJoinCode(normalizeCode(e.target.value))}
                   className="w-full text-center text-lg tracking-widest font-mono py-2.5 px-1 bg-transparent border-0 border-b-2 border-slate-200 rounded-none focus:border-slate-900 focus:outline-none transition-colors"
                   placeholder="ABC123"
-                  autoFocus
                   autoComplete="off"
                 />
                 {error && <p className="text-sm text-red-600 text-center">{error}</p>}
@@ -669,7 +679,6 @@ export function OnboardingWizard({
                       onChange={handleNameInput(setSei, seiKanaAuto, setSeiKana)}
                       onKanaComposed={appendKana(seiKanaAuto, setSeiKana)}
                       autoComplete="family-name"
-                      autoFocus
                     />
                     <FloatingLineField
                       label="名"
@@ -710,7 +719,6 @@ export function OnboardingWizard({
                     type="tel"
                     inputMode="numeric"
                     autoComplete="tel"
-                    autoFocus
                   />
                 </div>
                 {phone.length === 11 && !JP_MOBILE_RE.test(phone) && (
@@ -878,7 +886,6 @@ export function OnboardingWizard({
                       onChange={handlePostal}
                       inputMode="numeric"
                       autoComplete="postal-code"
-                      autoFocus
                     />
                   </div>
                   {(postalBusy || postalNote) && (
@@ -1130,7 +1137,6 @@ function OtpSlots({ value, onChange }: { value: string; onChange: (v: string) =>
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         autoComplete="one-time-code"
-        autoFocus
         className="absolute inset-0 h-full w-full opacity-0"
       />
     </div>
