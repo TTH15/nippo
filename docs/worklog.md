@@ -102,3 +102,8 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - migration 114〜117 はすべて本番適用済み（ユーザー確認）
 - 検証: web/mobile tsc クリーン・テスト411 passed → main へマージ
 - main へ --no-ff マージ（6338fc3）し origin へ push（Vercel 本番デプロイ）。招待リンクUIは封印済み・共有コード＋手動追加の現行運用は不変
+
+## 2026-07-26 実機修正: カメラモーダルを portal で全画面化
+
+- 実機でカメラが狭く表示される件: ステップ切替アニメーション（transform）を持つ祖先内の fixed が祖先基準になっていたのが原因。CameraModal を createPortal(document.body) 直下に描画＋100dvh 指定で全画面化
+- 検証: web tsc クリーン。実機確認継続中

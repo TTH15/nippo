@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 
@@ -172,8 +173,10 @@ function CameraModal({
     );
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col">
+  // portal で body 直下に描画する。ウィザードのステップ切替アニメーション（transform）を
+  // 持つ祖先の中で fixed を使うと、fixed の基準がその祖先になり全画面にならないため。
+  return createPortal(
+    <div className="fixed inset-0 z-50 bg-black flex flex-col" style={{ height: "100dvh" }}>
       {/* カメラ映像（顔はミラー表示。保存画像は反転しない） */}
       <div className="relative flex-1 overflow-hidden">
         <video
@@ -293,6 +296,7 @@ function CameraModal({
           aria-label="撮影"
         />
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
