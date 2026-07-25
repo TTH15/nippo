@@ -101,3 +101,4 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 申請完了画面: ストアURL未設定（アプリ未公開）の間は「アプリでお知らせ」ではなく「審査の結果は運営からご連絡します」「アプリは近日公開予定」の正直な文言に自動切替
 - migration 114〜117 はすべて本番適用済み（ユーザー確認）
 - 検証: web/mobile tsc クリーン・テスト411 passed → main へマージ
+- main へ --no-ff マージ（6338fc3）し origin へ push（Vercel 本番デプロイ）。招待リンクUIは封印済み・共有コード＋手動追加の現行運用は不変
