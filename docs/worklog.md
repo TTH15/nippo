@@ -94,3 +94,10 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 氏名・生年月日ページ: 「氏名」グループラベルを追加し、「氏名」「生年月日」「免許証の有効期限」のラベルを text-xs/slate-400 に統一（主張を抑える）
 - **TODO(スマホ実機で要調整)** を GuidedKycPhoto に明記: PCでは画角が広く免許証が保存画像のごく一部になる（ガイド枠クロップ or zoom constraints を検討）／顔ガイドSVGがPCでは小さい／実機確認は HTTPS 必須
 - ここまでの作業を機能単位で5コミットに分割（db / api / web wizard / admin+mobile / docs）
+
+## 2026-07-26 招待リンクUIの封印（準備中）とマージ準備
+
+- 単回招待リンクの発行UIを NEXT_PUBLIC_INVITE_LINKS_ENABLED=1 で解放するフラグ制に（既定は非表示・API は実装済みのまま）。非表示時は共有参加コードセクションが従来の見出し/説明に戻る。手動追加（/admin/users）は従来どおり併存
+- 申請完了画面: ストアURL未設定（アプリ未公開）の間は「アプリでお知らせ」ではなく「審査の結果は運営からご連絡します」「アプリは近日公開予定」の正直な文言に自動切替
+- migration 114〜117 はすべて本番適用済み（ユーザー確認）
+- 検証: web/mobile tsc クリーン・テスト411 passed → main へマージ

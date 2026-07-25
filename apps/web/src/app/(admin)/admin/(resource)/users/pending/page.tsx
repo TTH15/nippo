@@ -57,6 +57,11 @@ type KycDetail = {
   bankHolder: string;
 };
 
+// 単回招待リンクの提供は準備中（アプリ公開・撮影ガイドの実機調整待ち）。
+// 解放するときは NEXT_PUBLIC_INVITE_LINKS_ENABLED=1 を設定するだけ（API は実装済み）。
+// それまでは共有参加コード＋手動追加（/admin/users の新規追加）で運用する。
+const INVITES_ENABLED = process.env.NEXT_PUBLIC_INVITE_LINKS_ENABLED === "1";
+
 // 住所の本人申告表示（true=免許記載と同一 / false=異なる=目視で要注意 / null=未申告）。
 const addressAttestation = (v: boolean | null) =>
   v === null ? null : v ? (
@@ -85,8 +90,9 @@ export default function PendingApprovalPage() {
   );
 
   // 単回招待リンク（主経路・§2-1a）。共有コードは口頭伝達のフォールバック。
+  // 準備中（INVITES_ENABLED=false）の間は取得もしない。
   const { data: invitesRes, mutate: mutateInvites } = useSWR<{ invites: Invite[] }>(
-    "/api/admin/invites",
+    INVITES_ENABLED ? "/api/admin/invites" : null,
     (url: string) => apiFetch<{ invites: Invite[] }>(url),
     { revalidateOnFocus: false },
   );
@@ -326,7 +332,8 @@ export default function PendingApprovalPage() {
           <h1 className="text-lg font-bold text-slate-900">ドライバーの参加・承認</h1>
         </div>
 
-        {/* 単回招待リンク（主経路） */}
+        {/* 単回招待リンク（主経路・準備中の間は非表示） */}
+        {INVITES_ENABLED && (
         <section className="bg-white rounded-lg border border-slate-200 p-4">
           <h2 className="text-sm font-semibold text-slate-900 mb-2">招待リンク（1人につき1回）</h2>
           <p className="text-xs text-slate-500 mb-3">
@@ -398,12 +405,17 @@ export default function PendingApprovalPage() {
             </ul>
           )}
         </section>
+        )}
 
-        {/* 共有参加コード（フォールバック） */}
+        {/* 共有参加コード（招待リンク解放後はフォールバック扱い） */}
         <section className="bg-white rounded-lg border border-slate-200 p-4">
-          <h2 className="text-sm font-semibold text-slate-900 mb-2">共有の参加コード・リンク（予備）</h2>
+          <h2 className="text-sm font-semibold text-slate-900 mb-2">
+            {INVITES_ENABLED ? "共有の参加コード・リンク（予備）" : "参加コード・招待リンク"}
+          </h2>
           <p className="text-xs text-slate-500 mb-3">
-            個別リンクを送れない場合の予備です。全員共通のコード・QR で、口頭で伝えても申請できます。個別リンクと違い何度でも使えるため、取り扱いには注意してください。
+            {INVITES_ENABLED
+              ? "個別リンクを送れない場合の予備です。全員共通のコード・QR で、口頭で伝えても申請できます。個別リンクと違い何度でも使えるため、取り扱いには注意してください。"
+              : "招待リンク（または QR）を参加者に送ってください。開くと参加コードが自動入力され、本人が氏名・電話認証から免許・顔写真の提出まで web で完結します。リンクを開けない場合はコードを口頭で伝えても申請できます。"}
           </p>
           <div className="flex items-center gap-3 mb-4">
             <span className="inline-flex items-center px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xl font-mono tracking-widest text-slate-900">
