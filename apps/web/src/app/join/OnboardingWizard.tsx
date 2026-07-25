@@ -134,6 +134,8 @@ const formatJPMobile = (digits: string) =>
 // アプリのストア URL（公開後に env で設定。未設定の間はボタンを「準備中」表示にする）。
 const APP_STORE_URL = process.env.NEXT_PUBLIC_APP_STORE_URL ?? "";
 const PLAY_STORE_URL = process.env.NEXT_PUBLIC_PLAY_STORE_URL ?? "";
+// アプリ公開前は「アプリで通知」等を約束しない（案内は運営から＝現運用の実態に合わせる）。
+const STORES_READY = !!(APP_STORE_URL || PLAY_STORE_URL);
 
 // 途中離脱対策: 申請確定（SMS認証）前の入力を「この端末の localStorage」にだけ残す。
 // サーバには何も置かない＝同じ招待URLを別の人・別の端末が開いても入力内容は見えない。
@@ -916,7 +918,11 @@ export function OnboardingWizard({
                 {reg?.kycVerified ? (
                   <>
                     <p className="text-base font-semibold text-slate-900">登録が承認されています</p>
-                    <p className="text-sm text-slate-600">アプリをインストールしてログインしてください。</p>
+                    <p className="text-sm text-slate-600">
+                      {STORES_READY
+                        ? "アプリをインストールしてログインしてください。"
+                        : "アプリの公開まで少しお待ちください。始め方は運営からご案内します。"}
+                    </p>
                   </>
                 ) : resumed ? (
                   // 申請済みの人が同じ端末で再訪したケース（URL 再訪・リロード）。
@@ -925,7 +931,9 @@ export function OnboardingWizard({
                       <p className="text-base font-semibold text-slate-900">アカウント開設の手続き中です</p>
                       <p className="text-sm text-slate-600">申請は受け付け済みです。運営が内容を確認しています。</p>
                     </div>
-                    <p className="text-sm text-slate-600">審査の結果はアプリでお知らせします。</p>
+                    <p className="text-sm text-slate-600">
+                      {STORES_READY ? "審査の結果はアプリでお知らせします。" : "審査の結果は運営からご連絡します。"}
+                    </p>
                   </>
                 ) : (
                   <>
@@ -934,9 +942,19 @@ export function OnboardingWizard({
                       <p className="text-sm text-slate-600">運営が入力内容と写真を確認しています。</p>
                     </div>
                     <p className="text-sm text-slate-600">
-                      続けてアプリをインストールしてください。
-                      <br />
-                      審査の結果はアプリでお知らせします。
+                      {STORES_READY ? (
+                        <>
+                          続けてアプリをインストールしてください。
+                          <br />
+                          審査の結果はアプリでお知らせします。
+                        </>
+                      ) : (
+                        <>
+                          アプリは近日公開予定です。
+                          <br />
+                          審査の結果は運営からご連絡します。
+                        </>
+                      )}
                     </p>
                   </>
                 )}
