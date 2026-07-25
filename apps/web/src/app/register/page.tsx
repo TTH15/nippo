@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { DATE_RE, KycPhotoBox, fileToJpegBase64, formatDateInput } from "@/lib/components/KycPhotoBox";
 
 // ============================================================
 // 本登録（KYC）ウィザード（web 一本化・確定フロー §2-1a）。
-// 仮承認済みドライバーが電話OTP等でログイン後にここで本登録を完了する。
-// ステップ: ①免許証 正面＋有効期限 ②顔写真 ③住所 ④口座。裏面なし・OCRなし（期限手入力）。
+// 既存ドライバーの移行導線（/me の CTA・電話OTPログイン後）。新規は /join の一本ウィザード。
+// ステップ: ①免許証 正面＋有効期限 ②顔写真 ③住所。裏面なし・OCRなし（期限手入力）。
+// 口座は収集しない（初回の報酬支払いまでにアプリのマイページで登録・2026-07-25）。
 // 写真は端末側で canvas 縮小→JPEG 再エンコードしてから送信（8MB上限・JPEG/PNG 制約に適合）。
 // API は mobile KycWizard と共有: GET/POST /api/me/registration・POST /api/me/registration/photo。
 // ============================================================
@@ -26,17 +28,14 @@ type Reg = {
   kycVerified: boolean;
 };
 
-const STEP_KEYS = ["license", "face", "address", "bank"] as const;
+const STEP_KEYS = ["license", "face", "address"] as const;
 type StepKey = (typeof STEP_KEYS)[number];
 
 const STEP_LABEL: Record<StepKey, string> = {
   license: "免許",
   face: "顔写真",
   address: "住所",
-  bank: "口座",
 };
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // サーバの complete 条件（値が入っているか）に揃える。canNext の形式チェックとは別基準。
 const isStepDone = (k: StepKey, r: Reg): boolean => {
@@ -47,46 +46,8 @@ const isStepDone = (k: StepKey, r: Reg): boolean => {
       return r.hasFacePhoto;
     case "address":
       return !!r.postalCode && !!r.address;
-    case "bank":
-      return !!r.bankName && !!r.bankNo && !!r.bankHolder;
   }
 };
-
-// 数字だけ入力させ YYYY-MM-DD へ自動整形（mobile と同挙動）。
-const formatDateInput = (raw: string): string => {
-  const d = raw.replace(/\D/g, "").slice(0, 8);
-  let out = d.slice(0, 4);
-  if (d.length > 4) out += "-" + d.slice(4, 6);
-  if (d.length > 6) out += "-" + d.slice(6, 8);
-  return out;
-};
-
-// 画像を長辺 maxDim 以内へ縮小し JPEG(base64・prefix なし) へ再エンコード。
-// 8MB 上限とマジックバイト検証（実体 JPEG）に確実に収めるための web 側前処理。
-async function fileToJpegBase64(file: File, maxDim = 1600, quality = 0.72): Promise<string> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error("画像を読み込めませんでした"));
-      el.src = url;
-    });
-    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-    const w = Math.max(1, Math.round(img.width * scale));
-    const h = Math.max(1, Math.round(img.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("画像処理に失敗しました");
-    ctx.drawImage(img, 0, 0, w, h);
-    const dataUrl = canvas.toDataURL("image/jpeg", quality);
-    return dataUrl.split(",")[1] ?? "";
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
 
 export default function RegisterPage() {
   const [reg, setReg] = useState<Reg | null>(null);
@@ -178,8 +139,6 @@ export default function RegisterPage() {
         return reg.hasFacePhoto;
       case "address":
         return !!reg.postalCode.trim() && !!reg.address.trim();
-      case "bank":
-        return !!reg.bankName.trim() && !!reg.bankNo.trim() && !!reg.bankHolder.trim();
     }
   })();
 
@@ -196,11 +155,6 @@ export default function RegisterPage() {
         await apiFetch("/api/me/registration", {
           method: "POST",
           body: JSON.stringify({ postalCode: reg.postalCode, address: reg.address }),
-        });
-      } else if (key === "bank") {
-        await apiFetch("/api/me/registration", {
-          method: "POST",
-          body: JSON.stringify({ bankName: reg.bankName, bankNo: reg.bankNo, bankHolder: reg.bankHolder }),
         });
       }
       if (step < STEP_KEYS.length - 1) {
@@ -254,7 +208,7 @@ export default function RegisterPage() {
           <div className="p-5 space-y-4">
             {key === "license" && (
               <>
-                <PhotoBox
+                <KycPhotoBox
                   title="免許証の写真（正面）"
                   done={reg.hasLicensePhoto}
                   previewUri={previews.license}
@@ -287,7 +241,7 @@ export default function RegisterPage() {
             )}
 
             {key === "face" && (
-              <PhotoBox
+              <KycPhotoBox
                 title="顔写真"
                 done={reg.hasFacePhoto}
                 previewUri={previews.face}
@@ -298,6 +252,10 @@ export default function RegisterPage() {
 
             {key === "address" && (
               <>
+                <p className="text-sm text-slate-600">
+                  現住所を入力してください。<span className="font-medium">運転免許証の記載どおり</span>に入力をお願いします
+                  （引越し等で異なる場合は現住所を入力し、運営にお知らせください）。
+                </p>
                 <input
                   inputMode="numeric"
                   value={reg.postalCode}
@@ -311,31 +269,6 @@ export default function RegisterPage() {
                   onChange={(e) => set("address", e.target.value)}
                   className={inputCls}
                   placeholder="住所"
-                />
-              </>
-            )}
-
-            {key === "bank" && (
-              <>
-                <input
-                  value={reg.bankName}
-                  onChange={(e) => set("bankName", e.target.value)}
-                  className={inputCls}
-                  placeholder="銀行名・支店"
-                  autoFocus
-                />
-                <input
-                  inputMode="numeric"
-                  value={reg.bankNo}
-                  onChange={(e) => set("bankNo", e.target.value)}
-                  className={inputCls}
-                  placeholder="口座番号"
-                />
-                <input
-                  value={reg.bankHolder}
-                  onChange={(e) => set("bankHolder", e.target.value)}
-                  className={inputCls}
-                  placeholder="口座名義（カナ）"
                 />
               </>
             )}
@@ -362,58 +295,6 @@ export default function RegisterPage() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function PhotoBox({
-  title,
-  done,
-  previewUri,
-  busy,
-  onPick,
-}: {
-  title: string;
-  done: boolean;
-  previewUri?: string;
-  busy: boolean;
-  onPick: (file: File) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  return (
-    <div className="space-y-2">
-      <p className="text-sm font-medium text-slate-700">{title}</p>
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={busy}
-        className={`w-full h-44 rounded-lg border flex items-center justify-center overflow-hidden ${
-          done ? "border-emerald-500 bg-emerald-50" : "border-dashed border-slate-300 bg-slate-50"
-        } disabled:opacity-60`}
-      >
-        {previewUri ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={previewUri} alt="preview" className="w-full h-full object-cover" />
-        ) : busy ? (
-          <span className="text-sm text-slate-400">処理中...</span>
-        ) : (
-          <span className={`text-sm ${done ? "text-emerald-600 font-semibold" : "text-slate-400"}`}>
-            {done ? "✓ 登録済み（撮り直し可）" : "タップして撮影・選択"}
-          </span>
-        )}
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onPick(f);
-          e.target.value = "";
-        }}
-      />
     </div>
   );
 }
