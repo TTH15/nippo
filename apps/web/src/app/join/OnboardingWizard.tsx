@@ -11,6 +11,7 @@ import { canEnterAdmin } from "@/lib/capabilities";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
 import { DATE_RE, fileToJpegBase64 } from "@/lib/components/KycPhotoBox";
 import { GuidedKycPhoto } from "@/lib/components/GuidedKycPhoto";
+import { ocrLicenseExpiryFromBase64 } from "@/lib/ocr/licenseExpiryOcr";
 
 // ============================================================
 // 初期登録ウィザード（web 一本化・§2-1a）。認証不要で開始し、SMS 認証後は
@@ -236,6 +237,10 @@ export function OnboardingWizard({
   const [passkeyDone, setPasskeyDone] = useState(false);
   const [passkeyFailed, setPasskeyFailed] = useState(false);
   const [termsAgreed, setTermsAgreed] = useState(false);
+  // 免許有効期限の OCR プリフィル（読み取り中表示と、自動入力したことの案内）。
+  const [expiryOcrBusy, setExpiryOcrBusy] = useState(false);
+  const [expiryOcrFilled, setExpiryOcrFilled] = useState(false);
+
   // 住所ステップ: 「免許証記載と同じ」チェック（既定 ON）と郵便番号→住所の自動入力。
   const [addressSame, setAddressSame] = useState(true);
   const [postalBusy, setPostalBusy] = useState(false);
@@ -487,10 +492,36 @@ export function OnboardingWizard({
       await api.uploadPhoto(kind, base64);
       setReg((r) => (r ? { ...r, [kind === "license" ? "hasLicensePhoto" : "hasFacePhoto"]: true } : r));
       setPreviews((p) => ({ ...p, [kind]: `data:image/jpeg;base64,${base64}` }));
+      // 免許写真から有効期限を OCR プリフィル（未入力のときだけ・非同期で裏実行）。
+      if (kind === "license" && !reg?.licenseExpiry) void runExpiryOcr(base64);
     } catch (e) {
       setError(e instanceof Error ? e.message : "アップロードに失敗しました");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // 有効期限の OCR。読めたらホイールへ反映するが、その間にユーザーが手で
+  // 選んでいたら上書きしない。失敗は無言（手入力のままでよい）。
+  const runExpiryOcr = async (base64: string) => {
+    setExpiryOcrBusy(true);
+    try {
+      const found = await ocrLicenseExpiryFromBase64(base64);
+      if (!found) return;
+      const y = Number(found.slice(0, 4));
+      if (y < THIS_YEAR || y > THIS_YEAR + 10) return; // ホイールの選択肢範囲外は捨てる
+      let applied = false;
+      setLicenseParts((prev) => {
+        if (prev.y || prev.m || prev.d) return prev; // 手入力を尊重
+        applied = true;
+        return partsFromDate(found);
+      });
+      if (applied) {
+        setReg((r) => (r && !r.licenseExpiry ? { ...r, licenseExpiry: found } : r));
+        setExpiryOcrFilled(true);
+      }
+    } finally {
+      setExpiryOcrBusy(false);
     }
   };
 
@@ -840,15 +871,24 @@ export function OnboardingWizard({
                   onPick={(f) => uploadPhoto("license", f)}
                 />
                 <div className="pt-1 pb-2">
-                  <label className="block text-xs font-medium text-slate-400 mb-2">免許証の有効期限</label>
+                  <label className="block text-xs font-medium text-slate-400 mb-2">
+                    免許証の有効期限
+                    {expiryOcrBusy && <span className="ml-2 text-slate-400">写真から読み取り中...</span>}
+                  </label>
                   <DateWheelField
                     parts={licenseParts}
                     onChange={(p) => {
                       setLicenseParts(p);
                       setRegField("licenseExpiry", composeParts(p));
+                      setExpiryOcrFilled(false);
                     }}
                     years={LICENSE_YEARS}
                   />
+                  {expiryOcrFilled && (
+                    <p className="mt-2 text-xs text-emerald-600">
+                      写真から自動入力しました。違っていれば選び直してください。
+                    </p>
+                  )}
                 </div>
                 {error && <p className="text-sm text-red-600 text-center">{error}</p>}
                 <button onClick={nextKyc} disabled={busy || !canProceed} className={btnCls}>
