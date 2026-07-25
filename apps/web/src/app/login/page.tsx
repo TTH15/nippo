@@ -227,7 +227,7 @@ export default function LoginPage() {
               href="/login/recover"
               className="block w-full text-center text-sm text-slate-500 hover:text-slate-700 mt-3"
             >
-              PIN・Passkeyを忘れた方はこちら
+              電話番号でログイン（初めての方・機種変更・PIN/Passkeyを忘れた方）
             </Link>
           </div>
         </div>

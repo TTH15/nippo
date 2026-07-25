@@ -23,21 +23,20 @@ export async function GET(req: NextRequest) {
     .single();
   const { data: driver } = await supabase
     .from("drivers")
-    .select("postal_code, address, bank_name, bank_no, bank_holder, kyc_verified_at")
+    .select("postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, kyc_verified_at")
     .eq("id", user.driverId)
     .single();
 
   const hasLicensePhoto = !!identity?.license_photo_path;
   const hasFacePhoto = !!identity?.face_photo_path;
+  // 口座は本登録の完了条件から除外（2026-07-25）。初回の報酬支払いまでに
+  // アプリ（マイページ）で登録してもらう。POST での受け付け・保存は従来どおり。
   const complete =
     hasLicensePhoto &&
     hasFacePhoto &&
     !!identity?.license_expiry &&
     !!driver?.postal_code &&
-    !!driver?.address &&
-    !!driver?.bank_name &&
-    !!driver?.bank_no &&
-    !!driver?.bank_holder;
+    !!driver?.address;
 
   return NextResponse.json({
     name: identity?.name ?? "",
@@ -47,6 +46,7 @@ export async function GET(req: NextRequest) {
     hasFacePhoto,
     postalCode: driver?.postal_code ?? "",
     address: driver?.address ?? "",
+    addressMatchesLicense: (driver?.address_matches_license as boolean | null) ?? null,
     bankName: driver?.bank_name ?? "",
     bankNo: driver?.bank_no ?? "",
     bankHolder: driver?.bank_holder ?? "",
@@ -83,6 +83,10 @@ export async function POST(req: NextRequest) {
     }
     if (body.postalCode !== undefined) drvUpdate.postal_code = str(body.postalCode) || null;
     if (body.address !== undefined) drvUpdate.address = str(body.address) || null;
+    // 本人申告「住所は免許証記載と同じ」（migration 117）。承認時の運営確認材料。
+    if (body.addressMatchesLicense !== undefined) {
+      drvUpdate.address_matches_license = body.addressMatchesLicense === true;
+    }
     if (body.bankName !== undefined) drvUpdate.bank_name = str(body.bankName) || null;
     if (body.bankNo !== undefined) drvUpdate.bank_no = str(body.bankNo) || null;
     if (body.bankHolder !== undefined) drvUpdate.bank_holder = str(body.bankHolder) || null;

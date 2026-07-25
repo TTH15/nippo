@@ -269,13 +269,14 @@ export async function PUT(
           return;
         }
       }
-      // Phase 7a: pin_hash 未設定（参加申請の承認で初めて driver_code を割り当てる）なら
-      // 初期PIN（コードの数字6桁）を発行する。既存PIN（カスタム含む）があるときは触らない。
-      const finalUpdate: Record<string, unknown> = { driver_code: fullCode, office_code: office };
-      if (!d?.pin_hash) {
-        finalUpdate.pin_hash = await bcrypt.hash(newPinPart, 10);
-      }
-      await supabase.from("drivers").update(finalUpdate).eq("id", driverId).eq("org_id", orgId);
+      // PIN撤廃（§2-1a）: 承認で driver_code を割り当てても初期PINは発行しない。
+      // 仮承認で入った新規ドライバーは PINレス＝電話OTP でログイン→Passkey 登録する。
+      // 既存PIN（手動作成・カスタム含む）を持つドライバーは上の分岐で処理済みで、ここでは pin_hash を触らない。
+      await supabase
+        .from("drivers")
+        .update({ driver_code: fullCode, office_code: office })
+        .eq("id", driverId)
+        .eq("org_id", orgId);
     };
 
     const upsertIdentity = async (item: IdentityInput) => {
