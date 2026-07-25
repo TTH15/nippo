@@ -145,21 +145,49 @@ export async function GET(req: NextRequest) {
     new Set((rows as { identity_id?: string | null }[]).map((r) => r.identity_id).filter(Boolean)),
   ) as string[];
   const faceByIdentity = new Map<string, string>();
+  // 承認画面用: 本登録（KYC）の提出状況。pending 行にだけ付与する（§2-1a 承認1回統合）。
+  const kycByIdentity = new Map<string, { hasLicensePhoto: boolean; hasFacePhoto: boolean; hasLicenseExpiry: boolean }>();
   if (identityIds.length > 0) {
     const { data: idRows } = await supabase
       .from("identities")
-      .select("id, face_photo_path")
+      .select("id, face_photo_path, license_photo_path, license_expiry")
       .in("id", identityIds);
     await Promise.all(
-      (idRows ?? []).map(async (ir: { id: string; face_photo_path: string | null }) => {
-        if (!ir.face_photo_path) return;
-        const signed = await signKyc(supabase, ir.face_photo_path);
-        if (signed) faceByIdentity.set(ir.id, signed);
-      }),
+      (idRows ?? []).map(
+        async (ir: {
+          id: string;
+          face_photo_path: string | null;
+          license_photo_path: string | null;
+          license_expiry: string | null;
+        }) => {
+          kycByIdentity.set(ir.id, {
+            hasLicensePhoto: !!ir.license_photo_path,
+            hasFacePhoto: !!ir.face_photo_path,
+            hasLicenseExpiry: !!ir.license_expiry,
+          });
+          if (!ir.face_photo_path) return;
+          const signed = await signKyc(supabase, ir.face_photo_path);
+          if (signed) faceByIdentity.set(ir.id, signed);
+        },
+      ),
     );
   }
   const rowsWithFace = (rows as ({ identity_id?: string | null } & Record<string, unknown>)[]).map(
-    (r) => ({ ...r, faceUrl: r.identity_id ? faceByIdentity.get(r.identity_id) ?? null : null }),
+    (r) => {
+      const base = { ...r, faceUrl: r.identity_id ? faceByIdentity.get(r.identity_id) ?? null : null };
+      if (status !== "pending") return base;
+      const kyc = r.identity_id ? kycByIdentity.get(r.identity_id) : undefined;
+      const hasLicensePhoto = kyc?.hasLicensePhoto ?? false;
+      const hasFacePhoto = kyc?.hasFacePhoto ?? false;
+      // サーバの本登録 complete 条件（me/registration）と同じ基準（口座は完了条件外・2026-07-25）。
+      const kycComplete =
+        hasLicensePhoto &&
+        hasFacePhoto &&
+        (kyc?.hasLicenseExpiry ?? false) &&
+        !!r.postal_code &&
+        !!r.address;
+      return { ...base, hasLicensePhoto, hasFacePhoto, kycComplete };
+    },
   );
 
   const response = NextResponse.json({

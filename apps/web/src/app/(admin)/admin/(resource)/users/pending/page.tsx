@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import useSWR from "swr";
+import QRCode from "qrcode";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faRotate, faCheck, faXmark, faUserPlus, faIdCard } from "@fortawesome/free-solid-svg-icons";
+import { faRotate, faCheck, faXmark, faUserPlus, faIdCard, faCopy } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -13,9 +14,12 @@ import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
 
 // ============================================================
-// ドライバーの参加・承認（Phase 7b）。
+// ドライバーの参加・承認（Phase 7b → §2-1a 承認1回統合）。
 // 参加コード（join_code）の表示/再生成と、承認待ち（status='pending'）の承認/却下。
-// 承認時に driver_code / 初期PIN を発行する（PUT /api/admin/users/[id]）。
+// 申請者は web ウィザードで KYC（免許・顔・住所・口座）まで提出してくるため、
+// 承認モーダルで免許/顔を目視のうえ、承認1回で active 化＋本人確認（kyc_verified_at）まで行う
+// （PUT /api/admin/users/[id] → POST verify-kyc）。KYC 未提出のまま承認した場合は
+// 従来どおり「本人確認待ち」リストに現れる（移行中の既存ドライバーも同リスト）。
 // ============================================================
 
 type Course = { id: string; name: string; color: string };
@@ -25,24 +29,53 @@ type PendingDriver = {
   phone: string | null;
   status: string;
   created_at: string | null;
+  hasLicensePhoto?: boolean;
+  hasFacePhoto?: boolean;
+  kycComplete?: boolean;
 };
 type KycDriver = { id: string; name: string; phone: string | null; created_at: string | null };
+type Invite = {
+  id: string;
+  name: string;
+  token: string;
+  createdAt: string;
+  expiresAt: string;
+  status: "active" | "used" | "expired" | "revoked";
+};
 type KycDetail = {
   name: string;
+  nameKana: string;
   licenseUrl: string | null;
   faceUrl: string | null;
   licenseExpiry: string;
   dob: string;
   postalCode: string;
   address: string;
+  addressMatchesLicense: boolean | null;
   bankName: string;
   bankNo: string;
   bankHolder: string;
 };
 
+// 単回招待リンクの提供は準備中（アプリ公開・撮影ガイドの実機調整待ち）。
+// 解放するときは NEXT_PUBLIC_INVITE_LINKS_ENABLED=1 を設定するだけ（API は実装済み）。
+// それまでは共有参加コード＋手動追加（/admin/users の新規追加）で運用する。
+const INVITES_ENABLED = process.env.NEXT_PUBLIC_INVITE_LINKS_ENABLED === "1";
+
+// 住所の本人申告表示（true=免許記載と同一 / false=異なる=目視で要注意 / null=未申告）。
+const addressAttestation = (v: boolean | null) =>
+  v === null ? null : v ? (
+    <span className="text-[11px] text-slate-400">免許記載と同一（本人申告）</span>
+  ) : (
+    <span className="text-[11px] font-medium text-amber-700">免許記載と異なる（本人申告・要確認）</span>
+  );
+
 export default function PendingApprovalPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [companyCode, setCompanyCode] = useState<string>(getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE).code || "");
+  const [inviteUrl, setInviteUrl] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const d = getStoredDriver();
@@ -55,6 +88,82 @@ export default function PendingApprovalPage() {
     (url: string) => apiFetch<{ joinCode: string | null }>(url),
     { revalidateOnFocus: false },
   );
+
+  // 単回招待リンク（主経路・§2-1a）。共有コードは口頭伝達のフォールバック。
+  // 準備中（INVITES_ENABLED=false）の間は取得もしない。
+  const { data: invitesRes, mutate: mutateInvites } = useSWR<{ invites: Invite[] }>(
+    INVITES_ENABLED ? "/api/admin/invites" : null,
+    (url: string) => apiFetch<{ invites: Invite[] }>(url),
+    { revalidateOnFocus: false },
+  );
+  const invites = invitesRes?.invites ?? [];
+  const [inviteName, setInviteName] = useState("");
+  const [inviteCreating, setInviteCreating] = useState(false);
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
+
+  const inviteUrlOf = (token: string) =>
+    typeof window === "undefined" ? "" : `${window.location.origin}/join?invite=${token}`;
+
+  const createInvite = async () => {
+    setInviteCreating(true);
+    try {
+      await apiFetch<{ invite: Invite }>("/api/admin/invites", {
+        method: "POST",
+        body: JSON.stringify({ name: inviteName.trim() }),
+      });
+      setInviteName("");
+      await mutateInvites();
+    } catch (e) {
+      setErrorState({ title: "招待の発行に失敗しました", message: e instanceof Error ? e.message : "不明なエラー" });
+    } finally {
+      setInviteCreating(false);
+    }
+  };
+
+  const copyInviteLink = async (inv: Invite) => {
+    try {
+      await navigator.clipboard.writeText(inviteUrlOf(inv.token));
+      setCopiedInviteId(inv.id);
+      setTimeout(() => setCopiedInviteId((prev) => (prev === inv.id ? null : prev)), 1500);
+    } catch {
+      // クリップボード不可の環境では無視
+    }
+  };
+
+  const revokeInvite = async (inv: Invite) => {
+    try {
+      await apiFetch(`/api/admin/invites/${inv.id}`, { method: "DELETE" });
+      await mutateInvites();
+    } catch (e) {
+      setErrorState({ title: "失効に失敗しました", message: e instanceof Error ? e.message : "不明なエラー" });
+    }
+  };
+
+  // 招待リンク（?code=）と QR を join_code から生成。deferred deep link は使わず web で完結（§2-1a）。
+  const joinCode = joinCodeRes?.joinCode ?? null;
+  useEffect(() => {
+    if (!joinCode) {
+      setInviteUrl("");
+      setQrDataUrl("");
+      return;
+    }
+    const url = `${window.location.origin}/join?code=${encodeURIComponent(joinCode)}`;
+    setInviteUrl(url);
+    QRCode.toDataURL(url, { width: 320, margin: 1, errorCorrectionLevel: "M" })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(""));
+  }, [joinCode]);
+
+  const copyInvite = async () => {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // クリップボード不可の環境では無視（URL は表示済み）
+    }
+  };
   const { data: pendingRes, isLoading, mutate: mutatePending } = useSWR<{ drivers: PendingDriver[]; total: number }>(
     "/api/admin/users?status=pending&limit=100",
     (url: string) => apiFetch<{ drivers: PendingDriver[]; total: number }>(url),
@@ -85,6 +194,9 @@ export default function PendingApprovalPage() {
   const [kycDetail, setKycDetail] = useState<KycDetail | null>(null);
   const [kycLoading, setKycLoading] = useState(false);
   const [confirmKycReject, setConfirmKycReject] = useState<KycDriver | null>(null);
+  // 承認モーダル内の KYC レビュー（承認1回統合）。can_view_pii が無い場合は null のまま。
+  const [approveKyc, setApproveKyc] = useState<KycDetail | null>(null);
+  const [approveKycLoading, setApproveKycLoading] = useState(false);
 
   const regenerate = async () => {
     setRegenerating(true);
@@ -100,7 +212,17 @@ export default function PendingApprovalPage() {
 
   const openApprove = (d: PendingDriver) => {
     setApproveForm({ driverNumber: "", officeCode: "", courseIds: [] });
+    setApproveKyc(null);
     setApproveTarget(d);
+    // KYC（免許/顔）を提出済みなら、承認モーダル内で目視レビューできるよう取得する。
+    // 閲覧には can_view_pii が必要（無いロールはレビューなしの active 化のみ）。
+    if ((d.hasLicensePhoto || d.hasFacePhoto) && hasCapability("can_view_pii")) {
+      setApproveKycLoading(true);
+      apiFetch<KycDetail>(`/api/admin/users/${d.id}/kyc`)
+        .then(setApproveKyc)
+        .catch(() => setApproveKyc(null))
+        .finally(() => setApproveKycLoading(false));
+    }
   };
 
   const submitApprove = async () => {
@@ -126,8 +248,24 @@ export default function PendingApprovalPage() {
           courseIds: approveForm.courseIds,
         }),
       });
+      // 承認1回統合: 免許と顔をこのモーダルで目視済みなら、そのまま本人確認まで完了させる。
+      // 失敗しても active 化は成立しており「本人確認待ち」リストで拾えるため、エラーは通知のみ。
+      if (approveKyc?.licenseUrl && approveKyc?.faceUrl) {
+        try {
+          await apiFetch(`/api/admin/users/${approveTarget.id}/verify-kyc`, {
+            method: "POST",
+            body: JSON.stringify({ action: "approve" }),
+          });
+        } catch (e) {
+          setErrorState({
+            title: "本人確認の記録に失敗しました",
+            message: `参加は承認済みです。「本人確認待ち」から本人確認をやり直してください。（${e instanceof Error ? e.message : "不明なエラー"}）`,
+          });
+        }
+      }
       setApproveTarget(null);
-      await mutatePending();
+      setApproveKyc(null);
+      await Promise.all([mutatePending(), mutateKyc()]);
     } catch (e) {
       setErrorState({ title: "承認に失敗しました", message: e instanceof Error ? e.message : "不明なエラー" });
     } finally {
@@ -194,15 +332,94 @@ export default function PendingApprovalPage() {
           <h1 className="text-lg font-bold text-slate-900">ドライバーの参加・承認</h1>
         </div>
 
-        {/* 参加コード */}
+        {/* 単回招待リンク（主経路・準備中の間は非表示） */}
+        {INVITES_ENABLED && (
         <section className="bg-white rounded-lg border border-slate-200 p-4">
-          <h2 className="text-sm font-semibold text-slate-900 mb-2">参加コード</h2>
+          <h2 className="text-sm font-semibold text-slate-900 mb-2">招待リンク（1人につき1回）</h2>
           <p className="text-xs text-slate-500 mb-3">
-            このコードを参加者に伝えてください。参加者は「/join」で申請でき、承認すると利用開始できます。
+            参加者ごとにリンクを発行して LINE や SMS で送ってください。リンクは1回使うと無効になります（有効期限7日）。
+            開いた本人は氏名・電話認証から免許・顔写真の提出まで web で完結し、最後にアプリのインストールを案内されます。
           </p>
-          <div className="flex items-center gap-3">
+          {canWrite && (
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+                className="flex-1 min-w-0 py-2 px-3 text-sm rounded-lg border border-slate-200 focus:border-slate-400 focus:outline-none"
+                placeholder="宛先メモ（任意・管理用。本人には表示されません）"
+              />
+              <button
+                type="button"
+                onClick={createInvite}
+                disabled={inviteCreating}
+                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 transition-colors"
+              >
+                <FontAwesomeIcon icon={faUserPlus} className="h-3.5 w-3.5" />
+                {inviteCreating ? "発行中..." : "リンクを発行"}
+              </button>
+            </div>
+          )}
+          {invites.length === 0 ? (
+            <p className="text-sm text-slate-400 py-3 text-center">発行済みの招待はありません</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {invites.map((inv) => (
+                <li key={inv.id} className="py-2.5 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm text-slate-900 truncate">{inv.name || "（メモなし）"}</p>
+                    <p className="text-xs text-slate-500">
+                      {inv.status === "active"
+                        ? `有効 ・ ${new Date(inv.expiresAt).toLocaleDateString("ja-JP")} まで`
+                        : inv.status === "used"
+                          ? "使用済み"
+                          : inv.status === "expired"
+                            ? "期限切れ"
+                            : "失効"}
+                    </p>
+                  </div>
+                  {inv.status === "active" && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => copyInviteLink(inv)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+                      >
+                        <FontAwesomeIcon icon={copiedInviteId === inv.id ? faCheck : faCopy} className="h-3 w-3" />
+                        {copiedInviteId === inv.id ? "コピーしました" : "リンクをコピー"}
+                      </button>
+                      {canWrite && (
+                        <button
+                          type="button"
+                          onClick={() => revokeInvite(inv)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                        >
+                          <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                          失効
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        )}
+
+        {/* 共有参加コード（招待リンク解放後はフォールバック扱い） */}
+        <section className="bg-white rounded-lg border border-slate-200 p-4">
+          <h2 className="text-sm font-semibold text-slate-900 mb-2">
+            {INVITES_ENABLED ? "共有の参加コード・リンク（予備）" : "参加コード・招待リンク"}
+          </h2>
+          <p className="text-xs text-slate-500 mb-3">
+            {INVITES_ENABLED
+              ? "個別リンクを送れない場合の予備です。全員共通のコード・QR で、口頭で伝えても申請できます。個別リンクと違い何度でも使えるため、取り扱いには注意してください。"
+              : "招待リンク（または QR）を参加者に送ってください。開くと参加コードが自動入力され、本人が氏名・電話認証から免許・顔写真の提出まで web で完結します。リンクを開けない場合はコードを口頭で伝えても申請できます。"}
+          </p>
+          <div className="flex items-center gap-3 mb-4">
             <span className="inline-flex items-center px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xl font-mono tracking-widest text-slate-900">
-              {joinCodeRes?.joinCode ?? "—"}
+              {joinCode ?? "—"}
             </span>
             {canWrite && (
               <button
@@ -216,6 +433,37 @@ export default function PendingApprovalPage() {
               </button>
             )}
           </div>
+
+          {inviteUrl && (
+            <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
+              <div className="flex-1 min-w-0">
+                <label className="block text-xs font-medium text-slate-500 mb-1">招待リンク</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    readOnly
+                    value={inviteUrl}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="flex-1 min-w-0 py-2 px-3 text-xs font-mono rounded-lg bg-slate-50 border border-slate-200 text-slate-700"
+                  />
+                  <button
+                    type="button"
+                    onClick={copyInvite}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    <FontAwesomeIcon icon={copied ? faCheck : faCopy} className="h-3.5 w-3.5" />
+                    {copied ? "コピーしました" : "コピー"}
+                  </button>
+                </div>
+              </div>
+              {qrDataUrl && (
+                <div className="flex flex-col items-center gap-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={qrDataUrl} alt="招待QRコード" className="w-32 h-32 rounded-lg border border-slate-200 bg-white" />
+                  <span className="text-[11px] text-slate-400">QRで読み取り</span>
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         {/* 承認待ち */}
@@ -240,6 +488,17 @@ export default function PendingApprovalPage() {
                       {d.phone || "電話未登録"}
                       {d.created_at ? ` ・ ${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
                     </p>
+                    <span
+                      className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${
+                        d.kycComplete
+                          ? "bg-emerald-50 text-emerald-700"
+                          : d.hasLicensePhoto || d.hasFacePhoto
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-slate-100 text-slate-500"
+                      }`}
+                    >
+                      {d.kycComplete ? "本登録 提出済み" : d.hasLicensePhoto || d.hasFacePhoto ? "本登録 入力中" : "本登録 未提出"}
+                    </span>
                   </div>
                   {canWrite && (
                     <div className="flex items-center gap-2 shrink-0">
@@ -339,10 +598,16 @@ export default function PendingApprovalPage() {
                     </div>
                   </div>
                   <div className="text-sm space-y-1.5">
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">フリガナ</span><span className="text-slate-900">{kycDetail.nameKana || "—"}</span></div>
                     <div className="flex justify-between gap-3"><span className="text-slate-500">有効期限</span><span className="text-slate-900">{kycDetail.licenseExpiry || "—"}</span></div>
                     <div className="flex justify-between gap-3"><span className="text-slate-500">生年月日</span><span className="text-slate-900">{kycDetail.dob || "—"}</span></div>
                     <div className="flex justify-between gap-3"><span className="text-slate-500">住所</span><span className="text-slate-900 text-right">〒{kycDetail.postalCode} {kycDetail.address}</span></div>
-                    <div className="flex justify-between gap-3"><span className="text-slate-500">口座</span><span className="text-slate-900 text-right">{kycDetail.bankName} / {kycDetail.bankNo} / {kycDetail.bankHolder}</span></div>
+                    {addressAttestation(kycDetail.addressMatchesLicense) && (
+                      <div className="text-right">{addressAttestation(kycDetail.addressMatchesLicense)}</div>
+                    )}
+                    {kycDetail.bankName && (
+                      <div className="flex justify-between gap-3"><span className="text-slate-500">口座</span><span className="text-slate-900 text-right">{kycDetail.bankName} / {kycDetail.bankNo} / {kycDetail.bankHolder}</span></div>
+                    )}
                   </div>
                 </>
               )}
@@ -366,10 +631,10 @@ export default function PendingApprovalPage() {
         </div>
       )}
 
-      {/* 承認モーダル */}
+      {/* 承認モーダル（KYC 目視レビュー＋driver_code 割り当て → 承認1回で完了） */}
       {approveTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !saving && setApproveTarget(null)}>
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 border-b border-slate-200">
               <h2 className="text-sm font-semibold text-slate-900">参加を承認</h2>
               <p className="text-xs text-slate-500 mt-1">
@@ -378,6 +643,49 @@ export default function PendingApprovalPage() {
               </p>
             </div>
             <div className="px-5 py-4 space-y-4">
+              {approveKycLoading ? (
+                <p className="text-sm text-slate-400 py-4 text-center">本人確認情報を読み込み中...</p>
+              ) : approveKyc ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-slate-500 mb-1">免許証</p>
+                      {approveKyc.licenseUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={approveKyc.licenseUrl} alt="免許証" className="w-full rounded border border-slate-200" />
+                      ) : (
+                        <p className="text-xs text-slate-400">未提出</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 mb-1">顔写真</p>
+                      {approveKyc.faceUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={approveKyc.faceUrl} alt="顔写真" className="w-full rounded border border-slate-200" />
+                      ) : (
+                        <p className="text-xs text-slate-400">未提出</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-sm space-y-1.5">
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">フリガナ</span><span className="text-slate-900">{approveKyc.nameKana || "—"}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">有効期限</span><span className="text-slate-900">{approveKyc.licenseExpiry || "—"}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">生年月日</span><span className="text-slate-900">{approveKyc.dob || "—"}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-slate-500">住所</span><span className="text-slate-900 text-right">〒{approveKyc.postalCode} {approveKyc.address}</span></div>
+                    {addressAttestation(approveKyc.addressMatchesLicense) && (
+                      <div className="text-right">{addressAttestation(approveKyc.addressMatchesLicense)}</div>
+                    )}
+                    {approveKyc.bankName && (
+                      <div className="flex justify-between gap-3"><span className="text-slate-500">口座</span><span className="text-slate-900 text-right">{approveKyc.bankName} / {approveKyc.bankNo} / {approveKyc.bankHolder}</span></div>
+                    )}
+                  </div>
+                  <hr className="border-slate-100" />
+                </div>
+              ) : (
+                <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                  本登録（免許・顔写真）が未提出です。承認すると参加は有効になりますが、本人確認は提出後に「本人確認待ち」から行ってください。
+                </p>
+              )}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">ドライバー番号（6桁）</label>
                 <div className="flex">
@@ -431,7 +739,9 @@ export default function PendingApprovalPage() {
                 </div>
               )}
               <p className="text-xs text-slate-500">
-                初期PINはドライバー番号と同じ6桁です（承認後にドライバー本人が変更できます）。
+                {approveKyc?.licenseUrl && approveKyc?.faceUrl
+                  ? "承認するとドライバー番号を割り当て、本人確認（免許・顔の目視）まで完了します。本人はアプリをインストールしてすぐ業務を開始できます。"
+                  : "承認するとドライバー番号を割り当てます。本人確認は本登録の提出後に「本人確認待ち」から行ってください。"}
               </p>
             </div>
             <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
@@ -444,7 +754,7 @@ export default function PendingApprovalPage() {
                 disabled={saving}
                 className="px-4 py-1.5 text-xs font-medium rounded bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 transition-colors"
               >
-                {saving ? "承認中..." : "承認して有効化"}
+                {saving ? "承認中..." : approveKyc?.licenseUrl && approveKyc?.faceUrl ? "確認して承認" : "承認して有効化"}
               </button>
             </div>
           </div>

@@ -2,7 +2,7 @@
 
 機能ごとの業務フローは別ファイル（`docs/*-flow.md`、例: `notification-flow.md`）に分離。本書は基盤設計を扱う。
 
-ステータス: ドラフト（合意形成中）／最終更新: 2026-06-21
+ステータス: ドラフト（合意形成中）／最終更新: 2026-07-24（§2-1a 初期登録・認証フロー確定）
 関連方針: `構成A`（クライアントは Next.js API 経由のみ。Supabase直結なし。テナント分離はAPI層で一本化、**RLSは使わない**）
 
 ---
@@ -62,7 +62,89 @@
 - **端末紛失リカバリ**: ①SMS OTP で自己復旧 → 新端末で Passkey 再登録、②運営が顔・免許で本人確認して再登録、の2経路。KYC＋電話＋運営承認が復旧アンカー。
 - **メアド/Google等の併設は不要**。消費者アプリがメアドを置く主因は「復旧アンカー」だが、本アプリは検証済み電話＋KYC＋運営承認で既にそれを満たす。SMS OTP は**復旧・再登録専用**（毎回ログインには使わない＝コスト最小・安全最大）。PIN は廃止。Passkey は iCloud/Google 同期で機種変も引継がれるため復旧発動はレア。
 
+### 2-1a. 初期登録・認証フロー（確定 2026-07-24）
+
+§2-1/§2-2 の方針を具体化し、初期登録と認証を確定した。**本節が実装の正本**（§2-2 の6ステップは初期の概念整理で、順序・手段は本節が優先）。決定は 2026-07-24 のセッションでユーザーと合意。
+
+**認証スタック（3層。ユーザーは常に「FaceID」1つに見える）**
+
+| 場面 | 手段 | 実装 |
+|---|---|---|
+| アカウント認証（初回ログイン・機種変・30日失効後の再ログイン） | **Passkey**（内部で OS 純正の生体＝FaceID/TouchID が鍵を解錠） | WebAuthn（`server/auth/webauthn.ts`） |
+| 毎日のアプリ起動（セッションは SecureStore に30日） | **ローカル生体ロック**（サーバー往復なし・LINE 的な即 FaceID） | `expo-local-authentication` |
+| ブートストラップ／端末紛失リカバリ（新端末に Passkey がまだ無い時） | **電話 SMS OTP**（1回もの・毎回ログインには使わない） | Twilio Verify（`api/auth/recover/verify` を転用） |
+
+- **PIN は完全撤廃**（現行の driver_code＋6桁PIN、承認時の初期PIN発行を廃止）。6桁PINは弱く、OTP が復旧を兼ねるため不要。
+- **メール（メアド）は採用しない**。「Passkey 非対応端末で web 登録 → mobile ログイン」も含め、耐久識別子で本人性を示す役割は**電話 OTP が完全に同一**。配送ドライバー層では email より電話の方が確実。email を足すと PII 増・到達性インフラ・メール乗っ取りの攻撃面が増え「PII最小」を崩す。SMS 不達のエッジは運営の手動再確認で受ける。
+
+**登録フロー（web 一本化・アプリは稼働専用。2026-07-25 一本ウィザード化＋承認1回統合）**
+
+```
+━━━ モバイルブラウザ（インストール不要・1セッションで完結）━━━━
+① 単回招待リンク(/join?invite=token) を開く → ようこそ（会社名確認）
+   ＋ 利用規約・プライバシーポリシーに同意（/terms・/privacy、チェック必須）
+   （予備: 共有参加コード ?code= / 手入力）
+② 氏名 → 生年月日 → 電話番号 → SMS OTP
+   （検証成功で申請 pending 作成＋pending のままセッション発行＋招待を消費
+     ＋同意日時を identities.terms_agreed_at に記録＝migration 115）
+③ Face ID（Passkey）を有効にする（任意・スキップ可・あとで /me から可）
+④ web KYC: 免許 正面＋期限 → 顔 → 住所 → 申請完了
+   （完了画面でアプリ導入を予告。口座以外の PII 収集はここまでで済み）
+                    （運営: KYC の揃った申請を1回で承認
+                      ＝ driver_code 割当＋active 化＋kyc_verified_at）
+━━━ アプリ（承認後・稼働開始のタイミングで導入）━━━━━━━━━━
+⑤ 同期済 Passkey または電話OTPでログイン ＋ ローカル生体ロック
+⑥ QR業務 / 日報 / シフト / 報酬
+```
+
+- 境界は明快: **web＝登録・審査（PII収集まで全部）／ アプリ＝実稼働だけ**。install 前に最低限の PII を集めきれる（＝install 摩擦での離脱前に台帳が完成する）。
+- **モバイルの登録/KYC 画面（`RegisterScreen`/`KycWizard`）は退役**し web に一本化（二重メンテ回避）。ML Kit の免許 OCR は業務フロー（安全確認の抜き打ち免許確認・オドメーター）に残るので損失なし。
+- **pending セッション**: SMS 検証済みの申請者に発行する JWT は通常形式（requireAuth を通る）。本人系ルート（/api/me/*）で本登録を完結させるためのもので、稼働系の解放は従来どおり status='active'＋kyc_verified_at を見る各ルートがゲートする。招待コード＋SMS 検証が入口ゲートを兼ねる。
+- **中断再開**: 招待リンクを開き直す→同じ電話番号で SMS 認証→既存 membership を検出（alreadyApplied）してセッション再発行→未完の KYC ステップへジャンプ。セッションが残っていればコード入力もスキップ。
+
+**招待リンク**
+
+- **主経路は単回招待リンク**（2026-07-25 実装）: `invites` テーブル（migration 114。token unique・宛先メモ・7日期限・revoked/used 管理）＋ `/join?invite=<token>`。運営は承認画面から宛先メモ（任意・管理用ラベル）を添えて発行し、LINE/SMS で個別送付。消費は「used_at IS NULL の条件付き UPDATE」で1回きりを保証（申請済みの再開はトークンを消費しない）。**氏名のプリフィルはしない**＝氏名・生年月日等の PII は必ず登録者本人が入力する（運営入力の伝聞情報を台帳に混ぜない・2026-07-26）。
+- 共有 `join_code` の `?code=` 付き URL ＋ QR（open invite）は**口頭伝達フォールバック**として併存。既存 backend（§2-3）は不変。
+- **deferred deep linking（Branch 等の外部 SDK）は不要**。web 先行で「招待 → オンボーディング」が全てブラウザ内で完結し、途中に App Store インストールを挟まないため、招待コンテキストがストアを跨いで生き残る必要がない。コードは招待メッセージにも併記し、確実に手入力/貼付できるようにする。
+- **承認は1回に統合**（2026-07-25。旧: 仮承認→本承認の2段階）。申請者が KYC まで一気に提出してくるため、運営は承認モーダルで免許・顔を目視し、**1回の承認で active 化＋本人確認（kyc_verified_at）を同時に行う**。入口ゲートは招待コード＋SMS 検証が担う。KYC 未提出のまま承認した場合や既存ドライバーの移行は、従来どおり「本人確認待ち」リスト（verify-kyc）で後から本承認する。稼働解放は本人確認完了が唯一のゲートである点は不変。
+- targeted single-use invite は §7 Phase 9 案から**前倒しで実装済み**（2026-07-25）。「仮承認の自動化」は承認1回統合により概念ごと不要になった。
+
+**deep link / Universal Links の要否**
+
+- **招待には不要**。AASA（`webcredentials`）／assetlinks.json（`get_login_creds`）は **ネイティブ Passkey のために M1（8/8 法人登記→Apple Developer 後）で必須**。Universal Links / App Links は同ファイルの副産物として付いてくるだけで、UL routing を先行実装する必要はない。**web 版 Passkey は現状で使用可**（rpID `hakotora.jp` 本番デプロイ済）。
+
+**KYC の収集範囲（eKYC なし・目視承認）**
+
+- **免許証 正面 ＋ 顔写真（自撮り）＋ 住所**のみ。撮影は `<input type="file" accept="image/*" capture>`、保存は既存 `POST /api/me/registration/photo`（非公開 Storage・base64）をそのまま流用。
+- **住所は手入力**（「運転免許証の記載どおり」の案内付き）。web での免許 OCR 自動入力は新規外部依存（サーバ側 OCR API）になるため導入せず、正確性は運営が承認時に免許画像と突き合わせる目視で担保。ML Kit OCR（mobile）は業務フロー用に温存。
+- **利用規約・プライバシーポリシー**: `/terms`・`/privacy`（ドラフト・法人登記後にリーガルレビューで確定）。ようこそ画面のチェック必須＋ `/api/join` で `termsAgreed` 必須、同意日時は identity 単位で `identities.terms_agreed_at` に記録（再同意で上書き）。
+- **業務委託契約（将来・org 設定制）**: org の設定により、KYC 提出後〜申請確定前に**電子契約ステップ**を挿入できるようにする。「要点（画面で読める要約）」と契約書 PDF を分けて提示し、同意ログ（契約書バージョン・同意日時・identity/membership）を記録する。org ごとに契約書テンプレートが異なる前提。実装時期は運用開始後の実需に合わせる（2026-07-26 メモ）。
+- **口座はオンボーディングから除外**（2026-07-25）: 本登録の complete 条件に含めず、**初回の報酬支払いまでにアプリのマイページ（MeScreen 振込口座セクション）で登録**してもらう。申請時の摩擦を減らし、口座 PII の収集を実需（支払い）の直前まで遅延させる。API は従来の `POST /api/me/registration`（部分更新）をそのまま使用。
+- **免許裏面は撤廃**。有効性・氏名・顔・期限・種別・条件は表面で完結し、住所は別フォームで自己申告するため裏面の住所裏書きは不要。裏面の臓器提供意思は要配慮個人情報で、不採取が「PII最小」に適合。実需（大口取引先の犯収法相当要求）が出たら org 任意で昇格。
+- 有効期限は手入力（ML Kit OCR による自動プリフィルは後段の任意強化）。
+- カーシェア等の「正面＋斜め＋裏面＋liveness＋顔照合」は**犯収法 eKYC（有料 SDK）**で、hakotora の**運営目視承認モデルでは不採用**。斜め撮影/liveness は自動スプーフィング対策で、人が目視する本モデルには不要。
+
+**モバイルのログイン画面**
+
+```
+[FaceIDでログイン]        ← 主：同期/端末内 Passkey（8/8 以降フル機能）
+[別の方法（電話番号）]     ← 副：電話OTP
+   └─ 成功 → 「この端末にFaceIDを設定しますか？」→ Passkey登録
+```
+
+- OTP は**恒久の新端末/紛失リカバリ経路**（設計が元から要求）であり、**8/8 前はネイティブ Passkey が使えないため暫定の主役も兼ねる**（二重の必要性・捨て仕事にならない）。現代アプリ定番の「主 Passkey ＋ 別の方法で OTP ＋ 成功後に生体登録」そのまま。
+
+**実装インパクト（現行との差分）**
+
+- **撤廃**: PIN（driver login の driver_code＋PIN、承認時の初期PIN発行）／モバイル `RegisterScreen`・`KycWizard`。
+- **新規**: web KYC UI（1画面）／モバイル OTP ログイン画面／モバイル ローカル生体ロック／招待リンク（`?code=` プリフィル＋QR）。
+- **転用**: `api/auth/recover/verify`（電話 OTP → セッション発行）を「復旧」から「初回ログイン」にも。
+- **依存**: ネイティブ Passkey は M1（AASA/assetlinks・8/8 登記後）。それまでアプリ初回ログインは OTP ブートストラップで先行し PIN を前倒し撤廃できる。
+
 ### 2-2. アイデンティティ作成 → 会社参加フロー
+
+> **注**: 下記6ステップは初期の概念整理。具体の順序・手段（web一本化・PIN撤廃・電話OTP初回ログイン・Passkey・KYC範囲）は **§2-1a（2026-07-24 確定）が正本**。identity×org の PII 開示同意まわり（下記の表・`pii_disclosures`）は引き続き有効。
 
 ```
 【identity作成（初回1回）】
@@ -466,7 +548,7 @@ CREATE TABLE company_carriers (
 - **Phase 7b — 参加フロー（UI）✅完了**（コードのみ）: 公開 `/join` ページ（参加コード＋氏名＋電話で申請→承認待ち、ログイン雛形流用・認証不要）。運営「参加・承認」ページ `/admin/users/pending`（join_code 表示/再生成＋承認待ち一覧＋承認モーダル[driver番号/事業所/コース→PUT status:active で driver_code・初期PIN発行]＋却下[PUT status:rejected]）。AdminLayout の「管理」に導線追加。**1175行の users 本体は無改修**（リスク回避で専用ページ化）。検証=tsc clean・248緑。
 - **仮登録の SMS OTP ✅完了**（コードのみ・Twilio Verify）: `POST /api/otp/send`／`GET /api/join/lookup`（会社名のみ）。`POST /api/join` を OTP 必須化（`checkOtp` approved 確認→identity を**検証済み電話で find-or-create**＋`phone_verified_at` 刻印→pending）。admin pending 一覧は電話を**下4桁マスク**（誤 join_code でもフル電話を渡さない）。mobile `RegisterScreen`＋web `/join` を 3ステップ（コード→会社名確認→氏名/電話→OTP→申請）に。
 - **本登録 KYC ✅完了**（migration 089=非公開バケット `kyc-documents`）: 承認後ドライバーが免許/顔写真＋住所/銀行＋免許期限を登録。`server/kyc/storage.ts`（upload/署名URL）／`GET・POST /api/me/registration`（部分更新・`complete` 判定）／`POST /api/me/registration/photo`（base64→Storage→identities にパス）。mobile `KycWizard`（進捗バー＋ステップ：免許写真＋期限→顔写真→住所→銀行）。住所/銀行=membership、免許/顔=identity。
-- **2段階承認（本人確認）✅完了**（migration 090=`drivers.kyc_verified_at`/`kyc_verified_by`）: プライバシーで仮登録を最小化した副作用＝「承認=顔/免許の目視確認」（§2-2）を是正。**仮承認(pending→active)→本登録→本承認(運営が顔/免許を目視)→アプリ解放**。`GET /api/admin/users?stage=kyc`（本人確認待ち）／`GET /[id]/kyc`（免許/顔の署名URL・ADMIN/VIEWERのみ）／`POST /[id]/verify-kyc`（approve→kyc_verified_at / reject）。admin `/admin/users/pending` に本人確認待ちセクション＋KYCレビューモーダル。mobile ハードゲート3状態（本登録未完→ウィザード／本承認前→KycPending待機／本承認済→タブ）。
+- **2段階承認（本人確認）✅完了**（migration 090=`drivers.kyc_verified_at`/`kyc_verified_by`）: プライバシーで仮登録を最小化した副作用＝「承認=顔/免許の目視確認」（§2-2）を是正。**仮承認(pending→active)→本登録→本承認(運営が顔/免許を目視)→アプリ解放**。`GET /api/admin/users?stage=kyc`（本人確認待ち）／`GET /[id]/kyc`（免許/顔の署名URL・ADMIN/VIEWERのみ）／`POST /[id]/verify-kyc`（approve→kyc_verified_at / reject）。admin `/admin/users/pending` に本人確認待ちセクション＋KYCレビューモーダル。mobile ハードゲート3状態（本登録未完→ウィザード／本承認前→KycPending待機／本承認済→タブ）。※2026-07-25 §2-1a で**承認1回に統合**（pending 承認モーダルで KYC 目視→active＋kyc_verified_at を同時完了）。verify-kyc と本人確認待ちリストは KYC 後出し・既存ドライバー移行用に存続。
 - **免許期限 OCR ✅完了**（コードのみ）: `core/logic/license.ts` `parseLicenseExpiryFromOcr`（純粋・和暦/西暦・括弧併記対応・「まで有効」優先）＋テスト。mobile は端末側 ML Kit（`@react-native-ml-kit/text-recognition`・和文・画像は端末から出ない）で免許写真→期限プリフィル→**ユーザー確認**。読めなければ手入力。
 - **dev 環境＋mobile アプリ ✅基盤**: 独立 dev Supabase＋`npm run db:migrate`（台帳方式 `_migrations`）。`apps/mobile`（Expo SDK52・React18.3・`@repo/core` 再利用）＝ログイン/仮登録/本登録/日報/希望休/報酬/マイページの全画面を実装し **NativeWind** に統一。実機ビルド・SMS・OCR は実機で確認。詳細は memory `tenant-migration`/`rn-migration-core-layer`。
 - **Phase 8 — 隔離テスト ✅基盤完了**: 実DB(Supabase ブランチ)に supabase-js で接続する env-gated 統合テスト（`npm run test:itest`、`*.itest.ts`）。使い捨て2 org を seed し集計/ledger/mutation の隔離を assert。ルートレベル(JWT+NextRequest)テストは follow-up。

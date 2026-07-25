@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { startRegistration } from "@simplewebauthn/browser";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
@@ -72,6 +73,15 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   useEffect(() => {
     if (profileData) setProfile(profileData);
   }, [profileData]);
+  // 本登録（KYC）の完了状況。免許・顔写真の提出導線を出すために使う（既存ドライバーの移行含む）。
+  const { data: regData } = useApi<{
+    complete: boolean;
+    kycVerified: boolean;
+    hasLicensePhoto: boolean;
+    hasFacePhoto: boolean;
+  }>("/api/me/registration");
+  const needsRegistration = !!regData && !regData.complete && !regData.kycVerified;
+  const awaitingKycReview = !!regData && regData.complete && !regData.kycVerified;
   // 既存の電話番号があれば入力欄に初期値として流し込む（再訪時に空にしない）。
   useEffect(() => {
     if (profileData?.phone) setPhoneInput((prev) => prev || profileData.phone);
@@ -554,6 +564,26 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-bold text-slate-900">マイページ</h1>
       </div>
+
+      {needsRegistration && (
+        <Link
+          href="/register"
+          className="block mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 hover:bg-amber-100 transition-colors"
+        >
+          <p className="text-sm font-semibold text-amber-900">本登録が未完了です</p>
+          <p className="text-xs text-amber-800 mt-1">
+            免許証・顔写真などの提出が必要です。タップして本登録に進んでください。
+          </p>
+        </Link>
+      )}
+      {awaitingKycReview && (
+        <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-800">本人確認中</p>
+          <p className="text-xs text-slate-600 mt-1">
+            運営が免許・顔写真を確認しています。完了までお待ちください。
+          </p>
+        </div>
+      )}
 
       <div className="mb-6">
         <TeamPointsCard />
