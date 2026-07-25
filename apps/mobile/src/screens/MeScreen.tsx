@@ -8,7 +8,9 @@ import { useAuth } from "../AuthContext";
 import { Skeleton } from "../components/Skeleton";
 
 // ============================================================
-// マイページ（me）＝プロフィール表示＋PIN変更＋電話番号確認。NativeWind。
+// マイページ（me）＝プロフィール表示＋PIN変更＋電話番号確認＋振込口座。NativeWind。
+// 振込口座は web オンボーディングから除外されたため（§2-1a 2026-07-25）、
+// ここが収集の正: 初回の報酬支払いまでに登録してもらう（未登録なら案内を表示）。
 // 表示・検証ロジックは Web と同じ @repo/core/logic/profile を再利用。
 // Passkey登録はネイティブ実装（react-native-passkey ＋ AASA/assetlinks配信）が
 // bundleId確定待ちでブロック中のため未着手（[[mobile-app-roadmap]] M8参照）。
@@ -33,6 +35,31 @@ export function MeScreen() {
   const [phoneCode, setPhoneCode] = useState("");
   const [phoneSubmitting, setPhoneSubmitting] = useState(false);
   const [phoneMessage, setPhoneMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+
+  const [bankName, setBankName] = useState("");
+  const [bankNo, setBankNo] = useState("");
+  const [bankHolder, setBankHolder] = useState("");
+  const [bankRegistered, setBankRegistered] = useState(false);
+  const [bankSubmitting, setBankSubmitting] = useState(false);
+  const [bankMessage, setBankMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch<{ bankName: string; bankNo: string; bankHolder: string }>("/api/me/registration")
+      .then((r) => {
+        if (!alive) return;
+        setBankName(r.bankName || "");
+        setBankNo(r.bankNo || "");
+        setBankHolder(r.bankHolder || "");
+        setBankRegistered(!!(r.bankName && r.bankNo && r.bankHolder));
+      })
+      .catch(() => {
+        // 取得失敗時は未登録扱いのまま（保存時にエラーが出る）
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -95,6 +122,23 @@ export function MeScreen() {
     }
   };
 
+  const submitBank = async () => {
+    setBankMessage(null);
+    setBankSubmitting(true);
+    try {
+      await apiFetch("/api/me/registration", {
+        method: "POST",
+        body: JSON.stringify({ bankName: bankName.trim(), bankNo: bankNo.trim(), bankHolder: bankHolder.trim() }),
+      });
+      setBankRegistered(true);
+      setBankMessage({ type: "ok", text: "振込口座を保存しました" });
+    } catch (e) {
+      setBankMessage({ type: "error", text: e instanceof Error ? e.message : "保存に失敗しました" });
+    } finally {
+      setBankSubmitting(false);
+    }
+  };
+
   const verifyPhone = async () => {
     setPhoneMessage(null);
     setPhoneSubmitting(true);
@@ -145,6 +189,50 @@ export function MeScreen() {
 
       {!loading && !error && (
         <>
+          <Text className="text-base font-bold text-brand-900 mb-3 mt-8">振込口座</Text>
+          <View className="bg-white rounded-lg border border-brand-200 p-4 gap-3">
+            {bankRegistered ? (
+              <View className="flex-row items-center gap-2">
+                <FontAwesome6 name="circle-check" size={14} color="#059669" iconStyle="solid" />
+                <Text className="text-sm text-brand-700">登録済みです（変更するには上書きして保存）</Text>
+              </View>
+            ) : (
+              <Text className="text-sm text-brand-600">
+                報酬の振込先です。初回のお支払いまでにご登録ください。
+              </Text>
+            )}
+            <View className="gap-1">
+              <Text className="text-[13px] text-brand-600">銀行名・支店</Text>
+              <TextInput className={INPUT} value={bankName} onChangeText={setBankName} placeholder="◯◯銀行 ◯◯支店" />
+            </View>
+            <View className="gap-1">
+              <Text className="text-[13px] text-brand-600">口座番号</Text>
+              <TextInput
+                className={INPUT}
+                value={bankNo}
+                onChangeText={(t) => setBankNo(digitsOnly(t).slice(0, 8))}
+                keyboardType="number-pad"
+                placeholder="1234567"
+              />
+            </View>
+            <View className="gap-1">
+              <Text className="text-[13px] text-brand-600">口座名義（カナ）</Text>
+              <TextInput className={INPUT} value={bankHolder} onChangeText={setBankHolder} placeholder="ヤマダ タロウ" />
+            </View>
+            {bankMessage && (
+              <Text className={`text-[13px] ${bankMessage.type === "ok" ? "text-emerald-600" : "text-red-600"}`}>
+                {bankMessage.text}
+              </Text>
+            )}
+            <Pressable
+              className={`py-2.5 rounded-lg items-center bg-brand-900 active:opacity-80 ${bankSubmitting || !bankName.trim() || !bankNo.trim() || !bankHolder.trim() ? "opacity-50" : ""}`}
+              onPress={submitBank}
+              disabled={bankSubmitting || !bankName.trim() || !bankNo.trim() || !bankHolder.trim()}
+            >
+              {bankSubmitting ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium">保存する</Text>}
+            </Pressable>
+          </View>
+
           <Text className="text-base font-bold text-brand-900 mb-3 mt-8">PINの変更</Text>
           <View className="bg-white rounded-lg border border-brand-200 p-4 gap-3">
             <View className="gap-1">
