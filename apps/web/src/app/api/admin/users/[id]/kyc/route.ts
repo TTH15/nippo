@@ -17,7 +17,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, name, identity_id, postal_code, address, bank_name, bank_no, bank_holder, kyc_verified_at")
+    .select(
+      "id, name, identity_id, postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, kyc_verified_at",
+    )
     .eq("id", driverId)
     .eq("org_id", orgId)
     .maybeSingle();
@@ -28,7 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { data: identity } = driver.identity_id
     ? await supabase
         .from("identities")
-        .select("license_photo_path, face_photo_path, license_expiry, dob")
+        .select("license_photo_path, face_photo_path, license_expiry, dob, name_kana")
         .eq("id", driver.identity_id)
         .maybeSingle()
     : { data: null };
@@ -42,12 +44,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   return NextResponse.json({
     name: driver.name,
+    nameKana: identity?.name_kana ?? "",
     licenseUrl,
     faceUrl,
     licenseExpiry: identity?.license_expiry ?? "",
     dob: identity?.dob ?? "",
     postalCode: driver.postal_code ?? "",
     address: driver.address ?? "",
+    addressMatchesLicense: (driver.address_matches_license as boolean | null) ?? null,
     bankName: showBank ? (driver.bank_name ?? "") : "",
     bankNo: showBank ? (driver.bank_no ?? "") : "",
     bankHolder: showBank ? (driver.bank_holder ?? "") : "",
