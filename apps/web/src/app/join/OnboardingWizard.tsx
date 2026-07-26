@@ -240,6 +240,13 @@ export function OnboardingWizard({
   // 免許有効期限の OCR プリフィル（読み取り中表示と、自動入力したことの案内）。
   const [expiryOcrBusy, setExpiryOcrBusy] = useState(false);
   const [expiryOcrFilled, setExpiryOcrFilled] = useState(false);
+  const [expiryOcrFailed, setExpiryOcrFailed] = useState(false);
+  // OCR 完了時に「手入力済みか」を同期的に判定するためのミラー
+  // （state 更新関数の中でフラグを立てる方式は、更新関数が非同期実行のため使えない）。
+  const licensePartsRef = useRef(licenseParts);
+  useEffect(() => {
+    licensePartsRef.current = licenseParts;
+  }, [licenseParts]);
 
   // 住所ステップ: 「免許証記載と同じ」チェック（既定 ON）と郵便番号→住所の自動入力。
   const [addressSame, setAddressSame] = useState(true);
@@ -502,24 +509,24 @@ export function OnboardingWizard({
   };
 
   // 有効期限の OCR。読めたらホイールへ反映するが、その間にユーザーが手で
-  // 選んでいたら上書きしない。失敗は無言（手入力のままでよい）。
+  // 選んでいたら上書きしない。読めなかったときは控えめに一言だけ出す。
   const runExpiryOcr = async (base64: string) => {
     setExpiryOcrBusy(true);
+    setExpiryOcrFailed(false);
     try {
       const found = await ocrLicenseExpiryFromBase64(base64);
-      if (!found) return;
-      const y = Number(found.slice(0, 4));
-      if (y < THIS_YEAR || y > THIS_YEAR + 10) return; // ホイールの選択肢範囲外は捨てる
-      let applied = false;
-      setLicenseParts((prev) => {
-        if (prev.y || prev.m || prev.d) return prev; // 手入力を尊重
-        applied = true;
-        return partsFromDate(found);
-      });
-      if (applied) {
-        setReg((r) => (r && !r.licenseExpiry ? { ...r, licenseExpiry: found } : r));
-        setExpiryOcrFilled(true);
+      const y = found ? Number(found.slice(0, 4)) : 0;
+      const inRange = !!found && y >= THIS_YEAR && y <= THIS_YEAR + 10; // ホイールの選択肢範囲
+      const cur = licensePartsRef.current;
+      const untouched = !cur.y && !cur.m && !cur.d;
+      if (!inRange) {
+        if (untouched) setExpiryOcrFailed(true);
+        return;
       }
+      if (!untouched) return; // 手入力を尊重
+      setLicenseParts(partsFromDate(found!));
+      setReg((r) => (r && !r.licenseExpiry ? { ...r, licenseExpiry: found! } : r));
+      setExpiryOcrFilled(true);
     } finally {
       setExpiryOcrBusy(false);
     }
@@ -887,6 +894,11 @@ export function OnboardingWizard({
                   {expiryOcrFilled && (
                     <p className="mt-2 text-xs text-emerald-600">
                       写真から自動入力しました。違っていれば選び直してください。
+                    </p>
+                  )}
+                  {expiryOcrFailed && (
+                    <p className="mt-2 text-xs text-slate-400">
+                      写真から読み取れませんでした。有効期限を選択してください。
                     </p>
                   )}
                 </div>

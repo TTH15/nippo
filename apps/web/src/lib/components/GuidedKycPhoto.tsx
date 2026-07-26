@@ -155,15 +155,41 @@ function CameraModal({
     };
   }, [kind]);
 
+  // 撮影。免許証はガイド枠（＋少し余白）で切り抜いて保存する。
+  // 広角カメラだと全体保存では免許証が画像のごく一部になり、確認・OCR とも精度が落ちるため。
+  // video は object-cover 表示なので、表示座標→動画ピクセルの変換（cover のはみ出し分）を挟む。
   const shoot = () => {
     const v = videoRef.current;
     if (!v || !v.videoWidth) return;
+    const vw = v.videoWidth;
+    const vh = v.videoHeight;
+    let sx = 0;
+    let sy = 0;
+    let sw = vw;
+    let sh = vh;
+    if (kind === "license") {
+      const cw = v.clientWidth;
+      const ch = v.clientHeight;
+      const scale = Math.max(cw / vw, ch / vh); // object-cover の拡大率
+      // ガイド枠: 中央・幅 min(86%, 448px)・カード比 1.58。切り抜きは各辺 +6% の余白付き。
+      const base = Math.min(cw * 0.86, 448);
+      const gw = base * 1.12;
+      const gh = (base / 1.58) * 1.12;
+      const gx = (cw - gw) / 2;
+      const gy = (ch - gh) / 2;
+      const offX = (vw * scale - cw) / 2; // cover ではみ出している量（表示px）
+      const offY = (vh * scale - ch) / 2;
+      sx = Math.max(0, (gx + offX) / scale);
+      sy = Math.max(0, (gy + offY) / scale);
+      sw = Math.min(gw / scale, vw - sx);
+      sh = Math.min(gh / scale, vh - sy);
+    }
     const canvas = document.createElement("canvas");
-    canvas.width = v.videoWidth;
-    canvas.height = v.videoHeight;
+    canvas.width = Math.round(sw);
+    canvas.height = Math.round(sh);
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(v, 0, 0);
+    ctx.drawImage(v, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     canvas.toBlob(
       (blob) => {
         if (blob) onCapture(new File([blob], `${kind}.jpg`, { type: "image/jpeg" }));
