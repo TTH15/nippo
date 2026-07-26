@@ -132,3 +132,11 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 
 - docs/roadmap-2026-07.md に J トラックを追記（完了内容と残タスク: 招待UI解放フラグ・実機追い込み・承認時通知・規約レビュー・電子契約・NFC将来）
 - 次の主戦場は mobile（トラックD・9/1 目標。Apple は 8/8 登記待ちのため Android/足回り/SDK57 判断が先行可能）
+
+## 2026-07-27 Expo SDK 57 移行（夜間自律作業・feat/expo-sdk57 ブランチ）
+
+- **調査**: SDK 57 = RN 0.86 / React 19.2（53〜56 の累積が実質: New Arch 必須化・Hermes V1 既定・reanimated 4）。NativeWind v5（Tailwind v4 対応）は preview 段階 → **Tailwind v4 化は見送り、NativeWind 4.2.6 + Tailwind v3 で SDK 57 化のみ実施**
+- **React 19.2.3 に monorepo 一本化**: 混在の根本原因は root package.json に残置された expo52/react18/RN0.76 の直接依存。除去＋overrides で単一コピー化し、web 側の回避策（tsconfig paths・vitest alias）を撤去。AGENTS.md・patterns/mixed-react-monorepo.md に解消記録
+- **機械的修正**: app.json の newArchEnabled 削除・deploymentTarget 16.4、@types/react 19・TS 6.0、css-interop 0.2 型参照、safe-area className 型拡張、*.css スタブ
+- **検証（すべて green）**: mobile/web tsc・web テスト421・next build・expo export（iOS/Android Hermes バンドル）・prebuild --clean・pod install（GoogleMLKit 8.0.0）・**xcodebuild シミュレータビルド成功**。expo-doctor 19/20（ML Kit「New Arch 未テスト」表記のみ＝現行アプリで稼働実績あり）
+- **残（要ユーザー）**: 実機 dev client 再ビルドで動作確認（生体ロック・カメラ・OCR・NativeWind描画）／Android ネイティブビルド（ローカルに JDK/SDK なし→EAS）／bundleId 確定（提案: jp.hakotora.app）。main 未マージ
