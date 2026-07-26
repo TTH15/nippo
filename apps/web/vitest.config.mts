@@ -48,10 +48,8 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       // @repo/core の subpath（/types, /logic/x, /auth, /api）を core ソースへ解決
       "@repo/core": coreSrc,
-      // ルートには mobile(Expo)用の react/react-dom 18 が hoist されているため、
-      // テストでは web 配下の 19 系に固定する(18/19 混在ロードで render が壊れる)
-      react: path.resolve(__dirname, "./node_modules/react"),
-      "react-dom": path.resolve(__dirname, "./node_modules/react-dom"),
+      // ※react/react-dom の nested 固定エイリアスは SDK57 移行（React 19 一本化・
+      //   root hoist 単一コピー）で不要になり撤去。
     },
   },
 });

@@ -26,19 +26,7 @@
       "@/*": [
         "./src/*"
       ],
-      // ルートに hoist される mobile 用 @types/react(18系)ではなく、web 配下の 19 系型に固定する
-      "react": [
-        "./node_modules/@types/react"
-      ],
-      "react/*": [
-        "./node_modules/@types/react/*"
-      ],
-      "react-dom": [
-        "./node_modules/@types/react-dom"
-      ],
-      "react-dom/*": [
-        "./node_modules/@types/react-dom/*"
-      ]
+      // ※React 18/19 混在時代の @types/react 固定 paths は SDK57 移行（React 19 一本化）で撤去
     }
   },
   "include": [
