@@ -7,7 +7,7 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.nippomobile",
+      "bundleIdentifier": "jp.hakotora.app",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
@@ -15,10 +15,10 @@
       }
     },
     "android": {
-      "package": "com.example.nippomobile"
+      "package": "jp.hakotora.app"
     },
     "extra": {
-      "_note": "name/slug/bundleId はブランド未確定のため仮。確定後にリネーム。"
+      "_note": "bundleId は jp.hakotora.app で確定（2026-07-27）。name/slug は EAS 設定（eas init）時に確定させる。"
     },
     "plugins": [
       "expo-asset",
