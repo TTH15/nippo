@@ -144,5 +144,5 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-07-27 bundleId 確定: jp.hakotora.app
 
 - ユーザー決定により iOS bundleIdentifier / Android package を jp.hakotora.app に変更（com.example.nippomobile から本番化）。name/slug は EAS 設定時に確定
-- prebuild --clean で両ネイティブ再生成・pod install 完了。新IDでの iOS シミュレータビルドをバックグラウンド実行中（結果は完了時に報告）
+- prebuild --clean で両ネイティブ再生成・pod install 完了。新IDでの iOS シミュレータビルドも BUILD SUCCEEDED（xcodebuild・全ネイティブ再コンパイル）
 - 残: Apple Developer 登録後に本IDで App ID 登録＋Associated Domains（Passkey AASA）
