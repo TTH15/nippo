@@ -140,3 +140,9 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - **機械的修正**: app.json の newArchEnabled 削除・deploymentTarget 16.4、@types/react 19・TS 6.0、css-interop 0.2 型参照、safe-area className 型拡張、*.css スタブ
 - **検証（すべて green）**: mobile/web tsc・web テスト421・next build・expo export（iOS/Android Hermes バンドル）・prebuild --clean・pod install（GoogleMLKit 8.0.0）・**xcodebuild シミュレータビルド成功**。expo-doctor 19/20（ML Kit「New Arch 未テスト」表記のみ＝現行アプリで稼働実績あり）
 - **残（要ユーザー）**: 実機 dev client 再ビルドで動作確認（生体ロック・カメラ・OCR・NativeWind描画）／Android ネイティブビルド（ローカルに JDK/SDK なし→EAS）／bundleId 確定（提案: jp.hakotora.app）。main 未マージ
+
+## 2026-07-27 bundleId 確定: jp.hakotora.app
+
+- ユーザー決定により iOS bundleIdentifier / Android package を jp.hakotora.app に変更（com.example.nippomobile から本番化）。name/slug は EAS 設定時に確定
+- prebuild --clean で両ネイティブ再生成・pod install 完了。新IDでの iOS シミュレータビルドをバックグラウンド実行中（結果は完了時に報告）
+- 残: Apple Developer 登録後に本IDで App ID 登録＋Associated Domains（Passkey AASA）
