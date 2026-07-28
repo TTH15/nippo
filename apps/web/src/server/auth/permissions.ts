@@ -74,6 +74,25 @@ export async function requirePermission(
 }
 
 /**
+ * 認証 + capability チェック（いずれか1つを満たせば許可）。
+ * 複数ドメインにまたがる操作（例: 車両貸出 = 配車 or 車両管理）に使う。
+ */
+export async function requireAnyPermission(
+  req: NextRequest,
+  capabilities: Capability[],
+): Promise<AuthUser | NextResponse> {
+  const user = await requireAuth(req);
+  if (isAuthError(user)) return user;
+
+  const caps = await getCapabilities(user);
+  if (!capabilities.some((c) => caps.has(c))) {
+    console.log(`[Auth] Forbidden: required any of ${capabilities.join("|")}, role=${user.role}`);
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return { ...user, capabilities: caps };
+}
+
+/**
  * requirePermission が添えた capability を使う（無ければ取得する）。
  * hasCapability の呼び直しで drivers + role_capabilities を再取得するのを避ける。
  */

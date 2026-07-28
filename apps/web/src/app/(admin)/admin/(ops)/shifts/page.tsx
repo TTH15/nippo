@@ -459,8 +459,11 @@ type Period = "first" | "second";
 
 export default function ShiftsPage() {
   const [canWrite, setCanWrite] = useState(false);
-  // 配車（車両割当・貸出）はシフト編集と独立の can_dispatch でゲート（A1）。
+  // 配車（車両割当）はシフト編集と独立の can_dispatch でゲート（A1）。
   const [canDispatch, setCanDispatch] = useState(false);
+  // 貸出は車両管理（can_manage_vehicles）でも操作できる（配車 or 車両管理のどちらか）。
+  const [canManageVehicles, setCanManageVehicles] = useState(false);
+  const canLoan = canDispatch || canManageVehicles;
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [yearMonth, setYearMonth] = useState(currentYearMonth());
   // デフォルトは「今日」を含む期間（1〜15日=前半 / 16日〜=後半）
@@ -653,6 +656,7 @@ export default function ShiftsPage() {
   useEffect(() => {
     setCanWrite(hasCapability("can_manage_shifts"));
     setCanDispatch(hasCapability("can_dispatch"));
+    setCanManageVehicles(hasCapability("can_manage_vehicles"));
   }, []);
 
   // 表示期間に今日が含まれるとき、表を開いたら今日の列へ横スクロールして視界に入れる。
@@ -898,7 +902,7 @@ export default function ShiftsPage() {
   };
 
   const startLoanPaint = (vehicleId: string, date: string) => {
-    if (!canDispatch) return;
+    if (!canLoan) return;
     loanPaintRef.current = { loaned: !isVehicleLoaned(vehicleId, date), skipped: 0 };
     applyLoanPaint(vehicleId, date);
   };
@@ -923,7 +927,7 @@ export default function ShiftsPage() {
 
   /** 車両の日毎の貸出中をトグル（楽観更新＋失敗時リロード）。 */
   const toggleVehicleLoan = async (vehicleId: string, date: string) => {
-    if (!canDispatch) return;
+    if (!canLoan) return;
     const loaned = !isVehicleLoaned(vehicleId, date);
     setVehicleLoans((prev) =>
       loaned
@@ -1777,7 +1781,7 @@ export default function ShiftsPage() {
           </div>
         </div>
 
-        {(canWrite || canDispatch) && (
+        {(canWrite || canLoan) && (
           <div className="mb-2 flex items-center gap-2 text-[11px] md:text-xs text-slate-500">
             <span
               className={`inline-block h-2 w-2 rounded-full ${
@@ -2473,7 +2477,7 @@ export default function ShiftsPage() {
                             <td key={date} className="px-0.5 py-0.5 text-center">
                               <button
                                 type="button"
-                                disabled={!canDispatch}
+                                disabled={!canLoan}
                                 onMouseDown={(e) => {
                                   e.preventDefault();
                                   startLoanPaint(v.id, date);
