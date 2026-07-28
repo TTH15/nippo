@@ -146,3 +146,11 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - ユーザー決定により iOS bundleIdentifier / Android package を jp.hakotora.app に変更（com.example.nippomobile から本番化）。name/slug は EAS 設定時に確定
 - prebuild --clean で両ネイティブ再生成・pod install 完了。新IDでの iOS シミュレータビルドも BUILD SUCCEEDED（xcodebuild・全ネイティブ再コンパイル）
 - 残: Apple Developer 登録後に本IDで App ID 登録＋Associated Domains（Passkey AASA）
+
+## 2026-07-28 シフト画面の車両貸出を can_manage_vehicles でも操作可能に
+
+- 貸出切替（シフト画面の車両貸出表）は従来 can_dispatch のみでゲートしていたが、「車両を操作する権限（can_manage_vehicles）」でも可能に変更（配車 or 車両管理のどちらかで許可）
+- サーバー: auth/permissions.ts に requireAnyPermission（いずれか1つで許可）を追加し、/api/admin/shifts/vehicle-loans を ["can_dispatch", "can_manage_vehicles"] でゲート
+- UI: shifts/page.tsx に canManageVehicles を追加し canLoan = canDispatch || canManageVehicles で貸出表ボタン・startLoanPaint・toggleVehicleLoan・自動保存表示を制御。車両割当（配車）は従来どおり can_dispatch のみ
+- capabilities.ts の説明文更新（車両の管理に貸出切替を含む旨を権限設定UIにも反映）
+- 検証: tsc クリーン / auth テスト 24 passed

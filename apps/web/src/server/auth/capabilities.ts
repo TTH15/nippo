@@ -10,13 +10,13 @@ export const CAPABILITIES = [
   "can_edit_reports", // 代理入力・修正
   "can_view_shifts", // シフト表の閲覧
   "can_manage_shifts", // シフト確定・希望休管理
-  "can_dispatch", // 配車（シフトへの車両割当・貸出管理）
+  "can_dispatch", // 配車（シフトへの車両割当・貸出管理。貸出は can_manage_vehicles でも可）
   "can_view_rewards", // 報酬・給与の閲覧
   "can_manage_rewards", // 単価設定・給与締め
   "can_view_bank_accounts", // 口座情報の閲覧
   "can_view_pii", // 顔・免許の閲覧
   "can_view_vehicles", // 車両情報の閲覧
-  "can_manage_vehicles", // 車両の登録・管理
+  "can_manage_vehicles", // 車両の登録・管理（シフト画面の貸出切替を含む）
   "can_view_vehicle_cost", // 車両の金額情報（購入費用・リース代・初期費用回収）の閲覧
   "can_view_billing", // 請求・取引先の閲覧
   "can_manage_billing", // 請求の確定・取引先編集
@@ -149,7 +149,8 @@ export const PERMISSION_ROWS: PermissionRow[] = [
     kind: "leveled",
     key: "vehicles",
     label: "車両",
-    description: "車両情報を閲覧できます。編集可能にすると車両の登録・管理もできます。",
+    description:
+      "車両情報を閲覧できます。編集可能にすると車両の登録・管理と、シフト画面での貸出中の切替もできます。",
     view: "can_view_vehicles",
     manage: "can_manage_vehicles",
   },
