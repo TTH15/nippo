@@ -28,6 +28,7 @@ import {
   faUserShield,
   faLock,
   faBell,
+  faMapLocationDot,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver, type StoredDriver } from "@/lib/api";
@@ -38,10 +39,11 @@ import { ModeSwitchFab } from "@/lib/components/ModeSwitchFab";
 
 // cap: そのメニューの閲覧に必要な capability（各ページの主要 API の requirePermission と対応）。
 // 持っていない場合はロック表示（グレー＋鍵）にして「アクセスできない」ことを明示する。
-type NavChild = { href: string; label: string; icon?: IconDefinition; cap?: string };
+// beta: 試験提供中の機能。ラベル横に「β」バッジを表示する。
+type NavChild = { href: string; label: string; icon?: IconDefinition; cap?: string; beta?: boolean };
 type NavItem =
-  | { href: string; label: string; icon?: IconDefinition; cap?: string; children?: undefined }
-  | { label: string; icon?: IconDefinition; children: NavChild[]; href?: undefined; cap?: undefined };
+  | { href: string; label: string; icon?: IconDefinition; cap?: string; beta?: boolean; children?: undefined }
+  | { label: string; icon?: IconDefinition; children: NavChild[]; href?: undefined; cap?: undefined; beta?: undefined };
 
 const navItems: NavItem[] = [
   { href: "/admin", label: "ダッシュボード", icon: faChartLine, cap: "can_view_reports" },
@@ -49,6 +51,7 @@ const navItems: NavItem[] = [
   { href: "/admin/attendance", label: "勤怠", icon: faClock, cap: "can_view_vehicles" },
   { href: "/admin/shifts", label: "シフト", icon: faCalendar, cap: "can_view_shifts" },
   { href: "/admin/vehicles", label: "車両", icon: faCar, cap: "can_view_vehicles" },
+  { href: "/admin/map", label: "地図", icon: faMapLocationDot, cap: "can_view_vehicles", beta: true },
   {
     label: "収支",
     icon: faFileInvoice,
@@ -82,6 +85,15 @@ const navItems: NavItem[] = [
     ],
   },
 ];
+
+// 試験提供中バッジ。ラベルの直後に置く。
+function BetaBadge() {
+  return (
+    <span className="inline-flex items-center rounded-full bg-violet-100 px-1.5 py-px text-[10px] font-bold leading-none text-violet-700">
+      β
+    </span>
+  );
+}
 
 // ロック済みメニュー行（クリック不可）。「権限が無い＝そもそも開けない」ことを見せる。
 function LockedNavRow({ label, icon }: { label: string; icon?: IconDefinition }) {
@@ -407,6 +419,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                     />
                                   )}
                                   {child.label}
+                                  {child.beta && <BetaBadge />}
                                   {getChildUnreadCount(child.href) > 0 && (
                                     <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
                                       {getChildUnreadCount(child.href)}
@@ -444,6 +457,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                         <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />
                       )}
                       {item.label}
+                      {item.beta && <BetaBadge />}
                       {/* chevron を持たないリンクも、同じ幅のスペーサーでバッジ右端を親項目と揃える */}
                       <span className="ml-auto flex items-center gap-2">
                         {linkUnread > 0 && (
@@ -590,6 +604,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                                       />
                                     )}
                                     {child.label}
+                                    {child.beta && <BetaBadge />}
                                     {getChildUnreadCount(child.href) > 0 && (
                                       <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
                                         {getChildUnreadCount(child.href)}
@@ -626,6 +641,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                             <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />
                           )}
                           {item.label}
+                          {item.beta && <BetaBadge />}
                           {linkUnread > 0 && (
                             <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
                               {linkUnread}
