@@ -47,6 +47,42 @@ function presetForHour(hour: number): LightPreset {
   return "night";
 }
 
+// 地図表示の設定（個人の好みなので localStorage 保存。DB には置かない）。
+type MapViewPrefs = {
+  basemap: "standard" | "satellite";
+  placeLabels: boolean; // 地名（山・川など自然地名を含む）
+  roadLabels: boolean;
+  poiLabels: boolean;
+  transitLabels: boolean;
+  objects3d: boolean; // 3D建物・ランドマーク（航空写真では無効）
+  terrain: boolean; // 3D地形（起伏）
+};
+const VIEW_PREFS_KEY = "hakotora_map_view_prefs";
+const DEFAULT_VIEW_PREFS: MapViewPrefs = {
+  basemap: "standard",
+  placeLabels: true,
+  roadLabels: false,
+  poiLabels: false,
+  transitLabels: false,
+  objects3d: true,
+  terrain: false,
+};
+
+function loadViewPrefs(): MapViewPrefs {
+  if (typeof window === "undefined") return DEFAULT_VIEW_PREFS;
+  try {
+    return { ...DEFAULT_VIEW_PREFS, ...JSON.parse(localStorage.getItem(VIEW_PREFS_KEY) ?? "{}") };
+  } catch {
+    return DEFAULT_VIEW_PREFS;
+  }
+}
+
+function styleUrlFor(basemap: MapViewPrefs["basemap"]): string {
+  return basemap === "satellite"
+    ? "mapbox://styles/mapbox/standard-satellite"
+    : "mapbox://styles/mapbox/standard";
+}
+
 // 拠点ピンのマーカー種別（DB の map_places.icon と対応）。
 const PLACE_ICONS = {
   pin: { label: "拠点", icon: faLocationDot, bg: "bg-violet-600" },
@@ -114,10 +150,39 @@ function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
   );
 }
 
+// デモ車両の状態と表示色（実データ接続時は vehicle_sessions 等から導出する）。
+const DEMO_STATUS_DOT = {
+  稼働中: "bg-emerald-500",
+  積み込み中: "bg-amber-400",
+  休憩中: "bg-sky-400",
+  稼働外: "bg-slate-500",
+} as const;
+type DemoStatus = keyof typeof DEMO_STATUS_DOT;
+
+// 京都市内に適当に散らしたデモ車両（3Dモデル＋プレート吹き出しの実験用）。
+const DEMO_VEHICLES: {
+  id: string;
+  lngLat: [number, number];
+  rot: number;
+  status: DemoStatus;
+  plate: { prefix: string; cls: string; kana: string; num: string };
+}[] = [
+  { id: "v01", lngLat: [135.7595725, 34.945416], rot: 35, status: "稼働外", plate: { prefix: "京都", cls: "400", kana: "あ", num: "1234" } },
+  { id: "v02", lngLat: [135.7585, 34.9868], rot: 120, status: "稼働中", plate: { prefix: "京都", cls: "480", kana: "あ", num: "4567" } },
+  { id: "v03", lngLat: [135.7681, 35.0038], rot: 200, status: "積み込み中", plate: { prefix: "京都", cls: "480", kana: "い", num: "789" } },
+  { id: "v04", lngLat: [135.748, 35.0142], rot: 80, status: "稼働中", plate: { prefix: "京都", cls: "400", kana: "う", num: "2468" } },
+  { id: "v05", lngLat: [135.7593, 35.0455], rot: 300, status: "休憩中", plate: { prefix: "京都", cls: "480", kana: "え", num: "1357" } },
+  { id: "v06", lngLat: [135.7292, 35.0394], rot: 15, status: "稼働中", plate: { prefix: "京都", cls: "400", kana: "お", num: "9012" } },
+  { id: "v07", lngLat: [135.7096, 34.9836], rot: 260, status: "稼働中", plate: { prefix: "京都", cls: "480", kana: "か", num: "3456" } },
+  { id: "v08", lngLat: [135.8163, 34.9718], rot: 145, status: "積み込み中", plate: { prefix: "京都", cls: "400", kana: "き", num: "6789" } },
+  { id: "v09", lngLat: [135.7476, 34.9787], rot: 90, status: "休憩中", plate: { prefix: "京都", cls: "480", kana: "く", num: "159" } },
+  { id: "v10", lngLat: [135.6828, 35.0094], rot: 330, status: "稼働外", plate: { prefix: "京都", cls: "400", kana: "け", num: "753" } },
+];
+
 // 車両の頭上ラベル: 吹き出し用に最適化した簡易プレート。黒ナンバー（事業用軽貨物）
 // らしく黒地に黄文字。実車プレートの再現は popup 側の VehiclePlate に任せる。
 // TODO: 数字・かなは将来 SVG グリフ化する（docs/roadmap-2026-07.md 参照）。
-function VehicleLabel({ vehicle, working }: { vehicle: VehiclePlateData; working: boolean }) {
+function VehicleLabel({ vehicle, status }: { vehicle: VehiclePlateData; status: DemoStatus }) {
   return (
     <div className="flex flex-col items-center">
       <div className="min-w-[84px] rounded-xl bg-slate-950/95 px-2.5 pb-1 pt-1.5 text-center shadow-md ring-1 ring-white/10">
@@ -137,13 +202,53 @@ function VehicleLabel({ vehicle, working }: { vehicle: VehiclePlateData; working
           </span>
         </div>
         <div className="mt-1 flex items-center justify-center gap-1 text-[9px] font-bold text-slate-300">
-          <span
-            className={`inline-block h-1.5 w-1.5 rounded-full ${working ? "bg-emerald-500" : "bg-slate-400"}`}
-          />
-          {working ? "稼働中" : "退勤済み"}
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${DEMO_STATUS_DOT[status]}`} />
+          {status}
         </div>
       </div>
       <div className="h-0 w-0 border-x-[7px] border-t-[7px] border-x-transparent border-t-slate-950" />
+    </div>
+  );
+}
+
+// 設定モーダルのスイッチ行。
+function SwitchRow({
+  label,
+  note,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  note?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 py-1.5 ${disabled ? "opacity-40" : ""}`}
+    >
+      <div className="min-w-0">
+        <div className="text-xs font-semibold text-slate-700">{label}</div>
+        {note && <div className="text-[11px] text-slate-400">{note}</div>}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+          checked ? "bg-violet-600" : "bg-slate-300"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+            checked ? "left-[18px]" : "left-0.5"
+          }`}
+        />
+      </button>
     </div>
   );
 }
@@ -182,6 +287,66 @@ export default function MapPage() {
   const showPlacesRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // 地図表示の設定（ベースマップ・ラベル・3D）。
+  const [viewPrefs, setViewPrefs] = useState<MapViewPrefs>(loadViewPrefs);
+  const viewPrefsRef = useRef(viewPrefs);
+  const currentBasemapRef = useRef(viewPrefs.basemap);
+
+  // 設定を地図へ反映する（style.load 後にも呼ばれる。ベースマップ切替は別処理）。
+  const applyViewPrefs = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const p = viewPrefsRef.current;
+    try {
+      map.setConfigProperty("basemap", "showPlaceLabels", p.placeLabels);
+      map.setConfigProperty("basemap", "showRoadLabels", p.roadLabels);
+      map.setConfigProperty("basemap", "showPointOfInterestLabels", p.poiLabels);
+      map.setConfigProperty("basemap", "showTransitLabels", p.transitLabels);
+      // 航空写真スタイルは 3D オブジェクトのトグル未対応のためスキップ。
+      if (p.basemap === "standard") {
+        map.setConfigProperty("basemap", "show3dObjects", p.objects3d);
+      }
+      if (p.terrain) {
+        if (!map.getSource("mapbox-dem")) {
+          map.addSource("mapbox-dem", {
+            type: "raster-dem",
+            url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+            tileSize: 512,
+            maxzoom: 14,
+          });
+        }
+        map.setTerrain({ source: "mapbox-dem", exaggeration: 1.2 });
+      } else if (map.getTerrain()) {
+        map.setTerrain(null);
+      }
+    } catch {
+      // スタイル読込中などは style.load 後に再適用されるため無視してよい
+    }
+  };
+  const applyViewPrefsRef = useRef(applyViewPrefs);
+  applyViewPrefsRef.current = applyViewPrefs;
+
+  useEffect(() => {
+    viewPrefsRef.current = viewPrefs;
+    try {
+      localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify(viewPrefs));
+    } catch {
+      // localStorage が使えない環境では保存を諦める（表示には影響しない）
+    }
+    const map = mapRef.current;
+    if (!map) return;
+    if (currentBasemapRef.current !== viewPrefs.basemap) {
+      // ベースマップはスタイルごと差し替え。style.load でライティング・
+      // トラックモデル・この設定が再適用される。
+      currentBasemapRef.current = viewPrefs.basemap;
+      map.setStyle(styleUrlFor(viewPrefs.basemap));
+    } else {
+      applyViewPrefs();
+    }
+    // applyViewPrefs は ref 経由でしか状態を読まない。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewPrefs]);
+
   // ピン追加フロー: adding=クリック待ち → draft=位置決定・名称入力中。
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
@@ -192,21 +357,17 @@ export default function MapPage() {
   const [savingDraft, setSavingDraft] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MapPlace | null>(null);
 
-  // 拠点ピンの実際の表示 = 手動トグル AND ズームによる役割分担。
-  // 引き（〜14.5未満）では拠点が主役、寄ったら拠点をフェードアウトして
-  // 車両モデル＋プレートに主役を譲る。
+  // 拠点ピンの表示は手動トグルのみ（ズーム連動の自動非表示は「消えるのが早すぎる」
+  // ため廃止。ピンは吹き出しほど邪魔にならないので常時表示で問題ない）。
   const applyPlacesVisibility = () => {
-    const zoomedOut = (mapRef.current?.getZoom() ?? 0) < 14.5;
-    const visible = showPlacesRef.current && zoomedOut;
+    const visible = showPlacesRef.current;
     placeMarkersRef.current.forEach((m) => {
       const el = m.getElement();
-      // opacity は使わない（mapbox が3D遮蔽判定で毎フレーム上書きし、ズームで
+      // opacity は使わない（mapbox が3D遮蔽判定で毎フレーム上書きし、
       // 非表示が巻き戻るバグになる）。mapbox が触らない visibility で制御する。
       el.style.visibility = visible ? "" : "hidden";
       el.style.pointerEvents = visible ? "" : "none";
-      // 吹き出しはズーム連動では閉じない（flyToPlace の行き先表示に使うため）。
-      // 手動トグルで隠したときだけ閉じる。
-      if (!showPlacesRef.current && (m.getPopup()?.isOpen() ?? false)) m.togglePopup();
+      if (!visible && (m.getPopup()?.isOpen() ?? false)) m.togglePopup();
     });
   };
   // zoom リスナーには ref 経由で常に最新の関数を届ける（HMR・stale クロージャ対策）。
@@ -246,8 +407,8 @@ export default function MapPage() {
     mapboxgl.accessToken = MAPBOX_TOKEN;
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      // Standard スタイル: ズーム14.5前後から建物が3Dで立ち上がる。
-      style: "mapbox://styles/mapbox/standard",
+      // Standard 系スタイル: ズーム14.5前後から建物が3Dで立ち上がる。
+      style: styleUrlFor(viewPrefsRef.current.basemap),
       center: [135.76, 35.01], // 位置データが無い間のフォールバック（近畿圏）
       zoom: 8,
       maxPitch: 85,
@@ -276,16 +437,10 @@ export default function MapPage() {
     map.on("style.load", applyLight);
     const lightTimer = setInterval(applyLight, 10 * 60 * 1000);
 
-    // 運営画面の地図としては基図の情報量を絞る: POI（施設名）・道路名・交通機関の
-    // ラベルを非表示。地名（市区町名）だけ方向感のために残す。
-    const applyBaseConfig = () => {
-      map.setConfigProperty("basemap", "showPointOfInterestLabels", false);
-      map.setConfigProperty("basemap", "showRoadLabels", false);
-      map.setConfigProperty("basemap", "showTransitLabels", false);
-    };
-    map.on("style.load", applyBaseConfig);
+    // ラベル・3D・地形などの表示設定を適用（設定モーダルから変更可能）。
+    map.on("style.load", () => applyViewPrefsRef.current());
 
-    // 3Dモデルの実験: サンパルク駐車場の脇にトラックを1台置く。
+    // 3Dモデルの実験: 京都市内にデモ車両を10台置く（DEMO_VEHICLES）。
     // モデルは Khronos glTF サンプルの Cesium Milk Truck（CC-BY 4.0 / © Cesium）。
     // 本採用時は public/models/truck.glb を実車系モデルに差し替える。
     const addTruckModel = () => {
@@ -294,9 +449,12 @@ export default function MapPage() {
       map.addSource("truck-src", {
         type: "geojson",
         data: {
-          type: "Feature",
-          geometry: { type: "Point", coordinates: [135.7595725, 34.945416] },
-          properties: {},
+          type: "FeatureCollection",
+          features: DEMO_VEHICLES.map((v) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: v.lngLat },
+            properties: { rotation: [0, 0, v.rot] },
+          })),
         },
       });
       map.addLayer({
@@ -305,50 +463,53 @@ export default function MapPage() {
         source: "truck-src",
         layout: { "model-id": "truck" },
         paint: {
-          "model-rotation": [0, 0, 35], // 駐車の向きっぽく少し振る
+          "model-rotation": ["get", "rotation"], // 駐車の向き（feature ごと）
           // 夜のライティングでも沈まないよう自己発光させる（マーカーと同じ扱い）。
           "model-emissive-strength": 1,
         },
       });
       updateTruckScale();
     };
-    // 画面上の見かけサイズをズームに依らずほぼ一定に保つ（ズーム18で実寸の1.6倍、
-    // 1段引くごとに実寸を2倍）。ズーム10より引いたら拡大を打ち切る。
+    // 見かけサイズ: ズーム9〜18では画面上ほぼ一定（基準=実寸の2倍）。
+    // 18より寄ったら縮小をやめて実寸連動（近接で実物大の迫力を出す）。
+    // 9より引いたら拡大を打ち切る（巨大化防止）。
     const updateTruckScale = () => {
       if (!map.getLayer("truck-3d")) return;
-      const s = 1.6 * Math.pow(2, 18 - Math.max(map.getZoom(), 10));
+      const z = Math.min(Math.max(map.getZoom(), 9), 18);
+      const s = 2.0 * Math.pow(2, 18 - z);
       map.setPaintProperty("truck-3d", "model-scale", [s, s, s]);
     };
     map.on("style.load", addTruckModel);
     map.on("zoom", updateTruckScale);
-    map.on("zoom", () => applyPlacesVisibilityRef.current());
 
-    // トラックの頭上にプレート吹き出し（デモ値）。見かけサイズはズーム非依存。
-    const plateNode = document.createElement("div");
-    plateNode.style.zIndex = "5"; // 拠点ピンより前面
-
-    const plateRoot = createRoot(plateNode);
-    plateRoot.render(
-      <VehicleLabel
-        vehicle={
-          {
-            number_prefix: "京都",
-            number_class: "400",
-            number_hiragana: "あ",
-            number_numeric: "1234",
-          } as VehiclePlateData
-        }
-        working
-      />,
-    );
-    const plateMarker = new mapboxgl.Marker({
-      element: plateNode,
-      anchor: "bottom",
-      offset: [0, -46],
-    })
-      .setLngLat([135.7595725, 34.945416])
-      .addTo(map);
-    vehicleLabelMarkersRef.current = [plateMarker];
+    // 各デモ車両の頭上にプレート吹き出し。見かけサイズはズーム非依存。
+    const plateRoots: Root[] = [];
+    const plateMarkers: mapboxgl.Marker[] = [];
+    for (const v of DEMO_VEHICLES) {
+      const node = document.createElement("div");
+      node.style.zIndex = "5"; // 拠点ピンより前面
+      const root = createRoot(node);
+      root.render(
+        <VehicleLabel
+          vehicle={
+            {
+              number_prefix: v.plate.prefix,
+              number_class: v.plate.cls,
+              number_hiragana: v.plate.kana,
+              number_numeric: v.plate.num,
+            } as VehiclePlateData
+          }
+          status={v.status}
+        />,
+      );
+      plateRoots.push(root);
+      plateMarkers.push(
+        new mapboxgl.Marker({ element: node, anchor: "bottom", offset: [0, -46] })
+          .setLngLat(v.lngLat)
+          .addTo(map),
+      );
+    }
+    vehicleLabelMarkersRef.current = plateMarkers;
 
     // プレート吹き出しの重なり回避: 画面座標で衝突する場合は後のものを上へ積む。
     // （現状は1台だが、複数台化したときにそのまま効く）
@@ -385,8 +546,9 @@ export default function MapPage() {
     return () => {
       clearInterval(lightTimer);
       container.removeEventListener("wheel", onWheel, { capture: true });
-      plateMarker.remove();
-      setTimeout(() => plateRoot.unmount(), 0);
+      plateMarkers.forEach((m) => m.remove());
+      vehicleLabelMarkersRef.current = [];
+      setTimeout(() => plateRoots.forEach((r) => r.unmount()), 0);
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       placeMarkersRef.current.forEach((m) => m.remove());
@@ -698,11 +860,6 @@ export default function MapPage() {
                 <Skeleton className="h-full w-full rounded-lg" />
               </div>
             )}
-            {data && located.length === 0 && !adding && (
-              <div className="absolute inset-x-0 top-3 mx-auto w-fit rounded-full bg-white/95 px-4 py-1.5 text-xs font-medium text-slate-600 shadow">
-                位置情報のある車両がまだありません（出退勤打刻のGPSが位置ソースです）
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -729,32 +886,79 @@ export default function MapPage() {
               </button>
             </div>
 
-            <div className="space-y-4 px-5 py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-slate-700">拠点ピンを表示</div>
-                  <div className="text-[11px] text-slate-400">
-                    引きのズームでのみ表示（寄ると車両を優先して自動で隠れます）
+            <div className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4">
+              <div>
+                <div className="mb-1 text-xs font-bold text-slate-700">地図の表示</div>
+                <div className="flex items-center justify-between py-1.5">
+                  <span className="text-xs font-semibold text-slate-700">ベースマップ</span>
+                  <div className="flex overflow-hidden rounded-lg bg-slate-100 p-0.5">
+                    {(
+                      [
+                        { key: "standard", label: "標準" },
+                        { key: "satellite", label: "航空写真" },
+                      ] as const
+                    ).map((b) => (
+                      <button
+                        key={b.key}
+                        type="button"
+                        onClick={() => setViewPrefs((p) => ({ ...p, basemap: b.key }))}
+                        className={`rounded-md px-2.5 py-1 text-xs font-bold transition-colors ${
+                          viewPrefs.basemap === b.key
+                            ? "bg-slate-900 text-white"
+                            : "text-slate-500 hover:text-slate-700"
+                        }`}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={showPlaces}
-                  onClick={() => setShowPlaces((v) => !v)}
-                  className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                    showPlaces ? "bg-violet-600" : "bg-slate-300"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
-                      showPlaces ? "left-[18px]" : "left-0.5"
-                    }`}
+                <div className="divide-y divide-slate-50">
+                  <SwitchRow
+                    label="地名"
+                    note="市区町名・山や川の名前"
+                    checked={viewPrefs.placeLabels}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, placeLabels: v }))}
                   />
-                </button>
+                  <SwitchRow
+                    label="道路名・路線番号"
+                    checked={viewPrefs.roadLabels}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, roadLabels: v }))}
+                  />
+                  <SwitchRow
+                    label="施設名（POI）"
+                    checked={viewPrefs.poiLabels}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, poiLabels: v }))}
+                  />
+                  <SwitchRow
+                    label="交通機関（駅・バス停）"
+                    checked={viewPrefs.transitLabels}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, transitLabels: v }))}
+                  />
+                  <SwitchRow
+                    label="3D建物・ランドマーク"
+                    note={
+                      viewPrefs.basemap === "satellite" ? "航空写真では変更できません" : undefined
+                    }
+                    disabled={viewPrefs.basemap === "satellite"}
+                    checked={viewPrefs.objects3d}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, objects3d: v }))}
+                  />
+                  <SwitchRow
+                    label="3D地形（山の起伏）"
+                    note="3D視点と組み合わせると立体的になります"
+                    checked={viewPrefs.terrain}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, terrain: v }))}
+                  />
+                </div>
               </div>
 
               <div>
+                <SwitchRow
+                  label="拠点ピンを表示"
+                  checked={showPlaces}
+                  onChange={(v) => setShowPlaces(v)}
+                />
                 <div className="mb-1.5 text-xs font-bold text-slate-700">拠点ピン</div>
                 {places.length === 0 ? (
                   <p className="rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] text-slate-400">

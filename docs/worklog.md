@@ -233,3 +233,12 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - **migration 118 は未適用**: .env.local の SUPABASE_DB_URL が消滅済みの旧プロジェクト（wdbifbzwxivgefyxpzbi）を指しており接続不可。アプリ本体は ooirajiizydcynyglvuv（REST）を使用中 → ユーザーが Supabase SQL Editor 等で 118 を適用する必要あり。SUPABASE_DB_URL の更新も要検討
 - ナンバープレート文字の SVG グリフ化ほか継続タスクを docs/roadmap-2026-07.md の「K. 地図ベータの継続改善」に記録
 - 検証: tsc クリーン
+
+## 2026-07-30 地図ベータ: 表示設定・デモ車両10台・ピン/車サイズ調整
+
+- 設定モーダルに「地図の表示」を追加（localStorage 保存 hakotora_map_view_prefs）: ベースマップ 標準/航空写真（standard ⇔ standard-satellite を setStyle で切替、style.load で全設定再適用）・地名/道路名/施設名/交通機関のラベル4トグル・3D建物（航空写真では無効化）・3D地形（mapbox-dem, exaggeration 1.2）
+- 拠点ピンのズーム連動自動非表示を廃止（消えるのが早すぎるため。手動トグルのみに）
+- トラックの見かけサイズ調整: 基準を実寸2倍に拡大、ズーム18以上は縮小せず実寸連動（近接で豆粒になる問題の修正）、ズーム9未満で拡大打ち切り
+- デモ車両10台を京都市内に配置（DEMO_VEHICLES: 3Dモデルは1ソース+model-rotation データ駆動、プレート吹き出しは稼働中/積み込み中/休憩中/稼働外の4状態を色分け表示）
+- 「位置情報のある車両がまだありません」バナーを削除（ユーザー要望）
+- 検証: tsc クリーン
