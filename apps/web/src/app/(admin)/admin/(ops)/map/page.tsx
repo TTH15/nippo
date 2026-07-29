@@ -186,30 +186,39 @@ const DEMO_VEHICLES: {
 // TODO: 数字・かなは将来 SVG グリフ化する（docs/roadmap-2026-07.md 参照）。
 function VehicleLabel({ vehicle, status }: { vehicle: VehiclePlateData; status: DemoStatus }) {
   return (
-    <div className="flex flex-col items-center">
-      <div className="min-w-[84px] rounded-xl bg-slate-950/95 px-2.5 pb-1 pt-1.5 text-center shadow-md ring-1 ring-white/10">
-        <div
-          className="text-[9px] font-semibold leading-none tracking-[0.15em]"
-          style={{ color: "#e8d44d" }}
-        >
-          {vehicle.number_prefix || ""} {vehicle.number_class || ""}
+    <>
+      {/* 通常表示（吹き出し）。重なって負けたら .vl-collapsed でドットに縮退する */}
+      <div className="vl-full flex flex-col items-center">
+        <div className="min-w-[84px] rounded-xl bg-slate-950/95 px-2.5 pb-1 pt-1.5 text-center shadow-md ring-1 ring-white/10">
+          <div
+            className="text-[9px] font-semibold leading-none tracking-[0.15em]"
+            style={{ color: "#e8d44d" }}
+          >
+            {vehicle.number_prefix || ""} {vehicle.number_class || ""}
+          </div>
+          <div
+            className="mt-0.5 flex items-baseline justify-center gap-1 leading-none"
+            style={{ color: "#e8d44d" }}
+          >
+            <span className="text-[11px] font-bold">{vehicle.number_hiragana || ""}</span>
+            <span className="text-[17px] font-black tracking-wide">
+              {formatPlateNumeric(vehicle.number_numeric || "")}
+            </span>
+          </div>
+          <div className="mt-1 flex items-center justify-center gap-1 text-[9px] font-bold text-slate-300">
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${DEMO_STATUS_DOT[status]}`} />
+            {status}
+          </div>
         </div>
-        <div
-          className="mt-0.5 flex items-baseline justify-center gap-1 leading-none"
-          style={{ color: "#e8d44d" }}
-        >
-          <span className="text-[11px] font-bold">{vehicle.number_hiragana || ""}</span>
-          <span className="text-[17px] font-black tracking-wide">
-            {formatPlateNumeric(vehicle.number_numeric || "")}
-          </span>
-        </div>
-        <div className="mt-1 flex items-center justify-center gap-1 text-[9px] font-bold text-slate-300">
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${DEMO_STATUS_DOT[status]}`} />
-          {status}
-        </div>
+        <div className="h-0 w-0 border-x-[7px] border-t-[7px] border-x-transparent border-t-slate-950" />
       </div>
-      <div className="h-0 w-0 border-x-[7px] border-t-[7px] border-x-transparent border-t-slate-950" />
-    </div>
+      {/* 縮退表示: 状態色ドット（存在と状態だけは常に示す） */}
+      <div className="vl-dot flex flex-col items-center">
+        <span
+          className={`block h-3 w-3 rounded-full border-2 border-white shadow-md ${DEMO_STATUS_DOT[status]}`}
+        />
+      </div>
+    </>
   );
 }
 
@@ -492,6 +501,7 @@ export default function MapPage() {
     const plateMarkers: mapboxgl.Marker[] = [];
     for (const v of DEMO_VEHICLES) {
       const node = document.createElement("div");
+      node.className = "vehicle-label"; // globals.css で吹き出し⇔ドットを切替
       node.style.zIndex = "5"; // 拠点ピンより前面
       const root = createRoot(node);
       root.render(
@@ -523,8 +533,9 @@ export default function MapPage() {
       return (30 * (truckScaleAt(z) * Math.pow(2, z - 18))) / 1.6;
     };
 
-    // プレート吹き出しの重なり回避: 位置は動かさず（その場表示）、被った場合は
-    // 画面の下側＝体感的に手前の車両だけ表示して他を隠す。
+    // プレート吹き出しの重なり回避: 位置は動かさず（その場表示）、被ったら
+    // 画面の下側＝体感的に手前の車両だけ吹き出しを出し、負けた側は
+    // 状態色ドットに縮退する（存在は常に示す。消すと台数を誤認するため）。
     const declutterPlates = () => {
       const base = plateBaseOffset();
       const items = vehicleLabelMarkersRef.current.map((m) => ({
@@ -537,8 +548,8 @@ export default function MapPage() {
         const collide = kept.some(
           (p) => Math.abs(p.x - pos.x) < 104 && Math.abs(p.y - pos.y) < 92,
         );
-        m.setOffset([0, -base]);
-        m.getElement().style.visibility = collide ? "hidden" : "";
+        m.setOffset([0, collide ? -6 : -base]);
+        m.getElement().classList.toggle("vl-collapsed", collide);
         if (!collide) kept.push({ x: pos.x, y: pos.y });
       }
     };

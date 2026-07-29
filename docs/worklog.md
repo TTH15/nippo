@@ -247,3 +247,5 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 追記: 車両モデルを Kenney Car Kit の delivery van（CC0）に差し替え。実寸3.25×1.5×1.65mで軽バン同寸・原点底面中心・テクスチャ埋め込み済み（外部参照だったため gltf-transform copy でパック）。スケールは引きで1.6倍・ズーム18.7以降は等倍固定（駐車区画に正しく収まる）。吹き出しオフセットは車両の画面上高さに比例
 - 追記: プレート吹き出しの重なり処理を「上に積む」→「その場表示・被ったら画面下側（手前）の車両のみ表示」に変更（ズームでの飛び跳ね解消。ユーザー指定のUX）
 - 追記: 軽バンが描画されない問題を修正 — glb の KHR_texture_transform が {texCoord:0} のみ（offset/scale なし）で、mapbox-gl のローダーが offset[0] を無条件参照して落ちていた。no-op 拡張のため glb から除去して再構築（validate クリーン）
+- 追記: 軽バン不表示の根本原因を Chrome 実機デバッグで特定（認証不要の一時ページ public/model-test.html を作り console/network を確認→削除済み）。glb 読み込み失敗の実体は RangeError: offset is out of bounds — mapbox-gl の model ローダーは①頂点バッファのインターリーブ形式（stride=48）②ubyte インデックスに非対応。gltf-transform optimize --vertex-layout separate で分離レイアウト・ushort 化して解決（112KB に減量）。実機で描画確認済み。ついでに hakotora dev は :3001 で稼働（:3000 は別プロジェクト opscore）と判明
+- 追記: 吹き出しの縮退表示を実装 — 重なりで負けた側は非表示でなく状態色ドット（白縁3px）に縮退（globals.css の .vehicle-label / .vl-collapsed）。台数の誤認と表示の揺れを解消
