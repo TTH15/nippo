@@ -443,8 +443,8 @@ export default function MapPage() {
     map.on("style.load", () => applyViewPrefsRef.current());
 
     // 3Dモデルの実験: 京都市内にデモ車両を10台置く（DEMO_VEHICLES）。
-    // モデルは Khronos glTF サンプルの Cesium Milk Truck（CC-BY 4.0 / © Cesium）。
-    // 本採用時は public/models/truck.glb を実車系モデルに差し替える。
+    // モデルは Kenney Car Kit の delivery van（CC0）。実寸 3.25×1.5×1.65m で
+    // 軽バンとほぼ同寸・原点は底面中心（テクスチャ埋め込み済み）。
     const addTruckModel = () => {
       if (map.getLayer("truck-3d")) return;
       map.addModel("truck", "/models/truck.glb");
@@ -472,13 +472,16 @@ export default function MapPage() {
       });
       updateTruckScale();
     };
-    // 見かけサイズ: ズーム9〜18では画面上ほぼ一定（基準=実寸の2倍）。
-    // 18より寄ったら縮小をやめて実寸連動（近接で実物大の迫力を出す）。
+    // 見かけサイズ: ズーム9〜18では画面上ほぼ一定（基準=実寸の1.6倍）。
+    // さらに寄ると等倍まで縮み、以降は実寸に固定（駐車区画に正しく収まって見える）。
     // 9より引いたら拡大を打ち切る（巨大化防止）。
+    const truckScaleAt = (zoom: number) => {
+      const z = Math.min(Math.max(zoom, 9), 20);
+      return Math.max(1, 1.6 * Math.pow(2, 18 - z));
+    };
     const updateTruckScale = () => {
       if (!map.getLayer("truck-3d")) return;
-      const z = Math.min(Math.max(map.getZoom(), 9), 18);
-      const s = 2.0 * Math.pow(2, 18 - z);
+      const s = truckScaleAt(map.getZoom());
       map.setPaintProperty("truck-3d", "model-scale", [s, s, s]);
     };
     map.on("style.load", addTruckModel);
@@ -513,10 +516,12 @@ export default function MapPage() {
     }
     vehicleLabelMarkersRef.current = plateMarkers;
 
-    // 吹き出しの基本オフセット: ズーム18まで一定30px。18より寄るとトラックが
-    // 実寸連動で大きくなるため、吹き出しも同じ倍率で持ち上げる。
-    const plateBaseOffset = () =>
-      30 * Math.pow(2, Math.max(0, Math.min(map.getZoom(), 20) - 18));
+    // 吹き出しの基本オフセット: 車両の画面上の高さに比例させる
+    // （ズーム18まで一定、以降は実寸固定で画面上大きくなるのに追従）。
+    const plateBaseOffset = () => {
+      const z = Math.min(map.getZoom(), 22);
+      return (30 * (truckScaleAt(z) * Math.pow(2, z - 18))) / 1.6;
+    };
 
     // プレート吹き出しの重なり回避: 画面座標で衝突する場合は後のものを上へ積む。
     const declutterPlates = () => {
