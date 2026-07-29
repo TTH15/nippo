@@ -523,20 +523,23 @@ export default function MapPage() {
       return (30 * (truckScaleAt(z) * Math.pow(2, z - 18))) / 1.6;
     };
 
-    // プレート吹き出しの重なり回避: 画面座標で衝突する場合は後のものを上へ積む。
+    // プレート吹き出しの重なり回避: 位置は動かさず（その場表示）、被った場合は
+    // 画面の下側＝体感的に手前の車両だけ表示して他を隠す。
     const declutterPlates = () => {
       const base = plateBaseOffset();
-      const placed: { x: number; y: number }[] = [];
-      for (const m of vehicleLabelMarkersRef.current) {
-        const pos = map.project(m.getLngLat());
-        let lift = 0;
-        while (
-          placed.some((p) => Math.abs(p.x - pos.x) < 104 && Math.abs(p.y - (pos.y - lift)) < 84)
-        ) {
-          lift += 88;
-        }
-        m.setOffset([0, -base - lift]);
-        placed.push({ x: pos.x, y: pos.y - lift });
+      const items = vehicleLabelMarkersRef.current.map((m) => ({
+        m,
+        pos: map.project(m.getLngLat()),
+      }));
+      items.sort((a, b) => b.pos.y - a.pos.y); // 下（手前）を優先
+      const kept: { x: number; y: number }[] = [];
+      for (const { m, pos } of items) {
+        const collide = kept.some(
+          (p) => Math.abs(p.x - pos.x) < 104 && Math.abs(p.y - pos.y) < 92,
+        );
+        m.setOffset([0, -base]);
+        m.getElement().style.visibility = collide ? "hidden" : "";
+        if (!collide) kept.push({ x: pos.x, y: pos.y });
       }
     };
     map.on("moveend", declutterPlates);
