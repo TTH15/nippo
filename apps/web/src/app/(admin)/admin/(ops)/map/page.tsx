@@ -167,7 +167,9 @@ const DEMO_VEHICLES: {
   status: DemoStatus;
   plate: { prefix: string; cls: string; kana: string; num: string };
 }[] = [
-  { id: "v01", lngLat: [135.7595725, 34.945416], rot: 35, status: "稼働外", plate: { prefix: "京都", cls: "400", kana: "あ", num: "1234" } },
+  // v01 はサンパルク伏見桃山12番に駐車している想定（座標はユーザー実測値。
+  // rot は区画の向きに合わせて要調整 — 航空写真モードで見ながら合わせる）。
+  { id: "v01", lngLat: [135.7594225, 34.945416], rot: 35, status: "稼働外", plate: { prefix: "京都", cls: "400", kana: "あ", num: "1234" } },
   { id: "v02", lngLat: [135.7585, 34.9868], rot: 120, status: "稼働中", plate: { prefix: "京都", cls: "480", kana: "あ", num: "4567" } },
   { id: "v03", lngLat: [135.7681, 35.0038], rot: 200, status: "積み込み中", plate: { prefix: "京都", cls: "480", kana: "い", num: "789" } },
   { id: "v04", lngLat: [135.748, 35.0142], rot: 80, status: "稼働中", plate: { prefix: "京都", cls: "400", kana: "う", num: "2468" } },
@@ -504,16 +506,21 @@ export default function MapPage() {
       );
       plateRoots.push(root);
       plateMarkers.push(
-        new mapboxgl.Marker({ element: node, anchor: "bottom", offset: [0, -46] })
+        new mapboxgl.Marker({ element: node, anchor: "bottom", offset: [0, -30] })
           .setLngLat(v.lngLat)
           .addTo(map),
       );
     }
     vehicleLabelMarkersRef.current = plateMarkers;
 
+    // 吹き出しの基本オフセット: ズーム18まで一定30px。18より寄るとトラックが
+    // 実寸連動で大きくなるため、吹き出しも同じ倍率で持ち上げる。
+    const plateBaseOffset = () =>
+      30 * Math.pow(2, Math.max(0, Math.min(map.getZoom(), 20) - 18));
+
     // プレート吹き出しの重なり回避: 画面座標で衝突する場合は後のものを上へ積む。
-    // （現状は1台だが、複数台化したときにそのまま効く）
     const declutterPlates = () => {
+      const base = plateBaseOffset();
       const placed: { x: number; y: number }[] = [];
       for (const m of vehicleLabelMarkersRef.current) {
         const pos = map.project(m.getLngLat());
@@ -523,11 +530,12 @@ export default function MapPage() {
         ) {
           lift += 88;
         }
-        m.setOffset([0, -46 - lift]);
+        m.setOffset([0, -base - lift]);
         placed.push({ x: pos.x, y: pos.y - lift });
       }
     };
     map.on("moveend", declutterPlates);
+    map.on("zoom", declutterPlates);
 
     // Option(Alt)+スクロールでカメラ微調整: 縦=傾き / 横=方角。
     // トラックパッドの2本指スクロールで安定して動かせる（capture で先取りし
