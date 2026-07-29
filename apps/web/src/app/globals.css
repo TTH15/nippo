@@ -278,3 +278,9 @@ input[type="number"] {
     appearance: none;
   }
 }
+
+/* Mapbox の吹き出し（地図ベータ）: 角を丸める */
+.mapboxgl-popup-content {
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+}

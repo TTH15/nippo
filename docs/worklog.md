@@ -208,3 +208,28 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 座標は Mapbox Geocoding v6（番地レベル）。サンパルクのみ Mapbox 未収録のため国土地理院住所検索の26番地の値
 - 地図左上に「拠点」セレクタを追加。押すと flyTo（zoom 16.5）で移動し吹き出しを開く。他拠点の吹き出しは閉じる
 - 検証: tsc クリーン
+- 追記: サンパルク伏見桃山の座標を Google マップ実測値 [135.7594225, 34.9454160] に修正（地理院値から約50m ズレていたため）
+
+## 2026-07-29 地図ベータ: 視点操作の改善（トグル同期・角度スライダー・自動ライティング）
+
+- 時間帯ライティングを手動ボタン→現在時刻から自動に変更（5-8時=朝/8-16時=昼/16-19時=夕/以降=夜、10分ごと再判定）。現在値は左上に表示のみ
+- 2D/3D をセグメントトグル化し、状態を地図の実ピッチから導出（pitch イベントで同期）。コンパスクリックで2Dに戻ってもトグル表示が追従する
+- 角度スライダー（0〜85°）を追加。maxPitch を85に拡大し、easeTo は pitch のみ変更（bearing はユーザー操作を尊重）
+- 検証: tsc クリーン
+- 追記(7/30): ライティング表示バッジと角度スライダーを削除。代わりに Option+スクロールのカメラ操作を追加（縦=傾き 0-85°/横=方角、capture でズームより先取り）。パネルは 2D/3D セグメントトグルのみに
+- 追記(7/30): 吹き出しの×ボタンを廃止（closeButton: false、地図クリックで閉じる）・角丸12pxに（globals.css で .mapboxgl-popup-content を上書き）
+- 追記(7/30): 3Dモデル実験 — サンパルク駐車場脇にトラック glb を1台配置（mapbox-gl v3 の model レイヤー + map.addModel、外部ライブラリ不要）。モデルは Khronos サンプルの Cesium Milk Truck（CC-BY 4.0）を public/models/truck.glb に配置。本採用時は実車系 glb に差し替え＋帰属表記を検討
+- 追記(7/30): トラックモデルを夜でも視認できるよう自己発光（model-emissive-strength: 1）に。見かけサイズをズーム非依存に（zoom イベントで model-scale を 2^(18-zoom) に逆補正、zoom10 で打ち切り）。参考モックのダッシュボード地図のスケール感に合わせた
+- 追記(7/30): トラック頭上に VehiclePlate(compact) のナンバープレートラベルを配置（Marker anchor:bottom、デモ値 京都400あ12-34）。モデルの見かけサイズを1.6倍に拡大。拠点パネルに目アイコンの表示/非表示トグルを追加（非表示時は吹き出しも閉じる）
+- 追記(7/30): 車両/拠点のズーム役割分担 — 拠点ピンはズーム14.5以上でフェードアウト（opacity 300ms、手動トグルとAND条件。吹き出しは flyTo の行き先表示のため手動トグル時のみ閉じる）。プレートを吹き出し型 VehicleLabel に刷新（通常版 VehiclePlate を92px容器で描画=文字比率改善・稼働中/退勤済みの状態行・下向き尻尾）。複数台時のプレート重なり回避（moveend で画面座標の衝突判定→上に積む declutter）を実装
+- 追記(7/30): プレート吹き出しを黒（slate-950）基調に。拠点ピン再表示バグ修正 — mapbox v3 の Marker は3D遮蔽判定で element の opacity を毎フレーム上書きするため、opacity でなく visibility で非表示制御するよう変更。zoom リスナーは ref 経由で最新関数を呼ぶ形に。マーカーの重なり順を zIndex で固定（拠点1 < 車両2 < プレート5）。基図の情報量削減 — Standard の config で POI・道路名・交通ラベルを非表示（地名のみ残す）
+
+## 2026-07-30 地図ベータ: 拠点ピンのDB化・設定モーダル・プレート吹き出し刷新
+
+- 拠点ピンをハードコード廃止→DB保存に: migration 118_map_places（org単位、name/lat/lng/icon）、API GET/POST（can_view_vehicles / can_manage_org_settings）・DELETE（org スコープ強制）
+- 地図左上の拠点パネル廃止→歯車ボタンの設定モーダルへ: 表示トグル（基本非表示・デフォルトOFF）、一覧（名称タップで flyTo・ゴミ箱で削除 ConfirmDialog）、「地図にピンを打って追加」（クリック→名称＋種別4択 pin/warehouse/parking/client→保存。Esc中止）
+- 拠点マーカーは種別アイコンの丸バッジ（白縁・色分け）。popup 名称は textContent 挿入（XSS回避）
+- プレート吹き出しを VehiclePlate 流用から専用 VehicleLabel に刷新: 黒ナンバー風（黒地×黄文字 #e8d44d、金枠・ボルト装飾なし）＋稼働状態行
+- **migration 118 は未適用**: .env.local の SUPABASE_DB_URL が消滅済みの旧プロジェクト（wdbifbzwxivgefyxpzbi）を指しており接続不可。アプリ本体は ooirajiizydcynyglvuv（REST）を使用中 → ユーザーが Supabase SQL Editor 等で 118 を適用する必要あり。SUPABASE_DB_URL の更新も要検討
+- ナンバープレート文字の SVG グリフ化ほか継続タスクを docs/roadmap-2026-07.md の「K. 地図ベータの継続改善」に記録
+- 検証: tsc クリーン
