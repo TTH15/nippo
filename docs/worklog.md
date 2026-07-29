@@ -168,3 +168,9 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 新 API `/api/admin/map/vehicles`（can_view_vehicles・org スコープ）: 位置ソースは vehicle_sessions の打刻GPS。車両ごとに最新の座標付きセッションを採用（closed は退勤地点優先→出勤地点、GPS無しセッションは遡ってスキップ）。位置なし車両は position:null（ページ側で件数表示）
 - トークンは NEXT_PUBLIC_MAPBOX_TOKEN（.env.local に設定済み・gitignore 対象）。未設定時はページ内に設定案内を表示。**Vercel 本番の環境変数は未設定（要作業）**
 - 検証: tsc クリーン / テスト 421 passed / next build 成功。実データ（打刻GPS）での表示確認は未実施
+
+## 2026-07-29 feat/expo-sdk57 を main にマージ・push
+
+- マージコミット ed39345（--no-ff）。SDK 57 / RN 0.86 / React 19.2 一本化・bundleId=jp.hakotora.app に加え、地図ベータ（Mapbox）・車両貸出の can_manage_vehicles 対応も本番へ
+- 注意: モバイルの実機確認は未実施のままのマージ（ユーザー判断）。web は tsc/テスト421/next build 検証済み
+- 残: Vercel 本番 env に NEXT_PUBLIC_MAPBOX_TOKEN 未設定（地図ページは設定案内の表示になる）
