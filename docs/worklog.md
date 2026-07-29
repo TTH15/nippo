@@ -132,3 +132,39 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 
 - docs/roadmap-2026-07.md に J トラックを追記（完了内容と残タスク: 招待UI解放フラグ・実機追い込み・承認時通知・規約レビュー・電子契約・NFC将来）
 - 次の主戦場は mobile（トラックD・9/1 目標。Apple は 8/8 登記待ちのため Android/足回り/SDK57 判断が先行可能）
+
+## 2026-07-27 Expo SDK 57 移行（夜間自律作業・feat/expo-sdk57 ブランチ）
+
+- **調査**: SDK 57 = RN 0.86 / React 19.2（53〜56 の累積が実質: New Arch 必須化・Hermes V1 既定・reanimated 4）。NativeWind v5（Tailwind v4 対応）は preview 段階 → **Tailwind v4 化は見送り、NativeWind 4.2.6 + Tailwind v3 で SDK 57 化のみ実施**
+- **React 19.2.3 に monorepo 一本化**: 混在の根本原因は root package.json に残置された expo52/react18/RN0.76 の直接依存。除去＋overrides で単一コピー化し、web 側の回避策（tsconfig paths・vitest alias）を撤去。AGENTS.md・patterns/mixed-react-monorepo.md に解消記録
+- **機械的修正**: app.json の newArchEnabled 削除・deploymentTarget 16.4、@types/react 19・TS 6.0、css-interop 0.2 型参照、safe-area className 型拡張、*.css スタブ
+- **検証（すべて green）**: mobile/web tsc・web テスト421・next build・expo export（iOS/Android Hermes バンドル）・prebuild --clean・pod install（GoogleMLKit 8.0.0）・**xcodebuild シミュレータビルド成功**。expo-doctor 19/20（ML Kit「New Arch 未テスト」表記のみ＝現行アプリで稼働実績あり）
+- **残（要ユーザー）**: 実機 dev client 再ビルドで動作確認（生体ロック・カメラ・OCR・NativeWind描画）／Android ネイティブビルド（ローカルに JDK/SDK なし→EAS）／bundleId 確定（提案: jp.hakotora.app）。main 未マージ
+
+## 2026-07-27 bundleId 確定: jp.hakotora.app
+
+- ユーザー決定により iOS bundleIdentifier / Android package を jp.hakotora.app に変更（com.example.nippomobile から本番化）。name/slug は EAS 設定時に確定
+- prebuild --clean で両ネイティブ再生成・pod install 完了。新IDでの iOS シミュレータビルドも BUILD SUCCEEDED（xcodebuild・全ネイティブ再コンパイル）
+- 残: Apple Developer 登録後に本IDで App ID 登録＋Associated Domains（Passkey AASA）
+
+## 2026-07-28 シフト画面の車両貸出を can_manage_vehicles でも操作可能に
+
+- 貸出切替（シフト画面の車両貸出表）は従来 can_dispatch のみでゲートしていたが、「車両を操作する権限（can_manage_vehicles）」でも可能に変更（配車 or 車両管理のどちらかで許可）
+- サーバー: auth/permissions.ts に requireAnyPermission（いずれか1つで許可）を追加し、/api/admin/shifts/vehicle-loans を ["can_dispatch", "can_manage_vehicles"] でゲート
+- UI: shifts/page.tsx に canManageVehicles を追加し canLoan = canDispatch || canManageVehicles で貸出表ボタン・startLoanPaint・toggleVehicleLoan・自動保存表示を制御。車両割当（配車）は従来どおり can_dispatch のみ
+- capabilities.ts の説明文更新（車両の管理に貸出切替を含む旨を権限設定UIにも反映）
+- 検証: tsc クリーン / auth テスト 24 passed
+
+## 2026-07-28 調査: hakotora.jp への利用ドメイン移行状況
+
+- アプリ側にはログイン時のホスト記録なし（DB に last_login やドメイン情報を持たない）→ アプリのデータからは判別不可
+- Vercel ランタイムログ（`vercel logs --json`）には `domain` フィールドがあり判別可能。直近約1.5時間（09:23〜10:50）の100件では、ユーザー起点のリクエストは全て hakotora.jp（admin のポーリング API 含む）。nippo-*.vercel.app へのアクセスは cron の自己呼び出し2件のみ
+- 旧→新ドメインのリダイレクトは未設定（vercel.json / next.config とも）。localStorage トークンは origin 単位のため、旧ドメイン利用者は移行時に再ログインが必要になる点に注意
+
+## 2026-07-29 地図（ベータ）: Mapbox 導入・車両の最終確認位置＋プレート吹き出し
+
+- mapbox-gl 3.27 を apps/web に導入。管理メニューに「地図」（βバッジ付き・cap=can_view_vehicles）を追加（AdminLayout に beta フラグと BetaBadge を実装）
+- 新ページ `(admin)/admin/(ops)/map/page.tsx`: Mapbox GL（streets-v12・日本語ラベル）に車両マーカーを表示。マーカータップで吹き出しに VehiclePlate（ナンバープレート）＋状態（稼働中=緑/退勤済み=グレー・打刻時刻）を表示。60秒自動更新・初回 fitBounds
+- 新 API `/api/admin/map/vehicles`（can_view_vehicles・org スコープ）: 位置ソースは vehicle_sessions の打刻GPS。車両ごとに最新の座標付きセッションを採用（closed は退勤地点優先→出勤地点、GPS無しセッションは遡ってスキップ）。位置なし車両は position:null（ページ側で件数表示）
+- トークンは NEXT_PUBLIC_MAPBOX_TOKEN（.env.local に設定済み・gitignore 対象）。未設定時はページ内に設定案内を表示。**Vercel 本番の環境変数は未設定（要作業）**
+- 検証: tsc クリーン / テスト 421 passed / next build 成功。実データ（打刻GPS）での表示確認は未実施

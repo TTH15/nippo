@@ -4,7 +4,7 @@ import type { AuthUser } from "./types";
 
 export type { AuthUser, MembershipRole } from "./types";
 export { authProvider, signToken } from "./jwt";
-export { requirePermission, hasCapability, getCapabilities, resolveCapabilities } from "./permissions";
+export { requirePermission, requireAnyPermission, hasCapability, getCapabilities, resolveCapabilities } from "./permissions";
 export {
   checkPermission,
   resolveGrants,

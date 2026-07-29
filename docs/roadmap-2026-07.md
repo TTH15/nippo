@@ -209,6 +209,18 @@
 **技術的注意**: Expo SDK 52 = React 18、web は Next 16 = React 19。ルートの react を 19 に上げると
 Expo が壊れる（現状は web だけ 19 をネストで持つ脆い構成）。
 
+**SDK 57 移行 ✅実施済み（2026-07-27・feat/expo-sdk57 ブランチ・実機確認待ち）**
+- Expo 57 / RN 0.86 / React 19.2.3。**React は monorepo 全体で一本化**（root 残置の
+  expo52/react18/RN0.76 直接依存が混在の根本原因だった→除去+overrides。web の回避策も撤去）。
+- NativeWind は 4.2.6（Tailwind v3 のまま）。**v5=Tailwind v4 は preview 段階のため見送り**
+  （stable 化してから別途移行。@platform/ui の vendor はそれまで保留）。
+- 検証済み: 両アプリ tsc / web テスト421 / next build / expo export（両OS の Hermes バンドル）/
+  prebuild / pod install（GoogleMLKit 8.0.0 解決）/ iOS シミュレータビルド（xcodebuild）。
+- 未検証: **実機**（dev client 再ビルド必要）・Android ネイティブビルド（ローカルに JDK/SDK 無し
+  → EAS か Android Studio で）。ML Kit は RN Directory 上「New Arch 未テスト」表記だが
+  現行アプリで New Arch 稼働実績あり（実機で最終確認）。
+- reanimated 4.5 の既知事項: Hermes V1 でメモリ+25-30% の報告 → worklets bundle mode で回避可。
+
 **SDK 57 / Tailwind v4 への更新（ユーザー予定・2026-07-20 共有）**
 - SDK 52→57 は React 19 化を伴い、上記の React 二重問題が**根本解決**する。Tailwind v4 化は
   `@platform/ui`（v4 前提）を hakotora で正式に vendor できるようになる副次効果もある。

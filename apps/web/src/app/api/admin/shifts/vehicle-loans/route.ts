@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requireAnyPermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
 // POST: 車両の日毎の貸出中を設定/解除（loaned で切替）。
-// 貸出管理は配車ドメインのため can_dispatch でゲート（A1）。
+// 貸出は配車（can_dispatch）と車両管理（can_manage_vehicles）の両ドメインに
+// またがる操作のため、どちらかを持てば許可する。
 //   { vehicleId, date, loaned }
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, "can_dispatch");
+  const user = await requireAnyPermission(req, ["can_dispatch", "can_manage_vehicles"]);
   if (isAuthError(user)) return user;
 
   const body = await req.json().catch(() => ({}));
