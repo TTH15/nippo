@@ -174,3 +174,18 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - マージコミット ed39345（--no-ff）。SDK 57 / RN 0.86 / React 19.2 一本化・bundleId=jp.hakotora.app に加え、地図ベータ（Mapbox）・車両貸出の can_manage_vehicles 対応も本番へ
 - 注意: モバイルの実機確認は未実施のままのマージ（ユーザー判断）。web は tsc/テスト421/next build 検証済み
 - 残: Vercel 本番 env に NEXT_PUBLIC_MAPBOX_TOKEN 未設定（地図ページは設定案内の表示になる）
+
+## 2026-07-29 調査: オイル交換報告の車両取り違え（6290選択→6318で記録）
+
+- 事象: 7/29 17:41 の報告（勝政さん）が vehicle_id=6318 で記録。本人の選択は 6290。preference は 18:59 に 6290 へ更新されている（選び直しの形跡）
+- 原因（コード）: me/page.tsx の vehBundle 同期 effect が、SWR の再検証（再マウント時の stale 再取得・reconnect）で発火するたびに selectedVehicleId を「保存済み preference」へ**リセット**する。ユーザーがタップ選択→preference PUT が完了する前に GET が走ると、旧 preference（6318）に選択が巻き戻る。カルーセルは10台表示で 6318 は7番目＝画面外のため、ハイライト移動に気づけない
+- 6318 が旧 preference だった理由: 前日 7/28 23:19 の報告も 6318 で記録され、送信成功時に saveVehiclePreference(6318) が走るため
+- 対処案（未実施）: effect では「初期化のみ」（selectedVehicleId が null のときだけ resolve を適用）にし、ユーザー選択を裏更新で上書きしない。モーダル追加車両も setVehicles での丸ごと置換で消えるため merge にする
+
+## 2026-07-29 オイル交換報告: 「最後に選んだ車両」廃止・データ修正準備・地図の帰属表示
+
+- me/page.tsx（諸報告）から vehicle-preference の取得・保存を全廃。実施車両は毎回タップで明示選択（自動選択なし）。vehBundle 同期 effect は選択状態に触れず、モーダル追加車両も裏更新で消えないよう merge に変更（車両取り違えバグの根治）
+- /submit（日報）は preference を使い続ける（同型の上書き effect があるため、同種の事故が出るなら同様の見直しが必要）
+- データ修正はスクリプト src/scripts/fix-oil-vehicle-20260729.ts に用意（報告2件を6290へ・6318の last_oil_change_mileage を150423へ復旧・6290へ145765を適用）。**本番書き込みが権限で止められたため未実行**（ユーザー実行待ち）
+- 地図: Mapbox の帰属表示（ロゴ・©・Improve this map）は規約上必須で削除不可。attribution をコンパクト表示（ⓘ）に変更
+- 検証: tsc クリーン / テスト 421 passed

@@ -85,7 +85,11 @@ export default function MapPage() {
       center: [135.76, 35.01], // 位置データが無い間のフォールバック（近畿圏）
       zoom: 8,
       language: "ja",
+      // 帰属表示は規約上必須のため消せない。ⓘ アイコンへ畳むコンパクト表示は
+      // 公式に許可されているのでそれを使う（ロゴは表示のまま）。
+      attributionControl: false,
     });
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
     mapRef.current = map;
     return () => {

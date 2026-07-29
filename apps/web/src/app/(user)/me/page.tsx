@@ -17,7 +17,7 @@ import { DynamicField, ReportFileInput, type DynamicFieldValue } from "@/lib/com
 import { validateAnswers, type AnswerAttachment } from "@/server/reportKinds/fields";
 import type { Profile, VehiclePlateData as Vehicle, ReportKindOption } from "@repo/core/types";
 import { toLocalDateStr, toLocalTimeStr } from "@repo/core/logic/calendar";
-import { dedupeVehiclesById, excludeVehicleId, resolvePreferredVehicleId } from "@repo/core/logic/vehicle";
+import { dedupeVehiclesById, excludeVehicleId } from "@repo/core/logic/vehicle";
 import { validatePinChange, digitsOnly, buildProfileEntries, formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { isValidReportDateTime, countAttachmentsByField } from "@repo/core/logic/report";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
@@ -107,18 +107,18 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     setAttachments([]);
   }, [reportKind]);
 
-  // 車両（連携車/他車/優先）をまとめて SWR キャッシュ。選択中の車両が裏更新で
-  // 変わらないようフォーカス再検証は無効化し、取得結果は同期エフェクトで流し込む。
+  // 車両（連携車/他車）をまとめて SWR キャッシュ。
+  // 実施車両は誤送信防止のため自動選択しない（毎回タップで明示選択。過去に
+  // 「最後に選んだ車両」の復元が裏更新でユーザー選択を上書きし、別車両で
+  // 報告が上がる事故があった）。選択状態にはこのエフェクトから一切触れない。
   const { data: vehBundle, isInitialLoading: vehiclesLoading } = useApi<{
     vehicles: Vehicle[];
     unlinked: Vehicle[];
-    preferredId: string | null;
   }>(isReport ? "me/report-vehicles" : null, {
     revalidateOnFocus: false,
     fetcher: async () => {
-      const [vehiclesRes, prefRes, unlinkedRes] = await Promise.all([
+      const [vehiclesRes, unlinkedRes] = await Promise.all([
         apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }),
-        apiFetch<{ vehicleId: string | null }>("/api/reports/vehicle-preference"),
         apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }).catch(
           () => ({ vehicles: [] as Vehicle[] }),
         ),
@@ -126,16 +126,18 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       return {
         vehicles: vehiclesRes.vehicles ?? [],
         unlinked: unlinkedRes.vehicles ?? [],
-        preferredId: prefRes.vehicleId,
       };
     },
   });
 
   useEffect(() => {
     if (!vehBundle) return;
-    setVehicles(vehBundle.vehicles);
+    // 「他の車両を選択」でリストへ足した車両は、裏更新で消えないよう残す。
+    setVehicles((prev) => {
+      const extras = prev.filter((p) => !vehBundle.vehicles.some((b) => b.id === p.id));
+      return extras.length > 0 ? [...vehBundle.vehicles, ...extras] : vehBundle.vehicles;
+    });
     setUnlinkedVehicles(vehBundle.unlinked);
-    setSelectedVehicleId(resolvePreferredVehicleId(vehBundle.vehicles, vehBundle.preferredId));
   }, [vehBundle]);
 
   const allKnownVehicles = useMemo(
@@ -147,17 +149,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     () => excludeVehicleId(allKnownVehicles, selectedVehicleId),
     [allKnownVehicles, selectedVehicleId],
   );
-
-  const saveVehiclePreference = async (vehicleId: string) => {
-    try {
-      await apiFetch("/api/reports/vehicle-preference", {
-        method: "PUT",
-        body: JSON.stringify({ vehicleId }),
-      });
-    } catch {
-      // noop
-    }
-  };
 
   const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -304,7 +295,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
         setReportSubmitting(false);
         return;
       }
-      if (kind.vehicleMode !== "none" && selectedVehicleId) await saveVehiclePreference(selectedVehicleId);
       setReportMessage({ type: "ok", text: "報告を送信しました" });
       setAnswers({});
       setAttachments([]);
@@ -370,10 +360,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
                         <button
                           key={v.id}
                           type="button"
-                          onClick={() => {
-                            setSelectedVehicleId(v.id);
-                            saveVehiclePreference(v.id);
-                          }}
+                          onClick={() => setSelectedVehicleId(v.id)}
                           className={`flex-shrink-0 w-52 rounded-lg border px-1 pt-1 pb-2 ${
                             selectedVehicleId === v.id
                               ? "border-slate-900"
@@ -512,7 +499,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
                               if (!confirmVehicle) return;
                               setVehicles((prev) => (prev.some((x) => x.id === confirmVehicle.id) ? prev : [...prev, confirmVehicle]));
                               setSelectedVehicleId(confirmVehicle.id);
-                              saveVehiclePreference(confirmVehicle.id);
                               setShowVehicleModal(false);
                               setConfirmVehicle(null);
                             }}
