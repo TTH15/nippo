@@ -154,3 +154,17 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - UI: shifts/page.tsx に canManageVehicles を追加し canLoan = canDispatch || canManageVehicles で貸出表ボタン・startLoanPaint・toggleVehicleLoan・自動保存表示を制御。車両割当（配車）は従来どおり can_dispatch のみ
 - capabilities.ts の説明文更新（車両の管理に貸出切替を含む旨を権限設定UIにも反映）
 - 検証: tsc クリーン / auth テスト 24 passed
+
+## 2026-07-28 調査: hakotora.jp への利用ドメイン移行状況
+
+- アプリ側にはログイン時のホスト記録なし（DB に last_login やドメイン情報を持たない）→ アプリのデータからは判別不可
+- Vercel ランタイムログ（`vercel logs --json`）には `domain` フィールドがあり判別可能。直近約1.5時間（09:23〜10:50）の100件では、ユーザー起点のリクエストは全て hakotora.jp（admin のポーリング API 含む）。nippo-*.vercel.app へのアクセスは cron の自己呼び出し2件のみ
+- 旧→新ドメインのリダイレクトは未設定（vercel.json / next.config とも）。localStorage トークンは origin 単位のため、旧ドメイン利用者は移行時に再ログインが必要になる点に注意
+
+## 2026-07-29 地図（ベータ）: Mapbox 導入・車両の最終確認位置＋プレート吹き出し
+
+- mapbox-gl 3.27 を apps/web に導入。管理メニューに「地図」（βバッジ付き・cap=can_view_vehicles）を追加（AdminLayout に beta フラグと BetaBadge を実装）
+- 新ページ `(admin)/admin/(ops)/map/page.tsx`: Mapbox GL（streets-v12・日本語ラベル）に車両マーカーを表示。マーカータップで吹き出しに VehiclePlate（ナンバープレート）＋状態（稼働中=緑/退勤済み=グレー・打刻時刻）を表示。60秒自動更新・初回 fitBounds
+- 新 API `/api/admin/map/vehicles`（can_view_vehicles・org スコープ）: 位置ソースは vehicle_sessions の打刻GPS。車両ごとに最新の座標付きセッションを採用（closed は退勤地点優先→出勤地点、GPS無しセッションは遡ってスキップ）。位置なし車両は position:null（ページ側で件数表示）
+- トークンは NEXT_PUBLIC_MAPBOX_TOKEN（.env.local に設定済み・gitignore 対象）。未設定時はページ内に設定案内を表示。**Vercel 本番の環境変数は未設定（要作業）**
+- 検証: tsc クリーン / テスト 421 passed / next build 成功。実データ（打刻GPS）での表示確認は未実施
