@@ -193,3 +193,18 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-07-29 オイル交換データ修正の実行完了
 
 - ユーザー実行により fix-oil-vehicle-20260729.ts を適用: 報告2件（7/28・7/29）を 6290 へ付け替え、6290 の前回オイル交換=145765km、6318 は 150423km に復旧。スクリプトは実行済みのため削除
+
+## 2026-07-29 地図ベータ: 3D表示・カメラ操作の実験
+
+- 地図ページのスタイルを streets-v12 → Mapbox Standard に変更（3D建物・ランドマーク・時間帯ライティング内蔵、mapbox-gl v3.27）
+- 「3D で見る / 2D に戻す」トグル追加（easeTo で pitch 62°・bearing -18° へアニメーション）
+- 時間帯ライティング切替（朝/dawn・昼/day・夕/dusk・夜/night）を setConfigProperty("basemap", "lightPreset") で追加
+- NavigationControl のコンパスを有効化（visualizePitch）。右ドラッグ/Ctrl+ドラッグで回転・傾き操作可
+- 検証: tsc クリーン
+
+## 2026-07-29 地図ベータ: 拠点マーカー4件と選択ズーム
+
+- 固定拠点マーカー（紫）を追加: Amazon DOO4 大阪枚方DS / 車屋さん（らいとすたっふ）/ アリビオ東寺 / サンパルク伏見桃山駐車場（12番）
+- 座標は Mapbox Geocoding v6（番地レベル）。サンパルクのみ Mapbox 未収録のため国土地理院住所検索の26番地の値
+- 地図左上に「拠点」セレクタを追加。押すと flyTo（zoom 16.5）で移動し吹き出しを開く。他拠点の吹き出しは閉じる
+- 検証: tsc クリーン
