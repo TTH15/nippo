@@ -48,7 +48,7 @@ type NavItem =
 const navItems: NavItem[] = [
   { href: "/admin", label: "ダッシュボード", icon: faChartLine, cap: "can_view_reports" },
   { href: "/admin/daily", label: "報告", icon: faFileLines, cap: "can_view_reports" },
-  { href: "/admin/attendance", label: "勤怠", icon: faClock, cap: "can_view_vehicles" },
+  { href: "/admin/attendance", label: "勤怠", icon: faClock, cap: "can_view_vehicles", beta: true },
   { href: "/admin/shifts", label: "シフト", icon: faCalendar, cap: "can_view_shifts" },
   { href: "/admin/vehicles", label: "車両", icon: faCar, cap: "can_view_vehicles" },
   { href: "/admin/map", label: "地図", icon: faMapLocationDot, cap: "can_view_vehicles", beta: true },
@@ -71,7 +71,7 @@ const navItems: NavItem[] = [
     ],
   },
   { href: "/admin/events", label: "イベント", icon: faTrophy, cap: "can_view_org_settings" },
-  { href: "/admin/notifications", label: "通知配信", icon: faBell, cap: "can_send_notifications" },
+  { href: "/admin/notifications", label: "通知配信", icon: faBell, cap: "can_send_notifications", beta: true },
   {
     label: "設定",
     icon: faGear,

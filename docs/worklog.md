@@ -249,3 +249,7 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 追記: 軽バンが描画されない問題を修正 — glb の KHR_texture_transform が {texCoord:0} のみ（offset/scale なし）で、mapbox-gl のローダーが offset[0] を無条件参照して落ちていた。no-op 拡張のため glb から除去して再構築（validate クリーン）
 - 追記: 軽バン不表示の根本原因を Chrome 実機デバッグで特定（認証不要の一時ページ public/model-test.html を作り console/network を確認→削除済み）。glb 読み込み失敗の実体は RangeError: offset is out of bounds — mapbox-gl の model ローダーは①頂点バッファのインターリーブ形式（stride=48）②ubyte インデックスに非対応。gltf-transform optimize --vertex-layout separate で分離レイアウト・ushort 化して解決（112KB に減量）。実機で描画確認済み。ついでに hakotora dev は :3001 で稼働（:3000 は別プロジェクト opscore）と判明
 - 追記: 吹き出しの縮退表示を実装 — 重なりで負けた側は非表示でなく状態色ドット（白縁3px）に縮退（globals.css の .vehicle-label / .vl-collapsed）。台数の誤認と表示の揺れを解消
+
+## 2026-07-30 ナビ: 勤怠・通知配信に β バッジ追加
+
+- AdminLayout.tsx の navItems で「勤怠」「通知配信」に beta: true を付与（地図と同じ BetaBadge 表示）
