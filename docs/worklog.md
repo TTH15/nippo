@@ -356,3 +356,37 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 調査結論: 招待URL(`/join?invite=<token>`)は元々 web 完結設計で、モバイルは案内テキストのみ（deep link 不要が明示決定）。発行API・検証API・`invites` テーブル(migration 114)・`/join` ウィザードの受け口・ドライバー登録(`POST /api/join` → drivers に pending insert)まで全部実装済みで、封印は `NEXT_PUBLIC_INVITE_LINKS_ENABLED` フロントフラグのみ
 - `apps/web/.env.local` に `NEXT_PUBLIC_INVITE_LINKS_ENABLED=1` を追加（ローカル解放）
 - 本番: Vercel production への同フラグ追加は権限制約でエージェント実行不可 → ユーザー操作待ち（`vercel env add NEXT_PUBLIC_INVITE_LINKS_ENABLED production` → 値 `1` → 再デプロイ。NEXT_PUBLIC 系はビルド時埋め込みのため再デプロイ必須）
+
+## 2026-07-31 02:00 【障害】本番DBへの誤書き込みと復旧(ACE800013)
+
+- **事故**: apps/web/.env.local を「dev Supabase」と誤認し(実際は .env.production.local と同一の本番プロジェクト ooirajiizydcynyglvuv。独立 dev DB は存在しない)、既存ドライバー ACE800013(平中泰斗・元から本番に存在)に pin_hash=bcrypt("123456")・kyc_verified_at・postal_code/address ダミー・identities の写真パスダミーを書き込んだ。KYC 付与により本番ドライバー一覧に表示されユーザーが発見
+- **復旧**: identities の写真パス2件を null に復旧(私)。drivers 行はユーザーが管理画面から削除済みのため残作業なし。identity 行(6fda8052)は残存 — 由来調査・削除はユーザー判断待ち
+- **未回復の可能性**: 上書きした postal_code/address の元値(存在したかも不明)。必要なら Supabase のバックアップ/PITR で確認可
+- **書き込みはこの4項目のみ**(打刻・日報等の作成は無し)。閲覧はドライバー一覧・当該者の登録状態
+- **再発防止**: メモリに環境警告を記録。dev Supabase 新設までローカル/シミュレータからの書き込みテスト禁止。DB の同一性は URL 突合で検証してから書き込む
+- ローカル web(:3001)と Metro(:8081)は再開済み
+
+## 2026-08-01 00:20 ACE800013 の完全復元(Pro 日次バックアップから)
+
+- Supabase Pro の Scheduled backups → Restore to a new project(課金は時間割で実質数円)でユーザーが 7/30 時点の drivers 行を抽出 → 私が本番へ元値のまま INSERT(id/created_at/pin_hash/住所/名簿順まで完全一致)
+- **判明**: 平中泰斗さんは 7/30 21:05 JST 作成の実在の新規登録者(写真未提出で本登録途中・KYC未承認)。dev データではなかった
+- identities の写真パスは元々未設定(7/31調査ログと一致)で現状も null = 元の状態
+- 残確認: 複製プロジェクトで driver_identities の有無を確認後、複製プロジェクト削除(ユーザー)
+
+## 2026-08-01 00:45 dev-nippo 再建完了・ローカル開発の安全化
+
+- dev-nippo(ref wdbifbzw…)が pause から復帰 → 本番と別プロジェクトであることを ref 突合で検証 → migrations 104〜119 を適用(103 で停止していた。`_migrations` 台帳で差分適用)
+- apply-migrations.ts を `.env.development.local` 最優先に変更(本番誤爆の構造的防止)。ローカル :3001 も同ファイルで dev-nippo 接続に
+- 既存 dev データ(AAA org・5名)を再利用: AAA111111 田中太郎を PIN 123456・ゲート通過済みに整備、AAA org にコース3本+今日のシフト作成。ローカルAPIでログイン→シフト表示まで検証
+- 注意: .env.development.local に無いキーは .env.local(本番)にフォールバック。dev から電話OTPは実SMSが飛ぶため PIN ログインを使う
+- 平中さん(ACE800013)の件は復元完了済み。residual: driver_identities の有無確認(ユーザーが複製プロジェクトで確認後、複製削除)
+- 決定事項: platform コンソール Phase1 は集計のみ・PII なし/platform_admin は平石孝也 identity に付与/上流管理画面→dev検証→本番テストorg の順
+
+## 2026-08-01 01:05 platform コンソール Phase 1 実装(dev 検証済み)
+
+- migration 120: platform_admins(identity基準)/org_applications(KYB申請台帳)/platform_audit_logs
+- サーバ基盤 src/server/platform: requirePlatformAdmin(identityId→platform_admins判定)・logPlatformAction・bootstrapOrganization(organizations+system ロール4種は DEFAULT_ROLE_CAPABILITIES 正本+初代ADMIN招待14日)
+- API: GET /api/platform/orgs(org別集計: active/KYC済ドライバー・日報/稼働/通知/LINE通数の当月件数・最終日報。**PIIエンドポイントは作らない設計**)、/api/platform/applications(一覧+PATCH: reviewing/reject/approve→ブートストラップ)、POST /api/apply(公開申請・ハニーポット)
+- UI: /platform(ダークヘッダーPLATFORMブランド・org集計テーブル・審査待ちバナー)、/platform/applications(審査+承認モーダル→参加コード・招待リンクを一度だけ表示)、/apply(公開申請フォーム)
+- dev-nippo 検証: migration適用→平石孝也identityにplatform_admin付与→申請→承認→TESTUN org発行(ロール束 ADMIN20/ACCOUNTING11/VIEWER7/DRIVER0)・監査ログ記録・非運営者403 まで一巡確認。web tsc/テスト421 green
+- 残: 本番適用(migration 120+platform_admin付与)→本番テストorg作成、監査ログ閲覧UI、API呼出回数の計測(Phase 2)、break-glass(Phase 2)
