@@ -15,6 +15,7 @@
     "test:itest": "vitest run --config vitest.itest.config.mts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
     "@fortawesome/fontawesome-svg-core": "^7.2.0",
     "@fortawesome/free-brands-svg-icons": "^7.2.0",
     "@fortawesome/free-regular-svg-icons": "^7.2.0",
@@ -40,6 +41,7 @@
     "mapbox-gl": "^3.27.0",
     "motion": "^12.23.24",
     "next": "^16.2.0",
+    "openai": "^7.2.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.0",
     "react-day-picker": "^9.13.0",

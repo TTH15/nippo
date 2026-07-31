@@ -159,8 +159,7 @@ export function MeScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-brand-50" contentContainerClassName="px-4 pt-16 pb-10">
-      <Text className="text-lg font-bold text-brand-900 mb-6">マイページ</Text>
+    <ScrollView className="flex-1 bg-brand-50" contentContainerClassName="px-4 pt-4 pb-10">
 
       <Text className="text-base font-bold text-brand-900 mb-3">プロフィール</Text>
       {loading ? (

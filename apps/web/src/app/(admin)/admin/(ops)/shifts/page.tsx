@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+import { faChevronLeft, faChevronRight, faFileImport } from "@fortawesome/free-solid-svg-icons";
 import { isJapanPublicHolidayYmd } from "@/lib/japanHolidays";
 import { todayJST } from "@/lib/date";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -27,6 +27,7 @@ import { cn } from "@/lib/ui/utils";
 import { TimePicker } from "@/lib/ui/time-picker";
 import { Check, ChevronDown, Download, RefreshCw, Settings } from "lucide-react";
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
+import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./ShiftImportModal";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
 
@@ -465,6 +466,51 @@ export default function ShiftsPage() {
   const [canManageVehicles, setCanManageVehicles] = useState(false);
   const canLoan = canDispatch || canManageVehicles;
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  // シフト表（PDF/画像）の AI 取り込み。専用ボタンは置かず、画面へのドラッグ&ドロップを入口にする。
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFiles, setImportFiles] = useState<File[]>([]);
+  // ドラッグ中だけ全画面のドロップフィールドを被せる（多重 dragenter に備えて深さを数える）
+  const [dropActive, setDropActive] = useState(false);
+  const dragDepthRef = useRef(0);
+  useEffect(() => {
+    if (!canWrite) return;
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const onDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      setDropActive(true);
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault();
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setDropActive(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      // ブラウザ既定（ファイルをそのまま開く）を常に抑止した上で、対応形式だけ受け取る
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setDropActive(false);
+      const dropped = Array.from(e.dataTransfer?.files ?? []).filter(isImportableShiftFile);
+      if (dropped.length === 0) return;
+      setImportFiles((prev) => mergeImportFiles(prev, dropped));
+      setImportModalOpen(true);
+    };
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [canWrite]);
   const [yearMonth, setYearMonth] = useState(currentYearMonth());
   // デフォルトは「今日」を含む期間（1〜15日=前半 / 16日〜=後半）
   const [period, setPeriod] = useState<Period>(() => (new Date().getDate() >= 16 ? "second" : "first"));
@@ -1715,7 +1761,8 @@ export default function ShiftsPage() {
               ))}
             </div>
           </div>
-          {/* 操作ボタン群（エクスポート／更新／設定）は右寄せで1行にまとめる */}
+          {/* 操作ボタン群（エクスポート／更新／設定）は右寄せで1行にまとめる。
+              シフト表の AI 取り込みはボタンではなく、画面へのファイルドロップが入口。 */}
           <div className="flex items-center gap-2 shrink-0">
             <div className="relative">
               {/* スマホは省スペースのためアイコンのみ（PC は従来のラベル付き） */}
@@ -3418,6 +3465,29 @@ export default function ShiftsPage() {
         canWrite={canWrite}
         onClose={() => setSettingsModalOpen(false)}
       />
+      <ShiftImportModal
+        open={importModalOpen}
+        year={yearMonth.year}
+        month={yearMonth.month}
+        courses={courses}
+        drivers={drivers}
+        files={importFiles}
+        onFilesChange={setImportFiles}
+        onClose={() => setImportModalOpen(false)}
+        onApplied={() => {
+          void load();
+        }}
+      />
+      {/* ドラッグ中の全画面ドロップフィールド。drop 自体は window リスナが受けるため pointer-events は切る */}
+      {dropActive && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/50 p-4 md:p-8 pointer-events-none">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-2xl border-4 border-dashed border-white/80 text-white">
+            <FontAwesomeIcon icon={faFileImport} className="text-4xl" />
+            <p className="text-lg font-semibold">シフト表をここにドロップ</p>
+            <p className="text-sm text-white/80">PDF / JPEG / PNG（複数可）を AI で読み取って取り込みます</p>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }

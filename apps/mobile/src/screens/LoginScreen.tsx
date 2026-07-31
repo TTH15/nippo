@@ -3,18 +3,16 @@ import { View, Text, TextInput, Pressable, ActivityIndicator, ScrollView, Keyboa
 import { apiFetch } from "@repo/core/api";
 import { setAuth, type StoredDriver } from "@repo/core/auth";
 
-// 会社コード接頭辞（ブランド/テナント確定までは仮で ACE）。
-const COMPANY = process.env.EXPO_PUBLIC_COMPANY_CODE ?? "";
-
 // ============================================================
 // ログイン画面。確定フロー（§2-1a）に沿って主＝電話番号(SMS OTP)、副＝ドライバーコード+PIN。
 // PIN は移行中のフォールバックとして残す（PIN撤廃は全ドライバーの電話認証+Passkey移行後）。
 // 参加申請・本登録は web 一本化のため、はじめての方は招待リンク（ブラウザ）へ案内する。
+// ドライバーコードは9桁を直接入力する（会社コード接頭辞の分割入力は廃止）。
 // ============================================================
 
 type Mode = "phone" | "pin";
 
-const INPUT = "bg-white border border-brand-200 rounded-lg py-2.5 px-4 text-lg font-mono text-center tracking-wider text-brand-900";
+const INPUT = "bg-white border border-brand-200 rounded-lg py-2.5 px-4 text-lg font-semibold text-center tracking-widest text-brand-900";
 
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [mode, setMode] = useState<Mode>("phone");
@@ -23,9 +21,9 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
     <KeyboardAvoidingView className="flex-1 bg-brand-50" behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView contentContainerClassName="grow justify-center p-6" keyboardShouldPersistTaps="handled">
         <View className="bg-white rounded-2xl border border-brand-200 shadow-sm overflow-hidden">
-          <View className="items-center py-6 border-b border-brand-100">
-            <Image source={require("../../assets/logo-icon.png")} style={{ width: 56, height: 56 }} resizeMode="contain" />
-            <Text className="text-lg font-bold text-brand-900 mt-2">ハコ虎</Text>
+          <View className="items-center py-3 border-b border-brand-100">
+            {/* 文字・タグライン入りのプライマリロゴ（原本: apps/web/public/logo/hakotora-logo_primary_logo.svg） */}
+            <Image source={require("../../assets/logo-primary.png")} style={{ width: 240, height: 160 }} resizeMode="contain" />
           </View>
 
           {mode === "phone" ? (
@@ -145,7 +143,7 @@ function PhoneLogin({ onLoggedIn, onUsePin }: { onLoggedIn: () => void; onUsePin
 
 // ドライバーコード + PIN（移行中フォールバック）。
 function PinLogin({ onLoggedIn, onUsePhone }: { onLoggedIn: () => void; onUsePhone: () => void }) {
-  const [num, setNum] = useState("");
+  const [code, setCode] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -154,7 +152,7 @@ function PinLogin({ onLoggedIn, onUsePhone }: { onLoggedIn: () => void; onUsePho
     setLoading(true);
     setError("");
     try {
-      const driverCode = `${COMPANY}${num}`.toUpperCase();
+      const driverCode = code.toUpperCase();
       const res = await apiFetch<{ token: string; driver: StoredDriver }>("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ loginType: "driver", driverCode, pin }),
@@ -168,26 +166,22 @@ function PinLogin({ onLoggedIn, onUsePhone }: { onLoggedIn: () => void; onUsePho
     }
   };
 
-  const valid = num.length === 6 && pin.length === 6;
+  const valid = code.length === 9 && pin.length === 6;
 
   return (
     <View className="p-5 gap-4">
       <View className="gap-1.5">
-        <Text className="text-[13px] font-medium text-brand-700">会社コード + ドライバー番号</Text>
-        <View className="flex-row items-stretch">
-          <View className="justify-center px-4 bg-brand-50 border border-r-0 border-brand-200 rounded-l-lg">
-            <Text className="text-base font-mono text-brand-500">{COMPANY || "—"}</Text>
-          </View>
-          <TextInput
-            className="flex-1 bg-white border border-brand-200 rounded-lg rounded-l-none py-2.5 px-4 text-lg font-mono text-center tracking-wider text-brand-900"
-            value={num}
-            onChangeText={(t) => setNum(t.replace(/[^0-9]/g, "").slice(0, 6))}
-            keyboardType="number-pad"
-            maxLength={6}
-            placeholder="123456"
-            autoFocus
-          />
-        </View>
+        <Text className="text-[13px] font-medium text-brand-700">ドライバーコード</Text>
+        <TextInput
+          className={INPUT}
+          value={code}
+          onChangeText={(t) => setCode(t.replace(/[^0-9a-zA-Z]/g, "").toUpperCase().slice(0, 9))}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={9}
+          placeholder="ACE123456"
+          autoFocus
+        />
       </View>
 
       <View className="gap-1.5">

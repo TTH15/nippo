@@ -8,7 +8,7 @@ export function ModeSwitchFab({ adminMode, onToggle }: { adminMode: boolean; onT
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={{ position: "absolute", right: 16, bottom: insets.bottom + 76 }}>
+    <View style={{ position: "absolute", right: 16, bottom: insets.bottom + 16 }}>
       <Pressable
         onPress={onToggle}
         className={`flex-row items-center gap-2 pl-3 pr-4 py-2.5 rounded-full shadow-lg active:opacity-80 ${adminMode ? "bg-brand-900" : "bg-accent-500"}`}

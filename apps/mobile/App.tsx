@@ -5,6 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { getStoredDriver, clearAuth, type StoredDriver } from "@repo/core/auth";
 import { apiFetch } from "@repo/core/api";
 import { bootstrap } from "./src/bootstrap";
@@ -17,6 +18,7 @@ import { MeScreen } from "./src/screens/MeScreen";
 import { RewardsScreen } from "./src/screens/RewardsScreen";
 import { ShiftsScreen } from "./src/screens/ShiftsScreen";
 import { WorkScreen } from "./src/screens/WorkScreen";
+import { NotificationsScreen } from "./src/screens/NotificationsScreen";
 import { AdminDailyScreen } from "./src/screens/admin/AdminDailyScreen";
 import { AdminSalesScreen } from "./src/screens/admin/AdminSalesScreen";
 import { AdminDriversScreen } from "./src/screens/admin/AdminDriversScreen";
@@ -25,6 +27,7 @@ import { BottomTabBar } from "./src/components/BottomTabBar";
 import { ModeSwitchFab } from "./src/components/ModeSwitchFab";
 
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -139,12 +142,15 @@ export default function App() {
               <Tab.Screen name="車両" component={AdminVehiclesScreen} />
             </Tab.Navigator>
           ) : (
-            <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <BottomTabBar {...props} />}>
-              <Tab.Screen name="マイページ" component={MeScreen} />
-              <Tab.Screen name="希望休" component={ShiftsScreen} />
-              <Tab.Screen name="業務" component={WorkScreen} />
-              <Tab.Screen name="報酬" component={RewardsScreen} />
-            </Tab.Navigator>
+            // ドライバーモードはタブレスの1画面構成: ホーム（業務）を軸に、
+            // シフト・報酬・通知・マイページはカード/アイコンからスタック遷移で開く。
+            <Stack.Navigator screenOptions={{ headerBackTitle: "戻る" }}>
+              <Stack.Screen name="ホーム" component={WorkScreen} options={{ headerShown: false }} />
+              <Stack.Screen name="シフト" component={ShiftsScreen} />
+              <Stack.Screen name="報酬" component={RewardsScreen} />
+              <Stack.Screen name="通知" component={NotificationsScreen} />
+              <Stack.Screen name="マイページ" component={MeScreen} />
+            </Stack.Navigator>
           )}
         </NavigationContainer>
         {canUseAdminMode && <ModeSwitchFab adminMode={adminMode} onToggle={() => setAdminMode((v) => !v)} />}

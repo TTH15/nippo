@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, useWindowDimensions, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { FontAwesome6 } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Animated, {
   cancelAnimation,
@@ -24,6 +25,8 @@ export function PunchButton({
   busy,
   onScanned,
   onFallback,
+  iconOnly = false,
+  showCaption = true,
 }: {
   mode: "start" | "end";
   busy: boolean;
@@ -31,6 +34,10 @@ export function PunchButton({
   onScanned: (data: string) => Promise<boolean>;
   // 「QRが読めない」タップ時（退避ルート・vehicle-session-flow.md §8.5）。カメラ状態のときのみ表示。
   onFallback?: () => void;
+  /** true なら待機時の円をテキストでなく手のアイコンにする（カード側にタイトルがある場合の重複回避） */
+  iconOnly?: boolean;
+  /** false なら円下のキャプションを出さない（カメラ状態の案内は常に出す） */
+  showCaption?: boolean;
 }) {
   const { width } = useWindowDimensions();
   // カメラ状態では読み取りやすいよう円を大きく広げる。長押しした指が自然に退く広さを確保する。
@@ -150,14 +157,20 @@ export function PunchButton({
                 className="absolute bg-accent-500"
                 style={[{ width: SIZE, height: SIZE, borderRadius: SIZE / 2 }, fillStyle]}
               />
-              <Text className="text-white text-lg font-bold">
-                {mode === "start" ? "稼働開始" : "稼働終了"}
-              </Text>
+              {iconOnly ? (
+                <FontAwesome6 name="hand-pointer" size={44} color="#ffffff" iconStyle="solid" />
+              ) : (
+                <Text className="text-white text-lg font-bold">
+                  {mode === "start" ? "稼働開始" : "稼働終了"}
+                </Text>
+              )}
             </>
           )}
         </Pressable>
       </Animated.View>
-      <Text className="text-brand-500 text-[13px]">{caption}</Text>
+      {(showCaption || state === "camera" || state === "success") && (
+        <Text className="text-brand-500 text-[13px]">{caption}</Text>
+      )}
       {state === "camera" && onFallback && (
         <Pressable
           onPress={() => {

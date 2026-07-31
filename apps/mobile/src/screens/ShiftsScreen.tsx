@@ -7,7 +7,6 @@ import {
   getDaysInMonth,
   monthDateRange,
   toLocalDateStr,
-  nowYearMonth0,
   nowYearMonth1,
   formatYearMonth,
 } from "@repo/core/logic/calendar";
@@ -23,24 +22,42 @@ import {
   buildOffEntries,
 } from "@repo/core/logic/shift";
 import { VehiclePlateMini } from "../components/VehiclePlateMini";
+import { MonthPager, MonthTitle, MonthPickerSheet, ymKey, type YM } from "../components/MonthPager";
 
 // ============================================================
 // シフト（シフト確認 / 希望休提出）。Web版 apps/web/.../shifts/page.tsx と
 // サブタブ構成・判定ロジックを揃える（判定・整形は @repo/core/logic を共有）。
+// 月の移動は MonthPager（スワイプ）＋ MonthTitle タップの年月ピッカー。前月/翌月ボタンは置かない。
 // ============================================================
 
 type OffMap = ReturnType<typeof requestsToOffMap>;
 type SubTab = "view" | "request";
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
-const CELL = "w-[14.2857%] aspect-square items-center justify-center p-0.5";
+const CELL = "aspect-square items-center justify-center p-0.5";
+
+// カレンダーの列幅。flex-1 の等分配は空セルと内容ありセルで割付が微妙にずれる（Yoga の挙動）ため、
+// 全セルに同じ%幅を明示して罫線を揃える。
+const COL = { width: "14.2857%" } as const;
+
+// 7列ぴったりの週配列に整形する。flex-wrap の %幅は Yoga の丸めで7列目が折り返す
+// ことがある（土曜列が空く実バグ）ため、週ごとの flex-row で列を保証する。
+function buildWeeks(firstDow: number, days: Date[]): (Date | null)[][] {
+  const cells: (Date | null)[] = [...Array.from({ length: firstDow }, (): null => null), ...days];
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks: (Date | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
+const monthDays = (ym: YM) => getDaysInMonth(ym.year, ym.month - 1);
+const monthFirstDow = (ym: YM) => new Date(ym.year, ym.month - 1, 1).getDay();
 
 export function ShiftsScreen() {
   const [subTab, setSubTab] = useState<SubTab>("view");
 
   return (
-    <View className="flex-1 bg-white pt-16">
-      <View className="px-4 gap-3">
-        <Text className="text-lg font-bold text-brand-900">シフト</Text>
+    <View className="flex-1 bg-white pt-3">
+      <View className="px-4">
         <View className="flex-row border-b border-brand-200">
           {(
             [
@@ -75,23 +92,53 @@ function ErrorBanner({ message }: { message: string }) {
 // ------------------------------------------------------------
 // シフト確認タブ
 // ------------------------------------------------------------
+
+// 月別シフトのメモリキャッシュ。スワイプで行き来しても再フェッチで待たせない
+// （表示は即キャッシュ、裏で常に更新）。
+const shiftMonthCache = new Map<string, MeShift[]>();
+
 function ShiftConfirmView() {
-  const [month, setMonth] = useState(nowYearMonth1);
-  const [shifts, setShifts] = useState<MeShift[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [month, setMonth] = useState<YM>(nowYearMonth1);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  return (
+    <ScrollView className="flex-1" contentContainerClassName="pt-1 pb-10">
+      <MonthTitle ym={month} onPress={() => setPickerOpen(true)} />
+      <MonthPager
+        ym={month}
+        onChange={setMonth}
+        renderMonth={(m) => (
+          <View className="px-4 pt-1">
+            <ShiftMonthGrid ym={m} />
+          </View>
+        )}
+      />
+      <MonthPickerSheet visible={pickerOpen} ym={month} onSelect={setMonth} onClose={() => setPickerOpen(false)} />
+    </ScrollView>
+  );
+}
+
+function ShiftMonthGrid({ ym }: { ym: YM }) {
+  const key = ymKey(ym);
+  const cached = shiftMonthCache.get(key);
+  const [shifts, setShifts] = useState<MeShift[]>(cached ?? []);
+  const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    const hit = shiftMonthCache.get(key);
+    if (hit) setShifts(hit);
+    setLoading(!hit);
     setError("");
-    const { start, end } = monthDateRange(month.year, month.month);
+    const { start, end } = monthDateRange(ym.year, ym.month);
     apiFetch<{ shifts: MeShift[] }>(`/api/me/shifts?start=${start}&end=${end}`)
       .then((res) => {
+        shiftMonthCache.set(key, res.shifts ?? []);
         if (!cancelled) setShifts(res.shifts ?? []);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "シフトの取得に失敗しました");
+        if (!cancelled && !hit) setError(e instanceof Error ? e.message : "シフトの取得に失敗しました");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -99,7 +146,7 @@ function ShiftConfirmView() {
     return () => {
       cancelled = true;
     };
-  }, [month.year, month.month]);
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const shiftsByDate = useMemo(() => {
     const m = new Map<string, MeShift[]>();
@@ -111,56 +158,33 @@ function ShiftConfirmView() {
     return m;
   }, [shifts]);
 
-  const shiftMonth = (delta: number) =>
-    setMonth((v) => {
-      let m = v.month + delta;
-      let y = v.year;
-      if (m < 1) {
-        m = 12;
-        y -= 1;
-      } else if (m > 12) {
-        m = 1;
-        y += 1;
-      }
-      return { year: y, month: m };
-    });
-
-  const days = getDaysInMonth(month.year, month.month - 1);
-  const firstDow = new Date(month.year, month.month - 1, 1).getDay();
   const todayStr = toLocalDateStr(new Date());
 
-  return (
-    <ScrollView className="flex-1" contentContainerClassName="px-4 pt-4 pb-10 gap-4">
-      <View className="flex-row items-center justify-between">
-        <Pressable className="px-3 py-1.5 rounded bg-white border border-brand-200 active:opacity-70" onPress={() => shiftMonth(-1)}>
-          <Text className="text-[13px] text-brand-600">← 前月</Text>
-        </Pressable>
-        <Text className="text-base font-semibold text-brand-900">{month.year}年 {month.month}月</Text>
-        <Pressable className="px-3 py-1.5 rounded bg-white border border-brand-200 active:opacity-70" onPress={() => shiftMonth(1)}>
-          <Text className="text-[13px] text-brand-600">翌月 →</Text>
-        </Pressable>
+  if (loading) {
+    return (
+      <View className="py-16 items-center">
+        <ActivityIndicator />
       </View>
+    );
+  }
+  if (error) return <ErrorBanner message={error} />;
 
-      {loading ? (
-        <View className="py-8 items-center">
-          <ActivityIndicator />
-        </View>
-      ) : error ? (
-        <ErrorBanner message={error} />
-      ) : (
-        <View className="bg-white rounded border border-brand-300 overflow-hidden">
-          <View className="flex-row bg-brand-50 border-b border-brand-300">
-            {DOW.map((d, i) => (
-              <View key={d} className="flex-1 items-center py-1.5">
-                <Text className={`text-xs font-medium ${i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-brand-500"}`}>{d}</Text>
-              </View>
-            ))}
+  return (
+    <View className="bg-white rounded border border-brand-300 overflow-hidden">
+      <View className="flex-row bg-brand-50 border-b border-brand-300">
+        {DOW.map((d, i) => (
+          <View key={d} style={COL} className="items-center py-1.5">
+            <Text className={`text-xs font-medium ${i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-brand-500"}`}>{d}</Text>
           </View>
-          <View className="flex-row flex-wrap">
-            {Array.from({ length: firstDow }).map((_, i) => (
-              <View key={`e${i}`} className="w-[14.2857%] min-h-[80px] border-b border-r border-brand-100 bg-brand-50" />
-            ))}
-            {days.map((date) => {
+        ))}
+      </View>
+      <View>
+        {buildWeeks(monthFirstDow(ym), monthDays(ym)).map((week, wi) => (
+          <View key={wi} className="flex-row">
+            {week.map((date, di) => {
+              if (!date) {
+                return <View key={`e${di}`} style={COL} className="min-h-[80px] border-b border-r border-brand-100 bg-brand-50" />;
+              }
               const dateStr = toLocalDateStr(date);
               const dayShifts = shiftsByDate.get(dateStr) ?? [];
               const dow = date.getDay();
@@ -171,7 +195,8 @@ function ShiftConfirmView() {
               return (
                 <View
                   key={dateStr}
-                  className={`w-[14.2857%] min-h-[80px] border-b border-r border-brand-100 p-1 items-center ${isToday ? "bg-accent-50" : "bg-white"}`}
+                  style={COL}
+                  className={`min-h-[80px] border-b border-r border-brand-100 p-1 items-center ${isToday ? "bg-accent-50" : "bg-white"}`}
                 >
                   <Text className={`text-xs font-medium ${dow === 0 ? "text-red-500" : dow === 6 ? "text-blue-500" : "text-brand-700"}`}>
                     {date.getDate()}
@@ -200,17 +225,47 @@ function ShiftConfirmView() {
               );
             })}
           </View>
-        </View>
-      )}
-    </ScrollView>
+        ))}
+      </View>
+    </View>
   );
 }
 
 // ------------------------------------------------------------
 // 希望休提出タブ
 // ------------------------------------------------------------
+
+// 左右の覗きページ用: 日付だけの飾りグリッド（操作不可）。
+function PlainMonthGrid({ ym }: { ym: YM }) {
+  return (
+    <View className="bg-white rounded border border-brand-200 p-3 opacity-50" pointerEvents="none">
+      <View className="flex-row">
+        {DOW.map((d, i) => (
+          <View key={d} style={COL} className="items-center py-1">
+            <Text className={`text-xs font-medium ${i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-brand-500"}`}>{d}</Text>
+          </View>
+        ))}
+      </View>
+      {buildWeeks(monthFirstDow(ym), monthDays(ym)).map((week, wi) => (
+        <View key={wi} className="flex-row">
+          {week.map((date, di) =>
+            date ? (
+              <View key={toLocalDateStr(date)} style={COL} className={`${CELL} rounded-lg border bg-white border-brand-100`}>
+                <Text className="text-sm text-brand-900">{date.getDate()}</Text>
+              </View>
+            ) : (
+              <View key={`e${di}`} style={COL} className={CELL} />
+            ),
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function ShiftRequestView() {
-  const [view, setView] = useState(nowYearMonth0); // month は 0-indexed
+  const [ym, setYm] = useState<YM>(nowYearMonth1);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [slots, setSlots] = useState<DriverSlot[]>([]);
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);
@@ -220,7 +275,7 @@ function ShiftRequestView() {
   const [error, setError] = useState("");
   const [pickerDate, setPickerDate] = useState<string | null>(null);
 
-  const monthStr = formatYearMonth(view.year, view.month + 1);
+  const monthStr = formatYearMonth(ym.year, ym.month);
 
   const load = async () => {
     setLoading(true);
@@ -245,20 +300,6 @@ function ShiftRequestView() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthStr]);
-
-  const shiftMonth = (delta: number) =>
-    setView((v) => {
-      let m = v.month + delta;
-      let y = v.year;
-      if (m < 0) {
-        m = 11;
-        y -= 1;
-      } else if (m > 11) {
-        m = 0;
-        y += 1;
-      }
-      return { year: y, month: m };
-    });
 
   const toggle = (dateStr: string, key: string) => setOff((prev) => toggleOffKey(prev, dateStr, key));
 
@@ -286,8 +327,6 @@ function ShiftRequestView() {
     }
   };
 
-  const days = getDaysInMonth(view.year, view.month);
-  const firstDow = new Date(view.year, view.month, 1).getDay();
   const todayStr = toLocalDateStr(new Date());
   const changed = hasOffChanges(requests, off);
 
@@ -295,21 +334,15 @@ function ShiftRequestView() {
   const selectedDates = [...off.keys()].filter((d) => d.startsWith(monthStr) && dayOff(off, d).size > 0).sort();
 
   return (
-    <ScrollView className="flex-1" contentContainerClassName="px-4 pt-4 pb-10 gap-4">
-      <Text className="text-[13px] text-brand-500">休みを希望する日をタップして選択し、まとめて提出します。</Text>
-
-      <View className="flex-row items-center justify-between">
-        <Pressable className="px-3 py-1.5 rounded bg-white border border-brand-200 active:opacity-70" onPress={() => shiftMonth(-1)}>
-          <Text className="text-[13px] text-brand-600">← 前月</Text>
-        </Pressable>
-        <Text className="text-base font-semibold text-brand-900">{view.year}年 {view.month + 1}月</Text>
-        <Pressable className="px-3 py-1.5 rounded bg-white border border-brand-200 active:opacity-70" onPress={() => shiftMonth(1)}>
-          <Text className="text-[13px] text-brand-600">翌月 →</Text>
-        </Pressable>
+    <ScrollView className="flex-1" contentContainerClassName="pt-2 pb-10 gap-4">
+      <View className="px-4">
+        <Text className="text-[13px] text-brand-500">休みを希望する日をタップして選択し、まとめて提出します。</Text>
       </View>
 
+      <MonthTitle ym={ym} onPress={() => setPickerOpen(true)} />
+
       {periods.length > 0 && (
-        <View className="flex-row flex-wrap gap-2">
+        <View className="px-4 flex-row flex-wrap gap-2">
           {periods.map((p) => (
             <View
               key={p.seq}
@@ -332,106 +365,122 @@ function ShiftRequestView() {
         </View>
       )}
 
-      {loading ? (
-        <View className="py-8 items-center">
-          <ActivityIndicator />
-        </View>
-      ) : (
-        <>
-          {error ? <ErrorBanner message={error} /> : null}
-          <View className="bg-white rounded border border-brand-200 p-3">
-            <View className="flex-row flex-wrap">
-              {DOW.map((d, i) => (
-                <View key={d} className={CELL}>
-                  <Text className={`text-xs font-medium ${i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-brand-500"}`}>{d}</Text>
-                </View>
-              ))}
-              {Array.from({ length: firstDow }).map((_, i) => (
-                <View key={`e${i}`} className={CELL} />
-              ))}
-              {days.map((date) => {
-                const dateStr = toLocalDateStr(date);
-                const locked = isLockedDate(periods, dateStr);
-                const past = dateStr < todayStr;
-                const whole = isWholeDayOff(off, dateStr);
-                const partial = !whole && hasAnyOff(off, dateStr);
-                const disabled = locked || past;
-                const box = whole
-                  ? "bg-red-100 border-red-300"
-                  : partial
-                    ? "bg-red-50 border-red-300"
-                    : "bg-white border-brand-100";
-                return (
-                  <Pressable
-                    key={dateStr}
-                    className={`${CELL} rounded-lg border ${box} ${disabled ? "opacity-40" : ""}`}
-                    onPress={() => !disabled && onDayPress(date)}
-                    disabled={disabled}
-                  >
-                    <Text className={`text-sm ${whole ? "text-red-700 font-bold" : "text-brand-900"}`}>{date.getDate()}</Text>
-                    {whole ? (
-                      <FontAwesome6 name="xmark" size={11} color="#b91c1c" iconStyle="solid" />
-                    ) : partial ? (
-                      <Text className="text-[9px] text-red-700 font-bold">便{dayOff(off, dateStr).size}</Text>
-                    ) : locked ? (
-                      <FontAwesome6 name="lock" size={9} color="#a9b0b8" iconStyle="solid" />
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-
-          <View className="flex-row items-center gap-4">
-            <View className="flex-row items-center gap-1.5">
-              <View className="w-4 h-4 bg-red-100 border border-red-300 rounded items-center justify-center">
-                <Text className="text-red-500 text-[10px] font-bold">×</Text>
+      <MonthPager
+        ym={ym}
+        onChange={setYm}
+        renderMonth={(m, isCenter) => (
+          <View className="px-4">
+            {!isCenter ? (
+              <PlainMonthGrid ym={m} />
+            ) : loading ? (
+              <View className="py-16 items-center">
+                <ActivityIndicator />
               </View>
-              <Text className="text-xs text-brand-500">全休</Text>
-            </View>
-            {slots.length > 0 && (
-              <View className="flex-row items-center gap-1.5">
-                <View className="w-4 h-4 bg-red-50 border border-red-300 rounded items-center justify-center">
-                  <Text className="text-red-500 text-[8px] font-bold">便</Text>
+            ) : (
+              <View className="bg-white rounded border border-brand-200 p-3">
+                <View className="flex-row">
+                  {DOW.map((d, i) => (
+                    <View key={d} style={COL} className="items-center py-1">
+                      <Text className={`text-xs font-medium ${i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-brand-500"}`}>{d}</Text>
+                    </View>
+                  ))}
                 </View>
-                <Text className="text-xs text-brand-500">便のみ希望（タップで選択）</Text>
+                {buildWeeks(monthFirstDow(m), monthDays(m)).map((week, wi) => (
+                  <View key={wi} className="flex-row">
+                    {week.map((date, di) => {
+                      if (!date) return <View key={`e${di}`} style={COL} className={CELL} />;
+                      const dateStr = toLocalDateStr(date);
+                      const locked = isLockedDate(periods, dateStr);
+                      const past = dateStr < todayStr;
+                      const whole = isWholeDayOff(off, dateStr);
+                      const partial = !whole && hasAnyOff(off, dateStr);
+                      const disabled = locked || past;
+                      const box = whole
+                        ? "bg-red-100 border-red-300"
+                        : partial
+                          ? "bg-red-50 border-red-300"
+                          : "bg-white border-brand-100";
+                      return (
+                        <Pressable
+                          key={dateStr}
+                          style={COL}
+                          className={`${CELL} rounded-lg border ${box} ${disabled ? "opacity-40" : ""}`}
+                          onPress={() => !disabled && onDayPress(date)}
+                          disabled={disabled}
+                        >
+                          <Text className={`text-sm ${whole ? "text-red-700 font-bold" : "text-brand-900"}`}>{date.getDate()}</Text>
+                          {whole ? (
+                            <FontAwesome6 name="xmark" size={11} color="#b91c1c" iconStyle="solid" />
+                          ) : partial ? (
+                            <Text className="text-[9px] text-red-700 font-bold">便{dayOff(off, dateStr).size}</Text>
+                          ) : locked ? (
+                            <FontAwesome6 name="lock" size={9} color="#a9b0b8" iconStyle="solid" />
+                          ) : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
               </View>
             )}
           </View>
+        )}
+      />
 
-          {changed && (
-            <Pressable
-              className={`bg-brand-600 py-3.5 rounded-lg items-center active:opacity-80 ${submitting ? "opacity-50" : ""}`}
-              onPress={submit}
-              disabled={submitting}
-            >
-              <Text className="text-white font-semibold text-base">{submitting ? "送信中..." : "希望休を提出する"}</Text>
-            </Pressable>
-          )}
+      <View className="px-4 gap-4">
+        {error ? <ErrorBanner message={error} /> : null}
 
-          {selectedDates.length > 0 && (
-            <View className="bg-brand-50 rounded border border-brand-200 p-3 gap-1.5">
-              <Text className="text-sm font-medium text-brand-700 mb-0.5">
-                {view.month + 1}月の希望休: {selectedDates.length}日
-              </Text>
-              {selectedDates.map((dateStr) => {
-                const [y, m, d] = dateStr.split("-").map(Number);
-                const localDate = new Date(y, m - 1, d);
-                const set = dayOff(off, dateStr);
-                const detail = set.has(ALL) ? "全休" : [...set].map(slotName).join("・");
-                return (
-                  <View key={dateStr} className="flex-row items-center gap-2">
-                    <Text className="text-xs px-2 py-0.5 bg-white border border-brand-200 text-brand-600 rounded">
-                      {localDate.getMonth() + 1}/{localDate.getDate()}({DOW[localDate.getDay()]})
-                    </Text>
-                    <Text className="text-xs text-brand-500">{detail}</Text>
-                  </View>
-                );
-              })}
+        <View className="flex-row items-center gap-4">
+          <View className="flex-row items-center gap-1.5">
+            <View className="w-4 h-4 bg-red-100 border border-red-300 rounded items-center justify-center">
+              <Text className="text-red-500 text-[10px] font-bold">×</Text>
+            </View>
+            <Text className="text-xs text-brand-500">全休</Text>
+          </View>
+          {slots.length > 0 && (
+            <View className="flex-row items-center gap-1.5">
+              <View className="w-4 h-4 bg-red-50 border border-red-300 rounded items-center justify-center">
+                <Text className="text-red-500 text-[8px] font-bold">便</Text>
+              </View>
+              <Text className="text-xs text-brand-500">便のみ希望（タップで選択）</Text>
             </View>
           )}
-        </>
-      )}
+        </View>
+
+        {changed && (
+          <Pressable
+            className={`bg-brand-600 py-3.5 rounded-lg items-center active:opacity-80 ${submitting ? "opacity-50" : ""}`}
+            onPress={submit}
+            disabled={submitting}
+          >
+            <Text className="text-white font-semibold text-base">{submitting ? "送信中..." : "希望休を提出する"}</Text>
+          </Pressable>
+        )}
+
+        {selectedDates.length > 0 && (
+          <View className="bg-brand-50 rounded border border-brand-200 p-3 gap-1.5">
+            <Text className="text-sm font-medium text-brand-700 mb-0.5">
+              {ym.month}月の希望休: {selectedDates.length}日
+            </Text>
+            {selectedDates.map((dateStr) => {
+              const [y, m, d] = dateStr.split("-").map(Number);
+              const localDate = new Date(y, m - 1, d);
+              const set = dayOff(off, dateStr);
+              const detail = set.has(ALL) ? "全休" : [...set].map(slotName).join("・");
+              return (
+                <View key={dateStr} className="flex-row items-center gap-2">
+                  <Text className="text-xs px-2 py-0.5 bg-white border border-brand-200 text-brand-600 rounded">
+                    {localDate.getMonth() + 1}/{localDate.getDate()}({DOW[localDate.getDay()]})
+                  </Text>
+                  <Text className="text-xs text-brand-500">{detail}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </View>
+
+      <MonthPickerSheet visible={pickerOpen} ym={ym} onSelect={setYm} onClose={() => setPickerOpen(false)} />
 
       {/* 便ピッカー */}
       <Modal visible={!!pickerDate} transparent animationType="fade" onRequestClose={() => setPickerDate(null)}>

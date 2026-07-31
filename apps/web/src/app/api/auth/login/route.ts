@@ -49,13 +49,11 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (err1 && err1.code !== "PGRST116") {
+        // 詳細はサーバーログのみに残し、利用者には一般的な文言を返す（内部エラーの生文言を露出しない）
         console.error("[Login] Database error:", err1);
-        if (err1.message?.includes("column") || err1.code === "42703") {
-          return NextResponse.json({
-            error: "データベースの設定が完了していません。マイグレーションを実行してください。",
-          }, { status: 500 });
-        }
-        return NextResponse.json({ error: `データベースエラー: ${err1.message}` }, { status: 500 });
+        return NextResponse.json({
+          error: "ログインできませんでした。時間をおいてもう一度お試しください。",
+        }, { status: 500 });
       }
 
       if (byDriverRow) {
@@ -69,7 +67,9 @@ export async function POST(req: NextRequest) {
 
         if (err2 && err2.code !== "PGRST116") {
           console.error("[Login] driver_identities error:", err2);
-          return NextResponse.json({ error: `データベースエラー: ${err2.message}` }, { status: 500 });
+          return NextResponse.json({
+            error: "ログインできませんでした。時間をおいてもう一度お試しください。",
+          }, { status: 500 });
         }
 
         if (idRow?.driver_id) {

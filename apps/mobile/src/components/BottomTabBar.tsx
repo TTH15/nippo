@@ -6,8 +6,7 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 // Web版 UserBottomNav（apps/web/src/lib/components/UserBottomNav.tsx）を踏襲。
 // 中央のタブだけ大きい円形ボタンにして目立たせる。
 const ICONS: Record<string, React.ComponentProps<typeof FontAwesome6>["name"]> = {
-  マイページ: "user",
-  希望休: "calendar-days",
+  シフト: "calendar-days",
   業務: "truck",
   報酬: "gift",
   日報承認: "clipboard-check",

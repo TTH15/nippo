@@ -253,3 +253,80 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-07-30 ナビ: 勤怠・通知配信に β バッジ追加
 
 - AdminLayout.tsx の navItems で「勤怠」「通知配信」に beta: true を付与（地図と同じ BetaBadge 表示）
+
+## 2026-07-31 00:50 mobile 業務ホーム再設計(進行中)+シミュレータ環境の復旧
+
+- 設計決定(ユーザーと合意):
+  - 日報はタブ分離せず**退勤フローに統合**(退勤時に送信)。ホーム終了後状態に「日報を書く・修正する」の再送導線
+  - 業務ホームは3状態(待機=今日のシフト/稼働中=経過時間・車両/終了後=稼働時間・距離サマリー)。円形ボタン中心
+  - 円形カメラ演出の是非を議論中: 指の真下カメラ化の不自然さ+撮影UI4種バラバラ問題 → **案A=統一フルスクリーンキャプチャフロー**(QR→メーター→点検を一筆書き、円はトリガー+状態アンカーに徹する)を提案、返答待ち
+- 実装: DailyReportForm を WorkScreen から切り出し(imperative handle で外部 submit 可)、BottomSheet に scrollable 対応、WorkScreen を3状態ホーム+退勤2ステップ(車両記録→日報)に書き換え。tsc クリーン
+- シミュレータ復旧(Xcode 26.6 環境):
+  - 白画面の原因: インストール済み dev client が **6/24 の SDK52 製**で SDK57 JS と不整合(7/27 の sim ビルドは「ビルド成功」のみで未インストールだった)
+  - xcodebuild がシミュレータ destination を列挙できない → generic destination + simctl install で回避
+  - ML Kit (GoogleMLKit 8.0.0) が simulator-arm64 非対応(EXCLUDED_ARCHS=arm64 持ち込み)。x86_64 は iOS 26 ランタイムが拒否(Rosetta 廃止)。ld_classic でも突破不可
+  - 対処: **一時的に @react-native-ml-kit/text-recognition を expo autolinking から除外**して arm64 sim 用 dev client をビルド(OCR は sim でテスト不能なので影響なし。import は呼び出し時のみ throw する安全な実装を確認済み)。**ビルド後に package.json と Pods を復元すること**(実機/EAS ビルドに影響させない)
+
+## 2026-07-31 01:00 mobile: SDK57 dev client 稼働確認・ログイン画面ロゴ差し替え
+
+- ML Kit 除外の arm64 dev client を iOS 26.5 シミュレータで起動し **SDK57 で描画確認**(ログイン画面表示・Fast Refresh 動作)。package.json / Pods は復元済み(git 差分なし)
+- ログイン画面のロゴを アイコン+テキスト → **文字・タグライン入りプライマリロゴ**に差し替え(ユーザー指摘)。`apps/web/public/logo/hakotora-logo_primary_logo.svg` を rsvg-convert で PNG 化し `apps/mobile/assets/logo-primary.png` に追加
+- dev ログインの調査: dev DB のドライバーコードは ACE 始まり(AAA 不在)。mobile の会社コードは EXPO_PUBLIC_COMPANY_CODE=AAA のため要変更。PIN 設定は dev DB 書き込みになるためユーザー確認待ち(電話OTPログインの可否も提示)
+- 残: ログイン後の新・業務ホーム(3状態)の実機確認、案A(統一キャプチャフロー)の判断待ち、mobile への passkey ログイン導入は未実装(webのみ)
+
+## 2026-07-31 01:10 mobile ログイン整備: 9桁コード直接入力・エラー文言・dev環境切替
+
+- ユーザー指摘対応: ①PIN ログインの font-mono(iOS で細い Courier)を semibold に ②ログインAPIの生DBエラー露出(「データベースエラー: TypeError: fetch failed」)を一般文言化(詳細は console.error のみ) ③会社コード+6桁の分割入力を廃止し**9桁ドライバーコード直接入力**に(EXPO_PUBLIC_COMPANY_CODE を .env からも削除。web 側の COMPANY_CODE 概念の完全撤廃は別課題)
+- 真因判明: **dev Vercel (hakotora-dev) の Supabase 接続が旧プロジェクトのまま死んでいる**(login POST が fetch failed)。mobile の API 先をローカル :3001 に変更(apps/web/.env.local の新 dev Supabase を使用)。**dev Vercel の env 修復が残課題**
+- dev ログイン用データ(dev DB のみ・ユーザー承認済み): ACE800013 に pin_hash=bcrypt("123456")・kyc_verified_at・住所/写真ダミーを設定 → ローカルAPIで complete/kycVerified 両ゲート通過を確認
+- ログイン画面ロゴをプライマリロゴ(文字+タグライン入り)に差し替え済み。シミュレータで表示確認
+
+## 2026-07-31 01:15 mobile: 通知タブ追加(5タブ化)・カレンダー土曜折返しバグ修正
+
+- 下タブのバランス改善(ユーザー指摘): 「通知」タブを追加し5タブ化 [マイページ/希望休/●業務/通知/報酬]。中央円が真ん中に。初期タブを業務に変更
+- 通知インボックス画面を新規作成(NotificationsScreen)。GET/PATCH /api/me/notifications、未読ドット・タップ既読+展開・すべて既読・pull-to-refresh。ロードマップ「mobile にインボックス無し」の穴埋め
+- シフトカレンダーの実バグ修正: w-[14.2857%]×7 の flex-wrap が Yoga の丸めで7列目(土曜)を折り返し、全日付が1つずれて見えていた。月カレンダー・希望休グリッドとも「週ごと flex-row + flex-1」方式に変更(buildWeeks ヘルパー)
+- 検証: mobile tsc クリーン、シミュレータで5タブ・新ホーム(待機状態)表示確認
+
+## 2026-07-31 01:25 mobile: タブ3つに再編・カレンダー罫線の最終修正
+
+- タブ再編(ユーザー方針「業務以外はぜんぶ自分のこと」): 5タブ→**3タブ** [シフト/●業務/報酬]。マイページ・通知はホーム右上のベル/人型アイコンから native-stack で開く(未読ドット付き。focus で未読数更新)。初期タブ=業務
+- カレンダー罫線ずれの追修正: flex-1 等分配は空セルと内容ありセルで Yoga の割付が行ごとにずれるため、**全セル width:14.2857% 明示指定**に変更(月カレンダー・希望休・曜日ヘッダーとも)
+- ホーム設計の合意: スケッチ準拠で P1=ヒーローカード(バン事前レンダ画像+reanimated箱アニメ)+Spotify型業務中モード(Context化+ミニバー) / P2=バックグラウンド位置トラッキング(地図ベータ実データ化と接続) / P3=Live Activity(eas整備後)。リアルタイム3Dは不採用(ネイティブ依存・電池に見合わない)
+- 検証: tsc クリーン・シミュレータで3タブ+ヘッダーアイコン表示確認
+
+## 2026-07-31 01:40 mobile P1: タブレス化・スケッチ準拠ホーム・月スワイプ+年月ピッカー
+
+- **タブバー廃止**(ユーザー決定): ドライバーモードはホーム1画面+native-stack遷移に。ヒーローカード(挨拶+今日のシフト+シフト確認導線)/アンバー稼働開始カード(円は hand-pointer アイコン化、iconOnly/showCaption プロパティ追加)/お知らせ最新3件/クイックアクセス(シフト・報酬)。スケッチ(Anchor 80D8B2CF)準拠
+- **月ナビ共通部品 MonthPager/MonthTitle/MonthPickerSheet 新設**: 前月翌月ボタン廃止→横スワイプ月送り(3ページ窓・RN標準ScrollViewのみ)+タイトルタップで年月ピッカー。シフト確認(月キャッシュ付きShiftMonthGrid)・希望休・報酬(RewardsMonthContent切り出し)の3画面に適用
+- 希望休グリッド崩れの修正(COL幅の適用漏れ)。App.tsx 三項演算子内のJSXコメントによる SyntaxError も修正
+- ModeSwitchFab をタブバー分の余白から bottom+16 に
+- 検証: tsc クリーン・シミュレータでホーム/構成確認。※この dev client は HMR が繋がらず変更反映は再起動が必要
+- P1残: ①バン画像(GLBレンダ)+箱アニメ ②Spotify型業務中モード ③案A全画面カメラ
+
+## 2026-07-31 12:40 web: シフト表AI取り込み(ハコ虎AI 初弾)
+
+- 取引先から届くシフト表(PDF/画像/スプシのスクショ。形式は完全に不統一)を読み取り、シフト管理画面に一括登録する機能を実装。対象例: 豊中Amazon(行=日付)、TWC吉祥院・上鳥羽(行=人)、枚方ミッドナイト(〇/休)、上京・壬生(スクショ3分割)
+- AI基盤 `apps/web/src/server/ai/client.ts` 新設(ハコ虎AIの束縛点)。@anthropic-ai/sdk + openai を追加、キーは ANTHROPIC_API_KEY / OPENAI_API_KEY(.env.local に枠を追記、**キー値は未設定=要発行**)
+- 抽出 `server/ai/shiftImport.ts`: claude-opus-5 の vision + structured outputs で「人×日×セル表記」をファイル毎に並列抽出 → 分割スクショを名前×日でマージ → 姓のみ表記のドライバー候補/ラベル→コース候補を決定的にサジェスト
+- API: `POST /api/admin/shifts/import`(can_manage_shifts、multipart、読み取りのみ) / `POST /api/admin/shifts/import/apply`(一括insert。slot自動採番・**既存割当は上書きせずスキップ**・休は行を作らない既存モデル準拠)
+- UI: シフト管理ツールバーに「取り込み」ボタン+ShiftImportModal(ファイル選択→ラベル/人名マッピング確認→一括登録→結果表示)
+- 検証: tsc クリーン。実ファイルでのE2E確認は APIキー設定後(202608-1 フォルダの7ファイルで試す)
+
+## 2026-07-31 12:55 web: シフト取り込みの入口をドラッグ&ドロップに変更
+
+- ユーザー要望: 新ボタンではなく「画面に直接ドロップ→被さるドロップフィールド出現」の形に。ツールバーの「取り込み」ボタンは撤去
+- シフト管理画面の window に dragenter/over/leave/drop リスナ(canWrite時のみ)。ドラッグ中は全画面オーバーレイ(pointer-events:none、dropはwindowが受ける)。ドロップでモーダルが開きファイルが積まれる
+- モーダルはファイル状態を親(page)持ちに変更(モーダル表示中の追いドロップも同じ経路で合流)。個別削除×・重複合流(name+size+mtime)・拡張子フォールバック判定を追加
+- 検証: tsc クリーン
+
+## 2026-07-31 13:30 web: シフト取り込みの信頼性強化(検算・取り消し・プレビュー・辞書・人違い検出)
+
+- ユーザー要望の5点をフル実装。あわせてモデル既定を claude-sonnet-5 に変更(コスト優先。HAKOTORA_AI_MODEL で claude-opus-5 等に切替可)
+- **①集計検算**: 資料内の「出勤日数」「◯◯人数」も抽出し、読み取り結果の再集計と突き合わせ(日別/人別の一致数と不一致リストをモーダル表示)
+- **⑤バッチ取り消し**: migration 119(shift_import_batches + shifts.import_batch_id + 辞書2表)。apply でバッチ記録、revert API で一括削除。モーダルに「直近の取り込み」一覧+取り消しボタン。**119未適用でも動くフォールバック**(バッチ無しで登録継続)
+- **③グリッドプレビュー**: 登録前に人×日のマトリクス(コース色付き)で表示。休/未マッピング(黄)/重複除外(赤)を色分け
+- **④辞書**: 確定した 名前→ドライバー / ラベル→コース を保存し、次回は「前回と同じ」バッジ付きで初期値に(AI推測より優先)
+- **②突き合わせ+人違い解決**(ユーザー指定ロジック): 担当コースは必ず登録されている前提で、担当外コースへの割当=人違い警告。同日2コース衝突は 担当コース優先→過去35日+当月の実績頻度 で最尤を自動採用、確信が持てない場合は【要確認】警告。希望休(全休)との矛盾も警告
+- 判明: **SUPABASE_DB_URL が旧プロジェクト(wdbifbzwxivgefyxpzbi=tenant not found)のままで migration 118/119 が適用不能**。新devプロジェクトの Session pooler 接続文字列への差し替えが必要(ユーザー作業)
+- 検証: tsc クリーン。実ファイルでの精度確認はユーザーが実施予定(APIキー取得済み)
