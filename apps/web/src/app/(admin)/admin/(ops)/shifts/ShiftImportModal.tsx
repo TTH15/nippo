@@ -40,6 +40,30 @@ export function mergeImportFiles(prev: File[], added: File[]): File[] {
   return [...prev, ...added.filter((f) => !seen.has(key(f)))];
 }
 
+/**
+ * ファイル名から年月を推定（「8月前半」「2026.8.1-8.15」「202608」等）。
+ * 違う月のファイルを AI に読ませる前に無料で弾くための一次チェック。
+ * 表の中身との照合（年月の明記・曜日の並び）はサーバー側で二次チェックする。
+ */
+export function guessPeriodFromFilename(name: string): { year: number | null; month: number | null } | null {
+  // 2026.8 / 2026-8 / 2026年8月 / 2026_08 など
+  let m = name.match(/(20\d{2})[.\-_/年\s]{0,2}(\d{1,2})\s*[月.\-_/]/);
+  if (m) {
+    const month = Number(m[2]);
+    if (month >= 1 && month <= 12) return { year: Number(m[1]), month };
+  }
+  // 202608 形式
+  m = name.match(/(20\d{2})(0[1-9]|1[0-2])(?!\d)/);
+  if (m) return { year: Number(m[1]), month: Number(m[2]) };
+  // 「8月」だけ
+  m = name.match(/(?:^|[^\d])(\d{1,2})月/);
+  if (m) {
+    const month = Number(m[1]);
+    if (month >= 1 && month <= 12) return { year: null, month };
+  }
+  return null;
+}
+
 type ExtractedPerson = {
   name: string;
   days: Record<number, string>;
@@ -93,6 +117,8 @@ interface Props {
   onClose: () => void;
   /** 登録・取り消し後に呼ばれる（呼び出し側で再読込する） */
   onApplied: () => void;
+  /** ファイル名から検出した月に取り込み先を切り替える */
+  onChangeTarget: (year: number, month: number) => void;
 }
 
 const IGNORE = "__ignore";
@@ -116,8 +142,14 @@ export default function ShiftImportModal({
   onFilesChange,
   onClose,
   onApplied,
+  onChangeTarget,
 }: Props) {
   const [extracting, setExtracting] = useState(false);
+  // ファイル名の月ズレ警告を承知の上で読み取る場合の強行フラグ（ファイル変更でリセット）
+  const [periodOverride, setPeriodOverride] = useState(false);
+  useEffect(() => {
+    setPeriodOverride(false);
+  }, [files]);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ExtractResult | null>(null);
@@ -171,6 +203,42 @@ export default function ShiftImportModal({
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const dateOf = (day: number) => `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+  // ファイル名からの年月ズレ検出（AI に読ませる前の無料チェック）
+  const periodMismatches = useMemo(
+    () =>
+      files
+        .map((f) => ({ file: f, guess: guessPeriodFromFilename(f.name) }))
+        .filter(
+          (x): x is { file: File; guess: { year: number | null; month: number } } =>
+            x.guess !== null &&
+            x.guess.month !== null &&
+            (x.guess.month !== month || (x.guess.year !== null && x.guess.year !== year)),
+        ),
+    [files, year, month],
+  );
+  // 年の書かれていない「◯月」ファイルの年推定。シフト表は月中に当月後半・月末に翌月前半を
+  // 作るサイクルなので、「今日に近い月（未来寄り）」が最尤（例: 12月末の「1月」→ 翌年1月）。
+  const inferYearForMonth = (m: number): number => {
+    const today = new Date();
+    let best = today.getFullYear();
+    let bestScore = Infinity;
+    for (const cand of [best - 1, best, best + 1]) {
+      const diff = (cand - today.getFullYear()) * 12 + (m - 1) - today.getMonth();
+      const score = diff >= 0 ? diff : -diff + 0.5; // 過去より未来をわずかに優先
+      if (score < bestScore) {
+        bestScore = score;
+        best = cand;
+      }
+    }
+    return best;
+  };
+  const mismatchTarget = periodMismatches[0]
+    ? {
+        year: periodMismatches[0].guess.year ?? inferYearForMonth(periodMismatches[0].guess.month),
+        month: periodMismatches[0].guess.month,
+      }
+    : null;
 
   // ---- マッピング結果の解決 ----
   // 同じ日に同じドライバーへ複数コースが載る場合（別ファイルの同姓など）は、
@@ -505,6 +573,43 @@ export default function ShiftImportModal({
               <p className="text-[11px] text-slate-400">
                 同じ表を分割したスクリーンショットはまとめてドロップしてください（自動で結合します）。読み取りには数分かかることがあります。
               </p>
+
+              {/* ファイル名の年月ズレ（AI に読ませる前の無料チェック）。読み取り本体でも表の中身で二重チェックする */}
+              {periodMismatches.length > 0 && !periodOverride && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800 space-y-2">
+                  <p className="font-medium">
+                    <FontAwesomeIcon icon={faTriangleExclamation} className="mr-1" />
+                    取り込み先（{year}年{month}月）と月が違うファイルがあります:
+                  </p>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    {periodMismatches.map((x, i) => (
+                      <li key={i}>
+                        {x.file.name}（{x.guess.year !== null ? `${x.guess.year}年` : ""}
+                        {x.guess.month}月 と思われます）
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {mismatchTarget && (
+                      <button
+                        type="button"
+                        onClick={() => onChangeTarget(mismatchTarget.year, mismatchTarget.month)}
+                        className="px-3 py-1.5 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700"
+                      >
+                        取り込み先を {mismatchTarget.year}年{mismatchTarget.month}月 に変更
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setPeriodOverride(true)}
+                      className="px-3 py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-100"
+                    >
+                      このまま {month}月 として読み取る
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {error && <p className="text-sm text-red-600">{error}</p>}
               <div className="flex justify-end gap-2">
                 <button
@@ -518,7 +623,7 @@ export default function ShiftImportModal({
                 <button
                   type="button"
                   onClick={() => void handleExtract()}
-                  disabled={files.length === 0 || extracting}
+                  disabled={files.length === 0 || extracting || (periodMismatches.length > 0 && !periodOverride)}
                   className="px-4 py-2 text-sm font-medium rounded-lg bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 inline-flex items-center gap-2"
                 >
                   {extracting && <FontAwesomeIcon icon={faSpinner} spin />}

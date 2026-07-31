@@ -3477,6 +3477,7 @@ export default function ShiftsPage() {
         onApplied={() => {
           void load();
         }}
+        onChangeTarget={(y, m) => setYearMonth({ year: y, month: m })}
       />
       {/* ドラッグ中の全画面ドロップフィールド。drop 自体は window リスナが受けるため pointer-events は切る */}
       {dropActive && (

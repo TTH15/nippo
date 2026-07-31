@@ -16,6 +16,10 @@ export type ExtractedLabelGuess = { label: string; courseName: string | null };
 export type ExtractedFileResult = {
   sourceName: string;
   title: string;
+  /** 表・ファイル名に明記されていた年月（無ければ null）。誤った月への取り込み防止に使う */
+  period: { year: number | null; month: number | null };
+  /** 表の曜日行（あれば）。年月が書かれていない表でも対象月とのズレを検出できる */
+  weekdays: { day: number; weekday: string }[];
   people: ExtractedPerson[];
   dayTotals: ExtractedDayTotal[];
   labelGuesses: ExtractedLabelGuess[];
@@ -32,6 +36,37 @@ const OUTPUT_SCHEMA = {
     title: {
       type: "string",
       description: "シフト表のタイトルや対象拠点（読み取れる範囲で。無ければ空文字）",
+    },
+    period: {
+      type: "object",
+      properties: {
+        year: {
+          anyOf: [{ type: "integer" }, { type: "null" }],
+          description: "表・ファイル名に明記されている年（西暦）。書かれていなければ null",
+        },
+        month: {
+          anyOf: [{ type: "integer" }, { type: "null" }],
+          description: "表・ファイル名に明記されている月。書かれていなければ null",
+        },
+      },
+      required: ["year", "month"],
+      additionalProperties: false,
+    },
+    weekdays: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          day: { type: "integer", description: "日（1〜31）" },
+          weekday: {
+            type: "string",
+            enum: ["月", "火", "水", "木", "金", "土", "日"],
+          },
+        },
+        required: ["day", "weekday"],
+        additionalProperties: false,
+      },
+      description: "表に曜日の行・列があれば、各日の曜日。無ければ空配列",
     },
     people: {
       type: "array",
@@ -100,7 +135,7 @@ const OUTPUT_SCHEMA = {
     },
     warnings: { type: "array", items: { type: "string" } },
   },
-  required: ["title", "people", "dayTotals", "labelGuesses", "warnings"],
+  required: ["title", "period", "weekdays", "people", "dayTotals", "labelGuesses", "warnings"],
   additionalProperties: false,
 } as const;
 
@@ -116,11 +151,13 @@ function buildPrompt(
     .map((c) => (c.summary_title?.trim() ? `${c.name}（略記: ${c.summary_title.trim()}）` : c.name))
     .join(" / ");
   return [
-    `これは配送ドライバーの ${year}年${month}月 のシフト表です（ファイル名: ${fileName}）。表を読み取り、全員分の「氏名 × 日 × セルの内容」を抽出してください。`,
+    `これは配送ドライバーのシフト表です（ファイル名: ${fileName}）。取り込み先は ${year}年${month}月 です。表を読み取り、全員分の「氏名 × 日 × セルの内容」を抽出してください。`,
     "",
     `登録済みコース一覧: ${courseList || "（なし）"}`,
     "",
     "ルール:",
+    `- まず表・ファイル名に書かれている年月を period に、曜日の行があれば weekdays に入れる。`,
+    `- 表の年月が取り込み先（${year}年${month}月）と明らかに異なる場合は、誤った月への取り込みを防ぐため people・dayTotals・labelGuesses は空のままにし、period と warnings だけ返して終了する。`,
     "- 氏名は表の表記のまま（敬称・記号・括弧も含めてそのまま）。",
     "- day はその列/行が示す「日」(1〜31)。曜日や年月の行から日付を正しく対応付けること。",
     "- label はセルの文字をそのまま（例: 豊中 / 久御山 / 休 / 〇 / 1便 / E槇 / 上京）。空欄は空文字にする。",
@@ -181,19 +218,42 @@ export async function extractShiftFile(
   }
 
   const text = message.content.find((b) => b.type === "text")?.text ?? "";
-  let parsed: {
-    title: string;
-    people: ExtractedPerson[];
-    dayTotals: ExtractedDayTotal[];
-    labelGuesses: ExtractedLabelGuess[];
-    warnings: string[];
-  };
+  let parsed: Omit<ExtractedFileResult, "sourceName">;
   try {
     parsed = JSON.parse(text);
   } catch {
     throw new Error(`ファイル「${file.name}」の読み取り結果を解析できませんでした`);
   }
-  return { sourceName: file.name, ...parsed };
+
+  // ---- 期間ガード ----
+  // 1) 表・ファイル名に年月が明記されていて取り込み先と違う → そのファイルを弾く
+  const p = parsed.period ?? { year: null, month: null };
+  if (
+    (p.month !== null && p.month !== ym.month) ||
+    (p.year !== null && p.year !== ym.year)
+  ) {
+    const label = `${p.year ?? "?"}年${p.month ?? "?"}月`;
+    throw new Error(
+      `「${file.name}」は ${label} の表のようです（取り込み先: ${ym.year}年${ym.month}月）。対象の月を切り替えるか、正しいファイルを選んでください`,
+    );
+  }
+  // 2) 年月が書かれていない表でも、曜日の並びが対象月のカレンダーと合わなければ別の月と判断
+  const JP_WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+  const wd = (parsed.weekdays ?? []).filter(
+    (w) => Number.isInteger(w.day) && w.day >= 1 && w.day <= 31 && JP_WEEKDAYS.includes(w.weekday),
+  );
+  if (wd.length >= 3) {
+    const mismatch = wd.filter(
+      (w) => JP_WEEKDAYS[new Date(ym.year, ym.month - 1, w.day).getDay()] !== w.weekday,
+    ).length;
+    if (mismatch > wd.length / 2) {
+      throw new Error(
+        `「${file.name}」の曜日の並びが ${ym.year}年${ym.month}月 と一致しません（別の月のシフト表の可能性）。対象の月を確認してください`,
+      );
+    }
+  }
+
+  return { ...parsed, sourceName: file.name };
 }
 
 // ---- マージ・対応付け（AI を使わない決定的処理） ----
