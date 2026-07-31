@@ -350,3 +350,9 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-07-31 14:15 web: 取り込み小改善(年なし「◯月」ファイルの年推定)
 
 - ユーザー情報: シフト表の作成サイクルは「月中14〜15日頃に後半分・月末に翌月前半分」。これを踏まえ、ファイル名に年が無い「◯月」表記の年推定を「今日に近い月(未来寄り)」に変更(12月末の「1月前半」→ 翌年1月)
+
+## 2026-07-31 単回招待リンクUIの封印解除（ローカル）
+
+- 調査結論: 招待URL(`/join?invite=<token>`)は元々 web 完結設計で、モバイルは案内テキストのみ（deep link 不要が明示決定）。発行API・検証API・`invites` テーブル(migration 114)・`/join` ウィザードの受け口・ドライバー登録(`POST /api/join` → drivers に pending insert)まで全部実装済みで、封印は `NEXT_PUBLIC_INVITE_LINKS_ENABLED` フロントフラグのみ
+- `apps/web/.env.local` に `NEXT_PUBLIC_INVITE_LINKS_ENABLED=1` を追加（ローカル解放）
+- 本番: Vercel production への同フラグ追加は権限制約でエージェント実行不可 → ユーザー操作待ち（`vercel env add NEXT_PUBLIC_INVITE_LINKS_ENABLED production` → 値 `1` → 再デプロイ。NEXT_PUBLIC 系はビルド時埋め込みのため再デプロイ必須）
