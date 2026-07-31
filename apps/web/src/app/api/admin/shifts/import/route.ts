@@ -11,6 +11,7 @@ import {
   isOffLabel,
   suggestDriverId,
   suggestCourseId,
+  resolveCourseByName,
   type ImportFile,
 } from "@/server/ai/shiftImport";
 
@@ -78,8 +79,23 @@ export async function POST(req: NextRequest) {
       files.push({ name: f.name, mime, bytes: new Uint8Array(await f.arrayBuffer()) });
     }
 
+    // AI へ「登録済みコース一覧」を渡すため、抽出の前に org データを取得する
+    const orgId = await resolveOrgId(user.driverId);
+    const { data: drivers } = await supabase
+      .from("drivers")
+      .select("id, name, display_name")
+      .eq("org_id", orgId)
+      .eq("works_as_driver", true)
+      .eq("status", "active");
+    const { data: courses } = await supabase
+      .from("courses")
+      .select("id, name, summary_title")
+      .eq("org_id", orgId);
+
     // ファイルごとに並列で読み取り（1件の失敗はエラー扱いにせず warning に落とす）
-    const settled = await Promise.allSettled(files.map((f) => extractShiftFile(f, { year, month })));
+    const settled = await Promise.allSettled(
+      files.map((f) => extractShiftFile(f, { year, month }, courses ?? [])),
+    );
     const results = settled.flatMap((s) => (s.status === "fulfilled" ? [s.value] : []));
     const failures = settled.flatMap((s, i) =>
       s.status === "rejected"
@@ -96,18 +112,6 @@ export async function POST(req: NextRequest) {
     const merged = mergeExtractedFiles(results);
     // 資料内の集計（出勤日数・◯◯人数）と抽出結果の検算
     const checks = computeChecks(merged.people, merged.dayTotals);
-
-    const orgId = await resolveOrgId(user.driverId);
-    const { data: drivers } = await supabase
-      .from("drivers")
-      .select("id, name, display_name")
-      .eq("org_id", orgId)
-      .eq("works_as_driver", true)
-      .eq("status", "active");
-    const { data: courses } = await supabase
-      .from("courses")
-      .select("id, name, summary_title")
-      .eq("org_id", orgId);
     const driverIds = (drivers ?? []).map((d) => d.id);
 
     // 確定済み辞書（migration 119 未適用でも動くよう、失敗時は空扱い）
@@ -182,13 +186,20 @@ export async function POST(req: NextRequest) {
         suggestionSource: saved ? ("saved" as const) : guessed ? ("guessed" as const) : null,
       };
     });
+    // ラベル→コースの候補: 確定辞書 > 決定的な名称一致 > AI のファイル文脈推定（「〇」等はこれで決まる）
     const labels = merged.labels.map((label) => {
       const saved = labelDict.get(normalizeJa(label)) ?? null;
-      const guessed = saved ? null : suggestCourseId(label, courses ?? []);
+      const matched = saved ? null : suggestCourseId(label, courses ?? []);
+      const guessName = merged.labelGuesses[normalizeJa(label)];
+      const ai = saved || matched || !guessName ? null : resolveCourseByName(guessName, courses ?? []);
       return {
         label,
-        suggestedCourseId: saved ?? guessed,
-        suggestionSource: saved ? ("saved" as const) : guessed ? ("guessed" as const) : null,
+        suggestedCourseId: saved ?? matched ?? ai,
+        suggestionSource: saved
+          ? ("saved" as const)
+          : matched || ai
+            ? ("guessed" as const)
+            : null,
         isOff: isOffLabel(label),
       };
     });
@@ -197,6 +208,7 @@ export async function POST(req: NextRequest) {
       people,
       labels,
       checks,
+      conflicts: merged.conflicts,
       driverContext,
       warnings: [...failures, ...merged.warnings],
       sources: results.map((r) => ({ name: r.sourceName, title: r.title })),

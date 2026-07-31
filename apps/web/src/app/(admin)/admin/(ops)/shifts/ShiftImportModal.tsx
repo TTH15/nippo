@@ -62,10 +62,13 @@ type DriverContext = Record<
   string,
   { courseIds: string[]; offDates: string[]; recentCourseCounts: Record<string, number> }
 >;
+/** 出勤ラベル同士が別ファイルで食い違ったケース（休 vs 出勤は競合にならない） */
+type MergeConflict = { name: string; day: number; kept: string; dropped: string; source: string };
 type ExtractResult = {
   people: ExtractedPerson[];
   labels: ExtractedLabel[];
   checks: ImportChecks;
+  conflicts: MergeConflict[];
   driverContext: DriverContext;
   warnings: string[];
   sources: { name: string; title: string }[];
@@ -380,8 +383,13 @@ export default function ShiftImportModal({
 
   const unmappedLabels = result ? result.labels.filter((l) => !labelMap[l.label]) : [];
   const unmappedPeople = result ? result.people.filter((p) => !personMap[p.name]) : [];
+  // 検算・競合は「ドライバーに紐付けた人」に絞って表示する（取り込まれない人のズレはノイズ）
+  const mappedPersonTotals = result
+    ? result.checks.personTotals.filter((c) => personMap[c.name])
+    : [];
+  const mappedConflicts = result ? result.conflicts.filter((c) => personMap[c.name]) : [];
   const checkFailures = result
-    ? result.checks.dayTotals.filter((c) => !c.ok).length + result.checks.personTotals.filter((c) => !c.ok).length
+    ? result.checks.dayTotals.filter((c) => !c.ok).length + mappedPersonTotals.filter((c) => !c.ok).length
     : 0;
 
   return (
@@ -555,8 +563,8 @@ export default function ShiftImportModal({
           ) : (
             /* ステップ2: 検算・マッピング・プレビュー */
             <div className="space-y-5">
-              {/* 検算（資料内の集計との突き合わせ） */}
-              {(result.checks.dayTotals.length > 0 || result.checks.personTotals.length > 0) && (
+              {/* 検算（資料内の集計との突き合わせ）。内訳は折りたたみで情報量を抑える */}
+              {(result.checks.dayTotals.length > 0 || mappedPersonTotals.length > 0) && (
                 <div
                   className={`rounded-lg border px-4 py-3 text-xs ${
                     checkFailures === 0
@@ -564,48 +572,52 @@ export default function ShiftImportModal({
                       : "border-amber-200 bg-amber-50 text-amber-800"
                   }`}
                 >
-                  <p className="font-medium mb-1">
+                  <p className="font-medium">
                     <FontAwesomeIcon icon={checkFailures === 0 ? faCircleCheck : faTriangleExclamation} className="mr-1" />
                     資料内の集計との検算:
                     {result.checks.dayTotals.length > 0 &&
                       ` 日別人数 ${result.checks.dayTotals.filter((c) => c.ok).length}/${result.checks.dayTotals.length} 一致`}
-                    {result.checks.personTotals.length > 0 &&
-                      ` ・出勤日数 ${result.checks.personTotals.filter((c) => c.ok).length}/${result.checks.personTotals.length} 一致`}
+                    {mappedPersonTotals.length > 0 &&
+                      ` ・出勤日数 ${mappedPersonTotals.filter((c) => c.ok).length}/${mappedPersonTotals.length} 一致`}
                   </p>
                   {checkFailures > 0 && (
-                    <ul className="list-disc pl-4 max-h-28 overflow-y-auto space-y-0.5">
-                      {result.checks.dayTotals
-                        .filter((c) => !c.ok)
-                        .map((c, i) => (
-                          <li key={`d${i}`}>
-                            {month}/{c.day} {c.label}: 表では{c.expected}人 / 読み取りは{c.actual}人
-                          </li>
-                        ))}
-                      {result.checks.personTotals
-                        .filter((c) => !c.ok)
-                        .map((c, i) => (
-                          <li key={`p${i}`}>
-                            {c.name} の出勤日数: 表では{c.expected}日 / 読み取りは{c.actual}日
-                            （表が半月分の場合は月合計と一致しないことがあります）
-                          </li>
-                        ))}
-                    </ul>
+                    <details className="mt-1">
+                      <summary className="cursor-pointer select-none">不一致の内訳（{checkFailures}件）</summary>
+                      <ul className="list-disc pl-4 mt-1 max-h-28 overflow-y-auto space-y-0.5">
+                        {result.checks.dayTotals
+                          .filter((c) => !c.ok)
+                          .map((c, i) => (
+                            <li key={`d${i}`}>
+                              {month}/{c.day} {c.label}: 表では{c.expected}人 / 読み取りは{c.actual}人
+                            </li>
+                          ))}
+                        {mappedPersonTotals
+                          .filter((c) => !c.ok)
+                          .map((c, i) => (
+                            <li key={`p${i}`}>
+                              {c.name} の出勤日数: 表では{c.expected}日 / 読み取りは{c.actual}日
+                            </li>
+                          ))}
+                      </ul>
+                      <p className="mt-1 text-[10px] opacity-70">
+                        ※出勤日数は表が半月分の場合、月合計と一致しないことがあります
+                      </p>
+                    </details>
                   )}
                 </div>
               )}
 
               {result.warnings.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                  <p className="font-medium mb-1">
-                    <FontAwesomeIcon icon={faTriangleExclamation} className="mr-1" />
-                    読み取り時の注意:
-                  </p>
-                  <ul className="list-disc pl-4 max-h-28 overflow-y-auto space-y-0.5">
+                <details className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">
+                  <summary className="cursor-pointer select-none font-medium">
+                    読み取り時の注意（{result.warnings.length}件）
+                  </summary>
+                  <ul className="list-disc pl-4 mt-1 max-h-28 overflow-y-auto space-y-0.5">
                     {result.warnings.map((w, i) => (
                       <li key={i}>{w}</li>
                     ))}
                   </ul>
-                </div>
+                </details>
               )}
 
               <section>
@@ -684,8 +696,13 @@ export default function ShiftImportModal({
                 </div>
               </section>
 
-              {/* 突き合わせの警告（人違い・希望休・同日重複の自動解決） */}
-              {plan && (plan.mismatchNotes.length > 0 || plan.offConflictNotes.length > 0 || plan.conflictNotes.length > 0) && (
+              {/* 突き合わせの警告（人違い・希望休・同日重複の自動解決・出勤同士の食い違い）。
+                  ドライバーに紐付けた人の分だけ表示する */}
+              {plan &&
+                (plan.mismatchNotes.length > 0 ||
+                  plan.offConflictNotes.length > 0 ||
+                  plan.conflictNotes.length > 0 ||
+                  mappedConflicts.length > 0) && (
                 <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-900 space-y-1">
                   <p className="font-medium">
                     <FontAwesomeIcon icon={faTriangleExclamation} className="mr-1" />
@@ -699,6 +716,11 @@ export default function ShiftImportModal({
                       <li key={`c${i}`} className={c.confident ? "" : "font-medium"}>
                         {c.text}
                         {!c.confident && "【自動判定に自信なし・要確認】"}
+                      </li>
+                    ))}
+                    {mappedConflicts.map((c, i) => (
+                      <li key={`x${i}`}>
+                        「{c.name}」 {month}/{c.day}: 別ファイルで「{c.kept}」と「{c.dropped}」が食い違い（「{c.kept}」を採用）
                       </li>
                     ))}
                     {plan.offConflictNotes.map((w, i) => (

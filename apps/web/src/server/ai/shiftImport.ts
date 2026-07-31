@@ -11,13 +11,18 @@ export type ExtractedDay = { day: number; label: string };
 export type ExtractedPerson = { name: string; days: ExtractedDay[]; total: number | null };
 /** 資料内の「日別の人数集計」（例: 豊中人数）。抽出結果の検算に使う */
 export type ExtractedDayTotal = { day: number; label: string; count: number };
+/** ラベル→コースの AI 推定。「〇」のようにファイル名・表タイトルからしか判断できない表記のため */
+export type ExtractedLabelGuess = { label: string; courseName: string | null };
 export type ExtractedFileResult = {
   sourceName: string;
   title: string;
   people: ExtractedPerson[];
   dayTotals: ExtractedDayTotal[];
+  labelGuesses: ExtractedLabelGuess[];
   warnings: string[];
 };
+
+export type CourseRef = { id: string; name: string; summary_title?: string | null };
 
 export type ImportFile = { name: string; mime: string; bytes: Uint8Array };
 
@@ -76,17 +81,44 @@ const OUTPUT_SCHEMA = {
       description:
         "日ごとの『実際の割当人数』の集計行・列があれば抽出（検算に使う）。「必要人数」のような必要数・予定数の行は含めない。無ければ空配列",
     },
+    labelGuesses: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string", description: "表に出てくる勤務ラベル（表記のまま）" },
+          courseName: {
+            anyOf: [{ type: "string" }, { type: "null" }],
+            description: "対応しそうな登録済みコースの name（一覧の表記そのまま）。確信が無ければ null",
+          },
+        },
+        required: ["label", "courseName"],
+        additionalProperties: false,
+      },
+      description:
+        "この表に出てくる勤務ラベル（休み以外）それぞれについて、登録済みコース一覧のどれに対応しそうかの推定。ファイル名・表のタイトル・拠点名を手掛かりにする（例: 枚方ミッドナイトの表の「〇」→ ミッドナイト系コース）",
+    },
     warnings: { type: "array", items: { type: "string" } },
   },
-  required: ["title", "people", "dayTotals", "warnings"],
+  required: ["title", "people", "dayTotals", "labelGuesses", "warnings"],
   additionalProperties: false,
 } as const;
 
 const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
-function buildPrompt(year: number, month: number): string {
+function buildPrompt(
+  year: number,
+  month: number,
+  fileName: string,
+  courses: CourseRef[],
+): string {
+  const courseList = courses
+    .map((c) => (c.summary_title?.trim() ? `${c.name}（略記: ${c.summary_title.trim()}）` : c.name))
+    .join(" / ");
   return [
-    `これは配送ドライバーの ${year}年${month}月 のシフト表です。表を読み取り、全員分の「氏名 × 日 × セルの内容」を抽出してください。`,
+    `これは配送ドライバーの ${year}年${month}月 のシフト表です（ファイル名: ${fileName}）。表を読み取り、全員分の「氏名 × 日 × セルの内容」を抽出してください。`,
+    "",
+    `登録済みコース一覧: ${courseList || "（なし）"}`,
     "",
     "ルール:",
     "- 氏名は表の表記のまま（敬称・記号・括弧も含めてそのまま）。",
@@ -96,14 +128,16 @@ function buildPrompt(year: number, month: number): string {
     "- 画像がスプレッドシートのスクリーンショットの一部（列が途中で切れている等）の場合は、写っている範囲だけを抽出する。",
     "- people には集計行（人数・合計・必要人数など）や氏名でない行を含めない。",
     "- 表に「出勤日数」のような人別合計列があれば total に、「◯◯人数」のような日別の実割当人数の集計行があれば dayTotals に入れる（検算に使う。必要人数・予定数は対象外）。",
+    "- 勤務ラベル（休み以外）ごとに、登録済みコース一覧のどれに対応しそうかを labelGuesses に入れる。「〇」のような記号だけのラベルも、ファイル名や表のタイトル・拠点名から対応コースを推定する（例: ミッドナイトのシフト表の「〇」→ ミッドナイト系コース）。courseName は一覧の name をそのまま書く。対応しそうなコースが無ければ null。",
     "- 判読が難しいセル・自信がない箇所は warnings に日本語で残す。",
   ].join("\n");
 }
 
-/** 1ファイルを Claude で読み取る。 */
+/** 1ファイルを Claude で読み取る。courses はラベル→コース推定の手掛かりとしてプロンプトに渡す。 */
 export async function extractShiftFile(
   file: ImportFile,
   ym: { year: number; month: number },
+  courses: CourseRef[],
 ): Promise<ExtractedFileResult> {
   const client = getAnthropic();
   const data = Buffer.from(file.bytes).toString("base64");
@@ -133,7 +167,7 @@ export async function extractShiftFile(
     messages: [
       {
         role: "user",
-        content: [mediaBlock, { type: "text", text: buildPrompt(ym.year, ym.month) }],
+        content: [mediaBlock, { type: "text", text: buildPrompt(ym.year, ym.month, file.name, courses) }],
       },
     ],
   });
@@ -151,6 +185,7 @@ export async function extractShiftFile(
     title: string;
     people: ExtractedPerson[];
     dayTotals: ExtractedDayTotal[];
+    labelGuesses: ExtractedLabelGuess[];
     warnings: string[];
   };
   try {
@@ -184,19 +219,31 @@ export type MergedPerson = {
   total: number | null;
 };
 
+/** 出勤ラベル同士が別ファイルで食い違ったケース（休 vs 出勤 は競合扱いしない） */
+export type MergeConflict = { name: string; day: number; kept: string; dropped: string; source: string };
+
 export function mergeExtractedFiles(results: ExtractedFileResult[]): {
   people: MergedPerson[];
   labels: string[];
   dayTotals: ExtractedDayTotal[];
+  conflicts: MergeConflict[];
+  /** 正規化ラベル → AI 推定コース名（ファイル文脈からの推定。先勝ち） */
+  labelGuesses: Record<string, string>;
   warnings: string[];
 } {
   const byName = new Map<string, MergedPerson>();
   const labelSet = new Set<string>();
   const dayTotalsByKey = new Map<string, ExtractedDayTotal>();
+  const conflicts: MergeConflict[] = [];
+  const labelGuesses: Record<string, string> = {};
   const warnings: string[] = [];
 
   for (const r of results) {
     warnings.push(...r.warnings.map((w) => `${r.sourceName}: ${w}`));
+    for (const g of r.labelGuesses ?? []) {
+      const key = normalizeJa(g.label);
+      if (key && g.courseName && !labelGuesses[key]) labelGuesses[key] = g.courseName;
+    }
     for (const t of r.dayTotals ?? []) {
       if (!Number.isInteger(t.day) || t.day < 1 || t.day > 31) continue;
       const key = `${t.day}|${normalizeJa(t.label)}`;
@@ -216,12 +263,24 @@ export function mergeExtractedFiles(results: ExtractedFileResult[]): {
         if (!Number.isInteger(d.day) || d.day < 1 || d.day > 31) continue;
         const label = d.label.trim();
         const existing = merged.days[d.day];
-        if (existing === undefined || existing === "") {
+        if (existing === undefined) {
           merged.days[d.day] = label;
-        } else if (label !== "" && normalizeJa(existing) !== normalizeJa(label)) {
-          warnings.push(
-            `${merged.name} の ${d.day}日: 「${existing}」と「${label}」が競合（${r.sourceName}）。先の値を採用`,
-          );
+        } else {
+          // ルール: どこかのファイルで出勤なら出勤（休・空欄は負けるだけで競合ではない）。
+          // 競合として扱うのは「出勤 vs 別の出勤」だけ。
+          const existingOff = isOffLabel(existing);
+          const newOff = isOffLabel(label);
+          if (existingOff && !newOff) {
+            merged.days[d.day] = label;
+          } else if (!existingOff && !newOff && normalizeJa(existing) !== normalizeJa(label)) {
+            conflicts.push({
+              name: merged.name,
+              day: d.day,
+              kept: existing,
+              dropped: label,
+              source: r.sourceName,
+            });
+          }
         }
         if (label !== "" && !isOffLabel(label)) labelSet.add(label);
       }
@@ -232,8 +291,24 @@ export function mergeExtractedFiles(results: ExtractedFileResult[]): {
     people: [...byName.values()],
     labels: [...labelSet].sort(),
     dayTotals: [...dayTotalsByKey.values()].sort((a, b) => a.day - b.day),
+    conflicts,
+    labelGuesses,
     warnings,
   };
+}
+
+/** AI 推定コース名（labelGuesses の値）を courses の実体に解決する。 */
+export function resolveCourseByName(courseName: string, courses: CourseRef[]): string | null {
+  const target = normalizeJa(courseName);
+  if (!target) return null;
+  const exact = courses.filter(
+    (c) => normalizeJa(c.name) === target || normalizeJa(c.summary_title ?? "") === target,
+  );
+  if (exact.length === 1) return exact[0].id;
+  const partial = courses.filter(
+    (c) => normalizeJa(c.name).includes(target) || target.includes(normalizeJa(c.name)),
+  );
+  return partial.length === 1 ? partial[0].id : null;
 }
 
 // ---- 集計検算 ----
