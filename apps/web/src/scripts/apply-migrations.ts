@@ -17,7 +17,10 @@ import * as dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 
-dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
+// dev/staging 専用ランナーのため .env.development.local を最優先で読む
+// （.env.local は本番 Supabase を指しており、誤爆防止のためフォールバックにしない。
+//   2026-08-01: 本番誤書き込み事故を受けて変更）
+dotenv.config({ path: path.resolve(process.cwd(), ".env.development.local") });
 
 const dbUrl = process.env.SUPABASE_DB_URL;
 if (!dbUrl) {
