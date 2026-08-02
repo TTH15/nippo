@@ -133,12 +133,17 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const licenseAlertApi = useApi<{ count: number }>("/api/admin/users/license-alert-count", {
     refreshInterval: 60000,
   });
+  const pendingApprovalApi = useApi<{ count: number }>("/api/admin/users/pending-count", {
+    refreshInterval: 60000,
+  });
   const dailyUnreadCount = Number(dailyUnreadApi.data?.unreadCount) || 0;
   const otherUnreadCount = Number(otherUnreadApi.data?.unreadCount) || 0;
   // オイル交換が迫っている車両の台数（「管理」メニューに通知バッジで表示）
   const oilAlertCount = Number(oilAlertApi.data?.count) || 0;
   // 免許更新が迫っているドライバーの人数（「管理」「ドライバー」メニューに通知バッジで表示）
   const licenseAlertCount = Number(licenseAlertApi.data?.count) || 0;
+  // 参加承認待ちの申請件数（「ドライバー」→「参加・承認」に通知バッジで表示）
+  const pendingApprovalCount = Number(pendingApprovalApi.data?.count) || 0;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
   const canWrite = canAdminWrite(driver?.role);
@@ -238,13 +243,14 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     if (href === "/admin/misc-reports/others") return otherUnreadCount;
     if (href === "/admin/vehicles") return oilAlertCount;
     if (href === "/admin/users") return licenseAlertCount;
+    if (href === "/admin/users/pending") return pendingApprovalCount;
     return 0;
   };
 
   const getParentUnreadCount = (item: Extract<NavItem, { children: NavChild[] }>) => {
-    // 「ドライバー」配下に免許更新が迫っているドライバー人数を通知バッジで表示。
+    // 「ドライバー」配下の要対応件数（参加承認待ち＋免許更新警告）を通知バッジで表示。
     // （オイル交換警告はトップレベルの「車両」リンク側に getChildUnreadCount で直接表示）
-    if (item.label === "ドライバー") return licenseAlertCount;
+    if (item.label === "ドライバー") return licenseAlertCount + pendingApprovalCount;
     return 0;
   };
 

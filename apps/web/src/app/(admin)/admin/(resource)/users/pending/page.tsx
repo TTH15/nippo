@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import QRCode from "qrcode";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faRotate, faCheck, faXmark, faUserPlus, faIdCard, faCopy } from "@fortawesome/free-solid-svg-icons";
+import { faRotate, faCheck, faXmark, faUserPlus, faIdCard, faCopy, faLink } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -76,6 +76,8 @@ export default function PendingApprovalPage() {
   const [inviteUrl, setInviteUrl] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [copied, setCopied] = useState(false);
+  // 招待リンク・共有コードの発行UIはモーダルに退避（主役は承認待ちリスト）。
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
   useEffect(() => {
     const d = getStoredDriver();
@@ -327,15 +329,137 @@ export default function PendingApprovalPage() {
   return (
     <AdminLayout>
       <div className="max-w-3xl mx-auto p-4 space-y-6">
-        <div className="flex items-center gap-2">
-          <FontAwesomeIcon icon={faUserPlus} className="h-5 w-5 text-slate-700" />
-          <h1 className="text-lg font-bold text-slate-900">ドライバーの参加・承認</h1>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <FontAwesomeIcon icon={faUserPlus} className="h-5 w-5 text-slate-700" />
+            <h1 className="text-lg font-bold text-slate-900">ドライバーの参加・承認</h1>
+          </div>
+          {/* 招待の発行は右上に小さく。主役は下の承認待ちリスト */}
+          <button
+            type="button"
+            onClick={() => setInviteModalOpen(true)}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            <FontAwesomeIcon icon={faLink} className="h-3 w-3" />
+            {INVITES_ENABLED ? "招待リンク・参加コード" : "参加コード・リンク"}
+          </button>
         </div>
+
+        {/* 承認待ち */}
+        <section className="bg-white rounded-lg border border-slate-200 p-4">
+          <h2 className="text-sm font-semibold text-slate-900 mb-3">
+            承認待ち{pendingRes ? `（${pending.length}）` : ""}
+          </h2>
+          {isLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-14 w-full" />
+              <Skeleton className="h-14 w-full" />
+            </div>
+          ) : pending.length === 0 ? (
+            <p className="text-sm text-slate-400 py-6 text-center">承認待ちの申請はありません</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {pending.map((d) => (
+                <li key={d.id} className="py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-900 truncate">{d.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {d.phone || "電話未登録"}
+                      {d.created_at ? ` ・ ${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
+                    </p>
+                    <span
+                      className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${
+                        d.kycComplete
+                          ? "bg-emerald-50 text-emerald-700"
+                          : d.hasLicensePhoto || d.hasFacePhoto
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-slate-100 text-slate-500"
+                      }`}
+                    >
+                      {d.kycComplete ? "本登録 提出済み" : d.hasLicensePhoto || d.hasFacePhoto ? "本登録 入力中" : "本登録 未提出"}
+                    </span>
+                  </div>
+                  {canWrite && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openApprove(d)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-slate-900 text-white hover:bg-slate-800 transition-colors"
+                      >
+                        <FontAwesomeIcon icon={faCheck} className="h-3 w-3" />
+                        承認
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmReject(d)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                      >
+                        <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                        却下
+                      </button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* 本人確認待ち（本承認）。承認1回統合後は「KYC未提出のまま承認した」場合だけ使う
+            フォールバックのため、対象がいるときのみ表示する */}
+        {kycList.length > 0 && (
+        <section className="bg-white rounded-lg border border-slate-200 p-4">
+          <h2 className="text-sm font-semibold text-slate-900 mb-1">
+            本人確認待ち{kycRes ? `（${kycList.length}）` : ""}
+          </h2>
+          <p className="text-xs text-slate-500 mb-3">
+            本登録（免許証・顔写真）を提出したドライバーです。免許・顔を確認して本承認してください。
+          </p>
+          <ul className="divide-y divide-slate-100">
+            {kycList.map((d) => (
+              <li key={d.id} className="py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900 truncate">{d.name}</p>
+                  <p className="text-xs text-slate-500">
+                    {d.phone || "電話未登録"}
+                    {d.created_at ? ` ・ ${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
+                  </p>
+                </div>
+                {canWrite && (
+                  <button
+                    type="button"
+                    onClick={() => openKycReview(d)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-slate-900 text-white hover:bg-slate-800 transition-colors"
+                  >
+                    <FontAwesomeIcon icon={faIdCard} className="h-3 w-3" />
+                    確認
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+        )}
+      </div>
+
+      {/* 招待リンク・共有参加コードのモーダル（発行は右上ボタンから） */}
+      {inviteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setInviteModalOpen(false)}>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-3 border-b border-slate-200 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-900">
+                {INVITES_ENABLED ? "招待リンク・参加コード" : "参加コード・招待リンク"}
+              </h2>
+              <button type="button" onClick={() => setInviteModalOpen(false)} className="px-2 py-1 text-xs text-slate-500 hover:text-slate-800">
+                閉じる
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-6">
 
         {/* 単回招待リンク（主経路・準備中の間は非表示） */}
         {INVITES_ENABLED && (
-        <section className="bg-white rounded-lg border border-slate-200 p-4">
-          <h2 className="text-sm font-semibold text-slate-900 mb-2">招待リンク（1人につき1回）</h2>
+        <section>
+          <h3 className="text-sm font-semibold text-slate-900 mb-2">招待リンク（1人につき1回）</h3>
           <p className="text-xs text-slate-500 mb-3">
             参加者ごとにリンクを発行して LINE や SMS で送ってください。リンクは1回使うと無効になります（有効期限7日）。
             開いた本人は氏名・電話認証から免許・顔写真の提出まで web で完結し、最後にアプリのインストールを案内されます。
@@ -408,10 +532,10 @@ export default function PendingApprovalPage() {
         )}
 
         {/* 共有参加コード（招待リンク解放後はフォールバック扱い） */}
-        <section className="bg-white rounded-lg border border-slate-200 p-4">
-          <h2 className="text-sm font-semibold text-slate-900 mb-2">
+        <section>
+          <h3 className="text-sm font-semibold text-slate-900 mb-2">
             {INVITES_ENABLED ? "共有の参加コード・リンク（予備）" : "参加コード・招待リンク"}
-          </h2>
+          </h3>
           <p className="text-xs text-slate-500 mb-3">
             {INVITES_ENABLED
               ? "個別リンクを送れない場合の予備です。全員共通のコード・QR で、口頭で伝えても申請できます。個別リンクと違い何度でも使えるため、取り扱いには注意してください。"
@@ -465,104 +589,10 @@ export default function PendingApprovalPage() {
             </div>
           )}
         </section>
-
-        {/* 承認待ち */}
-        <section className="bg-white rounded-lg border border-slate-200 p-4">
-          <h2 className="text-sm font-semibold text-slate-900 mb-3">
-            承認待ち{pendingRes ? `（${pending.length}）` : ""}
-          </h2>
-          {isLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
             </div>
-          ) : pending.length === 0 ? (
-            <p className="text-sm text-slate-400 py-6 text-center">承認待ちの申請はありません</p>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {pending.map((d) => (
-                <li key={d.id} className="py-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-900 truncate">{d.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {d.phone || "電話未登録"}
-                      {d.created_at ? ` ・ ${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
-                    </p>
-                    <span
-                      className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${
-                        d.kycComplete
-                          ? "bg-emerald-50 text-emerald-700"
-                          : d.hasLicensePhoto || d.hasFacePhoto
-                            ? "bg-amber-50 text-amber-700"
-                            : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      {d.kycComplete ? "本登録 提出済み" : d.hasLicensePhoto || d.hasFacePhoto ? "本登録 入力中" : "本登録 未提出"}
-                    </span>
-                  </div>
-                  {canWrite && (
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => openApprove(d)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-slate-900 text-white hover:bg-slate-800 transition-colors"
-                      >
-                        <FontAwesomeIcon icon={faCheck} className="h-3 w-3" />
-                        承認
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmReject(d)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-                      >
-                        <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
-                        却下
-                      </button>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {/* 本人確認待ち（本承認） */}
-        <section className="bg-white rounded-lg border border-slate-200 p-4">
-          <h2 className="text-sm font-semibold text-slate-900 mb-1">
-            本人確認待ち{kycRes ? `（${kycList.length}）` : ""}
-          </h2>
-          <p className="text-xs text-slate-500 mb-3">
-            本登録（免許証・顔写真）を提出したドライバーです。免許・顔を確認して本承認してください。
-          </p>
-          {kycList.length === 0 ? (
-            <p className="text-sm text-slate-400 py-6 text-center">本人確認待ちはありません</p>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {kycList.map((d) => (
-                <li key={d.id} className="py-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-900 truncate">{d.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {d.phone || "電話未登録"}
-                      {d.created_at ? ` ・ ${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
-                    </p>
-                  </div>
-                  {canWrite && (
-                    <button
-                      type="button"
-                      onClick={() => openKycReview(d)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-slate-900 text-white hover:bg-slate-800 transition-colors"
-                    >
-                      <FontAwesomeIcon icon={faIdCard} className="h-3 w-3" />
-                      確認
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+          </div>
+        </div>
+      )}
 
       {/* 本人確認モーダル */}
       {kycTarget && (
