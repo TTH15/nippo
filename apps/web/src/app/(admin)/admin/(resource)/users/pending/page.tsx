@@ -325,10 +325,10 @@ export default function PendingApprovalPage() {
                     <img
                       src={d.faceUrl}
                       alt={`${d.name} の顔写真`}
-                      className="w-11 h-11 rounded-full object-cover border border-slate-200 shrink-0"
+                      className="w-14 h-14 rounded-full object-cover border border-slate-200 shrink-0"
                     />
                   ) : (
-                    <div className="w-11 h-11 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-sm font-bold text-slate-400 shrink-0">
+                    <div className="w-14 h-14 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-base font-bold text-slate-400 shrink-0">
                       {d.name.charAt(0)}
                     </div>
                   )}
