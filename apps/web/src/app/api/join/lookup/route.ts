@@ -19,22 +19,18 @@ export async function GET(req: NextRequest) {
       console.error("[join/lookup] invite", error);
       return NextResponse.json({ error: "サーバーエラー" }, { status: 500 });
     }
-    // 不正・使用済み・失効・期限切れはすべて同じ中立メッセージに集約する。
-    // 「使用済み」を区別して返すと、リンクを拾った第三者に
-    // 「この招待で誰かが申請済み」という情報まで漏れるため。
+    // 使用済み／期限切れは理由を分けて返す（2026-08-02 オーナー判断: 本人が状況を
+    // 理解しやすい方を優先。「使用済み」表示が第三者に申請済みを示唆しうる点は許容）。
+    // 不正トークン・失効・org 停止は従来どおり中立メッセージ。
     const org = (row?.organizations ?? null) as { name: string; status: string } | null;
-    if (
-      !row ||
-      !org ||
-      org.status !== "active" ||
-      row.revoked_at ||
-      row.used_at ||
-      new Date(row.expires_at).getTime() < Date.now()
-    ) {
-      return NextResponse.json(
-        { error: "この招待リンクは無効です。運営にお問い合わせください" },
-        { status: 404 },
-      );
+    if (!row || !org || org.status !== "active" || row.revoked_at) {
+      return NextResponse.json({ error: "この招待リンクは無効です" }, { status: 404 });
+    }
+    if (row.used_at) {
+      return NextResponse.json({ error: "このリンクは使用済みです" }, { status: 404 });
+    }
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      return NextResponse.json({ error: "リンクの有効期限が切れています" }, { status: 404 });
     }
     return NextResponse.json({ organizationName: org.name });
   }

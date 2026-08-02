@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, useNavigationContainerRef } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { getStoredDriver, clearAuth, type StoredDriver } from "@repo/core/auth";
@@ -25,6 +25,8 @@ import { AdminDriversScreen } from "./src/screens/admin/AdminDriversScreen";
 import { AdminVehiclesScreen } from "./src/screens/admin/AdminVehiclesScreen";
 import { BottomTabBar } from "./src/components/BottomTabBar";
 import { ModeSwitchFab } from "./src/components/ModeSwitchFab";
+import { WorkSessionProvider } from "./src/WorkSessionContext";
+import { WorkingMiniBar } from "./src/components/WorkingMiniBar";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -39,6 +41,9 @@ export default function App() {
   const [restoredSession, setRestoredSession] = useState(false);
   // 端末ローカルの生体ロック（毎日の起動＝LINE 的 FaceID）。生体設定のある端末のみ発動。
   const { locked, unlock } = useBiometricLock(!!driver, restoredSession);
+  // 現在のルート名（稼働中ミニバーの表示判定: ホーム以外のスタック画面でのみ出す）。
+  const navRef = useNavigationContainerRef<Record<string, object | undefined>>();
+  const [routeName, setRouteName] = useState<string | undefined>(undefined);
 
   const fetchReg = () => {
     setRegState(null);
@@ -133,27 +138,37 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AuthContext.Provider value={{ driver, logout: () => { clearAuth(); setDriver(null); } }}>
-        <NavigationContainer>
-          {adminMode && canUseAdminMode ? (
-            <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <BottomTabBar {...props} />}>
-              <Tab.Screen name="日報承認" component={AdminDailyScreen} />
-              <Tab.Screen name="売上" component={AdminSalesScreen} />
-              <Tab.Screen name="ドライバー" component={AdminDriversScreen} />
-              <Tab.Screen name="車両" component={AdminVehiclesScreen} />
-            </Tab.Navigator>
-          ) : (
-            // ドライバーモードはタブレスの1画面構成: ホーム（業務）を軸に、
-            // シフト・報酬・通知・マイページはカード/アイコンからスタック遷移で開く。
-            <Stack.Navigator screenOptions={{ headerBackTitle: "戻る" }}>
-              <Stack.Screen name="ホーム" component={WorkScreen} options={{ headerShown: false }} />
-              <Stack.Screen name="シフト" component={ShiftsScreen} />
-              <Stack.Screen name="報酬" component={RewardsScreen} />
-              <Stack.Screen name="通知" component={NotificationsScreen} />
-              <Stack.Screen name="マイページ" component={MeScreen} />
-            </Stack.Navigator>
+        <WorkSessionProvider>
+          <NavigationContainer
+            ref={navRef}
+            onReady={() => setRouteName(navRef.getCurrentRoute()?.name)}
+            onStateChange={() => setRouteName(navRef.getCurrentRoute()?.name)}
+          >
+            {adminMode && canUseAdminMode ? (
+              <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <BottomTabBar {...props} />}>
+                <Tab.Screen name="日報承認" component={AdminDailyScreen} />
+                <Tab.Screen name="売上" component={AdminSalesScreen} />
+                <Tab.Screen name="ドライバー" component={AdminDriversScreen} />
+                <Tab.Screen name="車両" component={AdminVehiclesScreen} />
+              </Tab.Navigator>
+            ) : (
+              // ドライバーモードはタブレスの1画面構成: ホーム（業務）を軸に、
+              // シフト・報酬・通知・マイページはカード/アイコンからスタック遷移で開く。
+              <Stack.Navigator screenOptions={{ headerBackTitle: "戻る" }}>
+                <Stack.Screen name="ホーム" component={WorkScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="シフト" component={ShiftsScreen} />
+                <Stack.Screen name="報酬" component={RewardsScreen} />
+                <Stack.Screen name="通知" component={NotificationsScreen} />
+                <Stack.Screen name="マイページ" component={MeScreen} />
+              </Stack.Navigator>
+            )}
+          </NavigationContainer>
+          {/* 稼働中ミニバー（Spotify 型業務中モード）: ドライバーモードのホーム以外で表示 */}
+          {!adminMode && routeName !== undefined && routeName !== "ホーム" && (
+            <WorkingMiniBar onPress={() => navRef.isReady() && navRef.navigate("ホーム")} />
           )}
-        </NavigationContainer>
-        {canUseAdminMode && <ModeSwitchFab adminMode={adminMode} onToggle={() => setAdminMode((v) => !v)} />}
+          {canUseAdminMode && <ModeSwitchFab adminMode={adminMode} onToggle={() => setAdminMode((v) => !v)} />}
+        </WorkSessionProvider>
       </AuthContext.Provider>
       <StatusBar style="auto" />
     </SafeAreaProvider>

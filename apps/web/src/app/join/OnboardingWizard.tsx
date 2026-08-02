@@ -75,6 +75,7 @@ export type WizardAdapter = {
 
 type Step =
   | "code"
+  | "invite-invalid"
   | "welcome"
   | "name"
   | "phone"
@@ -323,11 +324,14 @@ export function OnboardingWizard({
           setInviteToken(invite);
           setOrgName(res.organizationName);
           setStep("welcome");
-          return;
         } catch (e) {
-          // 使用済み/期限切れは理由を出す（本人が運営に再発行を頼めるように）。
-          setError(e instanceof Error ? e.message : "招待リンクが無効です");
+          // 招待経由の人に共有コードの入力を求めるのは導線として不自然なので、
+          // コード入力に落とさず行き止まり画面にする。理由（使用済み/期限切れ/無効）は
+          // サーバの文言をそのまま見出しに使う。
+          setError(e instanceof Error ? e.message : "この招待リンクは無効です");
+          setStep("invite-invalid");
         }
+        return;
       }
       if (c.length >= 4) {
         try {
@@ -644,6 +648,11 @@ export function OnboardingWizard({
             {resumed && ["license", "face", "address"].includes(step) && (
               <p className="text-xs text-slate-500 text-center bg-slate-50 rounded-lg py-2">
                 前回の続きから再開しています
+              </p>
+            )}
+            {step === "invite-invalid" && (
+              <p className="text-sm font-medium text-slate-900 text-center py-4">
+                {error || "この招待リンクは無効です"}
               </p>
             )}
             {step === "code" && (

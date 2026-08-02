@@ -390,3 +390,64 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - UI: /platform(ダークヘッダーPLATFORMブランド・org集計テーブル・審査待ちバナー)、/platform/applications(審査+承認モーダル→参加コード・招待リンクを一度だけ表示)、/apply(公開申請フォーム)
 - dev-nippo 検証: migration適用→平石孝也identityにplatform_admin付与→申請→承認→TESTUN org発行(ロール束 ADMIN20/ACCOUNTING11/VIEWER7/DRIVER0)・監査ログ記録・非運営者403 まで一巡確認。web tsc/テスト421 green
 - 残: 本番適用(migration 120+platform_admin付与)→本番テストorg作成、監査ログ閲覧UI、API呼出回数の計測(Phase 2)、break-glass(Phase 2)
+
+## 2026-08-01 01:15 本番反映の準備(platform コンソール)
+
+- 本番の平石孝也 identity を電話番号(+81形式)で特定: 4e361048-4bb7-43d3-9513-a47373d5995e
+- 判明: .env.local の SUPABASE_DB_URL は dev-nippo の旧パスワード付き接続文字列(本番の DB 直結情報はどこにも無い)→ 本番 migration 適用にはユーザーが .env.production.local へ本番接続文字列を追記する必要あり
+- platform コンソール(7656640)+worklog(abd4c1c)をコミット済み。push は権限ブロックのためユーザー操作待ち
+- 残: ①ユーザー push(→Vercel本番デプロイ) ②本番 SUPABASE_DB_URL 追記 → migration 120 適用+platform_admin 付与(私) ③hakotora.jp/platform からテスト org 発行
+
+## 2026-08-01 01:25 本番反映: migration 120 適用+platform_admin 付与 完了
+
+- ユーザーが .env.production.local に本番 SUPABASE_DB_URL を追記 → ref(postgres.ooirajii…)で本番であることを検証してから migration 120 を psql 適用(platform_admins/org_applications/platform_audit_logs の3テーブル。本番に _migrations 台帳は無く手動適用の流儀どおり)
+- platform_admins に平石孝也 identity(4e361048…)を付与(本番1件)
+- 残: **git push origin main が未実施(ahead 2)** — push されると Vercel が /platform・/apply を本番デプロイ。その後 hakotora.jp/platform からテスト org 発行
+
+## 2026-08-01 01:35 平中さん復元クローズ・本番デプロイ完了
+
+- 複製プロジェクトで driver_identities(ACE800013)が空であることを確認 → 復元対象は drivers 行のみで完了済み。**復旧クローズ**(複製プロジェクトは削除可)
+- ユーザーが push → Vercel 本番デプロイ確認(/apply 200)。hakotora.jp/platform 利用可能に
+- Vercel プロジェクト名の hakotora へのリネームは安全と回答(カスタムドメイン・env・ID 不変。*.vercel.app サブドメインのみ変わる)
+
+## 2026-08-01 01:45 platform コンソール拡大方針を設計正本に記録
+
+- hakotora.jp/platform の本番動作をユーザー確認
+- platform-design.md に §2-5a 新設: Phase 1 実装内容+**Phase 2 以降の拡大方針10項目**(監査ログ閲覧UI/break-glass/API実測/DB層PII遮断/orgライフサイクル/LINE上限UI/課金/KYB支援/認証方式選択/時系列メトリクス)
+- roadmap-2026-07.md にトラック L 追加(残: 本番テストorg発行・Phase 2)
+
+## 2026-08-01 02:05 hakotora-dev.vercel.app 復活(dev-nippo 接続)・dev/本番の運用形を確立
+
+- hakotora-dev(Vercel)の SUPABASE_URL/SERVICE_ROLE_KEY/DB_URL を dev-nippo に差し替え(Production+Preview)。
+  初回は ①.env.development.local の行内コメント混入 ②npx 経由 stdin で空文字保存 の二重障害でビルド失敗
+  → Vercel API 直叩きで正しい値に置換 → ユーザーが再デプロイ → **AAA111111 でログイン検証 OK**
+- これで実機からローカルサーバ無しで dev API(hakotora-dev.vercel.app → dev-nippo)を叩ける経路が復活
+- 運用形の合意(「長生き dev ブランチは作らない」): main 一本+短命ブランチ/本番(nippo-ace)=main 自動デプロイ/
+  hakotora-dev=手動デプロイ(任意タイミングで main を上げる)/危険な変更のみ短命ブランチから vercel deploy の
+  プレビュー URL(Preview env=dev DB 設定済み)で確認して即マージ
+- platform-design.md §2-5a・roadmap トラック L の拡大方針記録も本ターンで完了済み
+
+## 2026-08-02 mobile P1: ヒーローカードのバン+箱アニメ・Spotify型業務中モード(ミニバー)
+
+- **バン画像アセット**: 地図と同じ truck.glb(Kenney delivery van)を model-viewer でローカルレンダし、パレットテクスチャの緑をブランドアンバー(hue 43°、彩度・明度は元の陰影を維持)にピクセル置換して透過PNG化(左後方3/4視点・トリム済み 1080x710)→ `apps/mobile/assets/van-amber.png`。レンダは Chrome 自動化(model-viewer は非表示タブだと lazy load でスタックするため loading=eager 必須、と CDP スクショ不調時は toDataURL→ローカルPOSTサーバ保存が確実、という2つの学びあり)
+- **HeroVan コンポーネント**: ヒーローカード(挨拶+名前の直下)に事前レンダのバン+地面影+段ボール箱3個の reanimated ループアニメ(左→リアシャッターへ3ホップで流れ込み、ハッチ手前でフェード=積み込み完了に見せる。transform/opacity のみ・cancelAnimation でクリーンアップ)
+- **WorkSessionContext 新設**: 稼働セッション(open/todaySessions/loading/loadError)+車両一覧を WorkScreen ローカルから Context に昇格。WorkScreen は操作フロー状態のみ保持する形にリファクタ
+- **WorkingMiniBar(Spotify型業務中モード)**: 稼働中にホーム以外のスタック画面(シフト・報酬・通知・マイページ)下部に浮かぶ brand-900 のバー(明滅アンバードット+経過時間+ナンバー+タップでホームへ)。App.tsx で navigationContainerRef から現在ルートを追跡して表示制御。formatTime/formatDuration は src/format.ts に共通化
+- 検証: mobile tsc クリーン。シミュレータ/実機での見た目確認は未(dev client は HMR 不通のため再起動が必要)
+- P1残: ③案A全画面カメラ(統一キャプチャフロー)。ユーザー製アセット(Blender バン glb / Illustrator 箱SVG)が来たら差し替え
+
+## 2026-08-02 調査: 招待リンク経由の申請が承認待ちに出ない原因
+
+- 事象: 招待リンク(らいらさん宛・7/31 使用)で申請が送信されたが org 管理画面の「承認待ち」に出ない
+- DB痕跡(本番へ SELECT のみ): invites 行は used_at=7/31 06:47Z・used_by_identity 記録済み=招待消費まで到達。drivers 行の直接照会は権限クラシファイアにブロックされ未確認(Supabase ダッシュボードで identity_id='e4c37a62-8f54-4694-8f73-f2c7361a7245' を確認可)
+- **根本原因(コード)**: POST /api/join の drivers insert が works_as_driver を設定していない(DB デフォルト false・migration 104、トリガー同期なし・アプリ同期方式)。一方 GET /api/admin/users?status=pending は .eq(works_as_driver,true) でフィルタ → **/join 経由の申請は構造的に全員 承認待ちに表示されない**。手動追加(POST /api/admin/users)は works_as_driver:true 明示のため見える
+- 付随UX: 招待リンク無効時に OnboardingWizard が「参加コードを入力してください」ステップに落ちる(エラーは出るが導線が不自然)。招待経由は行き止まり画面(運営に再発行依頼)にすべき
+- 修正方針(未実施): ①/api/join insert に works_as_driver:true(+system DRIVER の role_id)②既存 pending 行の works_as_driver=true への UPDATE(本番書き込みのため要ユーザー承認)③ウィザード無効時の行き止まり画面
+
+## 2026-08-02 修正: /join 申請が承認待ちに出ない不具合(works_as_driver)+招待無効時のUX
+
+- POST /api/join の drivers insert に works_as_driver:true を明示(手動追加パスと同一。role_id は手動追加も未設定のため揃えて据え置き)
+- 本番データ修復: 該当 pending 行(925dad41)を works_as_driver=true に UPDATE(ユーザーが行を確認・承認のうえ実行)。status=pending かつ works_as_driver=false の他行は0件=影響はこの1件のみ
+- 招待リンク無効時のメッセージを理由別に分割(オーナー判断: 「このリンクは使用済みです」「リンクの有効期限が切れています」を区別。不正トークン・失効・org停止は中立の「この招待リンクは無効です」のまま)。/api/join/lookup・/api/join(事前チェックと消費レース)の両方
+- OnboardingWizard: 招待無効時に参加コード手入力へ落とすのをやめ、行き止まり画面(サーバ文言を見出し表示)に変更。新ステップ "invite-invalid"
+- 検証: web tsc クリーン・テスト 421 passed。※デプロイ(main push→Vercel)は未実施

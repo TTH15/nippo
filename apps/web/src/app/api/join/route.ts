@@ -68,20 +68,16 @@ export async function POST(req: NextRequest) {
         console.error("[Join] invite lookup error:", invErr);
         return NextResponse.json({ error: "サーバーエラー" }, { status: 500 });
       }
-      // 使用済み・失効・期限切れも同じ中立メッセージ（lookup と同様、情報を漏らさない）。
+      // 使用済み／期限切れは理由を分けて返す（lookup と同一方針・2026-08-02 オーナー判断）。
       const invOrg = (inv?.organizations ?? null) as { id: string; name: string; status: string } | null;
-      if (
-        !inv ||
-        !invOrg ||
-        invOrg.status !== "active" ||
-        inv.revoked_at ||
-        inv.used_at ||
-        new Date(inv.expires_at).getTime() < Date.now()
-      ) {
-        return NextResponse.json(
-          { error: "この招待リンクは無効です。運営にお問い合わせください" },
-          { status: 400 },
-        );
+      if (!inv || !invOrg || invOrg.status !== "active" || inv.revoked_at) {
+        return NextResponse.json({ error: "この招待リンクは無効です" }, { status: 400 });
+      }
+      if (inv.used_at) {
+        return NextResponse.json({ error: "このリンクは使用済みです" }, { status: 400 });
+      }
+      if (new Date(inv.expires_at).getTime() < Date.now()) {
+        return NextResponse.json({ error: "リンクの有効期限が切れています" }, { status: 400 });
       }
       inviteId = inv.id;
       org = invOrg;
@@ -201,20 +197,21 @@ export async function POST(req: NextRequest) {
         .select("id")
         .maybeSingle();
       if (!burned) {
-        return NextResponse.json(
-          { error: "この招待リンクは無効です。運営にお問い合わせください" },
-          { status: 400 },
-        );
+        return NextResponse.json({ error: "このリンクは使用済みです" }, { status: 400 });
       }
     }
 
     // membership（drivers）を pending で作成。driver_code は承認時に発行。
+    // works_as_driver はアプリ側同期（migration 104・DB デフォルト false）のためここで明示する。
+    // 未設定だと承認待ち一覧（/api/admin/users?status=pending）の works_as_driver=true
+    // フィルタに落ちて申請が運営から見えなくなる（2026-08-02 の不具合）。
     const { data: created, error: dErr } = await supabase
       .from("drivers")
       .insert({
         org_id: org.id,
         identity_id: identityId,
         role: "DRIVER",
+        works_as_driver: true,
         status: "pending",
         name,
         phone,

@@ -251,6 +251,29 @@ CREATE UNIQUE INDEX uq_pii_disclosure_active
 
 **PII・コンプラのガードレール**: ①テナント分離が最大の保護（§2-3,§3）②顔/免許画像は暗号化＋短命署名URL＋テナント＆本人限定 ③運営社内でも免許/顔はADMINのみ・ADMIN_VIEWER不可（最小権限）④PII閲覧の監査ログ（希望休監査の考え方を拡張）⑤退職/解約時の削除ポリシー ⑥法的: 運営社=取扱事業者、あなた=委託先 → 委託契約＋安全管理措置。元請け→下請け共有（§4）は第三者提供論点あり。**契約/規約/個情法対応は専門家レビュー前提**。
 
+### 2-5a. プラットフォームコンソール（/platform）★Phase 1 実装済み 2026-08-01・拡大方針
+
+**根本方針: プラットフォーム運営者にも「デフォルトで見えない・見る時は記録が残る」**。
+DB オーナーの技術的全能は消せないため、①構造（PII を返すエンドポイントを作らない）②記録（監査ログ）③契約（§2-5 ⑥）の三層で統制する。
+
+**Phase 1（実装済み・migration 120）**
+- `platform_admins`（identity 基準・org membership と独立）＋ `requirePlatformAdmin`
+- `/platform` ダッシュボード: org 別の**集計のみ**（active/KYC済ドライバー数・当月の日報/稼働/通知/LINE通数・最終日報・参加コード）
+- `/apply`（公開申請フォーム）→ `org_applications` 台帳 → `/platform/applications` で審査 → 承認で org ブートストラップ（organizations＋system ロール4種＝`DEFAULT_ROLE_CAPABILITIES` 正本＋初代 ADMIN 招待14日）
+- `platform_audit_logs`: プラットフォーム操作を全記録（Phase 1 は記録のみ・閲覧 UI なし）
+
+**Phase 2 以降の拡大方針（優先順は実需で入れ替え）**
+1. **監査ログ閲覧 UI**（自分の操作履歴を自分で監査できる状態に）
+2. **Break-glass サポートアクセス**: 個社データを見る必要がある時だけ org 単位・期限付きで明示的に有効化 → 期間中の閲覧を全件監査記録。将来は org 管理者への通知/同意とセット（Stripe/Shopify のサポートアクセスモデル）
+3. **API 利用状況の実測**: 現状は業務活動量（日報・稼働等）を代理指標にしている。HTTP レベルの呼出回数は計装（軽量カウンタ or Vercel Observability 連携）が必要
+4. **DB 層の構造的 PII 遮断**: コンソール API を service_role でなく専用 postgres ロール＋集計ビュー経由に（「構造的に読めない」を DB で担保。own化/RLS トラックと同じ流れ）
+5. **org ライフサイクル管理**: suspend/resume、解約時のデータ削除ポリシー実行（§2-5 ⑤）
+6. **LINE 通数の org 別上限管理**: `org_notification_settings.line_monthly_limit` の設定をコンソールへ集約（migration 111 の土台を UI 化）
+7. **課金・プラン管理**: エンタープライズ価格の契約・請求管理
+8. **KYB 実務支援**: 法人番号の国税庁 API 照合・登記資料アップロード・申請着信のメール通知
+9. **org 発行時の運営者認証方式の選択**（SSO/Passkey/メールOTP、§2-5 の表）
+10. **メトリクスの時系列化**（月次推移・成長の可視化）
+
 ### 2-6. 認可モデル（capability / role / permission）★合意済み・実装これから
 
 権限も §2-0 と同じ「束ねる単位を分ける」思想で3層にする。現状は単一 role（DRIVER/ADMIN/ADMIN_VIEWER）を `requireAuth` の3段ハードコード階層で約163ルートに直書きしており、**読み/書きの区別は「ADMIN_VIEWER=読取専用 vs ADMIN=書込」だけ・全画面一律・運営は変更不可**。これをドメイン能力単位に作り替える。

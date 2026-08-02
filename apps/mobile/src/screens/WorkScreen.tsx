@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, TextInput, ActivityIndicator, ScrollView } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { FontAwesome6 } from "@expo/vector-icons";
 import {
-  fetchToday,
   resolveQr,
   checkIn,
   checkOut,
   uploadMeterPhoto,
   uploadInspectionPhoto,
   plateText,
-  type WorkSession,
   type ResolvedVehicle,
   type InspectionAngle,
 } from "../api/work";
@@ -22,10 +20,13 @@ import { LicenseSpotCheck } from "../components/LicenseSpotCheck";
 import { VehicleInspectionCapture, type InspectionShot } from "../components/VehicleInspectionCapture";
 import { QrFallback, type FallbackResolution } from "../components/QrFallback";
 import { DailyReportForm, type DailyReportFormHandle } from "../components/DailyReportForm";
+import { HeroVan } from "../components/HeroVan";
 import { apiFetch } from "@repo/core/api";
-import type { SubmitVehicle, MeShift, VehiclePlateData } from "@repo/core/types";
-import { toLocalDateStr, formatMonthDayJP, reportDateDefaultJST } from "@repo/core/logic/calendar";
+import type { MeShift, VehiclePlateData } from "@repo/core/types";
+import { formatMonthDayJP, reportDateDefaultJST } from "@repo/core/logic/calendar";
 import { useAuth } from "../AuthContext";
+import { useWorkSession } from "../WorkSessionContext";
+import { formatTime, formatDuration } from "../format";
 
 // 業務ホーム（qr_flow v2.0 Phase4）。1つの円が主役の3状態画面:
 //   待機（今日のシフト＋稼働開始） / 稼働中（経過時間・車両） / 終了後（稼働サマリー）。
@@ -40,22 +41,6 @@ function parseMeter(s: string): number | null {
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : "通信に失敗しました";
-}
-
-function formatTime(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "—";
-  }
-}
-
-function formatDuration(ms: number): string {
-  const totalMin = Math.max(0, Math.floor(ms / 60000));
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return h > 0 ? `${h}時間${m}分` : `${m}分`;
 }
 
 function greeting(): string {
@@ -85,9 +70,8 @@ const SPOT_CHECK_RATE = 0.15;
 
 export function WorkScreen() {
   // --- 出退勤（Phase1: QR認証 → Bottom Sheet） ---
-  const [workLoading, setWorkLoading] = useState(true);
-  const [open, setOpen] = useState<WorkSession | null>(null);
-  const [todaySessions, setTodaySessions] = useState<WorkSession[]>([]);
+  // 稼働セッション本体は Context（WorkSessionProvider）が持つ。ここは操作フローの状態のみ。
+  const { open, todaySessions, loading: workLoading, loadError, vehicles, reload } = useWorkSession();
   const [busy, setBusy] = useState(false);
   const [workMsg, setWorkMsg] = useState<string | null>(null);
 
@@ -131,7 +115,6 @@ export function WorkScreen() {
   const { driver } = useAuth();
   const navigation = useNavigation<{ navigate: (name: string) => void; addListener: (ev: "focus", cb: () => void) => () => void }>();
   const today = reportDateDefaultJST();
-  const [vehicles, setVehicles] = useState<SubmitVehicle[]>([]);
   const [todayShifts, setTodayShifts] = useState<MeShift[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifs, setNotifs] = useState<NotifItem[]>([]);
@@ -159,11 +142,7 @@ export function WorkScreen() {
   }, [open]);
 
   useEffect(() => {
-    // 車両一覧: QR退避ルートの候補＋稼働中のプレート表示に使う
-    apiFetch<{ vehicles: SubmitVehicle[] }>("/api/reports/vehicles")
-      .then((d) => setVehicles(d.vehicles ?? []))
-      .catch(() => setVehicles([]));
-    // 今日のシフト（待機状態のカード表示用）
+    // 今日のシフト（待機状態のカード表示用）。車両一覧は WorkSessionProvider が持つ。
     apiFetch<{ shifts: MeShift[] }>(`/api/me/shifts?start=${today}&end=${today}`)
       .then((d) => setTodayShifts(d.shifts ?? []))
       .catch(() => setTodayShifts([]));
@@ -196,23 +175,6 @@ export function WorkScreen() {
     if (target === "in") setInInspectionPaths(paths);
     else setOutInspectionPaths(paths);
   }
-
-  const reload = useCallback(async () => {
-    setWorkLoading(true);
-    try {
-      const t = await fetchToday();
-      setOpen(t.open);
-      setTodaySessions(t.today ?? []);
-    } catch (e) {
-      setWorkMsg(errMsg(e));
-    } finally {
-      setWorkLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
 
   async function onScanIn(data: string): Promise<boolean> {
     setBusy(true);
@@ -451,17 +413,18 @@ export function WorkScreen() {
           </View>
         </View>
 
-        {workMsg && (
+        {(workMsg || loadError) && (
           <View className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
-            <Text className="text-amber-800 text-[13px]">{workMsg}</Text>
+            <Text className="text-amber-800 text-[13px]">{workMsg ?? loadError}</Text>
           </View>
         )}
 
-        {/* ヒーローカード: 挨拶＋今日のシフト（将来: 3D軽バン＋箱アニメの舞台） */}
+        {/* ヒーローカード: 挨拶＋バン積み込みアニメ＋今日のシフト */}
         <View className="bg-white rounded-2xl p-5 gap-1 shadow-sm">
           <Text className="text-[13px] text-brand-500">{greeting()}</Text>
-          <Text className="text-xl font-bold text-brand-900 mb-2">{driver.name} さん</Text>
-          <View className="gap-1.5 mb-3">
+          <Text className="text-xl font-bold text-brand-900">{driver.name} さん</Text>
+          <HeroVan />
+          <View className="gap-1.5 mb-3 mt-1">
             {todayShifts.length === 0 ? (
               <Text className="text-brand-400 text-[13px]">今日のシフトはありません</Text>
             ) : (
