@@ -10,13 +10,24 @@ export type DateRangeValue = {
   endDate?: Date;
 };
 
+const PRESET_LABELS: Record<RangePreset, string> = {
+  last_month: "先月",
+  current_month: "今月",
+  six_months: "半年",
+  one_year: "1年",
+  custom: "カスタム",
+};
+
+const ALL_PRESETS: RangePreset[] = ["last_month", "current_month", "six_months", "one_year", "custom"];
+
 interface DateRangePickerProps {
   value?: DateRangeValue;
   onChange?: (range: DateRangeValue) => void;
-  hideSixMonths?: boolean;
+  /** 表示するプリセットの絞り込み（省略時は全部）。例: ["last_month","current_month","custom"] */
+  presets?: RangePreset[];
 }
 
-export function DateRangePicker({ value, onChange, hideSixMonths }: DateRangePickerProps) {
+export function DateRangePicker({ value, onChange, presets: presetKeys }: DateRangePickerProps) {
   const [preset, setPreset] = useState<RangePreset>("current_month");
 
   useEffect(() => {
@@ -59,13 +70,7 @@ export function DateRangePicker({ value, onChange, hideSixMonths }: DateRangePic
     setPreset("custom");
   };
 
-  const presets = [
-    { value: "last_month", label: "先月" },
-    { value: "current_month", label: "今月" },
-    ...(hideSixMonths ? [] : [{ value: "six_months" as const, label: "半年" as const }]),
-    { value: "one_year", label: "1年" },
-    { value: "custom", label: "カスタム" },
-  ] as const;
+  const presets = (presetKeys ?? ALL_PRESETS).map((value) => ({ value, label: PRESET_LABELS[value] }));
 
   return (
     <div className="flex flex-col sm:flex-row items-start gap-4">

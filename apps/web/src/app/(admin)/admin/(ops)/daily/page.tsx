@@ -126,7 +126,6 @@ export default function AdminDailyPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [editSaveError, setEditSaveError] = useState<string | null>(null);
   const [allDateRange, setAllDateRange] = useState<DateRangeValue | undefined>(undefined);
-  const [pendingDateRange, setPendingDateRange] = useState<DateRangeValue | undefined>(undefined);
   const [daySummaries, setDaySummaries] = useState<DaySummary[]>([]);
   const [proxyTarget, setProxyTarget] = useState<{ driverId: string; driverName: string; date: string } | null>(null);
 
@@ -142,15 +141,9 @@ export default function AdminDailyPage() {
   };
 
   // SWR でタブ別にキャッシュし、画面遷移をまたいで保持する（再訪時の点滅をなくす）。
-  // pending=日次サマリ範囲 / all=全件（日付範囲指定）。非アクティブなタブは取得しない。
-  const pendingKey =
-    tab === "pending"
-      ? `/api/admin/daily/day-summary-range${
-          pendingDateRange?.startDate && pendingDateRange?.endDate
-            ? `?start=${toYmd(pendingDateRange.startDate)}&end=${toYmd(pendingDateRange.endDate)}`
-            : ""
-        }`
-      : null;
+  // pending=要対応（期間で切らず全履歴の未提出・未承認） / all=全件（日付範囲指定）。
+  // 非アクティブなタブは取得しない。
+  const pendingKey = tab === "pending" ? "/api/admin/daily/day-summary-range?pending=1" : null;
   const allKey =
     tab === "all"
       ? `/api/admin/daily/all${
@@ -387,23 +380,19 @@ export default function AdminDailyPage() {
 
         {tab === "all" && (
           <div className="mb-6">
+            {/* 過去の閲覧は1ヶ月単位で十分（半年・1年プリセットは撤去。2026-08-02 決定） */}
             <DateRangePicker
               value={allDateRange}
               onChange={setAllDateRange}
+              presets={["last_month", "current_month", "custom"]}
             />
           </div>
         )}
 
         {tab === "pending" && (
-          <div className="mb-6">
-            <DateRangePicker
-              value={pendingDateRange}
-              onChange={setPendingDateRange}
-            />
-            <p className="mt-1.5 text-xs text-slate-500">
-              期間を指定すると、過去に遡って作成したシフトの未提出日報も代理入力できます（未指定時は直近14日）。
-            </p>
-          </div>
+          <p className="mb-6 text-xs text-slate-500">
+            未提出・未承認の日報は、期間に関係なくすべて表示されます（過去分の代理入力もここから）。
+          </p>
         )}
 
         {loading ? (

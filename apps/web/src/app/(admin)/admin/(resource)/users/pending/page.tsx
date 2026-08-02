@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import useSWR from "swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck, faXmark, faUserPlus, faIdCard, faCopy, faLink } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faXmark, faUserPlus, faIdCard, faCopy, faLink, faWandMagicSparkles } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -100,6 +100,93 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
     <div>
       <p className="text-[11px] text-slate-400 mb-0.5">{label}</p>
       <p className="text-sm text-slate-900">{children}</p>
+    </div>
+  );
+}
+
+// AI 照合（KYC 承認支援）: 免許証写真を読み取り、申告内容との一致/不一致を表示する。
+// 実行は明示ボタン（開くたびの自動実行はしない＝コスト・レイテンシ制御）。判定は参考情報。
+type KycCheckResult = {
+  isDriversLicense: boolean;
+  checks: Array<{
+    key: "name" | "dob" | "expiry" | "address";
+    label: string;
+    application: string;
+    extracted: string;
+    verdict: "match" | "partial" | "mismatch" | "unknown";
+  }>;
+  warnings: string[];
+};
+
+const VERDICT_BADGE: Record<KycCheckResult["checks"][number]["verdict"], { label: string; cls: string }> = {
+  match: { label: "一致", cls: "bg-emerald-50 text-emerald-700" },
+  partial: { label: "概ね一致", cls: "bg-amber-50 text-amber-700" },
+  mismatch: { label: "不一致", cls: "bg-rose-50 text-rose-700" },
+  unknown: { label: "未確認", cls: "bg-slate-100 text-slate-500" },
+};
+
+function KycAiCheck({ driverId }: { driverId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<KycCheckResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await apiFetch<KycCheckResult>(`/api/admin/users/${driverId}/kyc-check`, { method: "POST" }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "AI 照合に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] text-slate-400">AI 照合（免許証の記載と申請内容）</p>
+        <button
+          type="button"
+          onClick={run}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition-colors"
+        >
+          <FontAwesomeIcon icon={faWandMagicSparkles} className="h-3 w-3" />
+          {busy ? "照合中..." : result ? "もう一度照合" : "AIで照合する"}
+        </button>
+      </div>
+      {error && <p className="text-xs text-rose-600">{error}</p>}
+      {result && !result.isDriversLicense && (
+        <p className="text-xs font-medium text-amber-700 bg-amber-50 rounded px-2 py-1.5">
+          提出された画像が運転免許証ではない可能性があります
+        </p>
+      )}
+      {result?.isDriversLicense && (
+        <div className="space-y-1">
+          {result.checks.map((c) => (
+            <div key={c.key} className="flex items-center gap-2 text-xs">
+              <span className="w-16 text-slate-500">{c.label}</span>
+              <span className={`px-1.5 py-0.5 rounded font-medium ${VERDICT_BADGE[c.verdict].cls}`}>
+                {VERDICT_BADGE[c.verdict].label}
+              </span>
+              {c.verdict !== "match" && c.extracted && (
+                <span className="text-slate-600 min-w-0 truncate">免許証: {c.extracted}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {result && result.warnings.length > 0 && (
+        <div className="space-y-0.5">
+          {result.warnings.map((w, i) => (
+            <p key={i} className="text-[11px] text-slate-400">・{w}</p>
+          ))}
+        </div>
+      )}
+      {result && (
+        <p className="text-[11px] text-slate-400">AI の読み取りは参考情報です。最終確認は写真の目視で行ってください。</p>
+      )}
     </div>
   );
 }
@@ -611,7 +698,10 @@ export default function PendingApprovalPage() {
               {kycLoading || !kycDetail ? (
                 <p className="text-sm text-slate-400 py-8 text-center">読み込み中...</p>
               ) : (
-                <KycDetailView detail={kycDetail} />
+                <>
+                  <KycDetailView detail={kycDetail} />
+                  {kycDetail.licenseUrl && <KycAiCheck driverId={kycTarget.id} />}
+                </>
               )}
             </div>
             {canWrite && (
@@ -650,6 +740,7 @@ export default function PendingApprovalPage() {
               ) : approveKyc ? (
                 <div className="space-y-3">
                   <KycDetailView detail={approveKyc} />
+                  {approveKyc.licenseUrl && <KycAiCheck driverId={approveTarget.id} />}
                   <hr className="border-slate-100" />
                 </div>
               ) : (

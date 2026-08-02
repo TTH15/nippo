@@ -551,9 +551,11 @@ export function OnboardingWizard({
     setBusy(true);
     try {
       if (step === "address") {
+        // 住所欄内の空白は除去して保存する（日本の住所表記に空白は不要）。これにより
+        // 保存値の空白＝建物名との区切り、が一意に決まる（単一カラムのままで曖昧さなし）。
         await api.saveRegistration({
           postalCode: reg.postalCode,
-          address: [reg.address.trim(), building.trim()].filter(Boolean).join(" "),
+          address: [reg.address.replace(/\s+/g, ""), building.trim()].filter(Boolean).join(" "),
           addressMatchesLicense: addressSame,
         });
         setStep("license");

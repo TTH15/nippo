@@ -4,6 +4,7 @@ import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
+import { fetchAllRows } from "@/server/aggregation/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -18,14 +19,10 @@ export async function GET(req: NextRequest) {
   const businessToday = reportDateDefaultJST();
 
   if (!startParam || !endParam) {
-    // 要対応(未解決)である限り、経過日数に関わらずバッジに出続けるべきなので
-    // 既定の遡り幅は広めに取る（未解決以外の日は結果に含まれないため表示は増えない）。
-    const end = businessToday;
-    const base = new Date(end + "T12:00:00+09:00");
-    const start = new Date(base);
-    start.setDate(start.getDate() - 89);
-    startParam = start.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
-    endParam = end;
+    // 要対応(未解決)である限り、経過日数に関わらずバッジに出続けるべきなので、
+    // 既定は期間で切らず全履歴を数える（要対応ビュー pending=1 と同じ定義・2026-08-02）。
+    startParam = "2020-01-01"; // サービス開始より十分前（実データの下限で自然に切れる）
+    endParam = businessToday;
   }
 
   if (startParam > businessToday) startParam = businessToday;
@@ -48,13 +45,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    const { data: shiftRows, error: shiftsErr } = await supabase
-      .from("shifts")
-      .select("shift_date, driver_id, course_id")
-      .gte("shift_date", startParam)
-      .lte("shift_date", endParam)
-      .not("driver_id", "is", null);
-    if (shiftsErr) {
+    // PostgREST の既定上限(1000行)で黙って切られると要対応を数え漏らすため必ずページングする。
+    let shiftRows: Array<{ shift_date: string; driver_id: string; course_id: string | null }>;
+    try {
+      shiftRows = await fetchAllRows((from, to) =>
+        supabase
+          .from("shifts")
+          .select("shift_date, driver_id, course_id")
+          .gte("shift_date", startParam)
+          .lte("shift_date", endParam)
+          .not("driver_id", "is", null)
+          .order("shift_date", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      );
+    } catch (shiftsErr) {
       console.error("[admin/daily/unread-count] shifts error", shiftsErr);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }

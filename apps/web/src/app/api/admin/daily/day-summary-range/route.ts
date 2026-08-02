@@ -5,6 +5,7 @@ import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 import { loadReportContents } from "@/server/aggregation/reportContent";
+import { fetchAllRows } from "@/server/aggregation/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,15 @@ export async function GET(req: NextRequest) {
   let startParam = url.searchParams.get("start");
   let endParam = url.searchParams.get("end");
   const businessToday = reportDateDefaultJST();
+
+  // pending=1: 「要対応（未提出・未承認）」ビュー。期間で切らず全履歴から
+  // 要対応が残る日だけを返す（未対応が期間選択で見落とされるのを防ぐ・2026-08-02 決定）。
+  // 応答形式は通常モードと同じ days[]。
+  const pendingOnly = url.searchParams.get("pending") === "1";
+  if (pendingOnly) {
+    startParam = "2020-01-01"; // サービス開始より十分前（実データの下限で自然に切れる）
+    endParam = businessToday;
+  }
 
   if (!startParam || !endParam) {
     // 「要対応」タブは未解決の日だけが描画対象なので、遡り幅を広げても表示は増えない。
@@ -77,14 +87,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    const { data: shiftRows, error: shiftsErr } = await supabase
-      .from("shifts")
-      .select("shift_date, driver_id, course_id")
-      .gte("shift_date", startParam)
-      .lte("shift_date", endParam)
-      .not("driver_id", "is", null);
-
-    if (shiftsErr) {
+    // 半年・1年指定ではシフト行が PostgREST の既定上限(1000行)を超える。
+    // 上限で黙って切られると後半の日付のシフトが欠落し「休み」誤表示（未提出の見逃し）
+    // になるため、必ずページングで全件取得する（2026-08-02 の不具合）。
+    let shiftRows: Array<{ shift_date: string | null; driver_id: string | null; course_id: string | null }>;
+    try {
+      shiftRows = await fetchAllRows((from, to) =>
+        supabase
+          .from("shifts")
+          .select("shift_date, driver_id, course_id")
+          .gte("shift_date", startParam)
+          .lte("shift_date", endParam)
+          .not("driver_id", "is", null)
+          .order("shift_date", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      );
+    } catch (shiftsErr) {
       console.error("[admin/daily/day-summary-range] shifts error", shiftsErr);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
@@ -129,6 +148,49 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       console.error("[admin/daily/day-summary-range] reports error", e);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+
+    // pending モード: 応答する日付を「要対応が残る日＋今日」だけに先に確定し、
+    // レポート行もその日付に絞る（全履歴を返すとペイロードが日数分肥大するため）。
+    let keptDates: string[] | null = null;
+    if (pendingOnly) {
+      // 日付×ドライバーの提出コース集合と未承認有無（判定に必要な最小情報だけの素集計）
+      const submitted = new Map<string, Map<string, { courses: Set<string>; hasUnapproved: boolean }>>();
+      (reportRows ?? []).forEach((r: any) => {
+        if (!r.report_date || !r.driver_id) return;
+        if (!submitted.has(r.report_date)) submitted.set(r.report_date, new Map());
+        const byDriver = submitted.get(r.report_date)!;
+        const cur = byDriver.get(r.driver_id) ?? { courses: new Set<string>(), hasUnapproved: false };
+        if (r.course_id) cur.courses.add(r.course_id);
+        if (!r.approved_at) cur.hasUnapproved = true;
+        byDriver.set(r.driver_id, cur);
+      });
+
+      const hasPendingOn = (date: string): boolean => {
+        const byDriver = submitted.get(date);
+        if (byDriver) {
+          for (const v of byDriver.values()) if (v.hasUnapproved) return true;
+        }
+        const coursesByDriver = shiftCoursesByDate.get(date);
+        for (const driverId of shiftsByDate.get(date) ?? []) {
+          const rec = byDriver?.get(driverId);
+          if (!rec) return true; // シフトがあるのに日報ゼロ
+          const cs = coursesByDriver?.get(driverId);
+          if (cs && Array.from(cs).some((c) => !rec.courses.has(c))) return true; // 一部コース未提出
+        }
+        return false;
+      };
+
+      const candidates = new Set<string>([businessToday]);
+      shiftsByDate.forEach((_v, date) => {
+        if (date <= businessToday) candidates.add(date);
+      });
+      submitted.forEach((_v, date) => {
+        if (date <= businessToday) candidates.add(date);
+      });
+      keptDates = Array.from(candidates).filter((date) => date === businessToday || hasPendingOn(date));
+      const keep = new Set(keptDates);
+      reportRows = (reportRows ?? []).filter((r: any) => keep.has(r.report_date));
     }
 
     // 内容（送信画面と同じ動的 unit/field 構造）を report_entries から取得
@@ -176,12 +238,17 @@ export async function GET(req: NextRequest) {
       reportsByDateDriver.get(date)!.set(driverId, arr);
     });
 
-    const dates: string[] = [];
-    const d = new Date(startParam);
-    const end = new Date(endParam);
-    while (d <= end) {
-      dates.push(d.toISOString().slice(0, 10));
-      d.setDate(d.getDate() + 1);
+    let dates: string[];
+    if (keptDates) {
+      dates = keptDates;
+    } else {
+      dates = [];
+      const d = new Date(startParam);
+      const end = new Date(endParam);
+      while (d <= end) {
+        dates.push(d.toISOString().slice(0, 10));
+        d.setDate(d.getDate() + 1);
+      }
     }
     dates.sort((a, b) => (a > b ? -1 : a < b ? 1 : 0));
 

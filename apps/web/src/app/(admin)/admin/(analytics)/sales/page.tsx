@@ -1460,7 +1460,7 @@ export default function SalesPage() {
 
         {/* 日付範囲選択 + キャリア・コースフィルタ（アナリティクス / 集計 共通） */}
         <div className="flex flex-col gap-4 mb-6">
-          <DateRangePicker value={range} onChange={setRange} hideSixMonths />
+          <DateRangePicker value={range} onChange={setRange} presets={["last_month", "current_month", "one_year", "custom"]} />
           <div className="flex flex-wrap items-center gap-4">
             <span className="text-xs text-slate-500">対象コース</span>
             <CourseSelect
