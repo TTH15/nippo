@@ -21,6 +21,7 @@ import {
   faRotateRight,
   faSquareParking,
   faTrashCan,
+  faUsers,
   faWarehouse,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
@@ -28,7 +29,8 @@ import { AdminLayout } from "@/lib/components/AdminLayout";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { useApi } from "@/lib/useApi";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useSharedMapView } from "@/lib/map/sharedView";
 import {
   VehiclePlate,
   formatPlateNumeric,
@@ -297,6 +299,11 @@ export default function MapPage() {
   const [showPlaces, setShowPlaces] = useState(false);
   const showPlacesRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // 共有ビュー（配車作戦盤 Stage 1）: 参加者の在席・カーソル・視点追従を Realtime で同期。
+  const [shareOn, setShareOn] = useState(false);
+  const [selfName] = useState(() => getStoredDriver()?.name ?? "運営");
+  const share = useSharedMapView({ getMap: () => mapRef.current, selfName, active: shareOn });
 
   // 地図表示の設定（ベースマップ・ラベル・3D）。
   const [viewPrefs, setViewPrefs] = useState<MapViewPrefs>(loadViewPrefs);
@@ -778,32 +785,78 @@ export default function MapPage() {
           <div className="relative overflow-hidden rounded-xl border border-slate-200 shadow-sm">
             <div ref={containerRef} className="h-[70vh] min-h-[420px] w-full" />
 
-            {/* 視点の操作パネル＋設定 */}
-            <div className="absolute left-3 top-3 flex items-center gap-2">
-              <div className="flex overflow-hidden rounded-lg bg-white/95 p-1 shadow">
-                {(["2d", "3d"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setView(mode)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-bold uppercase transition-colors ${
-                      (mode === "3d") === is3D
-                        ? "bg-slate-900 text-white"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    {mode}
-                  </button>
-                ))}
+            {/* 視点の操作パネル＋設定＋共有ビュー */}
+            <div className="absolute left-3 top-3 flex flex-col items-start gap-2">
+              <div className="flex items-center gap-2">
+                <div className="flex overflow-hidden rounded-lg bg-white/95 p-1 shadow">
+                  {(["2d", "3d"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setView(mode)}
+                      className={`rounded-md px-2.5 py-1 text-xs font-bold uppercase transition-colors ${
+                        (mode === "3d") === is3D
+                          ? "bg-slate-900 text-white"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(true)}
+                  className="flex h-[34px] w-[34px] items-center justify-center rounded-lg bg-white/95 text-slate-500 shadow transition-colors hover:text-slate-800"
+                  aria-label="地図の設定"
+                >
+                  <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShareOn((v) => !v)}
+                  className={`flex h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold shadow transition-colors ${
+                    shareOn ? "bg-slate-900 text-white" : "bg-white/95 text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faUsers} className="h-3.5 w-3.5" />
+                  {share.status === "connecting" ? "接続中..." : "共有"}
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setSettingsOpen(true)}
-                className="flex h-[34px] w-[34px] items-center justify-center rounded-lg bg-white/95 text-slate-500 shadow transition-colors hover:text-slate-800"
-                aria-label="地図の設定"
-              >
-                <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />
-              </button>
+
+              {/* 共有ビューの参加者。タップでその人の視点に追従（もう一度で解除） */}
+              {shareOn && share.status === "connected" && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {share.participants.map((p) => {
+                    const isSelf = p.id === share.selfId;
+                    const following = share.followingId === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={isSelf}
+                        onClick={() => share.setFollowingId(following ? null : p.id)}
+                        title={isSelf ? undefined : following ? "追従を解除" : "この人の視点に追従"}
+                        className={`flex items-center gap-1.5 rounded-full py-1 pl-1.5 pr-2.5 text-[11px] font-bold shadow transition-colors ${
+                          following ? "bg-slate-900 text-white" : "bg-white/95 text-slate-700 hover:bg-white"
+                        } ${isSelf ? "opacity-80" : ""}`}
+                      >
+                        <span
+                          className="h-3 w-3 rounded-full border border-white/70"
+                          style={{ backgroundColor: p.color }}
+                        />
+                        {isSelf ? `${p.name}（自分）` : p.name}
+                        {following && <span className="text-[10px] font-normal">追従中</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {shareOn && share.status === "error" && (
+                <p className="rounded-lg bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-rose-600 shadow">
+                  {share.errorMsg ?? "共有ビューに接続できませんでした"}
+                </p>
+              )}
             </div>
 
             {/* ピン追加モードの案内バナー */}

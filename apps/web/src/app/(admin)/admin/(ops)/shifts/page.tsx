@@ -13,6 +13,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useCellCursors, type CellPeer } from "@/lib/realtime/cellCursors";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
@@ -458,6 +459,24 @@ function formatDate(dateStr: string): string {
 
 type Period = "first" | "second";
 
+// 同時編集カーソル: セル右上に「そのセルを触っている人」の色付きバッジを重ねる。
+function CellPeersBadge({ peers }: { peers?: CellPeer[] }) {
+  if (!peers || peers.length === 0) return null;
+  return (
+    <span className="pointer-events-none absolute -top-1.5 right-0.5 z-20 flex gap-1">
+      {peers.map((p) => (
+        <span
+          key={p.id}
+          className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow"
+          style={{ backgroundColor: p.color }}
+        >
+          {p.name}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export default function ShiftsPage() {
   const [canWrite, setCanWrite] = useState(false);
   // 配車（車両割当）はシフト編集と独立の can_dispatch でゲート（A1）。
@@ -466,6 +485,9 @@ export default function ShiftsPage() {
   const [canManageVehicles, setCanManageVehicles] = useState(false);
   const canLoan = canDispatch || canManageVehicles;
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  // 同時編集カーソル（誰がどのセルを触っているか）。表示中は自動接続・未設定なら黙って無効。
+  const [presenceName] = useState(() => getStoredDriver()?.name ?? "運営");
+  const cursors = useCellCursors({ scope: "shifts", selfName: presenceName });
   // シフト表（PDF/画像）の AI 取り込み。専用ボタンは置かず、画面へのドラッグ&ドロップを入口にする。
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importFiles, setImportFiles] = useState<File[]>([]);
@@ -2037,7 +2059,7 @@ export default function ShiftsPage() {
                 ref={gridScrollRef}
                 className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-auto max-h-[calc(100vh-260px)] table-scroll"
               >
-                <table className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
+                <table onMouseLeave={() => cursors.reportCell(null)} className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
                   <thead>
                     <tr className="bg-slate-50/95">
                       <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
@@ -2107,12 +2129,14 @@ export default function ShiftsPage() {
                             return (
                               <td
                                 key={`${course.id}-${date}`}
+                                onMouseEnter={() => cursors.reportCell(`c:${course.id}:${date}`)}
                                 className={cn(
-                                  `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-1 align-top ${tone.body}`,
+                                  `relative ${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-1 align-top ${tone.body}`,
                                   !isLastCourse && "border-b-2 border-slate-300",
                                   isToday && TODAY_RULE_SIDES,
                                 )}
                               >
+                                <CellPeersBadge peers={cursors.cellPeers[`c:${course.id}:${date}`]} />
                                 <button
                                   type="button"
                                   onClick={() => setCourseCellModal({ courseId: course.id, date })}
@@ -2150,7 +2174,7 @@ export default function ShiftsPage() {
               ref={gridScrollRef}
               className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-auto max-h-[calc(100vh-260px)] table-scroll"
             >
-              <table className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
+              <table onMouseLeave={() => cursors.reportCell(null)} className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
                 <thead>
                   <tr className="bg-slate-50/95">
                     <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
@@ -2262,6 +2286,7 @@ export default function ShiftsPage() {
                           return (
                             <td
                               key={`${driver.id}-${date}`}
+                              onMouseEnter={() => cursors.reportCell(`d:${driver.id}:${date}`)}
                               onDragOver={(e) => {
                                 if (!isValidDropTarget(date, driver.id)) return;
                                 e.preventDefault();
@@ -2276,13 +2301,14 @@ export default function ShiftsPage() {
                                 handleCellDrop(date, driver.id);
                               }}
                               className={cn(
-                                `${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-1`,
+                                `relative ${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-1`,
                                 !isLastDriver && "border-b-2 border-slate-300",
                                 off ? "align-middle bg-amber-50" : `align-top ${tone.body}`,
                                 isToday && TODAY_RULE_SIDES,
                                 inDropPreview && "bg-sky-50 ring-2 ring-inset ring-sky-400",
                               )}
                             >
+                              <CellPeersBadge peers={cursors.cellPeers[`d:${driver.id}:${date}`]} />
                               {off ? (
                                 <button
                                   type="button"

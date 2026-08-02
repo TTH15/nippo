@@ -535,3 +535,18 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - server/ai/kycVerify.ts 新設(抽出=AI・突合=決定的処理の分担は shiftImport と同型。住所は正規化+「番地まで一致」を許容し建物名の有無を吸収)。API は POST /api/admin/users/[id]/kyc-check(can_view_pii・Storage から直接ダウンロード・結果は保存しない都度実行)
 - モデルは HAKOTORA_AI_MODEL(既定 claude-sonnet-5)。Vercel の ANTHROPIC_API_KEY 設定済みをユーザー確認済み
 - 検証: web tsc クリーン・テスト 421 passed。実写真での挙動確認は本番デプロイ後
+
+## 2026-08-03 01:00 地図: 配車作戦盤の方針確定+共有ビュー(Stage 1)実装
+
+- roadmap トラック K を「地図→配車作戦盤」に改題し段階案を記録: Stage 0 実データ化 / 1 共有ビュー / 2 what-ifシミュレーション / 3 AI合流(音声→制約構造化・AI配車提案の出力先)。ユーザー合意 2026-08-03
+- **共有ビュー実装**: /admin/map に「共有」ボタン。参加者の在席(presence)・地図上カーソル(色付きドット+名前)・視点追従(参加者チップをタップでフォロー、自分でドラッグすると解除)を Supabase Realtime broadcast で同期
+- 構成: クライアントは Realtime のみ使用(DB 不触)。入場券 API /api/admin/map/share-session(can_view_vehicles)が SUPABASE_URL/anonキー/HMAC導出チャンネル名を認証済みユーザーにだけ手渡す(anon キーは NEXT_PUBLIC に置かない)。フック @/lib/map/sharedView.ts(camera 150ms/cursor 120ms スロットル、フォロー適用中の move を自送信から除外)
+- **要設定**: SUPABASE_ANON_KEY を Vercel と .env.local に追加(未設定時は共有ボタンがエラーメッセージを出す)。Supabase ダッシュボード > Settings > API の anon public キー
+- 検証: web tsc クリーン・テスト 421 passed。複数ブラウザでの実動確認は anon キー設定後
+
+## 2026-08-03 01:20 シフト表に同時編集カーソル(誰がどのセルを触っているか)
+
+- シフト管理のコース×日付・ドライバー×日付の両グリッドで、他の運営がマウスを置いているセルの右上に色付き名前バッジを表示。グリッド外に出ると消える(table onMouseLeave で null 送信)
+- 汎用フック @/lib/realtime/cellCursors.ts 新設: presence+broadcast(event=cell、同一セル再送なし)。ページ表示中は自動接続のアンビエント表示で、SUPABASE_ANON_KEY 未設定・権限なし・接続失敗時は黙って無効(編集機能に影響しない)
+- 入場券 API を scope 対応に拡張(/api/admin/map/share-session?scope=shifts、can_view_shifts でゲート。チャンネルは org×scope の HMAC 導出)
+- 検証: web tsc クリーン・テスト 421 passed。複数ブラウザでの実動確認は SUPABASE_ANON_KEY 設定後(地図の共有ビューと同じ前提)
