@@ -67,10 +67,30 @@ const addressAttestation = (v: boolean | null) =>
     <span className="text-[11px] font-medium text-amber-700">免許記載と異なる（本人申告・要確認）</span>
   );
 
-// "YYYY-MM-DD" → "YYYY年M月D日"。人が読む日付にハイフン表記を出さない（UI規約）。
-const formatDateJP = (s: string): string => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  return m ? `${Number(m[1])}年${Number(m[2])}月${Number(m[3])}日` : s || "—";
+// "YYYY-MM-DD" → 1999年3月30日。人が読む日付にハイフン表記を出さない（UI規約）。
+// 「年月日」の単位は小さく薄くして数字を主役にする。
+function DateJP({ value }: { value: string }) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return <>{value || "—"}</>;
+  const unit = "text-[11px] text-slate-400 mx-px";
+  return (
+    <>
+      {Number(m[1])}
+      <span className={unit}>年</span>
+      {Number(m[2])}
+      <span className={unit}>月</span>
+      {Number(m[3])}
+      <span className={unit}>日</span>
+    </>
+  );
+}
+
+// E.164（+81…）を国内表記（0始まり）に。携帯（0X0 の11桁）は 3-4-4 で区切る。
+const formatPhoneJP = (p: string): string => {
+  const digits = p.replace(/^\+81/, "0").replace(/\D/g, "");
+  if (!digits) return "—";
+  if (/^0[5789]0\d{8}$/.test(digits)) return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  return digits;
 };
 
 // 詳細1項目: ラベルは小さく中身の左上、中身は左揃え。
@@ -112,9 +132,9 @@ function KycDetailView({ detail }: { detail: KycDetail }) {
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
         <DetailField label="氏名">{detail.name || "—"}</DetailField>
         <DetailField label="フリガナ">{detail.nameKana || "—"}</DetailField>
-        <DetailField label="生年月日">{formatDateJP(detail.dob)}</DetailField>
-        <DetailField label="免許有効期限">{formatDateJP(detail.licenseExpiry)}</DetailField>
-        <DetailField label="電話番号">{detail.phone || "—"}</DetailField>
+        <DetailField label="生年月日"><DateJP value={detail.dob} /></DetailField>
+        <DetailField label="免許有効期限"><DateJP value={detail.licenseExpiry} /></DetailField>
+        <DetailField label="電話番号">{formatPhoneJP(detail.phone)}</DetailField>
         {detail.bankName && (
           <DetailField label="口座">
             {detail.bankName} / {detail.bankNo} / {detail.bankHolder}

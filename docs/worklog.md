@@ -486,3 +486,9 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 同ルートの認可を hasCapabilityCached / user.orgId 化(getCapabilities 再照会と resolveOrgId の計2往復削減。hasCapabilityCached を @/server/auth から export)
 - 確認: KYC 画像(免許・顔)は削除処理が存在せず保持し続ける仕様。顔写真は名簿・承認待ちのアバターとして再利用中
 - 検証: web tsc クリーン・テスト 421 passed
+
+## 2026-08-02 15:22 KYC詳細: 日付単位を小さく・電話を国内表記に
+
+- 日付表示を DateJP コンポーネント化(「年」「月」「日」を 11px・薄グレーにして数字を主役に)
+- 電話番号を formatPhoneJP で国内表記に(+81→0 始まり。0X0 の11桁携帯は 3-4-4 区切り)。DB は E.164 のまま・表示層のみ
+- 検証: web tsc クリーン
