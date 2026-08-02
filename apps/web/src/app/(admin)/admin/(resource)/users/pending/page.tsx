@@ -72,7 +72,8 @@ const addressAttestation = (v: boolean | null) =>
 function DateJP({ value }: { value: string }) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!m) return <>{value || "—"}</>;
-  const unit = "text-[11px] text-slate-400 mx-px";
+  // 単位の後ろにマージンを置き、1999年 / 3月 / 30日 のかたまりを離して読みやすくする。
+  const unit = "text-[11px] text-slate-400 ml-px mr-1.5";
   return (
     <>
       {Number(m[1])}
@@ -80,7 +81,7 @@ function DateJP({ value }: { value: string }) {
       {Number(m[2])}
       <span className={unit}>月</span>
       {Number(m[3])}
-      <span className={unit}>日</span>
+      <span className="text-[11px] text-slate-400 ml-px">日</span>
     </>
   );
 }
@@ -142,8 +143,14 @@ function KycDetailView({ detail }: { detail: KycDetail }) {
         )}
         <div className="col-span-2">
           <DetailField label="住所">
-            <span className="text-xs text-slate-500 mr-1.5">〒{detail.postalCode}</span>
-            {detail.address}
+            <span className="block text-xs text-slate-500 mb-0.5">〒{detail.postalCode}</span>
+            {/* 空白入りで提出された住所（番地と建物名の区切り想定）はそこで改行する。
+                空白なしの長い住所は CJK の自然折返しに任せる */}
+            {(detail.address.trim() ? detail.address.trim().split(/\s+/) : ["—"]).map((line, i) => (
+              <span key={i} className="block">
+                {line}
+              </span>
+            ))}
           </DetailField>
           {addressAttestation(detail.addressMatchesLicense) && (
             <div className="mt-0.5">{addressAttestation(detail.addressMatchesLicense)}</div>
@@ -597,8 +604,8 @@ export default function PendingApprovalPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !saving && setKycTarget(null)}>
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 border-b border-slate-200">
+              {/* 氏名は詳細グリッド（KycDetailView）に出るためヘッダーでは重複させない */}
               <h2 className="text-sm font-semibold text-slate-900">本人確認</h2>
-              <p className="text-xs text-slate-500 mt-1">{kycTarget.name}</p>
             </div>
             <div className="px-5 py-4 space-y-4">
               {kycLoading || !kycDetail ? (
@@ -632,10 +639,10 @@ export default function PendingApprovalPage() {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 border-b border-slate-200">
               <h2 className="text-sm font-semibold text-slate-900">参加を承認</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                {approveTarget.name}
-                {approveTarget.phone ? ` ・ ${approveTarget.phone}` : ""}
-              </p>
+              {/* 氏名・電話は詳細グリッドに出るため、KYC 未提出（グリッド無し）のときだけ補足する */}
+              {!approveKyc && !approveKycLoading && (
+                <p className="text-xs text-slate-500 mt-1">{approveTarget.name}</p>
+              )}
             </div>
             <div className="px-5 py-4 space-y-4">
               {approveKycLoading ? (
