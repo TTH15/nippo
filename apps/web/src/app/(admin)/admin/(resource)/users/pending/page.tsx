@@ -46,6 +46,7 @@ type Invite = {
 type KycDetail = {
   name: string;
   nameKana: string;
+  phone: string;
   licenseUrl: string | null;
   faceUrl: string | null;
   licenseExpiry: string;
@@ -86,12 +87,14 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
 function KycDetailView({ detail }: { detail: KycDetail }) {
   return (
     <>
+      {/* 写真は同一サイズ（4:3 トリミング）で並べる。全体は原本の署名URLで確認できるため
+          ここでは確認に足るサイズ感の統一を優先する */}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <p className="text-[11px] text-slate-400 mb-1">免許証</p>
           {detail.licenseUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={detail.licenseUrl} alt="免許証" className="w-full rounded border border-slate-200" />
+            <img src={detail.licenseUrl} alt="免許証" className="w-full aspect-[4/3] object-cover rounded border border-slate-200" />
           ) : (
             <p className="text-xs text-slate-400">未提出</p>
           )}
@@ -100,16 +103,18 @@ function KycDetailView({ detail }: { detail: KycDetail }) {
           <p className="text-[11px] text-slate-400 mb-1">顔写真</p>
           {detail.faceUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={detail.faceUrl} alt="顔写真" className="w-full rounded border border-slate-200" />
+            <img src={detail.faceUrl} alt="顔写真" className="w-full aspect-[4/3] object-cover rounded border border-slate-200" />
           ) : (
             <p className="text-xs text-slate-400">未提出</p>
           )}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+        <DetailField label="氏名">{detail.name || "—"}</DetailField>
         <DetailField label="フリガナ">{detail.nameKana || "—"}</DetailField>
         <DetailField label="生年月日">{formatDateJP(detail.dob)}</DetailField>
         <DetailField label="免許有効期限">{formatDateJP(detail.licenseExpiry)}</DetailField>
+        <DetailField label="電話番号">{detail.phone || "—"}</DetailField>
         {detail.bankName && (
           <DetailField label="口座">
             {detail.bankName} / {detail.bankNo} / {detail.bankHolder}

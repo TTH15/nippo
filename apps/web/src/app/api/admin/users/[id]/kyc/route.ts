@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError, getCapabilities } from "@/server/auth";
+import { requirePermission, isAuthError, hasCapabilityCached } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { signKyc } from "@/server/kyc/storage";
@@ -12,13 +12,13 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission(req, "can_view_pii");
   if (isAuthError(user)) return user;
-  const orgId = await resolveOrgId(user.driverId);
+  const orgId = user.orgId ?? (await resolveOrgId(user.driverId));
   const { id: driverId } = await params;
 
   const { data: driver } = await supabase
     .from("drivers")
     .select(
-      "id, name, identity_id, postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, kyc_verified_at",
+      "id, name, phone, identity_id, postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, kyc_verified_at",
     )
     .eq("id", driverId)
     .eq("org_id", orgId)
@@ -39,12 +39,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const faceUrl = identity?.face_photo_path ? await signKyc(supabase, identity.face_photo_path) : null;
 
   // §2-6: 口座は can_view_bank_accounts を持つ場合のみ開示（PII 閲覧者でも口座は別ゲート）。
-  const caps = await getCapabilities(user);
-  const showBank = caps.has("can_view_bank_accounts");
+  const showBank = await hasCapabilityCached(user, "can_view_bank_accounts");
 
   return NextResponse.json({
     name: driver.name,
     nameKana: identity?.name_kana ?? "",
+    // このルートは can_view_pii ゲート下（住所・免許・顔まで開示済み）のため電話はフルで返す。
+    // 一覧（status=pending）側の下4桁マスクは can_view_members 向けの別ゲートとして維持。
+    phone: (driver.phone as string | null) ?? "",
     licenseUrl,
     faceUrl,
     licenseExpiry: identity?.license_expiry ?? "",

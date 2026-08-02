@@ -477,3 +477,12 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 本人確認/承認モーダルの申告内容を KycDetailView に共通化(重複2箇所を統合)。ラベルは小さく中身の左上・中身は左揃えの2カラムグリッドに変更。郵便番号は小さく副次表示
 - 生年月日・免許有効期限は「YYYY年M月D日」表記に(人が読む日付にハイフンを出さない UI 規約として formatDateJP を page 内に定義)
 - 検証: web tsc クリーン・テスト 421 passed
+
+## 2026-08-02 15:15 KYC詳細のバランス調整+電話番号フル表示
+
+- 免許証・顔写真のサムネを同一サイズ(4:3・object-cover)に統一(縦横比の違いで崩れていたバランスを解消。全体表示より確認しやすさ優先)
+- 申告内容グリッドを2×2に: 氏名(漢字)・フリガナ / 生年月日・免許有効期限 / 電話番号・口座 / 住所(全幅)
+- /api/admin/users/[id]/kyc に phone(フル)を追加 — can_view_pii ゲート下で住所・免許・顔まで開示済みのため電話だけマスクする意味がない(ユーザー判断)。一覧(status=pending・can_view_members)の下4桁マスクは別ゲートとして維持
+- 同ルートの認可を hasCapabilityCached / user.orgId 化(getCapabilities 再照会と resolveOrgId の計2往復削減。hasCapabilityCached を @/server/auth から export)
+- 確認: KYC 画像(免許・顔)は削除処理が存在せず保持し続ける仕様。顔写真は名簿・承認待ちのアバターとして再利用中
+- 検証: web tsc クリーン・テスト 421 passed
