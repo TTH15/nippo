@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import useSWR from "swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faXmark, faUserPlus, faIdCard, faCopy, faLink } from "@fortawesome/free-solid-svg-icons";
@@ -65,6 +65,69 @@ const addressAttestation = (v: boolean | null) =>
   ) : (
     <span className="text-[11px] font-medium text-amber-700">免許記載と異なる（本人申告・要確認）</span>
   );
+
+// "YYYY-MM-DD" → "YYYY年M月D日"。人が読む日付にハイフン表記を出さない（UI規約）。
+const formatDateJP = (s: string): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  return m ? `${Number(m[1])}年${Number(m[2])}月${Number(m[3])}日` : s || "—";
+};
+
+// 詳細1項目: ラベルは小さく中身の左上、中身は左揃え。
+function DetailField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="text-[11px] text-slate-400 mb-0.5">{label}</p>
+      <p className="text-sm text-slate-900">{children}</p>
+    </div>
+  );
+}
+
+// KYC 詳細（免許・顔写真＋申告内容）。本人確認モーダルと承認モーダルで共用。
+function KycDetailView({ detail }: { detail: KycDetail }) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-[11px] text-slate-400 mb-1">免許証</p>
+          {detail.licenseUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={detail.licenseUrl} alt="免許証" className="w-full rounded border border-slate-200" />
+          ) : (
+            <p className="text-xs text-slate-400">未提出</p>
+          )}
+        </div>
+        <div>
+          <p className="text-[11px] text-slate-400 mb-1">顔写真</p>
+          {detail.faceUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={detail.faceUrl} alt="顔写真" className="w-full rounded border border-slate-200" />
+          ) : (
+            <p className="text-xs text-slate-400">未提出</p>
+          )}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+        <DetailField label="フリガナ">{detail.nameKana || "—"}</DetailField>
+        <DetailField label="生年月日">{formatDateJP(detail.dob)}</DetailField>
+        <DetailField label="免許有効期限">{formatDateJP(detail.licenseExpiry)}</DetailField>
+        {detail.bankName && (
+          <DetailField label="口座">
+            {detail.bankName} / {detail.bankNo} / {detail.bankHolder}
+          </DetailField>
+        )}
+        <div className="col-span-2">
+          <DetailField label="住所">
+            <span className="text-xs text-slate-500 mr-1.5">〒{detail.postalCode}</span>
+            {detail.address}
+          </DetailField>
+          {addressAttestation(detail.addressMatchesLicense) && (
+            <div className="mt-0.5">{addressAttestation(detail.addressMatchesLicense)}</div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
 
 export default function PendingApprovalPage() {
   const [canWrite, setCanWrite] = useState(false);
@@ -516,40 +579,7 @@ export default function PendingApprovalPage() {
               {kycLoading || !kycDetail ? (
                 <p className="text-sm text-slate-400 py-8 text-center">読み込み中...</p>
               ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-xs text-slate-500 mb-1">免許証</p>
-                      {kycDetail.licenseUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={kycDetail.licenseUrl} alt="免許証" className="w-full rounded border border-slate-200" />
-                      ) : (
-                        <p className="text-xs text-slate-400">未提出</p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500 mb-1">顔写真</p>
-                      {kycDetail.faceUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={kycDetail.faceUrl} alt="顔写真" className="w-full rounded border border-slate-200" />
-                      ) : (
-                        <p className="text-xs text-slate-400">未提出</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-sm space-y-1.5">
-                    <div className="flex justify-between gap-3"><span className="text-slate-500">フリガナ</span><span className="text-slate-900">{kycDetail.nameKana || "—"}</span></div>
-                    <div className="flex justify-between gap-3"><span className="text-slate-500">有効期限</span><span className="text-slate-900">{kycDetail.licenseExpiry || "—"}</span></div>
-                    <div className="flex justify-between gap-3"><span className="text-slate-500">生年月日</span><span className="text-slate-900">{kycDetail.dob || "—"}</span></div>
-                    <div className="flex justify-between gap-3"><span className="text-slate-500">住所</span><span className="text-slate-900 text-right">〒{kycDetail.postalCode} {kycDetail.address}</span></div>
-                    {addressAttestation(kycDetail.addressMatchesLicense) && (
-                      <div className="text-right">{addressAttestation(kycDetail.addressMatchesLicense)}</div>
-                    )}
-                    {kycDetail.bankName && (
-                      <div className="flex justify-between gap-3"><span className="text-slate-500">口座</span><span className="text-slate-900 text-right">{kycDetail.bankName} / {kycDetail.bankNo} / {kycDetail.bankHolder}</span></div>
-                    )}
-                  </div>
-                </>
+                <KycDetailView detail={kycDetail} />
               )}
             </div>
             {canWrite && (
@@ -587,38 +617,7 @@ export default function PendingApprovalPage() {
                 <p className="text-sm text-slate-400 py-4 text-center">本人確認情報を読み込み中...</p>
               ) : approveKyc ? (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-xs text-slate-500 mb-1">免許証</p>
-                      {approveKyc.licenseUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={approveKyc.licenseUrl} alt="免許証" className="w-full rounded border border-slate-200" />
-                      ) : (
-                        <p className="text-xs text-slate-400">未提出</p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500 mb-1">顔写真</p>
-                      {approveKyc.faceUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={approveKyc.faceUrl} alt="顔写真" className="w-full rounded border border-slate-200" />
-                      ) : (
-                        <p className="text-xs text-slate-400">未提出</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-sm space-y-1.5">
-                    <div className="flex justify-between gap-3"><span className="text-slate-500">フリガナ</span><span className="text-slate-900">{approveKyc.nameKana || "—"}</span></div>
-                    <div className="flex justify-between gap-3"><span className="text-slate-500">有効期限</span><span className="text-slate-900">{approveKyc.licenseExpiry || "—"}</span></div>
-                    <div className="flex justify-between gap-3"><span className="text-slate-500">生年月日</span><span className="text-slate-900">{approveKyc.dob || "—"}</span></div>
-                    <div className="flex justify-between gap-3"><span className="text-slate-500">住所</span><span className="text-slate-900 text-right">〒{approveKyc.postalCode} {approveKyc.address}</span></div>
-                    {addressAttestation(approveKyc.addressMatchesLicense) && (
-                      <div className="text-right">{addressAttestation(approveKyc.addressMatchesLicense)}</div>
-                    )}
-                    {approveKyc.bankName && (
-                      <div className="flex justify-between gap-3"><span className="text-slate-500">口座</span><span className="text-slate-900 text-right">{approveKyc.bankName} / {approveKyc.bankNo} / {approveKyc.bankHolder}</span></div>
-                    )}
-                  </div>
+                  <KycDetailView detail={approveKyc} />
                   <hr className="border-slate-100" />
                 </div>
               ) : (
