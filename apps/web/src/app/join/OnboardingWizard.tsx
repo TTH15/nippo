@@ -254,6 +254,14 @@ export function OnboardingWizard({
   const [postalBusy, setPostalBusy] = useState(false);
   const [postalNote, setPostalNote] = useState("");
   const addressAuto = useRef(""); // 自動入力した住所（手動編集後は上書きしない）
+  // 建物名・部屋番号は別欄で入力し、保存時に「住所␣建物名」へ空白結合する（DB は単一カラムのまま。
+  // 表示側は空白で改行できる）。サーバから戻った合成済み住所は最初の空白で分割して各欄へ戻す。
+  const [building, setBuilding] = useState("");
+  const splitAddress = (r: Reg): Reg => {
+    const m = /^(\S+)\s+(.+)$/.exec((r.address ?? "").trim());
+    setBuilding(m ? m[2] : "");
+    return m ? { ...r, address: m[1] } : r;
+  };
 
   // 表記揺れ防止: 姓・名は分割入力し、保存時に「姓␣名」へ合成（カナも同様）。
   const fullName = [sei.trim(), mei.trim()].filter(Boolean).join(" ");
@@ -311,7 +319,7 @@ export function OnboardingWizard({
     (async () => {
       const resumeReg = await api.tryResume();
       if (resumeReg) {
-        setReg(resumeReg);
+        setReg(splitAddress(resumeReg));
         setLicenseParts(partsFromDate(resumeReg.licenseExpiry));
         setAddressSame(resumeReg.addressMatchesLicense ?? true);
         setResumed(true);
@@ -400,7 +408,7 @@ export function OnboardingWizard({
         setStep("done");
         return;
       }
-      setReg(res.reg);
+      setReg(splitAddress(res.reg));
       setLicenseParts(partsFromDate(res.reg.licenseExpiry));
       setAddressSame(res.reg.addressMatchesLicense ?? true);
       if (res.reg.complete) {
@@ -545,7 +553,7 @@ export function OnboardingWizard({
       if (step === "address") {
         await api.saveRegistration({
           postalCode: reg.postalCode,
-          address: reg.address,
+          address: [reg.address.trim(), building.trim()].filter(Boolean).join(" "),
           addressMatchesLicense: addressSame,
         });
         setStep("license");
@@ -554,7 +562,7 @@ export function OnboardingWizard({
         setStep("face");
       } else if (step === "face") {
         const fresh = await api.getRegistration();
-        setReg(fresh);
+        setReg(splitAddress(fresh));
         if (fresh.complete) {
           setStep("done");
         } else {
@@ -957,6 +965,12 @@ export function OnboardingWizard({
                     value={reg.address}
                     onChange={(v) => setRegField("address", v)}
                     autoComplete="street-address"
+                  />
+                  <FloatingLineField
+                    label="建物名・部屋番号（任意）"
+                    value={building}
+                    onChange={setBuilding}
+                    autoComplete="address-line2"
                   />
                 </div>
                 <label className="flex items-start gap-2.5 cursor-pointer select-none pt-1">
