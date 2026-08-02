@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { logShiftChange } from "@/server/shiftLog";
 
 export const dynamic = "force-dynamic";
 
@@ -128,6 +129,15 @@ export async function POST(req: NextRequest) {
 
     const slotNumber = Number.isFinite(slot) && Number(slot) >= 1 ? Math.floor(Number(slot)) : 1;
 
+    // 変更ログ用に変更前の割当を読む（軽い1読取。ログ自体はベストエフォート）。
+    const { data: prevRow } = await supabase
+      .from("shifts")
+      .select("driver_id")
+      .eq("shift_date", shiftDate)
+      .eq("course_id", courseId)
+      .eq("slot", slotNumber)
+      .maybeSingle();
+
     const upsertRow: Record<string, unknown> = {
       shift_date: shiftDate,
       course_id: courseId,
@@ -149,6 +159,19 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) throw error;
+
+    if ((prevRow?.driver_id ?? null) !== (driverId || null)) {
+      void logShiftChange({
+        orgId: user.orgId,
+        actorDriverId: user.driverId,
+        action: driverId ? "assign_driver" : "clear_driver",
+        shiftDate,
+        courseId,
+        slot: slotNumber,
+        before: { driverId: prevRow?.driver_id ?? null },
+        after: { driverId: driverId || null },
+      });
+    }
 
     return NextResponse.json({ shift: data });
   } catch (err) {

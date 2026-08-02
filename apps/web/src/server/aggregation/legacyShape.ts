@@ -134,7 +134,12 @@ export async function loadLegacyDailyRows(
     if (filters.vehicleId) q = q.eq("vehicle_id", filters.vehicleId);
     // 未承認のみ。DB 側で絞らないと全期間を取得してから JS で捨てることになる
     if (filters.pendingOnly) q = q.is("approved_at", null).is("rejected_at", null);
-    if (options.limit) q = q.order("report_date", { ascending: false });
+    // ページング（fetchAllRows）は ORDER BY が無いと Postgres の行順が不定になり、
+    // ページ間で行の重複・欠落が起きる（1000行超で顕在化。2026-08-03 の未提出誤表示の原因）。
+    // id まで含めた一意な並びを必ず与える。
+    q = options.limit
+      ? q.order("report_date", { ascending: false }).order("id", { ascending: false })
+      : q.order("report_date", { ascending: true }).order("id", { ascending: true });
     return q.range(from, to);
   };
 
@@ -204,6 +209,8 @@ export async function loadLegacyDailyRows(
             .from("report_entries")
             .select("report_id, unit_id, field_key, value_num")
             .in("report_id", slice)
+            // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+            .order("id", { ascending: true })
             .range(from, to),
         ),
       ),

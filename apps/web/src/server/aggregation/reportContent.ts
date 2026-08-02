@@ -45,6 +45,8 @@ export async function loadReportContents(
         .from("report_entries")
         .select("report_id, unit_id, field_key, value_num, value_text")
         .in("report_id", slice)
+        // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+        .order("id", { ascending: true })
         .range(from, to),
     );
     data.forEach((e: EntryRow) => entries.push(e));

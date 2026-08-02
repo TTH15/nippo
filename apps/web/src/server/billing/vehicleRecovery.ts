@@ -88,7 +88,8 @@ export async function loadDailyLeaseByVehicleMonth(
       .not("approved_at", "is", null)
       .is("rejected_at", null);
     if (vehicleIds && vehicleIds.length > 0) q = q.in("vehicle_id", vehicleIds);
-    return q.range(from, to);
+    // ページングには一意な並びが必須（無いと行の重複・欠落が起き、金額がズレる）
+    return q.order("report_date", { ascending: true }).order("id", { ascending: true }).range(from, to);
   });
 
   const [{ data: leaseRows }, courseDaily] = await Promise.all([

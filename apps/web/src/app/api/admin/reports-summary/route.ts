@@ -37,7 +37,8 @@ export async function GET(req: NextRequest) {
       .lte("report_date", end)
       .is("rejected_at", null);
     if (driverId) q = q.eq("driver_id", driverId);
-    return q.range(from, to);
+    // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+    return q.order("report_date", { ascending: true }).order("id", { ascending: true }).range(from, to);
   });
   const reportInfo = new Map<string, { driverId: string; date: string }>();
   (reports ?? []).forEach((r: any) => reportInfo.set(r.id, { driverId: r.driver_id, date: r.report_date }));
@@ -69,6 +70,8 @@ export async function GET(req: NextRequest) {
         .from("report_entries")
         .select("report_id, unit_id, field_key, value_num")
         .in("report_id", slice)
+        // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+        .order("id", { ascending: true })
         .range(from, to),
     );
     data.forEach((e: any) => entries.push(e));

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { logShiftChange } from "@/server/shiftLog";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 変更ログ用に変更前の配車を読む（ログはベストエフォート）。
+    const { data: prevRow } = await supabase
+      .from("shifts")
+      .select("vehicle_id, uses_external_vehicle")
+      .eq("shift_date", shiftDate)
+      .eq("course_id", courseId)
+      .eq("slot", slotNumber)
+      .maybeSingle();
+
     const { data, error } = await supabase
       .from("shifts")
       .update({
@@ -70,6 +80,25 @@ export async function POST(req: NextRequest) {
         { error: "対象のシフトが見つかりません。先にシフトを割り当ててください。" },
         { status: 404 },
       );
+    }
+
+    if (
+      (prevRow?.vehicle_id ?? null) !== resolvedVehicleId ||
+      (prevRow?.uses_external_vehicle ?? false) !== external
+    ) {
+      void logShiftChange({
+        orgId: user.orgId,
+        actorDriverId: user.driverId,
+        action: "assign_vehicle",
+        shiftDate,
+        courseId,
+        slot: slotNumber,
+        before: {
+          vehicleId: prevRow?.vehicle_id ?? null,
+          usesExternalVehicle: prevRow?.uses_external_vehicle ?? false,
+        },
+        after: { vehicleId: resolvedVehicleId, usesExternalVehicle: external },
+      });
     }
 
     return NextResponse.json({ shift: data });

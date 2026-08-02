@@ -12,6 +12,11 @@ export const IN_CLAUSE_BATCH_SIZE = 200;
  * Supabase/PostgREST は `db-max-rows`（既定1000件）を超える行数を、
  * クライアント側の `.limit()` 指定に関わらず黙って切り詰める。
  * `.range()` でページングして全件を取得する。
+ *
+ * **queryFactory には必ず一意な ORDER BY を付けること**（例: `.order("report_date").order("id")`）。
+ * Postgres は ORDER BY 無しの OFFSET/LIMIT で行順を保証しないため、ページ間で
+ * 行の重複・欠落が起きる。1000行以下では1ページで収まり露見しないので、
+ * データが増えてから静かに壊れる（2026-08-03 の未提出誤表示がこれ）。
  */
 export async function fetchAllRows<T>(
   queryFactory: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,

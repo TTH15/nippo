@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAnyPermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { logShiftChange } from "@/server/shiftLog";
 
 export const dynamic = "force-dynamic";
 
@@ -53,5 +54,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "解除に失敗しました" }, { status: 500 });
     }
   }
+
+  void logShiftChange({
+    orgId: user.orgId,
+    actorDriverId: user.driverId,
+    action: loaned ? "loan_on" : "loan_off",
+    shiftDate: date,
+    after: { vehicleId, loaned },
+  });
   return NextResponse.json({ ok: true });
 }

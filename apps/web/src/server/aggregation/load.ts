@@ -67,6 +67,9 @@ export async function loadAggregationData(
         .eq("org_id", orgId)
         .gte("report_date", startDate)
         .lte("report_date", endDate)
+        // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+        .order("report_date", { ascending: true })
+        .order("id", { ascending: true })
         .range(from, to),
     ),
     fetchAllRows((from, to) =>
@@ -78,6 +81,9 @@ export async function loadAggregationData(
         .eq("org_id", orgId)
         .gte("entry_date", startDate)
         .lte("entry_date", endDate)
+        // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+        .order("entry_date", { ascending: true })
+        .order("id", { ascending: true })
         .range(from, to),
     ),
   ]);
@@ -110,6 +116,8 @@ export async function loadAggregationData(
           .from("report_entries")
           .select("report_id, unit_id, field_key, value_num")
           .in("report_id", slice)
+          // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+          .order("id", { ascending: true })
           .range(from, to),
       );
       entRows.forEach((e: any) => {

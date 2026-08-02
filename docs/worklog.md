@@ -550,3 +550,21 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 汎用フック @/lib/realtime/cellCursors.ts 新設: presence+broadcast(event=cell、同一セル再送なし)。ページ表示中は自動接続のアンビエント表示で、SUPABASE_ANON_KEY 未設定・権限なし・接続失敗時は黙って無効(編集機能に影響しない)
 - 入場券 API を scope 対応に拡張(/api/admin/map/share-session?scope=shifts、can_view_shifts でゲート。チャンネルは org×scope の HMAC 導出)
 - 検証: web tsc クリーン・テスト 421 passed。複数ブラウザでの実動確認は SUPABASE_ANON_KEY 設定後(地図の共有ビューと同じ前提)
+
+## 2026-08-03 01:25 配車変更ログ(shift_change_logs)— AI導入時の学習データ布石
+
+- ユーザー提案「誰が・いつ・どの配車をどう変えたかを軽く残すと AI 導入時に効く」
+- migration 121: shift_change_logs(追記専用・org_id/actor/action/shift_date/course/slot/before/after jsonb)。**本番未適用=要適用**
+- server/shiftLog.ts: logShiftChange(ベストエフォート・失敗しても本処理は成功。呼び出しは void で投げっぱなし)
+- 配線: ①POST /api/admin/shifts(assign_driver/clear_driver。変更前を1読取し差分がある時だけ記録)②/shifts/vehicle(assign_vehicle・同様)③/shifts/vehicle-loans(loan_on/loan_off)
+- 「誰がどの車を使ったか」は vehicle_sessions(出退勤)が一次ログのため対象外と整理。シフトAI取り込み(import/apply)のログ化は未対応(要るなら1サマリ行を追加)
+- 検証: web tsc クリーン・テスト 421 passed
+
+## 2026-08-03 01:40 【重要】ページングの ORDER BY 欠落で日報・集計の行が欠落していた
+
+- 事象: 未承認タブで 7/1〜7/3 等の過去日に「日報が未提出です」が大量表示。DB を直接照合すると当該日のシフト10件すべてに承認済み日報が存在＝**表示が誤り**
+- 真因: `fetchAllRows` は `.range()` でページングするが、**呼び出し側クエリに ORDER BY が無い**ものが多数あった。Postgres は ORDER BY 無しの OFFSET/LIMIT で行順を保証せず（synchronize_seqscans もあり）、**ページ間で行の重複・欠落**が起きる。本番で実証: 順序なしで5回試行 → 1回が「2114行取得・ユニーク2113」(重複1・欠落1)。順序ありは3回とも完全一致
+- なぜ今出たか: 日報 v2 は 2114 行あり、従来の90日窓(1000行未満)では1ページで収まり露見しなかった。要対応を全履歴化した 2026-08-02 の変更でページングが常時発生するようになった
+- 修正: ページングする全クエリに一意な ORDER BY を追加 — legacyShape(日報本体・report_entries)/ load.ts(日報・ledger_entries・report_entries)/ reportContent / reports-summary(2箇所)/ **billing/vehicleRecovery(車両費按分＝金額に直結)**。pagination.ts の docstring にも要件を明記
+- 検証: 本番データで修正後ロジックを再計算 → 7/1〜7/3 の要対応は 0 件、全履歴で残る要対応は 2026-08-02(当日)のみ。web tsc クリーン・テスト 421 passed
+- 注記: 車両費按分(vehicleRecovery)は 1000 行超の期間で金額がブレていた可能性あり。過去の請求額の再確認が必要かはユーザー判断
