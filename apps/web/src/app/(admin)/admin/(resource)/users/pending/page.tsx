@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import useSWR from "swr";
-import QRCode from "qrcode";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faRotate, faCheck, faXmark, faUserPlus, faIdCard, faCopy, faLink } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faXmark, faUserPlus, faIdCard, faCopy, faLink } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -15,7 +14,8 @@ import { hasCapability } from "@/lib/capabilities";
 
 // ============================================================
 // ドライバーの参加・承認（Phase 7b → §2-1a 承認1回統合）。
-// 参加コード（join_code）の表示/再生成と、承認待ち（status='pending'）の承認/却下。
+// 単回招待リンクの発行（モーダル）と、承認待ち（status='pending'）の承認/却下。
+// 参加の入口は個別リンク一本（共有 join_code の UI は 2026-08-02 撤去。API は互換のため残置）。
 // 申請者は web ウィザードで KYC（免許・顔・住所・口座）まで提出してくるため、
 // 承認モーダルで免許/顔を目視のうえ、承認1回で active 化＋本人確認（kyc_verified_at）まで行う
 // （PUT /api/admin/users/[id] → POST verify-kyc）。KYC 未提出のまま承認した場合は
@@ -29,6 +29,7 @@ type PendingDriver = {
   phone: string | null;
   status: string;
   created_at: string | null;
+  faceUrl?: string | null;
   hasLicensePhoto?: boolean;
   hasFacePhoto?: boolean;
   kycComplete?: boolean;
@@ -57,11 +58,6 @@ type KycDetail = {
   bankHolder: string;
 };
 
-// 単回招待リンクの提供は準備中（アプリ公開・撮影ガイドの実機調整待ち）。
-// 解放するときは NEXT_PUBLIC_INVITE_LINKS_ENABLED=1 を設定するだけ（API は実装済み）。
-// それまでは共有参加コード＋手動追加（/admin/users の新規追加）で運用する。
-const INVITES_ENABLED = process.env.NEXT_PUBLIC_INVITE_LINKS_ENABLED === "1";
-
 // 住所の本人申告表示（true=免許記載と同一 / false=異なる=目視で要注意 / null=未申告）。
 const addressAttestation = (v: boolean | null) =>
   v === null ? null : v ? (
@@ -73,10 +69,7 @@ const addressAttestation = (v: boolean | null) =>
 export default function PendingApprovalPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [companyCode, setCompanyCode] = useState<string>(getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE).code || "");
-  const [inviteUrl, setInviteUrl] = useState("");
-  const [qrDataUrl, setQrDataUrl] = useState("");
-  const [copied, setCopied] = useState(false);
-  // 招待リンク・共有コードの発行UIはモーダルに退避（主役は承認待ちリスト）。
+  // 招待リンクの発行UIはモーダルに退避（主役は承認待ちリスト）。
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
   useEffect(() => {
@@ -85,20 +78,16 @@ export default function PendingApprovalPage() {
     if (d?.companyCode) setCompanyCode(d.companyCode);
   }, []);
 
-  const { data: joinCodeRes, mutate: mutateJoinCode } = useSWR<{ joinCode: string | null }>(
-    "/api/admin/join-code",
-    (url: string) => apiFetch<{ joinCode: string | null }>(url),
-    { revalidateOnFocus: false },
-  );
-
-  // 単回招待リンク（主経路・§2-1a）。共有コードは口頭伝達のフォールバック。
-  // 準備中（INVITES_ENABLED=false）の間は取得もしない。
+  // 単回招待リンク（参加の唯一の入口・§2-1a）。共有参加コードの UI は 2026-08-02 撤去
+  //（運用は個別リンク一本。/join?code= と join-code API は既存導線互換のため残置）。
   const { data: invitesRes, mutate: mutateInvites } = useSWR<{ invites: Invite[] }>(
-    INVITES_ENABLED ? "/api/admin/invites" : null,
+    "/api/admin/invites",
     (url: string) => apiFetch<{ invites: Invite[] }>(url),
     { revalidateOnFocus: false },
   );
-  const invites = invitesRes?.invites ?? [];
+  // 使用済み・失効は表示しない（成果は承認待ちリスト側に現れる。履歴は DB に永続）。
+  // 期限切れは「送ったのに使われなかった＝再発行する」の手掛かりとして残す。
+  const invites = (invitesRes?.invites ?? []).filter((i) => i.status === "active" || i.status === "expired");
   const [inviteName, setInviteName] = useState("");
   const [inviteCreating, setInviteCreating] = useState(false);
   const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
@@ -109,12 +98,16 @@ export default function PendingApprovalPage() {
   const createInvite = async () => {
     setInviteCreating(true);
     try {
-      await apiFetch<{ invite: Invite }>("/api/admin/invites", {
+      const res = await apiFetch<{ invite: Invite }>("/api/admin/invites", {
         method: "POST",
         body: JSON.stringify({ name: inviteName.trim() }),
       });
       setInviteName("");
-      await mutateInvites();
+      // POST の返り値でキャッシュを直接更新し、一覧へ即時反映する（再取得の往復を待たない）。
+      await mutateInvites(
+        (prev) => ({ invites: [res.invite, ...(prev?.invites ?? [])] }),
+        { revalidate: false },
+      );
     } catch (e) {
       setErrorState({ title: "招待の発行に失敗しました", message: e instanceof Error ? e.message : "不明なエラー" });
     } finally {
@@ -135,37 +128,16 @@ export default function PendingApprovalPage() {
   const revokeInvite = async (inv: Invite) => {
     try {
       await apiFetch(`/api/admin/invites/${inv.id}`, { method: "DELETE" });
-      await mutateInvites();
+      // 失効した行は一覧に出ないため、キャッシュから外すだけで整合する。
+      await mutateInvites(
+        (prev) => ({ invites: (prev?.invites ?? []).filter((i) => i.id !== inv.id) }),
+        { revalidate: false },
+      );
     } catch (e) {
       setErrorState({ title: "失効に失敗しました", message: e instanceof Error ? e.message : "不明なエラー" });
     }
   };
 
-  // 招待リンク（?code=）と QR を join_code から生成。deferred deep link は使わず web で完結（§2-1a）。
-  const joinCode = joinCodeRes?.joinCode ?? null;
-  useEffect(() => {
-    if (!joinCode) {
-      setInviteUrl("");
-      setQrDataUrl("");
-      return;
-    }
-    const url = `${window.location.origin}/join?code=${encodeURIComponent(joinCode)}`;
-    setInviteUrl(url);
-    QRCode.toDataURL(url, { width: 320, margin: 1, errorCorrectionLevel: "M" })
-      .then(setQrDataUrl)
-      .catch(() => setQrDataUrl(""));
-  }, [joinCode]);
-
-  const copyInvite = async () => {
-    if (!inviteUrl) return;
-    try {
-      await navigator.clipboard.writeText(inviteUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // クリップボード不可の環境では無視（URL は表示済み）
-    }
-  };
   const { data: pendingRes, isLoading, mutate: mutatePending } = useSWR<{ drivers: PendingDriver[]; total: number }>(
     "/api/admin/users?status=pending&limit=100",
     (url: string) => apiFetch<{ drivers: PendingDriver[]; total: number }>(url),
@@ -185,8 +157,6 @@ export default function PendingApprovalPage() {
   const pending = pendingRes?.drivers ?? [];
   const kycList = kycRes?.drivers ?? [];
 
-  const [regenerating, setRegenerating] = useState(false);
-  const [confirmRegen, setConfirmRegen] = useState(false);
   const [confirmReject, setConfirmReject] = useState<PendingDriver | null>(null);
   const [approveTarget, setApproveTarget] = useState<PendingDriver | null>(null);
   const [approveForm, setApproveForm] = useState({ driverNumber: "", officeCode: "", courseIds: [] as string[] });
@@ -199,18 +169,6 @@ export default function PendingApprovalPage() {
   // 承認モーダル内の KYC レビュー（承認1回統合）。can_view_pii が無い場合は null のまま。
   const [approveKyc, setApproveKyc] = useState<KycDetail | null>(null);
   const [approveKycLoading, setApproveKycLoading] = useState(false);
-
-  const regenerate = async () => {
-    setRegenerating(true);
-    try {
-      const res = await apiFetch<{ joinCode: string }>("/api/admin/join-code", { method: "POST" });
-      await mutateJoinCode({ joinCode: res.joinCode }, { revalidate: false });
-    } catch (e) {
-      setErrorState({ title: "再生成に失敗しました", message: e instanceof Error ? e.message : "不明なエラー" });
-    } finally {
-      setRegenerating(false);
-    }
-  };
 
   const openApprove = (d: PendingDriver) => {
     setApproveForm({ driverNumber: "", officeCode: "", courseIds: [] });
@@ -341,7 +299,7 @@ export default function PendingApprovalPage() {
             className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
           >
             <FontAwesomeIcon icon={faLink} className="h-3 w-3" />
-            {INVITES_ENABLED ? "招待リンク・参加コード" : "参加コード・リンク"}
+            招待リンク
           </button>
         </div>
 
@@ -361,7 +319,20 @@ export default function PendingApprovalPage() {
             <ul className="divide-y divide-slate-100">
               {pending.map((d) => (
                 <li key={d.id} className="py-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
+                  {/* 提出済みの顔写真をアバター表示（対面済みの運営が「誰か」を直感できるように） */}
+                  {d.faceUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={d.faceUrl}
+                      alt={`${d.name} の顔写真`}
+                      className="w-11 h-11 rounded-full object-cover border border-slate-200 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-11 h-11 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-sm font-bold text-slate-400 shrink-0">
+                      {d.name.charAt(0)}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-slate-900 truncate">{d.name}</p>
                     <p className="text-xs text-slate-500">
                       {d.phone || "電話未登録"}
@@ -442,24 +413,18 @@ export default function PendingApprovalPage() {
         )}
       </div>
 
-      {/* 招待リンク・共有参加コードのモーダル（発行は右上ボタンから） */}
+      {/* 招待リンクのモーダル（発行は右上ボタンから。参加の入口は個別リンク一本） */}
       {inviteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setInviteModalOpen(false)}>
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 border-b border-slate-200 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">
-                {INVITES_ENABLED ? "招待リンク・参加コード" : "参加コード・招待リンク"}
-              </h2>
+              <h2 className="text-sm font-semibold text-slate-900">招待リンク（1人につき1回）</h2>
               <button type="button" onClick={() => setInviteModalOpen(false)} className="px-2 py-1 text-xs text-slate-500 hover:text-slate-800">
                 閉じる
               </button>
             </div>
-            <div className="px-5 py-4 space-y-6">
-
-        {/* 単回招待リンク（主経路・準備中の間は非表示） */}
-        {INVITES_ENABLED && (
+            <div className="px-5 py-4">
         <section>
-          <h3 className="text-sm font-semibold text-slate-900 mb-2">招待リンク（1人につき1回）</h3>
           <p className="text-xs text-slate-500 mb-3">
             参加者ごとにリンクを発行して LINE や SMS で送ってください。リンクは1回使うと無効になります（有効期限7日）。
             開いた本人は氏名・電話認証から免許・顔写真の提出まで web で完結し、最後にアプリのインストールを案内されます。
@@ -495,22 +460,27 @@ export default function PendingApprovalPage() {
                     <p className="text-xs text-slate-500">
                       {inv.status === "active"
                         ? `有効 ・ ${new Date(inv.expiresAt).toLocaleDateString("ja-JP")} まで`
-                        : inv.status === "used"
-                          ? "使用済み"
-                          : inv.status === "expired"
-                            ? "期限切れ"
-                            : "失効"}
+                        : "期限切れ"}
                     </p>
                   </div>
                   {inv.status === "active" && (
                     <div className="flex items-center gap-2 shrink-0">
+                      {/* コピーはアイコンのみ。コピー済みはチェックを緑にして遷移を見せる */}
                       <button
                         type="button"
                         onClick={() => copyInviteLink(inv)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+                        title="リンクをコピー"
+                        aria-label="リンクをコピー"
+                        className={`inline-flex items-center justify-center w-8 h-8 rounded border transition-all duration-300 ease-out ${
+                          copiedInviteId === inv.id
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-600 scale-105"
+                            : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                        }`}
                       >
-                        <FontAwesomeIcon icon={copiedInviteId === inv.id ? faCheck : faCopy} className="h-3 w-3" />
-                        {copiedInviteId === inv.id ? "コピーしました" : "リンクをコピー"}
+                        <FontAwesomeIcon
+                          icon={copiedInviteId === inv.id ? faCheck : faCopy}
+                          className="h-3.5 w-3.5 transition-transform duration-300 ease-out"
+                        />
                       </button>
                       {canWrite && (
                         <button
@@ -527,66 +497,6 @@ export default function PendingApprovalPage() {
                 </li>
               ))}
             </ul>
-          )}
-        </section>
-        )}
-
-        {/* 共有参加コード（招待リンク解放後はフォールバック扱い） */}
-        <section>
-          <h3 className="text-sm font-semibold text-slate-900 mb-2">
-            {INVITES_ENABLED ? "共有の参加コード・リンク（予備）" : "参加コード・招待リンク"}
-          </h3>
-          <p className="text-xs text-slate-500 mb-3">
-            {INVITES_ENABLED
-              ? "個別リンクを送れない場合の予備です。全員共通のコード・QR で、口頭で伝えても申請できます。個別リンクと違い何度でも使えるため、取り扱いには注意してください。"
-              : "招待リンク（または QR）を参加者に送ってください。開くと参加コードが自動入力され、本人が氏名・電話認証から免許・顔写真の提出まで web で完結します。リンクを開けない場合はコードを口頭で伝えても申請できます。"}
-          </p>
-          <div className="flex items-center gap-3 mb-4">
-            <span className="inline-flex items-center px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xl font-mono tracking-widest text-slate-900">
-              {joinCode ?? "—"}
-            </span>
-            {canWrite && (
-              <button
-                type="button"
-                onClick={() => setConfirmRegen(true)}
-                disabled={regenerating}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
-              >
-                <FontAwesomeIcon icon={faRotate} className="h-3.5 w-3.5" />
-                {regenerating ? "再生成中..." : "再生成"}
-              </button>
-            )}
-          </div>
-
-          {inviteUrl && (
-            <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
-              <div className="flex-1 min-w-0">
-                <label className="block text-xs font-medium text-slate-500 mb-1">招待リンク</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    readOnly
-                    value={inviteUrl}
-                    onFocus={(e) => e.currentTarget.select()}
-                    className="flex-1 min-w-0 py-2 px-3 text-xs font-mono rounded-lg bg-slate-50 border border-slate-200 text-slate-700"
-                  />
-                  <button
-                    type="button"
-                    onClick={copyInvite}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
-                  >
-                    <FontAwesomeIcon icon={copied ? faCheck : faCopy} className="h-3.5 w-3.5" />
-                    {copied ? "コピーしました" : "コピー"}
-                  </button>
-                </div>
-              </div>
-              {qrDataUrl && (
-                <div className="flex flex-col items-center gap-1">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={qrDataUrl} alt="招待QRコード" className="w-32 h-32 rounded-lg border border-slate-200 bg-white" />
-                  <span className="text-[11px] text-slate-400">QRで読み取り</span>
-                </div>
-              )}
-            </div>
           )}
         </section>
             </div>
@@ -791,14 +701,6 @@ export default function PendingApprovalPage() {
         </div>
       )}
 
-      <ConfirmDialog
-        open={confirmRegen}
-        title="参加コードを再生成"
-        message="現在の参加コードは無効になります。共有済みの古いコードでは参加できなくなります。再生成しますか？"
-        confirmLabel="再生成"
-        onConfirm={regenerate}
-        onClose={() => setConfirmRegen(false)}
-      />
       <ConfirmDialog
         open={!!confirmReject}
         title="申請を却下"

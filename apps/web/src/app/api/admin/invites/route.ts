@@ -35,7 +35,7 @@ const inviteStatus = (r: InviteRow): "active" | "used" | "expired" | "revoked" =
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_members");
   if (isAuthError(user)) return user;
-  const orgId = await resolveOrgId(user.driverId);
+  const orgId = user.orgId ?? (await resolveOrgId(user.driverId));
 
   const { data, error } = await supabase
     .from("invites")
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const user = await requirePermission(req, "can_approve_members");
   if (isAuthError(user)) return user;
-  const orgId = await resolveOrgId(user.driverId);
+  const orgId = user.orgId ?? (await resolveOrgId(user.driverId));
 
   const body = await req.json().catch(() => ({}));
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 60) : "";

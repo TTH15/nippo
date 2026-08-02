@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_members");
   if (isAuthError(user)) return user;
-  const orgId = await resolveOrgId(user.driverId);
+  const orgId = user.orgId ?? (await resolveOrgId(user.driverId));
 
   try {
     const { count, error } = await supabase

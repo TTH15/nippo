@@ -457,3 +457,13 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - サイドナビ「ドライバー」→「参加・承認」に承認待ち件数バッジを追加。新API /api/admin/users/pending-count(can_view_members・works_as_driver=true & status=pending を count)。親「ドライバー」バッジは免許警告+承認待ちの合算に
 - 参加・承認ページの主役を承認待ちリストに変更: ①承認待ちを最上部へ ②本人確認待ちは対象がいるときのみ表示(承認1回統合後はKYC未提出のまま承認したときだけ使うフォールバックのため) ③招待リンク発行・共有参加コードはヘッダー右上の小さいボタン→モーダルに退避
 - 検証: web tsc クリーン・テスト 421 passed
+
+## 2026-08-02 13:50 参加導線を個別招待リンク一本化+発行UXの改善
+
+- **共有参加コードの UI 撤去**(ユーザー決定「個別リンク1本でいく」): 参加・承認ページから共有コード表示・再生成・QR・共有リンクコピーを削除。NEXT_PUBLIC_INVITE_LINKS_ENABLED フラグも撤去(招待リンクUIは常時表示)。/join?code= と /api/admin/join-code は既存導線互換のため残置
+- **招待履歴の絞り込み**: 一覧は 有効+期限切れ のみ表示(使用済み・失効は非表示。DB には永続、成果は承認待ちリストに現れる)
+- **コピーButtonの改善**: アイコンのみ(32px正方形・title/aria付き)。コピー済みは緑チェック+軽いスケールで遷移を明示(transition-all 300ms)
+- **発行の体感速度**: ①POST の返り値で SWR キャッシュを直接更新(revalidate なし)=「発行中…」明け即座に一覧へ出現 ②認可レイヤ resolveAuthz 新設 — capability 解決の drivers 参照に org_id を同乗させ requirePermission が user.orgId(DB正本)を返すように。invites GET/POST・pending-count で resolveOrgId の1往復を削減(他ルートも user.orgId ?? resolveOrgId パターンで順次採用可)
+- **承認待ちリストに顔写真アバター**(ユーザー要望「対面済みなので顔で直感できるように」): API 既存の faceUrl(署名URL)を 44px 丸アバターで表示。未提出は頭文字のプレースホルダ
+- 失効ボタンは存置(誤送信したリンクを7日の期限前に無効化する唯一の手段のため)
+- 検証: web tsc クリーン・テスト 421 passed
