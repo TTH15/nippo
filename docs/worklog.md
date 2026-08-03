@@ -568,3 +568,11 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 修正: ページングする全クエリに一意な ORDER BY を追加 — legacyShape(日報本体・report_entries)/ load.ts(日報・ledger_entries・report_entries)/ reportContent / reports-summary(2箇所)/ **billing/vehicleRecovery(車両費按分＝金額に直結)**。pagination.ts の docstring にも要件を明記
 - 検証: 本番データで修正後ロジックを再計算 → 7/1〜7/3 の要対応は 0 件、全履歴で残る要対応は 2026-08-02(当日)のみ。web tsc クリーン・テスト 421 passed
 - 注記: 車両費按分(vehicleRecovery)は 1000 行超の期間で金額がブレていた可能性あり。過去の請求額の再確認が必要かはユーザー判断
+
+## 2026-08-03 03:20 参加・承認の細部改善(フリガナ表記・先読み・スケルトン・画像拡大)
+
+- 一覧の副題を「マスク電話 ・ 申請日」→「フリガナ ・ 申請日」に(同姓の識別にはフリガナの方が有用というユーザー判断)。承認待ち・本人確認待ちの両リスト。API 側は /api/admin/users の pending 行と stage=kyc 行に nameKana を追加(identities.name_kana)。stage=kyc のマスク電話は不要になったため撤去
+- **KYC 詳細の先読み**: 一覧が出た時点で can_view_pii があれば対象ドライバーの詳細を裏で直列プリフェッチ(kycCacheRef)。モーダルは待ち時間なしで開く。署名URLは10分失効のため開くたびに裏で取り直す stale-while-revalidate 方式
+- 読み込み中の「読み込み中...」テキストを KycDetailSkeleton(写真2枠+2×2グリッド+住所)に置換
+- 免許証・顔写真をクリックで全画面拡大(cursor-zoom-in、背景クリック/Escで閉じる)。細かい記載の確認用
+- 検証: web tsc クリーン・テスト 421 passed

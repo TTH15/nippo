@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   if (url.searchParams.get("stage") === "kyc") {
     const { data, error: kErr } = await supabase
       .from("drivers")
-      .select("id, name, phone, created_at, identities ( license_photo_path )")
+      .select("id, name, phone, created_at, identities ( license_photo_path, name_kana )")
       .eq("org_id", orgId)
       .eq("works_as_driver", true)
       .eq("status", "active")
@@ -51,9 +51,8 @@ export async function GET(req: NextRequest) {
         return !!id?.license_photo_path; // 本登録の免許写真を提出済のみ
       })
       .map((d) => {
-        const p = (d as { phone?: string | null }).phone;
-        const digits = typeof p === "string" ? p.replace(/\D/g, "") : "";
-        return { id: d.id, name: d.name, phone: digits ? `***${digits.slice(-4)}` : null, created_at: d.created_at };
+        const id = (d as { identities?: { name_kana?: string | null } | null }).identities;
+        return { id: d.id, name: d.name, nameKana: id?.name_kana ?? "", created_at: d.created_at };
       });
     return NextResponse.json({ drivers: rows, total: rows.length });
   }
@@ -147,10 +146,12 @@ export async function GET(req: NextRequest) {
   const faceByIdentity = new Map<string, string>();
   // 承認画面用: 本登録（KYC）の提出状況。pending 行にだけ付与する（§2-1a 承認1回統合）。
   const kycByIdentity = new Map<string, { hasLicensePhoto: boolean; hasFacePhoto: boolean; hasLicenseExpiry: boolean }>();
+  // 承認待ち一覧の副題に出すフリガナ（同姓の識別に電話マスクより役立つ・2026-08-03）。
+  const kanaByIdentity = new Map<string, string>();
   if (identityIds.length > 0) {
     const { data: idRows } = await supabase
       .from("identities")
-      .select("id, face_photo_path, license_photo_path, license_expiry")
+      .select("id, face_photo_path, license_photo_path, license_expiry, name_kana")
       .in("id", identityIds);
     await Promise.all(
       (idRows ?? []).map(
@@ -159,12 +160,14 @@ export async function GET(req: NextRequest) {
           face_photo_path: string | null;
           license_photo_path: string | null;
           license_expiry: string | null;
+          name_kana: string | null;
         }) => {
           kycByIdentity.set(ir.id, {
             hasLicensePhoto: !!ir.license_photo_path,
             hasFacePhoto: !!ir.face_photo_path,
             hasLicenseExpiry: !!ir.license_expiry,
           });
+          if (ir.name_kana) kanaByIdentity.set(ir.id, ir.name_kana);
           if (!ir.face_photo_path) return;
           const signed = await signKyc(supabase, ir.face_photo_path);
           if (signed) faceByIdentity.set(ir.id, signed);
@@ -186,7 +189,8 @@ export async function GET(req: NextRequest) {
         (kyc?.hasLicenseExpiry ?? false) &&
         !!r.postal_code &&
         !!r.address;
-      return { ...base, hasLicensePhoto, hasFacePhoto, kycComplete };
+      const nameKana = r.identity_id ? (kanaByIdentity.get(r.identity_id) ?? "") : "";
+      return { ...base, hasLicensePhoto, hasFacePhoto, kycComplete, nameKana };
     },
   );
 

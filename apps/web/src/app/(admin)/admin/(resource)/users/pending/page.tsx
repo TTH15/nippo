@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import useSWR from "swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faXmark, faUserPlus, faIdCard, faCopy, faLink, faWandMagicSparkles } from "@fortawesome/free-solid-svg-icons";
@@ -26,6 +26,7 @@ type Course = { id: string; name: string; color: string };
 type PendingDriver = {
   id: string;
   name: string;
+  nameKana?: string;
   phone: string | null;
   status: string;
   created_at: string | null;
@@ -34,7 +35,7 @@ type PendingDriver = {
   hasFacePhoto?: boolean;
   kycComplete?: boolean;
 };
-type KycDriver = { id: string; name: string; phone: string | null; created_at: string | null };
+type KycDriver = { id: string; name: string; nameKana?: string; created_at: string | null };
 type Invite = {
   id: string;
   name: string;
@@ -191,18 +192,52 @@ function KycAiCheck({ driverId }: { driverId: string }) {
   );
 }
 
-// KYC 詳細（免許・顔写真＋申告内容）。本人確認モーダルと承認モーダルで共用。
-function KycDetailView({ detail }: { detail: KycDetail }) {
+// KYC 詳細の読み込み中スケルトン（出す内容は決まっているのでレイアウトを先に見せる）。
+function KycDetailSkeleton() {
   return (
     <>
-      {/* 写真は同一サイズ（4:3 トリミング）で並べる。全体は原本の署名URLで確認できるため
-          ここでは確認に足るサイズ感の統一を優先する */}
+      <div className="grid grid-cols-2 gap-3">
+        {[0, 1].map((i) => (
+          <div key={i}>
+            <Skeleton className="h-3 w-12 mb-1" />
+            <Skeleton className="w-full aspect-[4/3] rounded" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i}>
+            <Skeleton className="h-3 w-16 mb-1.5" />
+            <Skeleton className="h-4 w-28" />
+          </div>
+        ))}
+        <div className="col-span-2">
+          <Skeleton className="h-3 w-16 mb-1.5" />
+          <Skeleton className="h-4 w-full max-w-sm" />
+        </div>
+      </div>
+    </>
+  );
+}
+
+// KYC 詳細（免許・顔写真＋申告内容）。本人確認モーダルと承認モーダルで共用。
+// 写真はクリックで全画面拡大（免許の細かい文字を読むため）。
+function KycDetailView({ detail, onZoom }: { detail: KycDetail; onZoom: (src: string, alt: string) => void }) {
+  return (
+    <>
+      {/* 写真は同一サイズ（4:3 トリミング）で並べる。原寸確認はクリックの拡大表示で行う */}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <p className="text-[11px] text-slate-400 mb-1">免許証</p>
           {detail.licenseUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={detail.licenseUrl} alt="免許証" className="w-full aspect-[4/3] object-cover rounded border border-slate-200" />
+            <img
+              src={detail.licenseUrl}
+              alt="免許証"
+              onClick={() => onZoom(detail.licenseUrl!, "免許証")}
+              title="クリックで拡大"
+              className="w-full aspect-[4/3] object-cover rounded border border-slate-200 cursor-zoom-in transition-opacity hover:opacity-90"
+            />
           ) : (
             <p className="text-xs text-slate-400">未提出</p>
           )}
@@ -211,7 +246,13 @@ function KycDetailView({ detail }: { detail: KycDetail }) {
           <p className="text-[11px] text-slate-400 mb-1">顔写真</p>
           {detail.faceUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={detail.faceUrl} alt="顔写真" className="w-full aspect-[4/3] object-cover rounded border border-slate-200" />
+            <img
+              src={detail.faceUrl}
+              alt="顔写真"
+              onClick={() => onZoom(detail.faceUrl!, "顔写真")}
+              title="クリックで拡大"
+              className="w-full aspect-[4/3] object-cover rounded border border-slate-200 cursor-zoom-in transition-opacity hover:opacity-90"
+            />
           ) : (
             <p className="text-xs text-slate-400">未提出</p>
           )}
@@ -351,20 +392,48 @@ export default function PendingApprovalPage() {
   // 承認モーダル内の KYC レビュー（承認1回統合）。can_view_pii が無い場合は null のまま。
   const [approveKyc, setApproveKyc] = useState<KycDetail | null>(null);
   const [approveKycLoading, setApproveKycLoading] = useState(false);
+  // 拡大表示（免許の細かい文字を読むためのライトボックス）
+  const [zoomImage, setZoomImage] = useState<{ src: string; alt: string } | null>(null);
+  useEffect(() => {
+    if (!zoomImage) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setZoomImage(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoomImage]);
+  // 承認待ち一覧の時点で KYC 詳細を裏で取得しておき、モーダルを即表示する。
+  // 署名URLは10分で失効するため、開くときに裏で取り直す（stale-while-revalidate）。
+  const kycCacheRef = useRef<Map<string, KycDetail>>(new Map());
+
+  const fetchKyc = useCallback(async (driverId: string): Promise<KycDetail | null> => {
+    try {
+      const detail = await apiFetch<KycDetail>(`/api/admin/users/${driverId}/kyc`);
+      kycCacheRef.current.set(driverId, detail);
+      return detail;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const openApprove = (d: PendingDriver) => {
     setApproveForm({ driverNumber: "", officeCode: "", courseIds: [] });
-    setApproveKyc(null);
     setApproveTarget(d);
     // KYC（免許/顔）を提出済みなら、承認モーダル内で目視レビューできるよう取得する。
     // 閲覧には can_view_pii が必要（無いロールはレビューなしの active 化のみ）。
-    if ((d.hasLicensePhoto || d.hasFacePhoto) && hasCapability("can_view_pii")) {
-      setApproveKycLoading(true);
-      apiFetch<KycDetail>(`/api/admin/users/${d.id}/kyc`)
-        .then(setApproveKyc)
-        .catch(() => setApproveKyc(null))
-        .finally(() => setApproveKycLoading(false));
+    if (!((d.hasLicensePhoto || d.hasFacePhoto) && hasCapability("can_view_pii"))) {
+      setApproveKyc(null);
+      return;
     }
+    const cached = kycCacheRef.current.get(d.id) ?? null;
+    setApproveKyc(cached);
+    setApproveKycLoading(!cached);
+    // キャッシュがあっても署名URLの失効に備えて取り直す（表示は先に出す）。
+    fetchKyc(d.id)
+      .then((fresh) => {
+        if (fresh) setApproveKyc((prev) => (prev === cached || prev === null ? fresh : prev));
+      })
+      .finally(() => setApproveKycLoading(false));
   };
 
   const submitApprove = async () => {
@@ -435,18 +504,38 @@ export default function PendingApprovalPage() {
 
   const openKycReview = async (d: KycDriver) => {
     setKycTarget(d);
-    setKycDetail(null);
-    setKycLoading(true);
-    try {
-      const detail = await apiFetch<KycDetail>(`/api/admin/users/${d.id}/kyc`);
-      setKycDetail(detail);
-    } catch (e) {
-      setErrorState({ title: "取得に失敗しました", message: e instanceof Error ? e.message : "不明なエラー" });
+    const cached = kycCacheRef.current.get(d.id) ?? null;
+    setKycDetail(cached);
+    setKycLoading(!cached);
+    const fresh = await fetchKyc(d.id);
+    if (fresh) setKycDetail(fresh);
+    else if (!cached) {
+      setErrorState({ title: "取得に失敗しました", message: "本人確認情報を取得できませんでした" });
       setKycTarget(null);
-    } finally {
-      setKycLoading(false);
     }
+    setKycLoading(false);
   };
+
+  // 一覧が出そろった時点で KYC 詳細を裏で先読みし、承認モーダルを待ち時間なしで開けるようにする。
+  // 直列に流して同時リクエストを増やさない（署名URL発行はサーバー側で往復するため）。
+  useEffect(() => {
+    if (!hasCapability("can_view_pii")) return;
+    const targets = [
+      ...pending.filter((d) => d.hasLicensePhoto || d.hasFacePhoto).map((d) => d.id),
+      ...kycList.map((d) => d.id),
+    ].filter((id) => !kycCacheRef.current.has(id));
+    if (targets.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const id of targets) {
+        if (cancelled) return;
+        await fetchKyc(id);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pending, kycList, fetchKyc]);
 
   const verifyKyc = async (action: "approve" | "reject") => {
     if (!kycTarget) return;
@@ -516,8 +605,8 @@ export default function PendingApprovalPage() {
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-slate-900 truncate">{d.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {d.phone || "電話未登録"}
+                    <p className="text-xs text-slate-500 truncate">
+                      {d.nameKana || "フリガナ未登録"}
                       {d.created_at ? ` ・ ${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
                     </p>
                     <span
@@ -573,8 +662,8 @@ export default function PendingApprovalPage() {
               <li key={d.id} className="py-3 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-slate-900 truncate">{d.name}</p>
-                  <p className="text-xs text-slate-500">
-                    {d.phone || "電話未登録"}
+                  <p className="text-xs text-slate-500 truncate">
+                    {d.nameKana || "フリガナ未登録"}
                     {d.created_at ? ` ・ ${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
                   </p>
                 </div>
@@ -695,11 +784,11 @@ export default function PendingApprovalPage() {
               <h2 className="text-sm font-semibold text-slate-900">本人確認</h2>
             </div>
             <div className="px-5 py-4 space-y-4">
-              {kycLoading || !kycDetail ? (
-                <p className="text-sm text-slate-400 py-8 text-center">読み込み中...</p>
+              {!kycDetail ? (
+                <KycDetailSkeleton />
               ) : (
                 <>
-                  <KycDetailView detail={kycDetail} />
+                  <KycDetailView detail={kycDetail} onZoom={(src, alt) => setZoomImage({ src, alt })} />
                   {kycDetail.licenseUrl && <KycAiCheck driverId={kycTarget.id} />}
                 </>
               )}
@@ -735,11 +824,11 @@ export default function PendingApprovalPage() {
               )}
             </div>
             <div className="px-5 py-4 space-y-4">
-              {approveKycLoading ? (
-                <p className="text-sm text-slate-400 py-4 text-center">本人確認情報を読み込み中...</p>
+              {approveKycLoading && !approveKyc ? (
+                <KycDetailSkeleton />
               ) : approveKyc ? (
                 <div className="space-y-3">
-                  <KycDetailView detail={approveKyc} />
+                  <KycDetailView detail={approveKyc} onZoom={(src, alt) => setZoomImage({ src, alt })} />
                   {approveKyc.licenseUrl && <KycAiCheck driverId={approveTarget.id} />}
                   <hr className="border-slate-100" />
                 </div>
@@ -841,6 +930,31 @@ export default function PendingApprovalPage() {
         onConfirm={() => verifyKyc("reject")}
         onClose={() => setConfirmKycReject(null)}
       />
+      {/* 画像の拡大表示（免許の細かい文字を読むため）。クリック・Esc で閉じる */}
+      {zoomImage && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 cursor-zoom-out"
+          onClick={() => setZoomImage(null)}
+          role="dialog"
+          aria-label={`${zoomImage.alt}の拡大表示`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={zoomImage.src}
+            alt={zoomImage.alt}
+            className="max-h-full max-w-full object-contain rounded shadow-2xl"
+          />
+          <button
+            type="button"
+            onClick={() => setZoomImage(null)}
+            className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 transition-colors"
+            aria-label="閉じる"
+          >
+            <FontAwesomeIcon icon={faXmark} className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <ErrorDialog
         open={!!errorState}
         title={errorState?.title ?? ""}
