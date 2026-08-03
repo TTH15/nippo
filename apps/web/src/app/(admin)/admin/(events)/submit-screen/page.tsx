@@ -204,7 +204,7 @@ export default function SubmitScreenBuilderPage() {
   const load = useCallback(() => mutateScreen(), [mutateScreen]);
 
   useEffect(() => {
-    setCanWrite(hasCapability("can_manage_org_settings"));
+    setCanWrite(hasCapability("can_manage_submit_screen"));
   }, []);
 
   const preview = useMemo(

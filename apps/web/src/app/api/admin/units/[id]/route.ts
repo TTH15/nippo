@@ -20,7 +20,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requirePermission(req, "can_manage_courses");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
@@ -60,7 +60,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requirePermission(req, "can_manage_courses");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;

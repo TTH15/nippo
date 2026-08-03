@@ -586,3 +586,30 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - **ドライバー名簿**: 一律の棒線8本から、スマホ=丸アバター付きカード / PC=名簿テーブル(No./ドライバー/表示名/コース/免許期限/権限)に
 - 残: payments・sales・shifts 等の他画面は未着手(同じ方針で順次)
 - 検証: web tsc クリーン・テスト 421 passed
+
+## 2026-08-03 13:35 スケルトン残り3画面 + 設定権限の領域別分割
+
+### スケルトン(モバイル分岐つき)
+- シフト: スマホ=日別リスト(氏名+チップ) / PC=月グリッド に出し分け。セルも実寸(3.25rem)に
+- ペイメント: スマホ=開閉カード(氏名・報酬/控除・支給額・操作2ボタン) / PC=8列テーブル
+- 売上: 日別マトリクスは スマホ=ドライバー別合計リスト / PC=表。ログ一覧も 日付見出し+スマホカード/PC行 に
+- これで payments・sales・shifts・daily・vehicles・users・pending の7画面が実表示準拠
+
+### 設定の権限を領域別に分割(ユーザー要望「コースの設定だけさせたい人がいる」)
+- capability 追加: can_manage_courses / can_manage_carriers / can_manage_report_kinds / can_manage_submit_screen
+- **含意(CAPABILITY_IMPLIES)を新設**: can_manage_org_settings → 上記4つ + can_view_org_settings。領域別 → can_view_org_settings。
+  resolveAuthz が解決時に展開するので**既存ロールの role_capabilities 行を移行せずに互換維持**(本番 ADMIN は設定編集ありを確認済み)
+- クライアント側 lib/capabilities.ts でも同じ含意を展開(既ログインのセッションでも再ログイン不要でUIが正しく出る)
+- ゲート差し替え: courses/units→can_manage_courses、carriers/unit-fields→can_manage_carriers、report-kinds、submit-screen。events・map places・sales log types は従来どおり包括(can_manage_org_settings)
+- 権限設定UIには領域別4行が「編集可能」トグルとして自動で並ぶ(PERMISSION_ROWS 追加)。role_capabilities は text 列で CHECK 無し=マイグレーション不要
+- 方針: 設定画面の**閲覧**は従来どおり can_view_org_settings で一括、**編集**だけ領域別に絞る(コース担当は他設定を見られるが変更できない)
+- 検証: web tsc クリーン・テスト 421 passed
+
+## 2026-08-03 14:00 コース選択UIの刷新 + コース側からの担当ドライバー割当
+
+- **CoursePicker 新設**(lib/components/CoursePicker.tsx): ①キャリア別に見出しグループ化(件数の多い順・「その他」は末尾) ②各チップにコース色ドット ③9件以上なら絞り込み入力 ④選択済みはチェック＋濃色。27コースが一列に並んで読めない問題への対処(ユーザー相談 2026-08-03)
+- 適用: 参加承認モーダルのコース選択 / ドライバー編集の担当可能コース(区分1・区分2)。選択済みチップの常時表示(色つき)は従来どおり残し、アコーディオンの中身をピッカーに差し替え
+- /api/admin/courses GET が carrier_name を返すように(carriers 埋め込み)。グループ見出しに使用
+- **コース一覧から担当ドライバーを選べるように**: 各コース行に「担当を選ぶ」→ モーダル(名前絞り込み+チップ選択)。API `PUT /api/admin/courses/[id]/drivers`(GET も用意)を新設。can_manage_courses または can_manage_members で許可
+  - 実体はドライバー編集と同じ driver_courses。既存行は勤務区分(slot)を保つため据え置き、外れた人の行だけ削除・新規は区分1に紐づけ。org 越えの読み書きはアプリ層で遮断
+- 検証: web tsc クリーン・テスト 421 passed

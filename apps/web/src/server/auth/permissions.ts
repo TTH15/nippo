@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/server/db/client";
 import { requireAuth, isAuthError } from "./index";
 import type { AuthUser } from "./types";
-import { DEFAULT_ROLE_CAPABILITIES, type Capability } from "./capabilities";
+import { DEFAULT_ROLE_CAPABILITIES, expandCapabilities, type Capability } from "./capabilities";
 
 // ============================================================
 // 認可モデル — capability 解決とガード。
@@ -35,16 +35,18 @@ async function resolveAuthz(
     .maybeSingle();
 
   const orgId = (driver?.org_id as string | undefined) ?? null;
+  // 付与された束は含意（例: 設定の編集 → 領域別の編集すべて）を展開してから返す。
+  // 各ガードは展開後の集合だけを見ればよく、既存ロールの行を移行しなくても互換が保てる。
   if (driver?.role_id) {
     const { data: caps } = await supabase
       .from("role_capabilities")
       .select("capability")
       .eq("role_id", driver.role_id);
-    return { caps: new Set((caps ?? []).map((c) => c.capability as Capability)), orgId };
+    return { caps: expandCapabilities((caps ?? []).map((c) => c.capability as Capability)), orgId };
   }
 
   const roleKey = driver?.role ?? fallbackRole ?? "";
-  return { caps: new Set(DEFAULT_ROLE_CAPABILITIES[roleKey] ?? []), orgId };
+  return { caps: expandCapabilities(DEFAULT_ROLE_CAPABILITIES[roleKey] ?? []), orgId };
 }
 
 /**

@@ -12,7 +12,7 @@ function normVehicleMode(raw: unknown): VehicleMode {
 
 // PATCH: 種別を更新（key は不変＝既存報告との対応を保つ）。
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requirePermission(req, "can_manage_report_kinds");
   if (isAuthError(user)) return user;
   const { id } = await params;
 
@@ -60,7 +60,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 // DELETE: 種別を削除。既存の報告データは text の report_kind を保持（ラベルはキー表示にフォールバック）。
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requirePermission(req, "can_manage_report_kinds");
   if (isAuthError(user)) return user;
   const { id } = await params;
   const { error } = await supabase.from("report_kinds").delete().eq("id", id);

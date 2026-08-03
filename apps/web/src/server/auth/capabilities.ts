@@ -24,11 +24,50 @@ export const CAPABILITIES = [
   "can_approve_members", // 参加承認・本人確認
   "can_manage_members", // ロール変更・退会処理
   "can_view_org_settings", // フォーム/締切/コース等の設定の閲覧
-  "can_manage_org_settings", // フォーム/締切/コース等の設定の編集
+  "can_manage_org_settings", // 設定全般の編集（下の領域別 capability をすべて含む）
+  // 設定の領域別の編集権限（「コースだけ触らせたい」等に対応・2026-08-03）。
+  // can_manage_org_settings を持つロールは以下をすべて持つ（CAPABILITY_IMPLIES で展開）。
+  "can_manage_courses", // コース／単価表（コース・単価・便）
+  "can_manage_carriers", // キャリア／フォーム設計（キャリア・報告項目）
+  "can_manage_report_kinds", // 報告種別
+  "can_manage_submit_screen", // 送信後画面
   "can_send_notifications", // 通知の一斉配信（LINE・アプリ内インボックス）
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
+
+// ============================================================
+// capability の含意（上位を持つなら下位も持つ）。
+// 既存ロール（can_manage_org_settings 付き）を壊さずに領域別権限へ分割するための橋渡し。
+// 解決時に resolveAuthz が展開するので、各ガードは領域別 capability だけを見ればよい。
+// ============================================================
+export const CAPABILITY_IMPLIES: Partial<Record<Capability, Capability[]>> = {
+  can_manage_org_settings: [
+    "can_view_org_settings",
+    "can_manage_courses",
+    "can_manage_carriers",
+    "can_manage_report_kinds",
+    "can_manage_submit_screen",
+  ],
+  // 領域別の編集を持つなら、設定画面自体は開ける必要がある
+  can_manage_courses: ["can_view_org_settings"],
+  can_manage_carriers: ["can_view_org_settings"],
+  can_manage_report_kinds: ["can_view_org_settings"],
+  can_manage_submit_screen: ["can_view_org_settings"],
+};
+
+/** 含意を再帰的に展開した capability 集合を返す（付与された束 → 実効的な束）。 */
+export function expandCapabilities(granted: Iterable<Capability>): Set<Capability> {
+  const out = new Set<Capability>();
+  const stack = [...granted];
+  while (stack.length) {
+    const c = stack.pop()!;
+    if (out.has(c)) continue;
+    out.add(c);
+    for (const implied of CAPABILITY_IMPLIES[c] ?? []) stack.push(implied);
+  }
+  return out;
+}
 
 // ============================================================
 // own スコープ権限 — 「自分のリソースに対してだけ」行える操作のカタログ。
@@ -83,7 +122,11 @@ export const CAPABILITY_META: Record<Capability, { label: string; group: (typeof
   can_manage_members: { label: "ロール変更・退会処理", group: "メンバー" },
   can_send_notifications: { label: "通知の一斉配信", group: "通知" },
   can_view_org_settings: { label: "設定の閲覧", group: "設定" },
-  can_manage_org_settings: { label: "設定の編集", group: "設定" },
+  can_manage_org_settings: { label: "設定の編集（全領域）", group: "設定" },
+  can_manage_courses: { label: "コース／単価表の編集", group: "設定" },
+  can_manage_carriers: { label: "キャリア／フォーム設計の編集", group: "設定" },
+  can_manage_report_kinds: { label: "報告種別の編集", group: "設定" },
+  can_manage_submit_screen: { label: "送信後画面の編集", group: "設定" },
 };
 
 // ============================================================
@@ -215,10 +258,44 @@ export const PERMISSION_ROWS: PermissionRow[] = [
   {
     kind: "leveled",
     key: "org_settings",
-    label: "設定",
-    description: "フォーム・締切・コース等の設定を閲覧できます。編集可能にすると編集もできます。",
+    label: "設定（全領域）",
+    description:
+      "フォーム・締切・コース等の設定を閲覧できます。編集可能にすると設定すべてを編集できます（下の領域別も自動で有効）。",
     view: "can_view_org_settings",
     manage: "can_manage_org_settings",
+  },
+  // 領域別の編集（「コースだけ任せたい」等）。設定の閲覧は自動で付く。
+  {
+    kind: "binary",
+    key: "manage_courses",
+    label: "コース／単価表の編集",
+    description: "コース・単価表・便の追加や変更ができます。他の設定は閲覧のみになります。",
+    capability: "can_manage_courses",
+    onLabel: "編集可能",
+  },
+  {
+    kind: "binary",
+    key: "manage_carriers",
+    label: "キャリア／フォーム設計の編集",
+    description: "キャリアと日報フォーム（報告項目）の設計を変更できます。",
+    capability: "can_manage_carriers",
+    onLabel: "編集可能",
+  },
+  {
+    kind: "binary",
+    key: "manage_report_kinds",
+    label: "報告種別の編集",
+    description: "日報以外の報告種別（オイル交換など）の設定を変更できます。",
+    capability: "can_manage_report_kinds",
+    onLabel: "編集可能",
+  },
+  {
+    kind: "binary",
+    key: "manage_submit_screen",
+    label: "送信後画面の編集",
+    description: "日報送信後にドライバーへ表示する画面の内容を変更できます。",
+    capability: "can_manage_submit_screen",
+    onLabel: "編集可能",
   },
 ];
 

@@ -1933,37 +1933,57 @@ export default function ShiftsPage() {
         })()}
 
         {loading ? (
+          // スマホは日別リスト（氏名＋コース/車両チップ）、PC は月グリッドと表示形が違うため
+          // スケルトンも実表示と同じ分岐で出す。
           <div className="space-y-3">
-            <Skeleton className="h-8 w-48" />
-            <div className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-x-auto table-scroll">
-              <table className="w-full text-sm min-w-[800px]">
-                <thead>
-                  <tr className="border-b border-slate-200/95">
-                    <th className="py-2 px-2 w-32">
-                      <Skeleton className="h-4 w-16" />
-                    </th>
-                    {[...Array(8)].map((_, i) => (
-                      <th key={i} className="py-2 px-1">
-                        <Skeleton className="h-4 w-12 mx-auto" />
+            {/* スマホ: 日別リスト */}
+            <div className="md:hidden space-y-2">
+              <Skeleton className="h-9 w-full rounded-lg" />
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+                {[...Array(8)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+                    <Skeleton className="h-4 w-16 shrink-0" />
+                    <div className="flex min-w-0 flex-1 gap-1">
+                      <Skeleton className="h-5 w-24 rounded" />
+                      <Skeleton className="h-5 w-16 rounded" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* PC: 月グリッド */}
+            <div className="hidden md:block space-y-3">
+              <Skeleton className="h-8 w-48" />
+              <div className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-x-auto table-scroll">
+                <table className="w-full text-sm min-w-[800px]">
+                  <thead>
+                    <tr className="border-b border-slate-200/95">
+                      <th className="py-2 px-2 w-32">
+                        <Skeleton className="h-4 w-16" />
                       </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...Array(6)].map((_, i) => (
-                    <tr key={i} className="border-b border-slate-200">
-                      <td className="py-2 px-2">
-                        <Skeleton className="h-4 w-24" />
-                      </td>
-                      {[...Array(8)].map((_, j) => (
-                        <td key={j} className="py-2 px-1">
-                          <Skeleton className="h-8 w-full" />
-                        </td>
+                      {[...Array(8)].map((_, i) => (
+                        <th key={i} className="py-2 px-1">
+                          <Skeleton className="h-4 w-12 mx-auto" />
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {[...Array(6)].map((_, i) => (
+                      <tr key={i} className="border-b border-slate-200">
+                        <td className="py-2 px-2">
+                          <Skeleton className="h-4 w-24" />
+                        </td>
+                        {[...Array(8)].map((_, j) => (
+                          <td key={j} className="py-2 px-1">
+                            <Skeleton className="h-[3.25rem] w-full rounded-lg" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ) : (

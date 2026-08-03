@@ -8,6 +8,7 @@ import {
   faGripVertical,
   faCat,
   faTruck,
+  faCheck,
 } from "@fortawesome/free-solid-svg-icons";
 import { faAmazon } from "@fortawesome/free-brands-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
@@ -296,8 +297,41 @@ export default function CoursesPage() {
   }, [bundle]);
 
   useEffect(() => {
-    setCanWrite(hasCapability("can_manage_org_settings"));
+    setCanWrite(hasCapability("can_manage_courses"));
   }, []);
+
+  // 担当ドライバーの割当（コース作成直後にそのまま担当を決められるようにする・2026-08-03）。
+  // 実体はドライバー編集と同じ driver_courses（API: /api/admin/courses/[id]/drivers）。
+  const [assignTarget, setAssignTarget] = useState<Course | null>(null);
+  const [assignSelected, setAssignSelected] = useState<string[]>([]);
+  const [assignQuery, setAssignQuery] = useState("");
+  const [assignSaving, setAssignSaving] = useState(false);
+
+  const openAssign = (course: Course) => {
+    setAssignTarget(course);
+    setAssignSelected(getDriversForCourse(course.id).map((d) => d.id));
+    setAssignQuery("");
+  };
+
+  const saveAssign = async () => {
+    if (!assignTarget) return;
+    setAssignSaving(true);
+    try {
+      await apiFetch(`/api/admin/courses/${assignTarget.id}/drivers`, {
+        method: "PUT",
+        body: JSON.stringify({ driverIds: assignSelected }),
+      });
+      setAssignTarget(null);
+      await refreshBundle();
+    } catch (e) {
+      setConfirmState({
+        message: e instanceof Error ? e.message : "担当ドライバーの保存に失敗しました",
+        onConfirm: () => setConfirmState(null),
+      });
+    } finally {
+      setAssignSaving(false);
+    }
+  };
 
   const addCourse = async () => {
     if (!canWrite) return;
@@ -531,6 +565,18 @@ export default function CoursesPage() {
               ) : (
                 <span className="text-xs text-slate-400">担当ドライバー未設定</span>
               )}
+              {canWrite && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openAssign(course);
+                  }}
+                  className="rounded border border-dashed border-slate-300 px-2 py-0.5 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700 transition-colors"
+                >
+                  担当を選ぶ
+                </button>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2.5 shrink-0">
@@ -559,7 +605,7 @@ export default function CoursesPage() {
         </div>
 
         <p className="text-sm text-slate-500 mb-4">
-          コースはキャリアごとに整理されています。ドライバーとの紐付けは「ユーザー管理」、リース代は各ドライバーの設定で行います。
+          コースはキャリアごとに整理されています。担当ドライバーは各行の「担当を選ぶ」から設定できます（ドライバー編集の「担当可能コース」と同じ設定です）。リース代は各ドライバーの設定で行います。
         </p>
 
         {loading ? (
@@ -595,6 +641,93 @@ export default function CoursesPage() {
           </div>
         )}
       </div>
+
+      {/* 担当ドライバーの割当モーダル（コース側からの導線） */}
+      {assignTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !assignSaving && setAssignTarget(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-lg w-full max-w-md max-h-[90vh] overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 pt-5 pb-3 border-b border-slate-200">
+              <h2 className="text-sm font-semibold text-slate-900">担当ドライバー</h2>
+              <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: assignTarget.color }} />
+                {assignTarget.name}
+              </p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {drivers.length === 0 ? (
+                <p className="text-sm text-slate-400">ドライバーを取得できませんでした（名簿の閲覧権限が必要です）。</p>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    value={assignQuery}
+                    onChange={(e) => setAssignQuery(e.target.value)}
+                    placeholder="名前で絞り込み"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {drivers
+                      .filter((d) => {
+                        const q = assignQuery.trim();
+                        if (!q) return true;
+                        return `${d.name}${d.display_name ?? ""}`.includes(q);
+                      })
+                      .map((d) => {
+                        const on = assignSelected.includes(d.id);
+                        return (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() =>
+                              setAssignSelected((prev) =>
+                                prev.includes(d.id) ? prev.filter((x) => x !== d.id) : [...prev, d.id],
+                              )
+                            }
+                            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm font-medium transition-colors ${
+                              on
+                                ? "border-slate-800 bg-slate-800 text-white"
+                                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                            }`}
+                          >
+                            {on && <FontAwesomeIcon icon={faCheck} className="h-3 w-3" />}
+                            {getDisplayName(d)}
+                          </button>
+                        );
+                      })}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    ドライバー編集の「担当可能コース」と同じ設定です。勤務区分が複数ある人は区分1に紐づきます。
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setAssignTarget(null)}
+                disabled={assignSaving}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={saveAssign}
+                disabled={assignSaving}
+                className="px-4 py-1.5 text-xs font-medium rounded bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 transition-colors"
+              >
+                {assignSaving ? "保存中..." : "保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 新規コース追加モーダル */}
       {showModal && canWrite && (

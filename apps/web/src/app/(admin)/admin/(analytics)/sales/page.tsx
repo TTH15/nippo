@@ -1539,7 +1539,23 @@ export default function SalesPage() {
 
                 {loadingSummary ? (
                   <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="overflow-auto">
+                    {/* スマホ: ドライバー別の期間合計リスト（実表示と同じ畳み方） */}
+                    <div className="md:hidden divide-y divide-slate-100">
+                      <div className="bg-slate-50 px-3 py-2">
+                        <Skeleton className="h-3 w-52" />
+                      </div>
+                      {[...Array(6)].map((_, i) => (
+                        <div key={i} className="px-3 py-2.5">
+                          <Skeleton className="h-4 w-28" />
+                          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                            <Skeleton className="h-3 w-20" />
+                            <Skeleton className="h-3 w-16" />
+                            <Skeleton className="h-3 w-24" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="hidden md:block overflow-auto">
                       <table className="min-w-max text-xs w-full">
                         <thead>
                           <tr className="border-b border-slate-200 bg-slate-50">
@@ -1787,9 +1803,36 @@ export default function SalesPage() {
                   }}
                 />
                 {loadingLog ? (
-                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden p-6 mt-4">
-                    <Skeleton className="h-8 w-full mb-4" />
-                    <Skeleton className="h-64 w-full" />
+                  // 実表示は「日付見出し＋その日の明細」。スマホはカード、PC は表。
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden mt-4">
+                    {[0, 1].map((d) => (
+                      <div key={d} className="border-b border-slate-100 last:border-b-0">
+                        <div className="px-3 py-2 bg-slate-50">
+                          <Skeleton className="h-4 w-32" />
+                        </div>
+                        <div className="md:hidden divide-y divide-slate-100">
+                          {[...Array(3)].map((_, i) => (
+                            <div key={i} className="px-3 py-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <Skeleton className="h-4 w-28" />
+                                <Skeleton className="h-4 w-16" />
+                              </div>
+                              <Skeleton className="h-3 w-40 mt-1" />
+                            </div>
+                          ))}
+                        </div>
+                        <div className="hidden md:block divide-y divide-slate-100">
+                          {[...Array(3)].map((_, i) => (
+                            <div key={i} className="flex items-center gap-4 px-4 py-2.5">
+                              <Skeleton className="h-4 w-32" />
+                              <Skeleton className="h-4 flex-1 max-w-[280px]" />
+                              <Skeleton className="h-4 w-24 ml-auto" />
+                              <Skeleton className="h-4 w-16" />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="bg-white border border-slate-200 rounded-lg overflow-hidden mt-4">

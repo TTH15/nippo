@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
 
 // PUT: 設定を保存
 export async function PUT(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requirePermission(req, "can_manage_submit_screen");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

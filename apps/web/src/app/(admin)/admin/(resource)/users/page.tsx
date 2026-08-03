@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
+import { CoursePicker } from "@/lib/components/CoursePicker";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
@@ -21,7 +22,7 @@ import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 
-type Course = { id: string; name: string; color: string };
+type Course = { id: string; name: string; color: string; carrier_name?: string | null };
 type DriverIdentity = {
   id: string;
   slot: number;
@@ -1239,22 +1240,8 @@ export default function UsersPage() {
                   {form.courseIds.length === 0 && <span className="text-xs text-slate-400 py-1.5">未選択</span>}
                 </div>
                 <div className={`grid transition-all duration-300 ease-out ${courseOpen1 ? "grid-rows-[1fr] opacity-100 mt-2" : "grid-rows-[0fr] opacity-0"}`}>
-                  <div className="overflow-hidden">
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {courses.filter((c) => !form.courseIds.includes(c.id)).map((c) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => toggleCourse(c.id)}
-                          className="px-3 py-1.5 rounded text-sm font-medium border text-slate-600 border-slate-200 bg-white hover:bg-slate-50 transition-colors"
-                        >
-                          {c.name}
-                        </button>
-                      ))}
-                      {courses.filter((c) => !form.courseIds.includes(c.id)).length === 0 && (
-                        <span className="text-xs text-slate-400 py-1.5">追加できるコースはありません</span>
-                      )}
-                    </div>
+                  <div className="overflow-hidden pt-1">
+                    <CoursePicker courses={courses} selectedIds={form.courseIds} onToggle={toggleCourse} />
                   </div>
                 </div>
               </div>
@@ -1327,22 +1314,8 @@ export default function UsersPage() {
                       {form.courseIds2.length === 0 && <span className="text-xs text-slate-400 py-1.5">未選択</span>}
                     </div>
                     <div className={`grid transition-all duration-300 ease-out ${courseOpen2 ? "grid-rows-[1fr] opacity-100 mt-2" : "grid-rows-[0fr] opacity-0"}`}>
-                      <div className="overflow-hidden">
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          {courses.filter((c) => !form.courseIds2.includes(c.id)).map((c) => (
-                            <button
-                              key={`s2-unsel-${c.id}`}
-                              type="button"
-                              onClick={() => toggleCourse2(c.id)}
-                              className="px-3 py-1.5 rounded text-sm font-medium border text-slate-600 border-slate-200 bg-white hover:bg-slate-50 transition-colors"
-                            >
-                              {c.name}
-                            </button>
-                          ))}
-                          {courses.filter((c) => !form.courseIds2.includes(c.id)).length === 0 && (
-                            <span className="text-xs text-slate-400 py-1.5">追加できるコースはありません</span>
-                          )}
-                        </div>
+                      <div className="overflow-hidden pt-1">
+                        <CoursePicker courses={courses} selectedIds={form.courseIds2} onToggle={toggleCourse2} />
                       </div>
                     </div>
                   </div>

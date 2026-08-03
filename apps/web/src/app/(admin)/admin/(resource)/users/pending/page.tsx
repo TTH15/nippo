@@ -11,6 +11,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
+import { CoursePicker } from "@/lib/components/CoursePicker";
 
 // ============================================================
 // ドライバーの参加・承認（Phase 7b → §2-1a 承認1回統合）。
@@ -22,7 +23,7 @@ import { hasCapability } from "@/lib/capabilities";
 // 従来どおり「本人確認待ち」リストに現れる（移行中の既存ドライバーも同リスト）。
 // ============================================================
 
-type Course = { id: string; name: string; color: string };
+type Course = { id: string; name: string; color: string; carrier_name?: string | null };
 type PendingDriver = {
   id: string;
   name: string;
@@ -891,24 +892,8 @@ export default function PendingApprovalPage() {
               </div>
               {courses.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">コース（任意）</label>
-                  <div className="flex flex-wrap gap-2">
-                    {courses.map((c) => {
-                      const active = approveForm.courseIds.includes(c.id);
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => toggleCourse(c.id)}
-                          className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
-                            active ? "bg-slate-800 text-white border-slate-800" : "text-slate-600 border-slate-200 bg-white hover:bg-slate-50"
-                          }`}
-                        >
-                          {c.name}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">コース（任意）</label>
+                  <CoursePicker courses={courses} selectedIds={approveForm.courseIds} onToggle={toggleCourse} />
                 </div>
               )}
               <p className="text-xs text-slate-500">

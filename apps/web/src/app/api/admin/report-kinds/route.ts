@@ -22,7 +22,7 @@ function normVehicleMode(raw: unknown): VehicleMode {
 
 // POST: 種別を追加（フォームビルダー: fields/vehicleMode）。
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requirePermission(req, "can_manage_report_kinds");
   if (isAuthError(user)) return user;
 
   const body = await req.json().catch(() => ({}));

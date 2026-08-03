@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
 
 // POST: キャリア追加
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requirePermission(req, "can_manage_carriers");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

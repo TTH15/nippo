@@ -10,7 +10,7 @@ const BILLING_TYPES = ["PER_PIECE", "FIXED"] as const;
 
 // POST: unit 追加
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requirePermission(req, "can_manage_courses");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

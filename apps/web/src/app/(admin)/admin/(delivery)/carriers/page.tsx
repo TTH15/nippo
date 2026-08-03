@@ -59,7 +59,7 @@ export default function CarriersPage() {
   const [presetFor, setPresetFor] = useState<string | null>(null); // unitId
 
   useEffect(() => {
-    setCanWrite(hasCapability("can_manage_org_settings"));
+    setCanWrite(hasCapability("can_manage_carriers"));
   }, []);
 
   // SWR でキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。

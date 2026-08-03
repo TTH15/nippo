@@ -12,9 +12,10 @@ export async function GET(req: NextRequest) {
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
+  // carrier_name はコース選択 UI（CoursePicker）のキャリア別グループ見出しに使う。
   const { data: courses, error } = await supabase
     .from("courses")
-    .select("*")
+    .select("*, carriers ( id, name )")
     .eq("org_id", orgId)
     .order("sort_order");
 
@@ -23,12 +24,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 
-  return NextResponse.json({ courses });
+  const rows = (courses ?? []).map((c: Record<string, unknown>) => ({
+    ...c,
+    carrier_name: (c.carriers as { name?: string } | null)?.name ?? null,
+  }));
+
+  return NextResponse.json({ courses: rows });
 }
 
 // POST: コース追加
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requirePermission(req, "can_manage_courses");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
@@ -169,7 +175,7 @@ export async function POST(req: NextRequest) {
 
 // PATCH: コース並べ替え
 export async function PATCH(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requirePermission(req, "can_manage_courses");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

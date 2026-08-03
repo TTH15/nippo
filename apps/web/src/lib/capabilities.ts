@@ -8,15 +8,44 @@ import { getStoredDriver } from "@/lib/api";
 // capabilities はログイン時に StoredDriver へ格納される（login route が配布）。
 // ============================================================
 
+// サーバー（capabilities.ts の CAPABILITY_IMPLIES）と同じ含意をクライアントでも展開する。
+// ログイン済みセッションの capabilities は発行時点の束なので、領域別 capability の追加前に
+// ログインした人でも「設定の編集」を持っていれば領域別の編集 UI が出る（再ログイン不要）。
+const IMPLIES: Record<string, string[]> = {
+  can_manage_org_settings: [
+    "can_view_org_settings",
+    "can_manage_courses",
+    "can_manage_carriers",
+    "can_manage_report_kinds",
+    "can_manage_submit_screen",
+  ],
+  can_manage_courses: ["can_view_org_settings"],
+  can_manage_carriers: ["can_view_org_settings"],
+  can_manage_report_kinds: ["can_view_org_settings"],
+  can_manage_submit_screen: ["can_view_org_settings"],
+};
+
+function effectiveCapabilities(): Set<string> {
+  const out = new Set<string>();
+  const stack = [...(getStoredDriver()?.capabilities ?? [])];
+  while (stack.length) {
+    const c = stack.pop()!;
+    if (out.has(c)) continue;
+    out.add(c);
+    for (const implied of IMPLIES[c] ?? []) stack.push(implied);
+  }
+  return out;
+}
+
 /** ログイン中 membership が capability を持つか。 */
 export function hasCapability(capability: string): boolean {
-  return getStoredDriver()?.capabilities?.includes(capability) ?? false;
+  return effectiveCapabilities().has(capability);
 }
 
 /** いずれかの capability を持つか。 */
 export function hasAnyCapability(...capabilities: string[]): boolean {
-  const owned = getStoredDriver()?.capabilities ?? [];
-  return capabilities.some((c) => owned.includes(c));
+  const owned = effectiveCapabilities();
+  return capabilities.some((c) => owned.has(c));
 }
 
 /**

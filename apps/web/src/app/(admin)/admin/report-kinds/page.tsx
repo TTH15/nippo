@@ -106,7 +106,7 @@ export default function ReportKindsPage() {
   const load = useCallback(() => mutateKinds(), [mutateKinds]);
 
   useEffect(() => {
-    setCanWrite(hasCapability("can_manage_org_settings"));
+    setCanWrite(hasCapability("can_manage_report_kinds"));
   }, []);
 
   const openNew = () => setForm(emptyForm((kinds.at(-1)?.sortOrder ?? 0) + 1));
