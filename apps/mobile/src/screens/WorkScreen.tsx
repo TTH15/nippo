@@ -15,9 +15,7 @@ import {
 import { getGps } from "../location";
 import { PunchButton } from "../components/PunchButton";
 import { BottomSheet } from "../components/BottomSheet";
-import { MeterScanner } from "../components/MeterScanner";
-import { LicenseSpotCheck } from "../components/LicenseSpotCheck";
-import { VehicleInspectionCapture, type InspectionShot } from "../components/VehicleInspectionCapture";
+import { CaptureFlow, type CaptureResult, type CaptureStep, type InspectionShot } from "../components/CaptureFlow";
 import { QrFallback, type FallbackResolution } from "../components/QrFallback";
 import { DailyReportForm, type DailyReportFormHandle } from "../components/DailyReportForm";
 import { HeroVan } from "../components/HeroVan";
@@ -79,11 +77,8 @@ export function WorkScreen() {
   const [inToken, setInToken] = useState<string | null>(null);
   const [inMeter, setInMeter] = useState("");
 
-  // 安全確認（Phase2、出勤時のみ）: QR認証直後に自動判定・表示。通過後に車両記録(メーター)へ進む。
-  const [safetyMode, setSafetyMode] = useState<"checkbox" | "photo" | null>(null);
-  const [safetyPassed, setSafetyPassed] = useState(false);
-  const [licenseChecked, setLicenseChecked] = useState(false);
-  const [licenseCameraOpen, setLicenseCameraOpen] = useState(false);
+  // 安全確認（Phase2、出勤時のみ）は 2026-08-03 に CaptureFlow のステップへ移動した。
+  // 抜き打ち（免許証撮影）に切り替わる確率だけをここで決め、フローの steps に反映する。
 
   // QR退避ルート（vehicle-session-flow.md §8.5）: 「QRが読めない」→ ナンバープレートOCR/手動申請。
   const [fallbackOpenFor, setFallbackOpenFor] = useState<"in" | "out" | null>(null);
@@ -102,11 +97,13 @@ export function WorkScreen() {
   const [outStep, setOutStep] = useState<"meter" | "report">("meter");
   const reportRef = useRef<DailyReportFormHandle>(null);
 
-  const [meterScanFor, setMeterScanFor] = useState<"in" | "out" | null>(null);
   const [meterBase64, setMeterBase64] = useState<string | null>(null);
 
+  // 統一キャプチャ（案A）: 円の長押し → QR〜点検を1画面で通す。
+  const [captureFor, setCaptureFor] = useState<"in" | "out" | null>(null);
+  const [captureSteps, setCaptureSteps] = useState<CaptureStep[]>([]);
+
   // 車両点検（Phase3・前後左右4方向）。in/outどちらの車両記録でも撮影可能（pre/postの比較用）。
-  const [inspectionOpenFor, setInspectionOpenFor] = useState<"in" | "out" | null>(null);
   const [inInspectionPaths, setInInspectionPaths] = useState<Array<{ angle: InspectionAngle; path: string }>>([]);
   const [outInspectionPaths, setOutInspectionPaths] = useState<Array<{ angle: InspectionAngle; path: string }>>([]);
   const [inspectionUploading, setInspectionUploading] = useState(false);
@@ -148,19 +145,9 @@ export function WorkScreen() {
       .catch(() => setTodayShifts([]));
   }, [today]);
 
-  function onMeterConfirmed(value: number | null, base64: string) {
-    if (value != null) {
-      if (meterScanFor === "in") setInMeter(String(value));
-      else if (meterScanFor === "out") setOutMeter(String(value));
-    }
-    setMeterBase64(base64);
-    setMeterScanFor(null);
-  }
-
-  async function onInspectionComplete(shots: InspectionShot[]) {
-    const target = inspectionOpenFor;
-    setInspectionOpenFor(null);
-    if (!target) return;
+  /** 点検写真を Storage へ上げてパスに変換（1枚失敗しても業務は続行させる）。 */
+  async function uploadInspection(target: "in" | "out", shots: InspectionShot[]) {
+    if (shots.length === 0) return;
     setInspectionUploading(true);
     const paths: Array<{ angle: InspectionAngle; path: string }> = [];
     for (const shot of shots) {
@@ -174,6 +161,33 @@ export function WorkScreen() {
     setInspectionUploading(false);
     if (target === "in") setInInspectionPaths(paths);
     else setOutInspectionPaths(paths);
+  }
+
+  /** 円の長押し → 統一キャプチャを開く。安全確認の抜き打ち判定はここで1回だけ引く。 */
+  function startCapture(target: "in" | "out") {
+    setWorkMsg(null);
+    if (target === "in") {
+      const spot = Math.random() < SPOT_CHECK_RATE;
+      setCaptureSteps(["qr", spot ? "license" : "safety", "meter", "inspection"]);
+    } else {
+      setCaptureSteps(["qr", "meter", "inspection"]);
+    }
+    setCaptureFor(target);
+  }
+
+  /** キャプチャ完了。撮影物を反映し、確認シート（出勤=車両確認 / 退勤=車両記録）へ繋ぐ。 */
+  async function onCaptureComplete(result: CaptureResult) {
+    const target = captureFor;
+    setCaptureFor(null);
+    if (!target) return;
+    if (result.meterBase64) setMeterBase64(result.meterBase64);
+    if (result.meterValue != null) {
+      if (target === "in") setInMeter(String(result.meterValue));
+      else setOutMeter(String(result.meterValue));
+    }
+    if (target === "out") setOutStep("meter");
+    // 点検写真のアップロードは待たせず裏で進める（確認シートには枚数が後から出る）
+    void uploadInspection(target, result.inspection);
   }
 
   async function onScanIn(data: string): Promise<boolean> {
@@ -191,9 +205,6 @@ export function WorkScreen() {
       setInFallbackVehicle(null);
       setInPlatePhotoPath(undefined);
       setInFallbackReason(undefined);
-      setSafetyMode(Math.random() < SPOT_CHECK_RATE ? "photo" : "checkbox");
-      setSafetyPassed(false);
-      setLicenseChecked(false);
       return true;
     } catch (e) {
       setWorkMsg(errMsg(e));
@@ -218,9 +229,6 @@ export function WorkScreen() {
     setInFallbackVehicle(v);
     setInPlatePhotoPath(result.method === "plate_ocr" ? result.platePhotoPath : undefined);
     setInFallbackReason(result.method === "manual" ? result.fallbackReason : undefined);
-    setSafetyMode(Math.random() < SPOT_CHECK_RATE ? "photo" : "checkbox");
-    setSafetyPassed(false);
-    setLicenseChecked(false);
   }
 
   async function confirmIn() {
@@ -266,10 +274,6 @@ export function WorkScreen() {
     setInToken(null);
     setInMeter("");
     setMeterBase64(null);
-    setSafetyMode(null);
-    setSafetyPassed(false);
-    setLicenseChecked(false);
-    setLicenseCameraOpen(false);
     setInInspectionPaths([]);
     setInMethod("qr");
     setInFallbackVehicle(null);
@@ -459,8 +463,7 @@ export function WorkScreen() {
               busy={busy}
               iconOnly
               showCaption={false}
-              onScanned={onScanIn}
-              onFallback={() => setFallbackOpenFor("in")}
+              onTriggered={() => startCapture("in")}
             />
           </View>
         )}
@@ -498,8 +501,7 @@ export function WorkScreen() {
               <PunchButton
                 mode="end"
                 busy={busy}
-                onScanned={onScanOut}
-                onFallback={() => setFallbackOpenFor("out")}
+                onTriggered={() => startCapture("out")}
               />
             </View>
           </View>
@@ -540,8 +542,7 @@ export function WorkScreen() {
                 busy={busy}
                 iconOnly
                 showCaption={false}
-                onScanned={onScanIn}
-                onFallback={() => setFallbackOpenFor("in")}
+                onTriggered={() => startCapture("in")}
               />
             </View>
           </>
@@ -604,47 +605,8 @@ export function WorkScreen() {
         </View>
       </ScrollView>
 
-      {/* 出勤: QR認証後の安全確認（Phase2） */}
-      <BottomSheet visible={inVehicle !== null && !safetyPassed}>
-        <Text className="text-[13px] text-brand-500">安全確認</Text>
-        {safetyMode === "photo" ? (
-          <>
-            <Text className="text-xl font-bold text-brand-900">免許証を撮影して確認します</Text>
-            <Pressable
-              className="border border-brand-200 rounded-lg py-2.5 items-center active:opacity-80"
-              onPress={() => setLicenseCameraOpen(true)}
-            >
-              <Text className="text-brand-700 font-medium">免許証を撮影する</Text>
-            </Pressable>
-          </>
-        ) : (
-          <Pressable className="flex-row items-center gap-2.5 py-1" onPress={() => setLicenseChecked((v) => !v)}>
-            <View
-              className={`w-6 h-6 rounded-md border items-center justify-center ${licenseChecked ? "bg-brand-900 border-brand-900" : "bg-white border-brand-200"}`}
-            >
-              {licenseChecked ? <Text className="text-white font-bold">✓</Text> : null}
-            </View>
-            <Text className="text-base text-brand-900">免許証を携帯しています</Text>
-          </Pressable>
-        )}
-        <View className="flex-row gap-2 mt-1">
-          {safetyMode === "checkbox" && (
-            <Pressable
-              className={`flex-1 bg-accent-500 rounded-lg py-3 items-center active:opacity-80 ${!licenseChecked ? "opacity-40" : ""}`}
-              onPress={() => setSafetyPassed(true)}
-              disabled={!licenseChecked}
-            >
-              <Text className="text-white font-semibold">次へ</Text>
-            </Pressable>
-          )}
-          <Pressable className="px-4 bg-brand-100 rounded-lg py-3 items-center active:opacity-80" onPress={cancelIn}>
-            <Text className="text-brand-600">やめる</Text>
-          </Pressable>
-        </View>
-      </BottomSheet>
-
-      {/* 出勤: 安全確認後の車両確認・メーター入力 */}
-      <BottomSheet visible={inVehicle !== null && safetyPassed}>
+      {/* 出勤: キャプチャ後の車両確認・メーター確認（安全確認はフロー内で完了済み） */}
+      <BottomSheet visible={inVehicle !== null && captureFor === null}>
         <Text className="text-[13px] text-brand-500">この車両で出勤します</Text>
         <Text className="text-xl font-bold text-brand-900">{plateText(inVehicle) || "車両"}</Text>
         <Text className="text-[13px] text-brand-500 mt-1">開始メーター（km）</Text>
@@ -655,26 +617,19 @@ export function WorkScreen() {
           keyboardType="number-pad"
           placeholder="例: 123456"
         />
-        <Pressable
-          className="border border-brand-200 rounded-lg py-2.5 items-center active:opacity-80"
-          onPress={() => setMeterScanFor("in")}
-          disabled={busy}
-        >
-          <Text className="text-brand-700 font-medium">メーターをカメラで読み取り</Text>
-        </Pressable>
         {meterBase64 ? <Text className="text-xs text-accent-600">写真を添付しました</Text> : null}
-        <Pressable
-          className="border border-brand-200 rounded-lg py-2.5 items-center active:opacity-80"
-          onPress={() => setInspectionOpenFor("in")}
-          disabled={busy || inspectionUploading}
-        >
-          <Text className="text-brand-700 font-medium">車両点検（前後左右を撮影）</Text>
-        </Pressable>
         {inspectionUploading ? (
           <Text className="text-xs text-brand-400">点検写真をアップロード中...</Text>
         ) : inInspectionPaths.length > 0 ? (
           <Text className="text-xs text-accent-600">点検写真を{inInspectionPaths.length}枚添付しました</Text>
         ) : null}
+        <Pressable
+          className="border border-brand-200 rounded-lg py-2.5 items-center active:opacity-80"
+          onPress={() => startCapture("in")}
+          disabled={busy || inspectionUploading}
+        >
+          <Text className="text-brand-700 font-medium">撮り直す（メーター・点検）</Text>
+        </Pressable>
         <View className="flex-row gap-2 mt-1">
           <Pressable
             className="flex-1 bg-accent-500 rounded-lg py-3 items-center active:opacity-80"
@@ -694,7 +649,7 @@ export function WorkScreen() {
       </BottomSheet>
 
       {/* 退勤: QR認証後の終了フロー（①車両記録 → ②日報 → 終了確定） */}
-      <BottomSheet visible={(outToken !== null || outFallbackVehicle !== null) && outStep === "meter"}>
+      <BottomSheet visible={(outToken !== null || outFallbackVehicle !== null) && outStep === "meter" && captureFor === null}>
         <Text className="text-[13px] text-brand-500">業務終了 1/2 — 車両記録</Text>
         <Text className="text-[13px] text-brand-500 mt-1">終了メーター（km）</Text>
         <TextInput
@@ -704,26 +659,20 @@ export function WorkScreen() {
           keyboardType="number-pad"
           placeholder="例: 123480"
         />
-        <Pressable
-          className="border border-brand-200 rounded-lg py-2.5 items-center active:opacity-80"
-          onPress={() => setMeterScanFor("out")}
-          disabled={busy}
-        >
-          <Text className="text-brand-700 font-medium">メーターをカメラで読み取り</Text>
-        </Pressable>
         {meterBase64 ? <Text className="text-xs text-accent-600">写真を添付しました</Text> : null}
-        <Pressable
-          className="border border-brand-200 rounded-lg py-2.5 items-center active:opacity-80"
-          onPress={() => setInspectionOpenFor("out")}
-          disabled={busy || inspectionUploading}
-        >
-          <Text className="text-brand-700 font-medium">車両点検（前後左右を撮影）</Text>
-        </Pressable>
         {inspectionUploading ? (
           <Text className="text-xs text-brand-400">点検写真をアップロード中...</Text>
         ) : outInspectionPaths.length > 0 ? (
           <Text className="text-xs text-accent-600">点検写真を{outInspectionPaths.length}枚添付しました</Text>
         ) : null}
+        <Pressable
+          className="border border-brand-200 rounded-lg py-2.5 items-center active:opacity-80"
+          onPress={() => startCapture("out")}
+          disabled={busy || inspectionUploading}
+        >
+          <Text className="text-brand-700 font-medium">撮り直す（メーター・点検）</Text>
+        </Pressable>
+
         <View className="flex-row gap-2 mt-1">
           <Pressable
             className="flex-1 bg-accent-500 rounded-lg py-3 items-center active:opacity-80"
@@ -788,12 +737,19 @@ export function WorkScreen() {
         <DailyReportForm date={today} showSubmitButton onSubmitted={() => setReportSheetOpen(false)} />
       </BottomSheet>
 
-      <MeterScanner visible={meterScanFor !== null} onConfirm={onMeterConfirmed} onClose={() => setMeterScanFor(null)} />
-
-      <VehicleInspectionCapture
-        visible={inspectionOpenFor !== null}
-        onComplete={onInspectionComplete}
-        onClose={() => setInspectionOpenFor(null)}
+      {/* 統一フルスクリーンキャプチャ（案A）: QR〜点検を一筆書きで通す */}
+      <CaptureFlow
+        visible={captureFor !== null}
+        steps={captureSteps}
+        headline={captureFor === "out" ? "業務終了" : "稼働開始"}
+        onQrScanned={captureFor === "out" ? onScanOut : onScanIn}
+        onFallback={() => {
+          const target = captureFor;
+          setCaptureFor(null);
+          setFallbackOpenFor(target);
+        }}
+        onComplete={onCaptureComplete}
+        onCancel={() => setCaptureFor(null)}
       />
 
       <QrFallback
@@ -803,14 +759,6 @@ export function WorkScreen() {
         onClose={() => setFallbackOpenFor(null)}
       />
 
-      <LicenseSpotCheck
-        visible={licenseCameraOpen}
-        onConfirm={() => {
-          setLicenseCameraOpen(false);
-          setSafetyPassed(true);
-        }}
-        onClose={() => setLicenseCameraOpen(false)}
-      />
     </View>
   );
 }
