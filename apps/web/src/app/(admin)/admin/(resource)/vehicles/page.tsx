@@ -667,23 +667,44 @@ export default function VehiclesPage() {
         </div>
 
         {loading ? (
+          // 実カードと同じ骨格（上部1行＋左:プレート/写真・右:ゲージ2本）。
+          // スマホは左側が横並び、PC は縦積みという実表示の分岐もそのまま再現する。
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
-                <div className="flex flex-col md:flex-row gap-5 md:gap-8">
-                  <div className="flex-shrink-0 w-full md:w-64 space-y-4">
-                    <div className="flex items-center gap-2">
-                      <Skeleton className="h-6 w-20" />
-                      <Skeleton className="h-5 w-16" />
+              <div key={i} className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 md:p-8 shadow-sm">
+                {/* 上部1行: No. / 車種 / ドライバー / 次回車検・自賠責 / 操作 */}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 md:gap-4 mb-4 md:mb-6">
+                  <Skeleton className="h-4 w-16 shrink-0" />
+                  <Skeleton className="h-4 w-28 shrink-0" />
+                  <Skeleton className="h-5 md:h-6 w-20 rounded shrink-0" />
+                  <Skeleton className="h-4 w-24 shrink-0" />
+                  <Skeleton className="h-4 w-24 shrink-0" />
+                  {canWrite && (
+                    <div className="ml-auto flex items-center gap-2 shrink-0">
+                      <Skeleton className="h-5 w-5 rounded" />
+                      <Skeleton className="h-5 w-5 rounded" />
                     </div>
-                    <Skeleton className="rounded-lg w-48 h-24" />
-                    <Skeleton className="h-4 w-32" />
+                  )}
+                </div>
+                <div className="flex flex-col md:flex-row gap-5 md:gap-8">
+                  {/* 左: ナンバープレート＋車両画像（スマホは横並び） */}
+                  <div className="flex-shrink-0 w-full md:max-w-[240px] flex flex-row md:flex-col items-start gap-3 md:gap-4">
+                    <Skeleton className="w-1/2 md:w-full aspect-[2/1] rounded-lg shrink-0" />
+                    <Skeleton className="min-w-0 flex-1 md:w-full aspect-video rounded-lg" />
                   </div>
-                  <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    {[...Array(6)].map((_, j) => (
-                      <div key={j}>
-                        <Skeleton className="h-3 w-20 mb-1" />
-                        <Skeleton className="h-5 w-16" />
+                  {/* 右: オイル交換／初期費用回収のゲージ2本 */}
+                  <div className="flex-1 space-y-4 p-2">
+                    {[0, 1].map((g) => (
+                      <div key={g} className="pt-4 pb-10">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 pb-2">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-4 w-24" />
+                        </div>
+                        <Skeleton className="h-3 w-full rounded-full" />
+                        <div className="flex justify-between pt-2">
+                          <Skeleton className="h-3 w-20" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
                       </div>
                     ))}
                   </div>

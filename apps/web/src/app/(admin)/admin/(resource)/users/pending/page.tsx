@@ -192,6 +192,31 @@ function KycAiCheck({ driverId }: { driverId: string }) {
   );
 }
 
+// 承認待ち一覧のスケルトン。実際の行（丸アバター／氏名・フリガナ＋申請日／状態バッジ／
+// 承認・却下ボタン）と同じ骨格・同じ寸法で組み、読み込み後にレイアウトが動かないようにする。
+function PendingListSkeleton({ canWrite }: { canWrite: boolean }) {
+  return (
+    <ul className="divide-y divide-slate-100">
+      {[0, 1].map((i) => (
+        <li key={i} className="py-3 flex items-center justify-between gap-3">
+          <Skeleton className="w-14 h-14 rounded-full shrink-0" />
+          <div className="min-w-0 flex-1">
+            <Skeleton className="h-4 w-32 mb-1.5" />
+            <Skeleton className="h-3 w-44" />
+            <Skeleton className="h-4 w-24 mt-1.5 rounded" />
+          </div>
+          {canWrite && (
+            <div className="flex items-center gap-2 shrink-0">
+              <Skeleton className="h-7 w-16 rounded" />
+              <Skeleton className="h-7 w-16 rounded" />
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 // KYC 詳細の読み込み中スケルトン（出す内容は決まっているのでレイアウトを先に見せる）。
 function KycDetailSkeleton() {
   return (
@@ -580,10 +605,7 @@ export default function PendingApprovalPage() {
             承認待ち{pendingRes ? `（${pending.length}）` : ""}
           </h2>
           {isLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
-            </div>
+            <PendingListSkeleton canWrite={canWrite} />
           ) : pending.length === 0 ? (
             <p className="text-sm text-slate-400 py-6 text-center">承認待ちの申請はありません</p>
           ) : (
@@ -607,7 +629,7 @@ export default function PendingApprovalPage() {
                     <p className="text-sm font-medium text-slate-900 truncate">{d.name}</p>
                     <p className="text-xs text-slate-500 truncate">
                       {d.nameKana || "フリガナ未登録"}
-                      {d.created_at ? ` ・ ${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
+                      {d.created_at ? `　${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
                     </p>
                     <span
                       className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${
@@ -664,7 +686,7 @@ export default function PendingApprovalPage() {
                   <p className="text-sm font-medium text-slate-900 truncate">{d.name}</p>
                   <p className="text-xs text-slate-500 truncate">
                     {d.nameKana || "フリガナ未登録"}
-                    {d.created_at ? ` ・ ${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
+                    {d.created_at ? `　${new Date(d.created_at).toLocaleDateString("ja-JP")} 申請` : ""}
                   </p>
                 </div>
                 {canWrite && (

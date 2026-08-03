@@ -859,10 +859,52 @@ export default function UsersPage() {
         </div>
 
         {loading ? (
-          <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
-            {[...Array(8)].map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
+          // 実表示に合わせて、スマホは丸アバター付きカード／PC は名簿テーブルの骨格を出す。
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            <div className="md:hidden divide-y divide-slate-100">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="px-4 py-3 flex items-center gap-3">
+                  <Skeleton className="w-10 h-10 rounded-full shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <Skeleton className="h-4 w-36" />
+                    <div className="mt-1.5 flex gap-1.5">
+                      <Skeleton className="h-4 w-16 rounded" />
+                      <Skeleton className="h-4 w-16 rounded" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden md:block">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    {["No.", "ドライバー", "表示名", "コース", "免許期限", "権限"].map((h) => (
+                      <th key={h} className="px-4 py-3 text-left">
+                        <Skeleton className="h-3 w-16" />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...Array(6)].map((_, i) => (
+                    <tr key={i} className="border-t border-slate-100">
+                      <td className="px-4 py-3"><Skeleton className="h-3 w-6" /></td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <Skeleton className="w-9 h-9 rounded-full shrink-0" />
+                          <Skeleton className="h-4 w-24" />
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
+                      <td className="px-4 py-3"><Skeleton className="h-4 w-28 rounded" /></td>
+                      <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
+                      <td className="px-4 py-3"><Skeleton className="h-7 w-32 rounded" /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : drivers.length === 0 ? (
           <p className="text-sm text-slate-500">ドライバーが登録されていません</p>
