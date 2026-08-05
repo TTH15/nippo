@@ -295,3 +295,46 @@ input[type="number"] {
 .vehicle-label.vl-collapsed .vl-dot {
   display: flex;
 }
+
+/* ============================================================
+   地図の「位置の修正」つまみ（配車作戦盤 Stage 0.5）
+   既定マーカーに影を足すだけでは掴める場所が分からず、地図のパンと
+   取り合いになった（2026-08-06 実機フィードバック）。
+   掴める領域を大きく取り、脈打つリングで「ここを掴む」と伝える。
+   ============================================================ */
+.map-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: #0284c7;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 10px rgba(2, 132, 199, 0.45);
+  cursor: grab;
+  user-select: none;
+  touch-action: none; /* 指でつまむとき、地図側にスクロールを取られないように */
+}
+.map-drag-handle:active {
+  cursor: grabbing;
+  transform: scale(1.06);
+}
+.map-drag-handle::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 2px solid rgba(2, 132, 199, 0.7);
+  animation: mapHandlePulse 1.6s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes mapHandlePulse {
+  0% { transform: scale(1); opacity: 0.9; }
+  70% { transform: scale(1.35); opacity: 0; }
+  100% { transform: scale(1.35); opacity: 0; }
+}

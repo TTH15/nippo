@@ -130,6 +130,11 @@ type MapVehicle = VehiclePlateData & {
   } | null;
 };
 
+/** つまみに出す短い番号（一連指定番号だけ）。 */
+function plateShort(v: MapVehicle): string {
+  return formatPlateNumeric(v.number_numeric || "") || v.brand?.slice(0, 4) || "車";
+}
+
 /** 通知メッセージ用の短いプレート表記。 */
 function plateText(v: MapVehicle): string {
   return (
@@ -710,23 +715,27 @@ export default function MapPage() {
         maxWidth: "240px",
         closeButton: false,
       }).setDOMContent(node);
-      const marker = new mapboxgl.Marker({
-        color: p.sessionStatus === "open" ? "#059669" : "#64748b",
-        draggable: canDispatch && placing && !historyDate,
-      })
+      const editable = canDispatch && placing && !historyDate;
+      // 修正中は既定マーカーではなく**大きな丸いつまみ**にする。
+      // 既定マーカーに filter を足すだけでは掴める場所が分からず、地図のパンと取り合いになる
+      //（「どの車も光らない」「ドラッグすると地図が動く」という実機フィードバック・2026-08-06）。
+      const handle = document.createElement("div");
+      if (editable) {
+        handle.className = "map-drag-handle";
+        handle.title = "つまんで動かす";
+        handle.textContent = plateShort(v);
+      }
+      const marker = new mapboxgl.Marker(
+        editable
+          ? { element: handle, draggable: true }
+          : { color: p.sessionStatus === "open" ? "#059669" : "#64748b" },
+      )
         .setLngLat([p.lng, p.lat])
         .setPopup(popup)
         .addTo(map);
-      marker.getElement().style.zIndex = "2"; // 拠点ピンより前・プレート吹き出しより後
-      // 手動配置は破線リングで「GPS ではない」と分かるようにする
-      if (p.source === "manual") {
-        marker.getElement().style.filter = "drop-shadow(0 0 0 rgba(0,0,0,0))";
-        marker.getElement().setAttribute("data-manual", "1");
-      }
-      if (canDispatch && placing && !historyDate) {
+      marker.getElement().style.zIndex = editable ? "5" : "2"; // 修正中は最前面に
+      if (editable) {
         marker.getElement().style.cursor = "grab";
-        // 掴める状態を見た目でも伝える（何もしないと「動かない地図」に見える）
-        marker.getElement().style.filter = "drop-shadow(0 0 6px rgba(2,132,199,0.9))";
         marker.on("dragend", () => {
           const { lng, lat } = marker.getLngLat();
           setPlacingMessage(`${plateText(v)} の位置を保存しています…`);
@@ -864,7 +873,7 @@ export default function MapPage() {
                 }`}
               >
                 <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3" />
-                {placing ? "配置モード中（終了）" : "位置を置く"}
+                {placing ? "位置の修正を終える" : "車の位置を直す"}
               </button>
             )}
 
@@ -888,8 +897,9 @@ export default function MapPage() {
         ) : placing ? (
           <div className="flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-100 px-3 py-2 text-xs font-medium text-sky-900">
             <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
-            配置モード中: 光っているピンをドラッグして置き直してください。地図の移動は一時的に止めています
-            （ズームはスクロール可）。終わったら「配置モード中（終了）」を押してください
+            位置の修正中: 青く光っているピンをつまんで、実際にいる場所へ動かしてください。
+            地図の移動は一時的に止めています（ズームはスクロールでできます）。
+            終わったら「位置の修正を終える」を押してください
           </div>
         ) : historyDate ? (
           <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -899,9 +909,19 @@ export default function MapPage() {
         ) : canDispatch ? (
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
-            車を手で置きたいときは「位置を置く」を押してください（打刻GPSは上書きしません）
+            GPS がまだ無い車の居場所は、手で教えられます。「車の位置を直す」を押してください
+            （打刻GPSは上書きしません）
           </div>
         ) : null}
+
+        {/* 位置が1件も無いときは、その事実をはっきり出す（マーカーが無いのか、掴めないのか区別できるように） */}
+        {!isLoading && located.length === 0 && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
+            位置が記録された車両がまだありません（打刻GPSも手動配置も0件）。
+            {historyDate ? "別の日時を選んでみてください。" : "GPS付きの出退勤打刻が入るか、手動で配置すると表示されます。"}
+          </div>
+        )}
 
         {/* 履歴のタイムライン */}
         {historyDate && (
