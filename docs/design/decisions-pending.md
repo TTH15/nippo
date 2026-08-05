@@ -6,7 +6,7 @@
 
 ---
 
-## A. 地図・配車作戦盤（[map-board.md](map-board.md)）
+## A. 地図・配車作戦盤（[map-board.md](map-board.md)）★2026-08-06 **全項目ユーザー承認済み**（推奨どおり）
 
 | # | 論点 | 推奨 | 判断がずれると何が起きるか |
 |---|---|---|---|
@@ -17,7 +17,7 @@
 
 ---
 
-## B. プランと課金（[plans-and-billing.md](plans-and-billing.md)）
+## B. プランと課金（[plans-and-billing.md](plans-and-billing.md)）★2026-08-06 **推奨どおり承認済み**（B7 価格のみ経営判断として保留）
 
 | # | 論点 | 推奨 | 補足 |
 |---|---|---|---|
@@ -31,7 +31,7 @@
 
 ---
 
-## C. 元請け／下請け連携（[prime-sub-reports.md](prime-sub-reports.md)）
+## C. 元請け／下請け連携（[prime-sub-reports.md](prime-sub-reports.md)）★2026-08-06 **推奨どおり承認済み**
 
 | # | 論点 | 推奨 | 補足 |
 |---|---|---|---|

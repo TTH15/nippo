@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTenant } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { recordPunchPosition } from "@/server/vehicles/positions";
 import { todayJST } from "@/lib/date";
 import { resolveScanTarget, parseIntOrNull, normGpsStatus, parseInspectionPhotos, saveInspection } from "@/server/vehicleQr/session";
 
@@ -69,6 +70,16 @@ export async function POST(req: NextRequest) {
     console.error(error);
     return NextResponse.json({ ok: false, error: "Failed to check in" }, { status: 500 });
   }
+
+  // 地図用の位置時系列へ追記（打刻＝位置の出どころのひとつ）
+  await recordPunchPosition({
+    orgId,
+    vehicleId: target.vehicleId,
+    at: session.started_at as string,
+    lat: body?.lat,
+    lng: body?.lng,
+    recordedBy: user.driverId,
+  });
 
   // 4) オドメーター写真・4方向点検写真があれば pre 点検として保存（承認まで保持・§7）
   const inspectionPhotos = parseInspectionPhotos(body?.inspectionPhotos);

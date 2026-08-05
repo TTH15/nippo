@@ -30,6 +30,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { useApi } from "@/lib/useApi";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { hasCapability } from "@/lib/capabilities";
 import { useSharedMapView } from "@/lib/map/sharedView";
 import {
   VehiclePlate,
@@ -119,11 +120,25 @@ type MapVehicle = VehiclePlateData & {
     lat: number;
     lng: number;
     at: string | null;
-    kind: "checkin" | "checkout";
+    kind: "checkin" | "checkout" | "manual" | "gps";
+    source?: "punch" | "manual" | "gps";
+    placedBy?: string;
+    note?: string | null;
     sessionStatus: "open" | "closed";
     driverName: string;
   } | null;
 };
+
+/** 通知メッセージ用の短いプレート表記。 */
+function plateText(v: MapVehicle): string {
+  return (
+    [v.number_class, v.number_hiragana, formatPlateNumeric(v.number_numeric || "")]
+      .filter(Boolean)
+      .join(" ") ||
+    v.brand ||
+    "車両"
+  );
+}
 
 function formatAt(at: string | null): string {
   if (!at) return "";
@@ -144,9 +159,11 @@ function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
         <span
           className={`inline-block h-2 w-2 rounded-full ${working ? "bg-emerald-500" : "bg-slate-400"}`}
         />
-        {working
-          ? `稼働中${p.driverName ? `（${p.driverName} さん）` : ""}・${formatAt(p.at)} 出勤打刻`
-          : `${formatAt(p.at)} ${p.kind === "checkout" ? "退勤" : "出勤"}打刻の位置`}
+        {p.source === "manual"
+          ? `${formatAt(p.at)} に手動で配置${p.placedBy ? `（${p.placedBy}）` : ""}`
+          : working
+            ? `稼働中${p.driverName ? `（${p.driverName} さん）` : ""}・${formatAt(p.at)} 出勤打刻`
+            : `${formatAt(p.at)} ${p.kind === "checkout" ? "退勤" : "出勤"}打刻の位置`}
       </div>
     </div>
   );
@@ -285,6 +302,12 @@ export default function MapPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
+  // 位置のドラッグ配置は配車権限を持つ人だけ（設計: docs/design/map-board.md）
+  const [canDispatch, setCanDispatch] = useState(false);
+  useEffect(() => {
+    setCanDispatch(hasCapability("can_dispatch"));
+  }, []);
+  const [placingMessage, setPlacingMessage] = useState<string | null>(null);
   const popupRootsRef = useRef<Root[]>([]);
   const placeMarkersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
   const placeRootsRef = useRef<Root[]>([]);
@@ -672,11 +695,39 @@ export default function MapPage() {
       }).setDOMContent(node);
       const marker = new mapboxgl.Marker({
         color: p.sessionStatus === "open" ? "#059669" : "#64748b",
+        draggable: canDispatch,
       })
         .setLngLat([p.lng, p.lat])
         .setPopup(popup)
         .addTo(map);
       marker.getElement().style.zIndex = "2"; // 拠点ピンより前・プレート吹き出しより後
+      // 手動配置は破線リングで「GPS ではない」と分かるようにする
+      if (p.source === "manual") {
+        marker.getElement().style.filter = "drop-shadow(0 0 0 rgba(0,0,0,0))";
+        marker.getElement().setAttribute("data-manual", "1");
+      }
+      if (canDispatch) {
+        marker.getElement().style.cursor = "grab";
+        marker.on("dragend", () => {
+          const { lng, lat } = marker.getLngLat();
+          setPlacingMessage(`${plateText(v)} の位置を保存しています…`);
+          void apiFetch("/api/admin/map/positions", {
+            method: "POST",
+            body: JSON.stringify({ vehicleId: v.id, lat, lng }),
+          })
+            .then(() => {
+              setPlacingMessage(`${plateText(v)} の位置を記録しました`);
+              void mutate(); // 出どころ（手動）と時刻を確定させる
+              setTimeout(() => setPlacingMessage(null), 2500);
+            })
+            .catch((e) => {
+              console.error(e);
+              setPlacingMessage("位置を保存できませんでした。元に戻します");
+              marker.setLngLat([p.lng, p.lat]); // 失敗したら元の位置へ戻す
+              setTimeout(() => setPlacingMessage(null), 4000);
+            });
+        });
+      }
       markersRef.current.push(marker);
       bounds.extend([p.lng, p.lat]);
     }
@@ -685,7 +736,7 @@ export default function MapPage() {
       fittedRef.current = true;
       map.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 0 });
     }
-  }, [located]);
+  }, [located, canDispatch, mutate]);
 
   // 2D/3D トグル: ピッチだけ変える（方位はユーザー操作を尊重してそのまま）。
   const setView = (mode: "2d" | "3d") => {
@@ -757,8 +808,16 @@ export default function MapPage() {
           </button>
         </div>
 
+        {/* ドラッグ配置の案内と結果。GPS が入る前でも位置を共有できる導線（Stage 0.5） */}
+        {canDispatch && (
+          <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+            <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
+            {placingMessage ?? "ピンをドラッグすると、その場所を「手動で配置した位置」として記録します（打刻GPSは上書きしません）"}
+          </div>
+        )}
+
         <p className="text-xs text-slate-500">
-          車両の最終確認位置（出退勤打刻のGPS）を表示します。カメラは右ドラッグ（Ctrl+ドラッグ）、または
+          車両の位置を表示します（出退勤打刻のGPS、または手動で配置した位置）。カメラは右ドラッグ（Ctrl+ドラッグ）、または
           Option+スクロール（縦=傾き / 横=方角）で操作できます。拠点ピンは歯車の設定から追加できます。
           <span className="ml-2 inline-flex items-center gap-1">
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />

@@ -800,3 +800,27 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
   地図4件・課金7件・元請け3件・請求2件＋作業待ち。各項目に推奨を明記し、
   「全部推奨で」と言えば進められる状態にした
 - 検証: ドキュメントのみ（コード変更なし）
+
+## 2026-08-06 03:00 地図 Stage 0.5 実装（位置の時系列化＋ドラッグ配置）
+
+ユーザー承認「全部推奨で。地図 Stage 0.5 から」を受けて実装。
+
+- **migration 122 `vehicle_positions`**（要適用）: org/vehicle/at/lat/lng/heading/accuracy/
+  source('punch'|'manual'|'gps')/recorded_by/note。**上書きせず追記**。
+  既存の `vehicle_sessions` の打刻GPS（出勤・退勤の座標）を `source='punch'` として**冪等に取り込む**
+  INSERT も同梱（NOT EXISTS ガード付きなので再実行しても増えない）
+- **GET /api/admin/map/vehicles を作り直し**: 位置の正本を vehicle_positions に変更。
+  車両ごとに最新行＝現在地。**`?at=<ISO>` を付けると as-of（その時刻の位置）を返す**＝Stage 0.6 の土台。
+  稼働中か（sessionStatus）は位置とは別の事実なので vehicle_sessions から取る。
+  レスポンスは `source` / `placedBy` / `note` を追加しつつ、従来キー（kind・sessionStatus・driverName）も維持
+  したので **FleetMapCard / FleetMapBoard は無改修で動く**
+- **POST /api/admin/map/positions**（新規・`can_dispatch`）: 手動配置を1行追記。
+  他社車両を動かせないよう owner_org_id を明示確認。誰が置いたかを recorded_by に必ず記録
+- **打刻時の追記**: `server/vehicles/positions.ts` の `recordPunchPosition` を check-in / check-out から呼ぶ。
+  **位置の記録に失敗しても打刻は成立させる**（現場を止めない）。GPS 拒否で座標が無ければ行を作らない
+- **/admin/map のドラッグ配置**: `can_dispatch` のときだけマーカーを draggable に。
+  dragend で保存 →失敗したら**元の位置へ戻す**。吹き出しに「◯月◯日◯時に手動で配置（誰が）」を表示。
+  画面上部に案内バー（「打刻GPSは上書きしません」と明記）
+- 検証: web tsc クリーン・テスト 439 passed・next build 成功
+- **残（次の一手）**: ①migration 122 の適用（Supabase SQL エディタ）②適用後に dev で動作確認
+  ③Stage 0.6 履歴スクラブ（API は `?at=` 対応済みなので、日付＋タイムラインの UI だけ）
