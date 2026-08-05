@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/server/db/client";
 import { toE164JP } from "@/server/otp/phone";
 import { checkOtp } from "@/server/otp/twilio";
-import { resolveActiveDriverByIdentity, issueDriverSession } from "@/server/identity";
+import {
+  resolveActiveDriverByIdentity,
+  describeIdentityLoginFailure,
+  issueDriverSession,
+} from "@/server/identity";
 
 export const dynamic = "force-dynamic";
 
@@ -50,13 +54,8 @@ export async function POST(req: NextRequest) {
 
     const resolved = await resolveActiveDriverByIdentity(identity.id);
     if ("error" in resolved) {
-      if (resolved.error === "multiple") {
-        return NextResponse.json(
-          { error: "複数の所属があるため、この復旧方法は未対応です。運営にお問い合わせください" },
-          { status: 409 },
-        );
-      }
-      return NextResponse.json({ error: "有効なアカウントが見つかりませんでした" }, { status: 401 });
+      const failure = await describeIdentityLoginFailure(identity.id, resolved.error);
+      return NextResponse.json({ error: failure.error }, { status: failure.status });
     }
 
     return NextResponse.json(await issueDriverSession(resolved.driver));

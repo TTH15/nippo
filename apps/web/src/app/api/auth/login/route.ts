@@ -90,11 +90,12 @@ export async function POST(req: NextRequest) {
         }, { status: 401 });
       }
 
+      // PIN撤廃（§2-1a）: 招待リンク経由で入った人は初期PINを発行していない。
+      // これは不具合ではなく設計なので、500「設定が不完全」ではなく正しい導線を案内する。
       if (!driver.pin_hash) {
-        console.error("[Login] Driver has no PIN hash");
-        return NextResponse.json({ 
-          error: "ドライバーの設定が不完全です。管理者に連絡してください。" 
-        }, { status: 500 });
+        return NextResponse.json({
+          error: "このアカウントはPINを使いません。電話番号でのログイン（SMS認証）をご利用ください。",
+        }, { status: 401 });
       }
 
       // PINは、初期値としてドライバーコードの数字6桁を設定し、その後変更可能

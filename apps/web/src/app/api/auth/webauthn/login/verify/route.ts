@@ -6,7 +6,11 @@ import {
   byteaToPublicKey,
   rpConfig,
 } from "@/server/auth/webauthn";
-import { resolveActiveDriverByIdentity, issueDriverSession } from "@/server/identity";
+import {
+  resolveActiveDriverByIdentity,
+  describeIdentityLoginFailure,
+  issueDriverSession,
+} from "@/server/identity";
 
 export const dynamic = "force-dynamic";
 
@@ -78,14 +82,10 @@ export async function POST(req: NextRequest) {
 
     const resolved = await resolveActiveDriverByIdentity(cred.identity_id as string);
     if ("error" in resolved) {
-      if (resolved.error === "multiple") {
-        // 複数所属(複数org)のアカウント選択UIは今回のスコープ外。
-        return NextResponse.json(
-          { error: "複数の所属があるため、Passkeyログインは未対応です。PINでログインしてください" },
-          { status: 409 },
-        );
-      }
-      return NextResponse.json({ error: "有効なアカウントが見つかりませんでした" }, { status: 401 });
+      // Passkey 自体は検証できているのに membership 側で弾かれた状態。
+      // 招待リンク経由の人は PIN を持たないので「PINでログインして」は案内にならない。
+      const failure = await describeIdentityLoginFailure(cred.identity_id as string, resolved.error);
+      return NextResponse.json({ error: failure.error }, { status: failure.status });
     }
 
     return NextResponse.json(await issueDriverSession(resolved.driver));

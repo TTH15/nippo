@@ -29,6 +29,38 @@ export type ActiveDriverRow = {
  * Passkeyログイン・SMS OTPリカバリーなど「identityは分かるがdriverIdはまだ分からない」
  * ログイン経路で共用する。複数org所属の選択UIは未実装のため "multiple" はエラー扱い。
  */
+/**
+ * identity から membership を1件も解決できなかったときに、**理由の分かる**メッセージを返す。
+ * 招待リンク経由の人は PIN を持たない（§2-1a）ため、ここで詰まると復旧手段が無くなる。
+ * 「有効なアカウントが見つかりません」だけでは本人も運営も原因に辿り着けない（2026-08-05 指摘）。
+ */
+export async function describeIdentityLoginFailure(
+  identityId: string,
+  reason: "none" | "multiple",
+): Promise<{ error: string; status: number }> {
+  if (reason === "multiple") {
+    return {
+      error: "複数の所属があるため、この方法ではログインできません。運営にお問い合わせください",
+      status: 409,
+    };
+  }
+  const { data: memberships } = await supabase
+    .from("drivers") // tenant-scope-ok: ログイン経路。org 文脈が確定する前の診断
+    .select("status")
+    .eq("identity_id", identityId);
+  const statuses = new Set((memberships ?? []).map((m) => m.status as string | null));
+  if (statuses.size === 0) {
+    return { error: "有効なアカウントが見つかりませんでした", status: 401 };
+  }
+  if (statuses.has("pending")) {
+    return { error: "アカウントは承認待ちです。運営の承認をお待ちください", status: 403 };
+  }
+  if (statuses.has("rejected")) {
+    return { error: "この申請は承認されませんでした。運営にお問い合わせください", status: 403 };
+  }
+  return { error: "このアカウントは現在利用できません。運営にお問い合わせください", status: 403 };
+}
+
 export async function resolveActiveDriverByIdentity(
   identityId: string,
 ): Promise<{ driver: ActiveDriverRow } | { error: "none" | "multiple" }> {
