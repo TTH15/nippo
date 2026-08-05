@@ -705,3 +705,26 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 検証: web tsc クリーン・テスト 421 passed・next build 成功
 - 残: 同じ構造の画面（車両・請求など）にも `invalidateApi` を広げるか要検討。
   オフライン時の再送キュー（送信中に回線が切れた場合）は未対応
+
+## 2026-08-06 02:30 自動保存を共通フック化し、回帰テストで守る
+
+- 依頼「自動保存まわりのテストは書けるか。全画面に適用したい」への対応
+- `src/lib/useAutoSave.ts` を新設し、ドライバー編集に直書きしていたロジックを切り出した:
+  - デバウンス（既定1秒）／`enabled` で条件付き／`skipFirst` で初期流し込みを無視
+  - **クリーンアップで保留中の保存を取り消さない**。離脱（unmount / pagehide / タブ非表示）では
+    取り消しではなく **flush（即実行）**。fetch は unmount で中断されないので投げれば完了する
+  - 保存中に来た変更は捨てず、完了後にもう一度保存（最後の入力を必ず反映）
+  - `resetKey`（編集対象ID）で、別レコードの読み込みを「変更」と誤認しない。
+    切り替え時に保留中だった保存は**前のレコードの値で**実行してから基準をリセットする
+    （実装上の肝: resetKey の effect を値の effect より**前に宣言**する。effect は宣言順に走るため、
+     そこではまだ latest が前の値になっている。render 中に副作用を書くと setState during render になる）
+- `src/lib/useAutoSave.test.tsx`（12ケース）: デバウンス集約／**unmount で flush**／pagehide で flush／
+  flush()／enabled=false／同内容は保存しない／保存中の変更の追い保存／失敗時 status=error と再送／
+  status 遷移／resetKey 2件
+  - **回帰検出を実測で確認**: クリーンアップの clearTimeout を戻すと「unmount で flush」が落ち、
+    元に戻すと通る。テストが実際にこの不具合を捕まえることを確認済み
+- ドライバー管理画面を `useAutoSave` に載せ替え（`skipAutoSave` / `autoSaveTimer` / `autoSaveStatus` を撤去）。
+  「閉じる」ボタンで flush してから閉じるようにし、1秒待たずに確定するようにした
+- 検証: web tsc クリーン・テスト **433 passed**（+12）・next build 成功
+- 残: 他画面（シフト・請求書・コース等）への適用。シフト画面は独自の楽観更新＋1.5秒再検証を持つため、
+  置き換えは挙動を確認しながら1画面ずつ行う

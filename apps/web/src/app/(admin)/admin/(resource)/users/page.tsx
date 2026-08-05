@@ -10,6 +10,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { swrFetcher, invalidateApi } from "@/lib/swr";
+import { useAutoSave } from "@/lib/useAutoSave";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
@@ -162,9 +163,6 @@ export default function UsersPage() {
   // 詳細モーダルのキャッシュ（同じドライバーを再度開く時はDBを叩かない）
   const detailCache = useRef<Map<string, { driver: Driver; lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null }>>(new Map());
   // 自動保存（編集モード）。populate 直後の1回はスキップ。
-  const skipAutoSave = useRef(true);
-  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   // 担当可能コース: 未選択はアコーディオンに隠す（選択中のみ常時表示）
   const [courseOpen1, setCourseOpen1] = useState(false);
   const [courseOpen2, setCourseOpen2] = useState(false);
@@ -374,8 +372,6 @@ export default function UsersPage() {
 
   const openEdit = async (d: Driver) => {
     if (!canWrite) return;
-    skipAutoSave.current = true; // populate では自動保存しない
-    setAutoSaveStatus("idle");
     setModalTab("basic");
     setEditingDriver(d);
 
@@ -404,7 +400,6 @@ export default function UsersPage() {
       const full = res.driver;
       const lease = leaseRes.lease;
       detailCache.current.set(d.id, { driver: full, lease });
-      skipAutoSave.current = true; // 取得後の populate でも自動保存しない
       populateForm(full, lease);
     } catch (e) {
       console.error(e);
@@ -646,7 +641,6 @@ export default function UsersPage() {
       // 保存後はキャッシュを無効化（次回オープン時に最新を1回だけ取得）
       if (savedDriverId) detailCache.current.delete(savedDriverId);
       if (silent) {
-        setAutoSaveStatus("saved");
       } else {
         setShowModal(false);
       }
@@ -660,7 +654,6 @@ export default function UsersPage() {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
       if (silent) {
-        setAutoSaveStatus("error");
       } else {
         setErrorState({
           title: "ドライバー情報の保存に失敗しました",
@@ -807,49 +800,18 @@ export default function UsersPage() {
     }
   };
 
-  // 保留中の自動保存を「取り消さずに、いま実行する」。
-  // 以前はクリーンアップで clearTimeout していたため、モーダルを閉じる・別ページへ移る等で
-  // 依存が変わった瞬間に**保存が消えていた**（「閉じたら保存されていなかった」の正体・2026-08-06）。
-  // fetch は unmount では中断されないので、飛ばしてしまえば最後まで完了する。
-  const flushAutoSave = useCallback(() => {
-    if (!autoSaveTimer.current) return;
-    clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = null;
-    void saveRef.current?.({ silent: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 自動保存（編集モード）: 入力変更を1秒デバウンスで PUT。populate直後・無効入力・新規はスキップ。
-  // ★クリーンアップでタイマーを消さないこと。次の実行の冒頭で clearTimeout しているので
-  //   デバウンスは成立しており、クリーンアップでの取り消しは「保存の取りこぼし」しか生まない。
-  useEffect(() => {
-    if (modalLoading || !editingDriver || !canWrite || !isFormValid) return;
-    if (!showModal) return; // モーダルが開いている間の変更だけを新規にスケジュールする
-    if (skipAutoSave.current) {
-      skipAutoSave.current = false;
-      return;
-    }
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    setAutoSaveStatus("saving");
-    autoSaveTimer.current = setTimeout(() => {
-      autoSaveTimer.current = null;
-      void save({ silent: true });
-    }, 1000);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, leaseForm, modalLoading, editingDriver, isFormValid]);
-
-  // 画面から離れる（タブを閉じる・リロード）ときも、保留中の保存を飛ばしてから離れる。
-  useEffect(() => {
-    const onHide = () => flushAutoSave();
-    window.addEventListener("pagehide", onHide);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") onHide();
-    });
-    return () => {
-      window.removeEventListener("pagehide", onHide);
-      flushAutoSave(); // このページを離れるときも取りこぼさない
-    };
-  }, [flushAutoSave]);
+  // 自動保存は共通フック（useAutoSave）に集約した。
+  // 「保留中の保存をクリーンアップで取り消さない／離脱時は flush する」という肝は
+  // フック側にあり、回帰テスト（src/lib/useAutoSave.test.tsx）で守っている。
+  const { status: autoSave, flush: flushAutoSave } = useAutoSave({
+    value: { form, leaseForm },
+    enabled: showModal && !modalLoading && !!editingDriver && canWrite && isFormValid,
+    // 別のドライバーを開いたときに、その読み込みを「変更」と誤認しない
+    resetKey: editingDriver?.id ?? null,
+    onSave: async () => {
+      await saveRef.current?.({ silent: true });
+    },
+  });
 
   return (
     <AdminLayout>
@@ -1775,16 +1737,19 @@ export default function UsersPage() {
                 {editingDriver ? (
                   <>
                     <span className="text-xs text-slate-400">
-                      {autoSaveStatus === "saving"
+                      {autoSave === "saving"
                         ? "保存中…"
-                        : autoSaveStatus === "saved"
+                        : autoSave === "saved"
                           ? "自動保存しました"
-                          : autoSaveStatus === "error"
+                          : autoSave === "error"
                             ? "保存に失敗しました"
                             : "変更は自動保存されます"}
                     </span>
                     <button
-                      onClick={() => setShowModal(false)}
+                      onClick={() => {
+                        flushAutoSave(); // 閉じる前に保留中の変更を確定させる
+                        setShowModal(false);
+                      }}
                       className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
                     >
                       閉じる
