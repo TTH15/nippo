@@ -462,6 +462,15 @@ export async function DELETE(
 
   const { id } = await params;
 
+  // 削除前に identity を控える。drivers を消しただけでは identity が残り、
+  // 作り直すたびに孤児が積み上がる（本番で同一人物の identity が8件できていた・2026-08-05）。
+  const { data: target } = await supabase
+    .from("drivers")
+    .select("identity_id")
+    .eq("id", id)
+    .eq("org_id", orgId)
+    .maybeSingle();
+
   const { error } = await supabase
     .from("drivers")
     .delete()
@@ -471,6 +480,27 @@ export async function DELETE(
   if (error) {
     console.error(error);
     return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
+  }
+
+  // 残った identity が「どこからも使われていない・未検証・Passkeyなし」なら一緒に片付ける。
+  // 検証済み identity は人の記録として残す（招待リンクの find-or-create が再利用するため）。
+  // 通知連携など他テーブルから参照されている場合は FK で弾かれるので、失敗は無視してよい。
+  const identityId = target?.identity_id as string | null | undefined;
+  if (identityId) {
+    const [{ count: remainingMemberships }, { count: passkeyCount }, { data: identity }] = await Promise.all([
+      supabase.from("drivers").select("id", { count: "exact", head: true }).eq("identity_id", identityId),
+      supabase
+        .from("passkey_credentials")
+        .select("id", { count: "exact", head: true })
+        .eq("identity_id", identityId),
+      supabase.from("identities").select("phone_verified_at").eq("id", identityId).maybeSingle(),
+    ]);
+    if ((remainingMemberships ?? 0) === 0 && (passkeyCount ?? 0) === 0 && !identity?.phone_verified_at) {
+      const { error: identityDeleteError } = await supabase.from("identities").delete().eq("id", identityId);
+      if (identityDeleteError) {
+        console.log("[Users] 孤児 identity の削除をスキップ:", identityDeleteError.message);
+      }
+    }
   }
 
   return NextResponse.json({ ok: true });
