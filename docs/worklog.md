@@ -650,3 +650,17 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 旧撮影コンポーネント3件（MeterScanner / VehicleInspectionCapture / LicenseSpotCheck）を削除
 - 検証: mobile tsc クリーン / web tsc クリーン・テスト 421 passed。**実機・シミュレータでの動作確認は未**
 - 残（roadmap D-B）: 終了フロー拡張（給油・返却・忘れ物）＋終了サマリー、BottomSheet の作り込み、デザインシステム整備
+
+## 2026-08-05 17:40 認証・名簿まわりの修正だけを main へ cherry-pick
+
+- 対象（`feat/mobile-capture-flow` から web のみ5コミットを cherry-pick -x）:
+  - 承認時の名簿番号採番＋一覧の行番号フォールバック撤去
+  - 名簿番号の自動採番拡張＋山本さんの手当てSQL
+  - ログイン失敗理由の区別（承認待ち/却下/複数所属）とPINレスの案内
+  - 電話番号の表記ゆれ吸収・管理画面作成のE.164正規化・Passkey登録失敗の文言
+  - ドライバー削除時の孤児 identity 後始末＋クリーンアップSQL
+- **モバイルと dev 限定UI（FleetMapBoard / OpsDashboard / /api/admin/dashboard/ops）は混入なし**を
+  `git diff --name-only` で確認。変更は apps/web の10ファイル＋scripts の SQL 3本のみ
+- 作業ログの衝突は main 側を採用して解消（追記の重複を避けるため。経緯はブランチ側に残っている）
+- 検証: web tsc クリーン（`.next/types` の古い残骸によるエラーは再ビルドで解消）・
+  テスト 421 passed・next build 成功
