@@ -396,13 +396,18 @@ export async function PUT(
     // 招待リンク経由（/api/join）の申請は list_no が null のまま入るため、ここで採番しないと
     // 一覧が番号なしのまま並ぶ（画面側の行番号フォールバックと重なって既存の番号と重複して見える。
     // 2026-08-05 指摘）。管理画面から直接作る経路（POST /api/admin/users）と同じ規則で max+1。
-    if (updates.status === "active" && driverRow.status !== "active") {
+    // 「承認の瞬間」だけでなく、更新後に active かつドライバー扱いなら未採番を埋める。
+    // 取りこぼし（過去に承認済みで null のまま残っている行）もここで自然に解消される。
+    const willBeActive = updates.status ? updates.status === "active" : driverRow.status === "active";
+    if (willBeActive) {
       const { data: current } = await supabase
         .from("drivers")
-        .select("list_no")
+        .select("list_no, works_as_driver")
         .eq("id", driverId)
         .maybeSingle();
-      if (current && current.list_no == null) {
+      const worksAsDriverAfter =
+        typeof updates.works_as_driver === "boolean" ? updates.works_as_driver : current?.works_as_driver === true;
+      if (current && current.list_no == null && worksAsDriverAfter) {
         const { data: listRows } = await supabase
           .from("drivers")
           .select("list_no")
