@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare, faRotateRight, faFileLines, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
+import { swrFetcher } from "@/lib/swr";
 import { hasCapability } from "@/lib/capabilities";
 import { Button } from "@/lib/ui/button";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
@@ -928,7 +929,7 @@ export default function SalesPage() {
 
   const { data: coursesData } = useSWR<{ courses: CourseRow[] }>(
     "/api/admin/courses",
-    (url: string) => apiFetch<{ courses: CourseRow[] }>(url),
+    swrFetcher,
     {
       revalidateOnFocus: false,
       dedupingInterval: 30 * 60 * 1000,
@@ -941,7 +942,7 @@ export default function SalesPage() {
   // キャリアマスタ（グループ表示ラベルの脱ハードコード用: code→name）
   const { data: carriersData } = useSWR<{ carriers: { code: string | null; name: string | null }[] }>(
     "/api/admin/carriers",
-    (url: string) => apiFetch<{ carriers: { code: string | null; name: string | null }[] }>(url),
+    swrFetcher,
     { revalidateOnFocus: false, dedupingInterval: 30 * 60 * 1000 },
   );
   const carrierNameByCode = useMemo(() => {
@@ -1015,7 +1016,7 @@ export default function SalesPage() {
 
   const { data: salesDataRes, isLoading: salesLoading } = useSWR<{ data: DataPoint[]; carriers?: CarrierMeta[] }>(
     salesKey,
-    (url: string) => apiFetch<{ data: DataPoint[]; carriers?: CarrierMeta[] }>(url),
+    swrFetcher,
     {
       revalidateOnFocus: false,
       dedupingInterval: 10 * 60 * 1000,
@@ -1038,7 +1039,7 @@ export default function SalesPage() {
 
   const { data: prevSalesDataRes, isLoading: prevSalesLoading } = useSWR<{ data: DataPoint[] }>(
     prevSalesKey,
-    (url: string) => apiFetch<{ data: DataPoint[] }>(url),
+    swrFetcher,
     {
       revalidateOnFocus: false,
       dedupingInterval: 10 * 60 * 1000,

@@ -20,6 +20,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { CourseRateEditor, type CourseRateEditorHandle } from "@/lib/components/CourseRateEditor";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { invalidateApi } from "@/lib/swr";
 import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
 import { slotDisplayLabel } from "@/lib/timeSlot";
@@ -323,6 +324,8 @@ export default function CoursesPage() {
       });
       setAssignTarget(null);
       await refreshBundle();
+      // ドライバー一覧の「担当コース」も変わる。自画面だけ直しても一覧は未設定のまま残る。
+      void invalidateApi("/api/admin/users");
     } catch (e) {
       setConfirmState({
         message: e instanceof Error ? e.message : "担当ドライバーの保存に失敗しました",

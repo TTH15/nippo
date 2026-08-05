@@ -678,3 +678,30 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
      Passkey ボタンが出ない環境では「または」の区切りをこちらに付ける
 - アイコンは Font Awesome の `faCommentSms`（絵文字は使わない規約どおり）
 - 検証: web tsc クリーン・テスト 421 passed・next build 成功
+
+## 2026-08-06 02:20 管理画面の「保存が消える」「反映が遅れる」の原因を潰す
+
+ユーザー指摘: ①画面を閉じたせいで保存できていないことがある ②コースを設定してもドライバー一覧は
+しばらく「未設定」のまま。**他アプリと違うのは仕組みであって不注意ではない**ので、3つの構造的原因を特定した。
+
+- **原因1: 自動保存が「取り消されて」いた**（users/page.tsx）
+  1秒デバウンスの自動保存で、`useEffect` のクリーンアップが `clearTimeout` していた。
+  コメントには「モーダルを閉じても打ち切らない」とあったが、閉じると form/editingDriver が変わり
+  依存が更新される＝クリーンアップが走って**保留中の保存が消えていた**。
+  → クリーンアップでの取り消しをやめ（デバウンスは次回実行の冒頭の clearTimeout で成立している）、
+    `flushAutoSave()` を追加。ページ離脱・タブ非表示・unmount では**取り消さずに即実行**する。
+    fetch は unmount で中断されないので、飛ばしてしまえば完了する
+- **原因2: HTTPキャッシュが mutate を無効化していた**
+  `/api/admin/users`（max-age=60, SWR=600）や `/api/admin/users/[id]`（30/300）に Cache-Control が付いている一方、
+  これらの画面の SWR fetcher は `apiFetch` を直に使っており `cache: "no-store"` が付いていなかった。
+  → 書き込み後に `mutate()` しても**ブラウザキャッシュが古い本文を返す**ため最大60秒（SWRで最大10分）古いまま。
+    users / users・pending / roles / sales / misc-reports の計13箇所を `swrFetcher`（no-store）に統一
+- **原因3: 画面をまたぐ無効化が無かった**
+  コース画面で担当ドライバーを保存しても、無効化するのは自画面のキーだけ。
+  ドライバー一覧は `dedupingInterval: 10分` だったため、戻っても再取得されず未設定のまま。
+  → `invalidateApi(...prefixes)` を `lib/swr.ts` に追加（SWR のグローバル mutate をキー接頭辞でフィルタ。
+    useSWRInfinite の "$inf$" 前置に対応するため includes 判定）。
+    コース保存→users、ドライバー保存→courses を相互に無効化。users 一覧の dedupe は 10分→30秒
+- 検証: web tsc クリーン・テスト 421 passed・next build 成功
+- 残: 同じ構造の画面（車両・請求など）にも `invalidateApi` を広げるか要検討。
+  オフライン時の再送キュー（送信中に回線が切れた場合）は未対応

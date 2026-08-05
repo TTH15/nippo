@@ -9,6 +9,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { swrFetcher } from "@/lib/swr";
 import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
 import { CoursePicker } from "@/lib/components/CoursePicker";
@@ -331,7 +332,7 @@ export default function PendingApprovalPage() {
   //（運用は個別リンク一本。/join?code= と join-code API は既存導線互換のため残置）。
   const { data: invitesRes, mutate: mutateInvites } = useSWR<{ invites: Invite[] }>(
     "/api/admin/invites",
-    (url: string) => apiFetch<{ invites: Invite[] }>(url),
+    swrFetcher,
     { revalidateOnFocus: false },
   );
   // 使用済み・失効は表示しない（成果は承認待ちリスト側に現れる。履歴は DB に永続）。
@@ -389,17 +390,17 @@ export default function PendingApprovalPage() {
 
   const { data: pendingRes, isLoading, mutate: mutatePending } = useSWR<{ drivers: PendingDriver[]; total: number }>(
     "/api/admin/users?status=pending&limit=100",
-    (url: string) => apiFetch<{ drivers: PendingDriver[]; total: number }>(url),
+    swrFetcher,
     { revalidateOnFocus: false },
   );
   const { data: coursesRes } = useSWR<{ courses: Course[] }>(
     "/api/admin/courses",
-    (url: string) => apiFetch<{ courses: Course[] }>(url),
+    swrFetcher,
     { revalidateOnFocus: false, dedupingInterval: 30 * 60 * 1000 },
   );
   const { data: kycRes, mutate: mutateKyc } = useSWR<{ drivers: KycDriver[]; total: number }>(
     "/api/admin/users?stage=kyc",
-    (url: string) => apiFetch<{ drivers: KycDriver[]; total: number }>(url),
+    swrFetcher,
     { revalidateOnFocus: false },
   );
   const courses = coursesRes?.courses ?? [];

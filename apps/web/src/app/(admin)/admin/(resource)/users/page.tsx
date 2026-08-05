@@ -9,6 +9,7 @@ import { CoursePicker } from "@/lib/components/CoursePicker";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { swrFetcher, invalidateApi } from "@/lib/swr";
 import { getDisplayName } from "@/lib/displayName";
 import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
@@ -216,15 +217,17 @@ export default function UsersPage() {
   };
 
   const { data: usersPages, isLoading: usersLoading, isValidating: usersValidating, setSize, mutate: mutateUsers } =
-    useSWRInfinite<UsersPageResponse>(usersPageKey, (url: string) => apiFetch<UsersPageResponse>(url), {
+    useSWRInfinite<UsersPageResponse>(usersPageKey, swrFetcher, {
       revalidateOnFocus: false,
-      dedupingInterval: 10 * 60 * 1000,
+      // 10分は長すぎた。他画面（コース割り当て等）の変更後に戻っても再取得されず、
+      // 「設定したのに未設定のまま」に見える原因になっていた（2026-08-06 指摘）。
+      dedupingInterval: 30 * 1000,
       revalidateFirstPage: false,
     });
 
   const { data: coursesRes, isLoading: coursesLoading } = useSWR<{ courses: Course[] }>(
     "/api/admin/courses",
-    (url: string) => apiFetch<{ courses: Course[] }>(url),
+    swrFetcher,
     {
       revalidateOnFocus: false,
       dedupingInterval: 30 * 60 * 1000,
@@ -234,7 +237,7 @@ export default function UsersPage() {
   // §2-6 ロール割当用の選択肢（org のロール一覧）。
   const { data: rolesRes } = useSWR<{ roles: { id: string; label: string }[] }>(
     "/api/admin/roles",
-    (url: string) => apiFetch<{ roles: { id: string; label: string }[] }>(url),
+    swrFetcher,
     { revalidateOnFocus: false, dedupingInterval: 30 * 60 * 1000 },
   );
   const roleOptions = rolesRes?.roles ?? [];
@@ -485,6 +488,7 @@ export default function UsersPage() {
     }));
   };
 
+  const saveRef = useRef<((opts?: { silent?: boolean }) => Promise<void>) | null>(null);
   const save = async (opts?: { silent?: boolean }) => {
     if (!canWrite) return;
     const silent = opts?.silent === true;
@@ -646,7 +650,9 @@ export default function UsersPage() {
       } else {
         setShowModal(false);
       }
-      // 一覧の SWR キャッシュも最新化する（dedupingInterval が10分あるため、
+      // コース画面の「担当ドライバー」も変わるため、そちらのキャッシュも落とす。
+      void invalidateApi("/api/admin/courses");
+      // 一覧の SWR キャッシュも最新化する（dedupingInterval があるため、
       // これを怠ると再訪時に古い一覧で上書きされ「保存されていない」ように見える）。
       // 保存自体は確定済みなので待たない。
       void mutateUsers();
@@ -669,6 +675,8 @@ export default function UsersPage() {
       setSaving(false);
     }
   };
+
+  saveRef.current = save;
 
   const deleteDriver = async (id: string, name: string) => {
     if (!canWrite) return;
@@ -799,9 +807,21 @@ export default function UsersPage() {
     }
   };
 
+  // 保留中の自動保存を「取り消さずに、いま実行する」。
+  // 以前はクリーンアップで clearTimeout していたため、モーダルを閉じる・別ページへ移る等で
+  // 依存が変わった瞬間に**保存が消えていた**（「閉じたら保存されていなかった」の正体・2026-08-06）。
+  // fetch は unmount では中断されないので、飛ばしてしまえば最後まで完了する。
+  const flushAutoSave = useCallback(() => {
+    if (!autoSaveTimer.current) return;
+    clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = null;
+    void saveRef.current?.({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 自動保存（編集モード）: 入力変更を1秒デバウンスで PUT。populate直後・無効入力・新規はスキップ。
-  // showModal は依存に含めない: モーダルを閉じても保留中の保存タイマーを打ち切らず、
-  // バックグラウンドで完了させるため（閉じた直後の変更が保存されずに消えるのを防ぐ）。
+  // ★クリーンアップでタイマーを消さないこと。次の実行の冒頭で clearTimeout しているので
+  //   デバウンスは成立しており、クリーンアップでの取り消しは「保存の取りこぼし」しか生まない。
   useEffect(() => {
     if (modalLoading || !editingDriver || !canWrite || !isFormValid) return;
     if (!showModal) return; // モーダルが開いている間の変更だけを新規にスケジュールする
@@ -812,13 +832,24 @@ export default function UsersPage() {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     setAutoSaveStatus("saving");
     autoSaveTimer.current = setTimeout(() => {
+      autoSaveTimer.current = null;
       void save({ silent: true });
     }, 1000);
-    return () => {
-      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, leaseForm, modalLoading, editingDriver, isFormValid]);
+
+  // 画面から離れる（タブを閉じる・リロード）ときも、保留中の保存を飛ばしてから離れる。
+  useEffect(() => {
+    const onHide = () => flushAutoSave();
+    window.addEventListener("pagehide", onHide);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") onHide();
+    });
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      flushAutoSave(); // このページを離れるときも取りこぼさない
+    };
+  }, [flushAutoSave]);
 
   return (
     <AdminLayout>

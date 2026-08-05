@@ -18,6 +18,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { swrFetcher } from "@/lib/swr";
 import { hasCapability } from "@/lib/capabilities";
 
 // ============================================================
@@ -53,7 +54,7 @@ export default function RolesPage() {
 
   const { data, isLoading, mutate } = useSWR<RolesRes>(
     "/api/admin/roles",
-    (url: string) => apiFetch<RolesRes>(url),
+    swrFetcher,
     { revalidateOnFocus: false },
   );
   const roles = data?.roles ?? [];

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { swrFetcher } from "@/lib/swr";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
@@ -125,7 +126,7 @@ export function OtherReportsContent({ onMutated }: { onMutated?: () => void } = 
     isValidating,
     setSize,
     mutate,
-  } = useSWRInfinite<OilChangePage>(getKey, (url: string) => apiFetch<OilChangePage>(url), {
+  } = useSWRInfinite<OilChangePage>(getKey, swrFetcher, {
     // 未承認は新着を取りこぼさないよう、タブ復帰で再検証＋デデュープを短く。
     // 承認済は変化が少ないため再検証を抑えてチラつき・無駄な取得を防ぐ。
     revalidateOnFocus: tab === "pending",
