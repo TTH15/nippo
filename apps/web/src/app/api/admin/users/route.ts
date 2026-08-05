@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { toE164JP } from "@/server/otp/phone";
 import { signKyc } from "@/server/kyc/storage";
 
 export const dynamic = "force-dynamic";
@@ -319,7 +320,9 @@ export async function POST(req: NextRequest) {
         list_no: nextListNo,
         postal_code: typeof postalCode === "string" ? postalCode.trim() || null : null,
         address: typeof address === "string" ? address.trim() || null : null,
-        phone: typeof phone === "string" ? phone.trim() || null : null,
+        // 電話番号は E.164 で保存する。国内表記のまま入れると SMS ログインの
+        // 照合（toE164JP した値で引く）に掛からなくなる（2026-08-05 本番で確認）。
+        phone: typeof phone === "string" ? toE164JP(phone) || phone.trim() || null : null,
         bank_name: typeof bankName === "string" ? bankName.trim() || null : null,
         bank_no: typeof bankNo === "string" ? bankNo.trim() || null : null,
         bank_holder: typeof bankHolder === "string" ? bankHolder.trim() || null : null,
@@ -345,7 +348,9 @@ export async function POST(req: NextRequest) {
       .from("identities")
       .insert({
         name: name.trim(),
-        phone: typeof phone === "string" ? phone.trim() || null : null,
+        // 電話番号は E.164 で保存する。国内表記のまま入れると SMS ログインの
+        // 照合（toE164JP した値で引く）に掛からなくなる（2026-08-05 本番で確認）。
+        phone: typeof phone === "string" ? toE164JP(phone) || phone.trim() || null : null,
         license_expiry:
           typeof licenseExpiryDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(licenseExpiryDate)
             ? licenseExpiryDate

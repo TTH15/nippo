@@ -71,5 +71,5 @@ FROM drivers d
 LEFT JOIN identities i ON i.id = d.identity_id
 LEFT JOIN passkey_credentials p ON p.identity_id = d.identity_id
 WHERE d.pin_hash IS NULL
-GROUP BY d.name, d.status, d.driver_code, d.pin_hash, i.phone_verified_at
+GROUP BY d.name, d.status, d.driver_code, d.pin_hash, i.phone_verified_at, d.created_at
 ORDER BY d.created_at;

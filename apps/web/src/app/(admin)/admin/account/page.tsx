@@ -49,7 +49,7 @@ export default function AdminAccountPage() {
         if (!latest?.hasPasskey) {
           setPasskeyMessage({
             type: "error",
-            text: "登録できませんでした。この端末に既に登録済みか、時間切れの可能性があります。",
+            text: "登録できませんでした。アプリ内ブラウザではPasskeyを登録できません。Safari / Chrome で開き直してからお試しください。",
           });
         }
         return;

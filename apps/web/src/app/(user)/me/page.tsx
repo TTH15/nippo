@@ -196,14 +196,14 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       void refreshProfile(); // キャッシュも確定（再訪時に「未登録」へ戻らないように）
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "NotAllowedError") {
-        // ユーザーの明示的キャンセルだけでなく、この端末に登録済みのPasskeyと
-        // 重複した場合やタイムアウトでもブラウザは同じ NotAllowedError を返す。
-        // 実際に登録済みかどうかをサーバーに問い合わせて画面に反映する。
+        // ブラウザはキャンセル・時間切れ・既存Passkeyとの重複・アプリ内ブラウザ非対応を
+        // すべて同じ NotAllowedError で返す。サーバーに登録があるかで文言を分ける
+        //（0件なのに「既に登録済み」と案内すると原因に辿り着けない・2026-08-05 実例）。
         const latest = await refreshProfile();
         if (!latest?.hasPasskey) {
           setPasskeyMessage({
             type: "error",
-            text: "登録できませんでした。この端末に既に登録済みか、時間切れの可能性があります。",
+            text: "登録できませんでした。LINEなどのアプリ内ブラウザではPasskeyを登録できません。Safari / Chrome で開き直してからお試しください。",
           });
         }
         return;

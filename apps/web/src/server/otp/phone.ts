@@ -16,3 +16,16 @@ export function toE164JP(raw: string): string | null {
   // 0 始まりでない国内番号は判別不能
   return null;
 }
+
+/**
+ * DB の identities.phone を引くときの表記ゆれ候補を返す。
+ * 招待リンク経由（/api/join）は E.164 で保存する一方、運営が管理画面から作った行は
+ * "08012345678" のような国内表記のまま保存されている（2026-08-05 に本番で確認）。
+ * 正規化だけでは既存行を拾えないため、照合側で両方の表記を見る。
+ */
+export function phoneLookupVariants(raw: string): string[] {
+  const e164 = toE164JP(raw);
+  if (!e164) return [];
+  const local = e164.startsWith("+81") ? `0${e164.slice(3)}` : null;
+  return local ? [e164, local] : [e164];
+}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/server/db/client";
-import { toE164JP } from "@/server/otp/phone";
+import { toE164JP, phoneLookupVariants } from "@/server/otp/phone";
 import { checkOtp } from "@/server/otp/twilio";
 import {
   resolveActiveDriverByIdentity,
@@ -36,10 +36,11 @@ export async function POST(req: NextRequest) {
     }
 
     // 検証済みの電話番号を持つ identity のみ対象（未検証の legacy 行は対象外）。
+    // 表記ゆれ（+81… と 0… の両方が本番に存在する）を吸収して引く
     const { data: identity, error: identityError } = await supabase
       .from("identities")
       .select("id")
-      .eq("phone", phone)
+      .in("phone", phoneLookupVariants(phone))
       .not("phone_verified_at", "is", null)
       .order("phone_verified_at", { ascending: false })
       .limit(1)
