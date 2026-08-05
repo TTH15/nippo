@@ -26,6 +26,7 @@ import { VehiclePlate, plateDigits } from "@/lib/components/VehiclePlate";
 import { format } from "date-fns";
 import { todayJST } from "@/lib/date";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useAutoSave } from "@/lib/useAutoSave";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
@@ -353,6 +354,10 @@ export default function VehiclesPage() {
     }));
   };
 
+  /**
+   * 車両の保存本体。閉じる操作から切り離してあり、編集時は自動保存からも呼ぶ。
+   * ※車両画像は data URL（数MB）なので、未変更なら payload から外している（下の imageUnchanged）。
+   */
   const save = async () => {
     if (!canWrite) return;
     setSaving(true);
@@ -439,7 +444,7 @@ export default function VehiclesPage() {
         });
         setVehicles((prev) => sortVehicles([...prev, res.vehicle]));
       }
-      setShowModal(false);
+      if (!editingVehicle) setShowModal(false); // 新規追加は保存で閉じる（編集は自動保存＋閉じるボタン）
       // ここまでで保存は確定（成否はレスポンスで判明済み）。
       // 再取得はバックグラウンドに回して待たない — 画面は楽観更新で既に最新のため、
       // ここで await すると「保存中」表示が無駄に長引く。
@@ -471,6 +476,20 @@ export default function VehiclesPage() {
     };
     reader.readAsDataURL(file);
   };
+
+  // 編集中の車両だけ自動保存する（新規追加は「保存」で確定）。
+  // 画像は未変更なら payload に載らないので、入力途中の保存でも数MBを送り直すことはない。
+  const saveRef = useRef<(() => Promise<void>) | null>(null);
+  saveRef.current = save;
+  const { status: autoSave, flush: flushAutoSave } = useAutoSave({
+    value: form,
+    enabled: showModal && !!editingVehicle && canWrite && !!(form.manufacturer || form.brand),
+    delay: 1500, // 入力項目が多く payload も大きいので、ドライバー編集より長めにする
+    resetKey: editingVehicle?.id ?? null,
+    onSave: async () => {
+      await saveRef.current?.();
+    },
+  });
 
   const deleteVehicle = async (id: string, _label: string) => {
     if (!canWrite) return;
@@ -1097,7 +1116,7 @@ export default function VehiclesPage() {
 
       {/* 車両編集モーダル */}
       {showModal && canWrite && (
-        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => { flushAutoSave(); setShowModal(false); }}>
           <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="p-6 flex flex-col min-h-0 flex-1">
               <div className="flex items-start justify-between mb-4">
@@ -1684,20 +1703,45 @@ export default function VehiclesPage() {
               </div>
 
               <div className="flex flex-col gap-3 pt-4 mt-4 border-t border-slate-100 shrink-0">
-                <div className="flex justify-end gap-2">
-                  <button
-                    onClick={() => setShowModal(false)}
-                    className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
-                  >
-                    キャンセル
-                  </button>
-                  <button
-                    onClick={save}
-                    disabled={saving || !(form.manufacturer || form.brand)}
-                    className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
-                  >
-                    {saving ? "保存中..." : "保存"}
-                  </button>
+                <div className="flex items-center justify-end gap-3">
+                  {editingVehicle ? (
+                    <>
+                      <span className="text-xs text-slate-400">
+                        {saving || autoSave === "saving"
+                          ? "保存中…"
+                          : autoSave === "saved"
+                            ? "自動保存しました"
+                            : autoSave === "error"
+                              ? "保存に失敗しました"
+                              : "変更は自動保存されます"}
+                      </span>
+                      <button
+                        onClick={() => {
+                          flushAutoSave(); // 保留中の変更を確定させてから閉じる
+                          setShowModal(false);
+                        }}
+                        className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
+                      >
+                        閉じる
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setShowModal(false)}
+                        className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        onClick={save}
+                        disabled={saving || !(form.manufacturer || form.brand)}
+                        className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                      >
+                        {saving ? "保存中..." : "保存"}
+                      </button>
+                    </>
+                  )}
                 </div>
                 {editingVehicle && (
                   <div className="pt-3 border-t border-slate-200">

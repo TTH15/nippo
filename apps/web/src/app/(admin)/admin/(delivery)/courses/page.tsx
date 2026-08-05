@@ -21,6 +21,7 @@ import { CourseRateEditor, type CourseRateEditorHandle } from "@/lib/components/
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { invalidateApi } from "@/lib/swr";
+import { useAutoSave } from "@/lib/useAutoSave";
 import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
 import { slotDisplayLabel } from "@/lib/timeSlot";
@@ -314,6 +315,18 @@ export default function CoursesPage() {
     setAssignQuery("");
   };
 
+  // 入力途中でも失わないよう自動保存する。閉じる操作でも必ず保存するので、
+  // 「保存を押し忘れて閉じた」で消えることはない（2026-08-06 全画面展開）。
+  const persistRef = useRef<(() => Promise<void>) | null>(null);
+  const { status: autoSave, flush: flushAutoSave } = useAutoSave({
+    value: editForm,
+    enabled: showEditModal && !!editingCourse && canWrite && !!editForm.name.trim(),
+    resetKey: editingCourse?.id ?? null,
+    onSave: async () => {
+      await persistRef.current?.();
+    },
+  });
+
   const saveAssign = async () => {
     if (!assignTarget) return;
     setAssignSaving(true);
@@ -405,7 +418,11 @@ export default function CoursesPage() {
     setShowEditModal(true);
   };
 
-  const saveCourseEdit = async () => {
+  /**
+   * コース編集の保存本体。閉じる操作とは切り離してあり、自動保存からも「保存して閉じる」からも呼ぶ。
+   * 単価（course-billing）は別コンポーネントの状態なので、ここで必ず一緒に保存する。
+   */
+  const persistCourseEdit = async () => {
     if (!canWrite || !editingCourse) return;
     if (!editForm.name.trim()) return;
     setSaving(true);
@@ -450,8 +467,6 @@ export default function CoursesPage() {
         end_time: editForm.end_time || null,
       };
       setCourses((prev) => prev.map((c) => (c.id === editingCourse.id ? updatedCourse : c)));
-      setShowEditModal(false);
-      setEditingCourse(null);
       void refreshBundle();
     } catch (e) {
       console.error(e);
@@ -471,6 +486,16 @@ export default function CoursesPage() {
 
   const getDriversForCourse = (courseId: string) => {
     return drivers.filter((d) => driverHasCourse(d, courseId));
+  };
+
+  persistRef.current = persistCourseEdit;
+
+  /** 編集モーダルを閉じる。単価は自動保存の監視外なので、閉じる前に必ず保存する。 */
+  const closeEditModal = async () => {
+    flushAutoSave();
+    await persistCourseEdit();
+    setShowEditModal(false);
+    setEditingCourse(null);
   };
 
   const deleteCourse = async (courseId: string, name: string) => {
@@ -927,7 +952,10 @@ export default function CoursesPage() {
 
       {/* コース編集モーダル（横長2カラム・単価設定統合） */}
       {showEditModal && editingCourse && canWrite && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowEditModal(false)}>
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => void closeEditModal()}
+        >
           <div className="bg-white rounded-lg shadow-lg w-full max-w-6xl max-h-[95vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">コース編集</h2>
 
@@ -1107,22 +1135,22 @@ export default function CoursesPage() {
               >
                 削除
               </button>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-400">
+                  {saving || autoSave === "saving"
+                    ? "保存中…"
+                    : autoSave === "saved"
+                      ? "自動保存しました"
+                      : autoSave === "error"
+                        ? "保存に失敗しました"
+                        : "変更は自動保存されます"}
+                </span>
                 <button
-                  onClick={() => {
-                    setShowEditModal(false);
-                    setEditingCourse(null);
-                  }}
-                  className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 transition-colors"
-                >
-                  キャンセル
-                </button>
-                <button
-                  onClick={saveCourseEdit}
+                  onClick={() => void closeEditModal()}
                   disabled={saving || !editForm.name.trim()}
                   className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
                 >
-                  {saving ? "保存中..." : "保存"}
+                  {saving ? "保存中..." : "保存して閉じる"}
                 </button>
               </div>
             </div>
