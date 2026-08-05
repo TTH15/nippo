@@ -392,6 +392,32 @@ export async function PUT(
       if (errRes) return errRes;
     }
 
+    // 名簿の通し番号は「承認して名簿に載る」タイミングで採番する。
+    // 招待リンク経由（/api/join）の申請は list_no が null のまま入るため、ここで採番しないと
+    // 一覧が番号なしのまま並ぶ（画面側の行番号フォールバックと重なって既存の番号と重複して見える。
+    // 2026-08-05 指摘）。管理画面から直接作る経路（POST /api/admin/users）と同じ規則で max+1。
+    if (updates.status === "active" && driverRow.status !== "active") {
+      const { data: current } = await supabase
+        .from("drivers")
+        .select("list_no")
+        .eq("id", driverId)
+        .maybeSingle();
+      if (current && current.list_no == null) {
+        const { data: listRows } = await supabase
+          .from("drivers")
+          .select("list_no")
+          .eq("org_id", orgId)
+          .eq("works_as_driver", true);
+        const maxNo = Math.max(
+          0,
+          ...((listRows ?? []) as { list_no: number | null }[]).map((r) =>
+            typeof r.list_no === "number" ? r.list_no : 0,
+          ),
+        );
+        updates.list_no = maxNo + 1;
+      }
+    }
+
     if (Object.keys(updates).length > 0) {
       const { error } = await supabase.from("drivers").update(updates).eq("id", driverId).eq("org_id", orgId);
       if (error) throw error;

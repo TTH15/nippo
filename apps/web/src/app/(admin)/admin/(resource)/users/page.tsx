@@ -913,7 +913,7 @@ export default function UsersPage() {
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             {/* スマホ: カード一覧（横スクロール不要で全情報＋権限変更まで完結） */}
             <div className="md:hidden divide-y divide-slate-100">
-              {drivers.map((d, index) => {
+              {drivers.map((d) => {
                 const coursesOfDriver = allIdentityCourses(d);
                 const licenseStatus = getLicenseStatus(d.license_expiry_date);
                 return (
@@ -933,7 +933,11 @@ export default function UsersPage() {
                       )}
                       <div className="min-w-0 flex-1">
                         <p className="flex items-baseline gap-2 min-w-0">
-                          <span className="shrink-0 text-xs text-slate-400 tabular-nums">#{d.list_no ?? index + 1}</span>
+                          {/* 番号は名簿の通し番号（list_no）。未採番のときに行番号で代用すると
+    既存の番号と重複して見えるため、素直に未採番と分かる表示にする（2026-08-05 指摘） */}
+                          <span className="shrink-0 text-xs text-slate-400 tabular-nums">
+                            {d.list_no != null ? `#${d.list_no}` : "#—"}
+                          </span>
                           <span className="truncate font-semibold text-slate-900">{d.name}</span>
                           {getDisplayName(d) !== d.name && (
                             <span className="truncate text-xs text-slate-500">{getDisplayName(d)}</span>
@@ -1003,7 +1007,7 @@ export default function UsersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {drivers.map((d, index) => {
+                  {drivers.map((d) => {
                     const coursesOfDriver = allIdentityCourses(d);
                     const licenseStatus = getLicenseStatus(d.license_expiry_date);
                     return (
@@ -1012,7 +1016,7 @@ export default function UsersPage() {
                         onClick={() => canWrite && void openEdit(d)}
                         className={`border-t border-slate-100 ${canWrite ? "cursor-pointer hover:bg-slate-50" : ""}`}
                       >
-                        <td className="px-4 py-3 text-xs text-slate-400 tabular-nums">{d.list_no ?? index + 1}</td>
+                        <td className="px-4 py-3 text-xs text-slate-400 tabular-nums">{d.list_no ?? "—"}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             {d.faceUrl ? (
