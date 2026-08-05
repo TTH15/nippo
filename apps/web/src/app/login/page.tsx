@@ -9,6 +9,8 @@ import { canEnterAdmin } from "@/lib/capabilities";
 import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
 import { getCompany } from "@/config/companies";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCommentSms } from "@fortawesome/free-solid-svg-icons";
 
 type LoginResult = {
   token: string;
@@ -24,6 +26,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [passkeyError, setPasskeyError] = useState("");
+  const [needsPhoneLogin, setNeedsPhoneLogin] = useState(false);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
   const goToHome = (driver: LoginResult["driver"]) => {
@@ -80,6 +83,7 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setNeedsPhoneLogin(false);
 
     try {
       const digits6 = driverCode.replace(/\D/g, "").slice(0, 6);
@@ -117,6 +121,9 @@ export default function LoginPage() {
           errorMessage = "認証に失敗しました。ドライバーコードの数字6桁部分を確認してください";
         }
       }
+      // PINレスのアカウント（招待リンク経由）は、この画面では二度と成功しない。
+      // 文言を出すだけでは行き止まりなので、その場に電話番号ログインの導線を出す。
+      setNeedsPhoneLogin(errorMessage.includes("PINを使いません"));
       setError(errorMessage);
       console.error("Login error:", err);
     } finally {
@@ -190,7 +197,18 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <p className="text-sm text-red-600 text-center">{error}</p>
+              <div className="space-y-2">
+                <p className="text-sm text-red-600 text-center">{error}</p>
+                {needsPhoneLogin && (
+                  <Link
+                    href="/login/recover"
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 font-medium text-white transition-colors hover:bg-slate-800"
+                  >
+                    <FontAwesomeIcon icon={faCommentSms} className="h-4 w-4" />
+                    電話番号でログイン
+                  </Link>
+                )}
+              </div>
             )}
 
             <button
@@ -223,11 +241,27 @@ export default function LoginPage() {
                 </button>
               </>
             )}
+            {/* 招待リンクから入った人は PIN を持たない（§2-1a）。電話番号ログインは
+                「困った人向けの補助」ではなく**主要な入口のひとつ**なので、
+                薄いテキストリンクではなく Passkey と同格のボタンで出す（2026-08-05 指摘） */}
+            {!canUsePasskey && (
+              <div className="mb-3 flex items-center gap-3">
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="text-xs text-slate-400">または</span>
+                <div className="h-px flex-1 bg-slate-200" />
+              </div>
+            )}
             <Link
               href="/login/recover"
-              className="block w-full text-center text-sm text-slate-500 hover:text-slate-700 mt-3"
+              className="mt-3 flex w-full flex-col items-center rounded-lg border border-slate-300 bg-white py-2.5 transition-colors hover:bg-slate-50"
             >
-              電話番号でログイン（初めての方・機種変更・PIN/Passkeyを忘れた方）
+              <span className="flex items-center gap-2 font-medium text-slate-900">
+                <FontAwesomeIcon icon={faCommentSms} className="h-4 w-4 text-slate-500" />
+                電話番号でログイン
+              </span>
+              <span className="mt-0.5 text-xs text-slate-500">
+                初めての方・機種変更・PIN / Passkey を忘れた方
+              </span>
             </Link>
           </div>
         </div>
