@@ -824,3 +824,11 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 検証: web tsc クリーン・テスト 439 passed・next build 成功
 - **残（次の一手）**: ①migration 122 の適用（Supabase SQL エディタ）②適用後に dev で動作確認
   ③Stage 0.6 履歴スクラブ（API は `?at=` 対応済みなので、日付＋タイムラインの UI だけ）
+
+### 補足（2026-08-06 03:05）: Stage 0.5 の適用手順
+
+1. Supabase SQL エディタで `supabase/migrations/122_vehicle_positions.sql` を実行
+   （既存打刻の取り込みまで含む。`NOT EXISTS` ガード付きで再実行しても増えない）
+2. 適用前は地図の車両が `position: null`（位置なし）になる点に注意
+3. 適用後、`/admin/map` で `can_dispatch` を持つアカウントからピンをドラッグして動作確認
+4. 次は Stage 0.6（履歴スクラブ）。API は `?at=<ISO>` で as-of 対応済みなので UI のみ
