@@ -8,7 +8,7 @@
 // 拠点ピンは DB 保存（map_places）。設定モーダルから追加・削除する。
 // ============================================================
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { createRoot, type Root } from "react-dom/client";
@@ -319,7 +319,13 @@ export default function MapPage() {
     () => (data?.vehicles ?? []).filter((v) => v.position != null),
     [data],
   );
-  const unlocatedCount = (data?.vehicles?.length ?? 0) - located.length;
+  const unlocated = useMemo(
+    () => (data?.vehicles ?? []).filter((v) => v.position == null),
+    [data],
+  );
+  const unlocatedCount = unlocated.length;
+  /** 「地図をクリックして置く」対象に選んだ車両。位置がまだ無い車はドラッグできないため、この導線が要る */
+  const [pendingPlaceVehicle, setPendingPlaceVehicle] = useState<MapVehicle | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -690,6 +696,46 @@ export default function MapPage() {
     };
   }, [draft]);
 
+  /** 位置を1件記録して一覧を更新する。ドラッグ・クリック配置の共通処理。 */
+  const savePosition = useCallback(
+    async (vehicle: MapVehicle, lat: number, lng: number) => {
+      setPlacingMessage(`${plateText(vehicle)} の位置を保存しています…`);
+      try {
+        await apiFetch("/api/admin/map/positions", {
+          method: "POST",
+          body: JSON.stringify({ vehicleId: vehicle.id, lat, lng }),
+        });
+        setPlacingMessage(`${plateText(vehicle)} の位置を記録しました`);
+        await mutate();
+        setTimeout(() => setPlacingMessage(null), 2500);
+        return true;
+      } catch (e) {
+        console.error(e);
+        setPlacingMessage("位置を保存できませんでした");
+        setTimeout(() => setPlacingMessage(null), 4000);
+        return false;
+      }
+    },
+    [mutate],
+  );
+
+  // 車両を選んでから地図をクリックすると、そこへ置く（位置がまだ無い車の導線）
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !pendingPlaceVehicle) return;
+    map.getCanvas().style.cursor = "crosshair";
+    const onClick = (e: mapboxgl.MapMouseEvent) => {
+      const target = pendingPlaceVehicle;
+      setPendingPlaceVehicle(null);
+      void savePosition(target, e.lngLat.lat, e.lngLat.lng);
+    };
+    map.once("click", onClick);
+    return () => {
+      map.off("click", onClick);
+      map.getCanvas().style.cursor = "";
+    };
+  }, [pendingPlaceVehicle, savePosition]);
+
   // マーカー反映（データ更新のたびに貼り直す。台数は数十のため十分軽い）。
   useEffect(() => {
     const map = mapRef.current;
@@ -738,22 +784,9 @@ export default function MapPage() {
         marker.getElement().style.cursor = "grab";
         marker.on("dragend", () => {
           const { lng, lat } = marker.getLngLat();
-          setPlacingMessage(`${plateText(v)} の位置を保存しています…`);
-          void apiFetch("/api/admin/map/positions", {
-            method: "POST",
-            body: JSON.stringify({ vehicleId: v.id, lat, lng }),
-          })
-            .then(() => {
-              setPlacingMessage(`${plateText(v)} の位置を記録しました`);
-              void mutate(); // 出どころ（手動）と時刻を確定させる
-              setTimeout(() => setPlacingMessage(null), 2500);
-            })
-            .catch((e) => {
-              console.error(e);
-              setPlacingMessage("位置を保存できませんでした。元に戻します");
-              marker.setLngLat([p.lng, p.lat]); // 失敗したら元の位置へ戻す
-              setTimeout(() => setPlacingMessage(null), 4000);
-            });
+          void savePosition(v, lat, lng).then((ok: boolean) => {
+            if (!ok) marker.setLngLat([p.lng, p.lat]); // 失敗したら元の位置へ戻す
+          });
         });
       }
       markersRef.current.push(marker);
@@ -764,7 +797,7 @@ export default function MapPage() {
       fittedRef.current = true;
       map.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 0 });
     }
-  }, [located, canDispatch, placing, historyDate, mutate]);
+  }, [located, canDispatch, placing, historyDate, savePosition]);
 
   // 配置モード中は地図のドラッグ移動を止める。
   // （ピンを掴んだつもりで地図が動いてしまう、という迷いをなくす・2026-08-06 実機フィードバック）
@@ -914,12 +947,52 @@ export default function MapPage() {
           </div>
         ) : null}
 
+        {/* まだ位置が無い車両は掴むピンが無い。一覧から選んで地図をクリックして置く（鶏卵の解消） */}
+        {canDispatch && !historyDate && unlocated.length > 0 && (
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+              <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3" />
+              まだ位置がない車両 {unlocated.length} 台
+              {pendingPlaceVehicle ? (
+                <span className="font-bold text-sky-700">
+                  — 地図をクリックすると {plateText(pendingPlaceVehicle)} をそこに置きます
+                </span>
+              ) : (
+                <span className="font-normal text-slate-400">— 車両を選んでから地図をクリック</span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {unlocated.map((v) => {
+                const selected = pendingPlaceVehicle?.id === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => setPendingPlaceVehicle(selected ? null : v)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                      selected
+                        ? "border-sky-600 bg-sky-600 text-white"
+                        : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {plateText(v)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* 位置が1件も無いときは、その事実をはっきり出す（マーカーが無いのか、掴めないのか区別できるように） */}
         {!isLoading && located.length === 0 && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
             位置が記録された車両がまだありません（打刻GPSも手動配置も0件）。
-            {historyDate ? "別の日時を選んでみてください。" : "GPS付きの出退勤打刻が入るか、手動で配置すると表示されます。"}
+            {historyDate
+              ? "別の日時を選んでみてください。"
+              : canDispatch
+                ? "上の一覧から車両を選び、地図をクリックすると置けます。"
+                : "GPS付きの出退勤打刻が入ると表示されます。"}
           </div>
         )}
 
