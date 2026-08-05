@@ -378,8 +378,15 @@ admin の /admin/map。Mapbox Standard・3Dモデル（model レイヤー）・�
 - [ ] **Stage 0: 実データ化** — mobile P2 バックグラウンド位置トラッキング＋プレート吹き出しの located 接続（下の既存項目）。
 - [ ] **Stage 1: 共有ビュー** — 同じ地図に複数人が入り、参加者の在席（presence）・カーソル・視点追従（フォロー）を
       Supabase Realtime broadcast で同期。通話は当面 LINE 等で補完（リアルタイム通話インフラは持たない）。
+- [ ] **Stage 0.5: 位置の時系列化＋ドラッグ配置**（GPS 不要・今すぐ着手可能・2026-08-06 設計）—
+      `vehicle_positions`（出どころ付きの時系列）を新設し、地図上でプレートをドラッグして
+      `source='manual'` を**追記**できるようにする。GPS が入ったら `source='gps'` を流すだけで UI は不変。
+      設計: [docs/design/map-board.md](design/map-board.md)
+- [ ] **Stage 0.6: 履歴スクラブ** — 日付＋タイムラインで「何月何日◯時の位置」を as-of で引く（GPS 不要）。
 - [ ] **Stage 2: what-if シミュレーション** — シフトの割当ドラフトを地図上でドラッグ、時間スライダーで1日を再生。
-      ドラフトは下書きテーブルに置き、確定でシフトへ反映。
+      ドラフトは下書きテーブル（`sim_scenarios` / `sim_moves`＝実績とは別）に置き、確定でシフトへ反映。
+- [ ] **Stage 2b: 動画エクスポート** — 再生をそのまま録画して書き出す
+      （案A: `canvas.captureStream` + MediaRecorder で webm。サーバーレンダリングは必要になってから）。
 - [ ] **Stage 3: AI 合流** — 音声メモ→制約の構造化（driver_constraints）と AI 配車提案の出力先をこの作戦盤にする
       （AI は叩き台を置き、人がドラッグで直して確定）。
 
