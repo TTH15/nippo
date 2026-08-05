@@ -13,6 +13,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { AutoSaveTextInput } from "@/lib/components/AutoSaveTextInput";
 import { useCellCursors, type CellPeer } from "@/lib/realtime/cellCursors";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
@@ -720,6 +721,18 @@ export default function ShiftsPage() {
     },
     [],
   );
+
+  // 保存中にタブを閉じられると、送信中の fetch がブラウザに打ち切られる可能性がある。
+  // この画面は保存ボタンが無い（即時保存）ぶん、失われたことに気づけないので警告する。
+  useEffect(() => {
+    if (autoSaving === 0) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [autoSaving]);
 
   useEffect(() => {
     setCanWrite(hasCapability("can_manage_shifts"));
@@ -3439,16 +3452,15 @@ export default function ShiftsPage() {
                                   </div>
                                 ))}
                               </div>
-                              <input
-                                type="text"
-                                key={`place-${p.courseId}-${p.slot}-${row?.meeting_place ?? ""}`}
-                                defaultValue={effPlace}
+                              {/* onBlur だけの保存はパネルを閉じる（＝アンマウント）と blur が
+                                  発火せず入力が消える。自動保存する入力に置き換えた（2026-08-06） */}
+                              <AutoSaveTextInput
+                                value={effPlace ?? ""}
+                                resetKey={`${date}:${p.courseId}:${p.slot}`}
                                 placeholder="集合場所（未入力=コース標準）"
-                                onBlur={(e) => {
-                                  const v = e.target.value.trim();
-                                  if (v === effPlace) return;
-                                  persistTimes(date, p.courseId, p.slot, { meetingPlace: v || null });
-                                }}
+                                onSave={(v) =>
+                                  persistTimes(date, p.courseId, p.slot, { meetingPlace: v })
+                                }
                                 className="w-full rounded border border-slate-200 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
                               />
                             </>
