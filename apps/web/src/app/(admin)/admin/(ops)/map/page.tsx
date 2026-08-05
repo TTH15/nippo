@@ -31,6 +31,7 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { useApi } from "@/lib/useApi";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { hasCapability } from "@/lib/capabilities";
+import { todayJST } from "@/lib/date";
 import { useSharedMapView } from "@/lib/map/sharedView";
 import {
   VehiclePlate,
@@ -284,9 +285,25 @@ function SwitchRow({
 }
 
 export default function MapPage() {
+  /** 配置モード。ON の間だけピンを掴める（地図のパンを止めるので誤操作しない） */
+  const [placing, setPlacing] = useState(false);
+  /** 履歴モード（Stage 0.6）。null = ライブ（現在） */
+  const [historyDate, setHistoryDate] = useState<string | null>(null);
+  /** 履歴モードの時刻（0:00 からの分） */
+  const [historyMinute, setHistoryMinute] = useState(12 * 60);
+
+  // 履歴モードでは as-of（その時刻の位置）を取りに行く。ライブは従来どおり最新。
+  const asOfIso = useMemo(() => {
+    if (!historyDate) return null;
+    const h = String(Math.floor(historyMinute / 60)).padStart(2, "0");
+    const m = String(historyMinute % 60).padStart(2, "0");
+    return new Date(`${historyDate}T${h}:${m}:00+09:00`).toISOString();
+  }, [historyDate, historyMinute]);
+
   const { data, isLoading, mutate } = useApi<{ vehicles: MapVehicle[] }>(
-    "/api/admin/map/vehicles",
-    { refreshInterval: 60000 },
+    asOfIso ? `/api/admin/map/vehicles?at=${encodeURIComponent(asOfIso)}` : "/api/admin/map/vehicles",
+    // 履歴は勝手に更新されない方が読みやすい（ライブだけ自動更新）
+    { refreshInterval: asOfIso ? 0 : 60000, keepPreviousData: true },
   );
   const { data: placesData, refresh: refreshPlaces } = useApi<{ places: MapPlace[] }>(
     "/api/admin/map/places",
@@ -695,7 +712,7 @@ export default function MapPage() {
       }).setDOMContent(node);
       const marker = new mapboxgl.Marker({
         color: p.sessionStatus === "open" ? "#059669" : "#64748b",
-        draggable: canDispatch,
+        draggable: canDispatch && placing && !historyDate,
       })
         .setLngLat([p.lng, p.lat])
         .setPopup(popup)
@@ -706,8 +723,10 @@ export default function MapPage() {
         marker.getElement().style.filter = "drop-shadow(0 0 0 rgba(0,0,0,0))";
         marker.getElement().setAttribute("data-manual", "1");
       }
-      if (canDispatch) {
+      if (canDispatch && placing && !historyDate) {
         marker.getElement().style.cursor = "grab";
+        // 掴める状態を見た目でも伝える（何もしないと「動かない地図」に見える）
+        marker.getElement().style.filter = "drop-shadow(0 0 6px rgba(2,132,199,0.9))";
         marker.on("dragend", () => {
           const { lng, lat } = marker.getLngLat();
           setPlacingMessage(`${plateText(v)} の位置を保存しています…`);
@@ -736,7 +755,16 @@ export default function MapPage() {
       fittedRef.current = true;
       map.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 0 });
     }
-  }, [located, canDispatch, mutate]);
+  }, [located, canDispatch, placing, historyDate, mutate]);
+
+  // 配置モード中は地図のドラッグ移動を止める。
+  // （ピンを掴んだつもりで地図が動いてしまう、という迷いをなくす・2026-08-06 実機フィードバック）
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (placing && canDispatch && !historyDate) map.dragPan.disable();
+    else map.dragPan.enable();
+  }, [placing, canDispatch, historyDate]);
 
   // 2D/3D トグル: ピッチだけ変える（方位はユーザー操作を尊重してそのまま）。
   const setView = (mode: "2d" | "3d") => {
@@ -798,21 +826,107 @@ export default function MapPage() {
           <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700">
             ベータ
           </span>
-          <button
-            type="button"
-            onClick={() => void mutate()}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-          >
-            <FontAwesomeIcon icon={faRotateRight} className="h-3 w-3" />
-            更新
-          </button>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {/* ライブ / 履歴（Stage 0.6）。履歴は「何月何日◯時にどこにいたか」を as-of で引く */}
+            <div className="flex rounded-lg bg-slate-100 p-0.5">
+              <button
+                type="button"
+                onClick={() => setHistoryDate(null)}
+                className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
+                  historyDate === null ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                ライブ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPlacing(false); // 過去に置くことはできない
+                  setHistoryDate((d) => d ?? todayJST());
+                }}
+                className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
+                  historyDate !== null ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                履歴
+              </button>
+            </div>
+
+            {/* 位置を置く（配置モード）。ドラッグと地図移動の取り合いをなくすため明示的なモードにする */}
+            {canDispatch && historyDate === null && (
+              <button
+                type="button"
+                onClick={() => setPlacing((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  placing
+                    ? "bg-sky-600 text-white hover:bg-sky-700"
+                    : "border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3" />
+                {placing ? "配置モード中（終了）" : "位置を置く"}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => void mutate()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              <FontAwesomeIcon icon={faRotateRight} className="h-3 w-3" />
+              更新
+            </button>
+          </div>
         </div>
 
-        {/* ドラッグ配置の案内と結果。GPS が入る前でも位置を共有できる導線（Stage 0.5） */}
-        {canDispatch && (
+        {/* 状況に応じた案内。何ができる状態なのかを常に1行で示す */}
+        {placingMessage ? (
           <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
             <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
-            {placingMessage ?? "ピンをドラッグすると、その場所を「手動で配置した位置」として記録します（打刻GPSは上書きしません）"}
+            {placingMessage}
+          </div>
+        ) : placing ? (
+          <div className="flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-100 px-3 py-2 text-xs font-medium text-sky-900">
+            <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
+            配置モード中: 光っているピンをドラッグして置き直してください。地図の移動は一時的に止めています
+            （ズームはスクロール可）。終わったら「配置モード中（終了）」を押してください
+          </div>
+        ) : historyDate ? (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
+            履歴を表示しています。その時刻時点で記録されていた最後の位置を出しています（点と点は繋ぎません）
+          </div>
+        ) : canDispatch ? (
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
+            車を手で置きたいときは「位置を置く」を押してください（打刻GPSは上書きしません）
+          </div>
+        ) : null}
+
+        {/* 履歴のタイムライン */}
+        {historyDate && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <input
+              type="date"
+              value={historyDate}
+              max={todayJST()}
+              onChange={(e) => setHistoryDate(e.target.value || todayJST())}
+              className="rounded border border-slate-300 px-2 py-1 text-xs"
+            />
+            <span className="w-14 text-center text-sm font-bold tabular-nums text-slate-900">
+              {String(Math.floor(historyMinute / 60)).padStart(2, "0")}:
+              {String(historyMinute % 60).padStart(2, "0")}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={1439}
+              step={15}
+              value={historyMinute}
+              onChange={(e) => setHistoryMinute(Number(e.target.value))}
+              className="h-1.5 min-w-[200px] flex-1 cursor-pointer appearance-none rounded-full bg-slate-200 accent-slate-900"
+            />
+            <span className="text-[11px] text-slate-400">15分刻み</span>
           </div>
         )}
 
