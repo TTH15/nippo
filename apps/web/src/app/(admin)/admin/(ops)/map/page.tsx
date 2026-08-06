@@ -175,41 +175,18 @@ function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
   );
 }
 
-// デモ車両の状態と表示色（実データ接続時は vehicle_sessions 等から導出する）。
-const DEMO_STATUS_DOT = {
+// 車両の状態と表示色。稼働セッション（vehicle_sessions）から導出する。
+// 吹き出しに出す車両の状態。実データ（稼働セッション）から決める。
+const VEHICLE_STATUS_DOT = {
   稼働中: "bg-emerald-500",
-  積み込み中: "bg-amber-400",
-  休憩中: "bg-sky-400",
   稼働外: "bg-slate-500",
 } as const;
-type DemoStatus = keyof typeof DEMO_STATUS_DOT;
-
-// 京都市内に適当に散らしたデモ車両（3Dモデル＋プレート吹き出しの実験用）。
-const DEMO_VEHICLES: {
-  id: string;
-  lngLat: [number, number];
-  rot: number;
-  status: DemoStatus;
-  plate: { prefix: string; cls: string; kana: string; num: string };
-}[] = [
-  // v01 はサンパルク伏見桃山12番に駐車している想定（座標はユーザー実測値。
-  // rot は区画の向きに合わせて要調整 — 航空写真モードで見ながら合わせる）。
-  { id: "v01", lngLat: [135.7594225, 34.945416], rot: 35, status: "稼働外", plate: { prefix: "京都", cls: "400", kana: "あ", num: "1234" } },
-  { id: "v02", lngLat: [135.7585, 34.9868], rot: 120, status: "稼働中", plate: { prefix: "京都", cls: "480", kana: "あ", num: "4567" } },
-  { id: "v03", lngLat: [135.7681, 35.0038], rot: 200, status: "積み込み中", plate: { prefix: "京都", cls: "480", kana: "い", num: "789" } },
-  { id: "v04", lngLat: [135.748, 35.0142], rot: 80, status: "稼働中", plate: { prefix: "京都", cls: "400", kana: "う", num: "2468" } },
-  { id: "v05", lngLat: [135.7593, 35.0455], rot: 300, status: "休憩中", plate: { prefix: "京都", cls: "480", kana: "え", num: "1357" } },
-  { id: "v06", lngLat: [135.7292, 35.0394], rot: 15, status: "稼働中", plate: { prefix: "京都", cls: "400", kana: "お", num: "9012" } },
-  { id: "v07", lngLat: [135.7096, 34.9836], rot: 260, status: "稼働中", plate: { prefix: "京都", cls: "480", kana: "か", num: "3456" } },
-  { id: "v08", lngLat: [135.8163, 34.9718], rot: 145, status: "積み込み中", plate: { prefix: "京都", cls: "400", kana: "き", num: "6789" } },
-  { id: "v09", lngLat: [135.7476, 34.9787], rot: 90, status: "休憩中", plate: { prefix: "京都", cls: "480", kana: "く", num: "159" } },
-  { id: "v10", lngLat: [135.6828, 35.0094], rot: 330, status: "稼働外", plate: { prefix: "京都", cls: "400", kana: "け", num: "753" } },
-];
+type VehicleStatus = keyof typeof VEHICLE_STATUS_DOT;
 
 // 車両の頭上ラベル: 吹き出し用に最適化した簡易プレート。黒ナンバー（事業用軽貨物）
 // らしく黒地に黄文字。実車プレートの再現は popup 側の VehiclePlate に任せる。
 // TODO: 数字・かなは将来 SVG グリフ化する（docs/roadmap-2026-07.md 参照）。
-function VehicleLabel({ vehicle, status }: { vehicle: VehiclePlateData; status: DemoStatus }) {
+function VehicleLabel({ vehicle, status }: { vehicle: VehiclePlateData; status: VehicleStatus }) {
   return (
     <>
       {/* 通常表示（吹き出し）。重なって負けたら .vl-collapsed でドットに縮退する */}
@@ -231,7 +208,7 @@ function VehicleLabel({ vehicle, status }: { vehicle: VehiclePlateData; status: 
             </span>
           </div>
           <div className="mt-1 flex items-center justify-center gap-1 text-[9px] font-bold text-slate-300">
-            <span className={`inline-block h-1.5 w-1.5 rounded-full ${DEMO_STATUS_DOT[status]}`} />
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${VEHICLE_STATUS_DOT[status]}`} />
             {status}
           </div>
         </div>
@@ -240,7 +217,7 @@ function VehicleLabel({ vehicle, status }: { vehicle: VehiclePlateData; status: 
       {/* 縮退表示: 状態色ドット（存在と状態だけは常に示す） */}
       <div className="vl-dot flex flex-col items-center">
         <span
-          className={`block h-3 w-3 rounded-full border-2 border-white shadow-md ${DEMO_STATUS_DOT[status]}`}
+          className={`block h-3 w-3 rounded-full border-2 border-white shadow-md ${VEHICLE_STATUS_DOT[status]}`}
         />
       </div>
     </>
@@ -345,6 +322,11 @@ export default function MapPage() {
   const [pitch, setPitch] = useState(0);
   const is3D = pitch > 5;
   const vehicleLabelMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const vehicleLabelRootsRef = useRef<Root[]>([]);
+  /** 吹き出しの重なり回避。データ更新後にも呼べるよう ref で保持する */
+  const declutterPlatesRef = useRef<() => void>(() => {});
+  /** 3Dモデルのソースへ最新の車両位置を流し込む（スタイル再読込時にも呼ぶ） */
+  const applyVehicleModelDataRef = useRef<() => void>(() => {});
 
   // 拠点ピンは基本非表示。設定モーダルからオンにできる。
   const [showPlaces, setShowPlaces] = useState(false);
@@ -509,7 +491,7 @@ export default function MapPage() {
     // ラベル・3D・地形などの表示設定を適用（設定モーダルから変更可能）。
     map.on("style.load", () => applyViewPrefsRef.current());
 
-    // 3Dモデルの実験: 京都市内にデモ車両を10台置く（DEMO_VEHICLES）。
+    // 車両の3Dモデル。**中身は実データ**（位置が記録された車両）で、下の effect から流し込む。
     // モデルは Kenney Car Kit の delivery van（CC0）。実寸 3.25×1.5×1.65m で
     // 軽バンとほぼ同寸・原点は底面中心（テクスチャ埋め込み済み）。
     const addTruckModel = () => {
@@ -517,14 +499,7 @@ export default function MapPage() {
       map.addModel("truck", "/models/truck.glb");
       map.addSource("truck-src", {
         type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: DEMO_VEHICLES.map((v) => ({
-            type: "Feature",
-            geometry: { type: "Point", coordinates: v.lngLat },
-            properties: { rotation: [0, 0, v.rot] },
-          })),
-        },
+        data: { type: "FeatureCollection", features: [] },
       });
       map.addLayer({
         id: "truck-3d",
@@ -538,6 +513,8 @@ export default function MapPage() {
         },
       });
       updateTruckScale();
+      // スタイル再読込のたびにソースは空で作り直されるので、その場で最新データを流し込む
+      applyVehicleModelDataRef.current();
     };
     // 見かけサイズ: ズーム9〜18では画面上ほぼ一定（基準=実寸の1.6倍）。
     // さらに寄ると等倍まで縮み、以降は実寸に固定（駐車区画に正しく収まって見える）。
@@ -554,36 +531,7 @@ export default function MapPage() {
     map.on("style.load", addTruckModel);
     map.on("zoom", updateTruckScale);
 
-    // 各デモ車両の頭上にプレート吹き出し。見かけサイズはズーム非依存。
-    const plateRoots: Root[] = [];
-    const plateMarkers: mapboxgl.Marker[] = [];
-    for (const v of DEMO_VEHICLES) {
-      const node = document.createElement("div");
-      node.className = "vehicle-label"; // globals.css で吹き出し⇔ドットを切替
-      node.style.zIndex = "5"; // 拠点ピンより前面
-      const root = createRoot(node);
-      root.render(
-        <VehicleLabel
-          vehicle={
-            {
-              number_prefix: v.plate.prefix,
-              number_class: v.plate.cls,
-              number_hiragana: v.plate.kana,
-              number_numeric: v.plate.num,
-            } as VehiclePlateData
-          }
-          status={v.status}
-        />,
-      );
-      plateRoots.push(root);
-      plateMarkers.push(
-        new mapboxgl.Marker({ element: node, anchor: "bottom", offset: [0, -30] })
-          .setLngLat(v.lngLat)
-          .addTo(map),
-      );
-    }
-    vehicleLabelMarkersRef.current = plateMarkers;
-
+    // プレート吹き出しは実データから作る（下の「車両ラベル反映」effect）。
     // 吹き出しの基本オフセット: 車両の画面上の高さに比例させる
     // （ズーム18まで一定、以降は実寸固定で画面上大きくなるのに追従）。
     const plateBaseOffset = () => {
@@ -611,6 +559,7 @@ export default function MapPage() {
         if (!collide) kept.push({ x: pos.x, y: pos.y });
       }
     };
+    declutterPlatesRef.current = declutterPlates;
     map.on("moveend", declutterPlates);
     map.on("zoom", declutterPlates);
 
@@ -631,9 +580,11 @@ export default function MapPage() {
     return () => {
       clearInterval(lightTimer);
       container.removeEventListener("wheel", onWheel, { capture: true });
-      plateMarkers.forEach((m) => m.remove());
+      vehicleLabelMarkersRef.current.forEach((m) => m.remove());
       vehicleLabelMarkersRef.current = [];
-      setTimeout(() => plateRoots.forEach((r) => r.unmount()), 0);
+      const staleLabelRoots = vehicleLabelRootsRef.current;
+      vehicleLabelRootsRef.current = [];
+      setTimeout(() => staleLabelRoots.forEach((r) => r.unmount()), 0);
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       placeMarkersRef.current.forEach((m) => m.remove());
@@ -807,6 +758,52 @@ export default function MapPage() {
     if (placing && canDispatch && !historyDate) map.dragPan.disable();
     else map.dragPan.enable();
   }, [placing, canDispatch, historyDate]);
+
+  // 車両ラベル反映: **実データ**の位置にプレート吹き出しと3Dモデルを置く。
+  // デモ車両（ハードコード10台）は廃止した（2026-08-07）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // 3Dモデルのソースを実データで差し替える
+    const applyModelData = () => {
+      const src = mapRef.current?.getSource("truck-src") as mapboxgl.GeoJSONSource | undefined;
+      src?.setData({
+        type: "FeatureCollection",
+        features: located.map((v) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [v.position!.lng, v.position!.lat] },
+          // 進行方向が分かるならそれを使う（GPS 導入後）。無ければ正面固定。
+          properties: { rotation: [0, 0, 0] },
+        })),
+      });
+    };
+    applyVehicleModelDataRef.current = applyModelData;
+    applyModelData();
+
+    // 吹き出しを貼り直す
+    vehicleLabelMarkersRef.current.forEach((m) => m.remove());
+    vehicleLabelMarkersRef.current = [];
+    const staleRoots = vehicleLabelRootsRef.current;
+    vehicleLabelRootsRef.current = [];
+    setTimeout(() => staleRoots.forEach((r) => r.unmount()), 0);
+
+    for (const v of located) {
+      const p = v.position!;
+      const node = document.createElement("div");
+      node.className = "vehicle-label"; // globals.css で吹き出し⇔ドットを切替
+      node.style.zIndex = "5"; // 拠点ピンより前面
+      const root = createRoot(node);
+      root.render(<VehicleLabel vehicle={v} status={p.sessionStatus === "open" ? "稼働中" : "稼働外"} />);
+      vehicleLabelRootsRef.current.push(root);
+      vehicleLabelMarkersRef.current.push(
+        new mapboxgl.Marker({ element: node, anchor: "bottom", offset: [0, -30] })
+          .setLngLat([p.lng, p.lat])
+          .addTo(map),
+      );
+    }
+    declutterPlatesRef.current();
+  }, [located]);
 
   // 2D/3D トグル: ピッチだけ変える（方位はユーザー操作を尊重してそのまま）。
   const setView = (mode: "2d" | "3d") => {
