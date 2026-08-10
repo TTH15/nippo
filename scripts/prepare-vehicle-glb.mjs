@@ -25,8 +25,24 @@ import { readFileSync, rmSync } from "node:fs";
 import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 
-const [input, output, lengthMStr = "3.4", targetTriStr = "16000", texSizeStr = "1024", style = "flat"] =
-  process.argv.slice(2);
+const [
+  input,
+  output,
+  lengthMStr = "3.4",
+  targetTriStr = "16000",
+  texSizeStr = "1024",
+  style = "flat",
+  plateColor = "#111827", // 事業用（黒ナンバー）。自家用なら白系を渡す
+] = process.argv.slice(2);
+
+/** #RRGGBB → glTF の baseColorFactor（sRGB→リニア近似） */
+function hexToRgba(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  const n = m ? parseInt(m[1], 16) : 0x111827;
+  const srgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => v / 255);
+  const lin = srgb.map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return [...lin, 1];
+}
 if (!input || !output) {
   console.error("使い方: node scripts/prepare-vehicle-glb.mjs <入力.glb> <出力.glb> [全長m] [目標三角形数]");
   process.exit(1);
@@ -185,6 +201,90 @@ if (style === "flat") {
     }
   }
   console.log("テクスチャ・UV・接線を外してフラットな見た目にした（style=flat）");
+}
+
+// --- 3.7) ナンバープレートを別マテリアルに切り出す -----------------------
+// 生成モデルはメッシュもマテリアルも1つなので、そのままだとプレートが車体と同じ色になる
+//（テクスチャ版だと「EVERY」や黄色いプレートが出てデジタルツイン感が落ちる・2026-08-10 指摘）。
+// 前後の端にある「Xを向いた低い位置の小さな面」をプレートとみなし、黒（事業用＝黒ナンバー）にする。
+// マテリアルを分けておけば、モバイル側（three.js 等）で色を差し替えられる。
+{
+  const bbox = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+  for (const mesh of root.listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      const pos = prim.getAttribute("POSITION");
+      const el = [0, 0, 0];
+      for (let i = 0; i < pos.getCount(); i++) {
+        pos.getElement(i, el);
+        bbox.minX = Math.min(bbox.minX, el[0]);
+        bbox.maxX = Math.max(bbox.maxX, el[0]);
+        bbox.minY = Math.min(bbox.minY, el[1]);
+        bbox.maxY = Math.max(bbox.maxY, el[1]);
+      }
+    }
+  }
+  const spanX = bbox.maxX - bbox.minX;
+  const plateMat = doc
+    .createMaterial("plate")
+    .setBaseColorFactor(hexToRgba(plateColor))
+    .setMetallicFactor(0)
+    .setRoughnessFactor(0.5);
+
+  let moved = 0;
+  for (const mesh of root.listMeshes()) {
+    for (const prim of [...mesh.listPrimitives()]) {
+      const pos = prim.getAttribute("POSITION");
+      const idx = prim.getIndices();
+      if (!idx) continue;
+      const keep = [];
+      const plate = [];
+      const a = [0, 0, 0];
+      const b = [0, 0, 0];
+      const c = [0, 0, 0];
+      for (let t = 0; t < idx.getCount() / 3; t++) {
+        const i0 = idx.getScalar(t * 3);
+        const i1 = idx.getScalar(t * 3 + 1);
+        const i2 = idx.getScalar(t * 3 + 2);
+        pos.getElement(i0, a);
+        pos.getElement(i1, b);
+        pos.getElement(i2, c);
+        const cx = (a[0] + b[0] + c[0]) / 3;
+        const cy = (a[1] + b[1] + c[1]) / 3;
+        const cz = (a[2] + b[2] + c[2]) / 3;
+        // 面の向き（法線のX成分）
+        const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        const nx = e1[1] * e2[2] - e1[2] * e2[1];
+        const ny = e1[2] * e2[0] - e1[0] * e2[2];
+        const nz = e1[0] * e2[1] - e1[1] * e2[0];
+        const nlen = Math.hypot(nx, ny, nz) || 1;
+        // プレートは「車体の端にある・地上0.3〜0.7m・幅33cm・前後を向いた平らな面」。
+        // 広く取るとバンパーやグリルまで黒くなるので、条件は厳しめにする
+        const facingX = Math.abs(nx / nlen) > 0.75;
+        const nearEnd = cx < bbox.minX + spanX * 0.06 || cx > bbox.maxX - spanX * 0.06;
+        const plateHeight = cy > 0.25 && cy < 0.72;
+        const nearCenter = Math.abs(cz) < 0.22;
+        if (facingX && nearEnd && plateHeight && nearCenter) plate.push(i0, i1, i2);
+        else keep.push(i0, i1, i2);
+      }
+      if (plate.length === 0) continue;
+
+      // 同じ頂点データを共有したまま、インデックスだけ分けて別マテリアルにする
+      const platePrim = doc
+        .createPrimitive()
+        .setMaterial(plateMat)
+        .setIndices(doc.createAccessor().setArray(new Uint32Array(plate)));
+      for (const name of prim.listSemantics()) platePrim.setAttribute(name, prim.getAttribute(name));
+      mesh.addPrimitive(platePrim);
+      idx.setArray(new Uint32Array(keep));
+      moved += plate.length / 3;
+    }
+  }
+  console.log(
+    moved > 0
+      ? `ナンバープレートを別マテリアルにした（${moved} 三角形・色 ${plateColor}）`
+      : "ナンバープレートらしい面を見つけられなかった（車体と同じ色のまま）",
+  );
 }
 
 // マテリアルが無いと着色できないので、無彩色の既定マテリアルを付ける
