@@ -29,17 +29,29 @@ export async function GET(req: NextRequest) {
   const atParam = req.nextUrl.searchParams.get("at");
   const asOf = atParam && !Number.isNaN(Date.parse(atParam)) ? new Date(atParam).toISOString() : null;
 
-  const { data: vehicles, error: vehErr } = await supabase
-    .from("vehicles")
-    .select(
-      "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, model_key, body_color",
-    )
-    .eq("owner_org_id", orgId)
-    .eq("is_disposed", false);
-
-  if (vehErr) {
-    console.error("[map/vehicles] vehicles error", vehErr);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  // migration 123（model_key / body_color）が未適用の環境でも動くよう、失敗したら旧 select で取り直す。
+  const VEHICLE_COLS = "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand";
+  let vehicles: Record<string, unknown>[] | null = null;
+  {
+    const withAppearance = await supabase
+      .from("vehicles")
+      .select(`${VEHICLE_COLS}, model_key, body_color`)
+      .eq("owner_org_id", orgId)
+      .eq("is_disposed", false);
+    if (withAppearance.error) {
+      const fallback = await supabase
+        .from("vehicles")
+        .select(VEHICLE_COLS)
+        .eq("owner_org_id", orgId)
+        .eq("is_disposed", false);
+      if (fallback.error) {
+        console.error("[map/vehicles] vehicles error", fallback.error);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      vehicles = fallback.data as Record<string, unknown>[];
+    } else {
+      vehicles = withAppearance.data as Record<string, unknown>[];
+    }
   }
 
   let positionQuery = supabase
@@ -51,9 +63,11 @@ export async function GET(req: NextRequest) {
   if (asOf) positionQuery = positionQuery.lte("at", asOf);
 
   const { data: positions, error: posErr } = await positionQuery;
+  // migration 122 が未適用の環境（＝テーブルが無い）では地図を落とさず、
+  // 従来どおり打刻GPSから位置を導出するモードで動かす。業務画面を止めないことを優先する。
+  const positionsUnavailable = !!posErr;
   if (posErr) {
-    console.error("[map/vehicles] positions error", posErr);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
+    console.error("[map/vehicles] positions unavailable, falling back to punch GPS", posErr);
   }
 
   // 新しい順に並んでいるので、車両ごとに最初に出てきた行が as-of の位置になる。
@@ -66,7 +80,7 @@ export async function GET(req: NextRequest) {
     note: string | null;
   };
   const positionByVehicle = new Map<string, Position>();
-  for (const p of positions ?? []) {
+  for (const p of positionsUnavailable ? [] : (positions ?? [])) {
     if (positionByVehicle.has(p.vehicle_id)) continue;
     positionByVehicle.set(p.vehicle_id, {
       lat: p.lat as number,
@@ -81,7 +95,7 @@ export async function GET(req: NextRequest) {
   // 稼働中の判定と担当者。位置とは別の事実なのでセッションから取る。
   let sessionQuery = supabase
     .from("vehicle_sessions")
-    .select("vehicle_id, status, started_at, ended_at, recorded_by")
+    .select("vehicle_id, status, started_at, ended_at, recorded_by, start_lat, start_lng, end_lat, end_lng")
     .eq("org_id", orgId)
     .order("started_at", { ascending: false })
     .limit(1000);
@@ -98,6 +112,24 @@ export async function GET(req: NextRequest) {
     sessionByVehicle.set(s.vehicle_id, { open, driverId: (s.recorded_by as string | null) ?? null });
   }
 
+  if (positionsUnavailable) {
+    for (const s of sessions ?? []) {
+      if (positionByVehicle.has(s.vehicle_id)) continue;
+      const useEnd = s.status === "closed" && s.end_lat != null && s.end_lng != null;
+      const lat = (useEnd ? s.end_lat : s.start_lat) as number | null;
+      const lng = (useEnd ? s.end_lng : s.start_lng) as number | null;
+      if (lat == null || lng == null) continue;
+      positionByVehicle.set(s.vehicle_id, {
+        lat,
+        lng,
+        at: (useEnd ? s.ended_at : s.started_at) as string,
+        source: "punch",
+        recordedBy: (s.recorded_by as string | null) ?? null,
+        note: null,
+      });
+    }
+  }
+
   const driverIds = [
     ...new Set(
       [
@@ -112,8 +144,8 @@ export async function GET(req: NextRequest) {
   const driverNameById = new Map((drivers ?? []).map((d) => [d.id, d.display_name || d.name || ""]));
 
   const items = (vehicles ?? []).map((v) => {
-    const p = positionByVehicle.get(v.id);
-    const s = sessionByVehicle.get(v.id);
+    const p = positionByVehicle.get(v.id as string);
+    const s = sessionByVehicle.get(v.id as string);
     return {
       ...v,
       position: p
