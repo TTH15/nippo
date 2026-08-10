@@ -1470,3 +1470,17 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
   3. 原点=底面中心・実寸（全長3.4m）
   4. Draco 圧縮を使わない
   5. 車体は無彩色（`body_color` で着色するため）
+
+## 2026-08-11 01:45 生の3Dモデルを git 履歴から完全削除（.git 258MB → 66MB）
+
+- ユーザー承認のもと `git filter-repo` で `apps/web/public/glb/**` を**履歴ごと削除**
+- **事前バックアップ**: `git bundle create ~/hakotora-backup-20260811-0129.bundle --all`（220MB）＋
+  タグ `backup/before-glb-purge-20260811`。生ファイル自体は `~/Developer/assets/hakotora-3d/` に退避済み
+- 結果: **`.git` 258MB → 66MB**。100MB近い blob（エブリイ88MB・クリッパー79MB・34MB）が消え、
+  残る大物は既存の `sample/_`（38.7MB）と `juken_certificate.png`（5.8MB）のみ
+  → **Vercel のクローン6分は解消される見込み**（デプロイのたびに効く）
+- 実行時に必要な `apps/web/public/models/*.glb`（4体・合計2.4MB）は**そのまま残っている**ことを確認。
+  tsc も通過
+- **未完了: `git push --force origin main`**（権限で拒否）。ユーザー実行待ち。
+  filter-repo は安全のため origin を外すので、再設定済み（https://github.com/TTH15/nippo.git）
+- 注意: 履歴書き換えのためコミットハッシュが全て変わる。他のクローンがあれば取り直しが必要
