@@ -203,7 +203,29 @@ type MapPlace = {
   lat: number;
   lng: number;
   icon: PlaceIcon;
+  /** point=1点 / circle=中心+半径（migration 124） */
+  shape?: "point" | "circle" | "polygon";
+  radius_m?: number | null;
 };
+
+type PolygonFeature = {
+  type: "Feature";
+  properties: Record<string, unknown>;
+  geometry: { type: "Polygon"; coordinates: [number, number][][] };
+};
+type PolygonCollection = { type: "FeatureCollection"; features: PolygonFeature[] };
+
+/** 円を GeoJSON のポリゴンに落とす（Mapbox に円プリミティブが無いため）。 */
+function circlePolygon(lat: number, lng: number, radiusM: number, steps = 64): PolygonFeature {
+  const coords: [number, number][] = [];
+  const latR = radiusM / 111_320;
+  const lngR = radiusM / (111_320 * Math.cos((lat * Math.PI) / 180));
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * Math.PI * 2;
+    coords.push([lng + lngR * Math.cos(t), lat + latR * Math.sin(t)]);
+  }
+  return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [coords] } };
+}
 
 // 検索結果のピン。拠点ピン（登録済み）と区別できるよう、白地＋番号＋種別アイコンにする。
 function SearchHitMarker({ index, icon, active }: { index: number; icon: PlaceIcon; active: boolean }) {
@@ -452,7 +474,9 @@ export default function MapPage() {
   const [canWritePlaces, setCanWritePlaces] = useState(false);
   useEffect(() => {
     setCanDispatch(hasCapability("can_dispatch"));
-    setCanWritePlaces(hasCapability("can_manage_org_settings"));
+    const writePlaces = hasCapability("can_manage_org_settings");
+    setCanWritePlaces(writePlaces);
+    canWritePlacesRef.current = writePlaces;
   }, []);
   const [placingMessage, setPlacingMessage] = useState<string | null>(null);
   const popupRootsRef = useRef<Root[]>([]);
@@ -566,6 +590,13 @@ export default function MapPage() {
   const [draftName, setDraftName] = useState("");
   const [draftIcon, setDraftIcon] = useState<PlaceIcon>("pin");
   const [draftError, setDraftError] = useState("");
+  /** 編集中の拠点（名称・種別・位置・範囲）。null = 編集していない */
+  const [editingPlace, setEditingPlace] = useState<MapPlace | null>(null);
+  const [savingPlace, setSavingPlace] = useState(false);
+  const [placeEditError, setPlaceEditError] = useState("");
+  const editingPlaceRef = useRef<MapPlace | null>(null);
+  editingPlaceRef.current = editingPlace;
+  const canWritePlacesRef = useRef(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MapPlace | null>(null);
 
@@ -664,6 +695,41 @@ export default function MapPage() {
   };
 
   pickSearchResultRef.current = pickSearchResult;
+
+  /** 拠点の編集を開始する（その場所へ寄せて、パネルを出す）。 */
+  const openPlaceEditor = (place: MapPlace) => {
+    setEditingPlace(place);
+    setSearchResults([]);
+    mapRef.current?.flyTo({ center: [place.lng, place.lat], zoom: Math.max(mapRef.current.getZoom(), 15), duration: 600 });
+  };
+
+  /** 編集内容を保存する。 */
+  const savePlaceEdit = async () => {
+    if (!editingPlace || savingPlace) return;
+    const name = editingPlace.name.trim();
+    if (!name) return;
+    setSavingPlace(true);
+    setPlaceEditError("");
+    try {
+      await apiFetch(`/api/admin/map/places/${editingPlace.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name,
+          icon: editingPlace.icon,
+          lat: editingPlace.lat,
+          lng: editingPlace.lng,
+          radiusM: editingPlace.radius_m ?? 0,
+        }),
+      });
+      setEditingPlace(null);
+      void refreshPlaces();
+    } catch (e) {
+      console.error(e);
+      setPlaceEditError(e instanceof Error ? e.message : "保存できませんでした");
+    } finally {
+      setSavingPlace(false);
+    }
+  };
 
   // Esc でピン追加を中止。
   useEffect(() => {
@@ -856,10 +922,22 @@ export default function MapPage() {
         closeButton: false,
       }).setDOMContent(popupNode);
 
-      const marker = new mapboxgl.Marker({ element: node })
+      // 編集中の拠点はドラッグで動かせる（置いたら直せないのは実用に耐えない・2026-08-10 要望）
+      const isEditing = editingPlaceRef.current?.id === place.id;
+      const marker = new mapboxgl.Marker({ element: node, draggable: isEditing })
         .setLngLat([place.lng, place.lat])
-        .setPopup(popup)
+        .setPopup(isEditing ? undefined : popup)
         .addTo(map);
+      if (isEditing) {
+        node.style.cursor = "grab";
+        marker.on("dragend", () => {
+          const { lng, lat } = marker.getLngLat();
+          setEditingPlace((prev) => (prev ? { ...prev, lat, lng } : prev));
+        });
+      } else if (canWritePlacesRef.current) {
+        // クリックで編集パネルを開く（従来は名前が出るだけだった）
+        node.addEventListener("click", () => openPlaceEditor(place));
+      }
       placeMarkersRef.current.set(place.id, marker);
     }
     applyPlacesVisibilityRef.current();
@@ -1012,6 +1090,42 @@ export default function MapPage() {
     if (placing && canDispatch && !historyDate) map.dragPan.disable();
     else map.dragPan.enable();
   }, [placing, canDispatch, historyDate]);
+
+  // 範囲（円）で登録された拠点を塗る。点のままの拠点は従来どおりピンだけ。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const draw = () => {
+      const features = places
+        .filter((pl) => pl.shape === "circle" && (pl.radius_m ?? 0) > 0)
+        .map((pl) => circlePolygon(pl.lat, pl.lng, pl.radius_m!));
+      const data: PolygonCollection = { type: "FeatureCollection", features };
+      const src = map.getSource("place-areas") as mapboxgl.GeoJSONSource | undefined;
+      if (src) {
+        src.setData(data);
+        return;
+      }
+      if (!map.isStyleLoaded()) return;
+      map.addSource("place-areas", { type: "geojson", data });
+      map.addLayer({
+        id: "place-areas-fill",
+        type: "fill",
+        source: "place-areas",
+        paint: { "fill-color": "#7c3aed", "fill-opacity": 0.12 },
+      });
+      map.addLayer({
+        id: "place-areas-line",
+        type: "line",
+        source: "place-areas",
+        paint: { "line-color": "#7c3aed", "line-width": 1.5, "line-opacity": 0.7 },
+      });
+    };
+    draw();
+    map.on("style.load", draw); // スタイル切替で作り直される
+    return () => {
+      map.off("style.load", draw);
+    };
+  }, [places]);
 
   // 検索結果を地図にピンで出す。一覧だけだと「どこにあるか」が分からない（2026-08-10 指摘）。
   // 拠点ピンとは見た目を変える（白丸＋種別色のアイコン＋番号）。
@@ -1547,6 +1661,101 @@ export default function MapPage() {
               </div>
             )}
 
+            {/* 拠点の編集パネル（登録済みのピンをクリックで開く） */}
+            {editingPlace && (
+              <div className="absolute inset-x-3 bottom-3 mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">拠点を編集</span>
+                  <span className="text-[10px] text-slate-400">ピンをドラッグして移動できます</span>
+                </div>
+                <input
+                  type="text"
+                  value={editingPlace.name}
+                  onChange={(e) => setEditingPlace({ ...editingPlace, name: e.target.value })}
+                  maxLength={50}
+                  className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
+                />
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {(Object.keys(PLACE_ICONS) as PlaceIcon[]).map((key) => {
+                    const active = editingPlace.icon === key;
+                    const meta = PLACE_ICONS[key];
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setEditingPlace({ ...editingPlace, icon: key })}
+                        className={`flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition-colors ${
+                          active
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        <FontAwesomeIcon icon={meta.icon} className="h-3 w-3" />
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 範囲（円）。0 は点のまま。敷地やエリアを表すのに使う */}
+                <div className="mt-3">
+                  <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>範囲（半径）</span>
+                    <span className="font-bold text-slate-700">
+                      {editingPlace.radius_m ? `${editingPlace.radius_m} m` : "点のまま"}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1000}
+                    step={10}
+                    value={editingPlace.radius_m ?? 0}
+                    onChange={(e) =>
+                      setEditingPlace({ ...editingPlace, radius_m: Number(e.target.value) || null })
+                    }
+                    className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-violet-600"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    0 にすると点として扱います。敷地全体を示したいときに広げてください
+                  </p>
+                </div>
+
+                {placeEditError && <div className="mt-2 text-[11px] text-red-600">{placeEditError}</div>}
+
+                <div className="mt-3 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(editingPlace)}
+                    className="text-[11px] font-semibold text-red-600 hover:underline"
+                  >
+                    削除
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingPlace(null);
+                        setPlaceEditError("");
+                        void refreshPlaces(); // ドラッグした位置を元に戻す
+                      }}
+                      className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void savePlaceEdit()}
+                      disabled={savingPlace || !editingPlace.name.trim()}
+                      className="rounded-lg bg-slate-800 px-4 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      {savingPlace ? "保存中..." : "保存"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ピン追加フォーム（位置決定後） */}
             {draft && (
               <div className="absolute inset-x-3 bottom-3 mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg">
@@ -1777,6 +1986,7 @@ export default function MapPage() {
         confirmLabel="削除"
         onConfirm={() => {
           if (deleteTarget) void deletePlace(deleteTarget);
+          setEditingPlace(null);
         }}
         onClose={() => setDeleteTarget(null)}
       />
