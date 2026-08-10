@@ -34,6 +34,9 @@ export function VehicleModelPreview({
     const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // 白飛びを抑えて陰影を残す（既定のままだと明るい面が潰れて「粘土」に見える）
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
     host.appendChild(renderer.domElement);
 
     // 平行光だけだと「粘土」に見えるので、環境マップで面の向きに応じた明暗を作る
@@ -47,7 +50,13 @@ export function VehicleModelPreview({
     let raf = 0;
     let disposed = false;
     let model: THREE.Object3D | null = null;
-    let angle = Math.PI * 0.75; // 斜め前から見せる
+    // ★ぐるぐる回さない。生成モデルはリアの造形が実車と違うことが多く、
+    //   回すと必ず粗が見える（2026-08-11 指摘）。**前寄りの斜め45度**で止め、
+    //   ゆっくり左右に揺らすだけにする。見たい人はドラッグで回せる。
+    const BASE_ANGLE = -Math.PI * 0.28;
+    let angle = BASE_ANGLE;
+    let userAngle: number | null = null;
+    let t = 0;
 
     const resize = () => {
       const w = host.clientWidth || 240;
@@ -80,6 +89,19 @@ export function VehicleModelPreview({
         applyColor();
         scene.add(model);
 
+        // 接地影。浮いて見えると玩具っぽくなるので、足元に柔らかい影を敷く
+        const shadow = new THREE.Mesh(
+          new THREE.CircleGeometry(1, 48),
+          new THREE.MeshBasicMaterial({
+            color: 0x0f172a,
+            transparent: true,
+            opacity: 0.16,
+            depthWrite: false,
+          }),
+        );
+        shadow.rotation.x = -Math.PI / 2;
+        scene.add(shadow);
+
         // 車全体が収まる距離にカメラを置く
         const box = new THREE.Box3().setFromObject(model);
         const size = box.getSize(new THREE.Vector3());
@@ -91,6 +113,8 @@ export function VehicleModelPreview({
         const dist = radius / Math.sin(Math.min(fov, fov * camera.aspect) / 2);
         camera.position.set(0, size.y * 0.55, dist);
         camera.lookAt(0, size.y * 0.35, 0);
+        shadow.scale.setScalar(Math.max(size.x, size.z) * 0.42);
+        shadow.position.y = -size.y / 2 + 0.01;
       },
       undefined,
       (err) => console.error("[VehicleModelPreview] load error", err),
@@ -104,10 +128,32 @@ export function VehicleModelPreview({
     };
     applyColorRef.current = applyColor;
 
+    // ドラッグで見たい向きに回せる（勝手に一周させない代わりの逃げ道）
+    let dragging = false;
+    let lastX = 0;
+    const onDown = (e: PointerEvent) => {
+      dragging = true;
+      lastX = e.clientX;
+      renderer.domElement.setPointerCapture(e.pointerId);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      userAngle = (userAngle ?? angle) + (e.clientX - lastX) * 0.01;
+      lastX = e.clientX;
+    };
+    const onUp = () => {
+      dragging = false;
+    };
+    renderer.domElement.style.cursor = "grab";
+    renderer.domElement.addEventListener("pointerdown", onDown);
+    renderer.domElement.addEventListener("pointermove", onMove);
+    renderer.domElement.addEventListener("pointerup", onUp);
+
     const tick = () => {
       raf = requestAnimationFrame(tick);
       if (model) {
-        angle += 0.004; // ゆっくり回して形が分かるようにする
+        t += 0.006;
+        angle = userAngle ?? BASE_ANGLE + Math.sin(t) * 0.14; // ±8度ほど揺らす
         model.rotation.y = angle;
       }
       renderer.render(scene, camera);
@@ -116,6 +162,9 @@ export function VehicleModelPreview({
 
     return () => {
       disposed = true;
+      renderer.domElement.removeEventListener("pointerdown", onDown);
+      renderer.domElement.removeEventListener("pointermove", onMove);
+      renderer.domElement.removeEventListener("pointerup", onUp);
       cancelAnimationFrame(raf);
       observer.disconnect();
       renderer.dispose();
