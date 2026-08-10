@@ -98,16 +98,22 @@ type GeocodeHit = { id: string; name: string; address: string; lat: number; lng:
  * 「ヤマト運輸の営業所」「ガソリンスタンド」のような探し方ができなかった（2026-08-10 指摘）。
  * 地図の中心を proximity に渡し、近い順に出す。
  */
-async function searchPlaces(query: string, proximity: [number, number] | null): Promise<GeocodeHit[]> {
+async function searchPlaces(
+  query: string,
+  proximity: [number, number] | null,
+  bbox: string | null,
+): Promise<GeocodeHit[]> {
   const params = new URLSearchParams({
     q: query,
     country: "jp",
     language: "ja",
-    limit: "8",
+    limit: "10",
     types: "poi,address,place,street",
     access_token: MAPBOX_TOKEN,
   });
   if (proximity) params.set("proximity", `${proximity[0]},${proximity[1]}`);
+  // 表示範囲に限定しないと、同名の施設が全国から混ざる（「ヤマト 営業所」で埼玉・千葉が出た）
+  if (bbox) params.set("bbox", bbox);
   const res = await fetch(`https://api.mapbox.com/search/searchbox/v1/forward?${params.toString()}`);
   if (!res.ok) throw new Error(`search ${res.status}`);
   return toHits(await res.json());
@@ -117,14 +123,19 @@ async function searchPlaces(query: string, proximity: [number, number] | null): 
  * 種別で近くを探す（ガソリンスタンド・駐車場など）。
  * 「この辺の給油所どこ」という調べ方は名前を知らないので、カテゴリ検索でないと引けない。
  */
-async function searchCategory(category: string, proximity: [number, number] | null): Promise<GeocodeHit[]> {
+async function searchCategory(
+  category: string,
+  proximity: [number, number] | null,
+  bbox: string | null,
+): Promise<GeocodeHit[]> {
   const params = new URLSearchParams({
     country: "jp",
     language: "ja",
-    limit: "8",
+    limit: "10",
     access_token: MAPBOX_TOKEN,
   });
   if (proximity) params.set("proximity", `${proximity[0]},${proximity[1]}`);
+  if (bbox) params.set("bbox", bbox);
   const res = await fetch(
     `https://api.mapbox.com/search/searchbox/v1/category/${encodeURIComponent(category)}?${params.toString()}`,
   );
@@ -193,6 +204,24 @@ type MapPlace = {
   lng: number;
   icon: PlaceIcon;
 };
+
+// 検索結果のピン。拠点ピン（登録済み）と区別できるよう、白地＋番号＋種別アイコンにする。
+function SearchHitMarker({ index, icon, active }: { index: number; icon: PlaceIcon; active: boolean }) {
+  const meta = PLACE_ICONS[icon] ?? PLACE_ICONS.pin;
+  return (
+    <div className="flex flex-col items-center">
+      <div
+        className={`flex items-center gap-1 rounded-full border-2 bg-white px-2 py-1 shadow-lg transition-transform ${
+          active ? "scale-110 border-slate-900" : "border-white"
+        }`}
+      >
+        <FontAwesomeIcon icon={meta.icon} className={`h-3 w-3 ${meta.bg.replace("bg-", "text-")}`} />
+        <span className="text-[10px] font-bold text-slate-700">{index}</span>
+      </div>
+      <div className="h-0 w-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-white" />
+    </div>
+  );
+}
 
 // 拠点ピンの見た目: 白縁の丸バッジ＋種別アイコン。
 function PlaceMarkerBadge({ icon }: { icon: PlaceIcon }) {
@@ -517,6 +546,18 @@ export default function MapPage() {
   const [searching, setSearching] = useState(false);
   /** ショートカット検索で選ばれた種別（結果から拠点を作るとき、この種別を初期選択にする） */
   const [searchIconHint, setSearchIconHint] = useState<PlaceIcon>("pin");
+  /** 直近の検索条件（「このエリアを再検索」で使い回す） */
+  const [lastSearch, setLastSearch] = useState<
+    { kind: "text"; value: string; icon: PlaceIcon } | { kind: "category"; value: string; icon: PlaceIcon } | null
+  >(null);
+  /** 検索後に地図を動かしたか（Google マップの「このエリアを検索」と同じ考え方） */
+  const [movedSinceSearch, setMovedSinceSearch] = useState(false);
+  /** 一覧でホバー中の候補。地図上のピンを強調する */
+  const [hoveredHitId, setHoveredHitId] = useState<string | null>(null);
+  /** 宣言順の都合で effect から呼ぶための参照 */
+  const runSearchRef = useRef<(spec: { kind: "text" | "category"; value: string; icon: PlaceIcon }) => void>(
+    () => {},
+  );
 
   // ピン追加フロー: adding=クリック待ち → draft=位置決定・名称入力中。
   const [adding, setAdding] = useState(false);
@@ -562,46 +603,54 @@ export default function MapPage() {
   useEffect(() => {
     const q = searchQuery.trim();
     if (q.length < 2) return; // 空にしただけでは結果を消さない（ショートカットの結果を保つ）
-    setSearchIconHint("pin");
-    let aborted = false;
-    const timer = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const center = mapRef.current?.getCenter();
-        const hits = await searchPlaces(q, center ? [center.lng, center.lat] : null);
-        if (!aborted) setSearchResults(hits);
-      } catch (e) {
-        console.error("[map] geocode error", e);
-        if (!aborted) setSearchResults([]);
-      } finally {
-        if (!aborted) setSearching(false);
-      }
+    const timer = setTimeout(() => {
+      void runSearchRef.current({ kind: "text", value: q, icon: "pin" });
     }, 400);
-    return () => {
-      aborted = true;
-      clearTimeout(timer);
-    };
+    return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  /** 検索の実行（テキスト／カテゴリ共通）。範囲は常にいまの表示範囲。 */
+  const runSearch = useCallback(
+    async (spec: { kind: "text" | "category"; value: string; icon: PlaceIcon }) => {
+      const center = mapRef.current?.getCenter();
+      const proximity: [number, number] | null = center ? [center.lng, center.lat] : null;
+      const b = mapRef.current?.getBounds();
+      const bbox = b
+        ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((n) => n.toFixed(5)).join(",")
+        : null;
+      setSearchIconHint(spec.icon);
+      setLastSearch(spec);
+      setSearching(true);
+      setMovedSinceSearch(false);
+      try {
+        const hits =
+          spec.kind === "category"
+            ? await searchCategory(spec.value, proximity, bbox)
+            : await searchPlaces(spec.value, proximity, bbox);
+        setSearchResults(hits);
+      } catch (e) {
+        console.error("[map] search error", e);
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    },
+    [],
+  );
+
+  runSearchRef.current = (spec) => void runSearch(spec);
+
   /** ショートカット（ガソリン・駐車場・ヤマト運輸など）で、いま見ている辺りを探す。 */
-  const runShortcut = async (sc: (typeof SEARCH_SHORTCUTS)[number]) => {
-    const center = mapRef.current?.getCenter();
-    const proximity: [number, number] | null = center ? [center.lng, center.lat] : null;
+  const runShortcut = (sc: (typeof SEARCH_SHORTCUTS)[number]) => {
     setSearchQuery("");
-    setSearchIconHint(sc.icon);
-    setSearching(true);
-    try {
-      const hits = sc.category
-        ? await searchCategory(sc.category, proximity)
-        : await searchPlaces(sc.query ?? sc.label, proximity);
-      setSearchResults(hits);
-    } catch (e) {
-      console.error("[map] shortcut search error", e);
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
+    void runSearch(
+      sc.category
+        ? { kind: "category", value: sc.category, icon: sc.icon }
+        : { kind: "text", value: sc.query ?? sc.label, icon: sc.icon },
+    );
   };
+
+  const pickSearchResultRef = useRef<(hit: GeocodeHit) => void>(() => {});
 
   /** 検索結果を選ぶ: その場所へ寄って、拠点の下書きにする（名称も埋める）。 */
   const pickSearchResult = (hit: GeocodeHit) => {
@@ -613,6 +662,8 @@ export default function MapPage() {
     setSearchQuery("");
     mapRef.current?.flyTo({ center: [hit.lng, hit.lat], zoom: 16, duration: 800 });
   };
+
+  pickSearchResultRef.current = pickSearchResult;
 
   // Esc でピン追加を中止。
   useEffect(() => {
@@ -961,6 +1012,49 @@ export default function MapPage() {
     if (placing && canDispatch && !historyDate) map.dragPan.disable();
     else map.dragPan.enable();
   }, [placing, canDispatch, historyDate]);
+
+  // 検索結果を地図にピンで出す。一覧だけだと「どこにあるか」が分からない（2026-08-10 指摘）。
+  // 拠点ピンとは見た目を変える（白丸＋種別色のアイコン＋番号）。
+  const hitMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const hitRootsRef = useRef<Root[]>([]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    hitMarkersRef.current.forEach((m) => m.remove());
+    hitMarkersRef.current = [];
+    const stale = hitRootsRef.current;
+    hitRootsRef.current = [];
+    setTimeout(() => stale.forEach((r) => r.unmount()), 0);
+
+    searchResults.forEach((hit, i) => {
+      const node = document.createElement("div");
+      node.style.zIndex = "7"; // 車両ラベルより前（選ぶ対象なので）
+      node.style.cursor = "pointer";
+      node.title = hit.name;
+      const root = createRoot(node);
+      root.render(<SearchHitMarker index={i + 1} icon={searchIconHint} active={hoveredHitId === hit.id} />);
+      hitRootsRef.current.push(root);
+      const marker = new mapboxgl.Marker({ element: node, anchor: "bottom" })
+        .setLngLat([hit.lng, hit.lat])
+        .addTo(map);
+      node.addEventListener("click", () => pickSearchResultRef.current(hit));
+      node.addEventListener("mouseenter", () => setHoveredHitId(hit.id));
+      node.addEventListener("mouseleave", () => setHoveredHitId(null));
+      hitMarkersRef.current.push(marker);
+    });
+  }, [searchResults, searchIconHint, hoveredHitId]);
+
+  // 検索後に地図を動かしたら「このエリアを再検索」を出す（Google マップと同じ考え方）
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !lastSearch) return;
+    const onMove = () => setMovedSinceSearch(true);
+    map.on("moveend", onMove);
+    return () => {
+      map.off("moveend", onMove);
+    };
+  }, [lastSearch]);
 
   // 車両ラベル反映: **実データ**の位置にプレート吹き出しと3Dモデルを置く。
   // デモ車両（ハードコード10台）は廃止した（2026-08-07）。
@@ -1356,11 +1450,14 @@ export default function MapPage() {
                     {!searching && searchResults.length > 0 && (
                       <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5">
                         <span className="text-[10px] font-semibold text-slate-400">
-                          この辺りの候補 {searchResults.length} 件
+                          いま表示中の範囲から {searchResults.length} 件
                         </span>
                         <button
                           type="button"
-                          onClick={() => setSearchResults([])}
+                          onClick={() => {
+                            setSearchResults([]);
+                            setLastSearch(null);
+                          }}
                           className="text-[10px] text-slate-400 hover:text-slate-600"
                         >
                           閉じる
@@ -1425,6 +1522,18 @@ export default function MapPage() {
             </div>
 
             {/* ピン追加モードの案内バナー */}
+            {/* 地図を動かしたら再検索を促す（Google マップの「このエリアを検索」と同じ） */}
+            {lastSearch && movedSinceSearch && (
+              <button
+                type="button"
+                onClick={() => void runSearch(lastSearch)}
+                className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-slate-900/95 px-4 py-2 text-xs font-bold text-white shadow-lg hover:bg-slate-800"
+              >
+                <FontAwesomeIcon icon={faRotateRight} className="mr-1.5 h-3 w-3" />
+                このエリアを再検索
+              </button>
+            )}
+
             {adding && (
               <div className="absolute inset-x-0 top-3 mx-auto flex w-fit items-center gap-3 rounded-full bg-slate-900/95 px-4 py-2 text-xs font-semibold text-white shadow-lg">
                 追加する位置を地図でクリックしてください
