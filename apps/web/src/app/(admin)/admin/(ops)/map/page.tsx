@@ -15,6 +15,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBuilding,
+  faGasPump,
   faGear,
   faLocationDot,
   faMagnifyingGlass,
@@ -92,41 +93,88 @@ function styleUrlFor(basemap: MapViewPrefs["basemap"]): string {
 type GeocodeHit = { id: string; name: string; address: string; lat: number; lng: number };
 
 /**
- * 住所・施設名から座標を引く（Mapbox Geocoding v6）。
- * 日本国内・日本語に限定し、地図の中心を近接ヒントに渡して近い候補を上位に出す。
- * トークンは公開用（NEXT_PUBLIC）なのでクライアントから直接呼んで問題ない。
+ * 地点検索。**Mapbox Search Box API** を使う。
+ * Geocoding v6 は住所・地名しか返さず、**施設（POI）が出ない**ため、
+ * 「ヤマト運輸の営業所」「ガソリンスタンド」のような探し方ができなかった（2026-08-10 指摘）。
+ * 地図の中心を proximity に渡し、近い順に出す。
  */
-async function geocodeForward(query: string, proximity: [number, number] | null): Promise<GeocodeHit[]> {
+async function searchPlaces(query: string, proximity: [number, number] | null): Promise<GeocodeHit[]> {
   const params = new URLSearchParams({
     q: query,
     country: "jp",
     language: "ja",
-    limit: "5",
+    limit: "8",
+    types: "poi,address,place,street",
     access_token: MAPBOX_TOKEN,
   });
   if (proximity) params.set("proximity", `${proximity[0]},${proximity[1]}`);
-  const res = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?${params.toString()}`);
-  if (!res.ok) throw new Error(`geocode ${res.status}`);
-  const json = (await res.json()) as {
-    features?: {
-      id?: string;
-      properties?: { name?: string; full_address?: string; place_formatted?: string; coordinates?: { latitude: number; longitude: number } };
-    }[];
-  };
+  const res = await fetch(`https://api.mapbox.com/search/searchbox/v1/forward?${params.toString()}`);
+  if (!res.ok) throw new Error(`search ${res.status}`);
+  return toHits(await res.json());
+}
+
+/**
+ * 種別で近くを探す（ガソリンスタンド・駐車場など）。
+ * 「この辺の給油所どこ」という調べ方は名前を知らないので、カテゴリ検索でないと引けない。
+ */
+async function searchCategory(category: string, proximity: [number, number] | null): Promise<GeocodeHit[]> {
+  const params = new URLSearchParams({
+    country: "jp",
+    language: "ja",
+    limit: "8",
+    access_token: MAPBOX_TOKEN,
+  });
+  if (proximity) params.set("proximity", `${proximity[0]},${proximity[1]}`);
+  const res = await fetch(
+    `https://api.mapbox.com/search/searchbox/v1/category/${encodeURIComponent(category)}?${params.toString()}`,
+  );
+  if (!res.ok) throw new Error(`category ${res.status}`);
+  return toHits(await res.json());
+}
+
+type SearchBoxResponse = {
+  features?: {
+    id?: string;
+    properties?: {
+      name?: string;
+      full_address?: string;
+      place_formatted?: string;
+      coordinates?: { latitude: number; longitude: number };
+    };
+    geometry?: { coordinates?: [number, number] };
+  }[];
+};
+
+function toHits(json: SearchBoxResponse): GeocodeHit[] {
   return (json.features ?? [])
     .map((f, i) => {
       const c = f.properties?.coordinates;
-      if (!c) return null;
+      const g = f.geometry?.coordinates;
+      const lat = c?.latitude ?? g?.[1];
+      const lng = c?.longitude ?? g?.[0];
+      if (lat == null || lng == null) return null;
       return {
         id: f.id ?? `hit-${i}`,
-        name: f.properties?.name ?? query,
+        name: f.properties?.name ?? "",
         address: f.properties?.full_address ?? f.properties?.place_formatted ?? "",
-        lat: c.latitude,
-        lng: c.longitude,
+        lat,
+        lng,
       };
     })
-    .filter((h): h is GeocodeHit => h !== null);
+    .filter((h): h is GeocodeHit => h !== null && !!h.name);
 }
+
+/**
+ * よく調べる種別のショートカット。
+ * ガソリン・駐車場はカテゴリ検索、運送会社は名前で引く（ブランド名の方が確実に当たる）。
+ */
+const SEARCH_SHORTCUTS: { label: string; category?: string; query?: string; icon: PlaceIcon }[] = [
+  { label: "ガソリン", category: "gas_station", icon: "fuel" },
+  { label: "駐車場", category: "parking_lot", icon: "parking" },
+  { label: "ヤマト運輸", query: "ヤマト運輸", icon: "client" },
+  { label: "佐川急便", query: "佐川急便", icon: "client" },
+  { label: "コンビニ", category: "convenience_store", icon: "pin" },
+];
 
 // 拠点ピンのマーカー種別（DB の map_places.icon と対応）。
 const PLACE_ICONS = {
@@ -134,6 +182,7 @@ const PLACE_ICONS = {
   warehouse: { label: "倉庫", icon: faWarehouse, bg: "bg-amber-600" },
   parking: { label: "駐車場", icon: faSquareParking, bg: "bg-blue-600" },
   client: { label: "取引先", icon: faBuilding, bg: "bg-emerald-600" },
+  fuel: { label: "給油所", icon: faGasPump, bg: "bg-rose-600" },
 } as const;
 type PlaceIcon = keyof typeof PLACE_ICONS;
 
@@ -466,6 +515,8 @@ export default function MapPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<GeocodeHit[]>([]);
   const [searching, setSearching] = useState(false);
+  /** ショートカット検索で選ばれた種別（結果から拠点を作るとき、この種別を初期選択にする） */
+  const [searchIconHint, setSearchIconHint] = useState<PlaceIcon>("pin");
 
   // ピン追加フロー: adding=クリック待ち → draft=位置決定・名称入力中。
   const [adding, setAdding] = useState(false);
@@ -510,16 +561,14 @@ export default function MapPage() {
   // 入力が落ち着いてから検索する（1文字ごとに叩かない）。
   useEffect(() => {
     const q = searchQuery.trim();
-    if (q.length < 2) {
-      setSearchResults([]);
-      return;
-    }
+    if (q.length < 2) return; // 空にしただけでは結果を消さない（ショートカットの結果を保つ）
+    setSearchIconHint("pin");
     let aborted = false;
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
         const center = mapRef.current?.getCenter();
-        const hits = await geocodeForward(q, center ? [center.lng, center.lat] : null);
+        const hits = await searchPlaces(q, center ? [center.lng, center.lat] : null);
         if (!aborted) setSearchResults(hits);
       } catch (e) {
         console.error("[map] geocode error", e);
@@ -534,11 +583,32 @@ export default function MapPage() {
     };
   }, [searchQuery]);
 
+  /** ショートカット（ガソリン・駐車場・ヤマト運輸など）で、いま見ている辺りを探す。 */
+  const runShortcut = async (sc: (typeof SEARCH_SHORTCUTS)[number]) => {
+    const center = mapRef.current?.getCenter();
+    const proximity: [number, number] | null = center ? [center.lng, center.lat] : null;
+    setSearchQuery("");
+    setSearchIconHint(sc.icon);
+    setSearching(true);
+    try {
+      const hits = sc.category
+        ? await searchCategory(sc.category, proximity)
+        : await searchPlaces(sc.query ?? sc.label, proximity);
+      setSearchResults(hits);
+    } catch (e) {
+      console.error("[map] shortcut search error", e);
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
   /** 検索結果を選ぶ: その場所へ寄って、拠点の下書きにする（名称も埋める）。 */
   const pickSearchResult = (hit: GeocodeHit) => {
     setAdding(false);
     setDraft({ lat: hit.lat, lng: hit.lng });
     setDraftName((prev) => prev || hit.name);
+    setDraftIcon(searchIconHint); // ガソリン→給油所 のように種別まで引き継ぐ
     setSearchResults([]);
     setSearchQuery("");
     mapRef.current?.flyTo({ center: [hit.lng, hit.lat], zoom: 16, duration: 800 });
@@ -1303,8 +1373,36 @@ export default function MapPage() {
                     </button>
                   )}
                 </div>
+                {/* よく調べる種別のショートカット。名前を知らない場所は種別からしか探せない */}
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {SEARCH_SHORTCUTS.map((sc) => (
+                    <button
+                      key={sc.label}
+                      type="button"
+                      onClick={() => void runShortcut(sc)}
+                      className="rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-slate-900"
+                    >
+                      {sc.label}
+                    </button>
+                  ))}
+                </div>
+
                 {(searching || searchResults.length > 0) && (
-                  <div className="mt-1 overflow-hidden rounded-lg bg-white shadow-lg">
+                  <div className="mt-1 max-h-[320px] overflow-y-auto rounded-lg bg-white shadow-lg">
+                    {!searching && searchResults.length > 0 && (
+                      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5">
+                        <span className="text-[10px] font-semibold text-slate-400">
+                          この辺りの候補 {searchResults.length} 件
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSearchResults([])}
+                          className="text-[10px] text-slate-400 hover:text-slate-600"
+                        >
+                          閉じる
+                        </button>
+                      </div>
+                    )}
                     {searching && searchResults.length === 0 ? (
                       <div className="px-3 py-2 text-[11px] text-slate-400">検索しています…</div>
                     ) : (

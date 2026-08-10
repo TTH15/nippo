@@ -5,7 +5,7 @@ import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
-const ICONS = ["pin", "warehouse", "parking", "client"] as const;
+const ICONS = ["pin", "warehouse", "parking", "client", "fuel"] as const;
 
 // GET: 地図（ベータ）の拠点ピン一覧。
 export async function GET(req: NextRequest) {
