@@ -14,7 +14,10 @@
 //      KHR_draco_mesh_compression を読める保証が無いため。16k 三角形なら非圧縮でも 300KB 程度
 //
 // 使い方:
-//   node scripts/prepare-vehicle-glb.mjs <入力.glb> <出力.glb> [全長m] [目標三角形数] [テクスチャpx] [flat|photo]
+//   node scripts/prepare-vehicle-glb.mjs <入力.glb> <出力.glb> [全長m] [目標三角形数] [テクスチャpx] [flat|photo] [プレート色] [auto|none]
+//
+// ★プレートの自動切り出し（幾何条件）はモデルによって外す。バンパーに黒い破片が出るようなら
+//   最後の引数に none を渡し、Blender で plate マテリアルを分けること（2026-08-11 実測）
 //   例) node scripts/prepare-vehicle-glb.mjs public/glb/clipper_raw.glb apps/web/public/models/clipper.glb 3.4 16000
 //
 // 前提: npx @gltf-transform/cli が使える（初回はダウンロードが走る）
@@ -33,6 +36,7 @@ const [
   texSizeStr = "1024",
   style = "flat",
   plateColor = "#111827", // 事業用（黒ナンバー）。自家用なら白系を渡す
+  plateMode = "auto", // auto=幾何条件で自動切り出し / none=切り出さない（Blender で分ける場合）
 ] = process.argv.slice(2);
 
 /** #RRGGBB → glTF の baseColorFactor（sRGB→リニア近似） */
@@ -219,7 +223,9 @@ if (style === "flat") {
 //（テクスチャ版だと「EVERY」や黄色いプレートが出てデジタルツイン感が落ちる・2026-08-10 指摘）。
 // 前後の端にある「Xを向いた低い位置の小さな面」をプレートとみなし、黒（事業用＝黒ナンバー）にする。
 // マテリアルを分けておけば、モバイル側（three.js 等）で色を差し替えられる。
-if (root.listMaterials().some((m) => m.getName() === "plate")) {
+if (plateMode === "none") {
+  console.log("プレートの自動切り出しはしない（plateMode=none）");
+} else if (root.listMaterials().some((m) => m.getName() === "plate")) {
   // Blender 側で plate を作ってあるなら、こちらで切り出さない（二重に作らない）
   console.log("plate マテリアルが既にあるので、プレートの自動切り出しはスキップ");
 } else {
