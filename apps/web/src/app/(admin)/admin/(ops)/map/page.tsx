@@ -1312,6 +1312,83 @@ export default function MapPage() {
                 </button>
               </div>
 
+              {/* 地点検索。住所や施設名で拠点を立てられるようにする（クリックだけだと場所を知らないと置けない） */}
+              {canWritePlaces && (
+              <div className="relative w-[min(320px,calc(100vw-3rem))]">
+                <div className="flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md backdrop-blur">
+                  <FontAwesomeIcon icon={faMagnifyingGlass} className="h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="住所・施設名で探す（例: 京都市伏見区…）"
+                    className="w-full bg-transparent text-xs outline-none placeholder:text-slate-400"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSearchResults([]);
+                      }}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                    </button>
+                    )}
+                </div>
+                  {/* よく調べる種別のショートカット。名前を知らない場所は種別からしか探せない */}
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {SEARCH_SHORTCUTS.map((sc) => (
+                    <button
+                      key={sc.label}
+                      type="button"
+                      onClick={() => void runShortcut(sc)}
+                      className="rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-slate-900"
+                    >
+                      {sc.label}
+                    </button>
+                  ))}
+                </div>
+
+                {(searching || searchResults.length > 0) && (
+                  <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-[320px] overflow-y-auto rounded-lg bg-white shadow-lg">
+                    {!searching && searchResults.length > 0 && (
+                      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5">
+                        <span className="text-[10px] font-semibold text-slate-400">
+                          この辺りの候補 {searchResults.length} 件
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSearchResults([])}
+                          className="text-[10px] text-slate-400 hover:text-slate-600"
+                        >
+                          閉じる
+                        </button>
+                      </div>
+                      )}
+                    {searching && searchResults.length === 0 ? (
+                      <div className="px-3 py-2 text-[11px] text-slate-400">検索しています…</div>
+                    ) : (
+                      searchResults.map((hit) => (
+                        <button
+                          key={hit.id}
+                          type="button"
+                          onClick={() => pickSearchResult(hit)}
+                          className="block w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                        >
+                          <div className="text-xs font-semibold text-slate-800">{hit.name}</div>
+                          {hit.address && (
+                            <div className="truncate text-[11px] text-slate-500">{hit.address}</div>
+                            )}
+                        </button>
+                      ))
+                      )}
+                  </div>
+                  )}
+              </div>
+              )}
+
               {/* 共有ビューの参加者。タップでその人の視点に追従（もう一度で解除） */}
               {shareOn && share.status === "connected" && (
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -1348,83 +1425,6 @@ export default function MapPage() {
             </div>
 
             {/* ピン追加モードの案内バナー */}
-            {/* 地点検索。住所や施設名で拠点を立てられるようにする（クリックだけだと場所を知らないと置けない） */}
-            {canWritePlaces && (
-              <div className="absolute left-3 top-3 z-10 w-[min(320px,calc(100%-1.5rem))]">
-                <div className="flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md backdrop-blur">
-                  <FontAwesomeIcon icon={faMagnifyingGlass} className="h-3.5 w-3.5 text-slate-400" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="住所・施設名で探す（例: 京都市伏見区…）"
-                    className="w-full bg-transparent text-xs outline-none placeholder:text-slate-400"
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchQuery("");
-                        setSearchResults([]);
-                      }}
-                      className="text-slate-400 hover:text-slate-600"
-                    >
-                      <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-                {/* よく調べる種別のショートカット。名前を知らない場所は種別からしか探せない */}
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {SEARCH_SHORTCUTS.map((sc) => (
-                    <button
-                      key={sc.label}
-                      type="button"
-                      onClick={() => void runShortcut(sc)}
-                      className="rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-slate-900"
-                    >
-                      {sc.label}
-                    </button>
-                  ))}
-                </div>
-
-                {(searching || searchResults.length > 0) && (
-                  <div className="mt-1 max-h-[320px] overflow-y-auto rounded-lg bg-white shadow-lg">
-                    {!searching && searchResults.length > 0 && (
-                      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5">
-                        <span className="text-[10px] font-semibold text-slate-400">
-                          この辺りの候補 {searchResults.length} 件
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setSearchResults([])}
-                          className="text-[10px] text-slate-400 hover:text-slate-600"
-                        >
-                          閉じる
-                        </button>
-                      </div>
-                    )}
-                    {searching && searchResults.length === 0 ? (
-                      <div className="px-3 py-2 text-[11px] text-slate-400">検索しています…</div>
-                    ) : (
-                      searchResults.map((hit) => (
-                        <button
-                          key={hit.id}
-                          type="button"
-                          onClick={() => pickSearchResult(hit)}
-                          className="block w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
-                        >
-                          <div className="text-xs font-semibold text-slate-800">{hit.name}</div>
-                          {hit.address && (
-                            <div className="truncate text-[11px] text-slate-500">{hit.address}</div>
-                          )}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
             {adding && (
               <div className="absolute inset-x-0 top-3 mx-auto flex w-fit items-center gap-3 rounded-full bg-slate-900/95 px-4 py-2 text-xs font-semibold text-white shadow-lg">
                 追加する位置を地図でクリックしてください
