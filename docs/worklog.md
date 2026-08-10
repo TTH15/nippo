@@ -1115,3 +1115,12 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - Meshy 側の残作業: **「テクスチャ」工程まで回す**（generate 段階は POSITION のみ）。
   テクスチャ版なら法線・UV が入り、④⑤が不要になり見た目も良くなる。車体は白〜薄グレーのまま
 - 検証: 生成物の属性・寸法・原点を glb のヘッダから確認済み。地図への接続（model_key での切替）は次
+
+### 補足（2026-08-10 22:10）: 車両3Dモデルの受け渡し手順
+
+1. Meshy で **「テクスチャ」工程まで**回して glb をダウンロード（generate 段階は POSITION のみ）
+2. `apps/web/public/glb/` に置く（作業用。整形後の成果物は `apps/web/public/models/`）
+3. `node scripts/prepare-vehicle-glb.mjs <入力.glb> apps/web/public/models/<車種>.glb 3.4 16000`
+4. 車体は白〜薄グレーのまま（`model-color` で着色するため）
+- 現状: `clipper.glb`（1.6万三角形・277KB・実寸・原点=底面中心）を生成済み。
+  地図への接続（`vehicles.model_key` での車種切替）は未実装＝次の作業
