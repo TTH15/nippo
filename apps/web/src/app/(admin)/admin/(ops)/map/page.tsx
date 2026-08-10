@@ -602,6 +602,8 @@ export default function MapPage() {
   const declutterPlatesRef = useRef<() => void>(() => {});
   /** 3Dモデルのソースへ最新の車両位置を流し込む（スタイル再読込時にも呼ぶ） */
   const applyVehicleModelDataRef = useRef<() => void>(() => {});
+  /** 面（駐車区画・配達エリア・拠点の円）のデータを流し込む（同上） */
+  const applyAreaDataRef = useRef<() => void>(() => {});
 
   // 拠点ピンは基本非表示。設定モーダルからオンにできる。
   const [showPlaces, setShowPlaces] = useState(false);
@@ -936,6 +938,77 @@ export default function MapPage() {
     map.on("style.load", addTruckModel);
     map.on("zoom", updateTruckScale);
 
+    // 面のレイヤー（駐車区画・配達エリア・拠点の円）はここで**空のまま**作っておく。
+    // データ側の effect で addSource すると、航空写真への切替（setStyle）でソースごと消え、
+    // 「保存したのに区画が出ない」状態になっていた（2026-08-10 実機指摘）。
+    // 3Dモデルと同じく「style.load で作り直し → ref でデータを流す」に揃える。
+    const empty = { type: "FeatureCollection" as const, features: [] };
+    const addAreaLayers = () => {
+      if (!map.getSource("place-areas")) {
+        map.addSource("place-areas", { type: "geojson", data: empty as never });
+        map.addLayer({
+          id: "place-areas-fill",
+          type: "fill",
+          source: "place-areas",
+          paint: { "fill-color": "#7c3aed", "fill-opacity": 0.12 },
+        });
+        map.addLayer({
+          id: "place-areas-line",
+          type: "line",
+          source: "place-areas",
+          paint: { "line-color": "#7c3aed", "line-width": 1.5, "line-opacity": 0.7 },
+        });
+      }
+      if (!map.getSource("course-areas")) {
+        map.addSource("course-areas", { type: "geojson", data: empty as never });
+        map.addLayer({
+          id: "course-areas-fill",
+          type: "fill",
+          source: "course-areas",
+          paint: { "fill-color": ["get", "color"], "fill-opacity": 0.14 },
+        });
+        map.addLayer({
+          id: "course-areas-line",
+          type: "line",
+          source: "course-areas",
+          paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.85 },
+        });
+        map.addLayer({
+          id: "course-areas-label",
+          type: "symbol",
+          source: "course-areas",
+          layout: { "text-field": ["get", "name"], "text-size": 12 },
+          paint: { "text-color": "#0f172a", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
+        });
+      }
+      if (!map.getSource("parking-slots")) {
+        map.addSource("parking-slots", { type: "geojson", data: empty as never });
+        map.addLayer({
+          id: "parking-slots-fill",
+          type: "fill",
+          source: "parking-slots",
+          paint: { "fill-color": "#38bdf8", "fill-opacity": 0.18 },
+        });
+        map.addLayer({
+          id: "parking-slots-line",
+          type: "line",
+          source: "parking-slots",
+          paint: { "line-color": "#e0f2fe", "line-width": 1.5, "line-opacity": 0.95 },
+        });
+        map.addLayer({
+          id: "parking-slots-label",
+          type: "symbol",
+          source: "parking-slots",
+          layout: { "text-field": ["get", "label"], "text-size": 11 },
+          paint: { "text-color": "#0c4a6e", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
+        });
+      }
+      // スタイル差し替え直後は空なので、保持しているデータを流し直す
+      applyAreaDataRef.current();
+    };
+    map.on("style.load", addAreaLayers);
+    addAreaLayers();
+
     // プレート吹き出しは実データから作る（下の「車両ラベル反映」effect）。
     // 吹き出しの基本オフセット: 車両の画面上の高さに比例させる
     // （ズーム18まで一定、以降は実寸固定で画面上大きくなるのに追従）。
@@ -1263,8 +1336,10 @@ export default function MapPage() {
           geometry: { type: "Polygon", coordinates: [rect] },
         }),
       });
-      // 続けて次の区画を描けるようにする（駐車場は区画が並んでいるので連続入力が普通）
+      // 続けて次の区画を描けるようにする（駐車場は区画が並んでいるので連続入力が普通）。
+      // deleteAll だけだと simple_select のままで多角形ツールが押せない状態になる（2026-08-10 指摘）
       draw.deleteAll();
+      draw.changeMode("draw_polygon");
       setSlotLabel(nextSlotLabel(label));
       setSlotVehicleId("");
       void refreshSlots();
@@ -1337,133 +1412,44 @@ export default function MapPage() {
     [slots],
   );
 
-  // 駐車区画を描く。航空写真に重ねて実際の区画に合わせて設定するため、白い輪郭＋区画名にする。
+  // 面のデータ反映。レイヤーは地図の初期化側で作ってあるので、ここは setData だけ。
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const draw = () => {
-      const features = slots.map((sl) => ({
-        type: "Feature" as const,
-        properties: { label: sl.label },
-        geometry: sl.geometry,
-      }));
-      const data = { type: "FeatureCollection" as const, features };
-      const src = map.getSource("parking-slots") as mapboxgl.GeoJSONSource | undefined;
-      if (src) {
-        src.setData(data as never);
-        return;
-      }
-      if (!map.isStyleLoaded()) return;
-      map.addSource("parking-slots", { type: "geojson", data: data as never });
-      map.addLayer({
-        id: "parking-slots-fill",
-        type: "fill",
-        source: "parking-slots",
-        paint: { "fill-color": "#38bdf8", "fill-opacity": 0.15 },
-      });
-      map.addLayer({
-        id: "parking-slots-line",
-        type: "line",
-        source: "parking-slots",
-        paint: { "line-color": "#e0f2fe", "line-width": 1.5, "line-opacity": 0.9 },
-      });
-      map.addLayer({
-        id: "parking-slots-label",
-        type: "symbol",
-        source: "parking-slots",
-        layout: { "text-field": ["get", "label"], "text-size": 11 },
-        paint: { "text-color": "#0c4a6e", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
-      });
-    };
-    draw();
-    map.on("style.load", draw);
-    return () => {
-      map.off("style.load", draw);
-    };
-  }, [slots]);
+    const apply = () => {
+      const map = mapRef.current;
+      if (!map) return;
+      const slotSrc = map.getSource("parking-slots") as mapboxgl.GeoJSONSource | undefined;
+      slotSrc?.setData({
+        type: "FeatureCollection",
+        features: slots.map((sl) => ({
+          type: "Feature",
+          properties: { label: sl.label },
+          geometry: sl.geometry,
+        })),
+      } as never);
 
-  // 配達エリア（コースの面）を塗る。コース色で塗り分け、どの区域が誰の担当か一目で分かるようにする。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const draw = () => {
-      const features = courseAreas
-        .filter((c) => c.delivery_area && c.id !== editingAreaCourse?.id) // 編集中は Draw 側が描く
-        .map((c) => ({
-          type: "Feature" as const,
-          properties: { color: c.color || "#7c3aed", name: c.name },
-          geometry: c.delivery_area!,
-        }));
-      const data = { type: "FeatureCollection" as const, features };
-      const src = map.getSource("course-areas") as mapboxgl.GeoJSONSource | undefined;
-      if (src) {
-        src.setData(data as never);
-        return;
-      }
-      if (!map.isStyleLoaded()) return;
-      map.addSource("course-areas", { type: "geojson", data: data as never });
-      map.addLayer({
-        id: "course-areas-fill",
-        type: "fill",
-        source: "course-areas",
-        paint: { "fill-color": ["get", "color"], "fill-opacity": 0.14 },
-      });
-      map.addLayer({
-        id: "course-areas-line",
-        type: "line",
-        source: "course-areas",
-        paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.85 },
-      });
-      map.addLayer({
-        id: "course-areas-label",
-        type: "symbol",
-        source: "course-areas",
-        layout: { "text-field": ["get", "name"], "text-size": 12, "text-allow-overlap": false },
-        paint: { "text-color": "#0f172a", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
-      });
-    };
-    draw();
-    map.on("style.load", draw);
-    return () => {
-      map.off("style.load", draw);
-    };
-  }, [courseAreas, editingAreaCourse]);
+      const courseSrc = map.getSource("course-areas") as mapboxgl.GeoJSONSource | undefined;
+      courseSrc?.setData({
+        type: "FeatureCollection",
+        features: courseAreas
+          .filter((c) => c.delivery_area && c.id !== editingAreaCourse?.id) // 編集中は Draw 側が描く
+          .map((c) => ({
+            type: "Feature",
+            properties: { color: c.color || "#7c3aed", name: c.name },
+            geometry: c.delivery_area!,
+          })),
+      } as never);
 
-  // 範囲（円）で登録された拠点を塗る。点のままの拠点は従来どおりピンだけ。
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const draw = () => {
-      const features = places
-        .filter((pl) => pl.shape === "circle" && (pl.radius_m ?? 0) > 0)
-        .map((pl) => circlePolygon(pl.lat, pl.lng, pl.radius_m!));
-      const data: PolygonCollection = { type: "FeatureCollection", features };
-      const src = map.getSource("place-areas") as mapboxgl.GeoJSONSource | undefined;
-      if (src) {
-        src.setData(data);
-        return;
-      }
-      if (!map.isStyleLoaded()) return;
-      map.addSource("place-areas", { type: "geojson", data });
-      map.addLayer({
-        id: "place-areas-fill",
-        type: "fill",
-        source: "place-areas",
-        paint: { "fill-color": "#7c3aed", "fill-opacity": 0.12 },
-      });
-      map.addLayer({
-        id: "place-areas-line",
-        type: "line",
-        source: "place-areas",
-        paint: { "line-color": "#7c3aed", "line-width": 1.5, "line-opacity": 0.7 },
-      });
+      const placeSrc = map.getSource("place-areas") as mapboxgl.GeoJSONSource | undefined;
+      placeSrc?.setData({
+        type: "FeatureCollection",
+        features: places
+          .filter((pl) => pl.shape === "circle" && (pl.radius_m ?? 0) > 0)
+          .map((pl) => circlePolygon(pl.lat, pl.lng, pl.radius_m!)),
+      } as never);
     };
-    draw();
-    map.on("style.load", draw); // スタイル切替で作り直される
-    return () => {
-      map.off("style.load", draw);
-    };
-  }, [places]);
+    applyAreaDataRef.current = apply;
+    apply();
+  }, [slots, courseAreas, editingAreaCourse, places]);
 
   // 検索結果を地図にピンで出す。一覧だけだと「どこにあるか」が分からない（2026-08-10 指摘）。
   // 拠点ピンとは見た目を変える（白丸＋種別色のアイコン＋番号）。
@@ -2161,6 +2147,41 @@ export default function MapPage() {
                 </p>
 
                 {slotError && <div className="mt-2 text-[11px] text-red-600">{slotError}</div>}
+
+                {/* 保存済みの区画をその場に出す（「作ったのに消えた」と見えないように） */}
+                {slots.filter((sl) => sl.place_id === slotPlace.id).length > 0 && (
+                  <div className="mt-2 max-h-28 overflow-y-auto rounded-lg border border-slate-200">
+                    {slots
+                      .filter((sl) => sl.place_id === slotPlace.id)
+                      .map((sl) => (
+                        <div
+                          key={sl.id}
+                          className="flex items-center justify-between border-b border-slate-100 px-2 py-1 last:border-b-0"
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              mapRef.current?.flyTo({ center: [sl.lng, sl.lat], zoom: 20, duration: 500 })
+                            }
+                            className="text-[11px] font-semibold text-slate-700 hover:underline"
+                          >
+                            {sl.label}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await apiFetch(`/api/admin/map/parking-slots/${sl.id}`, { method: "DELETE" });
+                              void refreshSlots();
+                            }}
+                            className="text-slate-300 hover:text-red-600"
+                            aria-label={`${sl.label}を削除`}
+                          >
+                            <FontAwesomeIcon icon={faTrashCan} className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
 
                 <div className="mt-3 flex items-center justify-between">
                   <span className="text-[10px] text-slate-400">

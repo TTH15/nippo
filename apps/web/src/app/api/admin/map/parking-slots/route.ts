@@ -71,9 +71,10 @@ export async function GET(req: NextRequest) {
     .order("label");
 
   if (error) {
-    // migration 126 未適用でも地図を落とさない
+    // migration 126 未適用でも地図自体は落とさないが、**黙って空を返さない**。
+    // 保存できたのに一覧が空だと「作ったのに消えた」ように見えるため、理由を返す（2026-08-10 指摘）。
     console.error("[parking-slots] list error", error);
-    return NextResponse.json({ slots: [], available: false });
+    return NextResponse.json({ slots: [], available: false, reason: error.message });
   }
   return NextResponse.json({ slots: data ?? [], available: true });
 }
