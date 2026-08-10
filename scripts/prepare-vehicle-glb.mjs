@@ -26,7 +26,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import sharp from "sharp";
-import { NodeIO } from "@gltf-transform/core";
+import { NodeIO, VertexLayout } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 
 const [
@@ -63,7 +63,11 @@ const texSize = Number(texSizeStr);
 
 // --- 1) 三角形数を落とす -------------------------------------------------
 // 元の三角形数から比率を出す（simplify は比率指定なので）
-const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
+// ★頂点属性は**インターリーブせず**、属性ごとに別バッファへ書く。
+//   Mapbox の model ローダーはインターリーブされた頂点バッファを読めず、
+//   「RangeError: offset is out of bounds（Float32Array.set）」で落ちる（2026-08-11 実機のコンソールで確認）。
+//   動いている truck.glb も属性ごとに分かれていた。
+const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).setVertexLayout(VertexLayout.SEPARATE);
 const probe = await io.read(input);
 let tris = 0;
 for (const mesh of probe.getRoot().listMeshes()) {
