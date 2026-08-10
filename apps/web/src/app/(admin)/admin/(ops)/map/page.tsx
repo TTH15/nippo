@@ -17,6 +17,7 @@ import {
   faBuilding,
   faGear,
   faLocationDot,
+  faMagnifyingGlass,
   faPlus,
   faRotateRight,
   faSquareParking,
@@ -85,6 +86,46 @@ function styleUrlFor(basemap: MapViewPrefs["basemap"]): string {
   return basemap === "satellite"
     ? "mapbox://styles/mapbox/standard-satellite"
     : "mapbox://styles/mapbox/standard";
+}
+
+/** 地点検索の結果1件。 */
+type GeocodeHit = { id: string; name: string; address: string; lat: number; lng: number };
+
+/**
+ * 住所・施設名から座標を引く（Mapbox Geocoding v6）。
+ * 日本国内・日本語に限定し、地図の中心を近接ヒントに渡して近い候補を上位に出す。
+ * トークンは公開用（NEXT_PUBLIC）なのでクライアントから直接呼んで問題ない。
+ */
+async function geocodeForward(query: string, proximity: [number, number] | null): Promise<GeocodeHit[]> {
+  const params = new URLSearchParams({
+    q: query,
+    country: "jp",
+    language: "ja",
+    limit: "5",
+    access_token: MAPBOX_TOKEN,
+  });
+  if (proximity) params.set("proximity", `${proximity[0]},${proximity[1]}`);
+  const res = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?${params.toString()}`);
+  if (!res.ok) throw new Error(`geocode ${res.status}`);
+  const json = (await res.json()) as {
+    features?: {
+      id?: string;
+      properties?: { name?: string; full_address?: string; place_formatted?: string; coordinates?: { latitude: number; longitude: number } };
+    }[];
+  };
+  return (json.features ?? [])
+    .map((f, i) => {
+      const c = f.properties?.coordinates;
+      if (!c) return null;
+      return {
+        id: f.id ?? `hit-${i}`,
+        name: f.properties?.name ?? query,
+        address: f.properties?.full_address ?? f.properties?.place_formatted ?? "",
+        lat: c.latitude,
+        lng: c.longitude,
+      };
+    })
+    .filter((h): h is GeocodeHit => h !== null);
 }
 
 // 拠点ピンのマーカー種別（DB の map_places.icon と対応）。
@@ -329,8 +370,11 @@ export default function MapPage() {
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   // 位置のドラッグ配置は配車権限を持つ人だけ（設計: docs/design/map-board.md）
   const [canDispatch, setCanDispatch] = useState(false);
+  /** 拠点ピンの追加権限（API 側は can_manage_org_settings） */
+  const [canWritePlaces, setCanWritePlaces] = useState(false);
   useEffect(() => {
     setCanDispatch(hasCapability("can_dispatch"));
+    setCanWritePlaces(hasCapability("can_manage_org_settings"));
   }, []);
   const [placingMessage, setPlacingMessage] = useState<string | null>(null);
   const popupRootsRef = useRef<Root[]>([]);
@@ -418,6 +462,11 @@ export default function MapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewPrefs]);
 
+  // 地点検索（住所・施設名 → 座標）。クリックで置くだけだと、住所しか分からない拠点を置けない。
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<GeocodeHit[]>([]);
+  const [searching, setSearching] = useState(false);
+
   // ピン追加フロー: adding=クリック待ち → draft=位置決定・名称入力中。
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
@@ -457,6 +506,43 @@ export default function MapPage() {
     const map = mapRef.current;
     if (map) map.getCanvas().style.cursor = adding ? "crosshair" : "";
   }, [adding]);
+
+  // 入力が落ち着いてから検索する（1文字ごとに叩かない）。
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    let aborted = false;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const center = mapRef.current?.getCenter();
+        const hits = await geocodeForward(q, center ? [center.lng, center.lat] : null);
+        if (!aborted) setSearchResults(hits);
+      } catch (e) {
+        console.error("[map] geocode error", e);
+        if (!aborted) setSearchResults([]);
+      } finally {
+        if (!aborted) setSearching(false);
+      }
+    }, 400);
+    return () => {
+      aborted = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  /** 検索結果を選ぶ: その場所へ寄って、拠点の下書きにする（名称も埋める）。 */
+  const pickSearchResult = (hit: GeocodeHit) => {
+    setAdding(false);
+    setDraft({ lat: hit.lat, lng: hit.lng });
+    setDraftName((prev) => prev || hit.name);
+    setSearchResults([]);
+    setSearchQuery("");
+    mapRef.current?.flyTo({ center: [hit.lng, hit.lat], zoom: 16, duration: 800 });
+  };
 
   // Esc でピン追加を中止。
   useEffect(() => {
@@ -662,9 +748,14 @@ export default function MapPage() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !draft) return;
-    const m = new mapboxgl.Marker({ color: "#7c3aed" })
+    // 検索で立てた位置は建物の中心などにズレることがあるので、つまんで直せるようにする
+    const m = new mapboxgl.Marker({ color: "#7c3aed", draggable: true })
       .setLngLat([draft.lng, draft.lat])
       .addTo(map);
+    m.on("dragend", () => {
+      const { lng, lat } = m.getLngLat();
+      setDraft({ lat, lng });
+    });
     return () => {
       m.remove();
     };
@@ -1187,6 +1278,55 @@ export default function MapPage() {
             </div>
 
             {/* ピン追加モードの案内バナー */}
+            {/* 地点検索。住所や施設名で拠点を立てられるようにする（クリックだけだと場所を知らないと置けない） */}
+            {canWritePlaces && (
+              <div className="absolute left-3 top-3 z-10 w-[min(320px,calc(100%-1.5rem))]">
+                <div className="flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md backdrop-blur">
+                  <FontAwesomeIcon icon={faMagnifyingGlass} className="h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="住所・施設名で探す（例: 京都市伏見区…）"
+                    className="w-full bg-transparent text-xs outline-none placeholder:text-slate-400"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSearchResults([]);
+                      }}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+                {(searching || searchResults.length > 0) && (
+                  <div className="mt-1 overflow-hidden rounded-lg bg-white shadow-lg">
+                    {searching && searchResults.length === 0 ? (
+                      <div className="px-3 py-2 text-[11px] text-slate-400">検索しています…</div>
+                    ) : (
+                      searchResults.map((hit) => (
+                        <button
+                          key={hit.id}
+                          type="button"
+                          onClick={() => pickSearchResult(hit)}
+                          className="block w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                        >
+                          <div className="text-xs font-semibold text-slate-800">{hit.name}</div>
+                          {hit.address && (
+                            <div className="truncate text-[11px] text-slate-500">{hit.address}</div>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {adding && (
               <div className="absolute inset-x-0 top-3 mx-auto flex w-fit items-center gap-3 rounded-full bg-slate-900/95 px-4 py-2 text-xs font-semibold text-white shadow-lg">
                 追加する位置を地図でクリックしてください
@@ -1203,7 +1343,10 @@ export default function MapPage() {
             {/* ピン追加フォーム（位置決定後） */}
             {draft && (
               <div className="absolute inset-x-3 bottom-3 mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg">
-                <div className="mb-2 text-xs font-bold text-slate-700">拠点を追加</div>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">拠点を追加</span>
+                  <span className="text-[10px] text-slate-400">位置はドラッグで微調整できます</span>
+                </div>
                 <input
                   type="text"
                   value={draftName}
