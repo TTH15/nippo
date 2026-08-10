@@ -31,7 +31,9 @@ export async function GET(req: NextRequest) {
 
   const { data: vehicles, error: vehErr } = await supabase
     .from("vehicles")
-    .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand")
+    .select(
+      "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, model_key, body_color",
+    )
     .eq("owner_org_id", orgId)
     .eq("is_disposed", false);
 

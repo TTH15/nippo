@@ -117,6 +117,10 @@ function PlaceMarkerBadge({ icon }: { icon: PlaceIcon }) {
 }
 
 type MapVehicle = VehiclePlateData & {
+  /** 地図の3Dモデル識別子（未設定は既定モデル）。migration 123 */
+  model_key?: string | null;
+  /** 車体色 #RRGGBB（未設定はモデル本来の色）。migration 123 */
+  body_color?: string | null;
   position: {
     lat: number;
     lng: number;
@@ -175,13 +179,25 @@ function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
   );
 }
 
-// 車両の状態と表示色。稼働セッション（vehicle_sessions）から導出する。
-// 吹き出しに出す車両の状態。実データ（稼働セッション）から決める。
+// 車両の状態と表示色。稼働セッション＋拠点との距離から導出する。
+// 「積み込み中」は専用の記録が無いので、**拠点（倉庫・拠点ピン）に停まっている稼働中**を
+// そう見なす（ユーザー案 2026-08-10）。あくまで推定なので断定的な表現は避ける。
 const VEHICLE_STATUS_DOT = {
   稼働中: "bg-emerald-500",
+  積み込み中: "bg-amber-400",
   稼働外: "bg-slate-500",
 } as const;
 type VehicleStatus = keyof typeof VEHICLE_STATUS_DOT;
+
+/** 拠点に「停まっている」と見なす距離（m）。敷地の広さを考えて少し広めに取る。 */
+const AT_PLACE_RADIUS_M = 120;
+
+/** 2点間の概算距離（m）。数百m の判定にしか使わないので簡易式で十分。 */
+function distanceM(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const dLat = (aLat - bLat) * 111_320;
+  const dLng = (aLng - bLng) * 111_320 * Math.cos((aLat * Math.PI) / 180);
+  return Math.sqrt(dLat * dLat + dLng * dLng);
+}
 
 // 車両の頭上ラベル: 吹き出し用に最適化した簡易プレート。黒ナンバー（事業用軽貨物）
 // らしく黒地に黄文字。実車プレートの再現は popup 側の VehiclePlate に任せる。
@@ -191,28 +207,32 @@ function VehicleLabel({ vehicle, status }: { vehicle: VehiclePlateData; status: 
     <>
       {/* 通常表示（吹き出し）。重なって負けたら .vl-collapsed でドットに縮退する */}
       <div className="vl-full flex flex-col items-center">
-        <div className="min-w-[84px] rounded-xl bg-slate-950/95 px-2.5 pb-1 pt-1.5 text-center shadow-md ring-1 ring-white/10">
+        <div className="relative min-w-[72px] rounded-lg bg-slate-950/95 px-2 py-1 text-center shadow-md ring-1 ring-white/10">
           <div
-            className="text-[9px] font-semibold leading-none tracking-[0.15em]"
+            className="text-[8px] font-semibold leading-none tracking-[0.14em]"
             style={{ color: "#e8d44d" }}
           >
             {vehicle.number_prefix || ""} {vehicle.number_class || ""}
           </div>
           <div
-            className="mt-0.5 flex items-baseline justify-center gap-1 leading-none"
+            className="mt-0.5 flex items-baseline justify-center gap-0.5 leading-none"
             style={{ color: "#e8d44d" }}
           >
-            <span className="text-[11px] font-bold">{vehicle.number_hiragana || ""}</span>
-            <span className="text-[17px] font-black tracking-wide">
+            <span className="text-[10px] font-bold">{vehicle.number_hiragana || ""}</span>
+            <span className="text-[15px] font-black tracking-wide">
               {formatPlateNumeric(vehicle.number_numeric || "")}
             </span>
           </div>
-          <div className="mt-1 flex items-center justify-center gap-1 text-[9px] font-bold text-slate-300">
-            <span className={`inline-block h-1.5 w-1.5 rounded-full ${VEHICLE_STATUS_DOT[status]}`} />
-            {status}
-          </div>
+          {/* 状態は色で示す（全車が同じ文字を並べても情報量が無いため）。
+              稼働外は既定なので文字を出さない。 */}
+          <span
+            className={`absolute -right-1 -top-1 block h-2.5 w-2.5 rounded-full border border-slate-950 ${VEHICLE_STATUS_DOT[status]}`}
+          />
+          {status !== "稼働外" && (
+            <div className="mt-0.5 text-[8px] font-bold leading-none text-slate-300">{status}</div>
+          )}
         </div>
-        <div className="h-0 w-0 border-x-[7px] border-t-[7px] border-x-transparent border-t-slate-950" />
+        <div className="h-0 w-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-slate-950" />
       </div>
       {/* 縮退表示: 状態色ドット（存在と状態だけは常に示す） */}
       <div className="vl-dot flex flex-col items-center">
@@ -508,6 +528,9 @@ export default function MapPage() {
         layout: { "model-id": "truck" },
         paint: {
           "model-rotation": ["get", "rotation"], // 駐車の向き（feature ごと）
+          // 車体色は車両ごとの属性（vehicles.body_color）。白＝着色なし
+          "model-color": ["get", "color"],
+          "model-color-mix-intensity": 0.85,
           // 夜のライティングでも沈まないよう自己発光させる（マーカーと同じ扱い）。
           "model-emissive-strength": 1,
         },
@@ -647,6 +670,24 @@ export default function MapPage() {
     };
   }, [draft]);
 
+  /**
+   * 車両の状態を導出する。専用の記録が無い「積み込み中」は、
+   * **拠点（倉庫・拠点ピン）に停まっている稼働中**を推定で当てる（ユーザー案 2026-08-10）。
+   */
+  const statusOf = useCallback(
+    (v: MapVehicle): VehicleStatus => {
+      const p = v.position!;
+      if (p.sessionStatus !== "open") return "稼働外";
+      const atPlace = places.some(
+        (pl) =>
+          (pl.icon === "warehouse" || pl.icon === "pin") &&
+          distanceM(p.lat, p.lng, pl.lat, pl.lng) <= AT_PLACE_RADIUS_M,
+      );
+      return atPlace ? "積み込み中" : "稼働中";
+    },
+    [places],
+  );
+
   /** 位置を1件記録して一覧を更新する。ドラッグ・クリック配置の共通処理。 */
   const savePosition = useCallback(
     async (vehicle: MapVehicle, lat: number, lng: number) => {
@@ -713,33 +754,34 @@ export default function MapPage() {
         closeButton: false,
       }).setDOMContent(node);
       const editable = canDispatch && placing && !historyDate;
-      // 修正中は既定マーカーではなく**大きな丸いつまみ**にする。
-      // 既定マーカーに filter を足すだけでは掴める場所が分からず、地図のパンと取り合いになる
-      //（「どの車も光らない」「ドラッグすると地図が動く」という実機フィードバック・2026-08-06）。
-      const handle = document.createElement("div");
-      if (editable) {
-        handle.className = "map-drag-handle";
-        handle.title = "つまんで動かす";
-        handle.textContent = plateShort(v);
+
+      // 修正中だけ「つまみ」を出す。通常時はピンを出さない
+      //  — 3Dモデル＋ナンバー吹き出し＋ピンの3つが重なって読めなかったため（2026-08-10 指摘）。
+      //    通常時のクリック対象はナンバー吹き出し側が持つ（下の「車両ラベル反映」effect）。
+      if (!editable) {
+        popup.remove();
+        popupRootsRef.current = popupRootsRef.current.filter((r) => r !== root);
+        setTimeout(() => root.unmount(), 0);
+        bounds.extend([p.lng, p.lat]);
+        continue;
       }
-      const marker = new mapboxgl.Marker(
-        editable
-          ? { element: handle, draggable: true }
-          : { color: p.sessionStatus === "open" ? "#059669" : "#64748b" },
-      )
+
+      const handle = document.createElement("div");
+      handle.className = "map-drag-handle";
+      handle.title = "つまんで動かす";
+      handle.textContent = plateShort(v);
+      const marker = new mapboxgl.Marker({ element: handle, draggable: true })
         .setLngLat([p.lng, p.lat])
         .setPopup(popup)
         .addTo(map);
-      marker.getElement().style.zIndex = editable ? "5" : "2"; // 修正中は最前面に
-      if (editable) {
-        marker.getElement().style.cursor = "grab";
-        marker.on("dragend", () => {
-          const { lng, lat } = marker.getLngLat();
-          void savePosition(v, lat, lng).then((ok: boolean) => {
-            if (!ok) marker.setLngLat([p.lng, p.lat]); // 失敗したら元の位置へ戻す
-          });
+      marker.getElement().style.zIndex = "6"; // 修正中は最前面に
+      marker.getElement().style.cursor = "grab";
+      marker.on("dragend", () => {
+        const { lng, lat } = marker.getLngLat();
+        void savePosition(v, lat, lng).then((ok: boolean) => {
+          if (!ok) marker.setLngLat([p.lng, p.lat]); // 失敗したら元の位置へ戻す
         });
-      }
+      });
       markersRef.current.push(marker);
       bounds.extend([p.lng, p.lat]);
     }
@@ -774,7 +816,11 @@ export default function MapPage() {
           type: "Feature" as const,
           geometry: { type: "Point" as const, coordinates: [v.position!.lng, v.position!.lat] },
           // 進行方向が分かるならそれを使う（GPS 導入後）。無ければ正面固定。
-          properties: { rotation: [0, 0, 0] },
+          properties: {
+            rotation: [0, 0, 0],
+            // 車体色（未設定は白＝モデル本来の色を保つ）。車種の出し分けはモデルが揃ってから
+            color: v.body_color || "#ffffff",
+          },
         })),
       });
     };
@@ -788,22 +834,40 @@ export default function MapPage() {
     vehicleLabelRootsRef.current = [];
     setTimeout(() => staleRoots.forEach((r) => r.unmount()), 0);
 
+    // 修正中は「つまみ」だけを出す（ラベルと重ねない）
+    if (canDispatch && placing && !historyDate) {
+      declutterPlatesRef.current();
+      return;
+    }
+
     for (const v of located) {
       const p = v.position!;
       const node = document.createElement("div");
       node.className = "vehicle-label"; // globals.css で吹き出し⇔ドットを切替
       node.style.zIndex = "5"; // 拠点ピンより前面
+      node.style.cursor = "pointer";
       const root = createRoot(node);
-      root.render(<VehicleLabel vehicle={v} status={p.sessionStatus === "open" ? "稼働中" : "稼働外"} />);
+      root.render(<VehicleLabel vehicle={v} status={statusOf(v)} />);
       vehicleLabelRootsRef.current.push(root);
+
+      // クリック対象はこの吹き出し（通常時はピンを出さないため）
+      const popupNode = document.createElement("div");
+      const popupRoot = createRoot(popupNode);
+      popupRoot.render(<VehiclePopup vehicle={v} />);
+      vehicleLabelRootsRef.current.push(popupRoot);
+      const popup = new mapboxgl.Popup({ offset: 16, maxWidth: "240px", closeButton: false }).setDOMContent(
+        popupNode,
+      );
+
       vehicleLabelMarkersRef.current.push(
         new mapboxgl.Marker({ element: node, anchor: "bottom", offset: [0, -30] })
           .setLngLat([p.lng, p.lat])
+          .setPopup(popup)
           .addTo(map),
       );
     }
     declutterPlatesRef.current();
-  }, [located]);
+  }, [located, statusOf, canDispatch, placing, historyDate]);
 
   // 2D/3D トグル: ピッチだけ変える（方位はユーザー操作を尊重してそのまま）。
   const setView = (mode: "2d" | "3d") => {
