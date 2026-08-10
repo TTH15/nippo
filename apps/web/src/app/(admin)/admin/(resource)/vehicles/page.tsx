@@ -1386,7 +1386,8 @@ export default function VehiclesPage() {
                       </div>
                       <p className="mt-2 text-[11px] text-slate-400">
                         白・グレー・黒はいつでも選べます。それ以外は追加すると会社の色として残り、
-                        次の車両からは選ぶだけで使えます
+                        次の車両からは選ぶだけで使えます。プレビューはドラッグで回せます
+                        （夜はライトが点きます）
                       </p>
                       {form.bodyColor && (
                         <button

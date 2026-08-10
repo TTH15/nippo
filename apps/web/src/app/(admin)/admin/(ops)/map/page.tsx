@@ -995,6 +995,32 @@ export default function MapPage() {
           paint: { "text-color": "#0f172a", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
         });
       }
+      if (!map.getSource("vehicle-lights")) {
+        // 夜だけ灯る車両のライト。**稼働中の車だけ**光らせる＝「まだ外に出ている車」が一目で分かる。
+        // 単なる演出ではなく情報にする（2026-08-11）。
+        map.addSource("vehicle-lights", { type: "geojson", data: empty as never });
+        map.addLayer({
+          id: "vehicle-lights-glow",
+          type: "circle",
+          source: "vehicle-lights",
+          paint: {
+            "circle-color": "#ffd9a0",
+            "circle-blur": 1,
+            "circle-opacity": 0.55,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 6, 16, 18, 20, 44],
+          },
+        });
+        map.addLayer({
+          id: "vehicle-lights-core",
+          type: "circle",
+          source: "vehicle-lights",
+          paint: {
+            "circle-color": "#fff4de",
+            "circle-opacity": 0.9,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 16, 4, 20, 9],
+          },
+        });
+      }
       if (!map.getSource("parking-slots")) {
         map.addSource("parking-slots", { type: "geojson", data: empty as never });
         map.addLayer({
@@ -1453,6 +1479,28 @@ export default function MapPage() {
           })),
       } as never);
 
+      // 夜（dusk/night）のときだけ、稼働中の車両にライトを灯す
+      const hour = Number(
+        new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false })
+          .formatToParts(new Date())
+          .find((p) => p.type === "hour")?.value ?? "12",
+      );
+      const isNight = hour >= 17 || hour < 5;
+      const lightSrc = map.getSource("vehicle-lights") as mapboxgl.GeoJSONSource | undefined;
+      lightSrc?.setData({
+        type: "FeatureCollection",
+        features:
+          isNight && !historyDate
+            ? located
+                .filter((v) => v.position!.sessionStatus === "open")
+                .map((v) => ({
+                  type: "Feature",
+                  properties: {},
+                  geometry: { type: "Point", coordinates: [v.position!.lng, v.position!.lat] },
+                }))
+            : [],
+      } as never);
+
       const placeSrc = map.getSource("place-areas") as mapboxgl.GeoJSONSource | undefined;
       placeSrc?.setData({
         type: "FeatureCollection",
@@ -1463,7 +1511,7 @@ export default function MapPage() {
     };
     applyAreaDataRef.current = apply;
     apply();
-  }, [slots, courseAreas, editingAreaCourse, places]);
+  }, [slots, courseAreas, editingAreaCourse, places, located, historyDate]);
 
   // 検索結果を地図にピンで出す。一覧だけだと「どこにあるか」が分からない（2026-08-10 指摘）。
   // 拠点ピンとは見た目を変える（白丸＋種別色のアイコン＋番号）。
