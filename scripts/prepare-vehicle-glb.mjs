@@ -503,6 +503,31 @@ for (const mesh of root.listMeshes()) {
     prim.setIndices(doc.createAccessor().setArray(new Arr(newIndices)));
   }
 }
+// 参照されなくなったテクスチャを捨てる。マテリアルから外しただけではファイルに残るため、
+// どのマテリアルからも参照されていないものを明示的に破棄する
+{
+  const used = new Set();
+  for (const mat of root.listMaterials()) {
+    for (const t of [
+      mat.getBaseColorTexture(),
+      mat.getMetallicRoughnessTexture(),
+      mat.getNormalTexture(),
+      mat.getOcclusionTexture(),
+      mat.getEmissiveTexture(),
+    ]) {
+      if (t) used.add(t);
+    }
+  }
+  let dropped = 0;
+  for (const tex of root.listTextures()) {
+    if (!used.has(tex)) {
+      tex.dispose();
+      dropped++;
+    }
+  }
+  if (dropped) console.log(`未使用テクスチャを ${dropped} 枚削除`);
+}
+
 // 参照されなくなったアクセサを掃除する
 for (const acc of root.listAccessors()) {
   if (acc.listParents().length <= 1) acc.dispose();

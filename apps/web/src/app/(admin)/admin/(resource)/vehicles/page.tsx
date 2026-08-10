@@ -1218,58 +1218,58 @@ export default function VehiclesPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {Object.entries(KEI_VANS_BY_MANUFACTURER).map(([maker, vans]) => (
-                        <div key={maker} className="flex flex-wrap items-center gap-1.5">
-                          <span className="w-14 shrink-0 text-[11px] font-semibold text-slate-400">{maker}</span>
-                          {vans.map((v) => {
-                            const active =
-                              form.manufacturer === v.manufacturer && form.brand === v.brand;
-                            return (
-                              <button
-                                key={v.brand}
-                                type="button"
-                                onClick={() => {
-                                  setOtherVehicle(false);
-                                  setForm((f) => ({ ...f, manufacturer: v.manufacturer, brand: v.brand }));
-                                }}
-                                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                                  active
-                                    ? "border-slate-900 bg-slate-900 text-white"
-                                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                                }`}
-                              >
-                                {v.brand}
-                                {/* 3Dモデルが未用意の車種は、その旨を小さく添える（嘘をつかない） */}
-                                {!v.modelKey && (
-                                  <span className={`ml-1 text-[10px] ${active ? "text-white/70" : "text-slate-400"}`}>
-                                    ・標準モデル
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ))}
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="w-14 shrink-0 text-[11px] font-semibold text-slate-400">その他</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOtherVehicle(true);
-                            setForm((f) => ({ ...f, manufacturer: "", brand: "" }));
+                      {/* チップを縦に並べると場所を取るので、メーカー→車種の2段セレクトにする（2026-08-11） */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <select
+                          value={otherVehicle ? "__other__" : form.manufacturer}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "__other__") {
+                              setOtherVehicle(true);
+                              setForm((f) => ({ ...f, manufacturer: "", brand: "", modelCode: "" }));
+                              return;
+                            }
+                            setOtherVehicle(false);
+                            // メーカーを変えたら車種はその中の先頭にする（不整合を残さない）
+                            const first = KEI_VANS_BY_MANUFACTURER[v]?.[0];
+                            setForm((f) => ({
+                              ...f,
+                              manufacturer: v,
+                              brand: first?.brand ?? "",
+                              modelCode: "",
+                            }));
                           }}
-                          className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                            otherVehicle
-                              ? "border-slate-900 bg-slate-900 text-white"
-                              : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                          }`}
+                          className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
                         >
-                          一覧にない車を入力
-                        </button>
+                          <option value="">メーカーを選ぶ</option>
+                          {Object.keys(KEI_VANS_BY_MANUFACTURER).map((maker) => (
+                            <option key={maker} value={maker}>
+                              {maker}
+                            </option>
+                          ))}
+                          <option value="__other__">その他（自由入力）</option>
+                        </select>
+
+                        <select
+                          value={form.brand}
+                          disabled={otherVehicle || !form.manufacturer}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, brand: e.target.value, modelCode: "" }))
+                          }
+                          className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-400"
+                        >
+                          {!form.manufacturer && <option value="">先にメーカーを選ぶ</option>}
+                          {(KEI_VANS_BY_MANUFACTURER[form.manufacturer] ?? []).map((v) => (
+                            <option key={v.brand} value={v.brand}>
+                              {v.brand}
+                              {v.modelKey ? "" : "（標準モデル）"}
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       {otherVehicle && (
-                        <div className="grid grid-cols-2 gap-3 pt-1">
+                        <div className="grid grid-cols-2 gap-3">
                           <input
                             type="text"
                             value={form.manufacturer}
@@ -1287,49 +1287,42 @@ export default function VehiclesPage() {
                         </div>
                       )}
 
-                      {/* 型式（世代）。同じ車種でも年代で形が全く違うため（2026-08-10 ユーザー指摘）。
-                          車検証の「型式」欄をそのまま選ぶ／入力する */}
+                      {/* 型式（世代）。同じ車種でも年代で形が違う。車検証の「型式」欄をそのまま */}
                       {form.brand && (
-                        <div className="pt-1">
-                          <span className="mb-1 block text-[11px] font-semibold text-slate-400">
-                            型式（車検証の「型式」欄）
-                          </span>
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {generationsOf(form.manufacturer, form.brand).map((g) => {
-                              const active = form.modelCode.toUpperCase() === g.code.toUpperCase();
-                              return (
-                                <button
-                                  key={g.code}
-                                  type="button"
-                                  onClick={() =>
-                                    setForm((f) => ({ ...f, modelCode: active ? "" : g.code }))
-                                  }
-                                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                                    active
-                                      ? "border-slate-900 bg-slate-900 text-white"
-                                      : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                                  }`}
-                                >
-                                  {g.label}
-                                </button>
-                              );
-                            })}
-                            <input
-                              type="text"
-                              value={form.modelCode}
-                              onChange={(e) => setForm((f) => ({ ...f, modelCode: e.target.value }))}
-                              placeholder="例: DA17V"
-                              maxLength={12}
-                              className="w-28 rounded border border-slate-200 px-2 py-1 text-xs uppercase focus:outline-none focus:ring-1 focus:ring-slate-400"
-                            />
-                          </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <select
+                            value={
+                              generationsOf(form.manufacturer, form.brand).some(
+                                (g) => g.code.toUpperCase() === form.modelCode.toUpperCase(),
+                              )
+                                ? form.modelCode.toUpperCase()
+                                : ""
+                            }
+                            onChange={(e) => setForm((f) => ({ ...f, modelCode: e.target.value }))}
+                            className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
+                          >
+                            <option value="">型式を選ぶ（分からなければ空欄）</option>
+                            {generationsOf(form.manufacturer, form.brand).map((g) => (
+                              <option key={g.code} value={g.code}>
+                                {g.label}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="text"
+                            value={form.modelCode}
+                            onChange={(e) => setForm((f) => ({ ...f, modelCode: e.target.value }))}
+                            placeholder="型式を直接入力（例: DA17V）"
+                            maxLength={12}
+                            className="w-full rounded border border-slate-200 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-1 focus:ring-slate-400"
+                          />
                         </div>
                       )}
 
                       <p className="text-[11px] text-slate-400">
                         {resolveModelKey(form.manufacturer, form.brand, form.modelCode)
                           ? `地図・アプリでは ${form.brand}${form.modelCode ? `（${form.modelCode.toUpperCase()}）` : ""} の3Dモデルで表示されます`
-                          : "この世代の3Dモデルはまだ無いため、標準の軽バンで表示されます（軽バンは形が似ているため大きな違和感はありません）"}
+                          : "この車種・世代の3Dモデルはまだ無いため、標準の軽バンで表示されます"}
                       </p>
                     </div>
                   )}
