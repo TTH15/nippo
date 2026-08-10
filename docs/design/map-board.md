@@ -240,3 +240,29 @@ headless Chrome + Mapbox GL でフレームを吐き、ffmpeg で mp4 化。
     → `courses.delivery_area`（GeoJSON・migration 125）。描画は `@mapbox/mapbox-gl-draw` を採用
 - 円は Mapbox に円プリミティブが無いため、**64角形の GeoJSON ポリゴンに落として**塗る
 - 配達エリア（polygon）はコースと結びつける想定（roadmap A4-b / トラック K Stage 2 の土台）
+
+## 10. Meshy.ai の出力を地図に載せるまで（2026-08-10 実測）
+
+**結論: Meshy の出力をそのままは載せられない。ただし Blender は必須ではない。**
+`scripts/prepare-vehicle-glb.mjs` で自動整形できる。
+
+実測（NISSAN クリッパーの生成結果）:
+
+| | 元（Meshy generate） | 整形後 |
+|---|---|---|
+| 三角形 | 1,991,960 | 16,000 |
+| ファイル | 34 MB | 277 KB |
+| 寸法 | 1.9 単位（正規化） | 3.40 × 1.92 × 1.96 m（実寸） |
+| 原点 | 中心 | **底面中心** |
+| 属性 | POSITION のみ | POSITION + NORMAL |
+| マテリアル | 無し | 無彩色1つ（`model-color` で着色可） |
+
+スクリプトがやること: ①目標三角形数まで簡略化 ②実寸へスケール ③原点を底面中心へ
+④法線が無ければ生成 ⑤マテリアルが無ければ無彩色を付与。
+
+- **Draco 圧縮はしない**。Mapbox の model レイヤーが `KHR_draco_mesh_compression` を読める保証がなく、
+  現に動いている `truck.glb` も非圧縮のため（16k 三角形なら非圧縮 277KB で十分軽い）
+- **Meshy 側でやってほしいこと**: 「テクスチャ」工程まで回す。generate 段階の出力は
+  **POSITION しか持たない**（UV も法線もマテリアルも無い）。テクスチャ版なら法線・UV が入るので、
+  スクリプトの④⑤が不要になり、見た目も良くなる
+- **車体は白〜薄グレーのまま**にしておく。`model-color` で着色するため、濃色を焼き込むと色が乗らない
