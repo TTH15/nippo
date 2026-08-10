@@ -5,6 +5,8 @@
 // Meshy.ai の出力をそのまま地図に載せることはできない（200万三角形・34MB）。
 // このスクリプトで「地図に載る形」へ整える:
 //   0) テクスチャ縮小 … 4K のままだと1台で90MB超。地図上の車は数十pxなので 1K で十分
+//      ※ style=flat（既定）ならテクスチャは**捨てる**。写実的な質感は暗い抽象的な地図から浮くうえ、
+//        焼き込まれた影や汚れが model-color の着色を濁らせるため（2026-08-10 ユーザー指摘）
 //   1) simplify … 目標三角形数まで削減（既定 16,000）
 //   2) 実寸へスケール … 軽バンの実寸（既定 全長3.4m）に合わせる
 //   3) 原点を底面中心へ … ずれていると地図でズーム時に車体が流れる（2026-07-30 に一度踏んだ）
@@ -12,7 +14,7 @@
 //      KHR_draco_mesh_compression を読める保証が無いため。16k 三角形なら非圧縮でも 300KB 程度
 //
 // 使い方:
-//   node scripts/prepare-vehicle-glb.mjs <入力.glb> <出力.glb> [全長m] [目標三角形数]
+//   node scripts/prepare-vehicle-glb.mjs <入力.glb> <出力.glb> [全長m] [目標三角形数] [テクスチャpx] [flat|photo]
 //   例) node scripts/prepare-vehicle-glb.mjs public/glb/clipper_raw.glb apps/web/public/models/clipper.glb 3.4 16000
 //
 // 前提: npx @gltf-transform/cli が使える（初回はダウンロードが走る）
@@ -23,7 +25,8 @@ import { readFileSync, rmSync } from "node:fs";
 import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 
-const [input, output, lengthMStr = "3.4", targetTriStr = "16000", texSizeStr = "1024"] = process.argv.slice(2);
+const [input, output, lengthMStr = "3.4", targetTriStr = "16000", texSizeStr = "1024", style = "flat"] =
+  process.argv.slice(2);
 if (!input || !output) {
   console.error("使い方: node scripts/prepare-vehicle-glb.mjs <入力.glb> <出力.glb> [全長m] [目標三角形数]");
   process.exit(1);
@@ -152,6 +155,36 @@ for (const mesh of root.listMeshes()) {
     prim.setAttribute("NORMAL", accessor);
     console.log("法線が無かったので生成した（テクスチャ版なら不要）");
   }
+}
+
+// --- 3.6) 見た目の方針 ---------------------------------------------------
+// flat: テクスチャを外し、無彩色のフラットな見た目にする（地図の抽象度に合わせる／着色が効く）
+// photo: テクスチャを残す（実物に寄せたいとき）
+if (style === "flat") {
+  for (const mat of root.listMaterials()) {
+    mat.setBaseColorTexture(null);
+    mat.setMetallicRoughnessTexture(null);
+    mat.setNormalTexture(null);
+    mat.setOcclusionTexture(null);
+    mat.setEmissiveTexture(null);
+    mat.setBaseColorFactor([0.93, 0.94, 0.96, 1]);
+    mat.setMetallicFactor(0);
+    mat.setRoughnessFactor(0.75);
+  }
+  for (const tex of root.listTextures()) tex.dispose();
+  // UV と接線はテクスチャを使わないなら無駄（接線は頂点あたり4float でファイルの大半を占める）
+  for (const mesh of root.listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      for (const name of ["TEXCOORD_0", "TEXCOORD_1", "TANGENT"]) {
+        const attr = prim.getAttribute(name);
+        if (attr) {
+          prim.setAttribute(name, null);
+          attr.dispose();
+        }
+      }
+    }
+  }
+  console.log("テクスチャ・UV・接線を外してフラットな見た目にした（style=flat）");
 }
 
 // マテリアルが無いと着色できないので、無彩色の既定マテリアルを付ける
