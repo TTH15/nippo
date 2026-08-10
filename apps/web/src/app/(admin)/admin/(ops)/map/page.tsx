@@ -11,10 +11,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
+import MapboxDraw from "@mapbox/mapbox-gl-draw";
+import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import { createRoot, type Root } from "react-dom/client";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBuilding,
+  faDrawPolygon,
   faGasPump,
   faGear,
   faLocationDot,
@@ -206,6 +209,14 @@ type MapPlace = {
   /** point=1点 / circle=中心+半径（migration 124） */
   shape?: "point" | "circle" | "polygon";
   radius_m?: number | null;
+};
+
+type CourseArea = {
+  id: string;
+  name: string;
+  color: string | null;
+  delivery_area: { type: "Polygon" | "MultiPolygon"; coordinates: number[][][] } | null;
+  delivery_area_updated_at: string | null;
 };
 
 type PolygonFeature = {
@@ -452,6 +463,18 @@ export default function MapPage() {
     "/api/admin/map/places",
   );
   const places = useMemo(() => placesData?.places ?? [], [placesData]);
+
+  // 配達エリア（コースの属性・migration 125）
+  const { data: courseAreaData, refresh: refreshCourseAreas } = useApi<{ courses: CourseArea[] }>(
+    "/api/admin/map/course-areas",
+  );
+  const courseAreas = useMemo(() => courseAreaData?.courses ?? [], [courseAreaData]);
+  /** エリアを編集中のコース。null = 編集していない */
+  const [editingAreaCourse, setEditingAreaCourse] = useState<CourseArea | null>(null);
+  const [areaSaving, setAreaSaving] = useState(false);
+  const [areaError, setAreaError] = useState("");
+  const [areaPanelOpen, setAreaPanelOpen] = useState(false);
+  const drawRef = useRef<MapboxDraw | null>(null);
 
   const located = useMemo(
     () => (data?.vehicles ?? []).filter((v) => v.position != null),
@@ -1091,6 +1114,137 @@ export default function MapPage() {
     else map.dragPan.enable();
   }, [placing, canDispatch, historyDate]);
 
+  // エリア編集: mapbox-gl-draw を編集中だけ地図に載せる。
+  // 常時載せるとクリックが Draw に吸われて他の操作（拠点の選択・車両の配置）が効かなくなる。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!editingAreaCourse) {
+      if (drawRef.current) {
+        map.removeControl(drawRef.current as unknown as mapboxgl.IControl);
+        drawRef.current = null;
+      }
+      return;
+    }
+    const draw = new MapboxDraw({
+      displayControlsDefault: false,
+      controls: { polygon: true, trash: true },
+      defaultMode: editingAreaCourse.delivery_area ? "simple_select" : "draw_polygon",
+    });
+    map.addControl(draw as unknown as mapboxgl.IControl, "top-right");
+    drawRef.current = draw;
+    // 既存のエリアがあれば編集対象として読み込む（引き直しではなく修正ができるように）
+    if (editingAreaCourse.delivery_area) {
+      draw.add({
+        type: "Feature",
+        properties: {},
+        geometry: editingAreaCourse.delivery_area,
+      } as never);
+    }
+    return () => {
+      if (drawRef.current) {
+        map.removeControl(drawRef.current as unknown as mapboxgl.IControl);
+        drawRef.current = null;
+      }
+    };
+  }, [editingAreaCourse]);
+
+  /** 描いた面を保存する。複数描かれていたら MultiPolygon にまとめる。 */
+  const saveCourseArea = async () => {
+    const draw = drawRef.current;
+    const course = editingAreaCourse;
+    if (!draw || !course || areaSaving) return;
+    const features = draw.getAll().features.filter((f) => f.geometry?.type === "Polygon");
+    if (features.length === 0) {
+      setAreaError("エリアが描かれていません。多角形ツールで囲ってください");
+      return;
+    }
+    const area =
+      features.length === 1
+        ? (features[0].geometry as { type: "Polygon"; coordinates: number[][][] })
+        : {
+            type: "MultiPolygon" as const,
+            coordinates: features.map((f) => (f.geometry as { coordinates: number[][][] }).coordinates),
+          };
+    setAreaSaving(true);
+    setAreaError("");
+    try {
+      await apiFetch(`/api/admin/map/course-areas/${course.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ area }),
+      });
+      setEditingAreaCourse(null);
+      void refreshCourseAreas();
+    } catch (e) {
+      console.error(e);
+      setAreaError(e instanceof Error ? e.message : "保存できませんでした");
+    } finally {
+      setAreaSaving(false);
+    }
+  };
+
+  /** エリアを消す（コースは消さない）。 */
+  const clearCourseArea = async (course: CourseArea) => {
+    setAreaSaving(true);
+    try {
+      await apiFetch(`/api/admin/map/course-areas/${course.id}`, { method: "DELETE" });
+      setEditingAreaCourse(null);
+      void refreshCourseAreas();
+    } catch (e) {
+      console.error(e);
+      setAreaError(e instanceof Error ? e.message : "削除できませんでした");
+    } finally {
+      setAreaSaving(false);
+    }
+  };
+
+  // 配達エリア（コースの面）を塗る。コース色で塗り分け、どの区域が誰の担当か一目で分かるようにする。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const draw = () => {
+      const features = courseAreas
+        .filter((c) => c.delivery_area && c.id !== editingAreaCourse?.id) // 編集中は Draw 側が描く
+        .map((c) => ({
+          type: "Feature" as const,
+          properties: { color: c.color || "#7c3aed", name: c.name },
+          geometry: c.delivery_area!,
+        }));
+      const data = { type: "FeatureCollection" as const, features };
+      const src = map.getSource("course-areas") as mapboxgl.GeoJSONSource | undefined;
+      if (src) {
+        src.setData(data as never);
+        return;
+      }
+      if (!map.isStyleLoaded()) return;
+      map.addSource("course-areas", { type: "geojson", data: data as never });
+      map.addLayer({
+        id: "course-areas-fill",
+        type: "fill",
+        source: "course-areas",
+        paint: { "fill-color": ["get", "color"], "fill-opacity": 0.14 },
+      });
+      map.addLayer({
+        id: "course-areas-line",
+        type: "line",
+        source: "course-areas",
+        paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.85 },
+      });
+      map.addLayer({
+        id: "course-areas-label",
+        type: "symbol",
+        source: "course-areas",
+        layout: { "text-field": ["get", "name"], "text-size": 12, "text-allow-overlap": false },
+        paint: { "text-color": "#0f172a", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
+      });
+    };
+    draw();
+    map.on("style.load", draw);
+    return () => {
+      map.off("style.load", draw);
+    };
+  }, [courseAreas, editingAreaCourse]);
+
   // 範囲（円）で登録された拠点を塗る。点のままの拠点は従来どおりピンだけ。
   useEffect(() => {
     const map = mapRef.current;
@@ -1510,6 +1664,18 @@ export default function MapPage() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setAreaPanelOpen((v) => !v)}
+                  className={`flex h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold shadow transition-colors ${
+                    areaPanelOpen || editingAreaCourse
+                      ? "bg-slate-900 text-white"
+                      : "bg-white/95 text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faDrawPolygon} className="h-3.5 w-3.5" />
+                  配達エリア
+                </button>
+                <button
+                  type="button"
                   onClick={() => setShareOn((v) => !v)}
                   className={`flex h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold shadow transition-colors ${
                     shareOn ? "bg-slate-900 text-white" : "bg-white/95 text-slate-500 hover:text-slate-800"
@@ -1658,6 +1824,105 @@ export default function MapPage() {
                 >
                   中止（Esc）
                 </button>
+              </div>
+            )}
+
+            {/* 配達エリア: コースを選んで面を描く（エリアはコースの属性・2026-08-10 合意） */}
+            {areaPanelOpen && !editingAreaCourse && (
+              <div className="absolute right-3 top-3 z-10 max-h-[70%] w-[min(280px,calc(100vw-3rem))] overflow-y-auto rounded-xl bg-white p-3 shadow-lg">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">配達エリア</span>
+                  <button
+                    type="button"
+                    onClick={() => setAreaPanelOpen(false)}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                  </button>
+                </div>
+                <p className="mb-2 text-[11px] text-slate-500">
+                  コースごとに担当区域を描けます。地図には色分けして重なります
+                </p>
+                <ul className="space-y-1">
+                  {courseAreas.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAreaError("");
+                          setEditingAreaCourse(c);
+                          setAreaPanelOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-slate-50"
+                      >
+                        <span
+                          className="h-3 w-3 shrink-0 rounded-sm"
+                          style={{ backgroundColor: c.color || "#7c3aed" }}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">{c.name}</span>
+                        <span className="shrink-0 text-[10px] font-semibold text-slate-400">
+                          {c.delivery_area ? "編集" : "描く"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {courseAreas.length === 0 && (
+                    <li className="px-2 py-3 text-center text-[11px] text-slate-400">コースがありません</li>
+                  )}
+                </ul>
+              </div>
+            )}
+
+            {/* エリア描画中のパネル */}
+            {editingAreaCourse && (
+              <div className="absolute right-3 top-3 z-10 w-[min(280px,calc(100vw-3rem))] rounded-xl bg-white p-3 shadow-lg">
+                <div className="mb-1 flex items-center gap-2">
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-sm"
+                    style={{ backgroundColor: editingAreaCourse.color || "#7c3aed" }}
+                  />
+                  <span className="truncate text-xs font-bold text-slate-700">
+                    {editingAreaCourse.name} のエリア
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  右上の多角形ツールで囲みます。頂点をドラッグして直せます。
+                  ダブルクリックで閉じてください
+                </p>
+                {areaError && <div className="mt-2 text-[11px] text-red-600">{areaError}</div>}
+                <div className="mt-3 flex items-center justify-between">
+                  {editingAreaCourse.delivery_area ? (
+                    <button
+                      type="button"
+                      onClick={() => void clearCourseArea(editingAreaCourse)}
+                      className="text-[11px] font-semibold text-red-600 hover:underline"
+                    >
+                      エリアを削除
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingAreaCourse(null);
+                        setAreaError("");
+                      }}
+                      className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void saveCourseArea()}
+                      disabled={areaSaving}
+                      className="rounded-lg bg-slate-800 px-4 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      {areaSaving ? "保存中..." : "保存"}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 

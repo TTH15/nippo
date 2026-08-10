@@ -235,7 +235,8 @@ headless Chrome + Mapbox GL でフレームを吐き、ffmpeg で mp4 化。
   - `point` … 従来どおり1点
   - `circle` … 中心＋半径。**まずこれを実装**。敷地や「この辺り」を表すには十分で、
     UI がスライダー1本で済む。「積み込み中」の判定半径にもそのまま使える
-  - `polygon` … 任意の多角形（配達エリア）。**描画ツールが要るので後段**。
-    `@mapbox/mapbox-gl-draw` の導入か、頂点を順にクリックする自前実装かを選ぶ
+  - `polygon` … **配達エリアは map_places ではなく courses が持つ**ことにした（2026-08-10 合意）。
+    同じ「範囲」でも意味が違う: 拠点の円＝その場所の広がり / コースの面＝担当する区域。
+    → `courses.delivery_area`（GeoJSON・migration 125）。描画は `@mapbox/mapbox-gl-draw` を採用
 - 円は Mapbox に円プリミティブが無いため、**64角形の GeoJSON ポリゴンに落として**塗る
 - 配達エリア（polygon）はコースと結びつける想定（roadmap A4-b / トラック K Stage 2 の土台）

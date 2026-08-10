@@ -996,3 +996,20 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - API: `PATCH /api/admin/map/places/[id]` を追加（名称・種別・座標・半径）。POST も半径を受ける
 - 検証: web tsc クリーン・テスト 439 passed・next build 成功
 - **残: migration 124 の適用**（未適用でも一覧は動くが、shape/radius_m が無い分 select が失敗する可能性あり）
+
+## 2026-08-10 19:50 配達エリア（コースの面）を多角形で描けるようにした
+
+- 方針（ユーザー合意）: **配達エリアは courses の属性**。拠点（map_places）は点・円のまま。
+  同じ「範囲」でも意味が違う（拠点の円＝その場所の広がり / コースの面＝担当する区域）
+- **migration 125**（要適用）: `courses.delivery_area`（GeoJSON Polygon/MultiPolygon）＋
+  `delivery_area_updated_at` / `delivery_area_updated_by`。**誰がいつ引いたかを残す**
+  （区域の線引きは揉めやすいので後から辿れるように）。PostGIS は入れず jsonb で持つ
+- **`@mapbox/mapbox-gl-draw` を採用**（ユーザー判断）。1.5.1 を導入
+  - **編集中だけ地図に載せる**。常時載せるとクリックが Draw に吸われ、拠点の選択や車両の配置が効かなくなる
+  - 既存エリアがあれば読み込んで**修正**できる（引き直しではない）。複数描いたら MultiPolygon にまとめる
+- 表示: コース色で塗り分け（fill 14% / line 85%）＋コース名のラベル。編集中のコースは Draw 側が描くので二重に出さない
+- API: `GET /api/admin/map/course-areas`（一覧・migration 未適用でも落ちないフォールバック付き）、
+  `PUT/DELETE /api/admin/map/course-areas/[id]`（`can_manage_courses`）。
+  3点未満の «面» は弾く（閉じた環なので最低4点）
+- 検証: web tsc クリーン・テスト 439 passed・next build 成功
+- **残: migration 124・125 の適用**
