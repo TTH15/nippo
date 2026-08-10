@@ -28,8 +28,7 @@ import { todayJST } from "@/lib/date";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { VehicleModelPreview } from "@/lib/components/VehicleModelPreview";
 import {
-  VEHICLE_MODELS,
-  VEHICLE_MANUFACTURERS,
+  KEI_VANS_BY_MANUFACTURER,
   BODY_COLOR_BASE,
   modelUrlFor,
   resolveModelKey,
@@ -112,6 +111,8 @@ export default function VehiclesPage() {
   const [vehTab, setVehTab] = useState<"basic" | "work" | "cost" | "record">("basic");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [showModal, setShowModal] = useState(false);
+  /** カタログに無い車を自由入力するモード */
+  const [otherVehicle, setOtherVehicle] = useState(false);
   // 会社の車体色パレット（migration 127）。一度使った色を次回から選べるようにする
   const { data: colorData, refresh: refreshOrgColors } = useApi<{ colors: string[] }>(
     "/api/admin/org/vehicle-colors",
@@ -1196,53 +1197,94 @@ export default function VehiclesPage() {
               <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
                 {vehTab === "basic" && (
                 <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-500 mb-1">メーカー名</label>
-                    <input
-                      type="text"
-                      value={form.manufacturer}
-                      onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
-                      placeholder="例: スズキ"
-                      list="vehicle-manufacturers"
-                      // 実車のメーカー・車種は変わらないので、登録後は編集させない
-                      // （色とナンバーは塗り直し・変更があるので編集できるままにする）
-                      disabled={!!editingVehicle}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    />
-                    {/* 選択式だが自由記入もできる（datalist）。表に無い車も登録できることを優先する */}
-                    <datalist id="vehicle-manufacturers">
-                      {VEHICLE_MANUFACTURERS.map((m) => (
-                        <option key={m} value={m} />
+                {/* 車種の選択。メーカーごとにまとめたチップから選ぶ（datalist の見た目が悪かった）。
+                    カタログに無い車は「その他」で自由入力できる。実車のメーカー・車種は変わらないので
+                    登録後は表示のみにする（2026-08-10 ユーザー） */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-500 mb-1">車種</label>
+                  {editingVehicle ? (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      {[form.manufacturer, form.brand].filter(Boolean).join(" ") || "未設定"}
+                      <span className="ml-2 text-[11px] text-slate-400">登録後は変更できません</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {Object.entries(KEI_VANS_BY_MANUFACTURER).map(([maker, vans]) => (
+                        <div key={maker} className="flex flex-wrap items-center gap-1.5">
+                          <span className="w-14 shrink-0 text-[11px] font-semibold text-slate-400">{maker}</span>
+                          {vans.map((v) => {
+                            const active =
+                              form.manufacturer === v.manufacturer && form.brand === v.brand;
+                            return (
+                              <button
+                                key={v.brand}
+                                type="button"
+                                onClick={() => {
+                                  setOtherVehicle(false);
+                                  setForm((f) => ({ ...f, manufacturer: v.manufacturer, brand: v.brand }));
+                                }}
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                                  active
+                                    ? "border-slate-900 bg-slate-900 text-white"
+                                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                {v.brand}
+                                {/* 3Dモデルが未用意の車種は、その旨を小さく添える（嘘をつかない） */}
+                                {!v.modelKey && (
+                                  <span className={`ml-1 text-[10px] ${active ? "text-white/70" : "text-slate-400"}`}>
+                                    ・標準モデル
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
                       ))}
-                    </datalist>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-500 mb-1">ブランド名</label>
-                    <input
-                      type="text"
-                      value={form.brand}
-                      onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))}
-                      placeholder="例: エブリイ"
-                      list="vehicle-brands"
-                      disabled={!!editingVehicle}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    />
-                    <datalist id="vehicle-brands">
-                      {VEHICLE_MODELS.map((m) => (
-                        <option key={m.key} value={m.brand}>
-                          {m.manufacturer}
-                        </option>
-                      ))}
-                    </datalist>
-                    <p className="mt-1 text-[11px] text-slate-400">
-                      {editingVehicle
-                        ? "メーカー・車種は登録後に変更できません"
-                        : resolveModelKey(form.manufacturer, form.brand)
-                          ? `地図では ${form.brand} の3Dモデルで表示されます`
-                          : "この車種の3Dモデルはまだ無いため、地図では標準の軽バンで表示されます"}
-                    </p>
-                  </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="w-14 shrink-0 text-[11px] font-semibold text-slate-400">その他</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOtherVehicle(true);
+                            setForm((f) => ({ ...f, manufacturer: "", brand: "" }));
+                          }}
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                            otherVehicle
+                              ? "border-slate-900 bg-slate-900 text-white"
+                              : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          一覧にない車を入力
+                        </button>
+                      </div>
+
+                      {otherVehicle && (
+                        <div className="grid grid-cols-2 gap-3 pt-1">
+                          <input
+                            type="text"
+                            value={form.manufacturer}
+                            onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
+                            placeholder="メーカー名（例: いすゞ）"
+                            className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
+                          />
+                          <input
+                            type="text"
+                            value={form.brand}
+                            onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))}
+                            placeholder="車種名"
+                            className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
+                          />
+                        </div>
+                      )}
+
+                      <p className="text-[11px] text-slate-400">
+                        {resolveModelKey(form.manufacturer, form.brand)
+                          ? `地図・アプリでは ${form.brand} の3Dモデルで表示されます`
+                          : "この車種の3Dモデルはまだ無いため、標準の軽バンで表示されます（形が似ているため大きな違和感はありません）"}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* 3Dプレビュー＋車体色。どう見えるかを見ながら決める。
