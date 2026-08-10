@@ -1378,3 +1378,20 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
   - 夜かどうかは日本時間で判定（地図の lightPreset と同じ考え方）。props で上書きも可能
 - モデルには一切手を入れていない。**glb を作り直さずに夜の表現ができた**
 - 検証: web tsc クリーン・テスト 439 passed・next build 成功
+
+## 2026-08-11 01:00 本番ビルドが遅い原因＝生の3Dモデルを git に入れていた
+
+- 症状: 本番（nippo-ace）のビルドが5分以上終わらない。ログを見ると
+  **`Cloning completed: 5:56`**＝ビルドではなく **git clone に6分**かかっていた
+- 原因: **Meshy から落とした生の glb を git に入れていた**。`.git` が **258MB** に膨張:
+  - エブリイ texture **88.2MB** / クリッパー texture **78.6MB** / クリッパー generate **34.2MB** /
+    アクティ texture 7.5MB（＋整形のたびに models/*.glb の新しい blob が積み増し）
+  - **Vercel は毎回クローンする**ので、以後すべてのデプロイが6分増しになる（dev も本番も）
+- 対処（第1段階・非破壊）: `apps/web/public/glb/` を **.gitignore に追加し追跡から外した**。
+  生ファイルは `~/Developer/assets/hakotora-3d/` へ退避。**実行時に必要なのは整形後の
+  `apps/web/public/models/*.glb`（合計2.6MB）だけ**なので、これは残す
+- **残（要判断）**: 履歴からの完全削除。これをしないとクローンは速くならない。
+  `git filter-repo` 等で `apps/web/public/glb/**` を履歴ごと削除 → **main への force push** が必要。
+  影響: 過去のコミットハッシュが変わる。単独開発なので実害は小さいが、ユーザー判断を待つ
+- 教訓: **バイナリを git に入れる前に「実行時に要るか」を問う**。
+  生成物の中間ファイルはリポジトリの外に置く

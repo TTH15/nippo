@@ -48,3 +48,8 @@ supabase/.temp/
 /android/
 /app.json
 .expo/
+
+# Meshy などから落とした生の3Dモデル（作業用の元ファイル）。
+# 実行時に使うのは整形後の apps/web/public/models/*.glb だけ。
+# 生ファイルは1本100MB近くあり、git に入れるとクローンが数分単位で遅くなる（2026-08-11 に実害）。
+apps/web/public/glb/
