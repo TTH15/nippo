@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   const { data: vehicles, error } = await supabase
     .from("vehicles")
     .select(`
-      id, owner_org_id, manufacturer, brand, model_key, body_color, is_disposed, is_ev,
+      id, owner_org_id, manufacturer, brand, model_key, model_code, body_color, is_disposed, is_ev,
       number_prefix, number_class, number_hiragana, number_numeric,
       current_mileage, last_oil_change_mileage, oil_change_interval,
       purchase_cost, purchase_cost_items, lease_cost, monthly_insurance,
@@ -179,6 +179,7 @@ export async function POST(req: NextRequest) {
       manufacturer,
       brand,
       modelKey,
+      modelCode,
       bodyColor,
       numberPrefix,
       numberClass,
@@ -226,6 +227,8 @@ export async function POST(req: NextRequest) {
         brand: brand?.trim() || null,
         // 地図の3Dモデルと車体色（migration 123）。車種名から解決した値が渡ってくる
         model_key: typeof modelKey === "string" && modelKey ? modelKey : null,
+        // 型式（世代）。3Dモデルの出し分けと車両の記録の両方に使う
+        model_code: typeof modelCode === "string" && modelCode.trim() ? modelCode.trim().toUpperCase() : null,
         body_color: typeof bodyColor === "string" && /^#[0-9a-fA-F]{6}$/.test(bodyColor) ? bodyColor : null,
         is_disposed: !!isDisposed,
         is_ev: !!isEv,

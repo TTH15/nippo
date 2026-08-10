@@ -53,6 +53,7 @@ export async function PUT(
       isEv,
       manufacturer,
       modelKey,
+      modelCode,
       bodyColor,
       brand,
       numberPrefix,
@@ -83,6 +84,10 @@ export async function PUT(
     if (manufacturer !== undefined) updates.manufacturer = manufacturer?.trim() || null;
     // 地図の3Dモデル・車体色（migration 123）
     if (modelKey !== undefined) updates.model_key = typeof modelKey === "string" && modelKey ? modelKey : null;
+    if (modelCode !== undefined) {
+      updates.model_code =
+        typeof modelCode === "string" && modelCode.trim() ? modelCode.trim().toUpperCase() : null;
+    }
     if (bodyColor !== undefined) {
       updates.body_color =
         typeof bodyColor === "string" && /^#[0-9a-fA-F]{6}$/.test(bodyColor) ? bodyColor : null;

@@ -32,6 +32,7 @@ import {
   BODY_COLOR_BASE,
   modelUrlFor,
   resolveModelKey,
+  generationsOf,
 } from "@/lib/vehicleModels";
 import { useAutoSave } from "@/lib/useAutoSave";
 import { useApi } from "@/lib/useApi";
@@ -65,6 +66,7 @@ type Vehicle = {
   manufacturer?: string | null;
   body_color?: string | null;
   model_key?: string | null;
+  model_code?: string | null;
   brand?: string | null;
   number_prefix?: string | null;
   number_class?: string | null;
@@ -137,6 +139,7 @@ export default function VehiclesPage() {
     isEv: false,
     manufacturer: "",
     bodyColor: "",
+    modelCode: "",
     brand: "",
     numberPrefix: "",
     numberClass: "",
@@ -296,6 +299,7 @@ export default function VehiclesPage() {
       isEv: false,
       manufacturer: "",
       bodyColor: "",
+      modelCode: "",
       brand: "",
       numberPrefix: "",
       numberClass: "",
@@ -340,6 +344,7 @@ export default function VehiclesPage() {
       isEv: !!v.is_ev,
       manufacturer: v.manufacturer || "",
       bodyColor: v.body_color || "",
+      modelCode: v.model_code || "",
       brand: v.brand || "",
       numberPrefix: v.number_prefix || "",
       numberClass: v.number_class || "",
@@ -415,7 +420,8 @@ export default function VehiclesPage() {
         isEv: form.isEv,
         manufacturer: form.manufacturer || null,
         // 地図の3Dモデルはメーカー・車種名から自動で決める（表に無ければ既定モデル）
-        modelKey: resolveModelKey(form.manufacturer, form.brand),
+        modelKey: resolveModelKey(form.manufacturer, form.brand, form.modelCode),
+        modelCode: form.modelCode.trim().toUpperCase() || null,
         bodyColor: form.bodyColor || null,
         brand: form.brand || null,
         numberPrefix: form.numberPrefix || null,
@@ -1205,6 +1211,9 @@ export default function VehiclesPage() {
                   {editingVehicle ? (
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                       {[form.manufacturer, form.brand].filter(Boolean).join(" ") || "未設定"}
+                      {form.modelCode && (
+                        <span className="ml-1.5 text-[11px] text-slate-500">（{form.modelCode}）</span>
+                      )}
                       <span className="ml-2 text-[11px] text-slate-400">登録後は変更できません</span>
                     </div>
                   ) : (
@@ -1278,10 +1287,49 @@ export default function VehiclesPage() {
                         </div>
                       )}
 
+                      {/* 型式（世代）。同じ車種でも年代で形が全く違うため（2026-08-10 ユーザー指摘）。
+                          車検証の「型式」欄をそのまま選ぶ／入力する */}
+                      {form.brand && (
+                        <div className="pt-1">
+                          <span className="mb-1 block text-[11px] font-semibold text-slate-400">
+                            型式（車検証の「型式」欄）
+                          </span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {generationsOf(form.manufacturer, form.brand).map((g) => {
+                              const active = form.modelCode.toUpperCase() === g.code.toUpperCase();
+                              return (
+                                <button
+                                  key={g.code}
+                                  type="button"
+                                  onClick={() =>
+                                    setForm((f) => ({ ...f, modelCode: active ? "" : g.code }))
+                                  }
+                                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                                    active
+                                      ? "border-slate-900 bg-slate-900 text-white"
+                                      : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                                  }`}
+                                >
+                                  {g.label}
+                                </button>
+                              );
+                            })}
+                            <input
+                              type="text"
+                              value={form.modelCode}
+                              onChange={(e) => setForm((f) => ({ ...f, modelCode: e.target.value }))}
+                              placeholder="例: DA17V"
+                              maxLength={12}
+                              className="w-28 rounded border border-slate-200 px-2 py-1 text-xs uppercase focus:outline-none focus:ring-1 focus:ring-slate-400"
+                            />
+                          </div>
+                        </div>
+                      )}
+
                       <p className="text-[11px] text-slate-400">
-                        {resolveModelKey(form.manufacturer, form.brand)
-                          ? `地図・アプリでは ${form.brand} の3Dモデルで表示されます`
-                          : "この車種の3Dモデルはまだ無いため、標準の軽バンで表示されます（形が似ているため大きな違和感はありません）"}
+                        {resolveModelKey(form.manufacturer, form.brand, form.modelCode)
+                          ? `地図・アプリでは ${form.brand}${form.modelCode ? `（${form.modelCode.toUpperCase()}）` : ""} の3Dモデルで表示されます`
+                          : "この世代の3Dモデルはまだ無いため、標準の軽バンで表示されます（軽バンは形が似ているため大きな違和感はありません）"}
                       </p>
                     </div>
                   )}
@@ -1295,7 +1343,7 @@ export default function VehiclesPage() {
                   </label>
                   <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:flex-row">
                     <VehicleModelPreview
-                      modelUrl={modelUrlFor(resolveModelKey(form.manufacturer, form.brand))}
+                      modelUrl={modelUrlFor(resolveModelKey(form.manufacturer, form.brand, form.modelCode))}
                       bodyColor={form.bodyColor || null}
                       className="h-32 w-full shrink-0 rounded-md bg-white sm:w-48"
                     />
