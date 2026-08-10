@@ -955,6 +955,9 @@ export default function MapPage() {
     // 3Dモデルと同じく「style.load で作り直し → ref でデータを流す」に揃える。
     const empty = { type: "FeatureCollection" as const, features: [] };
     const addAreaLayers = () => {
+      // スタイル読込前に addSource すると "Style is not done loading" で throw し、
+      // 地図の初期化ごと止まって**画面が出なくなる**（2026-08-10 実機）。必ず確認してから触る。
+      if (!map.isStyleLoaded()) return;
       if (!map.getSource("place-areas")) {
         map.addSource("place-areas", { type: "geojson", data: empty as never });
         map.addLayer({
@@ -1018,7 +1021,7 @@ export default function MapPage() {
       applyAreaDataRef.current();
     };
     map.on("style.load", addAreaLayers);
-    addAreaLayers();
+    if (map.isStyleLoaded()) addAreaLayers();
 
     // プレート吹き出しは実データから作る（下の「車両ラベル反映」effect）。
     // 吹き出しの基本オフセット: 車両の画面上の高さに比例させる

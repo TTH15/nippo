@@ -302,6 +302,50 @@ if (root.listMaterials().length === 0) {
   console.log("マテリアルが無かったので無彩色の既定を付けた（model-color で着色できる）");
 }
 
+// --- 3.8) プリミティブごとに頂点データを独立させる -----------------------
+// Mapbox の model ローダーは**アクセサを共有した複数プリミティブ**を正しく読めず、
+// 「RangeError: offset is out of bounds」で落ちる（2026-08-10 実機で確認）。
+// 動いている truck.glb は「1プリミティブ・uint16 インデックス」だったので、それに寄せる:
+// プリミティブごとに使う頂点だけを詰め直し、可能なら uint16 にする。
+for (const mesh of root.listMeshes()) {
+  for (const prim of mesh.listPrimitives()) {
+    const idx = prim.getIndices();
+    if (!idx) continue;
+    const semantics = prim.listSemantics();
+    const remap = new Map();
+    const newIndices = [];
+    for (let i = 0; i < idx.getCount(); i++) {
+      const old = idx.getScalar(i);
+      let next = remap.get(old);
+      if (next === undefined) {
+        next = remap.size;
+        remap.set(old, next);
+      }
+      newIndices.push(next);
+    }
+    for (const name of semantics) {
+      const attr = prim.getAttribute(name);
+      const size = attr.getElementSize();
+      const packed = new Float32Array(remap.size * size);
+      const el = new Array(size).fill(0);
+      for (const [oldIndex, newIndex] of remap) {
+        attr.getElement(oldIndex, el);
+        packed.set(el, newIndex * size);
+      }
+      prim.setAttribute(
+        name,
+        doc.createAccessor().setType(attr.getType()).setArray(packed),
+      );
+    }
+    const Arr = remap.size <= 65535 ? Uint16Array : Uint32Array;
+    prim.setIndices(doc.createAccessor().setArray(new Arr(newIndices)));
+  }
+}
+// 参照されなくなったアクセサを掃除する
+for (const acc of root.listAccessors()) {
+  if (acc.listParents().length <= 1) acc.dispose();
+}
+
 await io.write(tmp, doc);
 
 // --- 4) 出力 -------------------------------------------------------------

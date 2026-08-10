@@ -1201,3 +1201,21 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 検証: next build 成功
 - **残**: ユーザーが Illustrator でプレート書体を SVG 化（著作権・余白のばらつき・環境依存の回避）。
   入ったら ①地図の吹き出し ②VehiclePlate ③3Dのプレートテクスチャ の3箇所で共用する
+
+## 2026-08-10 23:10 地図が表示されない不具合を修正（addSource の例外・glb がロードできない）
+
+実機のコンソールから2件の障害を特定。
+
+- **「Style is not done loading」で画面が出ない**: 面レイヤーを作る `addAreaLayers()` を
+  初期化直後に**無条件で呼んでいた**ため、スタイル読込前の `addSource` が throw し、
+  **地図の初期化 effect ごと止まっていた**（＝画面が出ない）
+  → `map.isStyleLoaded()` を確認してから触るようにした（関数の冒頭と初回呼び出しの両方）
+- **「Could not load model … RangeError: offset is out of bounds」**: 車両モデルが読めない。
+  原因は**プリミティブ間でアクセサを共有していた**こと（プレートを別マテリアルに切り出した際、
+  頂点データは共有したままにしていた）。Mapbox の model ローダーがこれを扱えない。
+  動いている `truck.glb` は「1プリミティブ・**uint16** インデックス」だった
+  → パイプラインに「**プリミティブごとに頂点を詰め直し、可能なら uint16 インデックスにする**」処理を追加。
+    結果: every 453KB / clipper 727KB、両方とも uint16・アクセサ独立
+- 教訓: **動いている資産（truck.glb）と構造を突き合わせる**のが最短だった。
+  ローダーの許容範囲は仕様書より既存の実物が語る
+- 検証: web tsc クリーン・テスト 439 passed・next build 成功
