@@ -1124,3 +1124,19 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 4. 車体は白〜薄グレーのまま（`model-color` で着色するため）
 - 現状: `clipper.glb`（1.6万三角形・277KB・実寸・原点=底面中心）を生成済み。
   地図への接続（`vehicles.model_key` での車種切替）は未実装＝次の作業
+
+## 2026-08-10 22:25 エブリイ（テクスチャ版）を整形し、車種の出し分けを実装
+
+- ユーザーから **スズキ エブリイのテクスチャ版**（4K）を受領。クリッパー（generate 段階）と違い
+  **NORMAL / TANGENT / TEXCOORD_0 と3枚のテクスチャ**（base_color / metallic_roughness / normal）を持つ
+- **テクスチャ縮小をパイプラインに追加**（既定 1024）。4K のままだと **1台で 92MB**。
+  地図上の車は画面で数十pxなので 1K で十分
+- 実測: **92.45MB → 1.26MB**（三角形 198万→1.6万、テクスチャ 8.8+1.8+7.2MB → 206+159+101KB）。
+  寸法 3.40×1.90×1.85m・原点=底面中心
+- **車種の出し分けを実装**: `VEHICLE_MODELS`（every / clipper / truck）を全部 `addModel` し、
+  レイヤーの `model-id` を `["coalesce", ["get","model"], DEFAULT]` に。
+  車両ごとの `vehicles.model_key` を feature プロパティに流す。**既定は every**
+  （テクスチャ付きで実車ベース。従来の Kenney 汎用バンより明確に良い）
+- 検証: web tsc クリーン・テスト 439 passed・next build 成功。glb のヘッダで属性・寸法・原点を確認
+- 残: ①**クリッパーもテクスチャ工程を回して再生成**（現状は無彩色・法線はこちらで生成した近似）
+  ②車両編集画面から `model_key` / `body_color` を選ぶ UI（いまは DB 直・未設定は every で描画）

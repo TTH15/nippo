@@ -4,6 +4,7 @@
 //
 // Meshy.ai の出力をそのまま地図に載せることはできない（200万三角形・34MB）。
 // このスクリプトで「地図に載る形」へ整える:
+//   0) テクスチャ縮小 … 4K のままだと1台で90MB超。地図上の車は数十pxなので 1K で十分
 //   1) simplify … 目標三角形数まで削減（既定 16,000）
 //   2) 実寸へスケール … 軽バンの実寸（既定 全長3.4m）に合わせる
 //   3) 原点を底面中心へ … ずれていると地図でズーム時に車体が流れる（2026-07-30 に一度踏んだ）
@@ -22,13 +23,14 @@ import { readFileSync, rmSync } from "node:fs";
 import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 
-const [input, output, lengthMStr = "3.4", targetTriStr = "16000"] = process.argv.slice(2);
+const [input, output, lengthMStr = "3.4", targetTriStr = "16000", texSizeStr = "1024"] = process.argv.slice(2);
 if (!input || !output) {
   console.error("使い方: node scripts/prepare-vehicle-glb.mjs <入力.glb> <出力.glb> [全長m] [目標三角形数]");
   process.exit(1);
 }
 const lengthM = Number(lengthMStr);
 const targetTri = Number(targetTriStr);
+const texSize = Number(texSizeStr);
 
 // --- 1) 三角形数を落とす -------------------------------------------------
 // 元の三角形数から比率を出す（simplify は比率指定なので）
@@ -50,6 +52,16 @@ execFileSync(
   ["--yes", "@gltf-transform/cli@4", "simplify", input, tmp, "--ratio", String(ratio), "--error", "0.002"],
   { stdio: "inherit" },
 );
+
+// --- 0) テクスチャを縮小する ---------------------------------------------
+// Meshy の 4K テクスチャは1台で 90MB を超える。地図上の車は画面で数十pxなので 1K で十分。
+if (probe.getRoot().listTextures().length > 0) {
+  execFileSync(
+    "npx",
+    ["--yes", "@gltf-transform/cli@4", "resize", tmp, tmp, "--width", String(texSize), "--height", String(texSize)],
+    { stdio: "inherit" },
+  );
+}
 
 // --- 2) 実寸へスケール & 3) 原点を底面中心へ -----------------------------
 const doc = await io.read(tmp);
