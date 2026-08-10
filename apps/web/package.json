@@ -29,6 +29,7 @@
     "@simplewebauthn/server": "^13.3.2",
     "@supabase/supabase-js": "^2.45.0",
     "@types/mapbox__mapbox-gl-draw": "^1.4.9",
+    "@types/three": "^0.180.0",
     "@types/web-push": "^3.6.4",
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.1",
@@ -52,6 +53,7 @@
     "swr": "^2.4.1",
     "tailwind-merge": "^3.2.0",
     "tesseract.js": "^7.0.0",
+    "three": "^0.180.0",
     "twilio": "^6.0.2",
     "web-push": "^3.6.7"
   },

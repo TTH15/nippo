@@ -72,12 +72,17 @@ export function resolveModelKey(manufacturer: string, brand: string): string | n
 /** 選択肢に出すメーカー名（重複なし）。 */
 export const VEHICLE_MANUFACTURERS = [...new Set(VEHICLE_MODELS.map((m) => m.manufacturer))];
 
-/** 車体色の見本。現場でよくある色に絞る（自由に選べるが、目安があると早い）。 */
-export const BODY_COLOR_PRESETS = [
+/**
+ * 常に出す3色。軽貨物はこの3色でほぼ足りる（ユーザー確認 2026-08-10）。
+ * これ以外は org のパレット（organizations.vehicle_body_colors）に貯めて使い回す。
+ */
+export const BODY_COLOR_BASE = [
   { label: "ホワイト", value: "#f1f5f9" },
   { label: "シルバー", value: "#c0c6cc" },
   { label: "ブラック", value: "#1f2937" },
-  { label: "レッド", value: "#dc2626" },
-  { label: "ブルー", value: "#2563eb" },
-  { label: "イエロー", value: "#eab308" },
 ];
+
+/** モデルの URL を引く（未知は既定モデル）。 */
+export function modelUrlFor(modelKey: string | null | undefined): string {
+  return VEHICLE_MODEL_URLS[modelKey ?? ""] ?? VEHICLE_MODEL_URLS[DEFAULT_VEHICLE_MODEL_KEY];
+}

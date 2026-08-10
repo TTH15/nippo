@@ -26,10 +26,12 @@ import { VehiclePlate, plateDigits } from "@/lib/components/VehiclePlate";
 import { format } from "date-fns";
 import { todayJST } from "@/lib/date";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { VehicleModelPreview } from "@/lib/components/VehicleModelPreview";
 import {
   VEHICLE_MODELS,
   VEHICLE_MANUFACTURERS,
-  BODY_COLOR_PRESETS,
+  BODY_COLOR_BASE,
+  modelUrlFor,
   resolveModelKey,
 } from "@/lib/vehicleModels";
 import { useAutoSave } from "@/lib/useAutoSave";
@@ -110,6 +112,22 @@ export default function VehiclesPage() {
   const [vehTab, setVehTab] = useState<"basic" | "work" | "cost" | "record">("basic");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [showModal, setShowModal] = useState(false);
+  // 会社の車体色パレット（migration 127）。一度使った色を次回から選べるようにする
+  const { data: colorData, refresh: refreshOrgColors } = useApi<{ colors: string[] }>(
+    "/api/admin/org/vehicle-colors",
+  );
+  const orgColors = colorData?.colors ?? [];
+  const addOrgColor = async (color: string) => {
+    try {
+      await apiFetch("/api/admin/org/vehicle-colors", {
+        method: "POST",
+        body: JSON.stringify({ color }),
+      });
+      void refreshOrgColors();
+    } catch (e) {
+      console.error(e); // パレットに残せなくても、その車の色は保存できるので致命的ではない
+    }
+  };
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [qrVehicle, setQrVehicle] = useState<Vehicle | null>(null);
   const [showBulkQr, setShowBulkQr] = useState(false);
@@ -1187,6 +1205,9 @@ export default function VehiclesPage() {
                       onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
                       placeholder="例: スズキ"
                       list="vehicle-manufacturers"
+                      // 実車のメーカー・車種は変わらないので、登録後は編集させない
+                      // （色とナンバーは塗り直し・変更があるので編集できるままにする）
+                      disabled={!!editingVehicle}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                     {/* 選択式だが自由記入もできる（datalist）。表に無い車も登録できることを優先する */}
@@ -1204,6 +1225,7 @@ export default function VehiclesPage() {
                       onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))}
                       placeholder="例: エブリイ"
                       list="vehicle-brands"
+                      disabled={!!editingVehicle}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
                     <datalist id="vehicle-brands">
@@ -1213,43 +1235,74 @@ export default function VehiclesPage() {
                         </option>
                       ))}
                     </datalist>
-                    {/* 地図で使う3Dモデルは車種名から自動で決まる。何が使われるかを明示する */}
                     <p className="mt-1 text-[11px] text-slate-400">
-                      {resolveModelKey(form.manufacturer, form.brand)
-                        ? `地図では ${form.brand} の3Dモデルで表示されます`
-                        : "この車種の3Dモデルはまだ無いため、地図では標準の軽バンで表示されます"}
+                      {editingVehicle
+                        ? "メーカー・車種は登録後に変更できません"
+                        : resolveModelKey(form.manufacturer, form.brand)
+                          ? `地図では ${form.brand} の3Dモデルで表示されます`
+                          : "この車種の3Dモデルはまだ無いため、地図では標準の軽バンで表示されます"}
                     </p>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-500 mb-1">車体色（地図の表示）</label>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {BODY_COLOR_PRESETS.map((c) => {
-                        const active = form.bodyColor.toLowerCase() === c.value.toLowerCase();
-                        return (
-                          <button
-                            key={c.value}
-                            type="button"
-                            title={c.label}
-                            onClick={() => setForm((f) => ({ ...f, bodyColor: active ? "" : c.value }))}
-                            className={`h-7 w-7 rounded-full border-2 transition-transform ${
-                              active ? "scale-110 border-slate-900" : "border-slate-200 hover:scale-105"
-                            }`}
-                            style={{ backgroundColor: c.value }}
+                </div>
+
+                {/* 3Dプレビュー＋車体色。どう見えるかを見ながら決める。
+                    色は塗り直しがあるので、登録後も変更できるままにする（2026-08-10 ユーザー） */}
+                <div className="mt-3">
+                  <label className="block text-sm font-medium text-slate-500 mb-1">
+                    車体色（地図・アプリでの見え方）
+                  </label>
+                  <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:flex-row">
+                    <VehicleModelPreview
+                      modelUrl={modelUrlFor(resolveModelKey(form.manufacturer, form.brand))}
+                      bodyColor={form.bodyColor || null}
+                      className="h-32 w-full shrink-0 rounded-md bg-white sm:w-48"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[
+                          ...BODY_COLOR_BASE,
+                          ...orgColors.map((c: string) => ({ label: c, value: c })),
+                        ].map((c) => {
+                          const active = form.bodyColor.toLowerCase() === c.value.toLowerCase();
+                          return (
+                            <button
+                              key={c.value}
+                              type="button"
+                              title={c.label}
+                              onClick={() => setForm((f) => ({ ...f, bodyColor: c.value }))}
+                              className={`h-8 w-8 rounded-full border-2 transition-transform ${
+                                active ? "scale-110 border-slate-900" : "border-white shadow-sm hover:scale-105"
+                              }`}
+                              style={{ backgroundColor: c.value }}
+                            />
+                          );
+                        })}
+                        {/* 新しい色。選ぶと会社のパレットに貯まり、次の車両からは選ぶだけで使える */}
+                        <label
+                          className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-dashed border-slate-300 text-slate-400 hover:border-slate-400 hover:text-slate-600"
+                          title="色を追加"
+                        >
+                          <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
+                          <input
+                            type="color"
+                            className="sr-only"
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setForm((f) => ({ ...f, bodyColor: v }));
+                              void addOrgColor(v);
+                            }}
                           />
-                        );
-                      })}
-                      <input
-                        type="color"
-                        value={form.bodyColor || "#f1f5f9"}
-                        onChange={(e) => setForm((f) => ({ ...f, bodyColor: e.target.value }))}
-                        className="h-7 w-9 cursor-pointer rounded border border-slate-200 bg-white"
-                        aria-label="車体色を選ぶ"
-                      />
+                        </label>
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-400">
+                        白・グレー・黒はいつでも選べます。それ以外は追加すると会社の色として残り、
+                        次の車両からは選ぶだけで使えます
+                      </p>
                       {form.bodyColor && (
                         <button
                           type="button"
                           onClick={() => setForm((f) => ({ ...f, bodyColor: "" }))}
-                          className="text-[11px] text-slate-400 hover:text-slate-600"
+                          className="mt-1 text-[11px] text-slate-400 hover:text-slate-600"
                         >
                           未設定に戻す
                         </button>
