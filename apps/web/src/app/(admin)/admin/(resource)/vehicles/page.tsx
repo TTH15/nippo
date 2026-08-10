@@ -26,6 +26,12 @@ import { VehiclePlate, plateDigits } from "@/lib/components/VehiclePlate";
 import { format } from "date-fns";
 import { todayJST } from "@/lib/date";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import {
+  VEHICLE_MODELS,
+  VEHICLE_MANUFACTURERS,
+  BODY_COLOR_PRESETS,
+  resolveModelKey,
+} from "@/lib/vehicleModels";
 import { useAutoSave } from "@/lib/useAutoSave";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
@@ -56,6 +62,8 @@ type Vehicle = {
   is_disposed?: boolean | null;
   is_ev?: boolean | null;
   manufacturer?: string | null;
+  body_color?: string | null;
+  model_key?: string | null;
   brand?: string | null;
   number_prefix?: string | null;
   number_class?: string | null;
@@ -109,6 +117,7 @@ export default function VehiclesPage() {
     isDisposed: false,
     isEv: false,
     manufacturer: "",
+    bodyColor: "",
     brand: "",
     numberPrefix: "",
     numberClass: "",
@@ -267,6 +276,7 @@ export default function VehiclesPage() {
       isDisposed: false,
       isEv: false,
       manufacturer: "",
+      bodyColor: "",
       brand: "",
       numberPrefix: "",
       numberClass: "",
@@ -310,6 +320,7 @@ export default function VehiclesPage() {
       isDisposed: !!v.is_disposed,
       isEv: !!v.is_ev,
       manufacturer: v.manufacturer || "",
+      bodyColor: v.body_color || "",
       brand: v.brand || "",
       numberPrefix: v.number_prefix || "",
       numberClass: v.number_class || "",
@@ -384,6 +395,9 @@ export default function VehiclesPage() {
         isDisposed: form.isDisposed,
         isEv: form.isEv,
         manufacturer: form.manufacturer || null,
+        // 地図の3Dモデルはメーカー・車種名から自動で決める（表に無ければ既定モデル）
+        modelKey: resolveModelKey(form.manufacturer, form.brand),
+        bodyColor: form.bodyColor || null,
         brand: form.brand || null,
         numberPrefix: form.numberPrefix || null,
         numberClass: form.numberClass || null,
@@ -1172,8 +1186,15 @@ export default function VehiclesPage() {
                       value={form.manufacturer}
                       onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
                       placeholder="例: スズキ"
+                      list="vehicle-manufacturers"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
+                    {/* 選択式だが自由記入もできる（datalist）。表に無い車も登録できることを優先する */}
+                    <datalist id="vehicle-manufacturers">
+                      {VEHICLE_MANUFACTURERS.map((m) => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">ブランド名</label>
@@ -1182,8 +1203,58 @@ export default function VehiclesPage() {
                       value={form.brand}
                       onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))}
                       placeholder="例: エブリイ"
+                      list="vehicle-brands"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
+                    <datalist id="vehicle-brands">
+                      {VEHICLE_MODELS.map((m) => (
+                        <option key={m.key} value={m.brand}>
+                          {m.manufacturer}
+                        </option>
+                      ))}
+                    </datalist>
+                    {/* 地図で使う3Dモデルは車種名から自動で決まる。何が使われるかを明示する */}
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      {resolveModelKey(form.manufacturer, form.brand)
+                        ? `地図では ${form.brand} の3Dモデルで表示されます`
+                        : "この車種の3Dモデルはまだ無いため、地図では標準の軽バンで表示されます"}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">車体色（地図の表示）</label>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {BODY_COLOR_PRESETS.map((c) => {
+                        const active = form.bodyColor.toLowerCase() === c.value.toLowerCase();
+                        return (
+                          <button
+                            key={c.value}
+                            type="button"
+                            title={c.label}
+                            onClick={() => setForm((f) => ({ ...f, bodyColor: active ? "" : c.value }))}
+                            className={`h-7 w-7 rounded-full border-2 transition-transform ${
+                              active ? "scale-110 border-slate-900" : "border-slate-200 hover:scale-105"
+                            }`}
+                            style={{ backgroundColor: c.value }}
+                          />
+                        );
+                      })}
+                      <input
+                        type="color"
+                        value={form.bodyColor || "#f1f5f9"}
+                        onChange={(e) => setForm((f) => ({ ...f, bodyColor: e.target.value }))}
+                        className="h-7 w-9 cursor-pointer rounded border border-slate-200 bg-white"
+                        aria-label="車体色を選ぶ"
+                      />
+                      {form.bodyColor && (
+                        <button
+                          type="button"
+                          onClick={() => setForm((f) => ({ ...f, bodyColor: "" }))}
+                          className="text-[11px] text-slate-400 hover:text-slate-600"
+                        >
+                          未設定に戻す
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 

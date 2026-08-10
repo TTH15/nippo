@@ -39,6 +39,10 @@ import { hasCapability } from "@/lib/capabilities";
 import { todayJST } from "@/lib/date";
 import { useSharedMapView } from "@/lib/map/sharedView";
 import {
+  VEHICLE_MODEL_URLS,
+  DEFAULT_VEHICLE_MODEL_KEY,
+} from "@/lib/vehicleModels";
+import {
   VehiclePlate,
   formatPlateNumeric,
   type VehiclePlateData,
@@ -46,14 +50,7 @@ import {
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
-// 地図に載せる車両3Dモデル。`vehicles.model_key` の値がそのままキーになる。
-// 実寸・原点=底面中心に整形済み（scripts/prepare-vehicle-glb.mjs）。
-const VEHICLE_MODELS: Record<string, string> = {
-  every: "/models/every.glb", // スズキ エブリイ（テクスチャあり）
-  clipper: "/models/clipper.glb", // 日産 クリッパー（テクスチャ未生成・無彩色）
-  truck: "/models/truck.glb", // 旧・汎用バン（Kenney CC0）
-};
-const DEFAULT_VEHICLE_MODEL = "every";
+
 
 // Mapbox Standard の時間帯ライティング。現在時刻から自動で選ぶ。
 type LightPreset = "dawn" | "day" | "dusk" | "night";
@@ -911,7 +908,8 @@ export default function MapPage() {
       if (map.getLayer("truck-3d")) return;
       // 車種は vehicles.model_key で選ぶ（migration 123）。未設定は既定モデル。
       // 実車ベースのモデルは Meshy 生成 → scripts/prepare-vehicle-glb.mjs で整形したもの。
-      for (const [id, url] of Object.entries(VEHICLE_MODELS)) map.addModel(id, url);
+      for (const [id, url] of Object.entries(VEHICLE_MODEL_URLS)) map.addModel(id, url);
+      map.addModel("truck", "/models/truck.glb"); // 旧・汎用（既存データの後方互換）
       map.addSource("truck-src", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -921,7 +919,7 @@ export default function MapPage() {
         type: "model",
         source: "truck-src",
         // 車種の出し分け。未知のキーは既定モデルに落とす
-        layout: { "model-id": ["coalesce", ["get", "model"], DEFAULT_VEHICLE_MODEL] },
+        layout: { "model-id": ["coalesce", ["get", "model"], DEFAULT_VEHICLE_MODEL_KEY] },
         paint: {
           "model-rotation": ["get", "rotation"], // 駐車の向き（feature ごと）
           // 車体色は車両ごとの属性（vehicles.body_color）。白＝着色なし
@@ -1527,7 +1525,8 @@ export default function MapPage() {
             // 車体色（未設定は白＝モデル本来の色を保つ）
             color: v.body_color || "#ffffff",
             // 車種（vehicles.model_key）。未設定・未知は既定モデル
-            model: v.model_key && v.model_key in VEHICLE_MODELS ? v.model_key : DEFAULT_VEHICLE_MODEL,
+            model:
+              v.model_key && v.model_key in VEHICLE_MODEL_URLS ? v.model_key : DEFAULT_VEHICLE_MODEL_KEY,
           },
         })),
       });

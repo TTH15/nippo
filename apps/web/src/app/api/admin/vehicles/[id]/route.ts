@@ -52,6 +52,8 @@ export async function PUT(
       isDisposed,
       isEv,
       manufacturer,
+      modelKey,
+      bodyColor,
       brand,
       numberPrefix,
       numberClass,
@@ -79,6 +81,12 @@ export async function PUT(
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (manufacturer !== undefined) updates.manufacturer = manufacturer?.trim() || null;
+    // 地図の3Dモデル・車体色（migration 123）
+    if (modelKey !== undefined) updates.model_key = typeof modelKey === "string" && modelKey ? modelKey : null;
+    if (bodyColor !== undefined) {
+      updates.body_color =
+        typeof bodyColor === "string" && /^#[0-9a-fA-F]{6}$/.test(bodyColor) ? bodyColor : null;
+    }
     if (brand !== undefined) updates.brand = brand?.trim() || null;
     if (isDisposed !== undefined) updates.is_disposed = !!isDisposed;
     if (isEv !== undefined) updates.is_ev = !!isEv;
