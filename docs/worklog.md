@@ -1288,3 +1288,12 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
     `docs/design/vehicle-3d-blender.md` に起票（body / glass / dark / plate の4マテリアル）
   - アプリ側は**マテリアル名で着色対象を選ぶ**（`body` だけに色を効かせる）
 - 検証: web tsc クリーン・next build 成功。モデルは16k・フラット・プレート分離の状態に戻した
+
+### 補足（2026-08-11 00:05）: Blender 作業の入力ファイルと、パイプラインの受け入れ
+
+- **触るのは Meshy の元ファイル**（`apps/web/public/glb/Meshy_AI_*_texture.glb`）。
+  整形後（`public/models/*.glb`）はテクスチャを捨てているので、どこが窓か分からず作業に向かない
+- パイプライン側を**Blender の成果物を尊重する**ように調整:
+  - `plate` マテリアルが既にあれば、プレートの自動切り出しを**スキップ**（二重に作らない）
+  - `glass` / `dark` / `plate` は**色をそのまま保つ**。テクスチャだけ外し、`body` 相当のみ無彩色に整える
+- 作業後は `node scripts/prepare-vehicle-glb.mjs <blender出力> apps/web/public/models/<車種>.glb 3.4 16000 1024 flat`

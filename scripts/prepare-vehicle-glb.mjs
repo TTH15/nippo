@@ -183,14 +183,20 @@ if (style === "flat") {
   //   写真由来テクスチャの UV とサンプリングが噛み合わず、車体に黒い斑が散る結果になった
   //   （2026-08-10 レンダリングで確認）。**マテリアル分けは Blender で手作業**に切り替える。
   for (const mat of root.listMaterials()) {
+    // Blender で分けたマテリアル（glass / dark / plate）は色を保つ。
+    // テクスチャだけ外し、body 相当だけ無彩色に整える
+    const name = mat.getName();
+    const isAuthored = name === "glass" || name === "dark" || name === "plate";
     mat.setBaseColorTexture(null);
     mat.setMetallicRoughnessTexture(null);
     mat.setNormalTexture(null);
     mat.setOcclusionTexture(null);
     mat.setEmissiveTexture(null);
-    mat.setBaseColorFactor([0.93, 0.94, 0.96, 1]);
-    mat.setMetallicFactor(0);
-    mat.setRoughnessFactor(0.75);
+    if (!isAuthored) {
+      mat.setBaseColorFactor([0.93, 0.94, 0.96, 1]);
+      mat.setMetallicFactor(0);
+      mat.setRoughnessFactor(0.75);
+    }
   }
   for (const tex of root.listTextures()) tex.dispose();
   // UV と接線はテクスチャを使わないなら無駄（接線は頂点あたり4float でファイルの大半を占める）
@@ -213,7 +219,10 @@ if (style === "flat") {
 //（テクスチャ版だと「EVERY」や黄色いプレートが出てデジタルツイン感が落ちる・2026-08-10 指摘）。
 // 前後の端にある「Xを向いた低い位置の小さな面」をプレートとみなし、黒（事業用＝黒ナンバー）にする。
 // マテリアルを分けておけば、モバイル側（three.js 等）で色を差し替えられる。
-{
+if (root.listMaterials().some((m) => m.getName() === "plate")) {
+  // Blender 側で plate を作ってあるなら、こちらで切り出さない（二重に作らない）
+  console.log("plate マテリアルが既にあるので、プレートの自動切り出しはスキップ");
+} else {
   const bbox = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
   for (const mesh of root.listMeshes()) {
     for (const prim of mesh.listPrimitives()) {
