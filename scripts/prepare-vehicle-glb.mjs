@@ -25,6 +25,7 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
+import sharp from "sharp";
 import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 
@@ -37,6 +38,9 @@ const [
   style = "flat",
   plateColor = "#111827", // 事業用（黒ナンバー）。自家用なら白系を渡す
   plateMode = "auto", // auto=幾何条件で自動切り出し / none=切り出さない（Blender で分ける場合）
+  // 既定は none。テクスチャの明度で窓・タイヤを分ける試みは**アトラスの構造上うまくいかない**
+  // （2026-08-11 検証。下のコメント参照）。試したい場合だけ auto を渡す
+  darkSplit = "none",
 ] = process.argv.slice(2);
 
 /** #RRGGBB → glTF の baseColorFactor（sRGB→リニア近似） */
@@ -53,7 +57,7 @@ if (!input || !output) {
 }
 const lengthM = Number(lengthMStr);
 /** 「暗い部分（窓・タイヤ・グリル）」と見なす明度のしきい値 */
-const DARK_LUMA = 0.18;
+const DARK_LUMA = 0.2;
 const targetTri = Number(targetTriStr);
 const texSize = Number(texSizeStr);
 
@@ -183,11 +187,97 @@ for (const mesh of root.listMeshes()) {
 // flat: テクスチャを外し、無彩色のフラットな見た目にする（地図の抽象度に合わせる／着色が効く）
 // photo: テクスチャを残す（実物に寄せたいとき）
 if (style === "flat") {
-  // ※ テクスチャの明度から窓・タイヤを自動判別する実装を試したが、
-  //   写真由来テクスチャの UV とサンプリングが噛み合わず、車体に黒い斑が散る結果になった
-  //   （2026-08-10 レンダリングで確認）。**マテリアル分けは Blender で手作業**に切り替える。
+  // --- 窓・タイヤ・グリルを別マテリアルにする -----------------------------
+  // テクスチャを捨てるとガラスまで車体色になり、粘土のように見える。
+  // 捨てる前に base_color の明度で「暗い部分」を判定して分けておく。
+  //
+  // ★結論: この方法は使えない（2026-08-11 に atlas を書き出して確認）。
+  //   Meshy の UV は**細かく分割された島**が並び、島と島の間は**濃いグレーの余白**で埋まっている。
+  //   島が小さいため、三角形の内側をサンプルしても余白を拾い、車体に黒い斑が散る。
+  //   スマートトポロジー版でも同じだった（13,098三角形でも島は細かい）。
+  //   → **窓・タイヤの分離は Blender で手作業**（docs/design/vehicle-3d-blender.md）。
+  if (darkSplit !== "none") {
+    const baseTex = root
+      .listMaterials()
+      .map((m) => m.getBaseColorTexture())
+      .find(Boolean);
+    const hasUv = root
+      .listMeshes()
+      .some((m) => m.listPrimitives().some((pr) => pr.getAttribute("TEXCOORD_0")));
+    if (baseTex && hasUv) {
+      const { data, info } = await sharp(Buffer.from(baseTex.getImage()))
+        .removeAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      const lumaAt = (u, v) => {
+        const wrap = (t) => t - Math.floor(t); // UV は 0-1 の外に出ることがある
+        const x = Math.min(info.width - 1, Math.floor(wrap(u) * info.width));
+        const y = Math.min(info.height - 1, Math.floor((1 - wrap(v)) * info.height)); // glTF の V は上下反転
+        const i = (y * info.width + x) * info.channels;
+        return (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]) / 255;
+      };
+
+      const darkMat = doc
+        .createMaterial("dark")
+        .setBaseColorFactor([0.05, 0.055, 0.065, 1])
+        .setMetallicFactor(0.1)
+        .setRoughnessFactor(0.35);
+
+      let darkTris = 0;
+      let total = 0;
+      for (const mesh of root.listMeshes()) {
+        for (const prim of [...mesh.listPrimitives()]) {
+          const uv = prim.getAttribute("TEXCOORD_0");
+          const idx = prim.getIndices();
+          if (!uv || !idx) continue;
+          const light = [];
+          const dark = [];
+          const a = [0, 0];
+          const b = [0, 0];
+          const c = [0, 0];
+          for (let t = 0; t < idx.getCount() / 3; t++) {
+            const i0 = idx.getScalar(t * 3);
+            const i1 = idx.getScalar(t * 3 + 1);
+            const i2 = idx.getScalar(t * 3 + 2);
+            uv.getElement(i0, a);
+            uv.getElement(i1, b);
+            uv.getElement(i2, c);
+            // ★頂点の UV は島の縁にあり、アトラスの余白（黒）を拾ってしまう。
+            //   三角形の内側（重心寄り）を数点サンプルして中央値で判定する
+            const samples = [
+              [1 / 3, 1 / 3, 1 / 3],
+              [0.6, 0.2, 0.2],
+              [0.2, 0.6, 0.2],
+              [0.2, 0.2, 0.6],
+            ].map(([w0, w1, w2]) =>
+              lumaAt(a[0] * w0 + b[0] * w1 + c[0] * w2, a[1] * w0 + b[1] * w1 + c[1] * w2),
+            );
+            samples.sort((x, y) => x - y);
+            const dk = (samples[1] + samples[2]) / 2 < DARK_LUMA;
+            if (dk) dark.push(i0, i1, i2);
+            else light.push(i0, i1, i2);
+            total++;
+          }
+          if (dark.length === 0) continue;
+          const darkPrim = doc
+            .createPrimitive()
+            .setMaterial(darkMat)
+            .setIndices(doc.createAccessor().setArray(new Uint32Array(dark)));
+          for (const name of prim.listSemantics()) darkPrim.setAttribute(name, prim.getAttribute(name));
+          mesh.addPrimitive(darkPrim);
+          idx.setArray(new Uint32Array(light));
+          darkTris += dark.length / 3;
+        }
+      }
+      const ratio2 = total ? darkTris / total : 0;
+      console.log(`窓・タイヤ等を別マテリアルにした（${darkTris} / ${total} 三角形・${(ratio2 * 100).toFixed(0)}%）`);
+      if (ratio2 > 0.45) {
+        console.log("  ※ 半分近くが暗色。UV が乱れている可能性がある（darkSplit=none を検討）");
+      }
+    }
+  }
   for (const mat of root.listMaterials()) {
-    // Blender で分けたマテリアル（glass / dark / plate）は色を保つ。
+    // 分けたマテリアル（glass / dark / plate）は色を保つ。
     // テクスチャだけ外し、body 相当だけ無彩色に整える
     const name = mat.getName();
     const isAuthored = name === "glass" || name === "dark" || name === "plate";
