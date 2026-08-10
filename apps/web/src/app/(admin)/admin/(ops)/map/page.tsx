@@ -924,8 +924,8 @@ export default function MapPage() {
           "model-rotation": ["get", "rotation"], // 駐車の向き（feature ごと）
           // 車体色は車両ごとの属性（vehicles.body_color）。白＝着色なし
           "model-color": ["get", "color"],
-          // 強く混ぜるとナンバープレートの黒まで車体色に染まる。マテリアルの違いを残す
-          "model-color-mix-intensity": 0.55,
+          // モデルは「塗り分けマスク」付き（窓・タイヤが暗い）。強く混ぜると窓まで塗り潰すので抑える
+          "model-color-mix-intensity": 0.45,
           // 夜のライティングでも沈まないよう自己発光させる（マーカーと同じ扱い）。
           "model-emissive-strength": 1,
         },

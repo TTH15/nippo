@@ -81,6 +81,7 @@ export const KEI_VANS: KeiVan[] = [
     generations: [{ code: "DS17V", label: "DS17V（2014年〜・現行）", modelKey: null }],
   },
   { manufacturer: "ホンダ", brand: "N-VAN", modelKey: null, aliases: ["エヌバン", "nvan", "N VAN"] },
+  { manufacturer: "ホンダ", brand: "アクティバン", modelKey: "acty", aliases: ["アクティ", "acty"] },
   { manufacturer: "トヨタ", brand: "ピクシスバン", modelKey: null, aliases: ["ピクシス", "pixis"] },
   { manufacturer: "マツダ", brand: "スクラム", modelKey: null, aliases: ["スクラムバン", "scrum"] },
   { manufacturer: "スバル", brand: "サンバー", modelKey: null, aliases: ["サンバーバン", "sambar"] },
@@ -90,6 +91,7 @@ export const KEI_VANS: KeiVan[] = [
 export const VEHICLE_MODEL_URLS: Record<string, string> = {
   every: "/models/every.glb",
   clipper: "/models/clipper.glb",
+  acty: "/models/acty.glb",
 };
 
 /** 未知の車・モデル未用意のときに使うモデル。軽バンは形が似ているので違和感は小さい。 */

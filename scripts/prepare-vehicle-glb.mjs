@@ -35,7 +35,7 @@ const [
   lengthMStr = "3.4",
   targetTriStr = "16000",
   texSizeStr = "1024",
-  style = "flat",
+  style = "masked", // 既定。窓・タイヤが暗いまま残り、車体だけ着色できる
   plateColor = "#111827", // 事業用（黒ナンバー）。自家用なら白系を渡す
   plateMode = "auto", // auto=幾何条件で自動切り出し / none=切り出さない（Blender で分ける場合）
   // 既定は none。テクスチャの明度で窓・タイヤを分ける試みは**アトラスの構造上うまくいかない**
@@ -184,9 +184,61 @@ for (const mesh of root.listMeshes()) {
 }
 
 // --- 3.6) 見た目の方針 ---------------------------------------------------
-// flat: テクスチャを外し、無彩色のフラットな見た目にする（地図の抽象度に合わせる／着色が効く）
-// photo: テクスチャを残す（実物に寄せたいとき）
-if (style === "flat") {
+// masked（推奨）: テクスチャを**白黒の「塗り分けマスク」**に変換して残す。
+//   窓・タイヤは暗いまま、車体は白。three.js は material.color がテクスチャと**乗算**されるので、
+//   車体だけが指定色になり窓は暗いまま保たれる。**面の選択作業が要らない**のが最大の利点
+//   （スマートトポロジー版は窓が「描いてあるだけ」で形状が無く、面では選べないため）
+// flat: テクスチャを外し、無彩色のフラットな見た目にする（軽いが窓も同色になる）
+// photo: テクスチャをそのまま残す（実物に寄せたいとき）
+if (style === "masked") {
+  // base_color を「塗り分けマスク」に変換する。
+  // 明るいところ（車体）を白に寄せ、暗いところ（窓・タイヤ・グリル）は暗いまま残す。
+  const baseTex = root
+    .listMaterials()
+    .map((m) => m.getBaseColorTexture())
+    .find(Boolean);
+  if (baseTex) {
+    const src = sharp(Buffer.from(baseTex.getImage())).removeAlpha();
+    const { data, info } = await src
+      .resize(texSize, texSize, { fit: "fill" })
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const out = Buffer.alloc(data.length);
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i] / 255;
+      // 窓・タイヤ（アトラス上でおよそ 0.15〜0.30）を確実に暗く残し、車体（0.6〜0.9）を白へ持ち上げる。
+      // 中間を広く取ると窓が塗られてしまうので、しきい値をはさんで一気に立ち上げる
+      const mapped = Math.min(1, Math.max(0, (v - 0.34) / 0.34)) * 0.92 + (v < 0.34 ? v * 0.25 : 0.08);
+      out[i] = Math.round(mapped * 255);
+    }
+    const png = await sharp(out, { raw: { width: info.width, height: info.height, channels: 1 } })
+      .toColourspace("srgb")
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+    baseTex.setImage(png).setMimeType("image/png");
+    for (const mat of root.listMaterials()) {
+      mat.setMetallicRoughnessTexture(null);
+      mat.setNormalTexture(null);
+      mat.setOcclusionTexture(null);
+      mat.setEmissiveTexture(null);
+      mat.setBaseColorFactor([1, 1, 1, 1]); // 色は描画側で掛ける
+      mat.setMetallicFactor(0);
+      mat.setRoughnessFactor(0.7);
+    }
+    // 接線は法線マップを外したので不要
+    for (const mesh of root.listMeshes()) {
+      for (const prim of mesh.listPrimitives()) {
+        const t = prim.getAttribute("TANGENT");
+        if (t) {
+          prim.setAttribute("TANGENT", null);
+          t.dispose();
+        }
+      }
+    }
+    console.log("テクスチャを塗り分けマスク（白黒）に変換した（style=masked）");
+  }
+} else if (style === "flat") {
   // --- 窓・タイヤ・グリルを別マテリアルにする -----------------------------
   // テクスチャを捨てるとガラスまで車体色になり、粘土のように見える。
   // 捨てる前に base_color の明度で「暗い部分」を判定して分けておく。
