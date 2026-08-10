@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 // ============================================================
 // 車両3Dモデルのプレビュー（2026-08-10）。
@@ -35,9 +36,11 @@ export function VehicleModelPreview({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     host.appendChild(renderer.domElement);
 
-    // 地図の雰囲気に合わせて、強すぎない斜め上からの光にする
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa4b2, 2.2));
-    const key = new THREE.DirectionalLight(0xffffff, 1.6);
+    // 平行光だけだと「粘土」に見えるので、環境マップで面の向きに応じた明暗を作る
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa4b2, 0.8));
+    const key = new THREE.DirectionalLight(0xffffff, 1.1);
     key.position.set(3, 5, 4);
     scene.add(key);
 
@@ -49,7 +52,7 @@ export function VehicleModelPreview({
     const resize = () => {
       const w = host.clientWidth || 240;
       const h = host.clientHeight || 160;
-      renderer.setSize(w, h, false);
+      renderer.setSize(w, h); // updateStyle=true。false だと CSS サイズが付かず**枠からはみ出す**
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
@@ -82,9 +85,12 @@ export function VehicleModelPreview({
         const size = box.getSize(new THREE.Vector3());
         const center = box.getCenter(new THREE.Vector3());
         model.position.sub(center); // 原点まわりで回せるように中心へ寄せる
-        model.position.y += size.y / 2;
-        camera.position.set(0, size.y * 1.1, Math.max(size.x, size.z) * 2.1);
-        camera.lookAt(0, size.y * 0.5, 0);
+        // 枠の中に必ず収まる距離。視野角と縦横比の小さい方に合わせる
+        const radius = Math.max(size.x, size.y, size.z) * 0.62;
+        const fov = (camera.fov * Math.PI) / 180;
+        const dist = radius / Math.sin(Math.min(fov, fov * camera.aspect) / 2);
+        camera.position.set(0, size.y * 0.55, dist);
+        camera.lookAt(0, size.y * 0.35, 0);
       },
       undefined,
       (err) => console.error("[VehicleModelPreview] load error", err),

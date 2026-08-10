@@ -1345,7 +1345,7 @@ export default function VehiclesPage() {
                     <VehicleModelPreview
                       modelUrl={modelUrlFor(resolveModelKey(form.manufacturer, form.brand, form.modelCode))}
                       bodyColor={form.bodyColor || null}
-                      className="h-32 w-full shrink-0 rounded-md bg-white sm:w-48"
+                      className="h-32 w-full shrink-0 overflow-hidden rounded-md bg-white sm:w-48"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">

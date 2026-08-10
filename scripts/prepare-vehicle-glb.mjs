@@ -48,6 +48,8 @@ if (!input || !output) {
   process.exit(1);
 }
 const lengthM = Number(lengthMStr);
+/** 「暗い部分（窓・タイヤ・グリル）」と見なす明度のしきい値 */
+const DARK_LUMA = 0.18;
 const targetTri = Number(targetTriStr);
 const texSize = Number(texSizeStr);
 
@@ -177,6 +179,9 @@ for (const mesh of root.listMeshes()) {
 // flat: テクスチャを外し、無彩色のフラットな見た目にする（地図の抽象度に合わせる／着色が効く）
 // photo: テクスチャを残す（実物に寄せたいとき）
 if (style === "flat") {
+  // ※ テクスチャの明度から窓・タイヤを自動判別する実装を試したが、
+  //   写真由来テクスチャの UV とサンプリングが噛み合わず、車体に黒い斑が散る結果になった
+  //   （2026-08-10 レンダリングで確認）。**マテリアル分けは Blender で手作業**に切り替える。
   for (const mat of root.listMaterials()) {
     mat.setBaseColorTexture(null);
     mat.setMetallicRoughnessTexture(null);

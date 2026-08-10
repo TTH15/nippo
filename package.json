@@ -22,5 +22,10 @@
   "overrides": {
     "react": "19.2.3",
     "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.4.2",
+    "@gltf-transform/extensions": "^4.4.2",
+    "sharp": "^0.35.3"
   }
 }

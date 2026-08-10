@@ -1272,3 +1272,19 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
   3Dプレビューも型式を反映する。編集画面では型式も併記
 - 検証: web tsc クリーン・テスト 439 passed・next build 成功
 - 残: migration 127・128 の適用。世代ごとの glb ができたら `KEI_VANS` の `generations[].modelKey` を埋める
+
+## 2026-08-10 23:55 3Dプレビューの不具合修正と、マテリアル分けを Blender 手作業へ
+
+- **プレビューが枠からはみ出す**: `renderer.setSize(w, h, false)` の第3引数（updateStyle=false）で
+  canvas に CSS サイズが付いていなかった。`setSize(w, h)` に直し、枠に `overflow-hidden` を追加。
+  カメラ距離も視野角と縦横比から計算して**必ず収まる**ようにした
+- **粘土っぽい見た目**: 平行光だけだったため。`RoomEnvironment` の環境マップを入れ、
+  面の向きに応じた明暗が出るようにした
+- **窓が車体色と一緒に変わる問題**: テクスチャの明度から窓・タイヤを自動判別する実装を試したが、
+  **写真由来テクスチャの UV とサンプリングが噛み合わず、車体に黒い斑が散った**
+  （headless Chrome + three.js でレンダリングして確認）→ **撤去した**
+  - 形状からも判定できない（窓とボディは連続した面）
+  - → **マテリアル分けは Blender で手作業**に切り替える。手順を
+    `docs/design/vehicle-3d-blender.md` に起票（body / glass / dark / plate の4マテリアル）
+  - アプリ側は**マテリアル名で着色対象を選ぶ**（`body` だけに色を効かせる）
+- 検証: web tsc クリーン・next build 成功。モデルは16k・フラット・プレート分離の状態に戻した
