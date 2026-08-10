@@ -211,6 +211,17 @@ type MapPlace = {
   radius_m?: number | null;
 };
 
+type ParkingSlot = {
+  id: string;
+  place_id: string;
+  label: string;
+  geometry: { type: "Polygon"; coordinates: [number, number][][] };
+  bearing: number;
+  lat: number;
+  lng: number;
+  vehicle_id: string | null;
+};
+
 type CourseArea = {
   id: string;
   name: string;
@@ -225,6 +236,69 @@ type PolygonFeature = {
   geometry: { type: "Polygon"; coordinates: [number, number][][] };
 };
 type PolygonCollection = { type: "FeatureCollection"; features: PolygonFeature[] };
+
+/**
+ * 描いた多角形を「最小面積の長方形」に整える。
+ * 駐車区画は長方形なので、ざっくり囲ってもらってこちらで矩形に直す
+ *（4点をきっちり打たせるのは航空写真の上では難しい）。
+ */
+function snapToRectangle(ring: [number, number][]): [number, number][] {
+  const pts = ring.slice(0, -1);
+  if (pts.length < 3) return ring;
+  const lat0 = (pts.reduce((s, p) => s + p[1], 0) / pts.length) * (Math.PI / 180);
+  const kx = Math.cos(lat0); // 経度方向の縮尺補正
+  const xy = pts.map(([lng, lat]) => [lng * kx, lat] as [number, number]);
+
+  let best: { area: number; corners: [number, number][] } | null = null;
+  for (let i = 0; i < xy.length; i++) {
+    const a = xy[i];
+    const b = xy[(i + 1) % xy.length];
+    const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    const cos = Math.cos(-ang);
+    const sin = Math.sin(-ang);
+    const rot = xy.map(([x, y]) => [x * cos - y * sin, x * sin + y * cos] as [number, number]);
+    const minX = Math.min(...rot.map((p) => p[0]));
+    const maxX = Math.max(...rot.map((p) => p[0]));
+    const minY = Math.min(...rot.map((p) => p[1]));
+    const maxY = Math.max(...rot.map((p) => p[1]));
+    const area = (maxX - minX) * (maxY - minY);
+    if (best && area >= best.area) continue;
+    const back = ([x, y]: [number, number]): [number, number] => {
+      const c = Math.cos(ang);
+      const sn = Math.sin(ang);
+      return [(x * c - y * sn) / kx, x * sn + y * c];
+    };
+    best = {
+      area,
+      corners: [
+        back([minX, minY]),
+        back([maxX, minY]),
+        back([maxX, maxY]),
+        back([minX, maxY]),
+      ],
+    };
+  }
+  if (!best) return ring;
+  return [...best.corners, best.corners[0]];
+}
+
+/** 「12番」→「13番」のように末尾の数字を1つ進める（区画は連番で入力することが多い）。 */
+function nextSlotLabel(label: string): string {
+  const m = /^(.*?)(\d+)(\D*)$/.exec(label);
+  if (!m) return "";
+  return `${m[1]}${Number(m[2]) + 1}${m[3]}`;
+}
+
+/** 点が多角形の中にあるか（レイキャスティング）。車の向きを区画に合わせる判定に使う。 */
+function pointInRing(lng: number, lat: number, ring: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
 
 /** 円を GeoJSON のポリゴンに落とす（Mapbox に円プリミティブが無いため）。 */
 function circlePolygon(lat: number, lng: number, radiusM: number, steps = 64): PolygonFeature {
@@ -463,6 +537,18 @@ export default function MapPage() {
     "/api/admin/map/places",
   );
   const places = useMemo(() => placesData?.places ?? [], [placesData]);
+
+  // 駐車区画（migration 126）。出発地＝稼働開始を押す場所の正体
+  const { data: slotData, refresh: refreshSlots } = useApi<{ slots: ParkingSlot[] }>(
+    "/api/admin/map/parking-slots",
+  );
+  const slots = useMemo(() => slotData?.slots ?? [], [slotData]);
+  /** 区画を描いている拠点。null = 描いていない */
+  const [slotPlace, setSlotPlace] = useState<MapPlace | null>(null);
+  const [slotLabel, setSlotLabel] = useState("");
+  const [slotVehicleId, setSlotVehicleId] = useState("");
+  const [slotSaving, setSlotSaving] = useState(false);
+  const [slotError, setSlotError] = useState("");
 
   // 配達エリア（コースの属性・migration 125）
   const { data: courseAreaData, refresh: refreshCourseAreas } = useApi<{ courses: CourseArea[] }>(
@@ -1119,7 +1205,7 @@ export default function MapPage() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!editingAreaCourse) {
+    if (!editingAreaCourse && !slotPlace) {
       if (drawRef.current) {
         map.removeControl(drawRef.current as unknown as mapboxgl.IControl);
         drawRef.current = null;
@@ -1129,12 +1215,12 @@ export default function MapPage() {
     const draw = new MapboxDraw({
       displayControlsDefault: false,
       controls: { polygon: true, trash: true },
-      defaultMode: editingAreaCourse.delivery_area ? "simple_select" : "draw_polygon",
+      defaultMode: editingAreaCourse?.delivery_area ? "simple_select" : "draw_polygon",
     });
     map.addControl(draw as unknown as mapboxgl.IControl, "top-right");
     drawRef.current = draw;
     // 既存のエリアがあれば編集対象として読み込む（引き直しではなく修正ができるように）
-    if (editingAreaCourse.delivery_area) {
+    if (editingAreaCourse?.delivery_area) {
       draw.add({
         type: "Feature",
         properties: {},
@@ -1147,7 +1233,48 @@ export default function MapPage() {
         drawRef.current = null;
       }
     };
-  }, [editingAreaCourse]);
+  }, [editingAreaCourse, slotPlace]);
+
+  /** 区画を保存する。描いた形は最小面積の長方形に整えてから送る。 */
+  const saveParkingSlot = async () => {
+    const draw = drawRef.current;
+    if (!draw || !slotPlace || slotSaving) return;
+    const label = slotLabel.trim();
+    if (!label) {
+      setSlotError("区画名（例: 12番）を入力してください");
+      return;
+    }
+    const feature = draw.getAll().features.find((f) => f.geometry?.type === "Polygon");
+    if (!feature) {
+      setSlotError("区画が描かれていません。多角形ツールで囲ってください");
+      return;
+    }
+    const ring = (feature.geometry as unknown as { coordinates: [number, number][][] }).coordinates[0];
+    const rect = snapToRectangle(ring);
+    setSlotSaving(true);
+    setSlotError("");
+    try {
+      await apiFetch("/api/admin/map/parking-slots", {
+        method: "POST",
+        body: JSON.stringify({
+          placeId: slotPlace.id,
+          label,
+          vehicleId: slotVehicleId || null,
+          geometry: { type: "Polygon", coordinates: [rect] },
+        }),
+      });
+      // 続けて次の区画を描けるようにする（駐車場は区画が並んでいるので連続入力が普通）
+      draw.deleteAll();
+      setSlotLabel(nextSlotLabel(label));
+      setSlotVehicleId("");
+      void refreshSlots();
+    } catch (e) {
+      console.error(e);
+      setSlotError(e instanceof Error ? e.message : "保存できませんでした");
+    } finally {
+      setSlotSaving(false);
+    }
+  };
 
   /** 描いた面を保存する。複数描かれていたら MultiPolygon にまとめる。 */
   const saveCourseArea = async () => {
@@ -1197,6 +1324,63 @@ export default function MapPage() {
       setAreaSaving(false);
     }
   };
+
+  /** その座標が駐車区画の中なら、その区画の向きを返す（区画外は 0）。 */
+  const slotBearingAt = useCallback(
+    (lng: number, lat: number): number => {
+      for (const sl of slots) {
+        const ring = sl.geometry?.coordinates?.[0];
+        if (ring && pointInRing(lng, lat, ring)) return sl.bearing ?? 0;
+      }
+      return 0;
+    },
+    [slots],
+  );
+
+  // 駐車区画を描く。航空写真に重ねて実際の区画に合わせて設定するため、白い輪郭＋区画名にする。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const draw = () => {
+      const features = slots.map((sl) => ({
+        type: "Feature" as const,
+        properties: { label: sl.label },
+        geometry: sl.geometry,
+      }));
+      const data = { type: "FeatureCollection" as const, features };
+      const src = map.getSource("parking-slots") as mapboxgl.GeoJSONSource | undefined;
+      if (src) {
+        src.setData(data as never);
+        return;
+      }
+      if (!map.isStyleLoaded()) return;
+      map.addSource("parking-slots", { type: "geojson", data: data as never });
+      map.addLayer({
+        id: "parking-slots-fill",
+        type: "fill",
+        source: "parking-slots",
+        paint: { "fill-color": "#38bdf8", "fill-opacity": 0.15 },
+      });
+      map.addLayer({
+        id: "parking-slots-line",
+        type: "line",
+        source: "parking-slots",
+        paint: { "line-color": "#e0f2fe", "line-width": 1.5, "line-opacity": 0.9 },
+      });
+      map.addLayer({
+        id: "parking-slots-label",
+        type: "symbol",
+        source: "parking-slots",
+        layout: { "text-field": ["get", "label"], "text-size": 11 },
+        paint: { "text-color": "#0c4a6e", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
+      });
+    };
+    draw();
+    map.on("style.load", draw);
+    return () => {
+      map.off("style.load", draw);
+    };
+  }, [slots]);
 
   // 配達エリア（コースの面）を塗る。コース色で塗り分け、どの区域が誰の担当か一目で分かるようにする。
   useEffect(() => {
@@ -1338,9 +1522,10 @@ export default function MapPage() {
         features: located.map((v) => ({
           type: "Feature" as const,
           geometry: { type: "Point" as const, coordinates: [v.position!.lng, v.position!.lat] },
-          // 進行方向が分かるならそれを使う（GPS 導入後）。無ければ正面固定。
           properties: {
-            rotation: [0, 0, 0],
+            // 区画の中にいるならその区画の軸に合わせる。区画に対して斜めに刺さっていると
+            // 一気に嘘くさくなるため（2026-08-10）。区画外は正面固定（GPS の heading が入ったらそれを使う）
+            rotation: [0, 0, slotBearingAt(v.position!.lng, v.position!.lat)],
             // 車体色（未設定は白＝モデル本来の色を保つ）。車種の出し分けはモデルが揃ってから
             color: v.body_color || "#ffffff",
           },
@@ -1390,7 +1575,7 @@ export default function MapPage() {
       );
     }
     declutterPlatesRef.current();
-  }, [located, statusOf, canDispatch, placing, historyDate]);
+  }, [located, statusOf, canDispatch, placing, historyDate, slotBearingAt]);
 
   // 2D/3D トグル: ピッチだけ変える（方位はユーザー操作を尊重してそのまま）。
   const setView = (mode: "2d" | "3d") => {
@@ -1926,6 +2111,73 @@ export default function MapPage() {
               </div>
             )}
 
+            {/* 駐車区画の作成（航空写真に合わせて囲む → 長方形に整えて保存） */}
+            {slotPlace && (
+              <div className="absolute right-3 top-3 z-10 w-[min(300px,calc(100vw-3rem))] rounded-xl bg-white p-3 shadow-lg">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="truncate text-xs font-bold text-slate-700">
+                    {slotPlace.name} の駐車区画
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSlotPlace(null)}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  右上の多角形ツールで1区画を囲みます。ざっくりで構いません（最小の長方形に
+                  整えて保存します）。車の向きは長辺から自動で決まります
+                </p>
+
+                <label className="mt-2 block text-[11px] font-semibold text-slate-500">区画名</label>
+                <input
+                  type="text"
+                  value={slotLabel}
+                  onChange={(e) => setSlotLabel(e.target.value)}
+                  placeholder="例: 12番"
+                  maxLength={20}
+                  className="mt-0.5 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
+                />
+
+                <label className="mt-2 block text-[11px] font-semibold text-slate-500">
+                  定位置の車両（任意）
+                </label>
+                <select
+                  value={slotVehicleId}
+                  onChange={(e) => setSlotVehicleId(e.target.value)}
+                  className="mt-0.5 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs focus:border-slate-500 focus:outline-none"
+                >
+                  <option value="">未設定</option>
+                  {(data?.vehicles ?? []).map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {plateText(v)}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  設定すると「今日の車がどこにあるか」に答えられます
+                </p>
+
+                {slotError && <div className="mt-2 text-[11px] text-red-600">{slotError}</div>}
+
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-[10px] text-slate-400">
+                    この拠点に {slots.filter((sl) => sl.place_id === slotPlace.id).length} 区画
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void saveParkingSlot()}
+                    disabled={slotSaving}
+                    className="rounded-lg bg-slate-800 px-4 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    {slotSaving ? "保存中..." : "この区画を保存"}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* 拠点の編集パネル（登録済みのピンをクリックで開く） */}
             {editingPlace && (
               <div className="absolute inset-x-3 bottom-3 mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg">
@@ -1985,6 +2237,31 @@ export default function MapPage() {
                     0 にすると点として扱います。敷地全体を示したいときに広げてください
                   </p>
                 </div>
+
+                {/* 駐車区画。ここが「出発地（稼働開始を押す場所）」の正体になる */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const place = editingPlace;
+                    setEditingPlace(null);
+                    setSlotError("");
+                    setSlotLabel("");
+                    setSlotVehicleId("");
+                    setSlotPlace(place);
+                    // 区画は航空写真を見ながら合わせる（ユーザー方針 2026-08-10）
+                    setViewPrefs((prev) => ({ ...prev, basemap: "satellite" }));
+                    mapRef.current?.flyTo({ center: [place.lng, place.lat], zoom: 19, duration: 700 });
+                  }}
+                  className="mt-3 flex w-full items-center justify-between rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <FontAwesomeIcon icon={faSquareParking} className="h-3 w-3" />
+                    駐車区画を設定
+                  </span>
+                  <span className="text-[10px] font-normal text-slate-400">
+                    {slots.filter((sl) => sl.place_id === editingPlace.id).length} 区画
+                  </span>
+                </button>
 
                 {placeEditError && <div className="mt-2 text-[11px] text-red-600">{placeEditError}</div>}
 
