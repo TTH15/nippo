@@ -10,15 +10,19 @@ import { VehiclePlate } from "@/lib/components/VehiclePlate";
 
 const SAMPLES: { label: string; v: Parameters<typeof VehiclePlate>[0]["vehicle"] }[] = [
   {
+    label: "実物写真との比較用（練馬 480 れ 51-14）",
+    v: { id: "0", number_prefix: "練馬", number_class: "480", number_hiragana: "れ", number_numeric: "5114" },
+  },
+  {
     label: "ACE CREATION 標準（京都 481 り 4桁）",
     v: { id: "1", number_prefix: "京都", number_class: "481", number_hiragana: "り", number_numeric: "1234" },
   },
   {
-    label: "れ・3桁（・1-23 実物準拠ハイフン）",
+    label: "れ・3桁（・1 23 ハイフンは4桁のみ刻印）",
     v: { id: "2", number_prefix: "京都", number_class: "480", number_hiragana: "れ", number_numeric: "123" },
   },
   {
-    label: "2桁（・・12 ハイフンなし）",
+    label: "2桁（・・ 12 ハイフンは刻印せず枠だけ空く）",
     v: { id: "3", number_prefix: "大阪", number_class: "481", number_hiragana: "り", number_numeric: "12" },
   },
   {
@@ -40,6 +44,18 @@ const SAMPLES: { label: string; v: Parameters<typeof VehiclePlate>[0]["vehicle"]
   {
     label: "奈良",
     v: { id: "8", number_prefix: "奈良", number_class: "480", number_hiragana: "り", number_numeric: "7890" },
+  },
+  {
+    label: "黄（軽自家用・将来用）",
+    v: { id: "9", plate_color: "yellow", number_prefix: "京都", number_class: "581", number_hiragana: "わ", number_numeric: "1234" },
+  },
+  {
+    label: "白（普通自家用・将来用）",
+    v: { id: "10", plate_color: "white", number_prefix: "京都", number_class: "300", number_hiragana: "わ", number_numeric: "5678" },
+  },
+  {
+    label: "緑（普通事業用・将来用）",
+    v: { id: "11", plate_color: "green", number_prefix: "大阪", number_class: "100", number_hiragana: "り", number_numeric: "9012" },
   },
 ];
 

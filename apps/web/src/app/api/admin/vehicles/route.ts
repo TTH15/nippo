@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
     .from("vehicles")
     .select(`
       id, owner_org_id, manufacturer, brand, model_key, model_code, body_color, is_disposed, is_ev,
-      number_prefix, number_class, number_hiragana, number_numeric,
+      number_prefix, number_class, number_hiragana, number_numeric, plate_color,
       current_mileage, last_oil_change_mileage, oil_change_interval,
       purchase_cost, purchase_cost_items, lease_cost, monthly_insurance,
       recovery_start_month, recovery_carryover,
@@ -181,6 +181,7 @@ export async function POST(req: NextRequest) {
       modelKey,
       modelCode,
       bodyColor,
+      plateColor = "black",
       numberPrefix,
       numberClass,
       numberHiragana,
@@ -232,10 +233,12 @@ export async function POST(req: NextRequest) {
         body_color: typeof bodyColor === "string" && /^#[0-9a-fA-F]{6}$/.test(bodyColor) ? bodyColor : null,
         is_disposed: !!isDisposed,
         is_ev: !!isEv,
+        // プレート色（実物4種）。不正値・未指定は black（現行運用は軽事業のみ）
+        plate_color: ["white", "yellow", "green", "black"].includes(plateColor) ? plateColor : "black",
         number_prefix: numberPrefix || null,
         number_class: numberClass || null,
         number_hiragana: numberHiragana || null,
-        number_numeric: isDisposed ? "0000" : (numberNumeric || null),
+        number_numeric: numberNumeric || null, // 廃車でもナンバーは保持（赤斜線表示で示す）
         current_mileage: currentMileage,
         last_oil_change_mileage: lastOilChangeMileage,
         oil_change_interval: oilChangeInterval,

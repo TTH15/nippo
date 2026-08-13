@@ -18,19 +18,37 @@ export function formatPlateNumeric(raw: string): string {
   return `${d[0]}${d[1]}${sep}${d[2]}${d[3]}`;
 }
 
-/** SVG グリフで描くシリアル列。実物準拠でハイフンは両側に数字がある場合（3桁以上）のみ。 */
-export function plateSerialGlyphSeq(raw: string): string[] {
+/**
+ * SVG グリフで描くシリアル列。実物は刻印位置が固定なので、ハイフン枠は常に確保し
+ * （＝かなの位置が桁数で動かない）、3桁未満はハイフンを刻印しない（空きのまま）。
+ */
+export function plateSerialGlyphSeq(raw: string): { seq: string[]; showHyphen: boolean } {
   const digits = raw.replace(/\D/g, "").slice(0, 4);
   const padded = plateDigits(raw);
-  if (digits.length >= 3) return [padded[0], padded[1], "-", padded[2], padded[3]];
-  return [...padded];
+  return {
+    seq: [padded[0], padded[1], "-", padded[2], padded[3]],
+    showHyphen: digits.length === 4, // ハイフンの刻印は4桁のときだけ（3桁以下は枠が空くだけ）
+  };
 }
 
 // 型の正準は core/types に集約。後方互換のためここから再エクスポートする。
-import type { VehiclePlateData } from "@repo/core/types";
+import type { VehiclePlateData, PlateColor } from "@repo/core/types";
 export type { VehiclePlateData };
 
-const PLATE_TEXT_COLOR = "#e8d44d";
+// 実物の4種の配色。未設定は black（軽事業用）として描く（既存データは全て黒）。
+const PLATE_SCHEMES: Record<
+  PlateColor,
+  { bg: string; frame: string; text: string; inset: string; glow: string | null }
+> = {
+  black: { bg: "#000000", frame: "#b8a038", text: "#e8d44d", inset: "#1a1a1a", glow: "rgba(232,212,77,0.3)" },
+  yellow: { bg: "#f2c50f", frame: "#a8880a", text: "#151515", inset: "rgba(0,0,0,0.18)", glow: null },
+  white: { bg: "#f4f5f1", frame: "#9aa0a6", text: "#17603e", inset: "rgba(0,0,0,0.10)", glow: null },
+  green: { bg: "#0a5a40", frame: "#d5d9de", text: "#ffffff", inset: "rgba(0,0,0,0.25)", glow: null },
+};
+
+function plateScheme(color: VehiclePlateData["plate_color"]) {
+  return color && color in PLATE_SCHEMES ? PLATE_SCHEMES[color as PlateColor] : PLATE_SCHEMES.black;
+}
 
 /** 文字列の全文字ぶんグリフが揃っていれば返す（1文字でも欠けたらフォントにフォールバック） */
 function lookupGlyphs(
@@ -48,11 +66,13 @@ function lookupGlyphs(
 function PlateGlyph({
   meta,
   s,
+  color,
   scaleLenPx,
   marginTopPx,
 }: {
   meta: PlateGlyphMeta;
   s: number;
+  color: string;
   scaleLenPx: (v: number) => string;
   marginTopPx?: number;
 }) {
@@ -67,7 +87,7 @@ function PlateGlyph({
         width: scaleLenPx(meta.w * s),
         height: scaleLenPx(meta.h * s),
         marginTop: marginTopPx !== undefined ? scaleLenPx(marginTopPx) : undefined,
-        backgroundColor: PLATE_TEXT_COLOR,
+        backgroundColor: color,
         maskImage,
         WebkitMaskImage: maskImage,
         maskSize,
@@ -98,6 +118,7 @@ export function VehiclePlate({
 }) {
   const hasPlate =
     vehicle.number_prefix || vehicle.number_hiragana || vehicle.number_numeric;
+  const scheme = plateScheme(vehicle.plate_color);
   const size = compact ? "max-w-[100px] min-w-0" : "max-w-[240px]";
   // plate の見た目は「外側の幅」に比例させる（デバイス依存を減らす）
   // cqw: コンテナ幅の 1% なので、100cqw がコンテナ幅になる
@@ -119,16 +140,18 @@ export function VehiclePlate({
   const bottomKanaSizePx = compact ? 0.7 * 16 : 2.0 * 16;
   const bottomNumericSizePx = compact ? 0.9 * 16 : 4.0 * 16;
 
-  // 実物の縦比率（330×165mm: 地名・分類=40mm ≒ 29px、かな=40mm、一連=80mm ≒ 58px）を
-  // ボルト・余白と両立する範囲で当てる（240px 幅 = 120px 高基準）。
-  const topH = 25 * k;
-  const kanaH = 29 * k;
-  const serialH = 53 * k;
+  // 実物のプレート写真の実測比率に合わせる（練馬480 れ51-14 の写真より:
+  // 一連=高さの約48%・かな=約32%・上段=約24%、余白は上下左右 5〜9%。
+  // 「端まで文字が入っている」感じが実物らしさの要）。240px 幅 = 120px 高基準。
+  // 写真の実測比率: 上余白9% / 上段24% / 行間9% / 一連48% / 下余白9%（120px 高でほぼ等式）
+  const topH = 29 * k;
+  const kanaH = 27 * k; // かなは一連の半分弱・数字の高さの中央に置く（実物準拠）
+  const serialH = 58 * k;
 
   const regionText = vehicle.number_prefix || "京都";
   const classText = vehicle.number_class || "400";
   const kanaText = vehicle.number_hiragana || "わ";
-  const serialSeq = plateSerialGlyphSeq(vehicle.number_numeric || "");
+  const { seq: serialSeq, showHyphen } = plateSerialGlyphSeq(vehicle.number_numeric || "");
 
   const regionGlyphs = lookupGlyphs("kanji", regionText);
   const classGlyphs = lookupGlyphs("classification", classText);
@@ -164,11 +187,12 @@ export function VehiclePlate({
 
   const inner = hasPlate ? (
     <div
-      className="relative w-full bg-black rounded-lg overflow-hidden"
+      className="relative w-full rounded-lg overflow-hidden"
       style={{
         aspectRatio: "2 / 1",
-        border: `${scaleLenPx(borderWidthPx)} solid #b8a038`,
-        boxShadow: `inset 0 0 0 ${scaleLenPx(insetShadowPx)} #1a1a1a, 0 2px 8px rgba(0,0,0,0.3)`,
+        backgroundColor: scheme.bg,
+        border: `${scaleLenPx(borderWidthPx)} solid ${scheme.frame}`,
+        boxShadow: `inset 0 0 0 ${scaleLenPx(insetShadowPx)} ${scheme.inset}, 0 2px 8px rgba(0,0,0,0.3)`,
       }}
     >
       {/* ボルト穴（左上） */}
@@ -210,16 +234,15 @@ export function VehiclePlate({
         />
       </div>
 
-      {/* プレート内容 */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden min-w-0">
+      {/* プレート内容。実物は上段が上端・一連が下端に寄り、行間が広い（中央寄せにしない） */}
+      <div className="absolute inset-0 flex flex-col items-center justify-between overflow-hidden min-w-0">
         {/* 上段: 地名 + 分類番号 */}
         <div
           className="flex items-center shrink-0"
           style={{
-            color: PLATE_TEXT_COLOR,
-            gap: scaleLenPx(10 * k),
-            marginBottom: scaleLenPx(5 * k),
-            paddingTop: scaleLenPx(compact ? 4 : 10),
+            color: scheme.text,
+            gap: scaleLenPx(7 * k),
+            paddingTop: scaleLenPx(compact ? 3.5 : 8),
           }}
         >
           {regionGlyphs ? (
@@ -229,6 +252,7 @@ export function VehiclePlate({
                   key={`r${i}`}
                   meta={meta}
                   s={topH / meta.h}
+                  color={scheme.text}
                   scaleLenPx={scaleLenPx}
                 />
               ))}
@@ -249,7 +273,7 @@ export function VehiclePlate({
                   className="flex shrink-0 justify-center"
                   style={{ width: scaleLenPx(classSlotW * (topH / classCat.refH)) }}
                 >
-                  <PlateGlyph meta={meta} s={topH / meta.h} scaleLenPx={scaleLenPx} />
+                  <PlateGlyph meta={meta} s={topH / meta.h} color={scheme.text} scaleLenPx={scaleLenPx} />
                 </span>
               ))}
             </span>
@@ -266,21 +290,18 @@ export function VehiclePlate({
         <div
           className="flex items-end justify-center min-w-0 w-full px-0.5"
           style={{
-            color: PLATE_TEXT_COLOR,
-            gap: scaleLenPx(12 * k),
-            paddingBottom: scaleLenPx(compact ? 4 : 10),
+            color: scheme.text,
+            gap: scaleLenPx(10 * k),
+            paddingBottom: scaleLenPx(compact ? 3.5 : 8),
           }}
         >
           {kanaGlyphs ? (
-            <span
-              className="flex shrink-0"
-              style={{ marginBottom: scaleLenPx(2 * k) }}
-            >
-              <PlateGlyph meta={kanaGlyphs[0]} s={kanaH / kanaGlyphs[0].h} scaleLenPx={scaleLenPx} />
+            <span className="flex shrink-0 self-center">
+              <PlateGlyph meta={kanaGlyphs[0]} s={kanaH / kanaGlyphs[0].h} color={scheme.text} scaleLenPx={scaleLenPx} />
             </span>
           ) : (
             <span
-              className="plate-font-hiragana font-bold flex-shrink-0"
+              className="plate-font-hiragana font-bold flex-shrink-0 self-center"
               style={{ fontSize: scaleLenPx(bottomKanaSizePx), lineHeight: 1 }}
             >
               {kanaText}
@@ -290,9 +311,9 @@ export function VehiclePlate({
             <span
               className="flex items-start shrink-0"
               style={{
-                gap: scaleLenPx(6 * k),
+                gap: scaleLenPx(7.5 * k),
                 height: scaleLenPx(serialH),
-                filter: glow ? "drop-shadow(0 0 6px rgba(232,212,77,0.3))" : "none",
+                filter: glow && scheme.glow ? `drop-shadow(0 0 6px ${scheme.glow})` : "none",
               }}
             >
               {serialGlyphs.map((meta, i) => {
@@ -300,13 +321,15 @@ export function VehiclePlate({
                   <PlateGlyph
                     meta={meta}
                     s={serialScale}
+                    color={scheme.text}
                     scaleLenPx={scaleLenPx}
                     marginTopPx={(meta.y - serialCat.minY) * serialScale}
                   />
                 );
                 if (serialSeq[i] === "-") {
+                  // ハイフン枠は常に確保（実物は刻印位置固定）。3桁未満は刻印せず空きのまま
                   return (
-                    <span key={`s${i}`} className="flex shrink-0">
+                    <span key={`s${i}`} className="flex shrink-0" style={showHyphen ? undefined : { visibility: "hidden" }}>
                       {glyph}
                     </span>
                   );
@@ -329,7 +352,7 @@ export function VehiclePlate({
                 fontSize: scaleLenPx(bottomNumericSizePx),
                 lineHeight: 1,
                 letterSpacing: "0.02em",
-                textShadow: glow ? "0 0 6px rgba(232,212,77,0.3)" : "none",
+                textShadow: glow && scheme.glow ? `0 0 6px ${scheme.glow}` : "none",
                 minWidth: 0,
               }}
             >

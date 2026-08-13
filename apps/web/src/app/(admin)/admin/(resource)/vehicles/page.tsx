@@ -72,6 +72,7 @@ type Vehicle = {
   number_class?: string | null;
   number_hiragana?: string | null;
   number_numeric?: string | null;
+  plate_color?: string | null;
   current_mileage: number;
   last_oil_change_mileage: number;
   oil_change_interval: number;
@@ -141,6 +142,7 @@ export default function VehiclesPage() {
     bodyColor: "",
     modelCode: "",
     brand: "",
+    plateColor: "black",
     numberPrefix: "",
     numberClass: "",
     numberHiragana: "",
@@ -301,6 +303,7 @@ export default function VehiclesPage() {
       bodyColor: "",
       modelCode: "",
       brand: "",
+      plateColor: "black",
       numberPrefix: "",
       numberClass: "",
       numberHiragana: "",
@@ -346,6 +349,7 @@ export default function VehiclesPage() {
       bodyColor: v.body_color || "",
       modelCode: v.model_code || "",
       brand: v.brand || "",
+      plateColor: v.plate_color || "black",
       numberPrefix: v.number_prefix || "",
       numberClass: v.number_class || "",
       numberHiragana: v.number_hiragana || "",
@@ -424,6 +428,7 @@ export default function VehiclesPage() {
         modelCode: form.modelCode.trim().toUpperCase() || null,
         bodyColor: form.bodyColor || null,
         brand: form.brand || null,
+        plateColor: form.plateColor,
         numberPrefix: form.numberPrefix || null,
         numberClass: form.numberClass || null,
         numberHiragana: form.numberHiragana || null,
@@ -456,6 +461,7 @@ export default function VehiclesPage() {
           is_disposed: form.isDisposed,
           manufacturer: payload.manufacturer,
           brand: payload.brand,
+          plate_color: payload.plateColor,
           number_prefix: payload.numberPrefix,
           number_class: payload.numberClass,
           number_hiragana: payload.numberHiragana,
@@ -1397,6 +1403,32 @@ export default function VehiclesPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-500 mb-1">ナンバープレート</label>
+                  {/* プレートの色（実物の4種）。当面は黒（軽事業用）のみ選択できる */}
+                  <div className="flex items-center gap-1.5 mb-2">
+                    {(
+                      [
+                        { key: "black", label: "黒", bg: "#000000", text: "#e8d44d", enabled: true },
+                        { key: "yellow", label: "黄", bg: "#f2c50f", text: "#151515", enabled: false },
+                        { key: "white", label: "白", bg: "#f4f5f1", text: "#17603e", enabled: false },
+                        { key: "green", label: "緑", bg: "#0a5a40", text: "#ffffff", enabled: false },
+                      ] as const
+                    ).map((c) => (
+                      <button
+                        key={c.key}
+                        type="button"
+                        disabled={!c.enabled}
+                        onClick={() => setForm((f) => ({ ...f, plateColor: c.key }))}
+                        title={c.enabled ? undefined : "準備中（当面は黒ナンバーのみ）"}
+                        className={`h-8 w-12 rounded border border-black/10 text-xs font-bold transition-shadow ${
+                          form.plateColor === c.key ? "ring-2 ring-slate-500" : ""
+                        } ${c.enabled ? "cursor-pointer" : "opacity-35 cursor-not-allowed"}`}
+                        style={{ backgroundColor: c.bg, color: c.text }}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                    <span className="ml-1 text-[11px] text-slate-400">黒=軽の事業用（当面は黒のみ）</span>
+                  </div>
                   <div className="grid grid-cols-3 gap-2 mb-2">
                     <input
                       type="text"
@@ -1412,14 +1444,41 @@ export default function VehiclesPage() {
                       placeholder="分類（例: 400）"
                       className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-100 disabled:text-slate-400"
                     />
-                    <input
-                      type="text"
-                      value={form.numberHiragana}
-                      onChange={(e) => setForm((f) => ({ ...f, numberHiragana: e.target.value }))}
-                      placeholder="かな（例: わ）"
-                      maxLength={1}
-                      className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-100 disabled:text-slate-400"
-                    />
+                    {form.plateColor === "black" ? (
+                      // 黒ナンバー（軽貨物の事業用）のかなは「り」「れ」に限られる。
+                      // 旧データに他のかなが入っている場合は3つ目の選択肢として温存する。
+                      <div className="flex items-stretch gap-1">
+                        {[
+                          "り",
+                          "れ",
+                          ...(form.numberHiragana && !["り", "れ"].includes(form.numberHiragana)
+                            ? [form.numberHiragana]
+                            : []),
+                        ].map((ch) => (
+                          <button
+                            key={ch}
+                            type="button"
+                            onClick={() => setForm((f) => ({ ...f, numberHiragana: ch }))}
+                            className={`flex-1 rounded border px-0 py-2 text-sm transition-colors ${
+                              form.numberHiragana === ch
+                                ? "border-slate-900 bg-slate-900 font-bold text-white"
+                                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                            }`}
+                          >
+                            {ch}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={form.numberHiragana}
+                        onChange={(e) => setForm((f) => ({ ...f, numberHiragana: e.target.value }))}
+                        placeholder="かな（例: わ）"
+                        maxLength={1}
+                        className="px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-100 disabled:text-slate-400"
+                      />
+                    )}
                   </div>
                   <label className="block text-xs text-slate-500 mb-1">一連番号（数字のみ・右詰め・4桁でハイフン）</label>
                   <div

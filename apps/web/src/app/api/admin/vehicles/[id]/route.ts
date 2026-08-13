@@ -56,6 +56,7 @@ export async function PUT(
       modelCode,
       bodyColor,
       brand,
+      plateColor,
       numberPrefix,
       numberClass,
       numberHiragana,
@@ -95,16 +96,15 @@ export async function PUT(
     if (brand !== undefined) updates.brand = brand?.trim() || null;
     if (isDisposed !== undefined) updates.is_disposed = !!isDisposed;
     if (isEv !== undefined) updates.is_ev = !!isEv;
+    if (plateColor !== undefined) {
+      updates.plate_color = ["white", "yellow", "green", "black"].includes(plateColor) ? plateColor : "black";
+    }
     if (numberPrefix !== undefined) updates.number_prefix = numberPrefix || null;
     if (numberClass !== undefined) updates.number_class = numberClass || null;
     if (numberHiragana !== undefined) updates.number_hiragana = numberHiragana || null;
     if (numberNumeric !== undefined) updates.number_numeric = numberNumeric || null;
-    if (isDisposed === true) {
-      updates.number_prefix = null;
-      updates.number_class = null;
-      updates.number_hiragana = null;
-      updates.number_numeric = "0000";
-    }
+    // 廃車でもナンバーはリセットしない（廃車時のナンバーのまま一覧で赤斜線表示する。
+    // 旧仕様の「null + 0000 に置換」は 2026-08-14 に廃止）
     if (currentMileage !== undefined) updates.current_mileage = currentMileage;
     if (lastOilChangeMileage !== undefined) updates.last_oil_change_mileage = lastOilChangeMileage;
     if (oilChangeInterval !== undefined) updates.oil_change_interval = oilChangeInterval;
