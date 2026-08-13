@@ -29,6 +29,7 @@ import {
   faLock,
   faBell,
   faMapLocationDot,
+  faBriefcase,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver, type StoredDriver } from "@/lib/api";
@@ -50,6 +51,7 @@ const navItems: NavItem[] = [
   { href: "/admin/daily", label: "報告", icon: faFileLines, cap: "can_view_reports" },
   { href: "/admin/attendance", label: "勤怠", icon: faClock, cap: "can_view_vehicles", beta: true },
   { href: "/admin/shifts", label: "シフト", icon: faCalendar, cap: "can_view_shifts" },
+  { href: "/admin/spot-jobs", label: "単発案件", icon: faBriefcase, cap: "can_view_shifts", beta: true },
   { href: "/admin/vehicles", label: "車両", icon: faCar, cap: "can_view_vehicles" },
   { href: "/admin/map", label: "地図", icon: faMapLocationDot, cap: "can_view_vehicles", beta: true },
   {

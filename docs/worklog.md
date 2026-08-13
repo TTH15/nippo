@@ -1484,3 +1484,53 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - **未完了: `git push --force origin main`**（権限で拒否）。ユーザー実行待ち。
   filter-repo は安全のため origin を外すので、再設定済み（https://github.com/TTH15/nippo.git）
 - 注意: 履歴書き換えのためコミットハッシュが全て変わる。他のクローンがあれば取り直しが必要
+
+## 2026-08-12 「仕事」の統合モデルを設計（docs/design/work-model.md 新規）
+
+- 発端: シフトとは別に単発案件と「その日だけ来る人」を軽く記録したい。ただし単発を別世界にせず
+  継続のシフトの仕事とバランスよく統合したい（ユーザー要望）
+- 用語整理: **案件**（継続=courses / 単発=spot_jobs 新設）×日付×人=**勤務**、
+  打刻の**稼働**（vehicle_sessions）とは明確に区別（「稼働」は予定側に使わない）
+- 方針: shifts / シフト表UI / AI取り込みには手を入れない。統合は読みモデル（DayWork 型）で実現。
+  使い捨てコース禁止・お金の確定テーブルは作らない（ロードマップH準拠、金額は参考値のみ）
+- 決定事項（ユーザー回答）: 同行者は「名前だけ」と「登録メンバー」両対応＋登録項目を設定可能に／
+  ライト登録者はアプリで何もできなくてよい／報酬・請求額は数値で持つ（確定しない）
+- スキーマ: spot_jobs（org_id NOT NULL FK・title・job_date・集合場所時刻・billing_amount 参考値）＋
+  spot_job_members（driver_id or display_name の CHECK、pay_amount）＋ drivers.member_kind='guest'
+  （ログインなしのゲスト membership。works_as_driver=false でシフト表には出ない）
+- オンボーディング分解: 登録を項目の集合として扱い invites.required_items で招待ごとに必要項目を
+  設定（Phase 1 はゲスト直作成のみ、ライト招待・昇格フローは Phase 2）
+- 状態: **設計ドラフト。ユーザーレビュー待ち**（実装未着手）
+
+## 2026-08-12 単発案件: 設計承認→Phase 1 実装開始（migration 129 作成）
+
+- 設計 `docs/design/work-model.md` を**承認済み**に更新（用語・Phase 1 スコープともユーザーOK）。
+  §8 にユーザー明示の将来方針を2点追記: ①UIは継続（コース）と単発を同格の「仕事」として見せていく
+  ②単発の人へ仕事内容（日時・集合場所）を共有する機能（共有リンク/LINE、ライト招待と地続き）
+- **migration 129_spot_jobs.sql 新規**: spot_jobs（org_id NOT NULL FK・title・job_date・集合場所/時刻・
+  billing_amount 参考値・status planned/done/cancelled）＋ spot_job_members（driver_id or display_name の
+  CHECK・pay_amount・vehicle_id）＋ drivers.member_kind（regular/guest、CHECK 制約）。冪等・追加のみ
+- **未適用**（他の未適用 migration と同様、apply-migrations の運用に従う。DBには触っていない）
+- 次: 管理API（/api/admin/spot-jobs）→ 管理画面（一覧+作成/編集・ゲスト即時作成）→ 日別ビュー並記。
+  既存の管理API/画面パターンの調査エージェントが実行中
+
+## 2026-08-12 単発案件 Phase 1 実装（API＋管理画面＋ナビ）
+
+- **API 3本を新設**（capability は設計どおり can_view_shifts / can_manage_shifts に相乗り）:
+  - `/api/admin/spot-jobs` GET(月別一覧+参加者ピッカー候補=正規∪ゲスト)・POST(参加者込み作成。
+    member insert 失敗時は案件をベストエフォートで巻き戻し)
+  - `/api/admin/spot-jobs/[id]` PATCH(部分更新+members 丸ごと置換)・DELETE
+  - `/api/admin/spot-jobs/guests` POST(ゲスト作成: role='GUEST'ラベル・member_kind='guest'・
+    works_as_driver=false・identity なし=ログイン不可)
+  - 共有バリデーション/シリアライズは `src/server/spotJobs.ts`（時刻 HH:MM・金額0〜9999万・
+    参加者50人上限・driverId 重複400・他 org の driver 混入チェック）
+- **管理画面** `(admin)/admin/(ops)/spot-jobs/page.tsx` + `SpotJobModal.tsx` + `types.ts`:
+  月ナビ付きテーブル（日付(曜)/案件名+依頼元/時間/集合場所/参加者/請求参考/状態バッジ）、
+  モーダルで DatePicker・TimePicker・CustomSelect を使用。参加者は「メンバー選択」「名前だけ」の
+  2種の行 + モーダル内ゲスト即時登録（作成→選択済み行として追加）
+- **ナビ**: AdminLayout の navItems にシフト直下「単発案件」(faBriefcase・β・cap=can_view_shifts)
+- **検証**: tsc ✅ / vitest 439件 ✅ / next build ✅（4ルート生成確認）/ check:tenant は
+  既存警告7件のみ（main と同数＝今回の追加分は警告ゼロ。spot_jobs は migration から自動で検査対象化）
+- **残**: migration 129 未適用（dev用 SUPABASE_DB_URL 復旧待ち。適用まで画面はDBエラーになる）。
+  Phase 1-4 の日別ビュー並記・DayWork 読みモデルは未着手。Phase 2（ライト招待・ゲスト昇格・
+  仕事内容共有・地図ゴーストピン・打刻接続）は work-model.md §5,§8 参照
