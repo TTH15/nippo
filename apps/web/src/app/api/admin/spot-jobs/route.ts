@@ -16,20 +16,31 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// GET: 月の単発案件一覧＋参加者ピッカー候補 ?month=YYYY-MM
+// GET: 単発案件一覧＋参加者ピッカー候補
+//   ?month=YYYY-MM または ?start=YYYY-MM-DD&end=YYYY-MM-DD（シフト画面の表示期間に合わせる用）
 // 候補は「正規ドライバー（works_as_driver）＋ゲスト（member_kind='guest'）」。
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_shifts");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
-  const month = req.nextUrl.searchParams.get("month") ?? "";
-  if (!/^\d{4}-\d{2}$/.test(month)) {
-    return NextResponse.json({ error: "month は YYYY-MM 形式で指定してください" }, { status: 400 });
+  let start: string;
+  let end: string;
+  const month = req.nextUrl.searchParams.get("month");
+  if (month !== null) {
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return NextResponse.json({ error: "month は YYYY-MM 形式で指定してください" }, { status: 400 });
+    }
+    const [y, m] = month.split("-").map(Number);
+    start = `${month}-01`;
+    end = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+  } else {
+    start = req.nextUrl.searchParams.get("start") ?? "";
+    end = req.nextUrl.searchParams.get("end") ?? "";
+    if (!DATE_RE.test(start) || !DATE_RE.test(end)) {
+      return NextResponse.json({ error: "month か start/end を指定してください" }, { status: 400 });
+    }
   }
-  const [y, m] = month.split("-").map(Number);
-  const start = `${month}-01`;
-  const end = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
 
   const { data: jobs, error } = await supabase
     .from("spot_jobs")

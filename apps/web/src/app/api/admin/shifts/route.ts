@@ -95,6 +95,20 @@ export async function GET(req: NextRequest) {
     .eq("active", true)
     .order("sort_order");
 
+  // 「＋コース」チップの並び順用: 表示期間より前35日の割当実績（ドライバー×コースの頻度・最終日を
+  // クライアントで集計し、「よく入るコース」を先頭に出す）。期間内の実績は shifts から取れる。
+  const recentStart = (() => {
+    const d = new Date(`${startDate}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 35);
+    return d.toISOString().slice(0, 10);
+  })();
+  const { data: recentAssignments } = await supabase
+    .from("shifts")
+    .select("driver_id, course_id, shift_date")
+    .gte("shift_date", recentStart)
+    .lt("shift_date", startDate)
+    .not("driver_id", "is", null);
+
   return NextResponse.json({
     courses: courses ?? [],
     shifts: shifts ?? [],
@@ -104,6 +118,7 @@ export async function GET(req: NextRequest) {
     vehicles: fleet ?? [],
     vehicle_driver_links: vehicleLinks ?? [],
     vehicle_loans: vehicleLoans ?? [],
+    recent_assignments: recentAssignments ?? [],
   });
 }
 

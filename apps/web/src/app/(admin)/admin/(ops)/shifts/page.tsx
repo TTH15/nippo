@@ -32,6 +32,7 @@ import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
 import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./ShiftImportModal";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
+import type { SpotJob } from "../spot-jobs/types";
 
 type Course = {
   id: string;
@@ -640,6 +641,11 @@ export default function ShiftsPage() {
   // 一覧で「今日」をやんわり強調するための基準日（JST）。
   const today = todayJST();
 
+  // 「＋コース」チップの並び順用: 表示期間より前35日の割当実績（API から受領）。
+  const [recentAssignments, setRecentAssignments] = useState<
+    { driver_id: string; course_id: string; shift_date: string }[]
+  >([]);
+
   // SWR で取得をキャッシュし、画面遷移をまたいで保持する（再訪時の点滅をなくす）。
   // キーは期間（start〜end）依存。displayDates が未確定の間は取得しない。
   const shiftsKey = useMemo(() => {
@@ -662,6 +668,7 @@ export default function ShiftsPage() {
     vehicles?: VehiclePlateData[];
     vehicle_driver_links?: { driver_id: string; vehicle_id: string }[];
     vehicle_loans?: { vehicle_id: string; loan_date: string }[];
+    recent_assignments?: { driver_id: string; course_id: string; shift_date: string }[];
   }>(shiftsKey, {
     // 日付グリッドで前期間のデータが新しい列に重なって見えるのを防ぐため、
     // この画面では keepPreviousData を無効化（未訪問の期間切替時のみスケルトン）。
@@ -672,6 +679,40 @@ export default function ShiftsPage() {
 
   // 初回（キャッシュ未取得）のみスケルトン。再訪・キャッシュ済み期間切替では点滅しない。
   const loading = isInitialLoading;
+
+  // 単発案件（同じ期間）。継続（コース）と同格の「仕事」としてグリッド・日別ビューに出す
+  // （work-model §4,§8）。migration 129 未適用などで取得に失敗しても、この画面は通常どおり動く。
+  const spotJobsKey = useMemo(() => {
+    if (displayDates.length === 0) return null;
+    return `/api/admin/spot-jobs?start=${displayDates[0]}&end=${displayDates[displayDates.length - 1]}`;
+  }, [displayDates]);
+  const { data: spotJobsData } = useApi<{ jobs: SpotJob[] }>(spotJobsKey, {
+    revalidateOnFocus: false,
+  });
+  const spotJobs = useMemo(() => spotJobsData?.jobs ?? [], [spotJobsData]);
+  const spotJobsByDate = useMemo(() => {
+    const map = new Map<string, SpotJob[]>();
+    for (const job of spotJobs) {
+      const list = map.get(job.jobDate) ?? [];
+      list.push(job);
+      map.set(job.jobDate, list);
+    }
+    return map;
+  }, [spotJobs]);
+  // `${date}:${driverId}` → 参加している単発案件（ドライバー軸セル・編集モーダル用）
+  const spotJobsByDriverDate = useMemo(() => {
+    const map = new Map<string, SpotJob[]>();
+    for (const job of spotJobs) {
+      for (const m of job.members) {
+        if (!m.driverId) continue;
+        const key = `${job.jobDate}:${m.driverId}`;
+        const list = map.get(key) ?? [];
+        list.push(job);
+        map.set(key, list);
+      }
+    }
+    return map;
+  }, [spotJobs]);
 
   // SWR が取得した生データを既存の state に同期する。
   // 楽観更新（localShifts 等）のオーバーレイはここでクリアし、サーバ最新で置き換える。
@@ -692,6 +733,7 @@ export default function ShiftsPage() {
     setFleetVehicles(Array.isArray(shiftsData.vehicles) ? shiftsData.vehicles : []);
     setVehicleLinks(shiftsData.vehicle_driver_links ?? []);
     setVehicleLoans(shiftsData.vehicle_loans ?? []);
+    setRecentAssignments(shiftsData.recent_assignments ?? []);
     setLocalShifts(new Map());
     setLocalVehicleByDriverDay(new Map());
     setLocalExternalByDriverDay(new Map());
@@ -1454,14 +1496,47 @@ export default function ShiftsPage() {
     return driversWithCourses.filter((d) => !assignedOnDate.has(d.id));
   };
 
-  /** 「＋コース」追加用: このドライバーがまだ入っていない＆定員に空きがあるコース */
+  // ドライバー×コースの割当実績（表示期間内 + 期間前35日）。「＋コース」チップで
+  // 「よく入るコース」を先頭に出すための頻度・最終利用日マップ。
+  const courseUsageByDriver = useMemo(() => {
+    const map = new Map<string, Map<string, { count: number; last: string }>>();
+    const add = (driverId: string | null, courseId: string, date: string) => {
+      if (!driverId) return;
+      let byCourse = map.get(driverId);
+      if (!byCourse) {
+        byCourse = new Map();
+        map.set(driverId, byCourse);
+      }
+      const cur = byCourse.get(courseId);
+      byCourse.set(courseId, {
+        count: (cur?.count ?? 0) + 1,
+        last: cur && cur.last > date ? cur.last : date,
+      });
+    };
+    for (const s of shifts) add(s.driver_id, s.course_id, s.shift_date);
+    for (const r of recentAssignments) add(r.driver_id, r.course_id, r.shift_date);
+    return map;
+  }, [shifts, recentAssignments]);
+
+  /** 「＋コース」追加用: このドライバーがまだ入っていない＆定員に空きがあるコース。
+   *  並びは「よく入るコース（頻度→直近）」が先、未実績は sort_order 順で後ろ。 */
   const getAddableCoursesForDriverOnDate = (date: string, driverId: string): Course[] => {
     const driver = drivers.find((d) => d.id === driverId);
     if (!driver) return [];
     const allowed = new Set(getDriverCourseIds(driver));
+    const usage = courseUsageByDriver.get(driverId);
     return courses
       .filter((c) => allowed.has(c.id) && canAddDriverToCourse(date, driverId, c.id, localShifts))
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      .sort((a, b) => {
+        const ua = usage?.get(a.id);
+        const ub = usage?.get(b.id);
+        if (!!ua !== !!ub) return ua ? -1 : 1;
+        if (ua && ub) {
+          if (ub.count !== ua.count) return ub.count - ua.count;
+          if (ua.last !== ub.last) return ua.last < ub.last ? 1 : -1;
+        }
+        return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+      });
   };
 
   /** ローカル編集により、このセルが未保存になるか（コースまたは車両） */
@@ -1551,7 +1626,30 @@ export default function ShiftsPage() {
         : mobileFilter === "unassigned"
           ? allRows.filter((r) => r.placements.length === 0)
           : allRows;
+    const dayJobs = spotJobsByDate.get(date) ?? [];
     return (
+      <div className="space-y-3">
+      {/* 単発案件（その日の全件。ゲスト・名前だけの参加者もここで見える） */}
+      {dayJobs.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-sky-600">
+            単発案件
+          </div>
+          <div className="divide-y divide-slate-100">
+            {dayJobs.map((job) => (
+              <a key={job.id} href="/admin/spot-jobs" className="flex items-center gap-3 px-3 py-2.5 active:bg-slate-100">
+                <span className="min-w-0 flex-1 truncate rounded bg-sky-100 px-2 py-0.5 text-[12px] font-semibold text-sky-800">
+                  {job.title}
+                </span>
+                <span className="shrink-0 text-[11px] text-slate-500">
+                  {job.meetingTime ? `${job.meetingTime}〜` : ""}
+                  {job.members.length > 0 ? ` ${job.members.length}名` : ""}
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
         {rows.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-slate-400">該当するドライバーはいません。</p>
@@ -1619,6 +1717,7 @@ export default function ShiftsPage() {
             );
           })
         )}
+      </div>
       </div>
     );
   };
@@ -2409,6 +2508,16 @@ export default function ShiftsPage() {
                                           {slotOffs.join("・")}休み希望
                                         </span>
                                       )}
+                                      {/* 単発案件（このドライバーが参加する日）。コースと同格の「仕事」として表示 */}
+                                      {(spotJobsByDriverDate.get(`${date}:${driver.id}`) ?? []).map((job) => (
+                                        <span
+                                          key={job.id}
+                                          title={`単発案件「${job.title}」${job.meetingTime ? `（集合 ${job.meetingTime}）` : ""}`}
+                                          className="w-full truncate rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-semibold leading-tight text-sky-800"
+                                        >
+                                          {job.title}
+                                        </span>
+                                      ))}
                                       {hasAny ? (
                                         <>
                                           {assignedCourses.map((course) => (
@@ -2534,6 +2643,58 @@ export default function ShiftsPage() {
                       );
                     })}
                   </tr>
+                  {/* 単発案件（期間内にあるときだけ行を出す）。ゲスト・名前だけの参加者も
+                      ここで全件見える（ドライバー行のチップは登録メンバー分のみ） */}
+                  {spotJobs.length > 0 && (
+                    <tr className="bg-slate-50/93">
+                      <td className="sticky left-0 z-10 py-2 px-3 text-xs font-medium text-slate-600 bg-slate-50 border-r border-t border-slate-200/95">
+                        <span className="block text-[10px] font-normal text-slate-400 leading-none">タップで一覧へ</span>
+                        単発案件
+                      </td>
+                      {displayDates.map((date) => {
+                        const dayJobs = spotJobsByDate.get(date) ?? [];
+                        const tone = shiftDayTone(date, today);
+                        const isToday = date.trim() === today;
+                        if (dayJobs.length === 0) {
+                          return (
+                            <td
+                              key={`spot-${date}`}
+                              className={cn(
+                                `${SHIFT_COL_WIDTH_CLASS} border-l border-t border-slate-200/90 px-1 py-2 text-center text-[11px] text-slate-400 align-middle ${tone.body}`,
+                                isToday && TODAY_RULE_BOTTOM,
+                              )}
+                            >
+                              —
+                            </td>
+                          );
+                        }
+                        return (
+                          <td
+                            key={`spot-${date}`}
+                            className={cn(
+                              `${SHIFT_COL_WIDTH_CLASS} border-l border-t border-slate-200/90 px-0.5 py-0.5 align-top ${tone.body}`,
+                              isToday && TODAY_RULE_BOTTOM,
+                            )}
+                          >
+                            <a
+                              href="/admin/spot-jobs"
+                              className="flex min-h-[2.25rem] w-full flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-center transition-colors hover:bg-white/70 hover:ring-1 hover:ring-slate-300"
+                              title="単発案件の一覧へ"
+                            >
+                              {dayJobs.map((job) => (
+                                <span
+                                  key={job.id}
+                                  className="w-full truncate rounded bg-sky-100 px-1 py-0.5 text-[10px] font-semibold leading-tight text-sky-800"
+                                >
+                                  {job.title}
+                                </span>
+                              ))}
+                            </a>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -3320,20 +3481,61 @@ export default function ShiftsPage() {
                     ) : (
                       <p className="text-xs text-slate-400">未割当</p>
                     )}
-                    {canWrite && addable.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5 pt-0.5">
-                        {addable.map((c) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => addDriverToCourseOnDate(date, driverId, c.id)}
-                            className="inline-flex items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-[13px] font-medium text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-100"
-                          >
-                            ＋{courseShiftLabel(c)}
-                          </button>
-                        ))}
+                    {canWrite && addable.length > 0 ? (() => {
+                      // 「最近入ったコース」を先頭グループに（addable は実績優先で整列済み）。
+                      // 片方しか無いときはラベルを出さず従来どおりの1グループ表示。
+                      const usage = courseUsageByDriver.get(driverId);
+                      const recent = usage ? addable.filter((c) => usage.has(c.id)) : [];
+                      const others = usage ? addable.filter((c) => !usage.has(c.id)) : addable;
+                      const chip = (c: Course) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => addDriverToCourseOnDate(date, driverId, c.id)}
+                          className="inline-flex items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-[13px] font-medium text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-100"
+                        >
+                          ＋{courseShiftLabel(c)}
+                        </button>
+                      );
+                      if (recent.length === 0 || others.length === 0) {
+                        return <div className="flex flex-wrap gap-1.5 pt-0.5">{addable.map(chip)}</div>;
+                      }
+                      return (
+                        <div className="space-y-2 pt-0.5">
+                          <div>
+                            <p className="mb-1 text-[10px] text-slate-400">最近入ったコース</p>
+                            <div className="flex flex-wrap gap-1.5">{recent.map(chip)}</div>
+                          </div>
+                          <div>
+                            <p className="mb-1 text-[10px] text-slate-400">その他</p>
+                            <div className="flex flex-wrap gap-1.5">{others.map(chip)}</div>
+                          </div>
+                        </div>
+                      );
+                    })() : null}
+                    {/* 単発案件（このドライバーがその日参加する分・読み取り専用） */}
+                    {(spotJobsByDriverDate.get(`${date}:${driverId}`) ?? []).length > 0 && (
+                      <div className="pt-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">単発案件</p>
+                        <div className="mt-1 flex flex-col gap-1.5">
+                          {(spotJobsByDriverDate.get(`${date}:${driverId}`) ?? []).map((job) => (
+                            <a
+                              key={job.id}
+                              href="/admin/spot-jobs"
+                              className="flex h-9 items-center gap-2 rounded-lg bg-sky-50 px-2.5 text-[13px] font-semibold text-sky-900 transition-colors hover:bg-sky-100"
+                              title="単発案件の一覧へ"
+                            >
+                              <span className="min-w-0 flex-1 truncate">{job.title}</span>
+                              {job.meetingTime && (
+                                <span className="shrink-0 text-[11px] font-medium text-sky-700">
+                                  集合 {job.meetingTime}
+                                </span>
+                              )}
+                            </a>
+                          ))}
+                        </div>
                       </div>
-                    ) : null}
+                    )}
                   </div>
 
                   {/* 車両（コース割当がある時のみ選択可能） */}
