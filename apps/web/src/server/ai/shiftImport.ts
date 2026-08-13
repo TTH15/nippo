@@ -6,6 +6,16 @@ import { getAnthropic } from "./client";
 
 // コスト優先の既定（ユーザー方針）。精度検証時は env で claude-opus-5 等に切替可能。
 const MODEL = process.env.HAKOTORA_AI_MODEL || "claude-sonnet-5";
+// 思考の深さ。表の読み取りは知覚・転記タスクで深い推論は不要なため low を既定にする
+// （未指定だと high 相当で待ち時間が数倍になる。合成シフト表での検証は low/medium とも全セル正解、
+//   high は3倍遅くて精度向上なし＝bench-shift-import.ts 参照。実ファイルで精度が落ちる場合は
+//   HAKOTORA_AI_EFFORT=medium / high に上げる）。
+const EFFORT = (process.env.HAKOTORA_AI_EFFORT || "low") as
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 export type ExtractedDay = { day: number; label: string };
 export type ExtractedPerson = { name: string; days: ExtractedDay[]; total: number | null };
@@ -27,6 +37,18 @@ export type ExtractedFileResult = {
 };
 
 export type CourseRef = { id: string; name: string; summary_title?: string | null };
+
+/**
+ * AI 出力の「日:内容」文字列を分解する（出力トークン削減のための圧縮表現）。
+ * 内容側に「9:00〜14:00」のようなコロンが含まれても壊れないよう、最初のコロンだけで区切る。
+ */
+export function parseDayEntry(entry: string): ExtractedDay | null {
+  const i = entry.indexOf(":");
+  if (i <= 0) return null;
+  const day = Number(entry.slice(0, i));
+  if (!Number.isInteger(day) || day < 1 || day > 31) return null;
+  return { day, label: entry.slice(i + 1).trim() };
+}
 
 export type ImportFile = { name: string; mime: string; bytes: Uint8Array };
 
@@ -77,17 +99,12 @@ const OUTPUT_SCHEMA = {
           days: {
             type: "array",
             items: {
-              type: "object",
-              properties: {
-                day: { type: "integer", description: "日（1〜31）" },
-                label: {
-                  type: "string",
-                  description: "セルの内容を表記のまま。空欄は空文字",
-                },
-              },
-              required: ["day", "label"],
-              additionalProperties: false,
+              type: "string",
+              description:
+                "「日:セルの内容」形式（例: \"5:豊中\" \"12:休\"）。日は1〜31、内容は表記のまま。空欄の日は内容を空にする（例: \"12:\"）",
             },
+            description:
+              "表にあるすべての日を1日から順に「日:内容」形式で列挙する（空欄の日も \"12:\" のように必ず含める。日付の対応ズレを防ぐため省略しない）",
           },
           total: {
             anyOf: [{ type: "integer" }, { type: "null" }],
@@ -159,8 +176,9 @@ function buildPrompt(
     `- まず表・ファイル名に書かれている年月を period に、曜日の行があれば weekdays に入れる。`,
     `- 表の年月が取り込み先（${year}年${month}月）と明らかに異なる場合は、誤った月への取り込みを防ぐため people・dayTotals・labelGuesses は空のままにし、period と warnings だけ返して終了する。`,
     "- 氏名は表の表記のまま（敬称・記号・括弧も含めてそのまま）。",
-    "- day はその列/行が示す「日」(1〜31)。曜日や年月の行から日付を正しく対応付けること。",
-    "- label はセルの文字をそのまま（例: 豊中 / 久御山 / 休 / 〇 / 1便 / E槇 / 上京）。空欄は空文字にする。",
+    "- 各人の days は「日:セルの内容」の文字列（例: 5:豊中 / 12:休 / 20:〇）。日はその列/行が示す「日」(1〜31)で、曜日や年月の行から正しく対応付けること。",
+    "- days は表にあるすべての日を1日から順に列挙する（空欄の日も「12:」のように内容を空で必ず含める。飛ばすと日付の対応がズレるため省略しない）。",
+    "- セルの内容は表記のまま（例: 豊中 / 久御山 / 休 / 〇 / 1便 / E槇 / 上京）。",
     "- 表が人ごとの行でも日付ごとの行でも、出力は必ず「人 → 日ごとの値」に正規化する。",
     "- 画像がスプレッドシートのスクリーンショットの一部（列が途中で切れている等）の場合は、写っている範囲だけを抽出する。",
     "- people には集計行（人数・合計・必要人数など）や氏名でない行を含めない。",
@@ -199,6 +217,7 @@ export async function extractShiftFile(
     model: MODEL,
     max_tokens: 64000,
     output_config: {
+      effort: EFFORT,
       format: { type: "json_schema", schema: OUTPUT_SCHEMA as unknown as Record<string, unknown> },
     },
     messages: [
@@ -218,12 +237,30 @@ export async function extractShiftFile(
   }
 
   const text = message.content.find((b) => b.type === "text")?.text ?? "";
-  let parsed: Omit<ExtractedFileResult, "sourceName">;
+  // days は出力トークン削減のため「日:内容」の文字列で受け取り、ここで構造化する
+  type RawExtracted = Omit<ExtractedFileResult, "sourceName" | "people"> & {
+    people: { name: string; days: string[]; total: number | null }[];
+  };
+  let raw: RawExtracted;
   try {
-    parsed = JSON.parse(text);
+    raw = JSON.parse(text);
   } catch {
     throw new Error(`ファイル「${file.name}」の読み取り結果を解析できませんでした`);
   }
+  const warnings = [...(raw.warnings ?? [])];
+  const parsed: Omit<ExtractedFileResult, "sourceName"> = {
+    ...raw,
+    warnings,
+    people: (raw.people ?? []).map((p) => {
+      const days: ExtractedDay[] = [];
+      for (const entry of p.days ?? []) {
+        const d = parseDayEntry(entry);
+        if (d) days.push(d);
+        else warnings.push(`「${p.name}」の値「${entry}」を日付に対応付けできませんでした`);
+      }
+      return { name: p.name, days, total: p.total };
+    }),
+  };
 
   // ---- 期間ガード ----
   // 1) 表・ファイル名に年月が明記されていて取り込み先と違う → そのファイルを弾く
