@@ -427,7 +427,20 @@ export default function CoursesPage() {
       });
       const createdCourse: Course = res.course;
       // 作成直後に、埋め込み単価フォームの内容を新コースID宛に保存。
-      await createBillingRef.current?.save(createdCourse.id);
+      // 単価保存だけ失敗しても、コース本体は作成済み＝全体を失敗と見せない
+      // （従来は「コースの追加に失敗しました」と出るのに一覧には作成済みコースが
+      // 現れる紛らわしい状態だった・2026-08-14 実地報告）。
+      try {
+        await createBillingRef.current?.save(createdCourse.id);
+      } catch (e) {
+        console.error(e);
+        setErrorState({
+          title: "単価の保存に失敗しました",
+          message:
+            "コース自体は作成されています。\n作成されたコースを開いて、単価をもう一度保存してください。",
+          detail: e instanceof Error ? e.message : undefined,
+        });
+      }
       const nextCourses = [...courses, createdCourse].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
       setCourses(nextCourses);
       setShowModal(false);

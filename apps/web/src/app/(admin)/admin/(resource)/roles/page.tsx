@@ -101,6 +101,36 @@ export default function RolesPage() {
     return role.capabilities.includes(row.capability) ? "on" : "none";
   };
 
+  // 含意（サーバーの CAPABILITY_IMPLIES が正本）で実効的に有効になっている行の表示用判定。
+  // 「設定（全領域）＝編集可能」なのに領域別が「許可なし」に見える混乱を防ぐ（2026-08-14）。
+  const ORG_SETTINGS_MANAGE = "can_manage_org_settings";
+  const ORG_SETTINGS_VIEW = "can_view_org_settings";
+  const SETTINGS_AREA_CAPS = [
+    "can_manage_courses",
+    "can_manage_carriers",
+    "can_manage_report_kinds",
+    "can_manage_submit_screen",
+  ];
+  /** 全領域の編集に含まれて有効になっている領域別行か（個別トグルは無効化して注記を出す）。 */
+  const rowIncludedByOrgSettings = (role: Role, row: PermissionRow): boolean => {
+    if (role.isSystem && role.key === ADMIN_KEY) return false;
+    return (
+      row.kind === "binary" &&
+      SETTINGS_AREA_CAPS.includes(row.capability) &&
+      role.capabilities.includes(ORG_SETTINGS_MANAGE)
+    );
+  };
+  /** 領域別の編集により「設定の閲覧」が自動で付いている状態か（org_settings 行の注記用）。 */
+  const orgSettingsViewImplied = (role: Role, row: PermissionRow): boolean => {
+    if (role.isSystem && role.key === ADMIN_KEY) return false;
+    return (
+      row.kind === "leveled" &&
+      row.view === ORG_SETTINGS_VIEW &&
+      rowLevel(role, row) === "none" &&
+      SETTINGS_AREA_CAPS.some((c) => role.capabilities.includes(c))
+    );
+  };
+
   // レベル選択（即座に色を反映し、保存はバックグラウンド。ADMIN は固定なので呼ばない）
   const setRowLevel = (role: Role, row: PermissionRow, level: PermissionLevel) => {
     if (role.isSystem && role.key === ADMIN_KEY) return;
@@ -411,7 +441,11 @@ export default function RolesPage() {
                       <div className="mb-2 text-sm font-semibold text-slate-700">権限</div>
                       <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
                         {rows.map((row) => {
-                          const level = rowLevel(r, row);
+                          // 「設定（全領域）＝編集可能」に含まれる領域別は、実効状態（有効）を
+                          // そのまま表示し、個別トグルは無効化する（許可なしに見える混乱を防ぐ）
+                          const included = rowIncludedByOrgSettings(r, row);
+                          const viewImplied = orgSettingsViewImplied(r, row);
+                          const level = included ? "on" : rowLevel(r, row);
                           const options: { value: PermissionLevel; label: string }[] =
                             row.kind === "leveled"
                               ? [
@@ -431,6 +465,16 @@ export default function RolesPage() {
                               <div className="min-w-0">
                                 <div className="text-sm font-semibold text-slate-800">{row.label}</div>
                                 <div className="mt-0.5 text-xs leading-relaxed text-slate-500">{row.description}</div>
+                                {included && (
+                                  <div className="mt-1 text-[11px] font-medium text-emerald-700">
+                                    「設定（全領域）＝編集可能」に含まれるため有効になっています
+                                  </div>
+                                )}
+                                {viewImplied && (
+                                  <div className="mt-1 text-[11px] font-medium text-emerald-700">
+                                    領域別の編集権限により、設定の閲覧は自動で有効になっています
+                                  </div>
+                                )}
                               </div>
                               <div className="flex shrink-0 self-start rounded-lg bg-slate-100 p-0.5 sm:self-center">
                                 {options.map((o) => {
@@ -441,13 +485,13 @@ export default function RolesPage() {
                                     <button
                                       key={o.value}
                                       type="button"
-                                      disabled={!canWrite || isAdmin}
+                                      disabled={!canWrite || isAdmin || included}
                                       onClick={() => setRowLevel(r, row, o.value)}
                                       className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                                         selected
                                           ? `bg-white shadow-sm ${selectedColor}`
                                           : "text-slate-400 hover:text-slate-600"
-                                      } ${!canWrite || isAdmin ? "cursor-default" : ""}`}
+                                      } ${!canWrite || isAdmin || included ? "cursor-default" : ""}`}
                                     >
                                       {o.label}
                                     </button>

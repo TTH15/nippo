@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requirePermission, hasCapabilityCached, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { toE164JP } from "@/server/otp/phone";
@@ -13,6 +13,11 @@ export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_members");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
+  // §2-6: 口座情報は can_view_bank_accounts を持つ場合のみ開示（名簿閲覧だけでは見せない）。
+  // users/[id]（詳細）と同じ方針を一覧・all=1 にも適用する（2026-08-14 権限監査）。
+  const canViewBank = await hasCapabilityCached(user, "can_view_bank_accounts");
+  const maskBank = <T extends Record<string, unknown>>(r: T): T =>
+    canViewBank ? r : { ...r, bank_name: null, bank_no: null, bank_holder: null };
   const url = req.nextUrl;
   const limitRaw = Number(url.searchParams.get("limit") || "20");
   const cursorRaw = Number(url.searchParams.get("cursor") || "0");
@@ -89,7 +94,10 @@ export async function GET(req: NextRequest) {
       console.error(allErr);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
-    return NextResponse.json({ drivers: allRows ?? [], total: (allRows ?? []).length });
+    return NextResponse.json({
+      drivers: (allRows ?? []).map((r) => maskBank(r as Record<string, unknown>)),
+      total: (allRows ?? []).length,
+    });
   }
 
   // 同じ会社コードのドライバー一覧（一覧表示に不要な住所/口座情報は除外）
@@ -180,7 +188,7 @@ export async function GET(req: NextRequest) {
   }
   const rowsWithFace = (rows as ({ identity_id?: string | null } & Record<string, unknown>)[]).map(
     (r) => {
-      const base = { ...r, faceUrl: r.identity_id ? faceByIdentity.get(r.identity_id) ?? null : null };
+      const base = maskBank({ ...r, faceUrl: r.identity_id ? faceByIdentity.get(r.identity_id) ?? null : null });
       if (status !== "pending") return base;
       const kyc = r.identity_id ? kycByIdentity.get(r.identity_id) : undefined;
       const hasLicensePhoto = kyc?.hasLicensePhoto ?? false;

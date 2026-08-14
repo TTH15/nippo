@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requireAnyPermission, isAuthError } from "@/server/auth";
+import { UNITS_MANAGE_CAPS } from "@/server/auth/domainCaps";
 import { resolveOrgId } from "@/server/db/tenant";
 import { orgOwnsCarrier } from "@/server/carriers/orgCarriers";
 import { supabase } from "@/server/db/client";
@@ -10,7 +11,8 @@ const BILLING_TYPES = ["PER_PIECE", "FIXED"] as const;
 
 // POST: unit 追加
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_courses");
+  // 型の編集UIはキャリア／フォーム設計画面にもある（domainCaps 参照・2026-08-14 権限監査）
+  const user = await requireAnyPermission(req, UNITS_MANAGE_CAPS);
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

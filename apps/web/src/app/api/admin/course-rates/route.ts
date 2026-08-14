@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requireAnyPermission, isAuthError } from "@/server/auth";
+import { COURSE_BILLING_VIEW_CAPS, COURSE_BILLING_MANAGE_CAPS } from "@/server/auth/domainCaps";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
 // GET: 全コースの単価
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, "can_view_billing");
+  // 単価表は「コース／単価表の編集」領域でもある（course-billing と同基準・2026-08-14）
+  const user = await requireAnyPermission(req, COURSE_BILLING_VIEW_CAPS);
   if (isAuthError(user)) return user;
 
   const { data, error } = await supabase
@@ -32,7 +34,7 @@ export async function GET(req: NextRequest) {
 
 // PATCH: コース単価を更新
 export async function PATCH(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_billing");
+  const user = await requireAnyPermission(req, COURSE_BILLING_MANAGE_CAPS);
   if (isAuthError(user)) return user;
 
   try {

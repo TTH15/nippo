@@ -260,7 +260,7 @@ export const PERMISSION_ROWS: PermissionRow[] = [
     key: "org_settings",
     label: "設定（全領域）",
     description:
-      "フォーム・締切・コース等の設定を閲覧できます。編集可能にすると設定すべてを編集できます（下の領域別も自動で有効）。",
+      "フォーム・締切・コース等の設定を閲覧できます。「編集可能」は設定全般の編集（チーム戦・地図の拠点管理などを含む）で、下の領域別4つも自動で有効になります。特定の領域だけ任せたい場合は、ここは「閲覧のみ」にして下の領域別を使ってください。",
     view: "can_view_org_settings",
     manage: "can_manage_org_settings",
   },

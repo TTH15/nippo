@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requireAnyPermission, isAuthError } from "@/server/auth";
+import { SALES_LOG_TYPES_VIEW_CAPS, SALES_LOG_TYPES_MANAGE_CAPS } from "@/server/auth/domainCaps";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,8 @@ export type SalesLogTypeRow = {
 
 // GET: 種別一覧
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, "can_view_org_settings");
+  // 種別の編集UIは売上（請求領域）のログタブにある（domainCaps 参照・2026-08-14 権限監査）
+  const user = await requireAnyPermission(req, SALES_LOG_TYPES_VIEW_CAPS);
   if (isAuthError(user)) return user;
 
   const { data, error } = await supabase
@@ -35,7 +37,7 @@ export async function GET(req: NextRequest) {
 
 // POST: 種別を追加
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_org_settings");
+  const user = await requireAnyPermission(req, SALES_LOG_TYPES_MANAGE_CAPS);
   if (isAuthError(user)) return user;
 
   let body: { name?: string; sort_order?: number };

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requirePermission, requireAnyPermission, isAuthError } from "@/server/auth";
+import { SHIFT_SLOTS_VIEW_CAPS } from "@/server/auth/domainCaps";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAllSlots, saveSlots, type SlotInput } from "@/server/shiftSlots/config";
@@ -10,7 +11,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // GET: 便一覧 + ドライバー一覧
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, "can_view_shifts");
+  // 便はシフト表のほか、コース編集の便セレクタ（設定領域）からも読む（domainCaps 参照）
+  const user = await requireAnyPermission(req, SHIFT_SLOTS_VIEW_CAPS);
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

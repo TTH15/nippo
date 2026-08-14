@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAnyPermission, isAuthError } from "@/server/auth";
+import { COURSE_DRIVERS_CAPS } from "@/server/auth/domainCaps";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 // コース側からの担当ドライバー割当（ドライバー編集の courseIds と同じ driver_courses を操作する）。
 // 「コースを作ってそのまま担当を決めたい」導線用（2026-08-03）。
 // 権限はコース管理・メンバー管理のどちらかで許可（両ドメインにまたがる操作のため）。
-const CAPS = ["can_manage_courses", "can_manage_members"] as const;
+const CAPS = COURSE_DRIVERS_CAPS;
 
 /** そのコースを担当しているドライバー（driver_courses → driver_identities → drivers）。 */
 async function loadAssigned(courseId: string, orgId: string) {

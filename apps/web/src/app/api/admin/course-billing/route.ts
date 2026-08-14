@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requireAnyPermission, isAuthError } from "@/server/auth";
+import { COURSE_BILLING_VIEW_CAPS, COURSE_BILLING_MANAGE_CAPS } from "@/server/auth/domainCaps";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,10 @@ export const dynamic = "force-dynamic";
 // GET: ?course_id=... → そのコースのキャリア配下 unit と現単価
 //      ?carrier_id=... → コース未作成（新規作成）向け。キャリア配下 unit のみ（単価は空）。
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, "can_view_billing");
+  // 単価表はロール定義上「コース／単価表の編集（can_manage_courses）」の領域。
+  // 請求系（can_view_billing）だけを要求すると、コース編集権限のみのロールが
+  // 単価フォームを開けず 403 になる（2026-08-14 実地報告）。どちらかで可。
+  const user = await requireAnyPermission(req, COURSE_BILLING_VIEW_CAPS);
   if (isAuthError(user)) return user;
 
   const courseId = req.nextUrl.searchParams.get("course_id") ?? "";
@@ -88,7 +92,11 @@ const num = (v: unknown) => Math.trunc(Number(v) || 0);
 
 // PUT: 単価保存（新テーブル upsert ＋ 旧 course_rates 同期）
 export async function PUT(req: NextRequest) {
-  const user = await requirePermission(req, "can_manage_billing");
+  // コース作成/編集フローは can_manage_courses で保存できる必要がある
+  // （ロールUIの「コース・単価表・便の追加や変更ができます」に一致させる）。
+  // ここが can_manage_billing のみだと、コース作成 POST 成功後の単価保存で 403 になり
+  // 「コースの追加に失敗しました」と見える（2026-08-14 実地報告の原因）。
+  const user = await requireAnyPermission(req, COURSE_BILLING_MANAGE_CAPS);
   if (isAuthError(user)) return user;
 
   const body = await req.json().catch(() => ({}));

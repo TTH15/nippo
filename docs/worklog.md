@@ -2118,3 +2118,72 @@ user shifts・map・events・submit）から。
   専用APIはサーバーロジックの二重化に見合わないため作らない
 
 これで docs/perf-audit-2026-08.md の §3 全項目（高・中・低の尾まで）を消化。
+
+## 2026-08-14 バグ究明: コース編集権限のみのロールでコース追加が「サーバーエラー」
+
+### 原因（capability の食い違い）
+- ロールUIの「コース／単価表の編集（can_manage_courses）」は
+  「コース・単価表・便の追加や変更ができます」と説明しているが、
+  単価表API `/api/admin/course-billing` は請求系の capability
+  （GET=can_view_billing / PUT=can_manage_billing）を要求していた
+- コース追加フロー: POST /api/admin/courses（can_manage_courses で成功）
+  → 直後の単価保存 PUT /api/admin/course-billing が **403 Forbidden**
+  → クライアントは「コースの追加に失敗しました」を表示（実はコース本体は作成済み）
+- 同じ理由で、単価フォームの読み込み（GET）も 403＝「単価の読み込みに失敗しました」
+
+### 修正
+- `/api/admin/course-billing`: GET を `can_view_billing または can_manage_courses`、
+  PUT を `can_manage_billing または can_manage_courses` に（requireAnyPermission）。
+  旧 `/api/admin/course-rates`（クライアント参照なしのレガシー）も同基準に統一
+- courses/page.tsx の addCourse: 本体作成後の単価保存だけが失敗した場合は
+  「単価の保存に失敗しました（コース自体は作成されています）」を出し、
+  作成済みコースを一覧に反映してモーダルを閉じる（全体失敗に見せない）
+- 検証: tsc / vitest 458 / next build ✅（未コミット）
+
+## 2026-08-15 権限まわりの網羅監査（全 admin ルート×ロールUI）と修正+テスト
+
+course-billing 事故（コース編集ロールが単価表で403）と同型のズレを全ルート掃討。
+すべて tsc / vitest 467（+9件追加） / next build ✅（未コミット）。
+
+### 監査方法
+全 admin ルートの requirePermission/requireAnyPermission を洗い出し、
+「その操作の編集UIがどのロール領域にあるか」（PERMISSION_ROWS の約束）と突き合わせた。
+
+### 見つけた食い違いと修正
+1. **units（型）API**: can_manage_courses 単体要求だったが、型の編集UIは
+   キャリア／フォーム設計画面（can_manage_carriers）→ どちらかで許可に
+2. **shift-slots GET**: can_view_shifts 単体要求だったが、コース編集モーダルの
+   便セレクタ（設定領域）でも読む → can_view_org_settings でも許可に
+3. **sales/log/types**: 設定系（can_*_org_settings）要求だったが、種別の編集UIは
+   売上ログタブ（請求領域）→ can_view/manage_billing でも許可に
+4. **users 一覧 API の口座情報**: users/[id]（詳細）は §2-6 方針で can_view_bank_accounts
+   なしなら bank_* を null にしていたのに、一覧・all=1 は素通しだった → 同じマスクを適用
+   （編集モーダルは差分PUTのため、マスク済み空欄が誤送信されることはない）
+5. **要求集合の一元化**: `server/auth/domainCaps.ts` を新設し、requireAnyPermission の
+   配列（course-billing/course-rates/units/shift-slots/log-types/course-drivers）を集約
+
+### 「設定（全領域）」の分かりにくさ（ユーザー指摘）への対応
+- 実装上の意味: 編集可能 = can_manage_org_settings で、CAPABILITY_IMPLIES により
+  下の領域別4つ（コース/キャリア/報告種別/送信後画面）が**自動で有効**。
+  さらにチーム戦（イベント）・地図の拠点・締切など「領域別行が無い設定」の編集も含む
+- 混乱の原因: roles 画面が含意を表示に反映せず、「全領域=編集可能」でも
+  領域別行が「許可なし」に見えていた
+- 修正: 領域別行は含まれている場合「有効」表示+個別トグル無効化+
+  注記「『設定（全領域）＝編集可能』に含まれるため有効になっています」。
+  逆方向（領域別→設定の閲覧が自動付与）も org_settings 行に注記。
+  説明文も「チーム戦・地図の拠点管理などを含む／特定領域だけなら閲覧のみ+領域別で」に更新
+- 全領域=編集可能の廃止（完全な個別化）は、チーム戦・地図拠点用の新 capability を
+  切らないと機能が誰にも割当不能になるため見送り（必要なら次の設計判断）
+
+### テスト追加（capabilityPolicy.test.ts・9件）
+- 含意の不変条件（全領域→領域別4つ+閲覧／領域別→閲覧のみで全領域へ昇格しない）
+- domainCaps がカタログ内の capability だけを参照
+- **回帰**: コース編集のみのロールがコース追加フロー全体（本体・単価表・便・担当割当）を完遂できる
+- キャリアのみ→型編集可／請求のみ→ログ種別編集可／全領域→含意経由で各要求を満たす
+- 緩めすぎ検知（名簿閲覧が単価表を書けない 等）
+
+### 問題なしと確認した点（変更せず）
+- 請求/報酬/車両/名簿/通知/日報/シフト系は view/manage の対応が一貫
+- vehicles/recovery は can_view_vehicle_cost を持たない人に金額を返さない実装済み
+- 名簿のアバター顔写真は can_view_members で表示（製品仕様。免許・KYC詳細は can_view_pii で別途保護済み）
+- チーム戦・地図拠点・締切は「設定（全領域）」管轄（説明文に明記した）
