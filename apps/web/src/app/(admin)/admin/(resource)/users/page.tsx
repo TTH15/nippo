@@ -415,6 +415,38 @@ export default function UsersPage() {
     }
   };
 
+  // hover 先読み（hover intent）: 行にマウスが 120ms 留まったら詳細＋リースを裏取得して
+  // detailCache を温める。通過しただけの行（数十ms）では発火しないので無駄弾はほぼ出ない。
+  // スマホは hover が無いので touchstart（指が触れた瞬間）で即発火し、タップ確定までの時間で稼ぐ。
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prefetchInflightRef = useRef<Set<string>>(new Set());
+  const prefetchDetail = (d: Driver) => {
+    if (!canWrite) return;
+    if (detailCache.current.has(d.id) || prefetchInflightRef.current.has(d.id)) return;
+    prefetchInflightRef.current.add(d.id);
+    void Promise.all([
+      apiFetch<{ driver: Driver }>(`/api/admin/users/${d.id}`),
+      apiFetch<{ lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null }>(
+        `/api/admin/driver-lease?driver_id=${encodeURIComponent(d.id)}`,
+      ).catch(() => ({ lease: null })),
+    ])
+      .then(([res, leaseRes]) => {
+        detailCache.current.set(d.id, { driver: res.driver, lease: leaseRes.lease });
+      })
+      .catch(() => {
+        // 先読みの失敗は無視（クリック時に openEdit が正規ルートで取得し直す）
+      })
+      .finally(() => prefetchInflightRef.current.delete(d.id));
+  };
+  const onRowHoverStart = (d: Driver) => {
+    if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
+    prefetchTimerRef.current = setTimeout(() => prefetchDetail(d), 120);
+  };
+  const onRowHoverEnd = () => {
+    if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
+    prefetchTimerRef.current = null;
+  };
+
   const getBankTypeForSave = () => {
     if (form.bankType === "その他") return form.bankTypeOther.trim() || "その他";
     return form.bankType;
@@ -913,6 +945,7 @@ export default function UsersPage() {
                   <div
                     key={d.id}
                     onClick={() => canWrite && void openEdit(d)}
+                    onTouchStart={() => prefetchDetail(d)}
                     className={`px-4 py-3 ${canWrite ? "cursor-pointer active:bg-slate-50" : ""}`}
                   >
                     <div className="flex items-center gap-3">
@@ -1007,6 +1040,8 @@ export default function UsersPage() {
                       <tr
                         key={d.id}
                         onClick={() => canWrite && void openEdit(d)}
+                        onMouseEnter={() => onRowHoverStart(d)}
+                        onMouseLeave={onRowHoverEnd}
                         className={`border-t border-slate-100 ${canWrite ? "cursor-pointer hover:bg-slate-50" : ""}`}
                       >
                         <td className="px-4 py-3 text-xs text-slate-400 tabular-nums">{d.list_no ?? "—"}</td>

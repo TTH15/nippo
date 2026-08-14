@@ -7,11 +7,6 @@ import { stripVehicleCostAll } from "@/server/vehicles/cost";
 import { filterActiveVehicleDrivers, type VehicleDriverRow } from "@/server/vehicles/activeDrivers";
 import { storeVehicleImage, VEHICLE_IMAGE_BUCKET } from "@/server/vehicles/imageStorage";
 import { resolveStoredUrls } from "@/server/storage/dataUrl";
-import {
-  loadDailyLeaseByVehicleMonth,
-  buildVehicleRecovery,
-  currentYm,
-} from "@/server/billing/vehicleRecovery";
 
 export const dynamic = "force-dynamic";
 
@@ -41,16 +36,25 @@ function totalFromItems(items: PurchaseCostItem[]): number {
   return Math.max(0, total);
 }
 
-// GET: 全車両一覧（回収済みマーク含む）
+// GET: 車両一覧。?limit=&cursor=（cursor は offset）でページング。
+// limit 未指定は従来どおり全件（analytics/sales 等の既存利用の互換維持。
+// ただし db-max-rows=1000 が上限）。台数が増えても一覧画面は「上から順に」
+// 少しずつ取得する（users と同じ自動追い読み方式・2026-08-14）。
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_vehicles");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
+  const url = new URL(req.url);
+  const limitRaw = Number(url.searchParams.get("limit") || "0");
+  const cursorRaw = Number(url.searchParams.get("cursor") || "0");
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(100, Math.floor(limitRaw)) : null;
+  const offset = Number.isFinite(cursorRaw) ? Math.max(0, Math.floor(cursorRaw)) : 0;
+
   // ★ select("*") にしない。image_url に data URL が混ざると1台あたり数百KB になり、
   //   一覧のレスポンスが一気に肥大する（実測: 画像込み 1630ms/3777KB → 列指定 217ms/11KB）。
   //   列を明示しておけば、将来 data URL が紛れ込んでも一覧は太らない。
-  const { data: vehicles, error } = await supabase
+  let query = supabase
     .from("vehicles")
     .select(`
       id, owner_org_id, manufacturer, brand, model_key, model_code, body_color, is_disposed, is_ev,
@@ -67,12 +71,20 @@ export async function GET(req: NextRequest) {
     `)
     .eq("owner_org_id", orgId)
     .order("manufacturer")
-    .order("brand");
+    .order("brand")
+    // ページ間で行の重複・欠落を起こさないよう一意なタイブレークを付ける
+    .order("id");
+  // limit+1 行取って hasMore を判定する
+  if (limit !== null) query = query.range(offset, offset + limit);
+  const { data: vehiclesRaw, error } = await query;
 
   if (error) {
     console.error(error);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
+
+  const hasMore = limit !== null && (vehiclesRaw ?? []).length > limit;
+  const vehicles = limit !== null ? (vehiclesRaw ?? []).slice(0, limit) : vehiclesRaw;
 
   // 利用ドライバーは「稼働中」だけを返す（詳細は server/vehicles/activeDrivers.ts）。
   const rawVehicles: Array<{ id: string; [key: string]: unknown }> = (
@@ -90,79 +102,17 @@ export async function GET(req: NextRequest) {
   );
   const activeDriverVehicles = rawVehicles.map((v, i) => ({ ...v, image_url: signedUrls[i] }));
 
-  // 回収済みマークを取得
-  const vehicleIds = (vehicles ?? []).map((v: { id: string }) => v.id);
-
-  // 金額情報は別 capability。持たない人には回収額を返さないので、
-  // 重い集計（日報の走査）自体を丸ごと省く。
+  // 金額列（purchase_cost 等）は capability が無ければサーバー側で落とす。
+  // 回収済み/残額の集計（日報の走査を伴う重い処理）は /api/admin/vehicles/recovery に
+  // 分離した（2026-08-14）。一覧はここで即返し、画面側が金額を後から流し込むので、
+  // 日報が増えても一覧の表示速度は変わらない。
   // requirePermission が解決済みの capability を再利用（認可クエリの二重実行を避ける）
   const canViewCost = await hasCapabilityCached(user, "can_view_vehicle_cost");
-  if (!canViewCost) {
-    return NextResponse.json({
-      vehicles: stripVehicleCostAll(activeDriverVehicles, false),
-      canViewCost: false,
-    });
-  }
-
-  const { data: collectedRows } = vehicleIds.length > 0
-    ? await supabase
-        .from("vehicle_recovery_collected")
-        .select("vehicle_id, month, collected_at")
-        .in("vehicle_id", vehicleIds)
-    : { data: [] };
-
-  const collectedByVehicle = new Map<string, Record<number, string>>();
-  (collectedRows ?? []).forEach((r: { vehicle_id: string; month: number; collected_at: string }) => {
-    if (!collectedByVehicle.has(r.vehicle_id)) {
-      collectedByVehicle.set(r.vehicle_id, {});
-    }
-    collectedByVehicle.get(r.vehicle_id)![r.month] = r.collected_at;
+  return NextResponse.json({
+    vehicles: stripVehicleCostAll(activeDriverVehicles, canViewCost),
+    canViewCost,
+    ...(limit !== null ? { hasMore, nextCursor: String(offset + limit) } : {}),
   });
-
-  // 回収v2: 繰越＋自動カレンダー月＋日額自動計上＋手動行 から回収済み額を算出
-  const [{ data: manualRows }, dailyMap] = vehicleIds.length > 0
-    ? await Promise.all([
-        supabase
-          .from("vehicle_recovery_entries")
-          .select("id, vehicle_id, ym, lease, insurance, note")
-          .in("vehicle_id", vehicleIds),
-        // ★vehicleIds を必ず渡す。省くと全社・全期間の承認済み日報を
-        //   最大10万件走査することになり、一覧表示が大幅に遅くなる。
-        loadDailyLeaseByVehicleMonth(supabase, orgId, vehicleIds),
-      ])
-    : [{ data: [] as any[] }, new Map<string, Map<string, number>>()] as const;
-  const manualByVehicle = new Map<string, any[]>();
-  (manualRows ?? []).forEach((m: any) => {
-    const arr = manualByVehicle.get(m.vehicle_id) ?? [];
-    arr.push({
-      id: String(m.id),
-      vehicle_id: String(m.vehicle_id),
-      ym: String(m.ym),
-      lease: Number(m.lease) || 0,
-      insurance: Number(m.insurance) || 0,
-      note: m.note ?? null,
-    });
-    manualByVehicle.set(m.vehicle_id, arr);
-  });
-  const nowYm = currentYm();
-
-  const vehiclesWithRecovery = activeDriverVehicles.map((v: { id: string; [key: string]: unknown }) => {
-    const rec = buildVehicleRecovery(
-      v as any,
-      dailyMap.get(v.id) ?? new Map<string, number>(),
-      manualByVehicle.get(v.id) ?? [],
-      nowYm,
-    );
-    return {
-      ...v,
-      recovery_collected: collectedByVehicle.get(v.id) ?? {},
-      recovered_amount: rec.recovered,
-      remaining_amount: rec.remaining,
-    };
-  });
-
-  // ここに来るのは canViewCost === true のときだけ（上で早期 return 済み）
-  return NextResponse.json({ vehicles: vehiclesWithRecovery, canViewCost: true });
 }
 
 // POST: 車両追加

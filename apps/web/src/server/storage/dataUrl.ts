@@ -103,14 +103,47 @@ export function signedUrlOptions(path: string): { download: boolean } | undefine
   return path.toLowerCase().endsWith(".pdf") ? { download: true } : undefined;
 }
 
-/** 複数まとめて解決（署名は並列）。 */
+/**
+ * 複数まとめて解決。署名は createSignedUrls で一括発行する
+ * （1パス=1リクエストだと一覧APIが件数分の Storage 往復になるため）。
+ * download オプション（PDF）はリクエスト単位でしか指定できないので、PDF とそれ以外の
+ * 2グループに分けて発行する（実質 1〜2 リクエスト）。
+ */
 export async function resolveStoredUrls(
   supabase: SupabaseClient,
   bucket: string,
   values: (string | null | undefined)[],
   expiresInSec = 60 * 60,
 ): Promise<(string | null)[]> {
-  return Promise.all(values.map((v) => resolveStoredUrl(supabase, bucket, v, expiresInSec)));
+  // data URL（移行前データ）はそのまま返し、path だけ署名対象にする
+  const out: (string | null)[] = values.map((v) => (v && isDataUrl(v) ? v : null));
+  const groups = [
+    { download: false, indexes: [] as number[], paths: [] as string[] },
+    { download: true, indexes: [] as number[], paths: [] as string[] },
+  ];
+  values.forEach((v, i) => {
+    if (!v || isDataUrl(v)) return;
+    const g = groups[signedUrlOptions(v) ? 1 : 0];
+    g.indexes.push(i);
+    g.paths.push(v);
+  });
+  await Promise.all(
+    groups.map(async (g) => {
+      if (g.paths.length === 0) return;
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .createSignedUrls(g.paths, expiresInSec, g.download ? { download: true } : undefined);
+      if (error || !data) {
+        console.error(`[storage/${bucket}] createSignedUrls error`, error);
+        return;
+      }
+      // 返り値は渡した paths と同順。個別に失敗した行は signedUrl が空になる
+      data.forEach((row, j) => {
+        out[g.indexes[j]] = row.signedUrl || null;
+      });
+    }),
+  );
+  return out;
 }
 
 /** Storage から削除（data URL の値は無視）。 */

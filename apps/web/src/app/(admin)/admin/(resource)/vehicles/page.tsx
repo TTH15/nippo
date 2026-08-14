@@ -36,6 +36,8 @@ import {
 } from "@/lib/vehicleModels";
 import { useAutoSave } from "@/lib/useAutoSave";
 import { useApi } from "@/lib/useApi";
+import useSWRInfinite from "swr/infinite";
+import { swrFetcher } from "@/lib/swr";
 import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
 import { Button } from "@/lib/ui/button";
@@ -101,6 +103,9 @@ type MeterLog = {
   meter_value: number;
   driver: Driver;
 };
+
+// 一覧の1ページあたりの台数。現状14台は1ページで収まり、増えたら自動追い読みになる
+const VEHICLES_PAGE_SIZE = 30;
 
 export default function VehiclesPage() {
   const emptyPurchaseItem = () => ({ sign: "+" as "+" | "-", label: "", amount: "" });
@@ -206,43 +211,83 @@ export default function VehiclesPage() {
       })
       .filter((x): x is VehicleDriver => x !== null);
 
-  // SWR で vehicles + users をまとめてキャッシュし、遷移をまたいで保持する。
-  // vehicles は楽観更新（作成/編集/削除）で setVehicles するため state を維持し、
-  // 取得結果は同期エフェクトで流し込む。
-  const { data: bundle, isInitialLoading, refresh: refreshBundle } = useApi<{
+  // 車両はページングで「上から順に」取得する（users と同じ方式・2026-08-14）。
+  // 1ページ目が届いた時点で描画し、残りは hasMore の間バックグラウンドで自動追い読みする。
+  // 台数が増えても初期表示は1ページ分の速さのまま（オイル警告バナー等の全台集計は
+  // 全ページ到着後に確定する）。楽観更新（作成/編集/削除）で setVehicles するため
+  // state を維持し、取得結果は同期エフェクトで流し込む。
+  const vehiclesPageKey = (
+    _pageIndex: number,
+    prev: { hasMore?: boolean; nextCursor?: string } | null,
+  ) => {
+    if (prev && !prev.hasMore) return null;
+    const cursor = prev?.nextCursor ?? "0";
+    return `/api/admin/vehicles?limit=${VEHICLES_PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`;
+  };
+  const {
+    data: vehiclePages,
+    isLoading: vehiclesInitialLoading,
+    setSize: setVehiclesSize,
+    mutate: mutateVehiclePages,
+  } = useSWRInfinite<{
     vehicles: Vehicle[];
-    drivers: Driver[];
-    canViewCost: boolean;
-  }>("admin/vehicles:bundle", {
-    fetcher: async () => {
-      const [vehiclesRes, driversRes] = await Promise.all([
-        apiFetch<{ vehicles: Vehicle[]; canViewCost?: boolean }>("/api/admin/vehicles"),
-        // 名簿（can_view_members）の権限が無いロールでは 403 になる。失敗しても
-        // 車両一覧まで巻き込まない（使用者の割当候補が空になるだけに留める）。
-        apiFetch<{ drivers: Array<Driver & { role?: string }> }>("/api/admin/users?all=1").catch(
-          () => ({ drivers: [] as Array<Driver & { role?: string }> }),
-        ),
-      ]);
-      return {
-        vehicles: sortVehicles(vehiclesRes.vehicles),
-        // API 側が works_as_driver=true で絞るため、role による除外はしない
-        //（管理者等でもドライバー稼働中なら使用者に割当可能）。
-        drivers: driversRes.drivers,
-        // 金額情報の可否はサーバーの判定を正とする。
-        // localStorage の capabilities はログイン時のスナップショットなので、
-        // 権限を足した直後は再ログインするまで古いままになる。
-        canViewCost: vehiclesRes.canViewCost === true,
-      };
-    },
+    canViewCost?: boolean;
+    hasMore?: boolean;
+    nextCursor?: string;
+  }>(vehiclesPageKey, swrFetcher, {
+    revalidateOnFocus: false,
+    revalidateFirstPage: false,
   });
+  const firstVehiclesPage = vehiclePages?.[0];
+  const vehiclesHasMore = vehiclePages?.[vehiclePages.length - 1]?.hasMore ?? false;
+  useEffect(() => {
+    if (vehiclesHasMore) void setVehiclesSize((n) => n + 1);
+  }, [vehiclesHasMore, setVehiclesSize]);
+  // 既存の呼び出し箇所（作成/編集/削除後）をそのまま生かすための再取得関数
+  const refreshBundle = () => mutateVehiclePages();
 
-  const loading = isInitialLoading;
+  // 使用者の割当候補（名簿）。can_view_members が無いロールでは 403 になるが、
+  // 車両一覧まで巻き込まない（候補が空になるだけに留める）。
+  // API 側が works_as_driver=true で絞るため、role による除外はしない
+  //（管理者等でもドライバー稼働中なら使用者に割当可能）。
+  const { data: rosterData } = useApi<{ drivers: Array<Driver & { role?: string }> }>(
+    "/api/admin/users?all=1",
+    { revalidateOnFocus: false },
+  );
+
+  const loading = vehiclesInitialLoading && !firstVehiclesPage;
 
   useEffect(() => {
-    if (!bundle) return;
-    setVehicles(bundle.vehicles);
-    setDrivers(bundle.drivers);
-  }, [bundle]);
+    if (!vehiclePages) return;
+    // 表示順は従来と同じ sortVehicles（メーカー→ブランド→id）。サーバーも同順で
+    // ページを切るため、追い読みは末尾に足されていく
+    setVehicles(sortVehicles(vehiclePages.flatMap((pg) => pg.vehicles ?? [])));
+  }, [vehiclePages]);
+  useEffect(() => {
+    if (rosterData?.drivers) setDrivers(rosterData.drivers);
+  }, [rosterData]);
+
+  // 回収済み/残額は分離API（承認済み日報の走査を伴う重い集計）から後追いで流し込む
+  // （2026-08-14）。一覧は軽い列だけで即描画し、金額ゲージはこの結果の到着で埋まる。
+  const { data: recoveryData, refresh: refreshRecovery } = useApi<{
+    canViewCost: boolean;
+    recovery: Record<string, { recovered: number; remaining: number }> | null;
+  }>(firstVehiclesPage?.canViewCost ? "/api/admin/vehicles/recovery" : null, {
+    revalidateOnFocus: false,
+  });
+  useEffect(() => {
+    const rec = recoveryData?.recovery;
+    if (!rec) return;
+    setVehicles((prev) =>
+      prev.map((v) => {
+        const r = rec[v.id];
+        return r ? { ...v, recovered_amount: r.recovered, remaining_amount: r.remaining } : v;
+      }),
+    );
+    // 一覧の再取得同期で recovered が消えた状態に戻るため、vehiclePages も deps に入れて再マージする
+  }, [recoveryData, vehiclePages]);
+  // 集計の後追い中はゲージに「計算中」を出す（0円と誤読させない）
+  const recoveryLoading = firstVehiclesPage?.canViewCost === true && recoveryData?.recovery == null;
 
   useEffect(() => {
     setCanWrite(hasCapability("can_manage_vehicles"));
@@ -251,7 +296,7 @@ export default function VehiclesPage() {
   // 金額情報（購入費用・リース代・初期費用回収）は独立 capability。
   // サーバーの判定（API の canViewCost）を正とする — localStorage の capabilities は
   // ログイン時のスナップショットで、権限追加後も再ログインするまで古いため。
-  const canViewCost = bundle?.canViewCost === true;
+  const canViewCost = firstVehiclesPage?.canViewCost === true;
 
   const defaultRangeLast30Days = () => {
     const end = todayJST();
@@ -639,6 +684,8 @@ export default function VehiclesPage() {
         veh.id === vehicleId ? { ...veh, recovered_amount: recovered, remaining_amount: remaining } : veh,
       ),
     );
+    // 分離APIのキャッシュも最新化（次の再マージで古い額に戻さない）
+    void refreshRecovery();
   };
 
   // オイル交換の警告対象（廃車・EV・間隔未設定は除外）。バナー集計に使用。
@@ -985,6 +1032,7 @@ export default function VehiclesPage() {
                             <img
                               src={v.image_url}
                               alt="車両画像"
+                              loading="lazy"
                               className="w-full h-full object-cover"
                               style={{
                                 objectPosition: `${v.image_focus_x ?? 50}% ${v.image_focus_y ?? 50}%`,
@@ -1130,7 +1178,7 @@ export default function VehiclesPage() {
                           </button>
                         </div>
                         <div className="flex justify-between text-[10px] text-slate-500">
-                          <span>回収済み {fmt(recovered)}円</span>
+                          <span>{recoveryLoading ? "回収済み 計算中…" : `回収済み ${fmt(recovered)}円`}</span>
                           <span>購入費用 {fmt(purchaseCost)}円</span>
                         </div>
                         <div className="relative h-6 bg-amber-50 rounded border border-amber-200 overflow-hidden">
@@ -1139,10 +1187,10 @@ export default function VehiclesPage() {
                             style={{ width: `${recoveryProgress}%` }}
                           />
                           <div className="absolute inset-0 flex items-center justify-end px-2">
-                            {remainingMonths !== null && remainingMonths > 0 && (
+                            {!recoveryLoading && remainingMonths !== null && remainingMonths > 0 && (
                               <span className="text-[10px] font-medium text-amber-900">残り約{remainingMonths}ヶ月</span>
                             )}
-                            {purchaseCost > 0 && recovered >= purchaseCost && (
+                            {!recoveryLoading && purchaseCost > 0 && recovered >= purchaseCost && (
                               <span className="text-[10px] font-medium text-green-700">回収完了</span>
                             )}
                           </div>

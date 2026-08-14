@@ -69,6 +69,34 @@ export async function loadDailyLeaseByVehicleMonth(
 ): Promise<Map<string, Map<string, number>>> {
   const result = new Map<string, Map<string, number>>();
 
+  // まず DB 側の集計関数（migration 131）を使う。日報全履歴の転送（件数比例で悪化）を
+  // 「車両×月」の数十行に置き換える。関数が未適用の環境ではエラーになるので、
+  // その場合は従来のアプリ側走査へフォールバックする（結果は同一になるよう条件を揃えてある）。
+  // 集計結果も db-max-rows（1000行）で切り詰められうるため range ページングを通す。
+  try {
+    const aggRows = await fetchAllRows<{ vehicle_id: string; ym: string; amount: number }>(
+      (from, to) =>
+        supabase
+          .rpc("vehicle_daily_lease_agg", {
+            p_org_id: orgId,
+            p_vehicle_ids: vehicleIds && vehicleIds.length > 0 ? vehicleIds : null,
+          })
+          .order("vehicle_id")
+          .order("ym")
+          .range(from, to),
+    );
+    for (const r of aggRows) {
+      const ym = ymOf(String(r.ym));
+      const perVehicle = result.get(r.vehicle_id) ?? new Map<string, number>();
+      perVehicle.set(ym, (perVehicle.get(ym) ?? 0) + (Number(r.amount) || 0));
+      result.set(r.vehicle_id, perVehicle);
+    }
+    return result;
+  } catch {
+    // migration 131 未適用（関数なし）など。従来経路で計算する
+    result.clear();
+  }
+
   // ★ .limit(100000) は効かない。PostgREST は db-max-rows（既定1000）で
   //   クライアントの limit 指定に関わらず黙って切り詰めるため、
   //   以前は1000件で打ち切られ「エラーにならず金額が過少計上」されていた

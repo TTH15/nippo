@@ -1811,3 +1811,44 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - PC ステッパー: アイコンのみ→「◀ 7月後半」「8月後半 ▶」の行き先付きに。年またぎは「2027年1月前半」。
   スマホのスワイプ予告プレースホルダも「9月前半へ…」に
 - 検証: tsc / next build ✅（未コミット）
+
+## 2026-08-14 ドライバー一覧の hover 先読み + 車両一覧の読み込み調査
+
+### ドライバー一覧（users）: 編集モーダルの hover intent 先読み
+- 行にマウスが 120ms 留まったら `/api/admin/users/[id]` + driver-lease を裏取得して
+  既存の detailCache を温める（通過だけの行では発火しない）。mouseleave でタイマー解除、
+  取得中の重複は inflight Set で防止。スマホは touchstart で即発火
+- クリック時にキャッシュ済みならモーダルが即表示（既存の openEdit のキャッシュ分岐がそのまま効く）
+- 検証: tsc / next build ✅（未コミット）
+
+### 車両一覧が遅い原因の調査（本番DB SELECT のみ・規模: 車両14台/画像6枚/承認済み日報1,230件）
+- `/api/admin/vehicles` は一覧表示に不要な「詳細」まで同期で作っている:
+  ① 回収額の算出のため**承認済み日報の全履歴を走査**（fetchAllRows。件数に比例して悪化する成長爆弾）
+  ② 画像の署名URLを**1台=1リクエスト**で発行 ③ クライアントは名簿全件（?all=1）も同時取得
+- 対策戦略はユーザーと相談中（一覧を軽くして金額集計を遅延取得/SQL側でGROUP BY/
+  createSignedUrls バッチ化/100台時代はカーソルページング+無限スクロール）。実装は未着手
+
+## 2026-08-14 車両一覧の高速化（集計分離・SQL集計・署名URLバッチ・ページング）
+
+戦略1+2+3+4を一括実装（ユーザー合意）。すべて tsc / vitest 444 / next build ✅（未コミット）。
+
+### 1. 一覧と回収額集計の分離
+- `/api/admin/vehicles` から回収v2の集計（承認済み日報1,230件の走査）を除去し、
+  新設 `/api/admin/vehicles/recovery` に移動（recovered/remaining のみ返す軽量API）
+- 画面は一覧を即描画→金額ゲージは後追いで流し込み。後追い中は「回収済み 計算中…」表示
+  （0円と誤読させない）。詳細モーダルでの変更時は refreshRecovery でキャッシュも最新化
+- 一覧APIから legacy の recovery_collected（画面未使用）の返却も廃止
+### 2. 集計をSQLへ（migration 131・未適用）
+- `vehicle_daily_lease_agg(org, vehicle_ids[])`: 車両×月の日額リース自動計上を
+  DB側で GROUP BY。日報全行の転送が「車両×月」数十行になる
+- `loadDailyLeaseByVehicleMonth` は RPC優先+未適用環境ではアプリ側走査へフォールバック
+  （条件は両実装で完全一致させてある。変更時は両方を修正のこと）
+- ★migration 131 は SUPABASE_DB_URL 復旧後に 118/119/129/130 と一緒に適用
+### 3. 署名URLのバッチ化
+- resolveStoredUrls を createSignedUrls（一括発行）に変更。1台=1リクエスト→全体で1〜2
+  リクエスト（PDF は download オプションの都合で別グループ）。全呼び出し元に効く
+### 4. ページング（100台時代の備え）
+- `/api/admin/vehicles` に ?limit=&cursor=（offset）を追加。未指定は従来どおり全件
+  （analytics/sales の既存利用の互換維持）。order に id タイブレーク追加
+- 画面は useSWRInfinite で30台ずつ「上から順に」取得し、hasMore の間は自動追い読み
+  （users 一覧と同じ方式）。名簿（割当候補）は別 useApi に分離。車両画像は loading="lazy"
