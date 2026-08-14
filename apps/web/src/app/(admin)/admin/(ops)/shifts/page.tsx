@@ -523,6 +523,15 @@ export default function ShiftsPage() {
   // 貸出は車両管理（can_manage_vehicles）でも操作できる（配車 or 車両管理のどちらか）。
   const [canManageVehicles, setCanManageVehicles] = useState(false);
   const canLoan = canDispatch || canManageVehicles;
+  // 「いつもの人数」（courses.max_drivers）の更新はコース管理権限が必要
+  const [canManageCourses, setCanManageCourses] = useState(false);
+  // いつもの人数を超える割当の確認モーダル（この日だけ増やす/既定を更新/キャンセル）
+  const [overCapacityPrompt, setOverCapacityPrompt] = useState<{
+    date: string;
+    driverId: string;
+    courseId: string;
+    nextSlot: number;
+  } | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   // 同時編集カーソル（誰がどのセルを触っているか）。表示中は自動接続・未設定なら黙って無効。
   const [presenceName] = useState(() => getStoredDriver()?.name ?? "運営");
@@ -832,6 +841,7 @@ export default function ShiftsPage() {
     setCanWrite(hasCapability("can_manage_shifts"));
     setCanDispatch(hasCapability("can_dispatch"));
     setCanManageVehicles(hasCapability("can_manage_vehicles"));
+    setCanManageCourses(hasCapability("can_manage_courses"));
   }, []);
 
   // 表示期間に今日が含まれるとき、表を開いたら今日の列へ横スクロールして視界に入れる。
@@ -911,6 +921,35 @@ export default function ShiftsPage() {
     return shift?.driver_id ?? null;
   };
 
+  // コース×日ごとに「実際に人が入っている最大 slot」（サーバー行にローカル編集を重ねた実効値）。
+  // max_drivers は 2026-08-15 から上限ではなく「いつもの人数（既定枠数）」で、
+  // 日単位の増員で slot が既定を超えられる。盤面の枠数は必ず slotCountFor() を使うこと
+  //（既定だけを見ると増員日の割当が表示・集計から消える）。
+  const effectiveMaxSlotByCourseDate = useMemo(() => {
+    const eff = new Map<string, string | null>();
+    for (const s of shifts) eff.set(getCellKey(s.shift_date, s.course_id, s.slot), s.driver_id);
+    for (const [k, v] of localShifts) eff.set(k, v);
+    const m = new Map<string, number>();
+    for (const [k, driverId] of eff) {
+      if (!driverId) continue;
+      // key = date:courseId:slot（date はハイフン区切り・courseId は uuid なので ":" 分割で安全）
+      const [date, courseId, slotStr] = k.split(":");
+      const slot = Number(slotStr);
+      const ck = `${date}:${courseId}`;
+      if ((m.get(ck) ?? 0) < slot) m.set(ck, slot);
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shifts, localShifts]);
+
+  /** そのコース×日に表示・走査すべき枠数 = max(いつもの人数, 実際に入っている最大slot) */
+  const slotCountFor = (course: Course, date: string): number =>
+    Math.max(
+      1,
+      course.max_drivers ?? 1,
+      effectiveMaxSlotByCourseDate.get(`${date}:${course.id}`) ?? 0,
+    );
+
   // slot_id を便名に解決（NULL/不明＝「全休」）。希望休一覧/注記用。
   const slotName = (slotId: string | null): string =>
     slotId == null ? "全休" : slots.find((s) => s.id === slotId)?.name ?? "便";
@@ -938,7 +977,7 @@ export default function ShiftsPage() {
     for (const date of displayDates) {
       const set = new Set<string>();
       for (const course of courses) {
-        const maxSlots = Math.max(1, course.max_drivers ?? 1);
+        const maxSlots = slotCountFor(course, date);
         for (let slot = 1; slot <= maxSlots; slot++) {
           const did = getCurrentDriverId(date, course.id, slot);
           if (did) set.add(did);
@@ -971,7 +1010,7 @@ export default function ShiftsPage() {
   ): { courseId: string; slot: number }[] => {
     const out: { courseId: string; slot: number }[] = [];
     for (const c of courses) {
-      const maxSlots = Math.max(1, c.max_drivers ?? 1);
+      const maxSlots = slotCountFor(c, date);
       for (let s = 1; s <= maxSlots; s++) {
         if (getEffectiveIdFromMap(localMap, date, c.id, s) === driverId) {
           out.push({ courseId: c.id, slot: s });
@@ -1181,17 +1220,27 @@ export default function ShiftsPage() {
     }
   };
 
-  const hasFreeSlotOnCourse = (date: string, courseId: string, localMap: Map<string, string | null>): boolean => {
+  /** 現在の枠数（いつもの人数 or その日の増員後）内で空いている最小 slot。無ければ null */
+  const findFreeSlotOnCourse = (
+    date: string,
+    courseId: string,
+    localMap: Map<string, string | null>,
+  ): number | null => {
     const course = courses.find((c) => c.id === courseId);
-    if (!course) return false;
-    const maxSlots = Math.max(1, course.max_drivers ?? 1);
+    if (!course) return null;
+    const maxSlots = slotCountFor(course, date);
     for (let s = 1; s <= maxSlots; s++) {
-      if (!getEffectiveIdFromMap(localMap, date, courseId, s)) return true;
+      if (!getEffectiveIdFromMap(localMap, date, courseId, s)) return s;
     }
-    return false;
+    return null;
   };
 
-  /** 指定コースに当該ドライバーを「追加」できるか（既存割当は維持） */
+  const hasFreeSlotOnCourse = (date: string, courseId: string, localMap: Map<string, string | null>): boolean =>
+    findFreeSlotOnCourse(date, courseId, localMap) !== null;
+
+  /** 指定コースに当該ドライバーを「追加」できるか（既存割当は維持）。
+   *  枠が埋まっていても追加は可能（確認モーダル経由で日単位に増枠する）ため、
+   *  重複だけを弾く（2026-08-15〜）。 */
   const canAddDriverToCourse = (
     date: string,
     driverId: string,
@@ -1199,10 +1248,7 @@ export default function ShiftsPage() {
     baseMap: Map<string, string | null>,
   ): boolean => {
     // すでにそのコースに入っているなら追加不可（重複防止）
-    if (findDriverPlacementsOnDate(baseMap, date, driverId).some((p) => p.courseId === courseId)) {
-      return false;
-    }
-    return hasFreeSlotOnCourse(date, courseId, baseMap);
+    return !findDriverPlacementsOnDate(baseMap, date, driverId).some((p) => p.courseId === courseId);
   };
 
   // コースを外した時点の車両を覚えておく（key: driverDayVehicleKey）。
@@ -1210,49 +1256,8 @@ export default function ShiftsPage() {
   // クリアされるため、付け直し時にここから引き継ぐ（車両をリセットしない）。
   const lastVehicleByDriverDayRef = useRef(new Map<string, string>());
 
-  /** ドライバーを指定コースへ追加（他コースの割当は消さない＝複数シフト） */
-  const addDriverToCourseOnDate = (date: string, driverId: string, courseId: string) => {
-    if (!canWrite) return;
-    const driver = drivers.find((d) => d.id === driverId);
-    if (!driver) return;
-
-    const allowedCourses = getDriverCourseIds(driver);
-    if (!allowedCourses.includes(courseId)) return;
-
-    if (isDriverOffDay(driverId, date)) {
-      setErrorState({
-        title: "割り当てできません",
-        message: "この日は希望休が登録されているため、このドライバーを割り当てられません。",
-      });
-      return;
-    }
-
-    // すでに同じコースに入っているなら何もしない
-    if (findDriverPlacementsOnDate(localShifts, date, driverId).some((p) => p.courseId === courseId)) {
-      return;
-    }
-
-    if (!hasFreeSlotOnCourse(date, courseId, localShifts)) {
-      setErrorState({
-        title: "割り当てできません",
-        message: "このコースの定員に達しているため、割り当てできません。",
-      });
-      return;
-    }
-
-    // 空きスロットを事前に確定（保存に slot が必要なため）
-    const courseObj = courses.find((c) => c.id === courseId)!;
-    const maxSlots = Math.max(1, courseObj.max_drivers ?? 1);
-    let chosenSlot: number | null = null;
-    for (let s = 1; s <= maxSlots; s++) {
-      if (!getEffectiveIdFromMap(localShifts, date, courseId, s)) {
-        chosenSlot = s;
-        break;
-      }
-    }
-    if (chosenSlot === null) return;
-    const slot = chosenSlot;
-
+  /** 割当のコミット（枠の確保は呼び出し側で済んでいる前提）。保存+車両引き継ぎまで行う */
+  const commitAddDriverToCourse = (date: string, driverId: string, courseId: string, slot: number) => {
     setLocalShifts((prev) => {
       const next = new Map(prev);
       next.set(getCellKey(date, courseId, slot), driverId);
@@ -1276,6 +1281,66 @@ export default function ShiftsPage() {
         });
       }
     });
+  };
+
+  /** ドライバーを指定コースへ追加（他コースの割当は消さない＝複数シフト）。
+   *  いつもの人数（max_drivers）が埋まっている日は確認モーダルを出し、
+   *  「この日だけ増枠」または「いつもの人数を更新」を選んでから追加する。 */
+  const addDriverToCourseOnDate = (date: string, driverId: string, courseId: string) => {
+    if (!canWrite) return;
+    const driver = drivers.find((d) => d.id === driverId);
+    if (!driver) return;
+
+    const allowedCourses = getDriverCourseIds(driver);
+    if (!allowedCourses.includes(courseId)) return;
+
+    if (isDriverOffDay(driverId, date)) {
+      setErrorState({
+        title: "割り当てできません",
+        message: "この日は希望休が登録されているため、このドライバーを割り当てられません。",
+      });
+      return;
+    }
+
+    // すでに同じコースに入っているなら何もしない
+    if (findDriverPlacementsOnDate(localShifts, date, driverId).some((p) => p.courseId === courseId)) {
+      return;
+    }
+
+    const freeSlot = findFreeSlotOnCourse(date, courseId, localShifts);
+    if (freeSlot === null) {
+      const course = courses.find((c) => c.id === courseId);
+      if (!course) return;
+      setOverCapacityPrompt({
+        date,
+        driverId,
+        courseId,
+        nextSlot: slotCountFor(course, date) + 1,
+      });
+      return;
+    }
+    commitAddDriverToCourse(date, driverId, courseId, freeSlot);
+  };
+
+  /** 「いつもの人数」（courses.max_drivers）を更新。失敗しても割当自体は成立している前提 */
+  const updateCourseUsualCount = async (courseId: string, count: number) => {
+    const prev = courses;
+    setCourses((list) =>
+      list.map((c) => (c.id === courseId ? { ...c, max_drivers: count } : c)),
+    );
+    try {
+      await apiFetch(`/api/admin/courses/${courseId}`, {
+        method: "PUT",
+        body: JSON.stringify({ max_drivers: count }),
+      });
+    } catch (e) {
+      setCourses(prev);
+      setErrorState({
+        title: "いつもの人数を更新できませんでした",
+        message: "この日の割当自体は保存されています。コース管理画面から人数を変更してください。",
+        detail: e instanceof Error ? e.message : undefined,
+      });
+    }
   };
 
   /** ドライバーを指定コースから外す（他コースの割当は維持。最後の1件なら車両もクリア） */
@@ -1366,7 +1431,8 @@ export default function ShiftsPage() {
         ) {
           continue;
         }
-        const maxSlots = Math.max(1, course.max_drivers ?? 1);
+        // 一括コピーは黙って増枠しない（増枠はセルからの個別追加で確認モーダルを経由）
+        const maxSlots = slotCountFor(course, date);
         let slot: number | null = null;
         for (let s = 1; s <= maxSlots; s++) {
           const k = getCellKey(date, courseId, s);
@@ -1377,7 +1443,9 @@ export default function ShiftsPage() {
           }
         }
         if (slot == null) {
-          notes.push(`${formatDate(date)} ${courseShiftLabel(course)}: 定員に空きがないためスキップ`);
+          notes.push(
+            `${formatDate(date)} ${courseShiftLabel(course)}: 枠に空きがないためスキップ（セルから追加すると増枠できます）`,
+          );
           continue;
         }
         updates.set(getCellKey(date, courseId, slot), targetDriverId);
@@ -1591,7 +1659,7 @@ export default function ShiftsPage() {
   const getOffDriverNamesOnDate = (date: string): string[] => {
     const assignedOnDate = new Set<string>();
     courses.forEach((course) => {
-      const maxSlots = Math.max(1, course.max_drivers ?? 1);
+      const maxSlots = slotCountFor(course, date);
       for (let slot = 1; slot <= maxSlots; slot++) {
         const driverId = getCurrentDriverId(date, course.id, slot);
         if (driverId) assignedOnDate.add(driverId);
@@ -1605,7 +1673,7 @@ export default function ShiftsPage() {
   const getUnassignedDriversOnDate = (date: string): Driver[] => {
     const assignedOnDate = new Set<string>();
     courses.forEach((course) => {
-      const maxSlots = Math.max(1, course.max_drivers ?? 1);
+      const maxSlots = slotCountFor(course, date);
       for (let slot = 1; slot <= maxSlots; slot++) {
         const driverId = getCurrentDriverId(date, course.id, slot);
         if (driverId) assignedOnDate.add(driverId);
@@ -1660,7 +1728,7 @@ export default function ShiftsPage() {
   /** ローカル編集により、このセルが未保存になるか（コースまたは車両） */
   const isDateDriverDirty = (date: string, driverId: string): boolean => {
     for (const c of courses) {
-      const maxSlots = Math.max(1, c.max_drivers ?? 1);
+      const maxSlots = slotCountFor(c, date);
       for (let s = 1; s <= maxSlots; s++) {
         const k = getCellKey(date, c.id, s);
         if (!localShifts.has(k)) continue;
@@ -2383,7 +2451,8 @@ export default function ShiftsPage() {
                   </thead>
                   <tbody>
                     {courses.map((course, courseIdx) => {
-                      const maxSlots = Math.max(1, course.max_drivers ?? 1);
+                      // ヘッダは「いつもの人数」（既定枠）。セル側は日ごとの増枠を反映する
+                      const usualSlots = Math.max(1, course.max_drivers ?? 1);
                       const isLastCourse = courseIdx === courses.length - 1;
                       return (
                         <tr key={course.id}>
@@ -2402,12 +2471,13 @@ export default function ShiftsPage() {
                             </span>
                             <span className="mt-0.5 block text-[10px] text-slate-400">
                               {slotLabelById(course.slot_id) ? `${slotLabelById(course.slot_id)}・` : ""}
-                              定員{maxSlots}
+                              いつも{usualSlots}人
                             </span>
                           </td>
                           {displayDates.map((date) => {
                             const tone = shiftDayTone(date, today);
                             const isToday = date.trim() === today;
+                            const maxSlots = slotCountFor(course, date);
                             const assigned: { driverId: string; slot: number }[] = [];
                             for (let s = 1; s <= maxSlots; s++) {
                               const did = getCurrentDriverId(date, course.id, s);
@@ -3356,7 +3426,8 @@ export default function ShiftsPage() {
         const { courseId, date } = courseCellModal;
         const course = courses.find((c) => c.id === courseId);
         if (!course) return null;
-        const maxSlots = Math.max(1, course.max_drivers ?? 1);
+        const usualSlots = Math.max(1, course.max_drivers ?? 1);
+        const maxSlots = slotCountFor(course, date);
         const assigned: { driverId: string; slot: number }[] = [];
         for (let s = 1; s <= maxSlots; s++) {
           const did = getCurrentDriverId(date, courseId, s);
@@ -3394,7 +3465,8 @@ export default function ShiftsPage() {
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
                 <div className="space-y-1.5">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                    割当済み（定員{maxSlots}・空き{open}）
+                    割当済み（いつも{usualSlots}人
+                    {maxSlots > usualSlots ? `・この日${maxSlots}枠` : ""}・空き{open}）
                   </p>
                   {assigned.length === 0 ? (
                     <p className="text-xs text-slate-400">まだ誰も入っていません。</p>
@@ -3424,11 +3496,16 @@ export default function ShiftsPage() {
                   )}
                 </div>
 
-                {canWrite && open > 0 ? (
+                {canWrite ? (
                   <div className="space-y-1.5 border-t border-slate-200/70 pt-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                       追加できるドライバー
                     </p>
+                    {open === 0 && candidates.length > 0 && (
+                      <p className="text-[11px] text-amber-600">
+                        枠が埋まっています。追加すると増枠の確認が表示されます。
+                      </p>
+                    )}
                     {candidates.length === 0 ? (
                       <p className="text-xs text-slate-400">
                         追加できるドライバーがいません（担当可能・希望休なしが対象）。
@@ -3472,6 +3549,62 @@ export default function ShiftsPage() {
                   className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-900"
                 >
                   完了
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* いつもの人数を超える割当の確認（この日だけ増枠 or 既定人数ごと更新） */}
+      {overCapacityPrompt && (() => {
+        const { date, driverId, courseId, nextSlot } = overCapacityPrompt;
+        const course = courses.find((c) => c.id === courseId);
+        const driver = drivers.find((d) => d.id === driverId);
+        if (!course || !driver) return null;
+        const usualSlots = Math.max(1, course.max_drivers ?? 1);
+        const commit = (updateUsual: boolean) => {
+          setOverCapacityPrompt(null);
+          commitAddDriverToCourse(date, driverId, courseId, nextSlot);
+          if (updateUsual) void updateCourseUsualCount(courseId, nextSlot);
+        };
+        return (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+            onClick={() => setOverCapacityPrompt(null)}
+          >
+            <div
+              className="w-full max-w-sm rounded-xl bg-white p-5 shadow-lg"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm font-semibold text-slate-900">いつもの人数を超えます</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                {formatDate(date)} の {courseShiftLabel(course)} に {getDisplayName(driver)}{" "}
+                を追加すると {nextSlot} 人になります（いつもは {usualSlots} 人）。
+              </p>
+              <div className="mt-4 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => commit(false)}
+                  className="w-full rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-900"
+                >
+                  この日だけ {nextSlot} 人にする
+                </button>
+                {canManageCourses && (
+                  <button
+                    type="button"
+                    onClick={() => commit(true)}
+                    className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    いつもの人数を {nextSlot} 人に更新して追加
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setOverCapacityPrompt(null)}
+                  className="w-full rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-50"
+                >
+                  キャンセル
                 </button>
               </div>
             </div>

@@ -120,7 +120,7 @@ type CourseFormState = {
 const EMPTY_COURSE_FORM: CourseFormState = {
   name: "",
   color: COLORS[0],
-  max_drivers: "1",
+  max_drivers: "2",
   carrierId: "",
   summary_title: "",
   daily_lease: "",
@@ -956,7 +956,10 @@ export default function CoursesPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">1日あたりの最大人数</label>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">いつもの1日の人数</label>
+                  <p className="mb-1 text-xs text-slate-400">
+                    シフト表に最初から表示される枠数。多い日はシフト表側でその日だけ増やせます
+                  </p>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -966,7 +969,7 @@ export default function CoursesPage() {
                       const v = e.target.value.replace(/\D/g, "");
                       setNewCourse((f) => ({ ...f, max_drivers: v }));
                     }}
-                    placeholder="1"
+                    placeholder="2"
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
                 </div>
@@ -1150,7 +1153,10 @@ export default function CoursesPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">1日あたりの最大人数</label>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">いつもの1日の人数</label>
+                  <p className="mb-1 text-xs text-slate-400">
+                    シフト表に最初から表示される枠数。多い日はシフト表側でその日だけ増やせます
+                  </p>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -1160,7 +1166,7 @@ export default function CoursesPage() {
                       const v = e.target.value.replace(/\D/g, "");
                       setEditForm((f) => ({ ...f, max_drivers: v }));
                     }}
-                    placeholder="1"
+                    placeholder="2"
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
                 </div>
