@@ -8,6 +8,8 @@ const ITEMS: { href: string; title: string; desc: string }[] = [
   { href: "/preview/onboarding", title: "初期登録ウィザード", desc: "招待リンク→氏名→SMS→Face ID→免許→顔→住所→申請完了（モック・SMS/DBなしで通し確認）" },
   { href: "/preview/post-submit", title: "送信後画面", desc: "個数の報告後に見える画面（報酬・チーム累計ポイント・ランキング）" },
   { href: "/preview/animations", title: "アニメーション", desc: "カウントアップ・膨張演出・ボーナス付与オーバーレイ" },
+  { href: "/preview/loader", title: "ピクセル箱ローダー", desc: "シフトAI取り込み・請求書作成などの待ち時間に出す「箱が組み上がる」演出" },
+  { href: "/preview/plate", title: "ナンバープレート", desc: "SVGグリフ版 VehiclePlate の見た目確認（4色・フォールバック込み）" },
 ];
 
 export default function PreviewIndexPage() {

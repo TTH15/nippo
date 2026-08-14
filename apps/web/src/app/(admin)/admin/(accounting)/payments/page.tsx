@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faRepeat, faPenToSquare, faPlus, faTrash, faFileInvoice } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { PixelLoadingOverlay } from "@/lib/components/PixelBoxLoader";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch, getStoredDriver } from "@/lib/api";
@@ -422,9 +423,9 @@ export default function PaymentsPage() {
       )}&month=${encodeURIComponent(monthStr)}&direction=incoming&section=${encodeURIComponent("郵便局")}`;
     } catch (e) {
       console.error(e);
-      setSaveError(e instanceof Error ? e.message : "請求書の作成に失敗しました");
-    } finally {
+      // 成功時は編集画面への遷移までオーバーレイを出し続けるため、失敗時のみ解除する
       setCreatingInvoiceFor(null);
+      setSaveError(e instanceof Error ? e.message : "請求書の作成に失敗しました");
     }
   };
 
@@ -638,6 +639,9 @@ export default function PaymentsPage() {
 
   return (
     <AdminLayout>
+      {creatingInvoiceFor !== null && (
+        <PixelLoadingOverlay message="請求書を作成しています…" subMessage="作成後、編集画面に移動します" />
+      )}
       <div className="w-full">
         <h1 className="text-xl font-bold text-slate-900">ペイメント</h1>
         <p className="text-sm text-slate-500 mt-0.5">

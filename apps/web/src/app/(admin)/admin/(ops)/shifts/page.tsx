@@ -544,6 +544,11 @@ export default function ShiftsPage() {
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
   const [slots, setSlots] = useState<RequestSlot[]>([]);
   const [autoSaving, setAutoSaving] = useState(0);
+  // 再取得の競合ガード用ミラー（setTimeout のクロージャから最新値を読むため）
+  const autoSavingRef = useRef(0);
+  useEffect(() => {
+    autoSavingRef.current = autoSaving;
+  }, [autoSaving]);
 
   const [localShifts, setLocalShifts] = useState<Map<string, string | null>>(new Map());
   const [localVehicleByDriverDay, setLocalVehicleByDriverDay] = useState<Map<string, string | null>>(
@@ -734,9 +739,13 @@ export default function ShiftsPage() {
     setVehicleLinks(shiftsData.vehicle_driver_links ?? []);
     setVehicleLoans(shiftsData.vehicle_loans ?? []);
     setRecentAssignments(shiftsData.recent_assignments ?? []);
-    setLocalShifts(new Map());
-    setLocalVehicleByDriverDay(new Map());
-    setLocalExternalByDriverDay(new Map());
+    // 保存が通信中のときは楽観更新を消さない（消すと保存前のサーバー状態に一瞬巻き戻る）。
+    // 保存完了後の scheduleRevalidate で再取得されたタイミングでクリアされる。
+    if (autoSavingRef.current === 0) {
+      setLocalShifts(new Map());
+      setLocalVehicleByDriverDay(new Map());
+      setLocalExternalByDriverDay(new Map());
+    }
   }, [shiftsData]);
 
   // 書き込み後などに最新化したいときに呼ぶ（旧 load の代替）。引数(silent)は互換のため受けるが無視。
@@ -753,6 +762,12 @@ export default function ShiftsPage() {
     if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
     revalidateTimer.current = setTimeout(() => {
       revalidateTimer.current = null;
+      // 別の保存がまだ通信中なら再取得を延期する。ここで取得すると「保存前のサーバー状態」で
+      // 楽観更新が上書きされ、直後の変更が一瞬巻き戻って見える（挙動が不安定になる報告の原因）
+      if (autoSavingRef.current > 0) {
+        scheduleRevalidate();
+        return;
+      }
       void mutateShifts();
     }, 1500);
   }, [mutateShifts]);
@@ -1110,6 +1125,11 @@ export default function ShiftsPage() {
     return hasFreeSlotOnCourse(date, courseId, baseMap);
   };
 
+  // コースを外した時点の車両を覚えておく（key: driverDayVehicleKey）。
+  // 「コースだけ後から変更」＝外す→付け直す、の順で操作すると外した時点で車両が
+  // クリアされるため、付け直し時にここから引き継ぐ（車両をリセットしない）。
+  const lastVehicleByDriverDayRef = useRef(new Map<string, string>());
+
   /** ドライバーを指定コースへ追加（他コースの割当は消さない＝複数シフト） */
   const addDriverToCourseOnDate = (date: string, driverId: string, courseId: string) => {
     if (!canWrite) return;
@@ -1158,10 +1178,23 @@ export default function ShiftsPage() {
       next.set(getCellKey(date, courseId, slot), driverId);
       return next;
     });
-    // 割当を即時保存し、既存の当日車両は配車権限がある場合のみ新しい行へ引き継ぐ（車両は1日1台）
-    const carriedVehicleId = getCurrentVehicleForDriverOnDate(date, driverId);
+    // 割当を即時保存し、既存の当日車両は配車権限がある場合のみ新しい行へ引き継ぐ（車両は1日1台）。
+    // 現在車両が無い場合でも、直前にコースを外した時の車両が残っていれば引き継ぐ
+    const vehicleMemoryKey = driverDayVehicleKey(date, driverId);
+    const carriedVehicleId =
+      getCurrentVehicleForDriverOnDate(date, driverId) ??
+      lastVehicleByDriverDayRef.current.get(vehicleMemoryKey) ??
+      null;
     void persistAssignment(date, courseId, slot, driverId).then((ok) => {
-      if (ok && carriedVehicleId) persistVehicle(date, courseId, slot, carriedVehicleId, false);
+      if (ok && carriedVehicleId && canDispatch) {
+        persistVehicle(date, courseId, slot, carriedVehicleId, false);
+        // UI にも即時反映（再取得を待つと「車両なし」に見える時間ができる）
+        setLocalVehicleByDriverDay((prev) => {
+          const next = new Map(prev);
+          next.set(vehicleMemoryKey, carriedVehicleId);
+          return next;
+        });
+      }
     });
   };
 
@@ -1170,6 +1203,11 @@ export default function ShiftsPage() {
     if (!canWrite) return;
     const placements = findDriverPlacementsOnDate(localShifts, date, driverId);
     const wasLast = placements.length <= 1;
+    // 最後の1件を外すとき、当日の車両を記憶しておく（付け直し時に引き継ぐため）
+    if (wasLast) {
+      const currentVid = getCurrentVehicleForDriverOnDate(date, driverId);
+      if (currentVid) lastVehicleByDriverDayRef.current.set(driverDayVehicleKey(date, driverId), currentVid);
+    }
     // このコースで当該ドライバーが入っているスロット（保存対象）
     const clearedSlots = placements.filter((p) => p.courseId === courseId).map((p) => p.slot);
     setLocalShifts((prev) => {
@@ -1656,18 +1694,20 @@ export default function ShiftsPage() {
         ) : (
           rows.map(({ driver, placements, assignedCourses, plate, isExternal, off }) => {
             const hasAny = placements.length > 0;
-            const canOpen = off ? canWrite : canWrite || (canDispatch && hasAny);
+            const offOnly = off && !hasAny; // 割当があるのに希望休表示で隠さない（競合を見せる）
+            const canOpen = offOnly ? canWrite : canWrite || (canDispatch && hasAny);
             return (
               <button
                 key={driver.id}
                 type="button"
                 disabled={!canOpen}
                 onClick={() =>
-                  off ? openOffModal(driver.id, date) : setEditingCell({ date, driverId: driver.id })
+                  offOnly ? openOffModal(driver.id, date) : setEditingCell({ date, driverId: driver.id })
                 }
                 className={cn(
                   "flex w-full items-center gap-3 px-3 py-2.5 text-left",
-                  off && "bg-amber-50/60",
+                  offOnly && "bg-amber-50/60",
+                  off && hasAny && "bg-red-50/60",
                   canOpen ? "active:bg-slate-100" : "cursor-default",
                 )}
               >
@@ -1676,20 +1716,27 @@ export default function ShiftsPage() {
                 </span>
                 {/* 名前・コース・車両を1行に収め、行の高さを揃える */}
                 <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-                  {off ? (
+                  {off && !hasAny ? (
                     <span className="rounded bg-amber-100 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
                       希望休
                     </span>
                   ) : hasAny ? (
-                    assignedCourses.map((c) => (
-                      <span
-                        key={c.id}
-                        className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
-                        style={courseCellSurface(c.color)}
-                      >
-                        {courseShiftLabel(c)}
-                      </span>
-                    ))
+                    <>
+                      {off && (
+                        <span className="rounded bg-red-100 px-2 py-0.5 text-[12px] font-semibold text-red-700">
+                          希望休と重複
+                        </span>
+                      )}
+                      {assignedCourses.map((c) => (
+                        <span
+                          key={c.id}
+                          className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
+                          style={courseCellSurface(c.color)}
+                        >
+                          {courseShiftLabel(c)}
+                        </span>
+                      ))}
+                    </>
                   ) : (
                     <span className="text-[12px] text-slate-400">
                       未割当{canWrite ? "（タップで割当）" : ""}
@@ -2435,13 +2482,13 @@ export default function ShiftsPage() {
                               className={cn(
                                 `relative ${SHIFT_COL_WIDTH_CLASS} border-l border-slate-200/90 px-1 py-1`,
                                 !isLastDriver && "border-b-2 border-slate-300",
-                                off ? "align-middle bg-amber-50" : `align-top ${tone.body}`,
+                                off && !hasAny ? "align-middle bg-amber-50" : off ? "align-top bg-red-50/70" : `align-top ${tone.body}`,
                                 isToday && TODAY_RULE_SIDES,
                                 inDropPreview && "bg-sky-50 ring-2 ring-inset ring-sky-400",
                               )}
                             >
                               <CellPeersBadge peers={cursors.cellPeers[`d:${driver.id}:${date}`]} />
-                              {off ? (
+                              {off && !hasAny ? (
                                 <button
                                   type="button"
                                   disabled={!canWrite}
@@ -2490,6 +2537,25 @@ export default function ShiftsPage() {
                                         dirty && !isEditing && "ring-2 ring-amber-400",
                                       )}
                                     >
+                                      {/* 全休の希望休と割当が併存＝競合。従来は希望休表示が割当を隠し、
+                                          見えない割当が稼働カウント・日報要求に効いていた（2026-08-14 坂田 8/9） */}
+                                      {off && (
+                                        <span
+                                          role={canWrite ? "button" : undefined}
+                                          onClick={
+                                            canWrite
+                                              ? (e) => {
+                                                  e.stopPropagation();
+                                                  openOffModal(driver.id, date);
+                                                }
+                                              : undefined
+                                          }
+                                          className="w-full truncate rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold leading-tight text-red-700 hover:bg-red-200"
+                                          title="全休の希望休とコース割当が重複しています（クリックで希望休を確認・解除。割当を外すにはセルをクリック）"
+                                        >
+                                          希望休と重複
+                                        </span>
+                                      )}
                                       {slotOffs.length > 0 && (
                                         <span
                                           role={canWrite ? "button" : undefined}
@@ -3452,6 +3518,11 @@ export default function ShiftsPage() {
                   {/* コース */}
                   <div className="space-y-2">
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">コース</p>
+                    {isDriverOffDay(driverId, date) && (
+                      <p className="rounded bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700">
+                        この日は全休の希望休が提出されています。割当が残っていると稼働に数えられ、日報も要求されます
+                      </p>
+                    )}
                     {assignedCourses.length > 0 ? (
                       <div className="flex flex-col gap-1.5">
                         {assignedCourses.map((course) => (

@@ -12,6 +12,7 @@ import {
   faPlus,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { PixelLoadingOverlay } from "@/lib/components/PixelBoxLoader";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
@@ -62,6 +63,8 @@ export default function CounterpartiesPage() {
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [createInvoiceError, setCreateInvoiceError] = useState<string | null>(null);
+  // 請求書作成〜編集画面への遷移中（ボタンを押せたか分かるよう全画面ローダーを出す）
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState({
     name: "",
@@ -179,7 +182,9 @@ export default function CounterpartiesPage() {
 
   /** 取引先から請求書の下書きを作成して編集画面へ（テーブル・カード両方から使う） */
   const createInvoiceForCounterparty = async (r: CounterpartySummaryRow) => {
+    if (creatingInvoice) return;
     setCreateInvoiceError(null);
+    setCreatingInvoice(true); // 成功時は遷移までオーバーレイを出し続ける（失敗時のみ解除）
     try {
       const res = await apiFetch<{ month: string; issueDate: string; dueDate: string; invoiceNo: string; tableData: { main: { title: string; qty: number; price: number }[]; deduct: { title: string; qty: number; price: number }[] } }>(
         `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(r.suggestedSection)}&counterparty=${encodeURIComponent(r.id)}`
@@ -223,12 +228,16 @@ export default function CounterpartiesPage() {
       )}&counterparty=${encodeURIComponent(r.id)}`;
     } catch (e) {
       console.error(e);
+      setCreatingInvoice(false);
       setCreateInvoiceError("請求書の保存に失敗しました。DB migration適用状況とAPIエラーをご確認ください。");
     }
   };
 
   return (
     <AdminLayout>
+      {creatingInvoice && (
+        <PixelLoadingOverlay message="請求書を作成しています…" subMessage="作成後、編集画面に移動します" />
+      )}
       <div className="w-full max-w-6xl">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
           <div>

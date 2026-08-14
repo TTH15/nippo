@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PixelBoxLoader } from "@/lib/components/PixelBoxLoader";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faFileImport,
@@ -610,6 +611,13 @@ export default function ShiftImportModal({
                 </div>
               )}
 
+              {extracting && (
+                <div className="flex flex-col items-center gap-3 py-4">
+                  <PixelBoxLoader />
+                  <p className="text-sm font-medium text-slate-700">AI がシフト表を読み取っています…</p>
+                  <p className="text-[11px] text-slate-400">ファイル数・表の大きさにより 30秒〜数分かかります</p>
+                </div>
+              )}
               {error && <p className="text-sm text-red-600">{error}</p>}
               <div className="flex justify-end gap-2">
                 <button
