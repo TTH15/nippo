@@ -10,6 +10,9 @@ import {
   faTriangleExclamation,
   faQrcode,
   faCar,
+  faMagnifyingGlass,
+  faXmark,
+  faArrowDown,
   faChevronDown,
   faChevronUp,
   faUsers,
@@ -192,6 +195,30 @@ export default function VehiclesPage() {
     detail?: string;
   } | null>(null);
   const [numberFocused, setNumberFocused] = useState(false);
+  // 一覧の絞り込み（状態チップ + テキスト検索）
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "oil-critical" | "oil-warn" | "inspection" | "disposed"
+  >("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  // バナーのチップから該当カードへ飛んだ直後の一時ハイライト
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
+  const stickyRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!pendingScrollId) return;
+    const el = document.getElementById(`vehicle-card-${pendingScrollId}`);
+    if (el) {
+      // sticky ヘッダー（見出し+バナー+フィルタ）の高さ分だけ手前で止める
+      const stickyH = stickyRef.current?.offsetHeight ?? 0;
+      const top = el.getBoundingClientRect().top + window.scrollY - stickyH - 12;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      const id = pendingScrollId;
+      setHighlightId(id);
+      window.setTimeout(() => setHighlightId((cur) => (cur === id ? null : cur)), 2500);
+    }
+    setPendingScrollId(null);
+  }, [pendingScrollId]);
 
   const sortVehicles = (list: Vehicle[]) =>
     [...list].sort((a, b) => {
@@ -688,16 +715,32 @@ export default function VehiclesPage() {
     void refreshRecovery();
   };
 
-  // オイル交換の警告対象（廃車・EV・間隔未設定は除外）。バナー集計に使用。
-  const oilAlertVehicles = vehicles.filter(
-    (v) => !v.is_disposed && !v.is_ev && v.oil_change_interval > 0,
-  );
-  const oilCriticalCount = oilAlertVehicles.filter((v) => getOilRemainingKm(v) < 100).length;
-  const oilWarnCount = oilAlertVehicles.filter((v) => {
+  // オイル交換の警告判定（廃車・EV・間隔未設定は除外）。バナー集計とフィルタで共用。
+  const isOilTracked = (v: Vehicle) => !v.is_disposed && !v.is_ev && v.oil_change_interval > 0;
+  const isOilCritical = (v: Vehicle) => isOilTracked(v) && getOilRemainingKm(v) < 100;
+  const isOilWarn = (v: Vehicle) => {
+    if (!isOilTracked(v)) return false;
     const r = getOilRemainingKm(v);
     return r >= 100 && r <= 300;
-  }).length;
+  };
+  const oilCriticalCount = vehicles.filter(isOilCritical).length;
+  const oilWarnCount = vehicles.filter(isOilWarn).length;
   const oilAlertTotal = oilCriticalCount + oilWarnCount;
+
+  // 車検・自賠責の期限が90日以内（期限切れも含む）。未設定の項目は判定しない
+  const inspectionLimit = (() => {
+    const d = new Date(todayJST() + "T12:00:00+09:00");
+    d.setDate(d.getDate() + 90);
+    return d.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+  })();
+  const isInspectionSoon = (v: Vehicle) => {
+    if (v.is_disposed) return false;
+    const shakenSoon = !!v.next_shaken_date && v.next_shaken_date.slice(0, 10) <= inspectionLimit;
+    // 自賠責は月精度（YYYY-MM）なので月同士で比較する
+    const jibaiSoon =
+      !!v.jibaiseki_renewal_month && v.jibaiseki_renewal_month <= inspectionLimit.slice(0, 7);
+    return shakenSoon || jibaiSoon;
+  };
 
   // 元の配列順に基づく安定したナンバーを割り当て（廃車も含めて変動しない）
   const vehicleNoMap = new Map<string, number>(
@@ -710,12 +753,72 @@ export default function VehiclesPage() {
     return 0;
   });
 
+  // 絞り込み（状態チップ + テキスト検索）。ナンバー・車種・使用ドライバー名で部分一致
+  const searchNorm = searchQuery.trim().toLowerCase();
+  const matchesSearch = (v: Vehicle) => {
+    if (!searchNorm) return true;
+    const hay = [
+      v.manufacturer,
+      v.brand,
+      v.model_code,
+      v.number_prefix,
+      v.number_class,
+      v.number_hiragana,
+      v.number_numeric,
+      ...(v.vehicle_drivers ?? []).flatMap((vd) => [vd.drivers?.name, getDisplayName(vd.drivers)]),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(searchNorm);
+  };
+  const matchesStatus = (v: Vehicle) => {
+    switch (statusFilter) {
+      case "oil-critical":
+        return isOilCritical(v);
+      case "oil-warn":
+        return isOilWarn(v);
+      case "inspection":
+        return isInspectionSoon(v);
+      case "disposed":
+        return !!v.is_disposed;
+      default:
+        return true;
+    }
+  };
+  const filteredVehicles = orderedVehicles.filter((v) => matchesStatus(v) && matchesSearch(v));
+  const filterActive = statusFilter !== "all" || searchNorm !== "";
+  const clearFilters = () => {
+    setStatusFilter("all");
+    setSearchQuery("");
+  };
+
+  // 台数0のチップは出さない（「すべて」だけは常に出す）
+  const statusChips = (
+    [
+      { key: "all", label: "すべて", count: vehicles.length },
+      { key: "oil-critical", label: "オイル要交換", count: oilCriticalCount },
+      { key: "oil-warn", label: "オイル接近", count: oilWarnCount },
+      { key: "inspection", label: "車検・自賠責が近い", count: vehicles.filter(isInspectionSoon).length },
+      { key: "disposed", label: "廃車", count: vehicles.filter((v) => !!v.is_disposed).length },
+    ] as const
+  ).filter((c) => c.key === "all" || c.count > 0);
+
+  // バナーのチップ → 一覧で最初に該当する車両カードへスクロール。
+  // フィルタで隠れている場合は解除してから飛ぶ
+  const jumpToVehicle = (v: Vehicle | undefined) => {
+    if (!v) return;
+    if (!(matchesStatus(v) && matchesSearch(v))) clearFilters();
+    setPendingScrollId(v.id);
+  };
+
   return (
     <AdminLayout>
       <div className="w-full">
         {/* 見出しとオイル警告は追従させる。貼り付き位置は AdminLayout が実測して公開する
             モバイルヘッダー高さ（PC は 0）に合わせる */}
         <div
+          ref={stickyRef}
           className="sticky z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-2 -mt-1 border-b border-slate-200/80"
           style={{ top: "var(--admin-header-h, 0px)" }}
         >
@@ -756,22 +859,79 @@ export default function VehiclesPage() {
                 </p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-2">
                   {oilCriticalCount > 0 && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500 px-2.5 py-0.5 text-xs font-bold text-white">
+                    <button
+                      type="button"
+                      onClick={() => jumpToVehicle(orderedVehicles.find(isOilCritical))}
+                      title="該当車両へ移動"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-rose-500 px-2.5 py-0.5 text-xs font-bold text-white transition-colors hover:bg-rose-600 cursor-pointer"
+                    >
                       <FontAwesomeIcon icon={faCircleExclamation} className="h-3 w-3" />
                       要交換 {oilCriticalCount} 台
-                    </span>
+                      <FontAwesomeIcon icon={faArrowDown} className="h-2.5 w-2.5 opacity-80" />
+                    </button>
                   )}
                   {oilWarnCount > 0 && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-2.5 py-0.5 text-xs font-bold text-white">
+                    <button
+                      type="button"
+                      onClick={() => jumpToVehicle(orderedVehicles.find(isOilWarn))}
+                      title="該当車両へ移動"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-2.5 py-0.5 text-xs font-bold text-white transition-colors hover:bg-amber-600 cursor-pointer"
+                    >
                       <FontAwesomeIcon icon={faTriangleExclamation} className="h-3 w-3" />
                       交換時期接近 {oilWarnCount} 台
-                    </span>
+                      <FontAwesomeIcon icon={faArrowDown} className="h-2.5 w-2.5 opacity-80" />
+                    </button>
                   )}
                 </div>
                 <p className={`mt-1.5 hidden md:block text-xs ${oilCriticalCount > 0 ? "text-rose-700" : "text-amber-700"}`}>
                   各車両のオイルゲージを確認し、交換手配を進めてください。
                 </p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* 絞り込み: テキスト検索 + 状態チップ。台数が増えても目的の車両へすぐ辿り着けるように（2026-08-15） */}
+        {!loading && vehicles.length > 0 && (
+          <div className="pb-3 flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 h-8 w-full sm:w-64 shadow-sm focus-within:border-slate-400">
+              <FontAwesomeIcon icon={faMagnifyingGlass} className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ナンバー・車種・使用者で検索"
+                className="w-full bg-transparent text-xs outline-none placeholder:text-slate-400"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="text-slate-400 hover:text-slate-600"
+                  aria-label="検索をクリア"
+                >
+                  <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {statusChips.map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  onClick={() => setStatusFilter(c.key)}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 h-7 text-xs font-medium transition-colors ${
+                    statusFilter === c.key
+                      ? "border-slate-800 bg-slate-800 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  {c.label}
+                  <span className={statusFilter === c.key ? "text-slate-300" : "text-slate-400"}>
+                    {c.count}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -825,9 +985,22 @@ export default function VehiclesPage() {
           </div>
         ) : vehicles.length === 0 ? (
           <p className="text-sm text-slate-500">車両が登録されていません</p>
+        ) : filteredVehicles.length === 0 ? (
+          <div className="flex items-center gap-3 text-sm text-slate-500">
+            条件に一致する車両がありません
+            {filterActive && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-xs font-medium text-slate-700 underline hover:text-slate-900"
+              >
+                絞り込みを解除
+              </button>
+            )}
+          </div>
         ) : (
           <div className="space-y-4">
-            {orderedVehicles.map((v, idx) => {
+            {filteredVehicles.map((v, idx) => {
               const oilRemaining = getOilRemainingKm(v);
               const nextOilChangeKm = v.last_oil_change_mileage + v.oil_change_interval;
               const oilProgress = Math.max(
@@ -845,6 +1018,7 @@ export default function VehiclesPage() {
               return (
                 <div
                   key={v.id}
+                  id={`vehicle-card-${v.id}`}
                   onClick={(e) => {
                     if ((e.target as HTMLElement).closest('button, a, input, [role="switch"]')) return;
                     if (canWrite) openEdit(v);
@@ -854,6 +1028,12 @@ export default function VehiclesPage() {
                     v.is_disposed
                       ? "bg-red-50 border-red-200"
                       : "bg-white border-slate-200"
+                  } ${
+                    highlightId === v.id
+                      ? isOilCritical(v)
+                        ? "ring-2 ring-rose-400 ring-offset-2"
+                        : "ring-2 ring-amber-400 ring-offset-2"
+                      : ""
                   }`}
                 >
                   {/* カード上部1行: No. / 車種 / ドライバー / 次回車検・自賠責 / 編集
