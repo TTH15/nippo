@@ -213,12 +213,6 @@ export default function CarriersPage() {
             </Button>
           )}
         </div>
-        <p className="text-xs text-slate-500 mb-5 leading-relaxed">
-          ドライバーが日報で「何を報告するか」をここで設計します。<br />
-          <b>キャリア</b>（ヤマト / Amazon など）の中に <b>型(unit)</b>（宅急便・ネコポス等の集計単位）を作り、
-          その型ごとに <b>報告項目</b>（完了個数など）を並べます。料金（単価・日当）はコース側で設定します。
-        </p>
-
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4"><Skeleton className="h-64 w-full" /><div className="md:col-span-2"><Skeleton className="h-64 w-full" /></div></div>
         ) : (
@@ -379,7 +373,6 @@ function PresetPicker({ onPick, onCustom, onClose }: { onPick: (p: Preset) => vo
       <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-5 pb-2 border-b border-slate-200">
           <h2 className="text-sm font-semibold text-slate-900">何を報告させますか？</h2>
-          <p className="text-[11px] text-slate-500 mt-0.5">よく使う項目から選ぶか、カスタムで自由に作成できます。</p>
         </div>
         <div className="px-5 py-3 grid grid-cols-1 gap-1.5">
           {FIELD_PRESETS.map((p) => (

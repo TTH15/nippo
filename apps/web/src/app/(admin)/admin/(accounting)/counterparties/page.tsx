@@ -300,11 +300,6 @@ export default function CounterpartiesPage() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900 mb-4">
-          月次合計は「シフト集計＋売上ログ（取引先指定）＋手入力加算 −
-          売上ログのマイナス利益 − 手入力控除」です。摘要は明細表でフォーカスアウト時に保存されます。郵便局帯の
-          sales_log 会社集計とは定義が異なる場合があります。
-        </div>
         {createInvoiceError && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 mb-4">
             {createInvoiceError}

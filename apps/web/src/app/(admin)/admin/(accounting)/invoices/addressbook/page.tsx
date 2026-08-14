@@ -221,10 +221,7 @@ export default function AddressBookPage() {
           </div>
         ) : addresses.length === 0 ? (
           <div className="bg-white rounded-lg border border-slate-200 p-8 text-center">
-            <p className="text-slate-500 mb-2">登録された法人アドレスはありません</p>
-            <p className="text-xs text-slate-400 mb-4">
-              請求書作成時に請求先として選択できます。個人（ドライバー）はドライバー管理で登録してください。
-            </p>
+            <p className="text-slate-500 mb-4">登録された法人アドレスはありません</p>
             {canWrite && (
               <Button variant="default" size="default" onClick={openNew}>
                 <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />

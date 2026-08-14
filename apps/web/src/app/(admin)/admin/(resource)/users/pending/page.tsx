@@ -720,10 +720,7 @@ export default function PendingApprovalPage() {
             </div>
             <div className="px-5 py-4">
         <section>
-          <p className="text-xs text-slate-500 mb-3">
-            参加者ごとにリンクを発行して LINE や SMS で送ってください。リンクは1回使うと無効になります（有効期限7日）。
-            開いた本人は氏名・電話認証から免許・顔写真の提出まで web で完結し、最後にアプリのインストールを案内されます。
-          </p>
+          <p className="text-xs text-slate-500 mb-3">リンクは1回限り・有効期限7日。</p>
           {canWrite && (
             <div className="flex gap-2 mb-3">
               <input

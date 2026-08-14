@@ -341,10 +341,6 @@ export function CounterpartyBillingExpand({
 
   return (
     <div className="space-y-5">
-      <p className="text-[11px] text-slate-500">
-        単価が同じ行同士をドラッグ＆ドロップで重ねると統合できます。摘要はどの行もフォーカスが外れたときに保存されます（統合行はDBの摘要を更新）。
-      </p>
-
       <div>
         <h3 className="text-xs font-semibold text-slate-700 mb-2">請求プラス明細</h3>
         <div className="rounded-md border border-slate-200 overflow-x-auto bg-white">
@@ -472,9 +468,6 @@ export function CounterpartyBillingExpand({
 
       <div>
         <h3 className="text-xs font-semibold text-slate-700 mb-2">控除（請求から差し引き）</h3>
-        <p className="text-[11px] text-slate-500 mb-2">
-          売上ログで利益がマイナスの行はここに表示されます。手入力の控除行も追加できます。
-        </p>
         <div className="rounded-md border border-slate-200 overflow-x-auto bg-white">
           <table className="w-full text-xs border-collapse min-w-[720px]">
             <thead>

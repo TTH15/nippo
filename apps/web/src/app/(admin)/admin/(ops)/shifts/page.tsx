@@ -2016,9 +2016,6 @@ export default function ShiftsPage() {
             placeholder="年月を選択"
           />
         </div>
-        <p className="hidden md:block text-xs text-slate-500 mb-2">
-          セルをクリックすると、そのセルだけ編集パネルが開きコース・車両を指定できます（変更は自動保存）。「車両管理」でドライバーと車両を紐付けた車が候補の先頭に出ます。
-        </p>
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             {/* PC: 半月単位のステッパー（月またぎも1クリック。8月前半→7月後半 等） */}
@@ -2953,10 +2950,6 @@ export default function ShiftsPage() {
               title="車両の貸出中（日毎）"
               hint={`この期間 ${vehicleLoans.filter((l) => displayDates.includes(l.loan_date)).length} 件`}
             >
-              <p className="text-[11px] text-slate-500 mb-3">
-                貸出中にした日は、その車両をシフトに紐付けできません（「貸」=貸出中）。
-                セルをタップで切替、押しながらなぞると複数日をまとめて設定できます。
-              </p>
               <div className="overflow-x-auto table-scroll">
                 <table className="text-xs border-collapse">
                   <thead>
@@ -3501,11 +3494,6 @@ export default function ShiftsPage() {
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                       追加できるドライバー
                     </p>
-                    {open === 0 && candidates.length > 0 && (
-                      <p className="text-[11px] text-amber-600">
-                        枠が埋まっています。追加すると増枠の確認が表示されます。
-                      </p>
-                    )}
                     {candidates.length === 0 ? (
                       <p className="text-xs text-slate-400">
                         追加できるドライバーがいません（担当可能・希望休なしが対象）。

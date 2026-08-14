@@ -138,10 +138,6 @@ export function VehicleRecoveryDetail({
 
       <div className="text-sm text-slate-700 mb-3">
         <div className="font-medium mb-1">{title}</div>
-        <p className="text-xs text-slate-500">
-          回収開始月からの各月の回収額（月額リース＋日額リース自動計上−保険料）を自動表示します。
-          月に紐づく手動行を追加して調整できます。リース代/保険料/回収開始月は車両編集で設定します。
-        </p>
       </div>
 
       {error && (

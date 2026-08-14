@@ -1573,9 +1573,6 @@ export default function UsersPage() {
                   <FontAwesomeIcon icon={faCircleCheck} className="w-3.5 h-3.5 text-slate-400" />
                   稼働状況
                 </h3>
-                <p className="text-xs text-slate-500 mb-3">
-                  「稼働終了」にすると通常の一覧・ピッカーには出てこなくなります。過去の請求書一覧では、稼働開始月〜終了月の期間に該当すれば引き続き表示されます。
-                </p>
                 <div className="flex gap-2 mb-3">
                   {(
                     [

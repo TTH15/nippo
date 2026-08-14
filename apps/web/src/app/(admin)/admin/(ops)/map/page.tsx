@@ -1879,9 +1879,7 @@ export default function MapPage() {
         )}
 
         <p className="text-xs text-slate-500">
-          車両の位置を表示します（出退勤打刻のGPS、または手動で配置した位置）。カメラは右ドラッグ（Ctrl+ドラッグ）、または
-          Option+スクロール（縦=傾き / 横=方角）で操作できます。拠点ピンは歯車の設定から追加できます。
-          <span className="ml-2 inline-flex items-center gap-1">
+          <span className="inline-flex items-center gap-1">
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
             稼働中
           </span>

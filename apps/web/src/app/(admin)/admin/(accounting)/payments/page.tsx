@@ -670,9 +670,6 @@ export default function PaymentsPage() {
       )}
       <div className="w-full">
         <h1 className="text-xl font-bold text-slate-900">ペイメント</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          ドライバーごとの月別報酬（今月は暫定）。固定経費・臨時経費はここから登録できます。
-        </p>
 
         <div className="flex items-center gap-3 mt-6 mb-4">
           <MonthYearPicker

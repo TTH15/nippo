@@ -725,10 +725,6 @@ export default function CoursesPage() {
           )}
         </div>
 
-        <p className="text-sm text-slate-500 mb-4">
-          コースはキャリアごとに整理されています。担当ドライバーは各行の「担当を選ぶ」から設定できます（ドライバー編集の「担当可能コース」と同じ設定です）。リース代は各ドライバーの設定で行います。
-        </p>
-
         {loading ? (
           <div className="space-y-2">
             {[...Array(5)].map((_, i) => (
@@ -822,9 +818,6 @@ export default function CoursesPage() {
                         );
                       })}
                   </div>
-                  <p className="text-[11px] text-slate-400">
-                    ドライバー編集の「担当可能コース」と同じ設定です。勤務区分が複数ある人は区分1に紐づきます。
-                  </p>
                 </>
               )}
             </div>
@@ -884,9 +877,6 @@ export default function CoursesPage() {
                       clearable={false}
                       size="md"
                     />
-                    <p className="mt-1 text-xs text-slate-500">
-                      希望休（便単位）との対応と、シフト表のラベルに使う<b>分類</b>。1日に区分違いのコースを複数入れられます。区分は⚙️設定で作成。
-                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-600 mb-1">標準時間（実際の集合・着車・終業）</label>
@@ -914,9 +904,6 @@ export default function CoursesPage() {
                       placeholder="集合場所"
                       className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
-                    <p className="mt-1 text-xs text-slate-500">
-                      このコースの毎日の<b>実時刻</b>。日別の例外はシフト表のセルから個別に上書きできます。
-                    </p>
                   </div>
                 </div>
                 <div>
@@ -939,7 +926,6 @@ export default function CoursesPage() {
                     placeholder="例: 横大路、ミッドナイト"
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
-                  <p className="mt-1 text-xs text-slate-500">売上集計タブおよびドライバー側のシフト確認でこの略記が使われます。未入力の場合はコース名を表示します。</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">取引先（請求先）</label>
@@ -957,9 +943,6 @@ export default function CoursesPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">いつもの1日の人数</label>
-                  <p className="mb-1 text-xs text-slate-400">
-                    シフト表に最初から表示される枠数。多い日はシフト表側でその日だけ増やせます
-                  </p>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -1014,7 +997,6 @@ export default function CoursesPage() {
                     placeholder="0"
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
-                  <p className="mt-1 text-xs text-slate-500">日額リースのドライバーがこのコースを走った日に、日当から控除し、使用車両の初期費用回収へ自動計上します。</p>
                 </div>
                 <div className="pt-2 border-t border-slate-100">
                   <CourseRateEditor
@@ -1083,9 +1065,6 @@ export default function CoursesPage() {
                       clearable={false}
                       size="md"
                     />
-                    <p className="mt-1 text-xs text-slate-500">
-                      希望休（便単位）との対応と、シフト表のラベルに使う<b>分類</b>。区分は⚙️設定で作成。
-                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-600 mb-1">標準時間（実際の集合・着車・終業）</label>
@@ -1113,9 +1092,6 @@ export default function CoursesPage() {
                       placeholder="集合場所（例: 横大路第2倉庫）"
                       className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
-                    <p className="mt-1 text-xs text-slate-500">
-                      このコースの毎日の<b>実時刻</b>。日別の例外はシフト表のセルから個別に上書きできます。
-                    </p>
                   </div>
                 </div>
                 <div>
@@ -1154,9 +1130,6 @@ export default function CoursesPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">いつもの1日の人数</label>
-                  <p className="mb-1 text-xs text-slate-400">
-                    シフト表に最初から表示される枠数。多い日はシフト表側でその日だけ増やせます
-                  </p>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -1211,7 +1184,6 @@ export default function CoursesPage() {
                     placeholder="0"
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
-                  <p className="mt-1 text-xs text-slate-500">日額リースのドライバーがこのコースを走った日に、日当から控除し、使用車両の初期費用回収へ自動計上します。</p>
                 </div>
                 <div className="pt-2 border-t border-slate-100">
                   <CourseRateEditor

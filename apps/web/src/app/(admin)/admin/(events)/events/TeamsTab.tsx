@@ -276,12 +276,6 @@ export function TeamsTab({
         </div>
       )}
 
-      {canWrite && (
-        <p className="text-xs text-slate-400 -mt-2">
-          ※ ドライバーのチップをドラッグして、チームや「未所属」へドロップで移動できます。
-        </p>
-      )}
-
       {teams.length === 0 ? (
         <p className="text-sm text-slate-400">チームがありません。まずチームを追加してください。</p>
       ) : (

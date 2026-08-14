@@ -140,9 +140,7 @@ export function ChatTab({ canWrite }: { canWrite: boolean }) {
     return (
       <div className="mt-4 rounded-lg border border-slate-200 bg-white p-8 text-center">
         <FontAwesomeIcon icon={faComments} className="mb-3 h-8 w-8 text-slate-300" />
-        <p className="text-sm text-slate-500">
-          LINE連携済みのドライバーがまだいません。連携すると、ここでやり取りできます。
-        </p>
+        <p className="text-sm text-slate-500">LINE連携済みのドライバーがまだいません。</p>
       </div>
     );
   }
