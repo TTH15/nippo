@@ -194,6 +194,12 @@ export default function UsersPage() {
   const [leaseLoading, setLeaseLoading] = useState(false);
   const [postalLoading, setPostalLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 差分保存の基準点（モーダルを開いた時点＝最後に保存した時点のフォーム値）。
+  // これとの差分だけを PUT し、変更のないセクション（identities・リース）は送らない
+  const baselineRef = useRef<{ form: typeof form; lease: LeaseForm } | null>(null);
+  // 保存（自動保存含む）の実行中カウント。SWR 同期による楽観更新の巻き戻り防止と
+  // 一覧再取得の延期に使う（シフト画面の autoSavingRef と同じパターン）
+  const saveInflightRef = useRef(0);
   const [companyCode, setCompanyCode] = useState<string>(COMPANY_CODE);
   const [confirmState, setConfirmState] = useState<{
     message: string;
@@ -222,6 +228,21 @@ export default function UsersPage() {
       dedupingInterval: 30 * 1000,
       revalidateFirstPage: false,
     });
+
+  // 保存後の一覧再取得は少し待って1回だけ行う。自動保存が連続している間に再取得すると
+  // 「保存前のサーバー状態」で楽観更新が上書きされ、変更が一瞬巻き戻って見える
+  const usersRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleUsersRefetch = () => {
+    if (usersRefetchTimerRef.current) clearTimeout(usersRefetchTimerRef.current);
+    usersRefetchTimerRef.current = setTimeout(() => {
+      usersRefetchTimerRef.current = null;
+      if (saveInflightRef.current > 0) {
+        scheduleUsersRefetch();
+        return;
+      }
+      void mutateUsers();
+    }, 1500);
+  };
 
   const { data: coursesRes, isLoading: coursesLoading } = useSWR<{ courses: Course[] }>(
     "/api/admin/courses",
@@ -273,6 +294,9 @@ export default function UsersPage() {
   // という不具合になっていた。楽観更新は書き込み直後の一瞬だけ効けばよく、
   // 確定は各書き込み後の mutateUsers() が担う。
   useEffect(() => {
+    // 保存の実行中はサーバー状態（取得済みキャッシュ）で楽観更新を上書きしない。
+    // 保存完了後の scheduleUsersRefetch → mutateUsers で最新化されたときに反映される
+    if (saveInflightRef.current > 0) return;
     setDrivers((prev) => {
       if (flattenedDrivers.length === 0 && prev.length === 0) return prev;
       return flattenedDrivers;
@@ -313,6 +337,7 @@ export default function UsersPage() {
       activeUntilMonth: "",
     });
     setLeaseForm({ ...EMPTY_LEASE, validFrom: currentMonthStartStr() });
+    baselineRef.current = null; // 新規作成は差分保存の対象外（全項目を送る）
     setShowModal(true);
   };
 
@@ -321,25 +346,24 @@ export default function UsersPage() {
     full: Driver,
     lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null,
   ) => {
-    setLeaseForm(
-      lease
-        ? {
-            enabled: true,
-            mode: lease.mode === "DAILY" ? "DAILY" : "MONTHLY",
-            amount: String(lease.amount ?? ""),
-            validFrom:
-              lease.valid_from && /^\d{4}-\d{2}-\d{2}$/.test(lease.valid_from)
-                ? lease.valid_from
-                : currentMonthStartStr(),
-          }
-        : { ...EMPTY_LEASE, validFrom: currentMonthStartStr() },
-    );
+    const nextLease: LeaseForm = lease
+      ? {
+          enabled: true,
+          mode: lease.mode === "DAILY" ? "DAILY" : "MONTHLY",
+          amount: String(lease.amount ?? ""),
+          validFrom:
+            lease.valid_from && /^\d{4}-\d{2}-\d{2}$/.test(lease.valid_from)
+              ? lease.valid_from
+              : currentMonthStartStr(),
+        }
+      : { ...EMPTY_LEASE, validFrom: currentMonthStartStr() };
+    setLeaseForm(nextLease);
     setEditingDriver(full);
     const { institution, branch } = parseBankName(full.bank_name || "");
     const { type, number, typeOther } = parseBankNo(full.bank_no || "");
     const id1 = full.driver_identities?.find((x) => x.slot === 1);
     const id2 = full.driver_identities?.find((x) => x.slot === 2);
-    setForm({
+    const nextForm = {
       name: full.name,
       displayName: full.display_name?.trim() ?? getDisplayName(full),
       officeCode: id1?.office_code ?? full.office_code ?? "",
@@ -362,12 +386,15 @@ export default function UsersPage() {
           ? full.license_expiry_date
           : "",
       roleId: full.role_id ?? "",
-      status: full.status === "inactive" ? "inactive" : "active",
+      status: (full.status === "inactive" ? "inactive" : "active") as "active" | "inactive",
       activeFromMonth:
         full.active_from_month && /^\d{4}-\d{2}$/.test(full.active_from_month) ? full.active_from_month : "",
       activeUntilMonth:
         full.active_until_month && /^\d{4}-\d{2}$/.test(full.active_until_month) ? full.active_until_month : "",
-    });
+    };
+    setForm(nextForm);
+    // 差分保存の基準点。この値との差分だけを PUT する
+    baselineRef.current = { form: nextForm, lease: nextLease };
   };
 
   const openEdit = async (d: Driver) => {
@@ -519,6 +546,7 @@ export default function UsersPage() {
   const save = async (opts?: { silent?: boolean }) => {
     if (!canWrite) return;
     const silent = opts?.silent === true;
+    saveInflightRef.current += 1;
     setSaving(true);
     try {
       const driverCode = companyCode + form.driverNumber;
@@ -550,64 +578,96 @@ export default function UsersPage() {
       );
 
       let savedDriverId = editingDriver?.id ?? "";
+      // フォーム値を Driver 行へ反映（一覧の楽観更新・詳細キャッシュ更新で共用）
+      const applyFormToDriver = (d: Driver): Driver => ({
+        ...d,
+        name: form.name.trim(),
+        display_name: form.displayName.trim() || null,
+        office_code: form.officeCode,
+        driver_code: driverCode,
+        postal_code: form.postalCode.trim() || null,
+        address: form.address.trim() || null,
+        phone: form.phone.trim() || null,
+        bank_name: [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null,
+        bank_no: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
+        bank_holder: form.bankHolder.trim() || null,
+        license_expiry_date: form.licenseExpiryDate.trim() || null,
+        status: form.status,
+        active_from_month: form.activeFromMonth || null,
+        active_until_month: form.activeUntilMonth || null,
+        driver_identities: nextIdentities,
+      });
+      const eqArr = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+      const base = editingDriver ? baselineRef.current : null;
+      const bf = base?.form ?? null;
+      // 勤務区分（identities）は upsert＋コース入れ替えを伴い重いので、変更があった時だけ送る
+      const identityChanged =
+        !bf ||
+        form.officeCode !== bf.officeCode ||
+        form.driverNumber !== bf.driverNumber ||
+        !eqArr(form.courseIds, bf.courseIds) ||
+        form.officeCode2 !== bf.officeCode2 ||
+        form.driverNumber2 !== bf.driverNumber2 ||
+        !eqArr(form.courseIds2, bf.courseIds2);
+      // 本体・リースの各リクエストは集めておき、最後に並列で待つ（直列にしない）
+      const jobs: Promise<unknown>[] = [];
       if (editingDriver) {
-        await apiFetch(`/api/admin/users/${editingDriver.id}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            name: form.name,
-            displayName: form.displayName.trim() || null,
-            identities: [
-              {
-                slot: 1,
-                officeCode: form.officeCode,
-                driverNumber: form.driverNumber,
-                courseIds: form.courseIds,
-              },
-              {
-                slot: 2,
-                officeCode: form.officeCode2,
-                driverNumber: form.driverNumber2,
-                courseIds: form.courseIds2,
-              },
-            ],
-            postalCode: form.postalCode.trim() || null,
-            address: form.address.trim() || null,
-            phone: form.phone.trim() || null,
-            bankName: [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null,
-            bankNo: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
-            bankHolder: form.bankHolder.trim() || null,
-            licenseExpiryDate: form.licenseExpiryDate.trim() || null,
-            roleId: form.roleId || null,
-            status: form.status,
-            activeFromMonth: form.activeFromMonth || null,
-            activeUntilMonth: form.activeUntilMonth || null,
-          }),
-        });
+        // 基準点（開いた時点/前回保存時点）との差分だけを送る。
+        // サーバーは undefined の項目を変更しないため、そのまま部分更新になる。
+        // 基準点が無い場合（想定外）は安全側に全項目を送る
+        const putBody: Record<string, unknown> = {};
+        if (!bf || form.name !== bf.name) putBody.name = form.name;
+        if (!bf || form.displayName !== bf.displayName) putBody.displayName = form.displayName.trim() || null;
+        if (!bf || form.postalCode !== bf.postalCode) putBody.postalCode = form.postalCode.trim() || null;
+        if (!bf || form.address !== bf.address) putBody.address = form.address.trim() || null;
+        if (!bf || form.phone !== bf.phone) putBody.phone = form.phone.trim() || null;
+        const bankChanged =
+          !bf ||
+          form.bankInstitution !== bf.bankInstitution ||
+          form.bankBranch !== bf.bankBranch ||
+          form.bankType !== bf.bankType ||
+          form.bankTypeOther !== bf.bankTypeOther ||
+          form.bankNumber !== bf.bankNumber ||
+          form.bankHolder !== bf.bankHolder;
+        if (bankChanged) {
+          putBody.bankName = [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null;
+          putBody.bankNo = [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null;
+          putBody.bankHolder = form.bankHolder.trim() || null;
+        }
+        if (!bf || form.licenseExpiryDate !== bf.licenseExpiryDate) {
+          putBody.licenseExpiryDate = form.licenseExpiryDate.trim() || null;
+        }
+        if (!bf || form.roleId !== bf.roleId) putBody.roleId = form.roleId || null;
+        if (!bf || form.status !== bf.status) putBody.status = form.status;
+        if (!bf || form.activeFromMonth !== bf.activeFromMonth) putBody.activeFromMonth = form.activeFromMonth || null;
+        if (!bf || form.activeUntilMonth !== bf.activeUntilMonth) putBody.activeUntilMonth = form.activeUntilMonth || null;
+        if (identityChanged) {
+          putBody.identities = [
+            {
+              slot: 1,
+              officeCode: form.officeCode,
+              driverNumber: form.driverNumber,
+              courseIds: form.courseIds,
+            },
+            {
+              slot: 2,
+              officeCode: form.officeCode2,
+              driverNumber: form.driverNumber2,
+              courseIds: form.courseIds2,
+            },
+          ];
+        }
+        if (Object.keys(putBody).length > 0) {
+          jobs.push(
+            apiFetch(`/api/admin/users/${editingDriver.id}`, {
+              method: "PUT",
+              body: JSON.stringify(putBody),
+            }),
+          );
+        }
+        // 一覧は即時反映（サーバー完了を待たない）
         setDrivers((prev) =>
-          sortDrivers(
-            prev.map((d) =>
-              d.id === editingDriver.id
-                ? {
-                    ...d,
-                    name: form.name.trim(),
-                    display_name: form.displayName.trim() || null,
-                    office_code: form.officeCode,
-                    driver_code: driverCode,
-                    postal_code: form.postalCode.trim() || null,
-                    address: form.address.trim() || null,
-                    phone: form.phone.trim() || null,
-                    bank_name: [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null,
-                    bank_no: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
-                    bank_holder: form.bankHolder.trim() || null,
-                    license_expiry_date: form.licenseExpiryDate.trim() || null,
-                    status: form.status,
-                    active_from_month: form.activeFromMonth || null,
-                    active_until_month: form.activeUntilMonth || null,
-                    driver_identities: nextIdentities,
-                  }
-                : d,
-            ),
-          ),
+          sortDrivers(prev.map((d) => (d.id === editingDriver.id ? applyFormToDriver(d) : d))),
         );
       } else {
         const created = await apiFetch<{ driver: Driver }>("/api/admin/users", {
@@ -652,10 +712,11 @@ export default function UsersPage() {
         savedDriverId = created.driver.id;
       }
 
-      // リース設定（専用概念）。enabled=false / 金額0 で解除。
-      if (savedDriverId) {
-        try {
-          await apiFetch("/api/admin/driver-lease", {
+      // リース設定（専用概念）。enabled=false / 金額0 で解除。変更があった時だけ送る
+      const leaseChanged = !base || JSON.stringify(leaseForm) !== JSON.stringify(base.lease);
+      if (savedDriverId && leaseChanged) {
+        jobs.push(
+          apiFetch("/api/admin/driver-lease", {
             method: "PUT",
             body: JSON.stringify({
               driver_id: savedDriverId,
@@ -664,24 +725,48 @@ export default function UsersPage() {
               amount: leaseForm.enabled ? parseInt(leaseForm.amount, 10) || 0 : 0,
               valid_from: leaseForm.validFrom || currentMonthStartStr(),
             }),
-          });
-        } catch (leaseErr) {
-          console.error("[users] lease save error", leaseErr);
-        }
+          }).catch((leaseErr) => {
+            // リースだけの失敗で本体の保存をエラー扱いにしない（従来挙動の踏襲）
+            console.error("[users] lease save error", leaseErr);
+          }),
+        );
       }
 
-      // 保存後はキャッシュを無効化（次回オープン時に最新を1回だけ取得）
-      if (savedDriverId) detailCache.current.delete(savedDriverId);
+      // 集めたリクエストを並列で待つ（従来は本体→リースの直列で「保存中…」が長かった）
+      await Promise.all(jobs);
+
+      // 次回の差分計算の基準を「今保存した状態」に進める
+      baselineRef.current = {
+        form: { ...form, courseIds: [...form.courseIds], courseIds2: [...form.courseIds2] },
+        lease: { ...leaseForm },
+      };
+
+      // 詳細キャッシュには保存内容を直接反映する（再オープン時も即表示を保つ）。
+      // キャッシュが無ければ次回オープン時に取得される
+      const cachedDetail = savedDriverId ? detailCache.current.get(savedDriverId) : undefined;
+      if (savedDriverId && cachedDetail) {
+        detailCache.current.set(savedDriverId, {
+          driver: applyFormToDriver(cachedDetail.driver),
+          lease: leaseForm.enabled
+            ? {
+                mode: leaseForm.mode,
+                amount: parseInt(leaseForm.amount, 10) || 0,
+                valid_from: leaseForm.validFrom || currentMonthStartStr(),
+              }
+            : null,
+        });
+      }
       if (silent) {
       } else {
         setShowModal(false);
       }
-      // コース画面の「担当ドライバー」も変わるため、そちらのキャッシュも落とす。
-      void invalidateApi("/api/admin/courses");
+      // コース画面の「担当ドライバー」はコース割り当てが変わった時だけ最新化する
+      if (identityChanged) void invalidateApi("/api/admin/courses");
       // 一覧の SWR キャッシュも最新化する（dedupingInterval があるため、
       // これを怠ると再訪時に古い一覧で上書きされ「保存されていない」ように見える）。
-      // 保存自体は確定済みなので待たない。
-      void mutateUsers();
+      // 自動保存の連続中に即時再取得すると「保存前のサーバー状態」で巻き戻って
+      // 見えるため、保存が落ち着いてから1回だけ行う
+      scheduleUsersRefetch();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -697,6 +782,7 @@ export default function UsersPage() {
         });
       }
     } finally {
+      saveInflightRef.current -= 1;
       setSaving(false);
     }
   };

@@ -1852,3 +1852,22 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
   （analytics/sales の既存利用の互換維持）。order に id タイブレーク追加
 - 画面は useSWRInfinite で30台ずつ「上から順に」取得し、hasMore の間は自動追い読み
   （users 一覧と同じ方式）。名簿（割当候補）は別 useApi に分離。車両画像は loading="lazy"
+
+## 2026-08-14 ドライバー一覧の保存を差分化・即時反映（挙動不安定と「保存中…」長すぎの解消）
+
+原因は3つ:
+① 自動保存のたびに全項目PUT（identities の upsert＋コース総入れ替え含む）→ 本体→リースの直列 await で「保存中…」が長い
+② 保存直後の `mutateUsers()` が全ページ再取得 → 自動保存の連続中に「保存前のサーバー状態」で
+   flattenedDrivers 同期エフェクトが楽観更新を上書き（シフト画面と同型の巻き戻り）
+③ 変更していないリース・コースキャッシュまで毎回更新
+
+対応（apps/web の users/page.tsx のみ・API 変更なし）:
+- **差分PUT**: モーダルを開いた時点のフォーム値を baselineRef に記録し、変わった項目だけ送る。
+  identities は6項目（事業所/番号/コース×2枠）のどれかが変わった時だけ、リースは leaseForm が
+  変わった時だけ。サーバーは元々 undefined の項目を変更しない部分更新仕様なのでAPI改修不要
+- **並列化**: 本体PUTとリースPUTを Promise.all で同時実行（リース失敗は従来どおり握りつぶし）
+- **巻き戻り防止**: saveInflightRef（実行中カウント）を導入。SWR 同期エフェクトは保存中スキップ、
+  再取得は scheduleUsersRefetch（1.5s 遅延＋保存中は再延期）で落ち着いてから1回だけ
+- **詳細キャッシュを直接更新**: 保存後に detailCache を delete せず applyFormToDriver で書き換え
+  （再オープンも hover 先読みの即表示を維持）。コース画面のキャッシュ無効化は identities 変更時のみ
+- 検証: tsc / vitest 444 / next build ✅（未コミット）
