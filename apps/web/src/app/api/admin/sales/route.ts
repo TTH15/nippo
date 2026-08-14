@@ -24,6 +24,11 @@ export async function GET(req: NextRequest) {
   const url = req.nextUrl;
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
+  // 集計バケット: day=日別（既定）/ half=前後半（1-15・16-末）/ month=月別。
+  // 長期間はバケットで畳んで返し、点数を抑える（月別12ヶ月=12点）
+  const bucketParam = url.searchParams.get("bucket");
+  const bucket: "day" | "half" | "month" =
+    bucketParam === "half" || bucketParam === "month" ? bucketParam : "day";
   const courseIdsParam = url.searchParams.get("course_ids");
   const driverIdParam = url.searchParams.get("driver_id");
   const courseIds = new Set(
@@ -173,13 +178,58 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => a.sort - b.sort)
     .map(({ id, key, profitKey, name }) => ({ id, key, profitKey, name }));
 
+  // 日別マップをバケットへ畳む（day はそのまま）。iso はバケット先頭日、date は表示ラベル
   const sortedDates = Array.from(dateMap.keys()).sort();
-  const out = sortedDates.map((date) => {
-    const d = dateMap.get(date)!;
-    const [, m, day] = date.split("-");
+  let outRows: Array<{ iso: string; label: string; b: Bucket }>;
+  if (bucket === "day") {
+    outRows = sortedDates.map((date) => {
+      const [, m, day] = date.split("-");
+      return { iso: date, label: `${Number(m)}/${Number(day)}`, b: dateMap.get(date)! };
+    });
+  } else {
+    const folded = new Map<string, { label: string; b: Bucket }>();
+    for (const date of sortedDates) {
+      const [y, m, dd] = date.split("-").map(Number);
+      const ym = date.slice(0, 7);
+      const iso = bucket === "month" ? `${ym}-01` : dd <= 15 ? `${ym}-01` : `${ym}-16`;
+      const label = bucket === "month" ? `${y}/${m}` : `${m}月${dd <= 15 ? "前半" : "後半"}`;
+      let cur = folded.get(iso);
+      if (!cur) {
+        cur = {
+          label,
+          b: {
+            yamato: 0, amazon: 0, other: 0, yamato_profit: 0, amazon_profit: 0, profit: 0,
+            byCarrier: {}, byCarrierProfit: {}, reportCount: 0, pendingCount: 0, logCount: 0,
+          },
+        };
+        folded.set(iso, cur);
+      }
+      const d = dateMap.get(date)!;
+      cur.b.yamato += d.yamato;
+      cur.b.amazon += d.amazon;
+      cur.b.other += d.other;
+      cur.b.yamato_profit += d.yamato_profit;
+      cur.b.amazon_profit += d.amazon_profit;
+      cur.b.profit += d.profit;
+      cur.b.reportCount += d.reportCount;
+      cur.b.pendingCount += d.pendingCount;
+      cur.b.logCount += d.logCount;
+      for (const [cid, v] of Object.entries(d.byCarrier)) {
+        cur.b.byCarrier[cid] = (cur.b.byCarrier[cid] ?? 0) + v;
+      }
+      for (const [cid, v] of Object.entries(d.byCarrierProfit)) {
+        cur.b.byCarrierProfit[cid] = (cur.b.byCarrierProfit[cid] ?? 0) + v;
+      }
+    }
+    outRows = Array.from(folded.entries())
+      .sort(([a], [b2]) => a.localeCompare(b2))
+      .map(([iso, v]) => ({ iso, label: v.label, b: v.b }));
+  }
+
+  const out = outRows.map(({ iso, label, b: d }) => {
     const row: Record<string, unknown> = {
-      iso: date,
-      date: `${Number(m)}/${Number(day)}`,
+      iso,
+      date: label,
       yamato: d.yamato,
       amazon: d.amazon,
       other: d.other,

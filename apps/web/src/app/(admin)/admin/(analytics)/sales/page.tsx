@@ -10,6 +10,7 @@ import { hasCapability } from "@/lib/capabilities";
 import { Button } from "@/lib/ui/button";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
 import { DatePicker } from "@/lib/components/DatePicker";
+import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { UnderlineTabs } from "@/lib/components/UnderlineTabs";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -88,6 +89,20 @@ function toLocalYmd(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function monthStartIso(y: number, m: number): string {
+  return `${y}-${String(m).padStart(2, "0")}-01`;
+}
+
+function monthEndIso(y: number, m: number): string {
+  const last = new Date(y, m, 0).getDate();
+  return `${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+}
+
+function shiftMonth(y: number, m: number, delta: number): { year: number; month: number } {
+  const d = new Date(y, m - 1 + delta, 1);
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -886,7 +901,13 @@ function LogEntriesByDate({
 
 export default function SalesPage() {
   const [tab, setTab] = useState<Tab>("analytics");
-  const [range, setRange] = useState<DateRangeValue | undefined>();
+  // 期間の単位: 日別=基準月の日別 / 前後半=直近12期（6ヶ月） / 月別=直近12ヶ月 / 期間指定=任意範囲の日別
+  const [unit, setUnit] = useState<"day" | "half" | "month" | "custom">("day");
+  const [baseMonth, setBaseMonth] = useState(() => {
+    const t = reportDateDefaultJST();
+    return { year: Number(t.slice(0, 4)), month: Number(t.slice(5, 7)) };
+  });
+  const [customRange, setCustomRange] = useState<DateRangeValue | undefined>();
   const [deliveryData, setDeliveryData] = useState<DataPoint[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [loadingSummary, setLoadingSummary] = useState(false);
@@ -972,14 +993,38 @@ export default function SalesPage() {
     else if (t === "log") setTab("log");
   }, []);
 
+  // テーブル・売上ログ・日別詳細の対象範囲: 期間指定なら任意範囲、それ以外は基準月
   const startIso = useMemo(
-    () => (range?.startDate ? toLocalYmd(range.startDate) : ""),
-    [range?.startDate],
+    () =>
+      unit === "custom"
+        ? customRange?.startDate
+          ? toLocalYmd(customRange.startDate)
+          : ""
+        : monthStartIso(baseMonth.year, baseMonth.month),
+    [unit, customRange?.startDate, baseMonth],
   );
   const endIso = useMemo(
-    () => (range?.endDate ? toLocalYmd(range.endDate) : ""),
-    [range?.endDate],
+    () =>
+      unit === "custom"
+        ? customRange?.endDate
+          ? toLocalYmd(customRange.endDate)
+          : ""
+        : monthEndIso(baseMonth.year, baseMonth.month),
+    [unit, customRange?.endDate, baseMonth],
   );
+
+  // グラフの表示窓（単位トグルはグラフタブのみ有効。他タブは基準月/任意範囲の日別に固定し、
+  // テーブルと数字の窓を一致させる）
+  const chartUnit = tab === "analytics" ? unit : unit === "custom" ? "custom" : "day";
+  const chartStartIso = useMemo(() => {
+    if (chartUnit === "day" || chartUnit === "custom") return startIso;
+    const back = chartUnit === "month" ? 11 : 5; // 月別=12ヶ月 / 前後半=12期（6ヶ月）
+    const s = shiftMonth(baseMonth.year, baseMonth.month, -back);
+    return monthStartIso(s.year, s.month);
+  }, [chartUnit, startIso, baseMonth]);
+  const chartEndIso = endIso;
+  const bucketQuery =
+    chartUnit === "half" ? "&bucket=half" : chartUnit === "month" ? "&bucket=month" : "";
 
   useEffect(() => {
     if (!startIso || !endIso) return;
@@ -993,9 +1038,9 @@ export default function SalesPage() {
   }, [startIso, endIso]);
 
   const prevRange = useMemo(() => {
-    if (!startIso || !endIso) return null;
-    const start = new Date(startIso);
-    const end = new Date(endIso);
+    if (!chartStartIso || !chartEndIso) return null;
+    const start = new Date(chartStartIso);
+    const end = new Date(chartEndIso);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return null;
     const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1) || 1;
     const prevEnd = new Date(start);
@@ -1003,12 +1048,15 @@ export default function SalesPage() {
     const prevStart = new Date(prevEnd);
     prevStart.setDate(prevStart.getDate() - (days - 1));
     return { prevStartIso: toLocalYmd(prevStart), prevEndIso: toLocalYmd(prevEnd) };
-  }, [startIso, endIso]);
+  }, [chartStartIso, chartEndIso]);
 
-  const salesKey = startIso && endIso ? `/api/admin/sales?start=${startIso}&end=${endIso}${salesFilterQuery}` : null;
+  const salesKey =
+    chartStartIso && chartEndIso
+      ? `/api/admin/sales?start=${chartStartIso}&end=${chartEndIso}${salesFilterQuery}${bucketQuery}`
+      : null;
   const prevSalesKey =
     prevRange != null
-      ? `/api/admin/sales?start=${prevRange.prevStartIso}&end=${prevRange.prevEndIso}${salesFilterQuery}`
+      ? `/api/admin/sales?start=${prevRange.prevStartIso}&end=${prevRange.prevEndIso}${salesFilterQuery}${bucketQuery}`
       : null;
 
   const { data: salesDataRes, isLoading: salesLoading } = useSWR<{ data: DataPoint[]; carriers?: CarrierMeta[] }>(
@@ -1396,7 +1444,7 @@ export default function SalesPage() {
     return totals;
   }, [totals]);
 
-  const daysCount = daysInRange.length || 1;
+  // 「稼働あり」のバケット数（日別なら日数、前後半/月別なら期数）。平均・稼働率の分母
   const activeDays = useMemo(
     () => displayData.filter((d) => d.yamato + d.amazon > 0).length,
     [displayData],
@@ -1427,8 +1475,8 @@ export default function SalesPage() {
 
   const revenuePerDay = activeDays > 0 ? displayTotals.total / activeDays : 0;
   const revenuePerDriver = displayTotals.total / activeDriverCount;
-  const utilization =
-    daysCount > 0 ? ((activeDays / daysCount) * 100) : 0;
+  // グラフと同じバケット数を分母にする（日別=期間日数、前後半/月別=期数）
+  const utilization = displayData.length > 0 ? (activeDays / displayData.length) * 100 : 0;
 
   const revenueChangePct =
     prevTotals && prevTotals.total
@@ -1498,9 +1546,47 @@ export default function SalesPage() {
           </div>
         )}
 
-        {/* 日付範囲選択 + キャリア・コースフィルタ（アナリティクス / 集計 共通） */}
+        {/* 期間選択（単位トグル + 年月/任意範囲） + キャリア・コースフィルタ（アナリティクス / 集計 共通） */}
         <div className="flex flex-col gap-4 mb-6">
-          <DateRangePicker value={range} onChange={setRange} presets={["last_month", "current_month", "one_year", "custom"]} />
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-lg">
+              {(tab === "analytics"
+                ? ([
+                    { key: "day", label: "日別" },
+                    { key: "half", label: "前後半" },
+                    { key: "month", label: "月別" },
+                    { key: "custom", label: "期間指定" },
+                  ] as const)
+                : ([
+                    { key: "day", label: "月" },
+                    { key: "custom", label: "期間指定" },
+                  ] as const)
+              ).map((o) => {
+                const active = tab === "analytics" ? unit === o.key : (unit === "custom" ? "custom" : "day") === o.key;
+                return (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() => setUnit(o.key)}
+                    className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                      active ? "bg-white text-slate-900 shadow-sm font-medium" : "text-slate-500 hover:text-slate-900"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+            {unit === "custom" ? (
+              <DateRangePicker
+                value={customRange}
+                onChange={setCustomRange}
+                presets={["last_month", "current_month", "custom"]}
+              />
+            ) : (
+              <MonthYearPicker value={baseMonth} onChange={setBaseMonth} />
+            )}
+          </div>
           <div className="flex flex-wrap items-center gap-4">
             <span className="text-xs text-slate-500">対象コース</span>
             <CourseSelect
@@ -1940,7 +2026,8 @@ export default function SalesPage() {
               </>
             ) : (
               <>
-                {/* 1日の売上（選択日） */}
+                {/* 1日の売上（選択日）。前後半/月別のバケット表示では日別点が無いため出さない */}
+                {(chartUnit === "day" || chartUnit === "custom") && (
                 <div className="bg-white rounded-lg border border-slate-200 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -1979,6 +2066,7 @@ export default function SalesPage() {
                     </p>
                   )}
                 </div>
+                )}
 
                 {/* 売上カード: 売上を大きく、前期間比は近くに小さく */}
                 <div className="bg-white rounded-lg border border-slate-200 p-4">
@@ -2019,7 +2107,7 @@ export default function SalesPage() {
                     {marginDiff == null && <span>– 粗利率変化</span>}
                   </div>
                   <div className="mt-1 text-xs text-slate-500">
-                    1日あたり平均{" "}
+                    {chartUnit === "half" ? "半月あたり平均" : chartUnit === "month" ? "月あたり平均" : "1日あたり平均"}{" "}
                     <span className="font-semibold tabular-nums text-slate-700">{fmt(dailyAvg.profit)}</span>
                   </div>
                 </div>
@@ -2069,7 +2157,9 @@ export default function SalesPage() {
                 <div className="bg-white rounded-lg border border-slate-200 p-4">
                   <div className="space-y-3 text-sm">
                     <div>
-                      <div className="text-xs font-semibold text-slate-500 mb-0.5">1日平均売上</div>
+                      <div className="text-xs font-semibold text-slate-500 mb-0.5">
+                        {chartUnit === "half" ? "半月平均売上" : chartUnit === "month" ? "月平均売上" : "1日平均売上"}
+                      </div>
                       <div className="font-semibold text-slate-900">{fmt(Math.round(revenuePerDay))}</div>
                     </div>
                     <hr className="border-slate-100" />
@@ -2081,7 +2171,7 @@ export default function SalesPage() {
                     <div>
                       <div className="text-xs font-semibold text-slate-500 mb-0.5">稼働率</div>
                       <div className="font-semibold text-slate-900">
-                        {daysCount > 0 ? `${utilization.toFixed(1)}%` : "–"}
+                        {displayData.length > 0 ? `${utilization.toFixed(1)}%` : "–"}
                       </div>
                     </div>
                   </div>
