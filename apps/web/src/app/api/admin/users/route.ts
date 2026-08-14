@@ -60,11 +60,13 @@ export async function GET(req: NextRequest) {
 
   // all=1: ページングなしで全ドライバーを返す（車両のドライバー選択など、セレクタ用途）。
   // 顔写真の署名はしない（一覧表示専用の重い処理を避ける）。
+  // 住所・口座は請求書エディタのプレフィル用（対象は active/inactive のみで pending には出さない）。
   if (url.searchParams.get("all") === "1") {
     let allQuery = supabase
       .from("drivers")
       .select(`
         id, name, display_name, role, office_code, driver_code, list_no, status, active_from_month, active_until_month,
+        postal_code, address, phone, bank_name, bank_no, bank_holder,
         driver_identities (
           id, slot, driver_code, office_code, label,
           driver_courses ( course_id, courses (id, name, color) )

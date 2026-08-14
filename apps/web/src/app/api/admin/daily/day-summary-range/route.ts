@@ -5,9 +5,17 @@ import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 import { loadReportContents } from "@/server/aggregation/reportContent";
-import { fetchAllRows } from "@/server/aggregation/pagination";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "@/server/aggregation/pagination";
+import { loadPendingDates } from "@/server/daily/pendingDates";
 
 export const dynamic = "force-dynamic";
+
+// 2026-08 監査での構造変更:
+// - pending=1 は「要対応が残る日」をまず確定（RPC 優先・migration 133）し、
+//   シフト・日報はその日だけ読む（従来は 2020年〜の全履歴を毎回転送していた）
+// - report_entries の二重読みを廃止（withEntries:false。表示は loadReportContents の content のみ）
+// - drivers はトップレベルに1回だけ返す（従来は日数ぶん複製）。
+//   driverPreferredVehicle はクライアント未使用のため廃止。
 
 type VehiclePlatePayload = {
   id: string;
@@ -32,10 +40,12 @@ function toPlatePayload(v: any): VehiclePlatePayload | null {
   };
 }
 
+type ShiftRow = { shift_date: string | null; driver_id: string | null; course_id: string | null };
+
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_reports");
   if (isAuthError(user)) return user;
-  const orgId = await resolveOrgId(user.driverId);
+  const orgId = user.orgId ?? (await resolveOrgId(user.driverId));
 
   const url = req.nextUrl;
   let startParam = url.searchParams.get("start");
@@ -87,31 +97,85 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    // 半年・1年指定ではシフト行が PostgREST の既定上限(1000行)を超える。
-    // 上限で黙って切られると後半の日付のシフトが欠落し「休み」誤表示（未提出の見逃し）
-    // になるため、必ずページングで全件取得する（2026-08-02 の不具合）。
-    let shiftRows: Array<{ shift_date: string | null; driver_id: string | null; course_id: string | null }>;
-    try {
-      shiftRows = await fetchAllRows((from, to) =>
-        supabase
-          .from("shifts")
-          .select("shift_date, driver_id, course_id")
-          .gte("shift_date", startParam)
-          .lte("shift_date", endParam)
-          .not("driver_id", "is", null)
-          .order("shift_date", { ascending: true })
-          .order("id", { ascending: true })
-          .range(from, to),
-      );
-    } catch (shiftsErr) {
-      console.error("[admin/daily/day-summary-range] shifts error", shiftsErr);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    let dates: string[];
+    let shiftRows: ShiftRow[];
+    let reportRows: Awaited<ReturnType<typeof loadLegacyDailyRows>>;
+
+    if (pendingOnly) {
+      // ① 要対応が残る日を先に確定（RPC 優先＋フォールバック）。今日は常に表示する。
+      const pendingDates = await loadPendingDates(supabase, orgId, startParam, endParam);
+      const kept = new Set(pendingDates.filter((d) => d <= businessToday));
+      kept.add(businessToday);
+      dates = Array.from(kept);
+
+      // ② シフト・日報は確定した日だけ読む（IN 句は 200 件ずつ分割）
+      shiftRows = [];
+      reportRows = [];
+      for (let i = 0; i < dates.length; i += IN_CLAUSE_BATCH_SIZE) {
+        const slice = dates.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+        const [shiftSlice, reportSlice] = await Promise.all([
+          fetchAllRows<ShiftRow>((from, to) =>
+            supabase
+              .from("shifts")
+              .select("shift_date, driver_id, course_id")
+              .in("shift_date", slice)
+              .not("driver_id", "is", null)
+              .order("shift_date", { ascending: true })
+              .order("id", { ascending: true })
+              .range(from, to),
+          ),
+          loadLegacyDailyRows(
+            supabase,
+            orgId,
+            { dates: slice },
+            { idSource: "v2", withVehicle: true, withEntries: false },
+          ),
+        ]);
+        shiftRows.push(...shiftSlice);
+        reportRows.push(...reportSlice);
+      }
+    } else {
+      // 半年・1年指定ではシフト行が PostgREST の既定上限(1000行)を超える。
+      // 上限で黙って切られると後半の日付のシフトが欠落し「休み」誤表示（未提出の見逃し）
+      // になるため、必ずページングで全件取得する（2026-08-02 の不具合）。
+      const [shiftsRes, reportsRes] = await Promise.all([
+        fetchAllRows<ShiftRow>((from, to) =>
+          supabase
+            .from("shifts")
+            .select("shift_date, driver_id, course_id")
+            .gte("shift_date", startParam)
+            .lte("shift_date", endParam)
+            .not("driver_id", "is", null)
+            .order("shift_date", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to),
+        ),
+        loadLegacyDailyRows(
+          supabase,
+          orgId,
+          { start: startParam, end: endParam },
+          { idSource: "v2", withVehicle: true, withEntries: false },
+        ),
+      ]);
+      shiftRows = shiftsRes;
+      reportRows = reportsRes;
+
+      dates = [];
+      const d = new Date(startParam);
+      const end = new Date(endParam);
+      while (d <= end) {
+        dates.push(d.toISOString().slice(0, 10));
+        d.setDate(d.getDate() + 1);
+      }
     }
+
+    // 却下済みは同日に残るため、一覧は「未却下」を優先表示
+    reportRows = reportRows.filter((r) => !r.rejected_at);
 
     const shiftsByDate = new Map<string, Set<string>>();
     // 日付×ドライバーごとの担当コース集合（1日複数コースの未提出検出用）
     const shiftCoursesByDate = new Map<string, Map<string, Set<string>>>();
-    (shiftRows ?? []).forEach((r: any) => {
+    (shiftRows ?? []).forEach((r) => {
       if (!r.shift_date || !r.driver_id) return;
       if (!shiftsByDate.has(r.shift_date)) shiftsByDate.set(r.shift_date, new Set());
       shiftsByDate.get(r.shift_date)!.add(r.driver_id);
@@ -121,77 +185,6 @@ export async function GET(req: NextRequest) {
       if (!byDriver.has(r.driver_id)) byDriver.set(r.driver_id, new Set());
       byDriver.get(r.driver_id)!.add(r.course_id);
     });
-
-    const driverIds = (drivers ?? []).map((d: { id: string }) => d.id);
-    const { data: prefRows } = driverIds.length
-      ? await supabase
-          .from("driver_vehicle_preferences")
-          .select("driver_id, vehicles ( id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand )")
-          .in("driver_id", driverIds)
-      : { data: [] };
-    const driverPreferredVehicle: Record<string, VehiclePlatePayload> = {};
-    (prefRows ?? []).forEach((row: any) => {
-      const plate = toPlatePayload(row.vehicles);
-      if (row.driver_id && plate) driverPreferredVehicle[row.driver_id] = plate;
-    });
-
-    let reportRows: Awaited<ReturnType<typeof loadLegacyDailyRows>>;
-    try {
-      const all = await loadLegacyDailyRows(
-        supabase,
-        orgId,
-        { start: startParam, end: endParam },
-        { idSource: "v2", withVehicle: true },
-      );
-      // 却下済みは同日に残るため、一覧は「未却下」を優先表示
-      reportRows = all.filter((r) => !r.rejected_at);
-    } catch (e) {
-      console.error("[admin/daily/day-summary-range] reports error", e);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
-
-    // pending モード: 応答する日付を「要対応が残る日＋今日」だけに先に確定し、
-    // レポート行もその日付に絞る（全履歴を返すとペイロードが日数分肥大するため）。
-    let keptDates: string[] | null = null;
-    if (pendingOnly) {
-      // 日付×ドライバーの提出コース集合と未承認有無（判定に必要な最小情報だけの素集計）
-      const submitted = new Map<string, Map<string, { courses: Set<string>; hasUnapproved: boolean }>>();
-      (reportRows ?? []).forEach((r: any) => {
-        if (!r.report_date || !r.driver_id) return;
-        if (!submitted.has(r.report_date)) submitted.set(r.report_date, new Map());
-        const byDriver = submitted.get(r.report_date)!;
-        const cur = byDriver.get(r.driver_id) ?? { courses: new Set<string>(), hasUnapproved: false };
-        if (r.course_id) cur.courses.add(r.course_id);
-        if (!r.approved_at) cur.hasUnapproved = true;
-        byDriver.set(r.driver_id, cur);
-      });
-
-      const hasPendingOn = (date: string): boolean => {
-        const byDriver = submitted.get(date);
-        if (byDriver) {
-          for (const v of byDriver.values()) if (v.hasUnapproved) return true;
-        }
-        const coursesByDriver = shiftCoursesByDate.get(date);
-        for (const driverId of shiftsByDate.get(date) ?? []) {
-          const rec = byDriver?.get(driverId);
-          if (!rec) return true; // シフトがあるのに日報ゼロ
-          const cs = coursesByDriver?.get(driverId);
-          if (cs && Array.from(cs).some((c) => !rec.courses.has(c))) return true; // 一部コース未提出
-        }
-        return false;
-      };
-
-      const candidates = new Set<string>([businessToday]);
-      shiftsByDate.forEach((_v, date) => {
-        if (date <= businessToday) candidates.add(date);
-      });
-      submitted.forEach((_v, date) => {
-        if (date <= businessToday) candidates.add(date);
-      });
-      keptDates = Array.from(candidates).filter((date) => date === businessToday || hasPendingOn(date));
-      const keep = new Set(keptDates);
-      reportRows = (reportRows ?? []).filter((r: any) => keep.has(r.report_date));
-    }
 
     // 内容（送信画面と同じ動的 unit/field 構造）を report_entries から取得
     const contentByReport = await loadReportContents(
@@ -215,10 +208,11 @@ export async function GET(req: NextRequest) {
         course_id: r.course_id ?? null,
         course_name: r.course_name ?? null,
         content: contentByReport.get(r.id) ?? [],
-        takuhaibin_completed: Number(r.takuhaibin_completed) ?? 0,
-        takuhaibin_returned: Number(r.takuhaibin_returned) ?? 0,
-        nekopos_completed: Number(r.nekopos_completed) ?? 0,
-        nekopos_returned: Number(r.nekopos_returned) ?? 0,
+        // 旧数値カラムは互換のため残すが、表示は content が正（withEntries:false のため常に0）
+        takuhaibin_completed: Number(r.takuhaibin_completed) || 0,
+        takuhaibin_returned: Number(r.takuhaibin_returned) || 0,
+        nekopos_completed: Number(r.nekopos_completed) || 0,
+        nekopos_returned: Number(r.nekopos_returned) || 0,
         submitted_at: r.submitted_at ?? "",
         carrier: r.carrier ?? null,
         carrier_id: r.carrier_id ?? null,
@@ -228,28 +222,10 @@ export async function GET(req: NextRequest) {
         vehicle_id: r.vehicle_id ?? null,
         meter_value: r.meter_value != null ? Number(r.meter_value) : null,
         vehicle_plate: toPlatePayload(veh),
-        amazon_am_mochidashi: r.amazon_am_mochidashi != null ? Number(r.amazon_am_mochidashi) : 0,
-        amazon_am_completed: r.amazon_am_completed != null ? Number(r.amazon_am_completed) : 0,
-        amazon_pm_mochidashi: r.amazon_pm_mochidashi != null ? Number(r.amazon_pm_mochidashi) : 0,
-        amazon_pm_completed: r.amazon_pm_completed != null ? Number(r.amazon_pm_completed) : 0,
-        amazon_4_mochidashi: r.amazon_4_mochidashi != null ? Number(r.amazon_4_mochidashi) : 0,
-        amazon_4_completed: r.amazon_4_completed != null ? Number(r.amazon_4_completed) : 0,
       });
       reportsByDateDriver.get(date)!.set(driverId, arr);
     });
 
-    let dates: string[];
-    if (keptDates) {
-      dates = keptDates;
-    } else {
-      dates = [];
-      const d = new Date(startParam);
-      const end = new Date(endParam);
-      while (d <= end) {
-        dates.push(d.toISOString().slice(0, 10));
-        d.setDate(d.getDate() + 1);
-      }
-    }
     dates.sort((a, b) => (a > b ? -1 : a < b ? 1 : 0));
 
     const days = dates.map((date) => {
@@ -265,15 +241,14 @@ export async function GET(req: NextRequest) {
       });
       return {
         date,
-        drivers: drivers ?? [],
         shiftDriverIds,
         shiftCoursesByDriver,
         reportsByDriver,
-        driverPreferredVehicle,
       };
     });
 
-    return NextResponse.json({ days });
+    // drivers は全日で共通のためトップレベルに1回だけ返す（ペイロードの二次膨張防止）
+    return NextResponse.json({ days, drivers: drivers ?? [] });
   } catch (err) {
     console.error("[admin/daily/day-summary-range] error", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -191,6 +191,9 @@ export type EditorState = {
   counterpartyInvoiceAddressId: string | null;
   status: "draft" | "pending_approval" | "approved" | "paid";
   parties: { fromParty: string; toParty: string };
+  /** エディタが管理しない payload キー（attachments / source 等）。保存時にそのまま引き継ぐ。
+   *  これが無いと、アップロード済み請求書を編集した瞬間に添付が消える。 */
+  passthrough: Record<string, unknown>;
 };
 
 const n = (v: unknown): number => {
@@ -246,7 +249,35 @@ export function blankEditorState(kind: InvoiceKind): EditorState {
     parties: isIncoming
       ? { fromParty: "", toParty: "ace_creation" }
       : { fromParty: "ace_creation", toParty: "" },
+    passthrough: {},
   };
+}
+
+/** payloadFromEditor が書き出すキー。これ以外の既存キーは passthrough で温存する。 */
+const MANAGED_PAYLOAD_KEYS = new Set([
+  "toName", "toAddr", "toTel", "toReg", "honorific",
+  "fromName", "fromAddr", "fromTel", "fromReg",
+  "period", "invoiceNo", "dueDate",
+  "bankName", "bankNo", "bankHolder", "notes",
+  "tableData", "taxSettings", "loanRepay",
+  "extraOutsourcingExclusive", "extraOutsourcingInclusive",
+  "displayBasis", "extraOutsourcing", "blockBreaks", "layout", "parties",
+]);
+
+/** エディタが管理しないキーだけを抜き出す。添付の署名URL（閲覧用の一時値）は保存しない。 */
+function passthroughFromPayload(p: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(p ?? {})) {
+    if (!MANAGED_PAYLOAD_KEYS.has(k)) out[k] = v;
+  }
+  if (Array.isArray(out.attachments)) {
+    out.attachments = out.attachments.map((a) => {
+      if (!a || typeof a !== "object") return a;
+      const { url: _url, ...rest } = a as Record<string, unknown>;
+      return rest;
+    });
+  }
+  return out;
 }
 
 type ApiInvoice = {
@@ -340,6 +371,7 @@ export function editorFromInvoice(inv: ApiInvoice): EditorState {
       fromParty: s(p?.parties?.fromParty) || base.parties.fromParty,
       toParty: s(p?.parties?.toParty) || base.parties.toParty,
     },
+    passthrough: passthroughFromPayload(p),
   };
 }
 
@@ -416,6 +448,8 @@ export function payloadFromEditor(st: EditorState): Record<string, unknown> {
         ...(l.pageBreakBefore ? { pageBreakBefore: true } : {}),
       }));
   return {
+    // 未管理キー（attachments / source 等）を先に展開し、管理キーで上書きする
+    ...st.passthrough,
     toName: st.toName,
     toAddr: st.toAddrHtml,
     toTel: st.toTel,

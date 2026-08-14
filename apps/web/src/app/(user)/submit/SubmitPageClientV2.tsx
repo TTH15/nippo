@@ -70,6 +70,8 @@ export default function SubmitPageClientV2() {
   const [oilAcknowledged, setOilAcknowledged] = useState(false);
 
   const [postSubmit, setPostSubmit] = useState<SubmitScreen | null>(null);
+  // 送信成功＝即・送信後画面へ（データは後追い。POST+GET の合計時間ブロックを解消）
+  const [showPostSubmit, setShowPostSubmit] = useState(false);
 
   const [shifts, setShifts] = useState<ShiftForm[]>([]);
   const [values, setValues] = useState<ValueMap>({});
@@ -249,15 +251,15 @@ export default function SubmitPageClientV2() {
         }),
       });
       setMessage({ kind: "ok", text: "日報を送信しました。" });
-      // 送信後画面（今日の報酬見込み＋ランキング）
-      try {
-        const ps = await apiFetch<SubmitScreen>(
-          `/api/me/submit-screen?date=${encodeURIComponent(dateToReportDateStr(reportDate))}`,
-        );
-        setPostSubmit(ps);
-      } catch {
-        /* 送信後画面の取得失敗は致命的でない */
-      }
+      // 送信後画面（今日の報酬見込み＋ランキング）は即表示し、データは後追いで流し込む
+      setShowPostSubmit(true);
+      void apiFetch<SubmitScreen>(
+        `/api/me/submit-screen?date=${encodeURIComponent(dateToReportDateStr(reportDate))}`,
+      )
+        .then((ps) => setPostSubmit(ps))
+        .catch(() => {
+          /* 送信後画面の取得失敗は致命的でない（スケルトンのまま閉じられる） */
+        });
     } catch (e) {
       setMessage({ kind: "err", text: e instanceof Error ? e.message : "送信に失敗しました" });
     } finally {
@@ -265,8 +267,16 @@ export default function SubmitPageClientV2() {
     }
   }
 
-  if (postSubmit) {
-    return <PostSubmitView data={postSubmit} onClose={() => setPostSubmit(null)} />;
+  if (showPostSubmit) {
+    return (
+      <PostSubmitView
+        data={postSubmit}
+        onClose={() => {
+          setShowPostSubmit(false);
+          setPostSubmit(null);
+        }}
+      />
+    );
   }
 
   if (loading) {

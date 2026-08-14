@@ -3,6 +3,7 @@ import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { syncSalesLogDriverReward } from "@/server/salesLogDriverReward";
+import { fetchAllRows } from "@/server/aggregation/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -42,23 +43,31 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { data: rows, error } = await supabase
-    .from("sales_log_entries")
-    .select(`
-      id, log_date, type_id, content, revenue, profit, amount, attribution,
-      target_driver_id, vehicle_id, memo, counterparty_invoice_address_id, created_at, updated_at,
-      sales_log_types ( name ),
-      drivers ( id, name, display_name ),
-      vehicles ( id, manufacturer, brand, number_numeric )
-    `)
-    .eq("org_id", orgId)
-    .gte("log_date", startParam)
-    .lte("log_date", endParam)
-    .order("log_date", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  // PostgREST の既定上限(1000行)で黙って切られると期間内のログが静かに欠落するため
+  // 必ずページングで全件取得する（P7）。
+  let rows: Record<string, unknown>[];
+  try {
+    rows = await fetchAllRows((from, to) =>
+      supabase
+        .from("sales_log_entries")
+        .select(`
+          id, log_date, type_id, content, revenue, profit, amount, attribution,
+          target_driver_id, vehicle_id, memo, counterparty_invoice_address_id, created_at, updated_at,
+          sales_log_types ( name ),
+          drivers ( id, name, display_name ),
+          vehicles ( id, manufacturer, brand, number_numeric )
+        `)
+        .eq("org_id", orgId)
+        .gte("log_date", startParam)
+        .lte("log_date", endParam)
+        // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+        .order("log_date", { ascending: true })
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "DB error" }, { status: 500 });
   }
 
   const entries: SalesLogEntryRow[] = (rows ?? []).map((r: Record<string, unknown>) => {

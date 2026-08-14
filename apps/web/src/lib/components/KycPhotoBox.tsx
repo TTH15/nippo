@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { getToken } from "@/lib/api";
 
 // ============================================================
 // KYC（本登録）ウィザード共通部品。/join（初期登録）と /register（移行導線）で共用。
@@ -43,6 +44,38 @@ export async function fileToJpegBase64(file: File, maxDim = 1600, quality = 0.72
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+/** base64（prefix なし）→ Blob。再エンコードせずバイト列へ戻すだけ。 */
+export function base64ToBlob(base64: string, mime = "image/jpeg"): Blob {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+/**
+ * KYC写真の送信（multipart）。base64 はローカルのプレビュー・OCR 用に残し、
+ * ネットワーク送信だけバイナリにする（base64 JSON POST は +33% 転送・2026-08 監査）。
+ * サーバー（/api/me/registration/photo）は multipart と base64 JSON の両対応
+ * （mobile KycWizard は base64 経路のまま）。
+ */
+export async function uploadKycPhotoMultipart(
+  kind: "license" | "face",
+  base64: string,
+  mime = "image/jpeg",
+): Promise<void> {
+  const fd = new FormData();
+  fd.append("kind", kind);
+  fd.append("file", new File([base64ToBlob(base64, mime)], `${kind}.jpg`, { type: mime }));
+  const token = getToken();
+  const res = await fetch("/api/me/registration/photo", {
+    method: "POST",
+    body: fd,
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const json = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(json.error || "アップロードに失敗しました");
 }
 
 export function KycPhotoBox({

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
+import { SWRConfig } from "swr";
 import userEvent from "@testing-library/user-event";
 import { RankingTab } from "./RankingTab";
 import type { EventTeamRow, DriverRow, EventMemberRow } from "./types";
@@ -99,10 +100,22 @@ function setupDefaultMocks() {
   });
 }
 
+/**
+ * SWR キャッシュをテストごとに隔離するラッパー。グローバルキャッシュのままだと
+ * 前のテストのモック応答が dedup で残り、以降のテストが古いデータを見る。
+ */
+function wrap(ui: React.ReactElement) {
+  return (
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}>
+      {ui}
+    </SWRConfig>
+  );
+}
+
 function renderTab() {
   const onError = vi.fn();
   const onConfirm = vi.fn();
-  render(
+  render(wrap(
     <RankingTab
       eventId="ev1"
       teams={teams}
@@ -113,7 +126,7 @@ function renderTab() {
       onError={onError}
       onConfirm={onConfirm}
     />,
-  );
+  ));
   return { onError, onConfirm };
 }
 
@@ -264,7 +277,7 @@ describe("RankingTab — 楽観的更新（削除）", () => {
 
     // onConfirm はコールバックを即座に実行するよう設定
     const onConfirm = vi.fn().mockImplementation((_msg: string, cb: () => void) => cb());
-    render(
+    render(wrap(
       <RankingTab
         eventId="ev1"
         teams={teams}
@@ -275,7 +288,7 @@ describe("RankingTab — 楽観的更新（削除）", () => {
         onError={vi.fn()}
         onConfirm={onConfirm}
       />,
-    );
+    ));
     await waitForLoad();
 
     expect(screen.getByText("MVPボーナス")).toBeInTheDocument();
@@ -308,7 +321,7 @@ describe("RankingTab — 楽観的更新（削除）", () => {
 
     const onConfirm = vi.fn().mockImplementation((_msg: string, cb: () => void) => cb());
     const onError = vi.fn();
-    render(
+    render(wrap(
       <RankingTab
         eventId="ev1"
         teams={teams}
@@ -319,7 +332,7 @@ describe("RankingTab — 楽観的更新（削除）", () => {
         onError={onError}
         onConfirm={onConfirm}
       />,
-    );
+    ));
     await waitForLoad();
 
     await userEvent.click(screen.getByRole("button", { name: "削除" }));
@@ -392,7 +405,7 @@ describe("RankingTab — 表示制御", () => {
   });
 
   it("hasPeriod=false のとき期間設定を促す警告のみ表示される", () => {
-    render(
+    render(wrap(
       <RankingTab
         eventId="ev1"
         teams={teams}
@@ -403,7 +416,7 @@ describe("RankingTab — 表示制御", () => {
         onError={vi.fn()}
         onConfirm={vi.fn()}
       />,
-    );
+    ));
     expect(screen.getByText("開始日・終了日")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "加点" })).not.toBeInTheDocument();
     // 期間未設定時は API を呼ぶがランキング UI は出さない
@@ -426,7 +439,7 @@ describe("RankingTab — 表示制御", () => {
       return Promise.resolve({ entries: [existingEntry] });
     });
 
-    render(
+    render(wrap(
       <RankingTab
         eventId="ev1"
         teams={teams}
@@ -437,7 +450,7 @@ describe("RankingTab — 表示制御", () => {
         onError={vi.fn()}
         onConfirm={vi.fn()}
       />,
-    );
+    ));
     await waitForLoad();
 
     expect(screen.queryByRole("button", { name: "加点" })).not.toBeInTheDocument();
@@ -464,42 +477,38 @@ describe("RankingTab — 表示制御", () => {
 // テスト: バックグラウンド同期
 // ────────────────────────────────────────────────────────────
 
-describe("RankingTab — バックグラウンド同期", () => {
+describe("RankingTab — 書き込み後の確定（2026-08 監査で silentSync 廃止）", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("POST 成功後にサーバーデータで静かに置き換わる（ローディング表示なし）", async () => {
-    // サーバー側で計算された確定値（楽観値 120 と異なる 125 を返す）
-    const serverRanking = {
-      ...rankingResponse,
-      individuals: [
-        { driverId: "d1", teamId: "t1", autoPoints: 100, manualPoints: 25, total: 125, breakdown: [] },
-        { driverId: "d2", teamId: "t1", autoPoints: 80, manualPoints: 0, total: 80, breakdown: [] },
-      ],
-    };
-    let postDone = false;
+  it("POST 成功後に ranking API を再実行しない（points だけ確定・楽観値を維持）", async () => {
     mockApiFetch.mockImplementation((url: string, opts?: { method?: string }) => {
-      if (opts?.method === "POST") {
-        postDone = true;
-        return Promise.resolve({});
-      }
-      if (String(url).includes("/ranking")) {
-        return Promise.resolve(postDone ? serverRanking : rankingResponse);
-      }
+      if (opts?.method === "POST") return Promise.resolve({});
+      if (String(url).includes("/ranking")) return Promise.resolve(rankingResponse);
       return Promise.resolve({ entries: [] });
     });
 
     renderTab();
     await waitForLoad();
+    const rankingCallsBefore = mockApiFetch.mock.calls.filter((c) =>
+      String(c[0]).includes("/ranking"),
+    ).length;
 
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "選択" }), "d1");
     await userEvent.type(screen.getByPlaceholderText("±"), "20");
     await userEvent.click(screen.getByRole("button", { name: "加点" }));
 
-    // silentSync 完了後はサーバー確定値（125pt）に置き換わる
-    await waitFor(() => {
-      expect(screen.getAllByText("125 pt").length).toBeGreaterThan(0);
+    // POST 完了・points 確定まで待つ
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
     });
-    // ローディングスケルトンは一度も出ない（silent であること）
+
+    // 楽観値（120pt）が維持され、イベント全期間の再集計（ranking API）は走らない
+    expect(screen.getAllByText("120 pt").length).toBeGreaterThan(0);
+    const rankingCallsAfter = mockApiFetch.mock.calls.filter((c) =>
+      String(c[0]).includes("/ranking"),
+    ).length;
+    expect(rankingCallsAfter).toBe(rankingCallsBefore);
+    // ローディングスケルトンは一度も出ない
     expect(screen.queryByTestId("skeleton")).not.toBeInTheDocument();
   });
 });

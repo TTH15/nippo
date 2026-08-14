@@ -14,21 +14,20 @@ export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
 
-  const { data: driver, error } = await supabase
-    .from("drivers")
-    .select(DRIVER_FIELDS)
-    .eq("id", user.driverId)
-    .single();
+  // 互いに独立な取得は並列で（旧: 5段直列。submit と /me の基幹APIのため往復を削る）
+  const [{ data: driver, error }, { data: identityRows }, identityId] = await Promise.all([
+    supabase.from("drivers").select(DRIVER_FIELDS).eq("id", user.driverId).single(),
+    supabase
+      .from("driver_identities")
+      .select("id, slot, driver_code, office_code, label")
+      .eq("driver_id", user.driverId)
+      .order("slot", { ascending: true }),
+    resolveIdentityId(user),
+  ]);
 
   if (error || !driver) {
     return NextResponse.json({ error: "Driver not found" }, { status: 404 });
   }
-
-  const { data: identityRows } = await supabase
-    .from("driver_identities")
-    .select("id, slot, driver_code, office_code, label")
-    .eq("driver_id", user.driverId)
-    .order("slot", { ascending: true });
 
   const identities = (identityRows ?? []).map((row: {
     id: string;
@@ -46,21 +45,17 @@ export async function GET(req: NextRequest) {
 
   const primary = identities[0];
 
-  const identityId = await resolveIdentityId(user);
   let phoneVerified = false;
   let hasPasskey = false;
   if (identityId) {
-    const { data: identityRow } = await supabase
-      .from("identities")
-      .select("phone_verified_at")
-      .eq("id", identityId)
-      .maybeSingle();
+    const [{ data: identityRow }, { count }] = await Promise.all([
+      supabase.from("identities").select("phone_verified_at").eq("id", identityId).maybeSingle(),
+      supabase
+        .from("passkey_credentials")
+        .select("id", { count: "exact", head: true })
+        .eq("identity_id", identityId),
+    ]);
     phoneVerified = Boolean(identityRow?.phone_verified_at);
-
-    const { count } = await supabase
-      .from("passkey_credentials")
-      .select("id", { count: "exact", head: true })
-      .eq("identity_id", identityId);
     hasPasskey = (count ?? 0) > 0;
   }
 

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { syncReportEntries } from "@/server/reports/entries";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,7 @@ export async function PUT(
 ) {
   const user = await requirePermission(req, "can_edit_reports");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const { id: reportId } = await params;
   if (!reportId) {
@@ -51,6 +54,7 @@ export async function PUT(
       .from("daily_reports_v2")
       .update(updates)
       .eq("id", reportId)
+      .eq("org_id", orgId)
       .select("id")
       .maybeSingle();
 
@@ -75,7 +79,7 @@ export async function PUT(
       );
     }
 
-    // entries が配列で渡されたときのみ report_entries を作り直す（縦持ち）。
+    // entries が配列で渡されたときのみ report_entries を差分同期する（縦持ち）。
     // 未指定（undefined）なら項目は変更しない。
     if (Array.isArray(body.entries)) {
       const entryRows = (body.entries as EntryInput[])
@@ -88,20 +92,12 @@ export async function PUT(
           value_text: e.valueText != null ? String(e.valueText) : null,
         }));
 
-      const { error: delErr } = await supabase
-        .from("report_entries")
-        .delete()
-        .eq("report_id", reportId);
-      if (delErr) {
-        console.error("[admin/daily/reports] entries delete error", delErr);
+      try {
+        // 差分 upsert（変わった項目だけ書く。全削除→全挿入を廃止・2026-08 監査）
+        await syncReportEntries(supabase, reportId, entryRows);
+      } catch (e) {
+        console.error("[admin/daily/reports] entries sync error", e);
         return NextResponse.json({ error: "DB error" }, { status: 500 });
-      }
-      if (entryRows.length > 0) {
-        const { error: insErr } = await supabase.from("report_entries").insert(entryRows);
-        if (insErr) {
-          console.error("[admin/daily/reports] entries insert error", insErr);
-          return NextResponse.json({ error: "DB error" }, { status: 500 });
-        }
       }
     }
 

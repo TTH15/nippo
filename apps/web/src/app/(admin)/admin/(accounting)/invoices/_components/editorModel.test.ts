@@ -97,6 +97,48 @@ describe("editorFromInvoice → saveBodyFromEditor 往復", () => {
     expect(st.kind).toBe("incoming");
   });
 
+  it("アップロード請求書の attachments/source が編集保存で消えない（2026-08-14 データ欠落バグの回帰）", () => {
+    const st = editorFromInvoice({
+      id: "up1",
+      payload: {
+        source: "uploaded_document",
+        billAmountDisplay: "¥0",
+        issueDate: "2026年8月31日",
+        attachments: [
+          // 詳細GETは閲覧用の署名URL（url）を付けて返す
+          { name: "a.pdf", type: "application/pdf", path: "org/x.pdf", url: "https://signed.example/x" },
+        ],
+        parties: { fromParty: "drv-abc", toParty: "ace_creation" },
+        tableData: { main: [], deduct: [] },
+      },
+    });
+    const p = payloadFromEditor(st) as Record<string, unknown>;
+    // エディタが管理しないキーは保存 payload にそのまま残る
+    expect(p.source).toBe("uploaded_document");
+    expect(p.billAmountDisplay).toBe("¥0");
+    expect(p.issueDate).toBe("2026年8月31日");
+    const atts = p.attachments as Record<string, unknown>[];
+    expect(atts).toHaveLength(1);
+    expect(atts[0].path).toBe("org/x.pdf");
+    expect(atts[0].name).toBe("a.pdf");
+    // 閲覧用の一時署名URLは保存しない
+    expect(atts[0].url).toBeUndefined();
+  });
+
+  it("passthrough は管理キーを上書きしない（編集内容が優先）", () => {
+    const st = editorFromInvoice({
+      id: "up2",
+      payload: {
+        source: "uploaded_document",
+        notes: "旧メモ",
+        parties: { fromParty: "drv-abc", toParty: "ace_creation" },
+      },
+    });
+    const p = payloadFromEditor({ ...st, notes: "編集後メモ" }) as Record<string, unknown>;
+    expect(p.notes).toBe("編集後メモ");
+    expect(p.source).toBe("uploaded_document");
+  });
+
   it("旧iframe保存の payload（subject/単価のみ）でも編集に展開される", () => {
     const st = editorFromInvoice({
       id: "old1",

@@ -41,6 +41,39 @@ export function extensionForMime(mime: string): string {
  * data URL を Storage へ上げてパスを返す。
  * 既に path（data URL でない）ならアップロードせずそのまま返す＝再保存で二重にしない。
  */
+/**
+ * バイト列を検査してアップロードする（multipart/FormData 経路用）。
+ * base64 data URL 経由（+33%転送・メモリ肥大）を避けたい新規経路はこちらを使う。
+ */
+export async function uploadBytes(
+  supabase: SupabaseClient,
+  bucket: string,
+  prefix: string,
+  file: { bytes: Uint8Array; mime: string },
+  allowedMime: readonly string[] = ["application/pdf", "image/jpeg", "image/png"],
+): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
+  // ★中身を検査する。MIME は送信側が自由に書けるため、これが無いと
+  //   「image/png と称した HTML」を保存してしまう。
+  const verified = verifyFileContent(file.bytes, allowedMime, file.mime);
+  if (!verified.ok) return { ok: false, message: verified.message };
+
+  const rand =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const path = `${prefix}/${rand}.${extensionForMime(file.mime)}`;
+
+  const { error } = await supabase.storage.from(bucket).upload(path, file.bytes, {
+    contentType: file.mime,
+    upsert: false,
+  });
+  if (error) {
+    console.error(`[storage/${bucket}] upload error`, error);
+    return { ok: false, message: "アップロードに失敗しました（バケット未作成の可能性）。" };
+  }
+  return { ok: true, path };
+}
+
 export async function uploadDataUrl(
   supabase: SupabaseClient,
   bucket: string,

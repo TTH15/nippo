@@ -61,7 +61,12 @@ export async function computeDriverAutoPayout(
   // （会計・請求書側の集計(admin/payments等)は税抜のまま扱うためデフォルトはfalse）。
   const taxInclusive = options?.taxInclusive ?? false;
   const toDisplay = (price: number): number => (taxInclusive ? inclusiveOf(price, "exclusive") : price);
-  const data = await loadAggregationData(supabase, orgId, startDate, endDate);
+  // 本人の日報だけを読む（org 全員分をロードして本人分だけ使うのは
+  // 展開ごとのN+1で全社集計が走る主因だった・2026-08 監査）。ledger は未使用のため読まない。
+  const data = await loadAggregationData(supabase, orgId, startDate, endDate, {
+    driverId,
+    withLedger: false,
+  });
   const unitById = new Map(data.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
   const fixedByCourse = new Map(data.fixedRates.map((r) => [r.courseId, r]));

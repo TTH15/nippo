@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { preload } from "swr";
+import { swrFetcher } from "@/lib/swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrophy } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -89,8 +91,9 @@ export default function EventsPage() {
   // 配送キャリア（units/fields込み）は全体共通のマスタ。イベント詳細は楽観更新保護のため
   // フォーカス再検証を無効化しているので、別画面で追加した新キャリアが採点ルールに反映されない。
   // そこでマスタは独立に取得し、通常どおり再検証して常に最新を採点ルールへ渡す。
+  // キャリア木はこのキー1本（詳細APIからは外した＝二重ダウンロード廃止・2026-08 監査）
   const { data: carrierData } = useApi<{ carriers: CarrierTreeRow[] }>("/api/admin/carriers");
-  const carriers = carrierData?.carriers ?? detail?.carriers ?? [];
+  const carriers = carrierData?.carriers ?? [];
 
   useEffect(() => {
     if (detailError) {
@@ -109,6 +112,26 @@ export default function EventsPage() {
 
   useEffect(() => {
     setCanWrite(hasCapability("can_manage_org_settings"));
+  }, []);
+
+  // hover intent 先読み（P8）: 一覧行に 120ms 留まったら詳細（同一SWRキー）を裏取得
+  const eventHoverTimerRef = useRef<number | null>(null);
+  const prefetchedEventRef = useRef(new Set<string>());
+  const onEventRowHoverStart = useCallback((id: string) => {
+    if (eventHoverTimerRef.current != null) window.clearTimeout(eventHoverTimerRef.current);
+    eventHoverTimerRef.current = window.setTimeout(() => {
+      eventHoverTimerRef.current = null;
+      const key = `/api/admin/events/${id}`;
+      if (prefetchedEventRef.current.has(key)) return;
+      prefetchedEventRef.current.add(key);
+      void preload(key, swrFetcher);
+    }, 120);
+  }, []);
+  const onEventRowHoverEnd = useCallback(() => {
+    if (eventHoverTimerRef.current != null) {
+      window.clearTimeout(eventHoverTimerRef.current);
+      eventHoverTimerRef.current = null;
+    }
   }, []);
 
   const selectEvent = (id: string) => {
@@ -205,6 +228,9 @@ export default function EventsPage() {
                       <button
                         type="button"
                         onClick={() => selectEvent(ev.id)}
+                        onMouseEnter={() => onEventRowHoverStart(ev.id)}
+                        onMouseLeave={onEventRowHoverEnd}
+                        onTouchStart={() => onEventRowHoverStart(ev.id)}
                         className={`w-full text-left px-3 py-2.5 transition-colors ${
                           selectedId === ev.id ? "bg-slate-100" : "hover:bg-slate-50"
                         }`}

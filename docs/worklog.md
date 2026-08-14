@@ -1894,3 +1894,227 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
   - **巻き戻り競合**（users/shiftsと同型）: daily all タブ・notifications 設定・invoices スター・
     counterparties draft・ドライバー希望休提出
 - 次セッションは docs/perf-audit-2026-08.md の §3（Step 0〜5）から着手
+
+## 2026-08-14 通信監査 §3 Step 0（セキュリティ）+ Step 1（正確性バグ）実施
+
+perf-audit-2026-08.md §3 の着手順どおり。すべて tsc / vitest 444 / next build ✅（未コミット）。
+
+### Step 0: org_id スコープ抜けの修正
+- `api/admin/daily/reports/[id]` PUT: `.eq("org_id", orgId)` 追加（entries の delete/insert は
+  ヘッダ更新成功後のみ実行されるため、他社IDは404で遮断）
+- `api/admin/events/[id]` GET / `ranking` GET: events SELECT に org_id 条件追加
+- **監査対象外の同型穴も発見・修正**: events サブルート全部（teams / teams/[teamId] /
+  points / points/[entryId] / members）が event の org 所属を検証せず ID 直指定で
+  読み書き可能だった → 共通ガード `server/events/guard.ts` の `eventBelongsToOrg` を新設し
+  全ハンドラの入口で 404 に統一
+
+### Step 1: 静かに壊れる系 7件
+1. `aggregation/load.ts`: carriers/units/unit_fields/course_unit_rates/course_fixed_rates の
+   素SELECT 5本を fetchAllRows 化（1000行切り詰め→単価欠落＝過少請求/過少支払の芽を除去。
+   course_fixed_rates は PK=course_id なので order は course_id）
+2. 請求書編集の attachments 消失: editorModel に `passthrough`（エディタ未管理キーの温存）を
+   導入。attachments/source 等を保存時にそのまま引き継ぐ。閲覧用署名URL（url）だけは落とす
+3. ドライバーセレクタ欠け3箇所: 新API は作らず既存 `?all=1`（全件・軽量）に一本化。
+   courses（既定20件）→ `?all=1`、InvoiceSheetEditor（100クランプ）→ `?all=1&status=all`、
+   sales 対象者（20件）→ `?all=1`。all=1 の SELECT に住所・口座列を追加（エディタのプレフィル用。
+   対象は active/inactive のみで pending には出さない）
+4. `api/admin/invoices` 一覧: month (YYYY-MM) 必須化+月内 fetchAllRows。年月フォルダは
+   `?months=1`（distinct 集計・軽量列のみ全件ページング）に分離。invoices/page.tsx は
+   月別SWRキー+フォルダAPIに切替、InvoiceSheetEditor の無効化は invalidateApi（接頭辞）に変更
+5. unit_fields の org 絞りなし3箇所: `server/carriers/unitFields.ts` の
+   `loadUnitFieldsForUnits`（org絞り units の id で IN 分割+全件ページング）を新設し、
+   carriers / submit-screen / events/[id] に適用。events/[id] は carriers/units 自体も
+   orgCarrierIds 絞りに（他社キャリア木の転送を停止）
+6. `misc-reports/oil-change`: ORDER BY に id タイブレーク追加（ページ間重複・欠落防止）
+7. shifts のページング: `sales/reports`（org絞りなし→org コース集合で絞り+fetchAllRows）、
+   `invoices/draft`（IN句を200件分割+fetchAllRows）
+
+次は §3 Step 2（横断: /api/admin/badges 統合・unread-count 軽量化・team-status SWR化・
+revalidateOnFocus 方針統一）から。
+
+## 2026-08-14 再発防止テスト + 通信監査 §3 Step 2（横断）・Step 3（集計分離）実施
+
+すべて tsc / vitest 458（+14件追加） / next build ✅（未コミット）。
+
+### 再発防止テスト（4ファイル・14テスト追加）
+- editorModel.test.ts: アップロード請求書の attachments/source が編集保存で消えない
+  （passthrough の回帰）・署名URL(url)は保存しない・管理キーは編集値が優先
+- pagination.test.ts 新設: fetchAllRows の複数ページ全件取得/境界/エラー伝播、
+  IN_CLAUSE_BATCH_SIZE ≤ 200 の保証
+- unitFields.test.ts 新設: IN 分割・バッチ内1000行超のページング・sort_order 整列・空入力
+- events/guard.test.ts 新設: eventBelongsToOrg の org 越境遮断（id+org_id 両方で照合）
+
+### Step 2: 横断
+1. **`/api/admin/badges` 新設**（バッジ統合API）: daily未読/その他報告未読/オイル警告/
+   免許警告/承認待ちの5件を1レスポンスに。requireAnyPermission で入り、権限のない項目は
+   null。個別失敗も null（バッジ全滅を防ぐ）。集計は `server/adminBadges/counts.ts` に一元化し、
+   既存5ルートは互換維持でヘルパー呼び出しに変更。AdminLayout は5本×60秒→1本×60秒。
+   ダッシュボード・daily タブの重複取得も同一SWRキー共有に変更（表示時11本→5-6本）
+2. **unread-count の全履歴走査を廃止**: migration 132 `admin_daily_unread_count`（COUNT を
+   DB側で実行）を新設し RPC優先+アプリ側走査フォールバック（131と同方式・条件は両実装で一致）
+3. **`/api/me/team-status`**: サーバーは直列6段→2波並列化+bonus を points クエリに相乗り+
+   **チーム未所属かつ順位非公開なら loadAggregationData をスキップ**（集計分離）。
+   クライアントは `useTeamStatus()` フック（TeamPointsBadge.tsx）に共通化し、常設バッジと
+   /me カードが同一SWRキーを共有（dedup 2分・focus再検証なし）。従来の二重生fetchを解消
+4. **revalidateOnFocus 統一**: payments / counterparties サマリ / invoices 一覧+months で false 指定
+
+### Step 3: 重い集計の分離
+1. **daily day-summary-range**: pending=1 は「要対応が残る日」を先に確定
+   （migration 133 `admin_daily_pending_dates` RPC優先 + `server/daily/pendingDates.ts`
+   フォールバック）→ シフト・日報はその日だけ IN 取得。2020年〜の全履歴転送を廃止。
+   entries 二重読み廃止（withEntries:false。表示は content のみ使用と確認済み）。
+   drivers はトップレベル1回に（日数ぶんの複製廃止）。driverPreferredVehicle は
+   クライアント完全未使用と判明したため応答から削除。daily/page.tsx を新形式に追従
+2. **loadAggregationData に driverId / courseIds / withLedger オプション追加**:
+   - `computeDriverAutoPayout` は本人の日報だけ読む → payments 行展開・モーダル・
+     **`/api/me/rewards` の「org全員ロードして本人分だけ使う」を根治**
+   - `computeCounterpartyMonthBillingDetail` は取引先コースの日報だけ読む → 展開N+1 の根治
+3. **並列化**: payments API（5本→1波）/ driver-rewards（4段→1波）/
+   counterpartyBillingSnapshot（6段→2波）/ me/submit-screen（3段→1波）/
+   reportContent・reports-summary の200件バッチ直列→並列
+4. **counterparties 展開**: SWR化（再訪はキャッシュ即表示）+セル blur の全社サマリ再実行を
+   1.5s デバウンス化
+5. **me/submit-screen**: 当日集計は本人分だけ+ctx.dayData 共有で loadAggregationData
+   4回→2回（月次/イベントは用途上 org 全体が必要なため維持）。ブロック解決を並列化
+6. **sales**: useEffect 直書き7本を全て SWR 化（期間系は keepPreviousData+10分dedup、
+   マスタは30分dedup、ログ書き込み後は mutate で再検証）
+
+★migration 132/133 は SUPABASE_DB_URL 復旧後に 118/119/129/130/131 と一緒に適用。
+未適用でもフォールバックで従来動作。
+
+次は §3 Step 4（巻き戻り・保存UX: daily all タブ・courses・invoices スター・notifications・
+user shifts・map・events・submit）から。
+
+## 2026-08-14 通信監査 §3 Step 4（巻き戻り・保存UX）+ Step 5（先読み・一部）実施
+
+すべて tsc / vitest 458 / next build ✅（未コミット）。
+
+### Step 4: 巻き戻り・保存UX
+1. **daily**: all タブの楽観更新を `mutate(updater,{revalidate:false})` パターンに移植
+   （removeFromAllCache。承認/却下とも。従来は再検証で承認済み行が復活）。編集保存は
+   PUT 完了で即モーダルを閉じ、ステータス再適用+refetch は背景実行（失敗は画面上部に表示）
+2. **courses**: users と同型の P1/P2/P3 を移植。baselineFormRef 差分PUT（変わった項目だけ、
+   全13項目送信を廃止）・本体+単価PUTの並列化・saveInflightRef 二重保存ガード
+   （closeEditModal の flush 直後再実行で同一PUT×2 が並走していた）・bundle 5API の
+   遅延refetch（1.5s+保存中は再延期）・SWR同期の保存中スキップ。
+   並べ替えPATCHはサーバー側を「現在値を1回読み→位置が変わる行だけ並列UPDATE」に
+   （roles の並べ替えも同型なので同修正）
+3. **invoices**: スター巻き戻り対策（SWR同期時に pendingStarUpdatesRef を優先合成）。
+   [id] PATCH の前置SELECT最大3回直列（自動保存のたび）を1回に統合
+4. **notifications**: チャットGETの副作用（毎ポーリング read_at UPDATE）を廃止し
+   明示PATCHへ分離。クライアントは開いた時/新着inbound時のみ既読化+一覧未読を
+   ローカル即ゼロ。スレッド一覧の二重ポーリング（親60s+タブ30s）を親に一本化。
+   SettingsTab は dirtyフラグ+revalidateOnFocus:false でトグル巻き戻りを解消
+5. **user shifts**: 希望休提出後の void load() を廃止し、提出内容で SWR キャッシュを
+   直接更新（締切済み期間の既存行は保護）。送信直後の操作が巻き戻らない
+6. **map**: 履歴スライダーを 350ms デバウンス（1ドラッグ最大96リクエスト→1）。
+   vehicles API は migration 134 `map_latest_positions`/`map_latest_sessions`
+   （DISTINCT ON・as-of対応）を新設し RPC優先+固定limitスキャンへフォールバック
+   （limit外に落ちた古い車両が消えるバグの根治はRPC適用後）。位置+セッション取得を並列化。
+   ドラッグ配置は楽観更新（ピンが一瞬戻るのを解消・失敗時のみ revalidate）
+7. **events RankingTab**: SWR化（ranking 60s dedup / points）。加点・削除の楽観更新を
+   キャッシュ側 mutate に変更し、**加点後の silentSync（イベント全期間の全再計算）を廃止**
+   （points のみ確定、ranking は delta 適用済み）。既存テスト14件を SWRConfig 隔離
+   （provider: new Map / dedup 0 / retry無効）で全面追従、silentSync 前提のテストは
+   「ranking API を再実行しない」ことの検証に書き換え
+8. **submit**: 送信POST成功で即 PostSubmitView（データ未着はスケルトン・閉じるは可能）、
+   submit-screen は後追い取得。reports/v2 は既存日報の照合を1クエリに統合し
+   items を並列保存（旧: 1件4往復×直列）
+
+### Step 5: 先読み（一部実施）
+- attendance: SWR化+keepPreviousData（日付切替の空白化解消）+前後日 preload
+- me/rewards・spot-jobs・user shifts（確認タブ）: 前後月 preload（P9。prefetched Set で重複防止）
+- 共有フック `lib/useDebouncedValue.ts` 新設（sales のローカル実装を共通化・map で使用）
+
+### Step 5 の残（次セッション）
+- join/register の KYC画像 base64 JSON POST → FormData/署名URL直PUT 化（+33%転送の解消）
+- invoices アップロードの署名URL直アップロード化（base64 6.7MB JSON の解消）
+- hover/touchstart 先読み: courses 単価・events 詳細行・payments/counterparties 展開・
+  BottomNav・invoices 一覧行、adjustments の隣接月 preload、ルート / の redirect 短縮
+- 監査の「中」項目の残り: spot-jobs レスポンス反映+差分送信、events 詳細APIから
+  carriers を外す（ページと二重DL）、carriers 画面の mutate 反映、misc-reports P6バッチ等
+
+★migration 132/133/134 は SUPABASE_DB_URL 復旧後に 118/119/129/130/131 と一緒に適用
+（未適用でも全てフォールバックで従来動作）。
+
+## 2026-08-14 通信監査 Step 5 残り+「中」項目（migration 132-134 適用後の続き）
+
+ユーザーが migration 132/133/134 を本番適用（unread-count / pending 日付 / 地図 DISTINCT ON は
+以後 RPC 経路で動作）。続きとして以下を実施。すべて tsc / vitest 458 / next build ✅（未コミット）。
+
+### 転送のバイナリ化（base64 JSON 廃止）
+- **KYC 写真（/join・/register）**: `uploadKycPhotoMultipart`（KycPhotoBox.tsx）を新設し
+  送信を multipart バイナリ化（-25%転送）。base64 はローカルのプレビュー・OCR 専用に残す。
+  サーバー `/api/me/registration/photo` は multipart と base64 JSON の両対応
+  （**mobile KycWizard は base64 経路のまま互換維持**）
+- **請求書アップロード**: `/api/admin/invoices/attachments`（multipart→path 返却）を新設し、
+  画面は path だけを payload.attachments に載せて JSON POST（最大約6.7MBのJSON を廃止）。
+  中身検査は共通 `uploadBytes`（dataUrl.ts に新設・マジックバイト検証つき）
+
+### 「中」項目
+- **misc-reports 添付**: signAttachments を resolveStoredUrls（createSignedUrls 一括）に変更（P6）
+- **events 詳細API**: carriers→units→fields のキャリア木を応答から削除
+  （ページは /api/admin/carriers を使用済みで二重ダウンロードだった）。types からも carriers を除去
+- **carriers 画面**: 編集PATCH のレスポンス行をキャッシュへ直接反映
+  （applyCarrierPatch/applyUnitPatch/applyFieldPatch。1項目の変更で木まるごと再取得を廃止。作成は従来どおり）
+- **spot-jobs**: 作成/更新のレスポンス行を mutate 反映（月全体再取得を廃止。
+  別月への作成だけ従来 refetch）
+- **sales/log API**: fetchAllRows 化（1000行サイレント切り詰め→adjustments/ログタブの欠落防止。
+  ORDER BY に id タイブレーク追加）
+
+### hover / touchstart 先読み（P8）
+- payments 行（120ms hover / スマホ touchstart → ensureRewardsLoaded）
+- counterparties 行（billing-detail を preload・展開コンポーネントと同一キー）
+- invoices 一覧行（詳細キーを preload → プレビュー/編集が即表示）
+- events 一覧行（詳細キーを preload）
+- **UserBottomNav**: touchstart/mouseenter でタブ先の初期データを preload
+  （/me=profile・/shifts=当月シフト・/submit=当日 report-form・/me/rewards=当月報酬）
+
+### 未実施の残（低優先の尾）
+- CourseRateEditor の SWR化+単価 hover、daily の却下楽観・ProxyReportModal・entries 差分upsert・
+  approve 車両直列、report-form/profile の直列並列化、/report ブートストラップ集約、
+  notifications スレッド500件固定、me/invoices payload 削減、tesseract 遅延プリフェッチ、
+  ダッシュボード capability 条件付きキー・稼働数件数API化、ルート / の redirect 短縮
+
+## 2026-08-14 監査「未実施の残」の一掃（尾の処理・完了）
+
+すべて tsc / vitest 458 / next build ✅（未コミット）。★新規 migration 135 は要適用（下記）。
+
+### サーバーの直列解消・書き込み削減
+- **daily approve**: 車両ごとの select→update 直列を「一括読み→前進分だけ並列 update」に
+- **reports/profile**: 5段直列→2波並列（submit と /me の基幹API）
+- **me/report-form・admin daily/report-form**: 7段直列→3波並列（シフト→[車両検査+コース+既存日報]→[キャリア+unit+entries]）
+- **report_entries の差分 upsert**: `server/reports/entries.ts` の `syncReportEntries` を新設
+  （UNIQUE(report_id, unit_id, field_key) 利用。変わった項目だけ upsert・消えた項目だけ delete。
+  全削除→全挿入で行ID/created_at が毎回総入れ替えになるのを廃止）。
+  reports/v2（ドライバー送信）と admin daily/reports/[id]（編集）の両方に適用
+
+### RPC 化（migration 135・★要適用）
+- **チャットスレッド一覧**: `chat_thread_summaries`（DISTINCT ON+GROUP BY）を新設し、
+  直近500件固定スキャン（500件超で古いスレッド消失・未読数過小）を DB 集計に。
+  ルートは RPC 優先+未適用環境はフォールバック（適用までは従来動作）
+
+### ダッシュボード・起動
+- **ダッシュボード**: capability を見てから発射（権限のないロールが毎回 403 を数本受けない）。
+  「本日の稼働数」は `/api/admin/shifts?countDrivers=1` 軽量モード新設（全行転送→件数のみに）
+- **ルート /**: キャッシュ即遷移に変更（/api/auth/session の1往復待ちを廃止。
+  権限の最新化は遷移先の AdminAccessGuard / useSyncSession が担う＝ガードは確認済み）
+- **tesseract 遅延プリフェッチ**: `prefetchLicenseOcr` を新設し、/join の住所・免許ステップ
+  表示中に wasm/言語データ（数MB）を裏で温める（撮影直後の初回OCRで待たない）
+
+### 画面の SWR 化・楽観更新
+- **CourseRateEditor**: SWR化（同一コースの開き直しはキャッシュ即表示）+dirty ガード
+  （編集開始後は再検証で上書きしない）+保存後にキャッシュ最新化。
+  courses 一覧行に単価の hover/touchstart 先読み（同一キー共有）
+- **ProxyReportModal**: SWR化（同じ対象の開き直しはキャッシュ即表示・キーごとに1回だけ初期化）
+- **daily pending タブ**: 承認/却下を楽観更新に（承認=承認済みへ、却下=一覧から除外。
+  要対応が消えた日は actionable 再計算で自動的に畳まれる。全再取得を廃止）
+- **UserBottomNav**: /me・/report の preload キーを拡充（profile/registration/report-kinds）
+
+### 見送り（理由つき）
+- **me/invoices の payload 削減**: 監査の前提（承認待ち件数しか使わない）と異なり、
+  報酬画面の請求書パネルが tableData・添付URL 含め payload を実際に描画している。現状維持
+- **/report のブートストラップ集約API**: 構成要素が全て SWR+並列+BottomNav preload 済みになり、
+  専用APIはサーバーロジックの二重化に見合わないため作らない
+
+これで docs/perf-audit-2026-08.md の §3 全項目（高・中・低の尾まで）を消化。

@@ -70,7 +70,6 @@ export type EventDetailResponse = {
   teams: EventTeamRow[];
   members: EventMemberRow[];
   drivers: DriverRow[];
-  carriers: CarrierTreeRow[];
 };
 
 export type ManualPointRow = {

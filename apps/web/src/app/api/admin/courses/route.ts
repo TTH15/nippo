@@ -187,19 +187,36 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "order array is required" }, { status: 400 });
     }
 
-    for (let i = 0; i < orderIds.length; i++) {
-      const id = orderIds[i];
-      if (typeof id !== "string") continue;
-      // id はクライアント指定。org を併せて絞らないと他社コースの並びを書き換えられる
-      const { error } = await supabase
-        .from("courses")
-        .update({ sort_order: i })
-        .eq("id", id)
-        .eq("org_id", orgId);
-      if (error) {
-        console.error(error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
+    // 差分更新: 現在の並びを1回読み、位置が変わる行だけを並列で更新する
+    // （旧: コース数ぶんの UPDATE を直列実行。1行の入れ替えでも全行往復していた）。
+    const { data: existing, error: exErr } = await supabase
+      .from("courses")
+      .select("id, sort_order")
+      .eq("org_id", orgId);
+    if (exErr) {
+      console.error(exErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    const currentById = new Map(
+      (existing ?? []).map((c: { id: string; sort_order: number | null }) => [c.id, Number(c.sort_order)]),
+    );
+    const updates: { id: string; sort: number }[] = [];
+    orderIds.forEach((id, i) => {
+      if (typeof id !== "string") return;
+      // id はクライアント指定。org の行だけを対象にする（他社コースの並びは書き換えない）
+      const cur = currentById.get(id);
+      if (cur === undefined || cur === i) return;
+      updates.push({ id, sort: i });
+    });
+    const results = await Promise.all(
+      updates.map((u) =>
+        supabase.from("courses").update({ sort_order: u.sort }).eq("id", u.id).eq("org_id", orgId),
+      ),
+    );
+    const failed = results.find((r) => r.error);
+    if (failed?.error) {
+      console.error(failed.error);
+      return NextResponse.json({ error: failed.error.message }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true });

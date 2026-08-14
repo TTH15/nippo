@@ -19,6 +19,32 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "start and end are required" }, { status: 400 });
   }
 
+  // countDrivers=1: ダッシュボード「本日の稼働数」用の軽量モード。
+  // 全体GET（コース/車両/名簿/希望休まで同梱）を件数のためだけに転送しない（2026-08 監査）。
+  if (req.nextUrl.searchParams.get("countDrivers") === "1") {
+    const [{ data: shiftRows, error: sErr }, { data: orgDrivers, error: dErr }] = await Promise.all([
+      supabase
+        .from("shifts")
+        .select("driver_id")
+        .gte("shift_date", startDate)
+        .lte("shift_date", endDate)
+        .not("driver_id", "is", null),
+      // shifts は org 列を持たないため、org のドライバー集合で絞る
+      supabase.from("drivers").select("id").eq("org_id", orgId).eq("works_as_driver", true),
+    ]);
+    if (sErr || dErr) {
+      console.error(sErr || dErr);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    const orgIds = new Set((orgDrivers ?? []).map((d: { id: string }) => d.id));
+    const unique = new Set(
+      (shiftRows ?? [])
+        .map((s: { driver_id: string | null }) => s.driver_id)
+        .filter((id): id is string => !!id && orgIds.has(id)),
+    );
+    return NextResponse.json({ count: unique.size });
+  }
+
   // Get courses
   const { data: courses } = await supabase
     .from("courses")

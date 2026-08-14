@@ -40,28 +40,58 @@ export async function GET(req: NextRequest) {
 
   const linkedMap = new Map((linkedIdentities ?? []).map((i) => [i.id as string, i]));
 
-  // スレッド一覧は「直近メッセージ」を出したいだけなので、org 分をまとめて引いて
-  // アプリ側で driver ごとに畳む（メンバー数×クエリを避ける）
-  const { data: messages } = await supabase
-    .from("line_chat_messages")
-    .select("driver_id, direction, text, read_at, created_at")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: false })
-    .limit(500);
-
+  // スレッド一覧（最終メッセージ+未読数）は RPC（migration 135・DISTINCT ON+GROUP BY）で
+  // DB 側に畳ませる。未適用環境では従来の直近500件スキャンへフォールバック
+  // （500件を超えると古いスレッドが消え未読数が過小になるため、RPC 適用が本命）。
   const lastByDriver = new Map<string, { text: string; direction: string; created_at: string }>();
   const unreadByDriver = new Map<string, number>();
-  for (const m of messages ?? []) {
-    const driverId = m.driver_id as string;
-    if (!lastByDriver.has(driverId)) {
-      lastByDriver.set(driverId, {
-        text: m.text as string,
-        direction: m.direction as string,
-        created_at: m.created_at as string,
-      });
+  let summariesLoaded = false;
+  try {
+    const { data: summaries, error: sumErr } = await supabase.rpc("chat_thread_summaries", {
+      p_org: orgId,
+    });
+    if (!sumErr && Array.isArray(summaries)) {
+      for (const s of summaries as {
+        driver_id: string;
+        last_text: string | null;
+        last_direction: string | null;
+        last_at: string | null;
+        unread_count: number;
+      }[]) {
+        if (s.last_at) {
+          lastByDriver.set(s.driver_id, {
+            text: s.last_text ?? "",
+            direction: s.last_direction ?? "",
+            created_at: s.last_at,
+          });
+        }
+        const unread = Number(s.unread_count) || 0;
+        if (unread > 0) unreadByDriver.set(s.driver_id, unread);
+      }
+      summariesLoaded = true;
     }
-    if (m.direction === "inbound" && !m.read_at) {
-      unreadByDriver.set(driverId, (unreadByDriver.get(driverId) ?? 0) + 1);
+  } catch {
+    // RPC 未適用（関数なし）など。従来経路へ
+  }
+  if (!summariesLoaded) {
+    const { data: messages } = await supabase
+      .from("line_chat_messages")
+      .select("driver_id, direction, text, read_at, created_at")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(500);
+    for (const m of messages ?? []) {
+      const driverId = m.driver_id as string;
+      if (!lastByDriver.has(driverId)) {
+        lastByDriver.set(driverId, {
+          text: m.text as string,
+          direction: m.direction as string,
+          created_at: m.created_at as string,
+        });
+      }
+      if (m.direction === "inbound" && !m.read_at) {
+        unreadByDriver.set(driverId, (unreadByDriver.get(driverId) ?? 0) + 1);
+      }
     }
   }
 

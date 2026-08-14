@@ -17,18 +17,19 @@ export async function GET(req: NextRequest) {
   const driverId = user.driverId as string;
   const date = req.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
 
-  const config = await loadSubmitScreenConfig(supabase, orgId);
-
-  // --- 今日の報酬見込み（v2・未承認も含む / 却下は除外） ---
-  const dayData = await loadAggregationData(supabase, orgId, date, date);
-  const unitById = new Map(dayData.units.map((u) => [u.id, u]));
-  const rateByCourseUnit = new Map(dayData.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
-  const fixedByCourse = new Map(dayData.fixedRates.map((r) => [r.courseId, r]));
-  // リース控除（DAILY のみ日当に反映）。当日コースの日額リース代(courses.daily_lease)を1回控除。
-  const [lease, courseDailyLease] = await Promise.all([
+  // 設定・当日集計・リースは互いに独立のため1波で並列取得する（旧: 直列3段）。
+  // 当日分は本人の日報だけ読む（org 全員分は不要。ledger も未使用）。
+  const [config, dayData, lease, courseDailyLease] = await Promise.all([
+    loadSubmitScreenConfig(supabase, orgId),
+    loadAggregationData(supabase, orgId, date, date, { driverId, withLedger: false }),
     loadDriverLease(supabase, driverId, date, date),
     loadCourseDailyLease(supabase, orgId),
   ]);
+
+  // --- 今日の報酬見込み（v2・未承認も含む / 却下は除外） ---
+  const unitById = new Map(dayData.units.map((u) => [u.id, u]));
+  const rateByCourseUnit = new Map(dayData.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
+  const fixedByCourse = new Map(dayData.fixedRates.map((r) => [r.courseId, r]));
 
   let todayReward = 0;
   let leaseToday = 0; // 当日コースの最大日額（DAILY時）
@@ -60,6 +61,8 @@ export async function GET(req: NextRequest) {
     driverId,
     date,
     todayReward: Math.round(todayReward),
+    // 当日×本人分の集計を event ブロック（todayPoints）と共有し、二重ロードを防ぐ
+    dayData,
   });
 
   return NextResponse.json({

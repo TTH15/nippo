@@ -37,20 +37,25 @@ export async function loadReportContents(
     value_num: number | null;
     value_text: string | null;
   };
-  const entries: EntryRow[] = [];
+  // 200件ずつのバッチを直列に待つと往復が積み上がるため並列で流す
+  const slices: string[][] = [];
   for (let i = 0; i < reportIds.length; i += IN_CLAUSE_BATCH_SIZE) {
-    const slice = reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
-    const data = await fetchAllRows<EntryRow>((from, to) =>
-      supabase
-        .from("report_entries")
-        .select("report_id, unit_id, field_key, value_num, value_text")
-        .in("report_id", slice)
-        // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
-        .order("id", { ascending: true })
-        .range(from, to),
-    );
-    data.forEach((e: EntryRow) => entries.push(e));
+    slices.push(reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE));
   }
+  const pages = await Promise.all(
+    slices.map((slice) =>
+      fetchAllRows<EntryRow>((from, to) =>
+        supabase
+          .from("report_entries")
+          .select("report_id, unit_id, field_key, value_num, value_text")
+          .in("report_id", slice)
+          // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+    ),
+  );
+  const entries: EntryRow[] = pages.flat();
   if (!entries.length) return result;
 
   const unitIds = Array.from(new Set(entries.map((e) => e.unit_id).filter(Boolean)));

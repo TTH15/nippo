@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFloppyDisk, faLinkSlash, faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 
 type MainLine = {
   lineKey: string;
@@ -73,7 +74,6 @@ export function CounterpartyBillingExpand({
   onRefreshSummary: () => void;
 }) {
   const [detail, setDetail] = useState<BillingDetail | null>(null);
-  const [loading, setLoading] = useState(true);
   const [draftMain, setDraftMain] = useState<DraftRow[]>([]);
   const [draftDed, setDraftDed] = useState<DraftRow[]>([]);
   const [savingCustom, setSavingCustom] = useState(false);
@@ -92,44 +92,62 @@ export function CounterpartyBillingExpand({
     };
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await apiFetch<BillingDetail>(
-        `/api/admin/counterparties/${counterpartyId}/billing-detail?month=${encodeURIComponent(month)}`
-      );
-      setDetail(data);
-      setDraftMain(
-        data.mainLines
-          .filter((l) => l.rowType === "custom_main")
-          .map((l) => ({
-            key: l.refId ?? l.lineKey,
-            description: l.label,
-            quantity: l.quantity,
-            unitPrice: l.unitPrice,
-          }))
-      );
-      setDraftDed(
-        data.deductLines
-          .filter((l) => l.rowType === "custom_deduction")
-          .map((l) => ({
-            key: l.refId ?? l.lineKey,
-            description: l.label,
-            quantity: l.quantity,
-            unitPrice: l.unitPrice,
-          }))
-      );
-    } catch (e) {
-      console.error(e);
-      setDetail(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [counterpartyId, month]);
+  // SWR でキャッシュする（開閉・再訪のたびに org 全体を再集計しない。再訪時は
+  // キャッシュを即表示して裏で再検証）。編集の楽観更新のため detail は state に転写する。
+  const {
+    data: detailData,
+    error: detailError,
+    isInitialLoading,
+    mutate: mutateDetail,
+  } = useApi<BillingDetail>(
+    `/api/admin/counterparties/${counterpartyId}/billing-detail?month=${encodeURIComponent(month)}`,
+    { revalidateOnFocus: false },
+  );
+  const loading = isInitialLoading;
+  const load = useCallback(() => mutateDetail(), [mutateDetail]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!detailData) return;
+    setDetail(detailData);
+    setDraftMain(
+      detailData.mainLines
+        .filter((l) => l.rowType === "custom_main")
+        .map((l) => ({
+          key: l.refId ?? l.lineKey,
+          description: l.label,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+        }))
+    );
+    setDraftDed(
+      detailData.deductLines
+        .filter((l) => l.rowType === "custom_deduction")
+        .map((l) => ({
+          key: l.refId ?? l.lineKey,
+          description: l.label,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+        }))
+    );
+  }, [detailData]);
+  useEffect(() => {
+    if (detailError) setDetail(null);
+  }, [detailError]);
+
+  // セル1つの blur ごとに全社サマリを即再集計しない。1.5s のデバウンスでまとめて1回。
+  const summaryTimerRef = useRef<number | null>(null);
+  const scheduleSummaryRefresh = useCallback(() => {
+    if (summaryTimerRef.current != null) window.clearTimeout(summaryTimerRef.current);
+    summaryTimerRef.current = window.setTimeout(() => {
+      summaryTimerRef.current = null;
+      onRefreshSummary();
+    }, 1500);
+  }, [onRefreshSummary]);
+  useEffect(() => {
+    return () => {
+      if (summaryTimerRef.current != null) window.clearTimeout(summaryTimerRef.current);
+    };
+  }, []);
 
   const saveLabelBlur = async (
     lineKey: string,
@@ -229,7 +247,7 @@ export function CounterpartyBillingExpand({
           prev.map((r) => (r.key === refId ? { ...r, quantity, unitPrice } : r)),
         );
       }
-      onRefreshSummary();
+      scheduleSummaryRefresh();
     } catch (e) {
       console.error(e);
     }

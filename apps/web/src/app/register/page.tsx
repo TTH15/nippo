@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import { DATE_RE, KycPhotoBox, fileToJpegBase64, formatDateInput } from "@/lib/components/KycPhotoBox";
+import { DATE_RE, KycPhotoBox, fileToJpegBase64, formatDateInput, uploadKycPhotoMultipart } from "@/lib/components/KycPhotoBox";
 
 // ============================================================
 // 本登録（KYC）ウィザード（web 一本化・確定フロー §2-1a）。
@@ -118,10 +118,8 @@ export default function RegisterPage() {
     try {
       const base64 = await fileToJpegBase64(file);
       if (!base64) throw new Error("画像の変換に失敗しました");
-      await apiFetch("/api/me/registration/photo", {
-        method: "POST",
-        body: JSON.stringify({ kind, base64, mime: "image/jpeg" }),
-      });
+      // 送信は multipart バイナリ（base64 JSON は +33% 転送）。base64 はプレビュー用
+      await uploadKycPhotoMultipart(kind, base64);
       setReg((r) => (r ? { ...r, [kind === "license" ? "hasLicensePhoto" : "hasFacePhoto"]: true } : r));
       setPreviews((p) => ({ ...p, [kind]: `data:image/jpeg;base64,${base64}` }));
     } catch (e) {

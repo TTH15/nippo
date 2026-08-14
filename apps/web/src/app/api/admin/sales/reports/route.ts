@@ -3,6 +3,7 @@ import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "@/server/aggregation/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -99,16 +100,29 @@ export async function GET(req: NextRequest) {
     if (c.id && c.summary_title) courseSummaryMap.set(c.id, c.summary_title);
   });
 
-  let shiftsQuery = supabase
-    .from("shifts")
-    .select("shift_date, driver_id, course_id")
-    .gte("shift_date", startDate)
-    .lte("shift_date", endDate);
-  if (driverId) shiftsQuery = shiftsQuery.eq("driver_id", driverId);
-  const { data: shifts, error: sErr } = await shiftsQuery;
-
-  if (sErr) {
-    console.error(sErr);
+  // shifts は org_id 列を持たないため、自org のコース集合で絞る（org 境界）。
+  // 素SELECT は 1000 行でサイレント切り詰め＝集計が静かに欠落するため fetchAllRows で全件。
+  // 以降の集計は course_id があるシフトしか使わないので、コース絞りで結果は変わらない。
+  const orgCourseIds = (courses ?? []).map((c: any) => c.id).filter(Boolean) as string[];
+  const shifts: any[] = [];
+  try {
+    for (let i = 0; i < orgCourseIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+      const slice = orgCourseIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+      const rows = await fetchAllRows((from, to) => {
+        let q = supabase
+          .from("shifts")
+          .select("shift_date, driver_id, course_id")
+          .gte("shift_date", startDate)
+          .lte("shift_date", endDate)
+          .in("course_id", slice);
+        if (driverId) q = q.eq("driver_id", driverId);
+        // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+        return q.order("shift_date", { ascending: true }).order("id", { ascending: true }).range(from, to);
+      });
+      shifts.push(...rows);
+    }
+  } catch (e) {
+    console.error(e);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 

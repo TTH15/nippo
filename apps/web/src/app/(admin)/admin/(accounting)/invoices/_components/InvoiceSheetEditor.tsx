@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type SetStateAction } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faRotateLeft, faRotateRight, faCloud, faCloudArrowUp, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
-import { mutate as globalMutate } from "swr";
 import { apiFetch } from "@/lib/api";
+import { invalidateApi } from "@/lib/swr";
 import { useApi } from "@/lib/useApi";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { DatePicker } from "@/lib/components/DatePicker";
@@ -108,8 +108,10 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   const addresses = addrData?.addresses ?? [];
   // status=all: 稼働終了(inactive)済みのドライバーも選べるようにする
   // （過去に遡って請求書を作成するケースがあるため）。
+  // all=1: ページングなしの全件（limit はサーバで100にクランプされ、101人目以降が
+  // セレクトから黙って欠けるため使わない）。
   const { data: driverData } = useApi<{ drivers: DriverRow[] }>(
-    st.kind === "incoming" ? "/api/admin/users?limit=500&status=all" : null,
+    st.kind === "incoming" ? "/api/admin/users?all=1&status=all" : null,
   );
   const drivers = driverData?.drivers ?? [];
 
@@ -198,8 +200,8 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
       // 一覧・詳細（プレビュー）の SWR キャッシュを無効化する。
       // これを怠ると、新規作成した請求書が一覧に出てこない／編集後に
       // 一覧やプレビューが旧値のまま、という状態になる。待たない。
-      void globalMutate("/api/admin/invoices");
-      if (newId) void globalMutate(`/api/admin/invoices/${encodeURIComponent(newId)}`);
+      // 一覧キーは月別（?month=…）+ フォルダ（?months=1）になったため、接頭辞一致で無効化する。
+      void invalidateApi("/api/admin/invoices");
     } catch (e) {
       setSaveStatus("error");
       setError(e instanceof Error ? e.message : "自動保存に失敗しました");

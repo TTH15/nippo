@@ -120,32 +120,24 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [driver, setDriver] = useState<StoredDriver | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  // 要対応件数は SWR でグローバルにキャッシュする。ページ遷移で AdminLayout が
-  // 再マウントされても前回値が即返るため、バッジが一瞬消えない。60秒ごとに自動更新。
-  const dailyUnreadApi = useApi<{ unreadCount: number }>("/api/admin/daily/unread-count", {
-    refreshInterval: 60000,
-  });
-  const otherUnreadApi = useApi<{ unreadCount: number }>(
-    "/api/admin/misc-reports/oil-change/unread-count",
-    { refreshInterval: 60000 },
-  );
-  const oilAlertApi = useApi<{ count: number }>("/api/admin/vehicles/oil-alert-count", {
-    refreshInterval: 60000,
-  });
-  const licenseAlertApi = useApi<{ count: number }>("/api/admin/users/license-alert-count", {
-    refreshInterval: 60000,
-  });
-  const pendingApprovalApi = useApi<{ count: number }>("/api/admin/users/pending-count", {
-    refreshInterval: 60000,
-  });
-  const dailyUnreadCount = Number(dailyUnreadApi.data?.unreadCount) || 0;
-  const otherUnreadCount = Number(otherUnreadApi.data?.unreadCount) || 0;
+  // 要対応件数は統合エンドポイント1本（/api/admin/badges）を SWR でグローバルに
+  // キャッシュする。ページ遷移で AdminLayout が再マウントされても前回値が即返るため、
+  // バッジが一瞬消えない。60秒ごとに自動更新（従来の5本×60秒ポーリングを1本に統合）。
+  const badgesApi = useApi<{
+    dailyUnread: number | null;
+    otherUnread: number | null;
+    oilAlert: number | null;
+    licenseAlert: number | null;
+    pendingApproval: number | null;
+  }>("/api/admin/badges", { refreshInterval: 60000 });
+  const dailyUnreadCount = Number(badgesApi.data?.dailyUnread) || 0;
+  const otherUnreadCount = Number(badgesApi.data?.otherUnread) || 0;
   // オイル交換が迫っている車両の台数（「管理」メニューに通知バッジで表示）
-  const oilAlertCount = Number(oilAlertApi.data?.count) || 0;
+  const oilAlertCount = Number(badgesApi.data?.oilAlert) || 0;
   // 免許更新が迫っているドライバーの人数（「管理」「ドライバー」メニューに通知バッジで表示）
-  const licenseAlertCount = Number(licenseAlertApi.data?.count) || 0;
+  const licenseAlertCount = Number(badgesApi.data?.licenseAlert) || 0;
   // 参加承認待ちの申請件数（「ドライバー」→「参加・承認」に通知バッジで表示）
-  const pendingApprovalCount = Number(pendingApprovalApi.data?.count) || 0;
+  const pendingApprovalCount = Number(badgesApi.data?.pendingApproval) || 0;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
   const canWrite = canAdminWrite(driver?.role);
@@ -185,10 +177,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   // ページ遷移時に最新化（キャッシュ値は保持したまま裏で再検証するのでバッジは消えない）。
   useEffect(() => {
-    void dailyUnreadApi.mutate();
-    void otherUnreadApi.mutate();
-    void oilAlertApi.mutate();
-    void licenseAlertApi.mutate();
+    void badgesApi.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 

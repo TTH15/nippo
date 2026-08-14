@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 
 const STATUSES = new Set(["draft", "active", "closed"]);
 
-// GET: イベント詳細（teams / members / 採点UI用の drivers・carriers→units→fields を同梱）
+// GET: イベント詳細（teams / members / 採点UI用の drivers を同梱）。
+// キャリア木はページ側が /api/admin/carriers（他画面と dedup が効く）で取得するため
+// ここでは返さない（詳細を開くたびの二重ダウンロードを廃止・2026-08 監査）。
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -23,54 +25,31 @@ export async function GET(
     { data: teams, error: tErr },
     { data: members, error: mErr },
     { data: drivers, error: dErr },
-    { data: carriers, error: cErr },
-    { data: units, error: uErr },
-    { data: fields, error: fErr },
   ] = await Promise.all([
     supabase
       .from("events")
       .select("id, name, description, starts_on, ends_on, status, scoring_rule, created_at")
       .eq("id", id)
+      .eq("org_id", orgId)
       .single(),
     supabase.from("event_teams").select("*").eq("event_id", id).order("sort_order"),
     supabase.from("event_team_members").select("id, team_id, driver_id").eq("event_id", id),
     supabase.from("drivers").select("id, name, display_name").eq("org_id", orgId).order("name"),
-    supabase.from("carriers").select("*").order("sort_order"),
-    supabase.from("units").select("*").order("sort_order"),
-    supabase.from("unit_fields").select("*").order("sort_order"),
   ]);
 
   if (eErr || !event) {
     return NextResponse.json({ error: "イベントが見つかりません" }, { status: 404 });
   }
-  if (tErr || mErr || dErr || cErr || uErr || fErr) {
-    console.error(tErr || mErr || dErr || cErr || uErr || fErr);
+  if (tErr || mErr || dErr) {
+    console.error(tErr || mErr || dErr);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
-
-  const fieldsByUnit = new Map<string, unknown[]>();
-  (fields ?? []).forEach((f: { unit_id: string }) => {
-    const arr = fieldsByUnit.get(f.unit_id) ?? [];
-    arr.push(f);
-    fieldsByUnit.set(f.unit_id, arr);
-  });
-  const unitsByCarrier = new Map<string, unknown[]>();
-  (units ?? []).forEach((u: { id: string; carrier_id: string }) => {
-    const arr = unitsByCarrier.get(u.carrier_id) ?? [];
-    arr.push({ ...u, fields: fieldsByUnit.get(u.id) ?? [] });
-    unitsByCarrier.set(u.carrier_id, arr);
-  });
-  const carrierTree = (carriers ?? []).map((c: { id: string }) => ({
-    ...c,
-    units: unitsByCarrier.get(c.id) ?? [],
-  }));
 
   return NextResponse.json({
     event: { ...event, scoring_rule: normalizeScoringRuleSet(event.scoring_rule) },
     teams: teams ?? [],
     members: members ?? [],
     drivers: drivers ?? [],
-    carriers: carrierTree,
   });
 }
 

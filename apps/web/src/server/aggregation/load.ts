@@ -26,11 +26,21 @@ export type AggregationData = {
   ledger: LedgerEntry[];
 };
 
+export type LoadAggregationOptions = {
+  /** 特定ドライバーの日報だけを読む（本人向け報酬計算など）。マスタ・単価は全量のまま。 */
+  driverId?: string;
+  /** 特定コース集合の日報だけを読む（取引先別の明細など）。IN 分割は内部で行う。 */
+  courseIds?: string[];
+  /** 台帳(ledger_entries)を読まない（payout 計算など ledger 不要の呼び出しで転送を省く）。既定 true。 */
+  withLedger?: boolean;
+};
+
 export async function loadAggregationData(
   supabase: SupabaseClient,
   orgId: string,
   startDate: string,
   endDate: string,
+  options: LoadAggregationOptions = {},
 ): Promise<AggregationData> {
   // キャリアは共有マスタ＋会社別有効化（company_carriers）。当 org が有効化した
   // キャリア集合に carriers / units を絞る（ACE は全有効＝従来どおり）。
@@ -40,52 +50,94 @@ export async function loadAggregationData(
   // org_id を持つ高頻度テーブル（daily_reports_v2 / ledger_entries）はテナントで絞る。
   // unit_fields/各rate は子テーブル（unit/course 経由で決まる）ため、絞った units/reports
   // に紐づくものだけが参照される。
-  const carriersQ = supabase.from("carriers").select("id, code");
-  const unitsQ = supabase.from("units").select("id, carrier_id, code, billing_type");
+  // マスタ・単価テーブルも fetchAllRows で全件取得する（素SELECTは1000行で
+  // サイレント切り詰め＝単価が黙って欠落し、過少請求/過少支払につながる）。
   const [
-    { data: carriers },
-    { data: units },
-    { data: unitFields },
-    { data: unitRates },
-    { data: fixedRates },
+    carriers,
+    units,
+    unitFields,
+    unitRates,
+    fixedRates,
     reportRows,
     ledgerRows,
   ] = await Promise.all([
-    orgCarrierIds ? carriersQ.in("id", orgCarrierIds) : carriersQ,
-    orgCarrierIds ? unitsQ.in("carrier_id", orgCarrierIds) : unitsQ,
-    supabase.from("unit_fields").select("unit_id, field_key, is_billable"),
-    supabase
-      .from("course_unit_rates")
-      .select("course_id, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit"),
-    supabase
-      .from("course_fixed_rates")
-      .select("course_id, fixed_revenue, fixed_profit, fixed_payout"),
+    fetchAllRows((from, to) => {
+      const q = supabase.from("carriers").select("id, code");
+      return (orgCarrierIds ? q.in("id", orgCarrierIds) : q)
+        .order("id", { ascending: true })
+        .range(from, to);
+    }),
+    fetchAllRows((from, to) => {
+      const q = supabase.from("units").select("id, carrier_id, code, billing_type");
+      return (orgCarrierIds ? q.in("carrier_id", orgCarrierIds) : q)
+        .order("id", { ascending: true })
+        .range(from, to);
+    }),
     fetchAllRows((from, to) =>
       supabase
-        .from("daily_reports_v2")
-        .select("id, driver_id, report_date, course_id, carrier_id, approved_at, rejected_at")
-        .eq("org_id", orgId)
-        .gte("report_date", startDate)
-        .lte("report_date", endDate)
+        .from("unit_fields")
+        .select("unit_id, field_key, is_billable")
         // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
-        .order("report_date", { ascending: true })
         .order("id", { ascending: true })
         .range(from, to),
     ),
     fetchAllRows((from, to) =>
       supabase
-        .from("ledger_entries")
-        .select(
-          "entry_date, revenue_delta, profit_delta, payout_delta, target_driver_id, course_id, counterparty_invoice_address_id",
-        )
-        .eq("org_id", orgId)
-        .gte("entry_date", startDate)
-        .lte("entry_date", endDate)
-        // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
-        .order("entry_date", { ascending: true })
+        .from("course_unit_rates")
+        .select("course_id, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit")
         .order("id", { ascending: true })
         .range(from, to),
     ),
+    fetchAllRows((from, to) =>
+      supabase
+        .from("course_fixed_rates")
+        .select("course_id, fixed_revenue, fixed_profit, fixed_payout")
+        // PK は course_id（id 列なし）
+        .order("course_id", { ascending: true })
+        .range(from, to),
+    ),
+    (async () => {
+      const fetchReportsPage = (courseSlice: string[] | null) =>
+        fetchAllRows((from, to) => {
+          let q = supabase
+            .from("daily_reports_v2")
+            .select("id, driver_id, report_date, course_id, carrier_id, approved_at, rejected_at")
+            .eq("org_id", orgId)
+            .gte("report_date", startDate)
+            .lte("report_date", endDate);
+          if (options.driverId) q = q.eq("driver_id", options.driverId);
+          if (courseSlice) q = q.in("course_id", courseSlice);
+          // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+          return q
+            .order("report_date", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to);
+        });
+      if (!options.courseIds) return fetchReportsPage(null);
+      if (options.courseIds.length === 0) return [];
+      // IN 句は URL 上限を超えないよう分割する
+      const out: Awaited<ReturnType<typeof fetchReportsPage>> = [];
+      for (let i = 0; i < options.courseIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+        out.push(...(await fetchReportsPage(options.courseIds.slice(i, i + IN_CLAUSE_BATCH_SIZE))));
+      }
+      return out;
+    })(),
+    options.withLedger === false
+      ? Promise.resolve([])
+      : fetchAllRows((from, to) =>
+          supabase
+            .from("ledger_entries")
+            .select(
+              "entry_date, revenue_delta, profit_delta, payout_delta, target_driver_id, course_id, counterparty_invoice_address_id",
+            )
+            .eq("org_id", orgId)
+            .gte("entry_date", startDate)
+            .lte("entry_date", endDate)
+            // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+            .order("entry_date", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to),
+        ),
   ]);
 
   // unit_fields を unit ごとにまとめる

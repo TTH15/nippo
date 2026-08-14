@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -63,14 +63,18 @@ function ToggleRow({
 export function SettingsTab({ canWrite }: { canWrite: boolean }) {
   const { data, isInitialLoading, refresh } = useApi<{ settings: Settings }>(
     "/api/admin/notifications/settings",
+    // フォーカス復帰の再検証で編集中のトグルが巻き戻らないようにする
+    { revalidateOnFocus: false },
   );
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<{ title: string; message: string } | null>(null);
+  // 未保存の編集がある間はサーバー値で上書きしない（dirty フラグ・2026-08 監査）
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
-    if (data?.settings) setSettings(data.settings);
+    if (data?.settings && !dirtyRef.current) setSettings(data.settings);
   }, [data]);
 
   if (isInitialLoading || !settings) {
@@ -78,6 +82,7 @@ export function SettingsTab({ canWrite }: { canWrite: boolean }) {
   }
 
   const update = (patch: Partial<Settings>) => {
+    dirtyRef.current = true;
     setSettings((s) => (s ? { ...s, ...patch } : s));
     setSavedAt(null);
   };
@@ -89,6 +94,7 @@ export function SettingsTab({ canWrite }: { canWrite: boolean }) {
         method: "PUT",
         body: JSON.stringify(settings),
       });
+      dirtyRef.current = false; // 保存済み＝以降はサーバー値の同期を受け入れる
       setSavedAt(Date.now());
       void refresh(); // 保存は確定済み。再取得は待たない
     } catch (e) {

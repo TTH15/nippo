@@ -210,7 +210,24 @@ export type SubmitScreen = {
   blocks: ResolvedBlock[];
 };
 
-export function PostSubmitView({ data, onClose }: { data: SubmitScreen; onClose: () => void }) {
+export function PostSubmitView({ data, onClose }: { data: SubmitScreen | null; onClose: () => void }) {
+  // data 未着（送信直後の後追い取得中）はスケルトンを見せる。送信完了は既に確定しているので
+  // 画面遷移をブロックしない（POST+GET の合計時間ブロックの解消・2026-08 監査）
+  if (!data) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-6 space-y-4">
+        <div className="h-28 w-full animate-pulse rounded-xl bg-slate-100" />
+        <div className="h-44 w-full animate-pulse rounded-xl bg-slate-100" />
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full min-h-[3.25rem] rounded-xl bg-slate-900 py-3.5 text-[15px] font-semibold text-white transition-colors hover:bg-slate-800 active:bg-slate-950"
+        >
+          続けて入力する
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="mx-auto max-w-md px-4 py-6 space-y-4">
       {data.blocks.map((b, i) => (

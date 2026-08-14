@@ -5,10 +5,11 @@
 //   動的フォーム（/api/admin/daily/report-form）でキャリア配下の unit/field を取得し、
 //   保存（/api/admin/daily/reports/proxy）すると承認済みとして集計に反映される。
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { Skeleton } from "@/lib/components/Skeleton";
 
 type Field = {
@@ -50,7 +51,6 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
   const [shifts, setShifts] = useState<ShiftForm[]>([]);
   const [shiftVehicleId, setShiftVehicleId] = useState<string | null>(null);
   const [values, setValues] = useState<Values>({});
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,44 +59,53 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
     return `${y}年${parseInt(m, 10)}月${parseInt(day, 10)}日`;
   };
 
-  const load = useCallback(async (t: Target) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await apiFetch<{ shifts: ShiftForm[]; shiftVehicleId: string | null }>(
-        `/api/admin/daily/report-form?driverId=${encodeURIComponent(t.driverId)}&date=${encodeURIComponent(t.date)}`,
-      );
-      const loaded = res.shifts ?? [];
-      setShifts(loaded);
-      setShiftVehicleId(res.shiftVehicleId ?? null);
-      // 既存値を prefill
-      const init: Values = {};
-      loaded.forEach((s) => {
-        init[s.courseId] = {};
-        s.units.forEach((u) => {
-          init[s.courseId][u.id] = {};
-          u.fields.forEach((f) => {
-            const ev = s.existing?.values?.[u.id]?.[f.fieldKey];
-            init[s.courseId][u.id][f.fieldKey] = ev != null ? String(ev) : "";
-          });
-        });
-      });
-      setValues(init);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "フォームの取得に失敗しました");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // SWR 化（2026-08 監査）: 同じ対象を開き直したときはキャッシュ即表示。
+  // 入力開始後は再検証でフォームを上書きしない（キーごとに1回だけ初期化）。
+  const formKey = target
+    ? `/api/admin/daily/report-form?driverId=${encodeURIComponent(target.driverId)}&date=${encodeURIComponent(target.date)}`
+    : null;
+  const {
+    data: formData,
+    error: formError,
+    isInitialLoading: loading,
+  } = useApi<{ shifts: ShiftForm[]; shiftVehicleId: string | null }>(formKey, {
+    revalidateOnFocus: false,
+  });
+  const initializedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (target) load(target);
-    else {
+    if (!target) {
       setShifts([]);
       setValues({});
       setError(null);
+      initializedKeyRef.current = null;
+      return;
     }
-  }, [target, load]);
+    if (!formData || !formKey) return;
+    if (initializedKeyRef.current === formKey) return;
+    initializedKeyRef.current = formKey;
+    const loaded = formData.shifts ?? [];
+    setShifts(loaded);
+    setShiftVehicleId(formData.shiftVehicleId ?? null);
+    // 既存値を prefill
+    const init: Values = {};
+    loaded.forEach((s) => {
+      init[s.courseId] = {};
+      s.units.forEach((u) => {
+        init[s.courseId][u.id] = {};
+        u.fields.forEach((f) => {
+          const ev = s.existing?.values?.[u.id]?.[f.fieldKey];
+          init[s.courseId][u.id][f.fieldKey] = ev != null ? String(ev) : "";
+        });
+      });
+    });
+    setValues(init);
+    setError(null);
+  }, [target, formData, formKey]);
+
+  useEffect(() => {
+    if (formError) setError(formError instanceof Error ? formError.message : "フォームの取得に失敗しました");
+  }, [formError]);
 
   if (!target) return null;
 

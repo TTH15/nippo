@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { preload } from "swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBriefcase, faPlus, faTrash, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -9,6 +10,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { swrFetcher } from "@/lib/swr";
 import { hasCapability } from "@/lib/capabilities";
 import { Button } from "@/lib/ui/button";
 import { todayJST, currentMonthJST, reportDateStrToDate } from "@/lib/date";
@@ -56,6 +58,20 @@ export default function SpotJobsPage() {
     }
   }, [error]);
 
+  // 前後月の preload（P9）: ◀▶ で移動したときスケルトンを出さない。重複は Set で防止。
+  const prefetchedMonthsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!data) return;
+    for (const delta of [-1, 1]) {
+      const key = `/api/admin/spot-jobs?month=${shiftMonth(month, delta)}`;
+      if (prefetchedMonthsRef.current.has(key)) continue;
+      prefetchedMonthsRef.current.add(key);
+      void preload(key, swrFetcher);
+    }
+    // month の変化は data 経由で反映される
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   const jobs = data?.jobs ?? [];
   const drivers = data?.drivers ?? [];
   const driverNames = useMemo(() => new Map(drivers.map((d) => [d.id, d.name])), [drivers]);
@@ -66,12 +82,37 @@ export default function SpotJobsPage() {
   async function save(payload: SpotJobSavePayload) {
     if (!modal) return;
     if (modal.mode === "create") {
-      await apiFetch("/api/admin/spot-jobs", { method: "POST", body: JSON.stringify(payload) });
+      // 作成はレスポンスの新規行をキャッシュへ追加（月全体の再取得を待たない）
+      const res = await apiFetch<{ job: SpotJob }>("/api/admin/spot-jobs", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      if (res?.job && res.job.jobDate?.startsWith(month)) {
+        void mutate(
+          (prev) => (prev ? { ...prev, jobs: [...prev.jobs, res.job] } : prev),
+          { revalidate: false },
+        );
+      } else {
+        // 表示中と別の月に作成した場合などはその月のキャッシュに任せる
+        void load();
+      }
     } else {
-      await apiFetch(`/api/admin/spot-jobs/${modal.job!.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+      // 更新はレスポンスの更新後行をキャッシュへ反映（レスポンス破棄→月全体再取得を廃止）
+      const res = await apiFetch<{ job: SpotJob }>(`/api/admin/spot-jobs/${modal.job!.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      if (res?.job) {
+        void mutate(
+          (prev) =>
+            prev ? { ...prev, jobs: prev.jobs.map((j) => (j.id === res.job.id ? res.job : j)) } : prev,
+          { revalidate: false },
+        );
+      } else {
+        void load();
+      }
     }
     setModal(null);
-    void load();
   }
 
   const createGuest = useCallback(async (name: string): Promise<MemberCandidate> => {

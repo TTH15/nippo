@@ -74,7 +74,29 @@ export async function GET(req: NextRequest) {
   const driverIds = drivers.map((d: { id: string }) => d.id);
 
   // 自動算出は新モデル(v2)。手動調整(臨時手当/控除)は既存 driver_ad_hoc_expenses を直読み（ハイブリッド）
-  const data = await loadAggregationData(supabase, orgId, startDate, endDate);
+  // 5本は互いに独立のため1波で並列取得する（旧: 直列 await の積み上げ）
+  const [data, { data: fixedRows }, leaseByDriver, courseDailyLease, { data: adHocRows }] =
+    await Promise.all([
+      loadAggregationData(supabase, orgId, startDate, endDate),
+      // 固定控除（毎月）
+      supabase
+        .from("driver_fixed_expenses")
+        .select("driver_id, amount")
+        .in("driver_id", driverIds)
+        .eq("cycle", "MONTHLY")
+        .lte("valid_from", endDate)
+        .or(`valid_to.is.null,valid_to.gte.${startDate}`),
+      // リース控除（driver_leases・専用概念）。DAILYはコース日額(courses.daily_lease)由来。
+      loadDriverLeases(supabase, driverIds, startDate, endDate),
+      loadCourseDailyLease(supabase, orgId),
+      // 臨時手当/控除（月次・既存テーブル）。amount 正=控除（net から減算）。
+      supabase
+        .from("driver_ad_hoc_expenses")
+        .select("driver_id, amount")
+        .in("driver_id", driverIds)
+        .eq("month", month),
+    ]);
+
   const codeByCarrier = new Map(data.carriers.map((c) => [c.id, c.code]));
   const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
   const auto = buildContributions(data.reports, [], ctx);
@@ -93,21 +115,12 @@ export async function GET(req: NextRequest) {
     incomeByDriverCarrier.set(c.driverId, cur);
   }
 
-  // 固定控除（毎月）
-  const { data: fixedRows } = await supabase
-    .from("driver_fixed_expenses")
-    .select("driver_id, amount")
-    .in("driver_id", driverIds)
-    .eq("cycle", "MONTHLY")
-    .lte("valid_from", endDate)
-    .or(`valid_to.is.null,valid_to.gte.${startDate}`);
   const fixedByDriver: Record<string, number> = {};
   driverIds.forEach((id: string) => (fixedByDriver[id] = 0));
   (fixedRows ?? []).forEach((row: { driver_id: string; amount: number }) => {
     if (fixedByDriver[row.driver_id] !== undefined) fixedByDriver[row.driver_id] += Number(row.amount) || 0;
   });
 
-  // リース控除（driver_leases・専用概念）。DAILYはコース日額(courses.daily_lease)由来。
   const perDayByDriver = new Map<string, { date: string; courseId: string | null }[]>();
   for (const r of data.reports) {
     if (!r.driverId || !isCountableReport(r)) continue;
@@ -115,17 +128,7 @@ export async function GET(req: NextRequest) {
     arr.push({ date: r.reportDate, courseId: r.courseId });
     perDayByDriver.set(r.driverId, arr);
   }
-  const [leaseByDriver, courseDailyLease] = await Promise.all([
-    loadDriverLeases(supabase, driverIds, startDate, endDate),
-    loadCourseDailyLease(supabase, orgId),
-  ]);
 
-  // 臨時手当/控除（月次・既存テーブル）。amount 正=控除（net から減算）。
-  const { data: adHocRows } = await supabase
-    .from("driver_ad_hoc_expenses")
-    .select("driver_id, amount")
-    .in("driver_id", driverIds)
-    .eq("month", month);
   const adHocByDriver: Record<string, number> = {};
   driverIds.forEach((id: string) => (adHocByDriver[id] = 0));
   (adHocRows ?? []).forEach((row: { driver_id: string; amount: number }) => {

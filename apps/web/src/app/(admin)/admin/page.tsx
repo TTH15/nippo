@@ -56,29 +56,43 @@ export default function AdminDashboardPage() {
   const [sales, setSales] = useState(0);
   const [profit, setProfit] = useState(0);
   const [trend, setTrend] = useState<DayBar[]>([]);
-  const [dailyUnread, setDailyUnread] = useState<number | null>(null);
-  const [oilUnread, setOilUnread] = useState<number | null>(null);
-  const [oilAlert, setOilAlert] = useState<number | null>(null);
   const [activeDrivers, setActiveDrivers] = useState<number | null>(null);
 
+  // バッジ系は AdminLayout と同じ統合エンドポイント・同一SWRキーを共有する
+  // （従来は合成キー内で3本を重複取得しており dedup が効かなかった）。
+  // ポーリングは AdminLayout 側の refreshInterval が同一キーに効く。
+  const { data: badges } = useApi<{
+    dailyUnread: number | null;
+    otherUnread: number | null;
+    oilAlert: number | null;
+  }>("/api/admin/badges");
+  const dailyUnread = badges ? badges.dailyUnread : null;
+  const oilUnread = badges ? badges.otherUnread : null;
+  const oilAlert = badges ? badges.oilAlert : null;
+
   // SWR でダッシュボードの集計をまとめてキャッシュし、遷移をまたいで保持する。
+  // capability を見てから発射する（権限の狭いロールが毎回 403 を数本受けないように・2026-08 監査）。
+  // capabilities 未取得（旧セッション）は従来どおり全部取得にフォールバック。
   const { data: dash, isInitialLoading } = useApi<{
     sales: number;
     profit: number;
     trend: DayBar[];
-    dailyUnread: number | null;
-    oilUnread: number | null;
-    oilAlert: number | null;
     activeDrivers: number | null;
   }>(`admin/dashboard:${month}:${start14}:${today}`, {
     fetcher: async () => {
-      const [monthRes, trendRes, dailyRes, oilRes, oilAlertRes, shiftRes] = await Promise.all([
-        apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?month=${month}`).catch(() => ({ data: [] as SalesRow[] })),
-        apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?start=${start14}&end=${today}`).catch(() => ({ data: [] as SalesRow[] })),
-        apiFetch<{ unreadCount: number }>(`/api/admin/daily/unread-count`).catch(() => null),
-        apiFetch<{ unreadCount: number }>(`/api/admin/misc-reports/oil-change/unread-count`).catch(() => null),
-        apiFetch<{ count: number }>(`/api/admin/vehicles/oil-alert-count`).catch(() => null),
-        apiFetch<{ shifts: { driver_id: string | null }[] }>(`/api/admin/shifts?start=${today}&end=${today}`).catch(() => ({ shifts: [] as { driver_id: string | null }[] })),
+      const capList = getStoredDriver()?.capabilities;
+      const allowed = (cap: string) => !Array.isArray(capList) || capList.includes(cap);
+      const [monthRes, trendRes, shiftRes] = await Promise.all([
+        allowed("can_view_billing")
+          ? apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?month=${month}`).catch(() => ({ data: [] as SalesRow[] }))
+          : Promise.resolve({ data: [] as SalesRow[] }),
+        allowed("can_view_billing")
+          ? apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?start=${start14}&end=${today}`).catch(() => ({ data: [] as SalesRow[] }))
+          : Promise.resolve({ data: [] as SalesRow[] }),
+        // 本日の稼働数は軽量カウントモード（全行転送→クライアント集計を廃止）
+        allowed("can_view_shifts")
+          ? apiFetch<{ count: number }>(`/api/admin/shifts?start=${today}&end=${today}&countDrivers=1`).catch(() => null)
+          : Promise.resolve(null),
       ]);
       const monthRows = monthRes.data ?? [];
       const trendRows = (trendRes.data ?? []).map((r) => ({
@@ -86,17 +100,11 @@ export default function AdminDashboardPage() {
         label: r.date,
         total: (r.yamato || 0) + (r.amazon || 0) + (r.other || 0),
       }));
-      const uniqueDrivers = new Set(
-        (shiftRes.shifts ?? []).map((s) => s.driver_id).filter((id): id is string => !!id),
-      );
       return {
         sales: monthRows.reduce((s, r) => s + (r.yamato || 0) + (r.amazon || 0) + (r.other || 0), 0),
         profit: monthRows.reduce((s, r) => s + (r.profit || 0), 0),
         trend: trendRows,
-        dailyUnread: dailyRes ? Number(dailyRes.unreadCount) || 0 : null,
-        oilUnread: oilRes ? Number(oilRes.unreadCount) || 0 : null,
-        oilAlert: oilAlertRes ? Number(oilAlertRes.count) || 0 : null,
-        activeDrivers: uniqueDrivers.size,
+        activeDrivers: shiftRes ? Number(shiftRes.count) || 0 : null,
       };
     },
   });
@@ -107,9 +115,6 @@ export default function AdminDashboardPage() {
     setSales(dash.sales);
     setProfit(dash.profit);
     setTrend(dash.trend);
-    setDailyUnread(dash.dailyUnread);
-    setOilUnread(dash.oilUnread);
-    setOilAlert(dash.oilAlert);
     setActiveDrivers(dash.activeDrivers);
   }, [dash]);
 

@@ -2,33 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
-import { countLicenseAlertDrivers, type LicenseDriver } from "@repo/core/logic/license";
+import { countLicenseAlert } from "@/server/adminBadges/counts";
 
 export const dynamic = "force-dynamic";
 
-// GET: 運転免許証の更新が迫っている（接近 or 期限切れ）ドライバーの人数。
-// メニューバッジ（「管理」／「ドライバー」）に使用。しきい値は core/logic/license に集約。
+// GET: 運転免許証の更新が迫っている（接近 or 期限切れ）ドライバーの人数（互換維持）。
+// 通常は /api/admin/badges に統合済み。しきい値は core/logic/license に集約。
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_members");
   if (isAuthError(user)) return user;
-  const orgId = await resolveOrgId(user.driverId);
+  const orgId = user.orgId ?? (await resolveOrgId(user.driverId));
 
   try {
-    const { data, error } = await supabase
-      .from("drivers")
-      .select("license_expiry_date")
-      .eq("org_id", orgId)
-      .eq("works_as_driver", true)
-      // 稼働終了・却下・承認待ちの人に免許更新を促しても意味がないため、
-      // 在籍中（active）だけを数える。
-      .eq("status", "active");
-
-    if (error) {
-      console.error("[admin/users/license-alert-count] error", error);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
-
-    const count = countLicenseAlertDrivers((data ?? []) as LicenseDriver[]);
+    const count = await countLicenseAlert(supabase, orgId);
     return NextResponse.json({ count });
   } catch (err) {
     console.error("[admin/users/license-alert-count] error", err);

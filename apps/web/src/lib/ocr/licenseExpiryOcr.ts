@@ -8,6 +8,26 @@ import { parseLicenseExpiry } from "./parseLicenseExpiry";
 // サーバには画像を送らない＝新規外部 API・キー不要。
 // ============================================================
 
+let prefetchPromise: Promise<void> | null = null;
+
+/**
+ * tesseract.js のモジュール+言語データ（数MB・CDN）を裏で温める。
+ * 免許ステップの表示中に呼んでおくと、撮影直後の初回 OCR で数MBのダウンロードを待たない
+ * （従来はアップロード直後に取得が走っていた・2026-08 監査）。失敗しても本処理には影響しない。
+ */
+export function prefetchLicenseOcr(): void {
+  if (prefetchPromise) return;
+  prefetchPromise = import("tesseract.js")
+    .then(async ({ createWorker }) => {
+      // worker を1回起こして wasm/言語データまでブラウザキャッシュに載せ、すぐ破棄する
+      const worker = await createWorker("jpn");
+      await worker.terminate();
+    })
+    .catch(() => {
+      prefetchPromise = null; // 次の機会に再試行できるようにする
+    });
+}
+
 export async function ocrLicenseExpiryFromBase64(base64Jpeg: string): Promise<string | null> {
   try {
     const { createWorker } = await import("tesseract.js");

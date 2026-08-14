@@ -60,22 +60,26 @@ export async function GET(req: NextRequest) {
     billableByUnit.set(f.unit_id, s);
   });
 
-  // report_entries（分割取得）
+  // report_entries（分割取得）。200件ずつのバッチを直列に待つと往復が積み上がるため並列で流す
   type Entry = { report_id: string; unit_id: string; field_key: string; value_num: number | null };
-  const entries: Entry[] = [];
+  const entrySlices: string[][] = [];
   for (let i = 0; i < reportIds.length; i += IN_CLAUSE_BATCH_SIZE) {
-    const slice = reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
-    const data = await fetchAllRows((from, to) =>
-      supabase
-        .from("report_entries")
-        .select("report_id, unit_id, field_key, value_num")
-        .in("report_id", slice)
-        // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
-        .order("id", { ascending: true })
-        .range(from, to),
-    );
-    data.forEach((e: any) => entries.push(e));
+    entrySlices.push(reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE));
   }
+  const entryPages = await Promise.all(
+    entrySlices.map((slice) =>
+      fetchAllRows((from, to) =>
+        supabase
+          .from("report_entries")
+          .select("report_id, unit_id, field_key, value_num")
+          .in("report_id", slice)
+          // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+    ),
+  );
+  const entries: Entry[] = entryPages.flat() as Entry[];
 
   // レポートごとに unit 単位で集計（従量=課金数量合計 / 固定=稼働1）
   // perReportUnit: `${reportId}:${unitId}` → billable sum

@@ -1,7 +1,9 @@
 "use client";
 
+import { useRef } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { preload } from "swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faUser,
@@ -10,6 +12,9 @@ import {
   faGift,
   faFileCirclePlus,
 } from "@fortawesome/free-solid-svg-icons";
+import { swrFetcher } from "@/lib/swr";
+import { reportDateDefaultJST, currentMonthJST } from "@/lib/date";
+import { monthDateRange } from "@repo/core/logic/calendar";
 
 const TABS = [
   { href: "/me", label: "マイページ", icon: faUser },
@@ -19,10 +24,36 @@ const TABS = [
   { href: "/report", label: "報告", icon: faFileCirclePlus },
 ] as const;
 
+/** タブごとの主要データ（遷移先ページの初期 SWR キー）。touchstart で裏取得して温める。 */
+function dataKeysFor(href: string): string[] {
+  const today = reportDateDefaultJST();
+  if (href === "/me") return ["/api/reports/profile", "/api/me/registration"];
+  if (href === "/shifts") {
+    const [y, m] = currentMonthJST().split("-").map(Number);
+    const { start, end } = monthDateRange(y, m);
+    return [`/api/me/shifts?start=${start}&end=${end}`];
+  }
+  if (href === "/submit") return [`/api/me/report-form?date=${encodeURIComponent(today)}`];
+  if (href === "/me/rewards") return [`/api/me/rewards?month=${currentMonthJST()}`];
+  if (href === "/report") return ["/api/reports/profile", "/api/me/registration", "/api/me/report-kinds"];
+  return [];
+}
+
 export function UserBottomNav() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get("tab");
+
+  // touchstart 先読み（P8）: タップの意思が確定した瞬間（touchstart）に遷移先の
+  // 初期データを裏取得する。Link prefetch は JS のみでデータは温まらないため。
+  const prefetchedRef = useRef(new Set<string>());
+  const preloadTabData = (href: string) => {
+    for (const key of dataKeysFor(href)) {
+      if (prefetchedRef.current.has(key)) continue;
+      prefetchedRef.current.add(key);
+      void preload(key, swrFetcher);
+    }
+  };
 
   const checkActive = (href: string) => {
     if (href === "/me") {
@@ -57,6 +88,8 @@ export function UserBottomNav() {
                 <Link
                   href={tab.href}
                   prefetch
+                  onTouchStart={() => preloadTabData(tab.href)}
+                  onMouseEnter={() => preloadTabData(tab.href)}
                   className={`flex flex-col items-center justify-end ${active
                     ? "text-amber-600 font-semibold"
                     : "text-slate-500 hover:text-slate-700"
@@ -86,6 +119,8 @@ export function UserBottomNav() {
               key={tab.href}
               href={tab.href}
               prefetch
+              onTouchStart={() => preloadTabData(tab.href)}
+              onMouseEnter={() => preloadTabData(tab.href)}
               className={`flex-1 flex flex-col items-center justify-center gap-0.5 min-w-0 pb-2 pt-2 transition-colors ${active
                 ? "text-amber-600 font-semibold"
                 : "text-slate-500 hover:text-slate-700"

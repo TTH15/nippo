@@ -9,9 +9,9 @@ import { startRegistration } from "@simplewebauthn/browser";
 import { apiFetch, setAuth, getStoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
-import { DATE_RE, fileToJpegBase64 } from "@/lib/components/KycPhotoBox";
+import { DATE_RE, fileToJpegBase64, uploadKycPhotoMultipart } from "@/lib/components/KycPhotoBox";
 import { GuidedKycPhoto } from "@/lib/components/GuidedKycPhoto";
-import { ocrLicenseExpiryFromBase64 } from "@/lib/ocr/licenseExpiryOcr";
+import { ocrLicenseExpiryFromBase64, prefetchLicenseOcr } from "@/lib/ocr/licenseExpiryOcr";
 
 // ============================================================
 // 初期登録ウィザード（web 一本化・§2-1a）。認証不要で開始し、SMS 認証後は
@@ -217,6 +217,13 @@ export function OnboardingWizard({
   const canUsePasskey = passkeyOverride ?? hostCanUsePasskey;
 
   const [step, setStep] = useState<Step>("code");
+
+  // 免許ステップに近づいたら OCR モジュール（tesseract.js・数MB）を裏で温める。
+  // 撮影→アップロード直後の初回 OCR で CDN 取得を待たないため（2026-08 監査）。
+  useEffect(() => {
+    if (step === "address" || step === "license") prefetchLicenseOcr();
+  }, [step]);
+
   const [joinCode, setJoinCode] = useState("");
   const [inviteToken, setInviteToken] = useState("");
   const [orgName, setOrgName] = useState("");
@@ -1392,9 +1399,7 @@ export const realAdapter: WizardAdapter = {
     await apiFetch("/api/me/registration", { method: "POST", body: JSON.stringify(fields) });
   },
   async uploadPhoto(kind, base64) {
-    await apiFetch("/api/me/registration/photo", {
-      method: "POST",
-      body: JSON.stringify({ kind, base64, mime: "image/jpeg" }),
-    });
+    // 送信は multipart バイナリ（base64 JSON は +33% 転送）。base64 はプレビュー/OCR 用
+    await uploadKycPhotoMultipart(kind, base64);
   },
 };

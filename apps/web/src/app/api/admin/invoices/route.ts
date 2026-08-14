@@ -3,6 +3,7 @@ import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { storeInvoiceAttachments } from "@/server/billing/invoiceAttachments";
+import { fetchAllRows } from "@/server/aggregation/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -140,25 +141,59 @@ export async function GET(req: NextRequest) {
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
-  const monthParam = req.nextUrl.searchParams.get("month");
-  const month = monthParam ? normalizeMonth(monthParam) : null;
-  let query = supabase
-    .from("invoice_documents")
-    // payload は添付（最大5MB/件）を含むため一覧では取らない。
-    // 一覧が payload から使うのは parties/fromName/toName だけなので、
-    // その3つだけを PostgREST の JSON 演算子で抜き出す。
-    .select(
-      "id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, is_starred, created_at, updated_at, parties:payload->parties, from_name:payload->>fromName, to_name:payload->>toName",
-    )
-    .eq("org_id", orgId)
-    .order("updated_at", { ascending: false });
-  if (month) {
-    query = query.eq("month_yyyy_mm", month);
+  // months=1: 年月フォルダ用の distinct 集計（軽量列のみ・全件ページングで切り詰めなし）
+  if (req.nextUrl.searchParams.get("months") === "1") {
+    try {
+      const rows = await fetchAllRows((from, to) =>
+        supabase
+          .from("invoice_documents")
+          .select("id, month_yyyy_mm")
+          .eq("org_id", orgId)
+          // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+          .order("month_yyyy_mm", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, to),
+      );
+      const months = Array.from(
+        new Set(rows.map((r: any) => r.month_yyyy_mm).filter(Boolean)),
+      ) as string[];
+      return NextResponse.json({ months });
+    } catch (e) {
+      console.error(e);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
   }
-  const { data, error } = await query;
 
-  if (error) {
-    console.error(error);
+  // month は必須。従来の「未指定＝全期間」は素SELECTの1000行切り詰めと組み合わさると
+  // 古い月のフォルダが静かに消えるため廃止（フォルダ一覧は months=1 を使う）。
+  const monthParam = req.nextUrl.searchParams.get("month");
+  if (!monthParam || !/^\d{4}-\d{2}$/.test(monthParam)) {
+    return NextResponse.json(
+      { error: "month (YYYY-MM) を指定してください（フォルダ一覧は ?months=1）" },
+      { status: 400 },
+    );
+  }
+  const month = normalizeMonth(monthParam);
+  let data: any[];
+  try {
+    data = await fetchAllRows((from, to) =>
+      supabase
+        .from("invoice_documents")
+        // payload は添付（最大5MB/件）を含むため一覧では取らない。
+        // 一覧が payload から使うのは parties/fromName/toName だけなので、
+        // その3つだけを PostgREST の JSON 演算子で抜き出す。
+        .select(
+          "id, month_yyyy_mm, section, client_name, issue_date, amount, status, invoice_no, counterparty_invoice_address_id, is_starred, created_at, updated_at, parties:payload->parties, from_name:payload->>fromName, to_name:payload->>toName",
+        )
+        .eq("org_id", orgId)
+        .eq("month_yyyy_mm", month)
+        // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+        .order("updated_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+  } catch (e) {
+    console.error(e);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 

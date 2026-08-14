@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { preload } from "swr";
+import { swrFetcher } from "@/lib/swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFolder, faFileInvoice, faPenToSquare, faPlus, faTrashCan, faEye, faStar } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -8,7 +10,7 @@ import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { Button } from "@/lib/ui/button";
-import { apiFetch, getStoredDriver } from "@/lib/api";
+import { apiFetch, getStoredDriver, getToken } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { hasCapability } from "@/lib/capabilities";
 
@@ -158,7 +160,17 @@ export default function InvoicesPage() {
   const starSyncTimerRef = useRef<number | null>(null);
   const pendingStarUpdatesRef = useRef<Map<string, boolean>>(new Map());
 
-  const monthFolders = Array.from(new Set((invoices ?? []).map((i) => i.month).filter(Boolean))).sort().reverse();
+  // 年月フォルダは distinct 集計API から取得する（全期間一覧の1000行切り詰めで
+  // 古い月フォルダが静かに消えていた問題の対策）。選択中の月は常にフォルダに出す。
+  const { data: monthsData, mutate: mutateMonths } = useApi<{ months: string[] }>(
+    "/api/admin/invoices?months=1",
+    { revalidateOnFocus: false },
+  );
+  const monthFolders = useMemo(() => {
+    const set = new Set(monthsData?.months ?? []);
+    if (selectedMonth) set.add(selectedMonth);
+    return Array.from(set).sort().reverse();
+  }, [monthsData, selectedMonth]);
   const directionFolders = (["outgoing", "incoming"] as const).filter((d) =>
     invoices.some((i) => (i.month ?? "") === selectedMonth && (i.direction ?? "outgoing") === d)
   );
@@ -211,17 +223,28 @@ export default function InvoicesPage() {
   }, []);
 
   // SWR で請求書一覧をキャッシュし、遷移をまたいで保持する（再訪時の点滅をなくす）。
+  // 一覧は選択中の月だけを取得する（全期間一覧は API 側で廃止済み）。
   const {
     data: invoicesData,
     error: invoicesError,
     isInitialLoading,
     mutate: mutateInvoices,
-  } = useApi<{ invoices: SavedInvoice[] }>("/api/admin/invoices");
+  } = useApi<{ invoices: SavedInvoice[] }>(
+    `/api/admin/invoices?month=${encodeURIComponent(selectedMonth)}`,
+    // フォーカス復帰の再検証で未flushのスター状態が巻き戻るのを防ぐ（350msデバウンス同期のため）
+    { revalidateOnFocus: false },
+  );
   const loading = isInitialLoading;
 
   useEffect(() => {
     if (invoicesData) {
-      setInvoices(invoicesData.invoices ?? []);
+      // 未flushのスター変更（350msデバウンス同期中）は、サーバーの旧値で巻き戻さず
+      // ローカルの操作を優先して重ねる（同期完了後の再取得で自然に一致する）
+      const pending = pendingStarUpdatesRef.current;
+      const rows = (invoicesData.invoices ?? []).map((inv) =>
+        pending.has(inv.id) ? { ...inv, starred: pending.get(inv.id)! } : inv,
+      );
+      setInvoices(rows);
       setErrorMessage(null);
     }
   }, [invoicesData]);
@@ -234,8 +257,32 @@ export default function InvoicesPage() {
     }
   }, [invoicesError]);
 
-  // 書き込み後の再取得（旧 load の代替）。
-  const load = useCallback(() => mutateInvoices(), [mutateInvoices]);
+  // 書き込み後の再取得（旧 load の代替）。月フォルダも更新する（新しい月への作成に追従）。
+  const load = useCallback(
+    () => Promise.all([mutateInvoices(), mutateMonths()]),
+    [mutateInvoices, mutateMonths],
+  );
+
+  // hover intent 先読み（P8）: 一覧行に 120ms 留まったら詳細（プレビュー/編集で使う
+  // 同一SWRキー）を裏取得してキャッシュを温める。通過だけでは撃たない。
+  const invoiceHoverTimerRef = useRef<number | null>(null);
+  const prefetchedInvoiceRef = useRef(new Set<string>());
+  const onInvoiceRowHoverStart = useCallback((invoiceId: string) => {
+    if (invoiceHoverTimerRef.current != null) window.clearTimeout(invoiceHoverTimerRef.current);
+    invoiceHoverTimerRef.current = window.setTimeout(() => {
+      invoiceHoverTimerRef.current = null;
+      const key = `/api/admin/invoices/${encodeURIComponent(invoiceId)}`;
+      if (prefetchedInvoiceRef.current.has(key)) return;
+      prefetchedInvoiceRef.current.add(key);
+      void preload(key, swrFetcher);
+    }, 120);
+  }, []);
+  const onInvoiceRowHoverEnd = useCallback(() => {
+    if (invoiceHoverTimerRef.current != null) {
+      window.clearTimeout(invoiceHoverTimerRef.current);
+      invoiceHoverTimerRef.current = null;
+    }
+  }, []);
 
   // ドライバ一覧はフォルダで選択中の年月時点で在籍していたドライバーだけに絞る
   // （稼働開始月/終了月ベース。status不問＝過去はinactiveでも当時在籍していれば出す）。
@@ -306,12 +353,25 @@ export default function InvoicesPage() {
     }
     setUploading(true);
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(new Error("ファイル読み込みに失敗しました"));
-        reader.readAsDataURL(file);
+      // multipart で先にアップロードして path を得る（base64 data URL の JSON 同梱は
+      // +33%転送・最大約6.7MBのJSONになるため廃止・2026-08 監査）
+      const fd = new FormData();
+      fd.append("file", file);
+      const token = getToken();
+      const uploadRes = await fetch("/api/admin/invoices/attachments", {
+        method: "POST",
+        body: fd,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
+      const uploaded = (await uploadRes.json().catch(() => ({}))) as {
+        path?: string;
+        name?: string;
+        type?: string;
+        error?: string;
+      };
+      if (!uploadRes.ok || !uploaded.path) {
+        throw new Error(uploaded.error || "アップロードに失敗しました");
+      }
       const [y, m] = selectedMonth.split("-").map(Number);
       const issueDate = (() => {
         const yy = m === 12 ? y + 1 : y;
@@ -337,7 +397,7 @@ export default function InvoicesPage() {
             issueDate: `${issueDate.slice(0, 4)}年${Number(issueDate.slice(5, 7))}月${Number(issueDate.slice(8, 10))}日`,
             billAmountDisplay: "¥0",
             tableData: { main: [], deduct: [] },
-            attachments: [{ name: file.name, type: file.type, dataUrl }],
+            attachments: [{ name: file.name, type: file.type, path: uploaded.path }],
             parties: { fromParty: `drv-${selectedDriver.id}`, toParty: "ace_creation" },
           },
         }),
@@ -661,7 +721,12 @@ export default function InvoicesPage() {
                       filtered.map((inv) => {
                         const s = statusLabel[inv.status];
                         return (
-                          <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                          <tr
+                            key={inv.id}
+                            onMouseEnter={() => onInvoiceRowHoverStart(inv.id)}
+                            onMouseLeave={onInvoiceRowHoverEnd}
+                            className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
+                          >
                             <td className="px-2 py-3 align-middle text-center">
                               {canWrite ? (
                                 <button

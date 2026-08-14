@@ -3,10 +3,9 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Skeleton } from "@/lib/components/Skeleton";
-import { apiFetch, getStoredDriver, setAuth, type StoredDriver } from "@/lib/api";
+import { getStoredDriver, type StoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
 import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
-import { markSessionSynced } from "@/lib/useSyncSession";
 
 export default function Home() {
   const router = useRouter();
@@ -27,22 +26,10 @@ export default function Home() {
       );
     };
 
-    const cached = getStoredDriver();
-    if (!cached) {
-      goTo(null);
-      return;
-    }
-
-    // ローカルに保存されたroleはログイン時点のスナップショットで、権限の付与／剥奪が
-    // 反映されない（例: 運営権限を剥奪された直後でも古い"ADMIN"のまま/adminへ飛び続ける）。
-    // 起動のたびにDBの最新roleへ同期してからリダイレクト先を決める。
-    apiFetch<{ token: string; driver: StoredDriver }>("/api/auth/session")
-      .then(({ token, driver }) => {
-        setAuth(token, driver);
-        markSessionSynced(); // 直後に admin/user レイアウトが再同期しないように
-        goTo(driver);
-      })
-      .catch(() => goTo(cached)); // 取得失敗時（オフライン等）は従来通りキャッシュ値で決定
+    // キャッシュ値で即遷移する（従来は /api/auth/session を待つ1往復ぶん白画面だった・2026-08 監査）。
+    // 権限の最新化（付与/剥奪の反映）は遷移先が行う: admin は AdminAccessGuard が
+    // 同期+ガード（権限が無ければ弾く）、user レイアウトは useSyncSession が再同期する。
+    goTo(getStoredDriver());
   }, [router]);
 
   return (

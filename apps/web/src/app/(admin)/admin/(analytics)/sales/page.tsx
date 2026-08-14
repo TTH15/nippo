@@ -1081,70 +1081,106 @@ export default function SalesPage() {
   }, [lastUpdatedAt]);
 
   // 右パネルの「1人あたり売上」用に、日付範囲が決まっているときはドライバー・日報・ミッドナイトを取得（集計タブでなくても取得）
+  // SWR 化: タブ切替・再訪ではキャッシュを即表示し、裏で再検証する（旧: 毎回フルロード）。
+  const salesReportsKey =
+    startIso && endIso
+      ? `/api/admin/sales/reports?start=${startIso}&end=${endIso}${driverIdQuery}`
+      : null;
+  const {
+    data: salesReportsRes,
+    error: salesReportsError,
+    isLoading: salesReportsLoading,
+  } = useSWR<{
+    drivers: DriverRow[];
+    reports: ReportRow[];
+    midnights: MidnightRow[];
+    summaryCourses?: SummaryCourseRow[];
+    courseShifts?: Record<string, { driver_id: string; date: string }[]>;
+  }>(salesReportsKey, swrFetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 10 * 60 * 1000,
+    keepPreviousData: true,
+  });
   useEffect(() => {
-    if (!startIso || !endIso) return;
-    if (tab === "summary") setLoadingSummary(true);
-    apiFetch<{
-      drivers: DriverRow[];
-      reports: ReportRow[];
-      midnights: MidnightRow[];
-      summaryCourses?: SummaryCourseRow[];
-      courseShifts?: Record<string, { driver_id: string; date: string }[]>;
-    }>(`/api/admin/sales/reports?start=${startIso}&end=${endIso}${driverIdQuery}`)
-      .then((res) => {
-        setDrivers(res.drivers ?? []);
-        setReports(res.reports ?? []);
-        setMidnights(res.midnights ?? []);
-        setSummaryCourses(res.summaryCourses ?? []);
-        setCourseShifts(res.courseShifts ?? {});
-      })
-      .catch(() => {
-        setDrivers([]);
-        setReports([]);
-        setMidnights([]);
-        setSummaryCourses([]);
-        setCourseShifts({});
-      })
-      .finally(() => {
-        if (tab === "summary") setLoadingSummary(false);
-      });
-  }, [startIso, endIso, tab, driverIdQuery]);
+    if (salesReportsRes) {
+      setDrivers(salesReportsRes.drivers ?? []);
+      setReports(salesReportsRes.reports ?? []);
+      setMidnights(salesReportsRes.midnights ?? []);
+      setSummaryCourses(salesReportsRes.summaryCourses ?? []);
+      setCourseShifts(salesReportsRes.courseShifts ?? {});
+    }
+  }, [salesReportsRes]);
+  useEffect(() => {
+    if (salesReportsError) {
+      setDrivers([]);
+      setReports([]);
+      setMidnights([]);
+      setSummaryCourses([]);
+      setCourseShifts({});
+    }
+  }, [salesReportsError]);
+  useEffect(() => {
+    setLoadingSummary(tab === "summary" && salesReportsLoading);
+  }, [tab, salesReportsLoading]);
 
   // 集計テーブル(unit駆動)の動的データを取得
+  const reportsSummaryKey =
+    startIso && endIso
+      ? `/api/admin/reports-summary?start=${startIso}&end=${endIso}${driverIdQuery}`
+      : null;
+  const { data: reportsSummaryRes, error: reportsSummaryError } = useSWR<{
+    units: { id: string; name: string; billingType: string }[];
+    byDriver: Record<string, Record<string, { total: number; byDate: Record<string, number> }>>;
+  }>(reportsSummaryKey, swrFetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 10 * 60 * 1000,
+    keepPreviousData: true,
+  });
   useEffect(() => {
-    if (!startIso || !endIso) return;
-    apiFetch<{
-      units: { id: string; name: string; billingType: string }[];
-      byDriver: Record<string, Record<string, { total: number; byDate: Record<string, number> }>>;
-    }>(`/api/admin/reports-summary?start=${startIso}&end=${endIso}${driverIdQuery}`)
-      .then((res) => {
-        setSummaryUnits(res.units ?? []);
-        setSummaryByDriver(res.byDriver ?? {});
-      })
-      .catch(() => {
-        setSummaryUnits([]);
-        setSummaryByDriver({});
-      });
-  }, [startIso, endIso, driverIdQuery]);
+    if (reportsSummaryRes) {
+      setSummaryUnits(reportsSummaryRes.units ?? []);
+      setSummaryByDriver(reportsSummaryRes.byDriver ?? {});
+    }
+  }, [reportsSummaryRes]);
+  useEffect(() => {
+    if (reportsSummaryError) {
+      setSummaryUnits([]);
+      setSummaryByDriver({});
+    }
+  }, [reportsSummaryError]);
 
+  // 会社帰属ログの合計を全タブで使うため、日付範囲が決まったら常に取得する
+  const salesLogKey =
+    startIso && endIso ? `/api/admin/sales/log?start=${startIso}&end=${endIso}` : null;
+  const {
+    data: salesLogRes,
+    error: salesLogError,
+    isLoading: salesLogLoading,
+    mutate: mutateSalesLog,
+  } = useSWR<{ entries: SalesLogEntryRow[] }>(salesLogKey, swrFetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 5 * 60 * 1000,
+    keepPreviousData: true,
+  });
   useEffect(() => {
-    if (!startIso || !endIso) return;
-    // 会社帰属ログの合計を全タブで使うため、日付範囲が決まったら常に取得する
-    if (tab === "log") setLoadingLog(true);
-    apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
-      .then((res) => setLogEntries(res.entries ?? []))
-      .catch(() => setLogEntries([]))
-      .finally(() => {
-        if (tab === "log") setLoadingLog(false);
-      });
-  }, [tab, startIso, endIso]);
+    if (salesLogRes) setLogEntries(salesLogRes.entries ?? []);
+  }, [salesLogRes]);
+  useEffect(() => {
+    if (salesLogError) setLogEntries([]);
+  }, [salesLogError]);
+  useEffect(() => {
+    setLoadingLog(tab === "log" && salesLogLoading);
+  }, [tab, salesLogLoading]);
 
+  // ログ種別（マスタ・変化が少ないため長め dedup）
+  const { data: logTypesRes } = useSWR<{ types: SalesLogTypeRow[] }>(
+    tab === "log" ? "/api/admin/sales/log/types" : null,
+    swrFetcher,
+    { revalidateOnFocus: false, dedupingInterval: 30 * 60 * 1000 },
+  );
   useEffect(() => {
-    if (tab !== "log") return;
-    apiFetch<{ types: SalesLogTypeRow[] }>("/api/admin/sales/log/types")
-      .then((res) => setLogTypes(res.types ?? []))
-      .catch(() => setLogTypes([]));
-  }, [tab]);
+    setLogTypes(logTypesRes?.types ?? []);
+  }, [logTypesRes]);
 
   useEffect(() => {
     if (!selectedDriverId) return;
@@ -1152,27 +1188,33 @@ export default function SalesPage() {
       setSelectedDriverId("");
     }
   }, [drivers, selectedDriverId]);
+  // ログタブのマスタ類（名簿・車両・請求先）。SWR 化でタブ再訪時の再取得をなくし、
+  // 他画面と同一キーの dedup も効かせる。
+  // all=1: ページングなしの全件（既定 limit=20 のままだと対象者セレクトに20人しか出ない）
+  const { data: logDriversRes } = useSWR<{ drivers: DriverRow[] }>(
+    tab === "log" ? "/api/admin/users?all=1" : null,
+    swrFetcher,
+    { revalidateOnFocus: false, dedupingInterval: 10 * 60 * 1000 },
+  );
   useEffect(() => {
-    if (tab !== "log") return;
-    apiFetch<{ drivers: DriverRow[] }>("/api/admin/users")
-      .then((res) => setLogDrivers(res.drivers ?? []))
-      .catch(() => setLogDrivers([]));
-  }, [tab]);
+    setLogDrivers(logDriversRes?.drivers ?? []);
+  }, [logDriversRes]);
+  const { data: logVehiclesRes } = useSWR<{ vehicles: VehicleRow[] }>(
+    tab === "log" ? "/api/admin/vehicles" : null,
+    swrFetcher,
+    { revalidateOnFocus: false, dedupingInterval: 10 * 60 * 1000 },
+  );
   useEffect(() => {
-    if (tab !== "log") return;
-    apiFetch<{ vehicles: VehicleRow[] }>("/api/admin/vehicles")
-      .then((res) => setLogVehicles(res.vehicles ?? []))
-      .catch(() => setLogVehicles([]));
-  }, [tab]);
-
+    setLogVehicles(logVehiclesRes?.vehicles ?? []);
+  }, [logVehiclesRes]);
+  const { data: logAddressesRes } = useSWR<{ addresses: { id: string; name: string }[] }>(
+    tab === "log" ? "/api/admin/invoice-addresses" : null,
+    swrFetcher,
+    { revalidateOnFocus: false, dedupingInterval: 10 * 60 * 1000 },
+  );
   useEffect(() => {
-    if (tab !== "log") return;
-    apiFetch<{ addresses: { id: string; name: string }[] }>("/api/admin/invoice-addresses")
-      .then((res) =>
-        setLogInvoiceAddresses((res.addresses ?? []).map((a) => ({ id: a.id, name: a.name })))
-      )
-      .catch(() => setLogInvoiceAddresses([]));
-  }, [tab]);
+    setLogInvoiceAddresses((logAddressesRes?.addresses ?? []).map((a) => ({ id: a.id, name: a.name })));
+  }, [logAddressesRes]);
 
   const invoiceAddressById = useMemo(() => {
     const m: Record<string, string> = {};
@@ -1790,17 +1832,11 @@ export default function SalesPage() {
                   vehicles={logVehicles}
                   invoiceAddresses={logInvoiceAddresses}
                   onSaved={() => {
-                    if (startIso && endIso) {
-                      apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
-                        .then((res) => setLogEntries(res.entries ?? []))
-                        .catch(() => { });
-                    }
+                    void mutateSalesLog();
                     void refreshSalesCaches();
                   }}
                   onTypeAdded={() => {
-                    apiFetch<{ types: SalesLogTypeRow[] }>("/api/admin/sales/log/types")
-                      .then((res) => setLogTypes(res.types ?? []))
-                      .catch(() => { });
+                    void mutateSWR("/api/admin/sales/log/types");
                   }}
                 />
                 {loadingLog ? (
@@ -1850,11 +1886,7 @@ export default function SalesPage() {
                       startIso={startIso}
                       endIso={endIso}
                       onUpdated={() => {
-                        if (startIso && endIso) {
-                          apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
-                            .then((res) => setLogEntries(res.entries ?? []))
-                            .catch(() => { });
-                        }
+                        void mutateSalesLog();
                         void refreshSalesCaches();
                       }}
                       onEdit={(entry) => {
@@ -2075,13 +2107,7 @@ export default function SalesPage() {
           setLogSavingId(target.id);
           apiFetch(`/api/admin/sales/log/${target.id}`, { method: "DELETE" })
             .then(() => {
-              if (startIso && endIso) {
-                return apiFetch<{ entries: SalesLogEntryRow[] }>(`/api/admin/sales/log?start=${startIso}&end=${endIso}`)
-                  .then((res) => setLogEntries(res.entries ?? []))
-                  .catch(() => { });
-              }
-            })
-            .then(() => {
+              void mutateSalesLog();
               void refreshSalesCaches();
             })
             .catch((e) => {

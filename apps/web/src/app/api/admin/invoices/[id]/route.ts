@@ -158,20 +158,37 @@ export async function PATCH(
   }
 
   const desiredStatus = body.status;
-  if (desiredStatus === "pending_approval") {
-    const { data: current, error: curErr } = await supabase
+
+  // 前置 SELECT の統合: pending_approval 判定・markEdited・invoice_no 変更チェックが
+  // それぞれ現在行を読む必要がある。自動保存のたび最大3回直列だったのを1回にまとめる。
+  const wantsInvoiceNoUpdate =
+    typeof body.invoiceNo === "string" || body.invoiceNo === null || body.markEdited === true;
+  let currentRow: { invoice_no: string | null; payload: unknown } | null = null;
+  if (desiredStatus === "pending_approval" || wantsInvoiceNoUpdate) {
+    const { data, error: curErr } = await supabase
       .from("invoice_documents")
-      .select("id, payload")
+      // payload は pending_approval 判定でのみ必要（重い列のため不要時は読まない）
+      .select(desiredStatus === "pending_approval" ? "invoice_no, payload" : "invoice_no")
       .eq("id", id)
       .eq("org_id", orgId)
       .maybeSingle();
-    if (curErr || !current) {
+    if (curErr) {
+      console.error(curErr);
+      return NextResponse.json({ error: "請求書の更新に失敗しました" }, { status: 500 });
+    }
+    currentRow = (data as { invoice_no: string | null; payload?: unknown } | null)
+      ? { invoice_no: (data as any).invoice_no ?? null, payload: (data as any).payload }
+      : null;
+  }
+
+  if (desiredStatus === "pending_approval") {
+    if (!currentRow) {
       return NextResponse.json({ error: "請求書の更新に失敗しました" }, { status: 500 });
     }
     const nextPayload =
       body.payload && typeof body.payload === "object"
         ? (body.payload as Record<string, unknown>)
-        : ((current.payload as Record<string, unknown>) ?? {});
+        : ((currentRow.payload as Record<string, unknown>) ?? {});
     const incomingDriverParty = extractIncomingDriverParty(nextPayload);
     const incomingDriverId = extractDriverIdFromParty(incomingDriverParty);
     if (incomingDriverParty && isSystemGeneratedInvoice(nextPayload)) {
@@ -259,15 +276,9 @@ export async function PATCH(
     }
   }
   if (body.markEdited === true) {
-    const { data: current } = await supabase
-      .from("invoice_documents")
-      .select("invoice_no")
-      .eq("id", id)
-      .eq("org_id", orgId)
-      .maybeSingle();
     const baseInvoiceNo =
-      typeof current?.invoice_no === "string" && current.invoice_no.trim()
-        ? current.invoice_no
+      typeof currentRow?.invoice_no === "string" && currentRow.invoice_no.trim()
+        ? currentRow.invoice_no
         : typeof body.invoiceNo === "string" && body.invoiceNo.trim()
           ? body.invoiceNo.trim()
           : "";
@@ -276,18 +287,8 @@ export async function PATCH(
 
   try {
     if ("invoice_no" in updates) {
-      const { data: currentNoRow, error: currentNoErr } = await supabase
-        .from("invoice_documents")
-        .select("invoice_no")
-        .eq("id", id)
-        .eq("org_id", orgId)
-        .maybeSingle();
-      if (currentNoErr) {
-        console.error(currentNoErr);
-        return NextResponse.json({ error: "DB error" }, { status: 500 });
-      }
       const currentNo =
-        typeof currentNoRow?.invoice_no === "string" ? currentNoRow.invoice_no.trim() : "";
+        typeof currentRow?.invoice_no === "string" ? currentRow.invoice_no.trim() : "";
       const nextNo = typeof updates.invoice_no === "string" ? updates.invoice_no.trim() : "";
       // 請求書番号が変更された場合のみ重複チェックする
       if (nextNo && nextNo !== currentNo) {

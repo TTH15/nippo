@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { format } from "date-fns";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { format, addDays } from "date-fns";
+import { preload } from "swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation, faLocationDot, faLocationCrosshairs } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
+import { swrFetcher } from "@/lib/swr";
 import { hasCapability } from "@/lib/capabilities";
 import { Button } from "@/lib/ui/button";
 
@@ -62,7 +65,6 @@ const PURPOSE_LABEL: Record<string, string> = { work: "稼働", move: "移動・
 export default function AttendancePage() {
   const [date, setDate] = useState<Date>(new Date());
   const [items, setItems] = useState<AttendanceRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [canWrite, setCanWrite] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -72,21 +74,40 @@ export default function AttendancePage() {
 
   const ymd = format(date, "yyyy-MM-dd");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch<{ items: AttendanceRow[] }>(`/api/admin/attendance?date=${ymd}`);
-      setItems(res.items ?? []);
-    } catch {
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [ymd]);
-
+  // SWR 化（2026-08 監査）: 再訪・日付戻しはキャッシュ即表示＋裏で再検証。
+  // keepPreviousData で日付切替時に表が空白化しない（初回のみローディング表示）。
+  const {
+    data: attendanceData,
+    error: attendanceError,
+    isInitialLoading: loading,
+    mutate: mutateAttendance,
+  } = useApi<{ items: AttendanceRow[] }>(`/api/admin/attendance?date=${ymd}`, {
+    revalidateOnFocus: false,
+    keepPreviousData: true,
+  });
   useEffect(() => {
-    load();
-  }, [load]);
+    if (attendanceData) setItems(attendanceData.items ?? []);
+  }, [attendanceData]);
+  useEffect(() => {
+    if (attendanceError) setItems([]);
+  }, [attendanceError]);
+  const load = useCallback(() => mutateAttendance(), [mutateAttendance]);
+
+  // 前後日の preload（P9）: 現在日の取得が終わったら隣接日を裏で温める。
+  // ◀▶ で移動したときスケルトンを出さない。重複は Set で防止。
+  const prefetchedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!attendanceData) return;
+    for (const delta of [-1, 1]) {
+      const adj = format(addDays(date, delta), "yyyy-MM-dd");
+      const key = `/api/admin/attendance?date=${adj}`;
+      if (prefetchedRef.current.has(key)) continue;
+      prefetchedRef.current.add(key);
+      void preload(key, swrFetcher);
+    }
+    // date は ymd 経由で attendanceData に反映されるため依存は data のみで足りる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attendanceData]);
 
   function decide(id: string, action: "approve" | "reject") {
     // 楽観的更新: クリックで即座に承認状態を反映し、保存はバックグラウンドで進める

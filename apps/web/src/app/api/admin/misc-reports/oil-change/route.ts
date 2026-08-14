@@ -31,13 +31,19 @@ export async function GET(req: NextRequest) {
       `)
       .eq("org_id", orgId);
 
+    // offset ページングには一意な並びが必須（approved_at/submitted_at は同時刻がありうるため
+    // id タイブレークを付ける。無いとページ間で行の重複・欠落が起きる）
     if (status === "approved") {
-      query = query.not("approved_at", "is", null).order("approved_at", { ascending: false });
+      query = query
+        .not("approved_at", "is", null)
+        .order("approved_at", { ascending: false })
+        .order("id", { ascending: true });
     } else {
       query = query
         .is("approved_at", null)
         .is("rejected_at", null)
-        .order("submitted_at", { ascending: false });
+        .order("submitted_at", { ascending: false })
+        .order("id", { ascending: true });
     }
 
     const { data: reports, error: reportErr } = await query.range(offset, offset + limit);

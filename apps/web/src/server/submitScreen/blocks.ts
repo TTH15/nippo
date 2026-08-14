@@ -15,6 +15,8 @@ import type {
 
 export type { SubmitBlock, ResolvedBlock } from "@/lib/submitScreenBlocks";
 
+export type AggData = Awaited<ReturnType<typeof loadAggregationData>>;
+
 // ============================================================
 // 送信後画面の「ブロック」リゾルバ。
 //   設定ブロック(SubmitBlock) → ドライバー向けに解決(ResolvedBlock)。
@@ -169,6 +171,9 @@ export type ResolveContext = {
   driverId: string;
   date: string;
   todayReward: number;
+  /** 当日×本人分の集計データ（route が読み込み済み）。event ブロックの todayPoints で共有し、
+   *  当日分の loadAggregationData を二重に実行しない。 */
+  dayData: AggData;
 };
 
 /** ブロック設定をドライバー向けに解決する。 */
@@ -198,29 +203,36 @@ export async function resolveBlocks(
     return driverNamesPromise;
   };
 
-  for (const b of blocks) {
-    if (!b.enabled) continue;
-    if (b.type === "greeting") {
-      out.push({ id: b.id, type: "greeting", title: b.title, message: b.message });
-    } else if (b.type === "today_reward") {
-      out.push({ id: b.id, type: "today_reward", todayReward: ctx.todayReward });
-    } else if (b.type === "event_points") {
-      const resolved = await resolveEventBlock(supabase, b, ctx);
-      if (resolved) out.push(resolved);
-    } else if (b.type === "personal_count") {
-      // 対象ドライバー指定がある場合、含まれない人にはブロック自体を出さない（空=全員）。
-      if (b.targetDriverIds.length > 0 && !b.targetDriverIds.includes(ctx.driverId)) continue;
-      const data = await monthData();
-      const value = sumMyMetrics(data, ctx.driverId, b);
-      out.push({ id: b.id, type: "personal_count", label: b.label, value });
-    } else if (b.type === "personal_ranking") {
-      // 対象ドライバー指定がある場合、含まれない人にはブロック自体を出さない（空=全員）。
-      if (b.targetDriverIds.length > 0 && !b.targetDriverIds.includes(ctx.driverId)) continue;
-      const data = await monthData();
-      const names = await driverNames();
-      out.push({ id: b.id, type: "personal_ranking", label: b.label, ...computePersonalRanking(data, b, ctx.driverId, names) });
-    }
-  }
+  // ブロックは互いに独立のため並列に解決する（月次集計・表示名は memo 済み Promise を共有）。
+  const resolved = await Promise.all(
+    blocks.map(async (b): Promise<ResolvedBlock | null> => {
+      if (!b.enabled) return null;
+      if (b.type === "greeting") {
+        return { id: b.id, type: "greeting", title: b.title, message: b.message };
+      }
+      if (b.type === "today_reward") {
+        return { id: b.id, type: "today_reward", todayReward: ctx.todayReward };
+      }
+      if (b.type === "event_points") {
+        return resolveEventBlock(supabase, b, ctx);
+      }
+      if (b.type === "personal_count") {
+        // 対象ドライバー指定がある場合、含まれない人にはブロック自体を出さない（空=全員）。
+        if (b.targetDriverIds.length > 0 && !b.targetDriverIds.includes(ctx.driverId)) return null;
+        const data = await monthData();
+        const value = sumMyMetrics(data, ctx.driverId, b);
+        return { id: b.id, type: "personal_count", label: b.label, value };
+      }
+      if (b.type === "personal_ranking") {
+        // 対象ドライバー指定がある場合、含まれない人にはブロック自体を出さない（空=全員）。
+        if (b.targetDriverIds.length > 0 && !b.targetDriverIds.includes(ctx.driverId)) return null;
+        const [data, names] = await Promise.all([monthData(), driverNames()]);
+        return { id: b.id, type: "personal_ranking", label: b.label, ...computePersonalRanking(data, b, ctx.driverId, names) };
+      }
+      return null;
+    }),
+  );
+  out.push(...resolved.filter((x): x is ResolvedBlock => x !== null));
   return out;
 }
 
@@ -259,8 +271,9 @@ async function resolveEventBlock(
   const myTeamScore = result.teams.find((t) => t.teamId === myTeamId) ?? null;
 
   // 当日の自分の日報を採点ルールでスコア化＝今日の獲得ポイント（カウントアップ用）。
+  // 当日×本人分は route が読み込み済み（ctx.dayData）。ここで再ロードしない。
   let todayPoints = 0;
-  const dayData = await loadAggregationData(supabase, ctx.orgId, ctx.date, ctx.date);
+  const dayData = ctx.dayData;
   const ruleFieldSets = rule.rules.map((r) => new Set(r.fields.map((f) => `${f.unitId}|${f.fieldKey}`)));
   for (const r of dayData.reports) {
     if (r.driverId !== ctx.driverId || r.reportDate !== ctx.date || r.rejectedAt) continue;

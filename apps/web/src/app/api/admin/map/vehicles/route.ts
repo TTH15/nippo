@@ -54,23 +54,86 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  let positionQuery = supabase
-    .from("vehicle_positions")
-    .select("vehicle_id, at, lat, lng, source, recorded_by, note")
-    .eq("org_id", orgId)
-    .order("at", { ascending: false })
-    .limit(POSITION_SCAN_LIMIT);
-  if (asOf) positionQuery = positionQuery.lte("at", asOf);
+  // 車両ごとの最新1行は RPC（migration 134・DISTINCT ON）で DB 側に絞らせる。
+  // 未適用環境では従来の固定 limit スキャンへフォールバック（行数が増えると
+  // limit の外に落ちた古い車両が黙って消える問題があるため、RPC 適用が本命）。
+  type PositionRow = {
+    vehicle_id: string;
+    at: string;
+    lat: number;
+    lng: number;
+    source: string;
+    recorded_by: string | null;
+    note: string | null;
+  };
+  type SessionRow = {
+    vehicle_id: string;
+    status: string;
+    started_at: string | null;
+    ended_at: string | null;
+    recorded_by: string | null;
+    start_lat: number | null;
+    start_lng: number | null;
+    end_lat: number | null;
+    end_lng: number | null;
+  };
 
-  const { data: positions, error: posErr } = await positionQuery;
-  // migration 122 が未適用の環境（＝テーブルが無い）では地図を落とさず、
-  // 従来どおり打刻GPSから位置を導出するモードで動かす。業務画面を止めないことを優先する。
-  const positionsUnavailable = !!posErr;
-  if (posErr) {
-    console.error("[map/vehicles] positions unavailable, falling back to punch GPS", posErr);
-  }
+  const loadPositions = async (): Promise<{ rows: PositionRow[]; unavailable: boolean }> => {
+    try {
+      const { data, error } = await supabase.rpc("map_latest_positions", {
+        p_org: orgId,
+        p_at: asOf,
+      });
+      if (!error && Array.isArray(data)) return { rows: data as PositionRow[], unavailable: false };
+    } catch {
+      // RPC 未適用など。従来スキャンへ
+    }
+    let q = supabase
+      .from("vehicle_positions")
+      .select("vehicle_id, at, lat, lng, source, recorded_by, note")
+      .eq("org_id", orgId)
+      .order("at", { ascending: false })
+      .limit(POSITION_SCAN_LIMIT);
+    if (asOf) q = q.lte("at", asOf);
+    const { data, error } = await q;
+    // migration 122 が未適用の環境（＝テーブルが無い）では地図を落とさず、
+    // 従来どおり打刻GPSから位置を導出するモードで動かす。業務画面を止めないことを優先する。
+    if (error) {
+      console.error("[map/vehicles] positions unavailable, falling back to punch GPS", error);
+      return { rows: [], unavailable: true };
+    }
+    return { rows: (data ?? []) as PositionRow[], unavailable: false };
+  };
 
-  // 新しい順に並んでいるので、車両ごとに最初に出てきた行が as-of の位置になる。
+  const loadSessions = async (): Promise<SessionRow[]> => {
+    try {
+      const { data, error } = await supabase.rpc("map_latest_sessions", {
+        p_org: orgId,
+        p_at: asOf,
+      });
+      if (!error && Array.isArray(data)) return data as SessionRow[];
+    } catch {
+      // RPC 未適用など。従来スキャンへ
+    }
+    let q = supabase
+      .from("vehicle_sessions")
+      .select("vehicle_id, status, started_at, ended_at, recorded_by, start_lat, start_lng, end_lat, end_lng")
+      .eq("org_id", orgId)
+      .order("started_at", { ascending: false })
+      .limit(1000);
+    if (asOf) q = q.lte("started_at", asOf);
+    const { data } = await q;
+    return (data ?? []) as SessionRow[];
+  };
+
+  // 位置とセッションは独立に取れるため並列で
+  const [{ rows: positions, unavailable: positionsUnavailable }, sessions] = await Promise.all([
+    loadPositions(),
+    loadSessions(),
+  ]);
+
+  // 新しい順に並んでいるので、車両ごとに最初に出てきた行が as-of の位置になる
+  // （RPC の場合は既に1台1行）。
   type Position = {
     lat: number;
     lng: number;
@@ -80,27 +143,17 @@ export async function GET(req: NextRequest) {
     note: string | null;
   };
   const positionByVehicle = new Map<string, Position>();
-  for (const p of positionsUnavailable ? [] : (positions ?? [])) {
+  for (const p of positionsUnavailable ? [] : positions) {
     if (positionByVehicle.has(p.vehicle_id)) continue;
     positionByVehicle.set(p.vehicle_id, {
-      lat: p.lat as number,
-      lng: p.lng as number,
-      at: p.at as string,
+      lat: p.lat,
+      lng: p.lng,
+      at: p.at,
       source: p.source as Position["source"],
-      recordedBy: (p.recorded_by as string | null) ?? null,
-      note: (p.note as string | null) ?? null,
+      recordedBy: p.recorded_by ?? null,
+      note: p.note ?? null,
     });
   }
-
-  // 稼働中の判定と担当者。位置とは別の事実なのでセッションから取る。
-  let sessionQuery = supabase
-    .from("vehicle_sessions")
-    .select("vehicle_id, status, started_at, ended_at, recorded_by, start_lat, start_lng, end_lat, end_lng")
-    .eq("org_id", orgId)
-    .order("started_at", { ascending: false })
-    .limit(1000);
-  if (asOf) sessionQuery = sessionQuery.lte("started_at", asOf);
-  const { data: sessions } = await sessionQuery;
 
   type SessionInfo = { open: boolean; driverId: string | null };
   const sessionByVehicle = new Map<string, SessionInfo>();

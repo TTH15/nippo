@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPaperPlane, faChevronLeft, faComments } from "@fortawesome/free-solid-svg-icons";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -49,10 +49,11 @@ export function ChatTab({ canWrite }: { canWrite: boolean }) {
   const [error, setError] = useState<{ title: string; message: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // 一覧は定期更新（新着を拾う）。会話は開いている間だけ短めに。
+  // 一覧のポーリングは親（notifications/page.tsx）の60秒に一本化する
+  // （同一キーに 60秒と30秒の二重ポーリングが掛かっていた・2026-08 監査）。
+  // ここでは同一SWRキーの購読のみで、新着は親の再検証・既読化後の mutate で反映される。
   const threadsApi = useApi<{ threads: Thread[]; totalUnread: number }>(
     "/api/admin/notifications/chats",
-    { refreshInterval: 30000 },
   );
   const chatApi = useApi<{ driver: { id: string; name: string; blocked: boolean }; messages: Message[] }>(
     selected ? `/api/admin/notifications/chats/${selected}` : null,
@@ -66,6 +67,47 @@ export function ChatTab({ canWrite }: { canWrite: boolean }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, selected]);
+
+  // 既読化は明示PATCH（GET の副作用を廃止）。開いたとき・閲覧中に新着 inbound が
+  // 届いたときだけ叩き、スレッド一覧の未読はローカルで即ゼロにする。
+  const markRead = useCallback(
+    async (driverId: string) => {
+      try {
+        await apiFetch(`/api/admin/notifications/chats/${driverId}`, { method: "PATCH" });
+        void threadsApi.mutate(
+          (prev) => {
+            if (!prev) return prev;
+            const cleared = prev.threads.find((t) => t.driverId === driverId)?.unreadCount ?? 0;
+            return {
+              ...prev,
+              totalUnread: Math.max(0, (Number(prev.totalUnread) || 0) - cleared),
+              threads: prev.threads.map((t) =>
+                t.driverId === driverId ? { ...t, unreadCount: 0 } : t,
+              ),
+            };
+          },
+          { revalidate: false },
+        );
+      } catch {
+        // 既読化の失敗は致命ではない（次の開閲覧で再試行される）
+      }
+    },
+    [threadsApi],
+  );
+  const lastMarkedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selected || !chatApi.data) return;
+    const key = `${selected}:${chatApi.data.messages.length}`;
+    if (lastMarkedRef.current === key) return;
+    lastMarkedRef.current = key;
+    const last = chatApi.data.messages[chatApi.data.messages.length - 1];
+    const hasUnread =
+      (threadsApi.data?.threads.find((t) => t.driverId === selected)?.unreadCount ?? 0) > 0 ||
+      last?.direction === "inbound";
+    if (hasUnread) void markRead(selected);
+    // threadsApi.data は unread の参照にだけ使う（依存に入れると既読化のたび再発火する）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, chatApi.data, markRead]);
 
   const send = async () => {
     const text = draft.trim();

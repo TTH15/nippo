@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
+import { preload } from "swr";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { swrFetcher } from "@/lib/swr";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark, faLock } from "@fortawesome/free-solid-svg-icons";
@@ -108,10 +110,6 @@ export default function ShiftsPage() {
     setPeriods(reqData.periods);
   }, [reqData]);
 
-  // 書き込み後の再取得（旧 load の代替）。
-  const load = async () => {
-    await mutateReq();
-  };
 
   // 締切判定・希望休ロジックは @repo/core/logic/shift（純粋関数）に集約。
   // periods/off を引数で渡して呼ぶ（下記の dayOff 系は薄いクロージャで状態を束縛）。
@@ -136,6 +134,21 @@ export default function ShiftsPage() {
   useEffect(() => {
     if (meShiftsError) setShiftsError("シフトの取得に失敗しました");
   }, [meShiftsError]);
+
+  // 前後月の preload（P9）: 現在月の取得完了後に隣接月を裏で温める（月切替でスケルトンなし）
+  const prefetchedShiftMonthsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!meShiftsData) return;
+    for (const delta of [-1, 1]) {
+      const d = new Date(shiftMonth.year, shiftMonth.month - 1 + delta, 1);
+      const { start, end } = monthDateRange(d.getFullYear(), d.getMonth() + 1);
+      const key = `/api/me/shifts?start=${start}&end=${end}`;
+      if (prefetchedShiftMonthsRef.current.has(key)) continue;
+      prefetchedShiftMonthsRef.current.add(key);
+      void preload(key, swrFetcher);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meShiftsData]);
 
   const prevMonth = () => {
     setViewDate((v) => {
@@ -176,7 +189,33 @@ export default function ShiftsPage() {
         method: "POST",
         body: JSON.stringify({ month: monthStr, offEntries }),
       });
-      void load();
+      // 楽観反映: 提出内容で SWR キャッシュ自体を書き換える（revalidate しない）。
+      // 従来の void load() は「保存前のサーバー状態」を持ち帰ることがあり、
+      // 同期エフェクトが off/requests を丸ごと上書き＝送信直後の操作が巻き戻っていた。
+      // 締切済み期間の既存行は保護（サーバーと同じ挙動）。
+      const submittedOff = off;
+      void mutateReq(
+        (prev) => {
+          if (!prev) return prev;
+          const kept = prev.requests.filter((r) => isLockedDate(periods, r.request_date));
+          const synthesized: ShiftRequest[] = [];
+          submittedOff.forEach((keys, dateStr) => {
+            if (!dateStr.startsWith(monthStr)) return;
+            if (isLockedDate(periods, dateStr)) return;
+            keys.forEach((key) =>
+              synthesized.push({
+                id: `local-${dateStr}-${key}`,
+                driver_id: "",
+                request_date: dateStr,
+                request_type: "OFF",
+                slot_id: key === ALL ? null : key,
+              }),
+            );
+          });
+          return { ...prev, requests: [...kept, ...synthesized] };
+        },
+        { revalidate: false },
+      );
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";

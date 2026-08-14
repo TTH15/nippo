@@ -106,13 +106,14 @@ type DaySummaryReport = {
   amazon_4_completed?: number;
 };
 
+type SummaryDriver = { id: string; name: string; display_name: string | null; status?: string | null };
+
+// drivers は全日共通のためトップレベル（応答の drivers）へ移動（日数ぶんの複製を廃止・2026-08-14）
 type DaySummary = {
   date: string;
-  drivers: { id: string; name: string; display_name: string | null; status?: string | null }[];
   shiftDriverIds: string[];
   shiftCoursesByDriver?: Record<string, string[]>;
   reportsByDriver: Record<string, DaySummaryReport[]>;
-  driverPreferredVehicle?: Record<string, VehiclePlatePayload>;
 };
 
 export default function AdminDailyPage() {
@@ -127,6 +128,7 @@ export default function AdminDailyPage() {
   const [editSaveError, setEditSaveError] = useState<string | null>(null);
   const [allDateRange, setAllDateRange] = useState<DateRangeValue | undefined>(undefined);
   const [daySummaries, setDaySummaries] = useState<DaySummary[]>([]);
+  const [summaryDrivers, setSummaryDrivers] = useState<SummaryDriver[]>([]);
   const [proxyTarget, setProxyTarget] = useState<{ driverId: string; driverName: string; date: string } | null>(null);
 
   const canWrite = hasCapability("can_edit_reports");
@@ -153,21 +155,22 @@ export default function AdminDailyPage() {
         }`
       : null;
 
-  const pendingApi = useApi<{ days: DaySummary[] }>(pendingKey);
+  const pendingApi = useApi<{ days: DaySummary[]; drivers: SummaryDriver[] }>(pendingKey);
   const allApi = useApi<{ groups: Group[] }>(allKey);
 
-  // 上部タブ（日報/その他の報告）の要対応件数。タブに関係なく常に取得する。
-  const dailyUnreadApi = useApi<{ unreadCount: number }>("/api/admin/daily/unread-count");
-  const miscUnreadApi = useApi<{ unreadCount: number }>(
-    "/api/admin/misc-reports/oil-change/unread-count",
+  // 上部タブ（日報/その他の報告）の要対応件数。AdminLayout と同じ統合エンドポイント・
+  // 同一 SWR キーを共有する（個別カウントAPIの重複取得をしない）。
+  const badgesApi = useApi<{ dailyUnread: number | null; otherUnread: number | null }>(
+    "/api/admin/badges",
   );
-  const dailyActionableCount = dailyUnreadApi.data?.unreadCount ?? 0;
-  const miscActionableCount = miscUnreadApi.data?.unreadCount ?? 0;
+  const dailyActionableCount = badgesApi.data?.dailyUnread ?? 0;
+  const miscActionableCount = badgesApi.data?.otherUnread ?? 0;
 
   // 取得結果を既存 state に同期する（楽観更新の setGroups を温存するため state は維持）。
   useEffect(() => {
     if (pendingApi.data) {
       setDaySummaries(pendingApi.data.days ?? []);
+      setSummaryDrivers(pendingApi.data.drivers ?? []);
       setFetchError(null);
     }
   }, [pendingApi.data]);
@@ -200,11 +203,69 @@ export default function AdminDailyPage() {
   // 書き込み後の再取得（旧 load の代替）。range はキーから導出するため引数では無視。
   const load = useCallback(
     (targetTab: Tab, _range?: DateRangeValue): Promise<unknown> => {
-      // 日報の承認/却下/代理入力/編集後はタブの要対応件数も更新
-      void dailyUnreadApi.mutate();
+      // 日報の承認/却下/代理入力/編集後はタブ・メニューの要対応件数も更新
+      void badgesApi.mutate();
       return targetTab === "pending" ? pendingApi.mutate() : allApi.mutate();
     },
-    [pendingApi, allApi, dailyUnreadApi],
+    [pendingApi, allApi, badgesApi],
+  );
+
+  // all タブの楽観更新は SWR キャッシュ側を書き換える（OtherReportsContent と同じ
+  // mutate(updater, {revalidate:false}) パターン）。setGroups 直接更新だと、裏の再検証が
+  // 「承認前のサーバー状態」を持ち帰った時に同期エフェクトが上書きして行が復活する。
+  const removeFromAllCache = useCallback(
+    (groupDate: string, driverId: string) => {
+      void allApi.mutate(
+        (prev) => {
+          if (!prev) return prev;
+          return {
+            groups: (prev.groups ?? [])
+              .map((g) =>
+                g.date !== groupDate
+                  ? g
+                  : { ...g, entries: g.entries.filter((ent) => ent.driver.id !== driverId) },
+              )
+              .filter((g) => g.entries.length > 0),
+          };
+        },
+        { revalidate: false },
+      );
+    },
+    [allApi],
+  );
+
+  // pending タブの楽観更新もキャッシュ側を書き換える。承認＝その日の日報を承認済みへ、
+  // 却下＝一覧から除外（一覧は非却下のみ＝未提出扱いに戻る）。サーバー確定後に呼ぶため
+  // 再検証で巻き戻らない（要対応が消えた日は actionable 再計算で自動的に畳まれる）。
+  const applyPendingDecision = useCallback(
+    (groupDate: string, driverId: string, action: "approve" | "reject") => {
+      void pendingApi.mutate(
+        (prev) => {
+          if (!prev) return prev;
+          const now = new Date().toISOString();
+          return {
+            ...prev,
+            days: prev.days.map((d) => {
+              if (d.date !== groupDate) return d;
+              const reportsByDriver = { ...d.reportsByDriver };
+              if (action === "reject") {
+                delete reportsByDriver[driverId];
+              } else if (reportsByDriver[driverId]) {
+                reportsByDriver[driverId] = reportsByDriver[driverId].map((r) => ({
+                  ...r,
+                  approved_at: now,
+                  rejected_at: null,
+                }));
+              }
+              return { ...d, reportsByDriver };
+            }),
+          };
+        },
+        { revalidate: false },
+      );
+      void badgesApi.mutate();
+    },
+    [pendingApi, badgesApi],
   );
 
   const handleApprove = async (e: Entry, groupDate: string) => {
@@ -215,17 +276,10 @@ export default function AdminDailyPage() {
       });
       setApproveWarnings(res?.warnings ?? []);
       if (tab === "pending") {
-        load("pending");
+        applyPendingDecision(groupDate, e.driver.id, "approve");
       } else {
-        setGroups((prev) =>
-          prev
-            .map((g) =>
-              g.date !== groupDate
-                ? g
-                : { ...g, entries: g.entries.filter((ent) => ent.driver.id !== e.driver.id) }
-            )
-            .filter((g) => g.entries.length > 0)
-        );
+        removeFromAllCache(groupDate, e.driver.id);
+        void badgesApi.mutate();
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "承認に失敗しました";
@@ -287,21 +341,33 @@ export default function AdminDailyPage() {
           ? reportDate
           : originalReport.report_date;
 
-      // 編集でヘッダの承認状態はリセットされるため、選択ステータスを必ず再適用する。
-      if (desiredStatus === "approved") {
-        await apiFetch("/api/admin/daily/approve", {
-          method: "POST",
-          body: JSON.stringify({ driverId: editingEntry.entry.driver.id, date: effectiveDate }),
-        });
-      } else if (desiredStatus === "rejected") {
-        await apiFetch("/api/admin/daily/reject", {
-          method: "POST",
-          body: JSON.stringify({ driverId: editingEntry.entry.driver.id, date: effectiveDate }),
-        });
-      }
-
-      await load(tab, tab === "all" ? allDateRange : undefined);
+      // 本体の保存(PUT)が済んだら先にモーダルを閉じる（ステータス再適用と再取得まで
+      // 直列で待たせない。全履歴 refetch を待つ間モーダルがブロックしていた・2026-08 監査）。
+      const driverIdForStatus = editingEntry.entry.driver.id;
       setEditingEntry(null);
+      void (async () => {
+        try {
+          // 編集でヘッダの承認状態はリセットされるため、選択ステータスを必ず再適用する。
+          if (desiredStatus === "approved") {
+            await apiFetch("/api/admin/daily/approve", {
+              method: "POST",
+              body: JSON.stringify({ driverId: driverIdForStatus, date: effectiveDate }),
+            });
+          } else if (desiredStatus === "rejected") {
+            await apiFetch("/api/admin/daily/reject", {
+              method: "POST",
+              body: JSON.stringify({ driverId: driverIdForStatus, date: effectiveDate }),
+            });
+          }
+        } catch (err) {
+          console.error(err);
+          setFetchError(
+            err instanceof Error ? err.message : "承認状態の再適用に失敗しました。一覧を確認してください。",
+          );
+        } finally {
+          void load(tab, tab === "all" ? allDateRange : undefined);
+        }
+      })();
     } catch (err) {
       console.error(err);
       setEditSaveError(err instanceof Error ? err.message : "保存に失敗しました");
@@ -320,9 +386,11 @@ export default function AdminDailyPage() {
         body: JSON.stringify({ driverId: e.driver.id, date: groupDate }),
       });
       if (tab === "pending") {
-        load("pending");
+        applyPendingDecision(groupDate, e.driver.id, "reject");
       } else {
-        load(tab, tab === "all" ? allDateRange : undefined);
+        // 承認と同じくキャッシュ側を楽観更新（全履歴 refetch を待たない）
+        removeFromAllCache(groupDate, e.driver.id);
+        void badgesApi.mutate();
       }
     } catch {
       // noop
@@ -352,7 +420,7 @@ export default function AdminDailyPage() {
         </button>
       </div>
       {reportTab === "other" ? (
-        <OtherReportsContent onMutated={() => void miscUnreadApi.mutate()} />
+        <OtherReportsContent onMutated={() => void badgesApi.mutate()} />
       ) : (
       <>
       <div className="w-full">
@@ -503,7 +571,7 @@ export default function AdminDailyPage() {
 
                 // ドライバー×日付の状態を算出。1日複数コース対応のため「担当コードに対し
                 // 未提出のコースが1つでもあれば代理入力が必要(needsProxy)」として扱う。
-                const computeDriverRow = (s: DaySummary, driver: DaySummary["drivers"][number]) => {
+                const computeDriverRow = (s: DaySummary, driver: SummaryDriver) => {
                   const shiftCourses = s.shiftCoursesByDriver?.[driver.id] ?? [];
                   const hasShift = shiftCourses.length > 0 || s.shiftDriverIds.includes(driver.id);
                   const reps = s.reportsByDriver[driver.id] ?? []; // API側で却下分は除外済み
@@ -526,19 +594,16 @@ export default function AdminDailyPage() {
                 };
 
                 const withActionable = filteredSummaries.map((s) => {
-                  const actionable = s.drivers.filter((d) => computeDriverRow(s, d).actionable).length;
+                  const actionable = summaryDrivers.filter((d) => computeDriverRow(s, d).actionable).length;
                   return { summary: s, actionable };
                 });
 
                 const actionableSummaries = withActionable.filter((x) => x.actionable > 0);
                 const totalActionable = actionableSummaries.reduce((acc, x) => acc + x.actionable, 0);
-                const maxDrivers =
-                  actionableSummaries.length > 0
-                    ? Math.max(...actionableSummaries.map((x) => x.summary.drivers.length))
-                    : 0;
+                const maxDrivers = actionableSummaries.length > 0 ? summaryDrivers.length : 0;
 
                 const renderDayTable = (summary: DaySummary, actionableCount: number) => {
-                  const baseRows = summary.drivers
+                  const baseRows = summaryDrivers
                     // 稼働終了で、その日シフトも日報も無い人は出さない
                     // （在籍中は休みでも表示。退職者でも実績があれば残る）。
                     .filter(

@@ -69,8 +69,13 @@ export async function computeCounterpartyMonthBillingDetail(
   courseRows.forEach((c) => courseNameById.set(String(c.id), String(c.name ?? "")));
   const allowed = new Set(orderedCourseIds);
 
-  // 2. v2 正規化データ
-  const data = await loadAggregationData(supabase, orgId, startDate, endDate);
+  // 2. v2 正規化データ。取引先に紐づくコースの日報だけを読む
+  // （org 全体の日報+entries を転送して JS で捨てるのは展開N+1の主因だった・2026-08 監査）。
+  // ledger はこの明細では未使用のため読まない。
+  const data = await loadAggregationData(supabase, orgId, startDate, endDate, {
+    courseIds: orderedCourseIds,
+    withLedger: false,
+  });
   const unitById = new Map(data.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
   const fixedByCourse = new Map(data.fixedRates.map((r) => [r.courseId, r]));

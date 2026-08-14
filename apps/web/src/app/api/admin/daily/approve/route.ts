@@ -65,28 +65,48 @@ export async function POST(req: NextRequest) {
     }
 
     // 走行距離は前進のみ更新。現在登録より小さければ更新せず警告（巻き戻り＝誤入力の疑い）。
+    // 現在値の取得を一括→前進分の更新を並列で流す（旧: 車両ごとに select→update を直列）。
     const warnings: string[] = [];
-    for (const [vehicleId, meter] of maxMeterByVehicle) {
-      const { data: veh } = await supabase
+    const vehicleIds = Array.from(maxMeterByVehicle.keys());
+    if (vehicleIds.length > 0) {
+      const { data: vehRows, error: vehReadErr } = await supabase
         .from("vehicles")
-        .select("current_mileage")
-        .eq("id", vehicleId)
-        .maybeSingle();
-      const current = veh ? Number(veh.current_mileage) || 0 : 0;
-      if (meter >= current) {
-        const { error: vehicleErr } = await supabase
-          .from("vehicles")
-          .update({ current_mileage: meter, updated_at: new Date().toISOString() })
-          .eq("id", vehicleId);
-        if (vehicleErr) {
-          console.error(vehicleErr);
-          return NextResponse.json({ error: "DB error" }, { status: 500 });
+        .select("id, current_mileage")
+        .in("id", vehicleIds);
+      if (vehReadErr) {
+        console.error(vehReadErr);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      const currentById = new Map(
+        (vehRows ?? []).map((v: { id: string; current_mileage: number | null }) => [
+          v.id,
+          Number(v.current_mileage) || 0,
+        ]),
+      );
+      const updates: { vehicleId: string; meter: number }[] = [];
+      for (const [vehicleId, meter] of maxMeterByVehicle) {
+        const current = currentById.get(vehicleId) ?? 0;
+        if (meter >= current) {
+          updates.push({ vehicleId, meter });
+        } else {
+          warnings.push(
+            `メーター値 ${meter.toLocaleString()} km が現在の登録 ${current.toLocaleString()} km より小さいため、` +
+            `車両の走行距離は更新しませんでした（巻き戻りの可能性）。`,
+          );
         }
-      } else {
-        warnings.push(
-          `メーター値 ${meter.toLocaleString()} km が現在の登録 ${current.toLocaleString()} km より小さいため、` +
-          `車両の走行距離は更新しませんでした（巻き戻りの可能性）。`,
-        );
+      }
+      const results = await Promise.all(
+        updates.map((u) =>
+          supabase
+            .from("vehicles")
+            .update({ current_mileage: u.meter, updated_at: new Date().toISOString() })
+            .eq("id", u.vehicleId),
+        ),
+      );
+      const failed = results.find((r) => r.error);
+      if (failed?.error) {
+        console.error(failed.error);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
       }
     }
 

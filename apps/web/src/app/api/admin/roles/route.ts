@@ -91,18 +91,35 @@ export async function PATCH(req: NextRequest) {
     if (order.length === 0) {
       return NextResponse.json({ error: "order array is required" }, { status: 400 });
     }
-    for (let i = 0; i < order.length; i++) {
-      const id = order[i];
-      if (typeof id !== "string") continue;
-      const { error } = await supabase
-        .from("roles")
-        .update({ sort_order: i * 10 })
-        .eq("id", id)
-        .eq("org_id", orgId); // 他 org のロールを触らせない
-      if (error) {
-        console.error("[roles] reorder error", error);
-        return NextResponse.json({ error: "並べ替えに失敗しました" }, { status: 500 });
-      }
+    // 差分更新: 現在の並びを1回読み、位置が変わる行だけを並列で更新する
+    // （旧: ロール数ぶんの UPDATE を直列実行）。
+    const { data: existing, error: exErr } = await supabase
+      .from("roles")
+      .select("id, sort_order")
+      .eq("org_id", orgId); // 他 org のロールを触らせない
+    if (exErr) {
+      console.error("[roles] reorder read error", exErr);
+      return NextResponse.json({ error: "並べ替えに失敗しました" }, { status: 500 });
+    }
+    const currentById = new Map(
+      (existing ?? []).map((r: { id: string; sort_order: number | null }) => [r.id, Number(r.sort_order)]),
+    );
+    const updates: { id: string; sort: number }[] = [];
+    order.forEach((id, i) => {
+      if (typeof id !== "string") return;
+      const cur = currentById.get(id);
+      if (cur === undefined || cur === i * 10) return;
+      updates.push({ id, sort: i * 10 });
+    });
+    const results = await Promise.all(
+      updates.map((u) =>
+        supabase.from("roles").update({ sort_order: u.sort }).eq("id", u.id).eq("org_id", orgId),
+      ),
+    );
+    const failed = results.find((r) => r.error);
+    if (failed?.error) {
+      console.error("[roles] reorder error", failed.error);
+      return NextResponse.json({ error: "並べ替えに失敗しました" }, { status: 500 });
     }
     return NextResponse.json({ ok: true });
   } catch (err) {

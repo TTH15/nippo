@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch, getStoredDriver } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { BonusOverlay } from "@/lib/components/BonusOverlay";
 
 export type TeamStatus = {
@@ -14,35 +15,42 @@ export type TeamStatus = {
 };
 
 /**
+ * team-status の共有 SWR フック。常設バッジ（TeamPointsBadge）と /me のカード
+ * （TeamPointsCard）が同一キーを共有し、dedup で1リクエストに畳む。
+ * サーバー側はイベント全期間の日報集計を伴う重いAPIのため、ページ遷移ごとに
+ * 撃たないよう dedup を長め（2分）にし、フォーカス復帰でも再検証しない。
+ */
+export function useTeamStatus() {
+  // localStorage はハイドレーション後にしか読めないため、有効化はエフェクトで判定
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    setEnabled(!!getStoredDriver());
+  }, []);
+  return useApi<TeamStatus>(enabled ? "/api/me/team-status" : null, {
+    dedupingInterval: 120_000,
+    revalidateOnFocus: false,
+  });
+}
+
+/**
  * (user) ヘッダーに常設するチームポイントバッジ。
  * 開催中チーム戦があり自チームに所属していれば「自チーム ◯◯pt」を表示。
  * 運営からの手動ボーナス未読があれば、起動時に1回だけ祝福オーバーレイを表示する。
  */
 export function TeamPointsBadge() {
-  const [status, setStatus] = useState<TeamStatus | null>(null);
+  const { data: status, mutate } = useTeamStatus();
   const [showBonus, setShowBonus] = useState(false);
 
-  const load = useCallback(async () => {
-    // 未ログインでは取得しない
-    if (!getStoredDriver()) return;
-    try {
-      const res = await apiFetch<TeamStatus>("/api/me/team-status");
-      setStatus(res);
-      if (res.pendingBonus && res.pendingBonus.points > 0) setShowBonus(true);
-    } catch {
-      // チーム戦未設定などは静かに無視
-      setStatus(null);
-    }
-  }, []);
-
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (status?.pendingBonus && status.pendingBonus.points > 0) setShowBonus(true);
+  }, [status]);
 
   const ackBonus = async () => {
     setShowBonus(false);
     try {
       await apiFetch("/api/me/bonus-seen", { method: "POST" });
+      // 既読反映後のレスポンスでキャッシュを更新し、再検証での再演出を防ぐ
+      void mutate();
     } catch {
       /* noop */
     }

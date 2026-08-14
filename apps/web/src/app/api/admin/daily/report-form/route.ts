@@ -40,34 +40,47 @@ export async function GET(req: NextRequest) {
     .eq("shift_date", date)
     .order("slot");
 
-  // その日にシフトで割り当てられた車両（先頭の非nullを既定車両として返す）。
-  let shiftVehicleId: string | null =
+  const rawShiftVehicleId: string | null =
     (shiftRows ?? []).map((s: any) => s.vehicle_id).find((v: string | null) => !!v) ?? null;
-  if (shiftVehicleId) {
-    const { data: shiftVehicle } = await supabase
-      .from("vehicles")
-      .select("is_disposed")
-      .eq("id", shiftVehicleId)
-      .maybeSingle();
-    if (shiftVehicle?.is_disposed) shiftVehicleId = null;
-  }
-
   const courseIds = Array.from(new Set((shiftRows ?? []).map((s: any) => s.course_id).filter(Boolean)));
+
+  // shifts 以外に依存しない取得は1波にまとめる（旧: 直列の積み上げ。me/report-form と同型）
+  const [{ data: shiftVehicle }, { data: courses }, { data: existingReports }] = await Promise.all([
+    // その日にシフトで割り当てられた車両（先頭の非null）。廃車(is_disposed)は既定車両から除外
+    rawShiftVehicleId
+      ? supabase.from("vehicles").select("is_disposed").eq("id", rawShiftVehicleId).maybeSingle()
+      : Promise.resolve({ data: null as { is_disposed: boolean } | null }),
+    // コース → キャリア
+    courseIds.length
+      ? supabase.from("courses").select("id, name, color, summary_title, carrier_id").in("id", courseIds)
+      : Promise.resolve({ data: [] as any[] }),
+    // 既存 v2 レポート（prefill）
+    courseIds.length
+      ? supabase
+          .from("daily_reports_v2")
+          .select("id, course_id, vehicle_id, meter_value, approved_at, rejected_at")
+          .eq("org_id", orgId)
+          .eq("driver_id", driverId)
+          .eq("report_date", date)
+          .in("course_id", courseIds)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
+  const shiftVehicleId = rawShiftVehicleId && !shiftVehicle?.is_disposed ? rawShiftVehicleId : null;
+
   if (courseIds.length === 0) {
     return NextResponse.json({ shifts: [], shiftVehicleId });
   }
 
-  // コース → キャリア
-  const { data: courses } = await supabase
-    .from("courses")
-    .select("id, name, color, summary_title, carrier_id")
-    .in("id", courseIds);
   const carrierIds = Array.from(new Set((courses ?? []).map((c: any) => c.carrier_id).filter(Boolean)));
+  const reportIds = (existingReports ?? []).map((r: any) => r.id);
 
-  const [{ data: carriers }, { data: units }] = await Promise.all([
+  const [{ data: carriers }, { data: units }, { data: existingEntries }] = await Promise.all([
     carrierIds.length ? supabase.from("carriers").select("id, name").in("id", carrierIds) : Promise.resolve({ data: [] as any[] }),
     carrierIds.length
       ? supabase.from("units").select("id, carrier_id, name, code, billing_type, sort_order, active").in("carrier_id", carrierIds).eq("active", true).order("sort_order")
+      : Promise.resolve({ data: [] as any[] }),
+    reportIds.length
+      ? supabase.from("report_entries").select("report_id, unit_id, field_key, value_num, value_text").in("report_id", reportIds)
       : Promise.resolve({ data: [] as any[] }),
   ]);
 
@@ -97,18 +110,6 @@ export async function GET(req: NextRequest) {
     unitsByCarrier.set(u.carrier_id, arr);
   });
 
-  // 既存 v2 レポート（prefill）
-  const { data: existingReports } = await supabase
-    .from("daily_reports_v2")
-    .select("id, course_id, vehicle_id, meter_value, approved_at, rejected_at")
-    .eq("org_id", orgId)
-    .eq("driver_id", driverId)
-    .eq("report_date", date)
-    .in("course_id", courseIds);
-  const reportIds = (existingReports ?? []).map((r: any) => r.id);
-  const { data: existingEntries } = reportIds.length
-    ? await supabase.from("report_entries").select("report_id, unit_id, field_key, value_num, value_text").in("report_id", reportIds)
-    : { data: [] as any[] };
   const reportByCourse = new Map<string, any>((existingReports ?? []).map((r: any) => [r.course_id, r]));
   const entriesByReport = new Map<string, Record<string, Record<string, number | string>>>();
   (existingEntries ?? []).forEach((e: any) => {

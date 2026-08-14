@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faRepeat, faPenToSquare, faPlus, faTrash, faFileInvoice } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -167,7 +167,10 @@ export default function PaymentsPage() {
     error: paymentsError,
     isInitialLoading,
     mutate: mutatePayments,
-  } = useApi<{ month: string; rows: DriverPaymentRow[] }>(`/api/admin/payments?month=${monthStr}`);
+  } = useApi<{ month: string; rows: DriverPaymentRow[] }>(`/api/admin/payments?month=${monthStr}`, {
+    // 重い月次集計。フォーカス復帰のたびに再集計＋setState上書きが走らないようにする
+    revalidateOnFocus: false,
+  });
   const loading = isInitialLoading;
 
   useEffect(() => {
@@ -219,6 +222,26 @@ export default function PaymentsPage() {
     },
     [monthStr],
   );
+
+  // hover intent 先読み（P8・users と同型）: 行に 120ms 留まったら報酬詳細を裏取得。
+  // 通過しただけの行では撃たない。重複は ensureRewardsLoaded 側の loading フラグで防止。
+  const rowHoverTimerRef = useRef<number | null>(null);
+  const onRowHoverStart = useCallback(
+    (driverId: string) => {
+      if (rowHoverTimerRef.current != null) window.clearTimeout(rowHoverTimerRef.current);
+      rowHoverTimerRef.current = window.setTimeout(() => {
+        rowHoverTimerRef.current = null;
+        void ensureRewardsLoaded(driverId);
+      }, 120);
+    },
+    [ensureRewardsLoaded],
+  );
+  const onRowHoverEnd = useCallback(() => {
+    if (rowHoverTimerRef.current != null) {
+      window.clearTimeout(rowHoverTimerRef.current);
+      rowHoverTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!modalDriver) return;
@@ -276,20 +299,33 @@ export default function PaymentsPage() {
 
     setCreatingInvoiceFor(row.driverId);
     try {
-      const detail = await apiFetch<{
-        driver: {
-          postal_code?: string | null;
-          address?: string | null;
-          phone?: string | null;
-          bank_name?: string | null;
-          bank_no?: string | null;
-          bank_holder?: string | null;
-        };
-      }>(`/api/admin/users/${encodeURIComponent(row.driverId)}`);
+      // 3本は互いに独立のため並列で取得する（旧: 直列 await でモーダル前の待ちが3倍）
+      const [detail, existing, breakdown] = await Promise.all([
+        apiFetch<{
+          driver: {
+            postal_code?: string | null;
+            address?: string | null;
+            phone?: string | null;
+            bank_name?: string | null;
+            bank_no?: string | null;
+            bank_holder?: string | null;
+          };
+        }>(`/api/admin/users/${encodeURIComponent(row.driverId)}`),
+        apiFetch<{ invoices: Array<{ invoiceNo?: string | null }> }>(
+          `/api/admin/invoices?month=${encodeURIComponent(monthStr)}`,
+        ),
+        apiFetch<{
+          lines: Array<{ title: string; qty: number; unitPrice: number; amount: number }>;
+          total: number;
+          leaseDeductions?: number;
+          leaseMode?: "MONTHLY" | "DAILY" | null;
+        }>(
+          `/api/admin/payments/driver-breakdown?driver_id=${encodeURIComponent(
+            row.driverId,
+          )}&month=${encodeURIComponent(monthStr)}`,
+        ),
+      ]);
       const d = detail?.driver;
-      const existing = await apiFetch<{ invoices: Array<{ invoiceNo?: string | null }> }>(
-        `/api/admin/invoices?month=${encodeURIComponent(monthStr)}`,
-      );
       const invoiceNo = nextInvoiceNoForDriver(
         monthStr,
         row.driverId,
@@ -302,16 +338,6 @@ export default function PaymentsPage() {
       const bankName = d?.bank_name?.trim() ?? "";
       const bankNo = d?.bank_no?.trim() ?? "";
       const bankHolder = d?.bank_holder?.trim() ?? "";
-      const breakdown = await apiFetch<{
-        lines: Array<{ title: string; qty: number; unitPrice: number; amount: number }>;
-        total: number;
-        leaseDeductions?: number;
-        leaseMode?: "MONTHLY" | "DAILY" | null;
-      }>(
-        `/api/admin/payments/driver-breakdown?driver_id=${encodeURIComponent(
-          row.driverId,
-        )}&month=${encodeURIComponent(monthStr)}`,
-      );
       mainLines = (breakdown.lines ?? [])
         .filter((x) => (Number(x.qty) || 0) > 0 && (Number(x.unitPrice) || 0) > 0)
         .map((x) => ({
@@ -721,6 +747,7 @@ export default function PaymentsPage() {
                 const isOpen = expandedDriverId === row.driverId;
                 return (
                   <div key={row.driverId} className="px-3 py-2.5">
+
                     <button
                       type="button"
                       onClick={() => {
@@ -728,6 +755,7 @@ export default function PaymentsPage() {
                         setExpandedDriverId(next);
                         if (!isOpen) void ensureRewardsLoaded(row.driverId);
                       }}
+                      onTouchStart={() => void ensureRewardsLoaded(row.driverId)}
                       className="flex w-full items-center gap-2 text-left"
                     >
                       <span className="w-4 shrink-0 text-sm text-slate-400">{isOpen ? "▾" : "▸"}</span>
@@ -803,6 +831,8 @@ export default function PaymentsPage() {
                           setExpandedDriverId(next);
                           if (!isOpen) void ensureRewardsLoaded(row.driverId);
                         }}
+                        onMouseEnter={() => onRowHoverStart(row.driverId)}
+                        onMouseLeave={onRowHoverEnd}
                         className={`cursor-pointer border-b border-slate-100 last:border-b-0 ${
                           isOpen ? "bg-slate-50" : "hover:bg-slate-50"
                         }`}

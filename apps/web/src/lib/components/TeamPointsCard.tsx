@@ -1,28 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrophy } from "@fortawesome/free-solid-svg-icons";
-import { apiFetch, getStoredDriver } from "@/lib/api";
-import type { TeamStatus } from "@/lib/components/TeamPointsBadge";
+import { useTeamStatus } from "@/lib/components/TeamPointsBadge";
 
 /**
  * /me 上部の自チームポイントカード。
  * 既定は自チームのポイントのみ。運営が順位公開ONなら全チーム順位も表示。
+ * 取得は常設バッジと同一の SWR キーを共有（dedup で二重リクエストしない）。
  */
 export function TeamPointsCard() {
-  const [status, setStatus] = useState<TeamStatus | null>(null);
-
-  useEffect(() => {
-    if (!getStoredDriver()) return;
-    (async () => {
-      try {
-        setStatus(await apiFetch<TeamStatus>("/api/me/team-status"));
-      } catch {
-        setStatus(null);
-      }
-    })();
-  }, []);
+  const { data: status } = useTeamStatus();
 
   if (!status?.active || !status.myTeam) return null;
   const t = status.myTeam;

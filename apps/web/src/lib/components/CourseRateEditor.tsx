@@ -1,7 +1,9 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
+import { invalidateApi } from "@/lib/swr";
 import { exclusiveOf, inclusiveOf } from "@repo/core/logic/taxBasis";
 
 type Unit = {
@@ -70,7 +72,6 @@ export const CourseRateEditor = forwardRef<
     onError: (msg: string) => void;
   }
 >(function CourseRateEditor({ courseId, carrierId, onError }, ref) {
-  const [loading, setLoading] = useState(true);
   const [units, setUnits] = useState<Unit[]>([]);
   const [carrierMissing, setCarrierMissing] = useState(false);
   const [rates, setRates] = useState<Record<string, UnitRate>>({});
@@ -81,6 +82,23 @@ export const CourseRateEditor = forwardRef<
   // 作成モード（courseId 無し）でキャリア未選択なら、まだ何も読まない。
   const createModeNoCarrier = !courseId && !carrierId;
 
+  // SWR 化（2026-08 監査）: 同じコースを開き直したときはキャッシュ即表示。
+  // hover 先読み（courses 一覧行）と同一キーを共有する。
+  const billingKey = createModeNoCarrier
+    ? null
+    : `/api/admin/course-billing?${courseId ? `course_id=${courseId}` : `carrier_id=${carrierId}`}`;
+  const {
+    data: billingData,
+    error: billingError,
+    isInitialLoading,
+  } = useApi<LoadResponse>(billingKey, { revalidateOnFocus: false });
+  const loading = billingKey ? isInitialLoading : false;
+  // ユーザーが編集を始めたら、裏の再検証でフォームを上書きしない（dirty ガード）
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    dirtyRef.current = false; // 別コース/キャリアを開いたら編集状態はリセット
+  }, [billingKey]);
+
   useEffect(() => {
     if (createModeNoCarrier) {
       setUnits([]);
@@ -89,57 +107,51 @@ export const CourseRateEditor = forwardRef<
       setCarrierMissing(false);
       setRevenueTaxMode("excl");
       setPayoutTaxMode("excl");
-      setLoading(false);
-      return;
     }
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const qs = courseId ? `course_id=${courseId}` : `carrier_id=${carrierId}`;
-        const res = await apiFetch<LoadResponse>(`/api/admin/course-billing?${qs}`);
-        if (cancelled) return;
-        // サーバー値は常に税抜で保存されている。表示モードはコースに記録された「契約上の真の基準」を復元する。
-        // 真の基準が税込のコースは、保存されている税抜値を税込へ逆算して表示する
-        // （端数は保存時点で失われているため厳密な逆算ではないが、近似として表示する）。
-        const rMode = basisToMode(res.revenueTaxBasis);
-        const pMode = basisToMode(res.payoutTaxBasis);
-        setRevenueTaxMode(rMode);
-        setPayoutTaxMode(pMode);
-        setCarrierMissing(!res.carrierId);
-        setUnits(res.units ?? []);
-        const map: Record<string, UnitRate> = {};
-        (res.units ?? []).forEach((u) => {
-          const found = (res.unitRates ?? []).find((r) => r.unit_id === u.id);
-          const revenue = rMode === "incl" ? toIncl(found?.revenue_per_unit ?? 0) : found?.revenue_per_unit ?? 0;
-          const payout = pMode === "incl" ? toIncl(found?.payout_per_unit ?? 0) : found?.payout_per_unit ?? 0;
-          map[u.id] = {
-            unit_id: u.id,
-            revenue_per_unit: revenue,
-            profit_per_unit: recomputeProfitWith(rMode, pMode, revenue, payout),
-            payout_per_unit: payout,
-          };
-        });
-        setRates(map);
-        const fixedRevenueRaw = res.fixed?.fixed_revenue ?? 0;
-        const fixedPayoutRaw = res.fixed?.fixed_payout ?? 0;
-        const fixedRevenue = rMode === "incl" ? toIncl(fixedRevenueRaw) : fixedRevenueRaw;
-        const fixedPayout = pMode === "incl" ? toIncl(fixedPayoutRaw) : fixedPayoutRaw;
-        setFixed({
-          fixed_revenue: fixedRevenue,
-          fixed_profit: recomputeProfitWith(rMode, pMode, fixedRevenue, fixedPayout),
-          fixed_payout: fixedPayout,
-        });
-      } catch (e) {
-        onError(e instanceof Error ? e.message : "単価の読み込みに失敗しました");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [courseId, carrierId, createModeNoCarrier]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [createModeNoCarrier]);
+
+  useEffect(() => {
+    if (!billingData) return;
+    if (dirtyRef.current) return; // 編集中はサーバー値で巻き戻さない
+    const res = billingData;
+    // サーバー値は常に税抜で保存されている。表示モードはコースに記録された「契約上の真の基準」を復元する。
+    // 真の基準が税込のコースは、保存されている税抜値を税込へ逆算して表示する
+    // （端数は保存時点で失われているため厳密な逆算ではないが、近似として表示する）。
+    const rMode = basisToMode(res.revenueTaxBasis);
+    const pMode = basisToMode(res.payoutTaxBasis);
+    setRevenueTaxMode(rMode);
+    setPayoutTaxMode(pMode);
+    setCarrierMissing(!res.carrierId);
+    setUnits(res.units ?? []);
+    const map: Record<string, UnitRate> = {};
+    (res.units ?? []).forEach((u) => {
+      const found = (res.unitRates ?? []).find((r) => r.unit_id === u.id);
+      const revenue = rMode === "incl" ? toIncl(found?.revenue_per_unit ?? 0) : found?.revenue_per_unit ?? 0;
+      const payout = pMode === "incl" ? toIncl(found?.payout_per_unit ?? 0) : found?.payout_per_unit ?? 0;
+      map[u.id] = {
+        unit_id: u.id,
+        revenue_per_unit: revenue,
+        profit_per_unit: recomputeProfitWith(rMode, pMode, revenue, payout),
+        payout_per_unit: payout,
+      };
+    });
+    setRates(map);
+    const fixedRevenueRaw = res.fixed?.fixed_revenue ?? 0;
+    const fixedPayoutRaw = res.fixed?.fixed_payout ?? 0;
+    const fixedRevenue = rMode === "incl" ? toIncl(fixedRevenueRaw) : fixedRevenueRaw;
+    const fixedPayout = pMode === "incl" ? toIncl(fixedPayoutRaw) : fixedPayoutRaw;
+    setFixed({
+      fixed_revenue: fixedRevenue,
+      fixed_profit: recomputeProfitWith(rMode, pMode, fixedRevenue, fixedPayout),
+      fixed_payout: fixedPayout,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billingData]);
+
+  useEffect(() => {
+    if (billingError) onError(billingError instanceof Error ? billingError.message : "単価の読み込みに失敗しました");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billingError]);
 
   useImperativeHandle(
     ref,
@@ -171,6 +183,10 @@ export const CourseRateEditor = forwardRef<
             payoutTaxBasis: modeToBasis(payoutTaxMode),
           }),
         });
+        // 保存済み＝以降はサーバー値の同期を受け入れ、キャッシュも最新化しておく
+        // （次回開いたときに保存前の値が見えないように）
+        dirtyRef.current = false;
+        void invalidateApi(`/api/admin/course-billing?course_id=${id}`);
       },
     }),
     [courseId, rates, fixed, revenueTaxMode, payoutTaxMode],
@@ -185,6 +201,7 @@ export const CourseRateEditor = forwardRef<
   }
 
   function setRate(unitId: string, key: "revenue_per_unit" | "payout_per_unit", value: number) {
+    dirtyRef.current = true;
     setRates((prev) => {
       const cur = prev[unitId] ?? { unit_id: unitId, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0 };
       const next = { ...cur, [key]: value };
@@ -194,6 +211,7 @@ export const CourseRateEditor = forwardRef<
   }
 
   function setFixedField(key: "fixed_revenue" | "fixed_payout", value: number) {
+    dirtyRef.current = true;
     setFixed((f) => {
       const next = { ...f, [key]: value };
       next.fixed_profit = recomputeProfit(next.fixed_revenue, next.fixed_payout);
@@ -217,11 +235,11 @@ export const CourseRateEditor = forwardRef<
         <span className="text-[11px] text-slate-500">入力単位</span>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-slate-400">売上</span>
-          <TaxModeToggle value={revenueTaxMode} onChange={setRevenueTaxMode} />
+          <TaxModeToggle value={revenueTaxMode} onChange={(m) => { dirtyRef.current = true; setRevenueTaxMode(m); }} />
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-slate-400">支払</span>
-          <TaxModeToggle value={payoutTaxMode} onChange={setPayoutTaxMode} />
+          <TaxModeToggle value={payoutTaxMode} onChange={(m) => { dirtyRef.current = true; setPayoutTaxMode(m); }} />
         </div>
       </div>
       <p className="text-[10px] text-slate-400">

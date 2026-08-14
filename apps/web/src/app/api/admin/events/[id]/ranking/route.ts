@@ -29,6 +29,7 @@ export async function GET(
     .from("events")
     .select("id, starts_on, ends_on, scoring_rule")
     .eq("id", eventId)
+    .eq("org_id", orgId)
     .single();
   if (eErr || !event) {
     return NextResponse.json({ error: "イベントが見つかりません" }, { status: 404 });

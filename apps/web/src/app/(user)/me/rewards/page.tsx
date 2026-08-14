@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { preload } from "swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFileInvoice } from "@fortawesome/free-solid-svg-icons";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -10,6 +11,7 @@ import { PaymentSummary } from "@/lib/components/PaymentSummary";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { swrFetcher } from "@/lib/swr";
 import type {
   InvoiceRow,
   InvoiceAttachment,
@@ -57,6 +59,22 @@ export default function MeRewardsPage() {
       setRewards(rewardsData);
       setRewardsError(null);
     }
+  }, [rewardsData]);
+
+  // 前後月の preload（P9）: 現在月の取得が終わったら隣接月を裏で温める。
+  // 月ステッパーで移動したときスケルトンを出さない。重複は Set で防止。
+  const prefetchedMonthsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!rewardsData) return;
+    for (const delta of [-1, 1]) {
+      const d = new Date(rewardMonth.year, rewardMonth.month - 1 + delta, 1);
+      const adj = formatYearMonth(d.getFullYear(), d.getMonth() + 1);
+      const key = `/api/me/rewards?month=${adj}`;
+      if (prefetchedMonthsRef.current.has(key)) continue;
+      prefetchedMonthsRef.current.add(key);
+      void preload(key, swrFetcher);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rewardsData]);
 
   useEffect(() => {

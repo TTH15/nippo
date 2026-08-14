@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -33,10 +34,27 @@ export function RankingTab({
   onError: (title: string, message: string) => void;
   onConfirm: (message: string, onOk: () => void) => void;
 }) {
+  // SWR 化（2026-08 監査）: タブを離れて戻ってもキャッシュを即表示し、
+  // イベント全期間の日報再集計（ranking API）を毎回走らせない。
+  // 楽観更新はキャッシュ自体を書き換える（state 直接更新だと再検証で巻き戻る）。
+  const rankingApi = useApi<RankingResponse>(`/api/admin/events/${eventId}/ranking`, {
+    revalidateOnFocus: false,
+    dedupingInterval: 60 * 1000,
+  });
+  const pointsApi = useApi<{ entries: ManualPointRow[] }>(`/api/admin/events/${eventId}/points`, {
+    revalidateOnFocus: false,
+  });
   const [ranking, setRanking] = useState<RankingResponse | null>(null);
   const [manual, setManual] = useState<ManualPointRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [periodError, setPeriodError] = useState(false);
+  useEffect(() => {
+    if (rankingApi.data) setRanking(rankingApi.data);
+  }, [rankingApi.data]);
+  useEffect(() => {
+    if (pointsApi.data) setManual(pointsApi.data.entries ?? []);
+  }, [pointsApi.data]);
+  const loading = rankingApi.isInitialLoading || pointsApi.isInitialLoading;
+  const periodError =
+    rankingApi.error instanceof Error && rankingApi.error.message.includes("期間");
 
   // 手動加点フォーム
   const [targetType, setTargetType] = useState<"driver" | "team">("driver");
@@ -86,46 +104,12 @@ export function RankingTab({
     [teams],
   );
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setPeriodError(false);
-    try {
-      const [rk, mp] = await Promise.all([
-        apiFetch<RankingResponse>(`/api/admin/events/${eventId}/ranking`).catch((e) => {
-          if (e instanceof Error && e.message.includes("期間")) {
-            setPeriodError(true);
-            return null;
-          }
-          throw e;
-        }),
-        apiFetch<{ entries: ManualPointRow[] }>(`/api/admin/events/${eventId}/points`),
-      ]);
-      if (rk) setRanking(rk);
-      setManual(mp.entries);
-    } catch (e) {
-      onError("読み込みに失敗しました", e instanceof Error ? e.message : "もう一度お試しください。");
-    } finally {
-      setLoading(false);
-    }
-  }, [eventId, onError]);
-
-  // DB 書き込み後のバックグラウンド同期（ローディング表示なし）
-  const silentSync = useCallback(async () => {
-    try {
-      const [rk, mp] = await Promise.all([
-        apiFetch<RankingResponse>(`/api/admin/events/${eventId}/ranking`).catch(() => null),
-        apiFetch<{ entries: ManualPointRow[] }>(`/api/admin/events/${eventId}/points`),
-      ]);
-      if (rk) setRanking(rk);
-      setManual(mp.entries);
-    } catch {
-      // 楽観的更新済みなのでサイレントに無視
-    }
-  }, [eventId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  // 明示的な再計算（「再計算」ボタン）。通常の書き込み後は呼ばない。
+  const load = useCallback(() => {
+    void rankingApi.mutate();
+    void pointsApi.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rankingApi.mutate, pointsApi.mutate]);
 
   const addManual = async () => {
     if (!canWrite || submitting) return;
@@ -161,19 +145,23 @@ export function RankingTab({
       source: "manual",
       created_at: new Date().toISOString(),
     };
-    const prevManual = manual;
-    const prevRanking = ranking;
-    setManual((prev) => [...prev, optimisticEntry]);
-    if (ranking) {
-      setRanking(
-        applyPointDelta(
-          ranking,
-          curType === "driver" ? curDriverId : null,
-          curType === "team" ? curTeamId : null,
-          curPoints,
-        ),
-      );
-    }
+    // 楽観更新は SWR キャッシュ側に適用する（state 直接更新だと再検証で巻き戻る）
+    void pointsApi.mutate(
+      (prev) => ({ entries: [...(prev?.entries ?? manual), optimisticEntry] }),
+      { revalidate: false },
+    );
+    void rankingApi.mutate(
+      (prev) =>
+        prev
+          ? applyPointDelta(
+              prev,
+              curType === "driver" ? curDriverId : null,
+              curType === "team" ? curTeamId : null,
+              curPoints,
+            )
+          : prev,
+      { revalidate: false },
+    );
     setPoints("");
     setReason("");
     setDriverId("");
@@ -191,11 +179,13 @@ export function RankingTab({
           reason: curReason,
         }),
       });
-      silentSync();
+      // points だけ確定（実IDに置換）。ranking は delta 適用済みのため、
+      // イベント全期間の再集計は走らせない（旧 silentSync の廃止・2026-08 監査）
+      void pointsApi.mutate();
     } catch (e) {
-      // ロールバック
-      setManual(prevManual);
-      setRanking(prevRanking);
+      // ロールバック（サーバー状態で取り直す）
+      void pointsApi.mutate();
+      void rankingApi.mutate();
       onError("加点に失敗しました", e instanceof Error ? e.message : "もう一度お試しください。");
     } finally {
       setSubmitting(false);
@@ -211,21 +201,24 @@ export function RankingTab({
     const sign = entry.points > 0 ? "+" : "";
     const detail = `${target} ${sign}${entry.points}pt${entry.reason ? `（${entry.reason}）` : ""}`;
     onConfirm(`この手動加点を削除しますか？\n\n${detail}`, async () => {
-      // 楽観的削除
-      const prevManual = manual;
-      const prevRanking = ranking;
-      setManual((prev) => prev.filter((e) => e.id !== entry.id));
-      if (ranking) {
-        setRanking(applyPointDelta(ranking, entry.driver_id, entry.team_id, -entry.points));
-      }
+      // 楽観的削除（キャッシュ側に適用）
+      void pointsApi.mutate(
+        (prev) => ({ entries: (prev?.entries ?? manual).filter((e) => e.id !== entry.id) }),
+        { revalidate: false },
+      );
+      void rankingApi.mutate(
+        (prev) => (prev ? applyPointDelta(prev, entry.driver_id, entry.team_id, -entry.points) : prev),
+        { revalidate: false },
+      );
 
       try {
         await apiFetch(`/api/admin/events/${eventId}/points/${entry.id}`, { method: "DELETE" });
-        silentSync();
+        // ranking は delta 適用済み。points だけ確定する
+        void pointsApi.mutate();
       } catch (e) {
-        // ロールバック
-        setManual(prevManual);
-        setRanking(prevRanking);
+        // ロールバック（サーバー状態で取り直す）
+        void pointsApi.mutate();
+        void rankingApi.mutate();
         onError("削除に失敗しました", e instanceof Error ? e.message : "もう一度お試しください。");
       }
     });

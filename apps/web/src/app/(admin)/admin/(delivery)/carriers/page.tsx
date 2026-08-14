@@ -104,29 +104,97 @@ export default function CarriersPage() {
   }
 
   // --- 保存系 ---
+  // 編集（PATCH）はレスポンスの更新後行をキャッシュへ直接反映する
+  // （1項目の変更でキャリア木まるごと再取得しない・2026-08 監査）。
+  // 作成（POST）は新規行のツリー位置・採番があるため従来どおり再取得する。
+  const applyCarrierPatch = (updated: Partial<Carrier> & { id: string }) => {
+    void mutateCarriers(
+      (prev) =>
+        prev
+          ? {
+              carriers: prev.carriers.map((c) =>
+                c.id === updated.id ? { ...c, ...updated, units: c.units } : c,
+              ),
+            }
+          : prev,
+      { revalidate: false },
+    );
+  };
+  const applyUnitPatch = (updated: Partial<Unit> & { id: string }) => {
+    void mutateCarriers(
+      (prev) =>
+        prev
+          ? {
+              carriers: prev.carriers.map((c) => ({
+                ...c,
+                units: c.units.map((u) =>
+                  u.id === updated.id ? { ...u, ...updated, fields: u.fields } : u,
+                ),
+              })),
+            }
+          : prev,
+      { revalidate: false },
+    );
+  };
+  const applyFieldPatch = (updated: Partial<Field> & { id: string }) => {
+    void mutateCarriers(
+      (prev) =>
+        prev
+          ? {
+              carriers: prev.carriers.map((c) => ({
+                ...c,
+                units: c.units.map((u) => ({
+                  ...u,
+                  fields: u.fields.map((f) => (f.id === updated.id ? { ...f, ...updated } : f)),
+                })),
+              })),
+            }
+          : prev,
+      { revalidate: false },
+    );
+  };
+
   async function saveCarrier(name: string) {
     if (!carrierModal) return;
     try {
-      if (carrierModal.mode === "create") await apiFetch("/api/admin/carriers", { method: "POST", body: JSON.stringify({ name }) });
-      else await apiFetch(`/api/admin/carriers/${carrierModal.carrier!.id}`, { method: "PATCH", body: JSON.stringify({ name }) });
-      setCarrierModal(null); void load();
+      if (carrierModal.mode === "create") {
+        await apiFetch("/api/admin/carriers", { method: "POST", body: JSON.stringify({ name }) });
+        void load();
+      } else {
+        const res = await apiFetch<{ carrier: Carrier }>(`/api/admin/carriers/${carrierModal.carrier!.id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+        if (res?.carrier) applyCarrierPatch(res.carrier);
+        else void load();
+      }
+      setCarrierModal(null);
     } catch (e) { fail(e); }
   }
   async function saveUnit(name: string, billingType: BillingType) {
     if (!unitModal) return;
     try {
-      if (unitModal.mode === "create") await apiFetch("/api/admin/units", { method: "POST", body: JSON.stringify({ carrier_id: unitModal.carrierId, name, billing_type: billingType }) });
-      else await apiFetch(`/api/admin/units/${unitModal.unit!.id}`, { method: "PATCH", body: JSON.stringify({ name, billing_type: billingType }) });
-      setUnitModal(null); void load();
+      if (unitModal.mode === "create") {
+        await apiFetch("/api/admin/units", { method: "POST", body: JSON.stringify({ carrier_id: unitModal.carrierId, name, billing_type: billingType }) });
+        void load();
+      } else {
+        const res = await apiFetch<{ unit: Unit }>(`/api/admin/units/${unitModal.unit!.id}`, { method: "PATCH", body: JSON.stringify({ name, billing_type: billingType }) });
+        if (res?.unit) applyUnitPatch(res.unit);
+        else void load();
+      }
+      setUnitModal(null);
     } catch (e) { fail(e); }
   }
   async function saveField(d: FieldDraft) {
     if (!fieldModal) return;
     const body = { label: d.label, input_type: d.inputType, group_label: d.groupLabel || null, is_billable: d.isBillable, required: d.required };
     try {
-      if (fieldModal.mode === "create") await apiFetch("/api/admin/unit-fields", { method: "POST", body: JSON.stringify({ ...body, unit_id: fieldModal.unitId }) });
-      else await apiFetch(`/api/admin/unit-fields/${fieldModal.field!.id}`, { method: "PATCH", body: JSON.stringify(body) });
-      setFieldModal(null); void load();
+      if (fieldModal.mode === "create") {
+        await apiFetch("/api/admin/unit-fields", { method: "POST", body: JSON.stringify({ ...body, unit_id: fieldModal.unitId }) });
+        void load();
+      } else {
+        const res = await apiFetch<{ field: Field }>(`/api/admin/unit-fields/${fieldModal.field!.id}`, { method: "PATCH", body: JSON.stringify(body) });
+        if (res?.field) applyFieldPatch(res.field);
+        else void load();
+      }
+      setFieldModal(null);
     } catch (e) { fail(e); }
   }
 

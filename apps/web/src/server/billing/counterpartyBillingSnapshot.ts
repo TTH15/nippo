@@ -135,20 +135,48 @@ export async function buildCounterpartyBillingSnapshot(
   endDate: string,
   monthYm: string
 ): Promise<CounterpartyBillingSnapshot> {
-  const { systemLines, systemTotal: shiftSystemTotal } = await computeCounterpartyMonthBillingDetail(
-    supabase,
-    orgId,
-    startDate,
-    endDate,
-    invoiceAddressId
-  );
-
-  const { data: labelRows, error: labelErr } = await supabase
-    .from("counterparty_monthly_line_labels")
-    .select("line_key, display_label")
-    .eq("org_id", orgId)
-    .eq("invoice_address_id", invoiceAddressId)
-    .eq("month_yyyy_mm", monthYm);
+  // 相互に独立な取得は1波で並列に流す（旧: 直列6段で往復が積み上がっていた）
+  const [
+    { systemLines, systemTotal: shiftSystemTotal },
+    { data: labelRows, error: labelErr },
+    { data: mergedList, error: mErr },
+    { data: slRows, error: slErr },
+    { data: customRows, error: cErr },
+  ] = await Promise.all([
+    computeCounterpartyMonthBillingDetail(supabase, orgId, startDate, endDate, invoiceAddressId),
+    supabase
+      .from("counterparty_monthly_line_labels")
+      .select("line_key, display_label")
+      .eq("org_id", orgId)
+      .eq("invoice_address_id", invoiceAddressId)
+      .eq("month_yyyy_mm", monthYm),
+    supabase
+      .from("counterparty_monthly_merged_lines")
+      .select("id, sort_order, description, quantity, unit_price")
+      .eq("org_id", orgId)
+      .eq("invoice_address_id", invoiceAddressId)
+      .eq("month_yyyy_mm", monthYm)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("sales_log_entries")
+      .select("id, log_date, content, revenue, profit, sales_log_types ( name )")
+      .eq("org_id", orgId)
+      .eq("counterparty_invoice_address_id", invoiceAddressId)
+      .gte("log_date", startDate)
+      .lte("log_date", endDate)
+      .order("log_date", { ascending: true })
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("counterparty_monthly_custom_lines")
+      .select("id, description, quantity, unit_price, sort_order, row_kind, created_at")
+      .eq("org_id", orgId)
+      .eq("invoice_address_id", invoiceAddressId)
+      .eq("month_yyyy_mm", monthYm)
+      .order("row_kind", { ascending: true })
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }),
+  ]);
 
   if (labelErr) throw labelErr;
   const labelMap = new Map<string, string>();
@@ -157,15 +185,6 @@ export async function buildCounterpartyBillingSnapshot(
     const v = String(r.display_label ?? "").trim();
     if (k && v) labelMap.set(k, v);
   });
-
-  const { data: mergedList, error: mErr } = await supabase
-    .from("counterparty_monthly_merged_lines")
-    .select("id, sort_order, description, quantity, unit_price")
-    .eq("org_id", orgId)
-    .eq("invoice_address_id", invoiceAddressId)
-    .eq("month_yyyy_mm", monthYm)
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
 
   if (mErr) throw mErr;
 
@@ -218,16 +237,6 @@ export async function buildCounterpartyBillingSnapshot(
     });
   }
 
-  const { data: slRows, error: slErr } = await supabase
-    .from("sales_log_entries")
-    .select("id, log_date, content, revenue, profit, sales_log_types ( name )")
-    .eq("org_id", orgId)
-    .eq("counterparty_invoice_address_id", invoiceAddressId)
-    .gte("log_date", startDate)
-    .lte("log_date", endDate)
-    .order("log_date", { ascending: true })
-    .order("created_at", { ascending: true });
-
   if (slErr) throw slErr;
 
   for (const r of slRows ?? []) {
@@ -253,16 +262,6 @@ export async function buildCounterpartyBillingSnapshot(
       });
     }
   }
-
-  const { data: customRows, error: cErr } = await supabase
-    .from("counterparty_monthly_custom_lines")
-    .select("id, description, quantity, unit_price, sort_order, row_kind, created_at")
-    .eq("org_id", orgId)
-    .eq("invoice_address_id", invoiceAddressId)
-    .eq("month_yyyy_mm", monthYm)
-    .order("row_kind", { ascending: true })
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
 
   if (cErr) throw cErr;
 

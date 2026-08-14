@@ -9,6 +9,7 @@ import {
 } from "@/server/billing/computeCounterpartyMonthRevenue";
 import { computeDriverAutoPayout } from "@/server/billing/driverPayout";
 import { loadDriverLease, loadCourseDailyLease, computeLeaseDeduction } from "@/server/billing/driverLease";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "@/server/aggregation/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -321,12 +322,30 @@ export async function GET(req: NextRequest) {
   const cMap = new Map<string, any>();
   (coursesForTo ?? []).forEach((c: any) => cMap.set(c.id, c));
   const orgCourseIds = Array.from(cMap.keys());
-  const { data: shiftsForTo } = await supabase
-    .from("shifts")
-    .select("course_id, shift_date")
-    .gte("shift_date", range.startDate)
-    .lte("shift_date", range.endDate)
-    .in("course_id", orgCourseIds);
+  // IN 句はコース数が増えるとURL上限で壊れるため分割し、1000行サイレント切り詰めを
+  // 避けるため fetchAllRows でページングする（頻度カウントの静かな欠落防止）。
+  const shiftsForTo: any[] = [];
+  try {
+    for (let i = 0; i < orgCourseIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+      const slice = orgCourseIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+      const rows = await fetchAllRows((from, to) =>
+        supabase
+          .from("shifts")
+          .select("id, course_id, shift_date")
+          .gte("shift_date", range.startDate)
+          .lte("shift_date", range.endDate)
+          .in("course_id", slice)
+          // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
+          .order("shift_date", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      );
+      shiftsForTo.push(...rows);
+    }
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  }
   // carrier 判定は carriers マスタ（carrier_id → code）由来
   const carrierCodeByCourse = await loadCarrierCodeByCourse(supabase, orgId);
   const counterpartyCount = new Map<string, number>();

@@ -8,8 +8,9 @@ export const dynamic = "force-dynamic";
 
 // ============================================================
 // 1対1チャットの履歴取得と送信（roadmap-2026-07 E④）。
-// GET  : 会話履歴（古い順）＋開いた時点で inbound を既読化
-// POST : LINE へ push して outbound を保存
+// GET   : 会話履歴（古い順）。副作用なし（15秒ポーリングのたびに書き込まない・2026-08 監査）
+// PATCH : inbound の既読化（開いた/読んだタイミングでクライアントが明示的に叩く）
+// POST  : LINE へ push して outbound を保存
 //
 // ★誤爆防止: 相手が「自 org の active メンバー」であることを毎回確認してから
 //   送る（driverId は URL 由来＝改竄されうるため）。
@@ -69,19 +70,34 @@ export async function GET(
     return NextResponse.json({ error: "取得に失敗しました" }, { status: 500 });
   }
 
-  // 開いた＝読んだ、とみなして既読化する
-  await supabase
+  return NextResponse.json({
+    driver: { id: recipient.driverId, name: recipient.name, blocked: recipient.blocked },
+    messages: messages ?? [],
+  });
+}
+
+// PATCH: inbound の既読化。GET の副作用として毎ポーリング書き込んでいたのを分離した。
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ driverId: string }> },
+) {
+  const user = await requirePermission(req, "can_send_notifications");
+  if (isAuthError(user)) return user;
+  const orgId = user.orgId ?? (await resolveOrgId(user.driverId));
+  const { driverId } = await params;
+
+  const { error } = await supabase
     .from("line_chat_messages")
     .update({ read_at: new Date().toISOString() })
     .eq("org_id", orgId)
     .eq("driver_id", driverId)
     .eq("direction", "inbound")
     .is("read_at", null);
-
-  return NextResponse.json({
-    driver: { id: recipient.driverId, name: recipient.name, blocked: recipient.blocked },
-    messages: messages ?? [],
-  });
+  if (error) {
+    console.error("[chat] 既読化に失敗", error);
+    return NextResponse.json({ error: "既読化に失敗しました" }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
 }
 
 export async function POST(

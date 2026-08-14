@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { preload } from "swr";
+import { swrFetcher } from "@/lib/swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
@@ -261,7 +263,9 @@ export default function CoursesPage() {
         apiFetch<{ courses: Course[] }>("/api/admin/courses"),
         // 名簿・請求の権限が無いロールでは 403 になる。コース一覧（設定権限）まで
         // 巻き込まず、担当ドライバー・請求先の候補が空になるだけに留める。
-        apiFetch<{ drivers: Driver[] }>("/api/admin/users").catch(() => ({
+        // all=1: ページングなしの全件（既定 limit=20 のままだと21人目以降の
+        // 担当表示・割当候補が黙って欠ける）。
+        apiFetch<{ drivers: Driver[] }>("/api/admin/users?all=1").catch(() => ({
           drivers: [] as Driver[],
         })),
         apiFetch<{ addresses: InvoiceAddress[] }>("/api/admin/invoice-addresses").catch(() => ({
@@ -291,6 +295,8 @@ export default function CoursesPage() {
 
   useEffect(() => {
     if (!bundle) return;
+    // 保存中は同期しない（「保存前のサーバー状態」で楽観更新が巻き戻るのを防ぐ・P3）
+    if (saveInflightRef.current > 0) return;
     setCourses(bundle.courses);
     setDrivers(bundle.drivers);
     setInvoiceAddresses(bundle.addresses);
@@ -326,6 +332,52 @@ export default function CoursesPage() {
       await persistRef.current?.();
     },
   });
+
+  // 差分PUT の基準値（モーダルを開いた時点/最後に保存した時点のフォーム値）。
+  // users/page.tsx と同型（P1）。変わった項目だけをサーバーへ送る。
+  const baselineFormRef = useRef<CourseFormState | null>(null);
+  // 二重保存ガード（P3）: closeEditModal が flushAutoSave 直後に persist を再実行しても
+  // 同一PUT×2 が並走しない。SWR→state 同期・遅延 refetch も実行中はスキップ/延期する。
+  const saveInflightRef = useRef(0);
+  const bundleRefreshTimer = useRef<number | null>(null);
+  const scheduleBundleRefresh = useCallback(() => {
+    if (bundleRefreshTimer.current != null) window.clearTimeout(bundleRefreshTimer.current);
+    const tick = () => {
+      bundleRefreshTimer.current = null;
+      if (saveInflightRef.current > 0) {
+        bundleRefreshTimer.current = window.setTimeout(tick, 1500);
+        return;
+      }
+      void refreshBundle();
+    };
+    bundleRefreshTimer.current = window.setTimeout(tick, 1500);
+  }, [refreshBundle]);
+  useEffect(() => {
+    return () => {
+      if (bundleRefreshTimer.current != null) window.clearTimeout(bundleRefreshTimer.current);
+    };
+  }, []);
+
+  // hover intent 先読み（P8）: 行に 120ms 留まったら単価（course-billing・編集モーダルの
+  // CourseRateEditor と同一SWRキー）を裏取得してキャッシュを温める。
+  const courseHoverTimerRef = useRef<number | null>(null);
+  const prefetchedBillingRef = useRef(new Set<string>());
+  const onCourseRowHoverStart = useCallback((cid: string) => {
+    if (courseHoverTimerRef.current != null) window.clearTimeout(courseHoverTimerRef.current);
+    courseHoverTimerRef.current = window.setTimeout(() => {
+      courseHoverTimerRef.current = null;
+      const key = `/api/admin/course-billing?course_id=${cid}`;
+      if (prefetchedBillingRef.current.has(key)) return;
+      prefetchedBillingRef.current.add(key);
+      void preload(key, swrFetcher);
+    }, 120);
+  }, []);
+  const onCourseRowHoverEnd = useCallback(() => {
+    if (courseHoverTimerRef.current != null) {
+      window.clearTimeout(courseHoverTimerRef.current);
+      courseHoverTimerRef.current = null;
+    }
+  }, []);
 
   const saveAssign = async () => {
     if (!assignTarget) return;
@@ -400,7 +452,7 @@ export default function CoursesPage() {
   const openEditCourse = (course: Course) => {
     if (!canWrite) return;
     setEditingCourse(course);
-    setEditForm({
+    const form: CourseFormState = {
       name: course.name,
       color: course.color || COLORS[0],
       max_drivers: String(Math.max(1, course.max_drivers ?? 1)),
@@ -414,7 +466,9 @@ export default function CoursesPage() {
       meeting_time: toTimeInputValue(course.meeting_time),
       arrival_time: toTimeInputValue(course.arrival_time),
       end_time: toTimeInputValue(course.end_time),
-    });
+    };
+    setEditForm(form);
+    baselineFormRef.current = { ...form };
     setShowEditModal(true);
   };
 
@@ -425,30 +479,49 @@ export default function CoursesPage() {
   const persistCourseEdit = async () => {
     if (!canWrite || !editingCourse) return;
     if (!editForm.name.trim()) return;
+    // 二重保存ガード: flushAutoSave が発火させた保存の実行中に closeEditModal から
+    // 再度呼ばれても、同一内容のPUTを並走させない（P3）
+    if (saveInflightRef.current > 0) return;
+    saveInflightRef.current += 1;
     setSaving(true);
     try {
       const dailyLease = Math.max(0, parseInt(editForm.daily_lease, 10) || 0);
-      await apiFetch(`/api/admin/courses/${editingCourse.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          name: editForm.name.trim(),
-          color: editForm.color,
-          max_drivers: Math.max(1, parseInt(editForm.max_drivers, 10) || 1),
-          carrier_id: editForm.carrierId || null,
-          carrier: legacyCarrierOf(editForm.carrierId),
-          summary_title: editForm.summary_title.trim() ? editForm.summary_title.trim() : null,
-          daily_lease: dailyLease,
-          principal_invoice_address_id: editForm.principal_invoice_address_id || null,
-          counterparty_invoice_address_id: editForm.counterparty_invoice_address_id || null,
-          slot_id: editForm.slotId || null,
-          meeting_place: editForm.meeting_place.trim() || null,
-          meeting_time: editForm.meeting_time || null,
-          arrival_time: editForm.arrival_time || null,
-          end_time: editForm.end_time || null,
-        }),
-      });
-      // 単価（course-billing）も保存
-      await billingRef.current?.save();
+      // 差分PUT（P1）: 基準値から変わった項目だけ送る。サーバーは undefined の項目を
+      // 変更しない部分更新仕様（courses/[id] PUT）。
+      const base = baselineFormRef.current;
+      const changed = (key: keyof CourseFormState) => !base || base[key] !== editForm[key];
+      const payload: Record<string, unknown> = {};
+      if (changed("name")) payload.name = editForm.name.trim();
+      if (changed("color")) payload.color = editForm.color;
+      if (changed("max_drivers")) payload.max_drivers = Math.max(1, parseInt(editForm.max_drivers, 10) || 1);
+      if (changed("carrierId")) {
+        payload.carrier_id = editForm.carrierId || null;
+        payload.carrier = legacyCarrierOf(editForm.carrierId);
+      }
+      if (changed("summary_title")) payload.summary_title = editForm.summary_title.trim() ? editForm.summary_title.trim() : null;
+      if (changed("daily_lease")) payload.daily_lease = dailyLease;
+      if (changed("principal_invoice_address_id")) payload.principal_invoice_address_id = editForm.principal_invoice_address_id || null;
+      if (changed("counterparty_invoice_address_id")) payload.counterparty_invoice_address_id = editForm.counterparty_invoice_address_id || null;
+      if (changed("slotId")) payload.slot_id = editForm.slotId || null;
+      if (changed("meeting_place")) payload.meeting_place = editForm.meeting_place.trim() || null;
+      if (changed("meeting_time")) payload.meeting_time = editForm.meeting_time || null;
+      if (changed("arrival_time")) payload.arrival_time = editForm.arrival_time || null;
+      if (changed("end_time")) payload.end_time = editForm.end_time || null;
+
+      // 本体と単価（course-billing・別コンポーネント状態）を並列で保存する（P2）
+      const jobs: Promise<unknown>[] = [];
+      if (Object.keys(payload).length > 0) {
+        jobs.push(
+          apiFetch(`/api/admin/courses/${editingCourse.id}`, {
+            method: "PUT",
+            body: JSON.stringify(payload),
+          }),
+        );
+      }
+      const billingSave = billingRef.current?.save();
+      if (billingSave) jobs.push(billingSave);
+      await Promise.all(jobs);
+      baselineFormRef.current = { ...editForm };
       const updatedCourse: Course = {
         ...editingCourse,
         name: editForm.name.trim(),
@@ -467,7 +540,8 @@ export default function CoursesPage() {
         end_time: editForm.end_time || null,
       };
       setCourses((prev) => prev.map((c) => (c.id === editingCourse.id ? updatedCourse : c)));
-      void refreshBundle();
+      // 5APIの全再取得を毎回待たず、落ち着いてから1回だけ（P3 遅延 refetch）
+      scheduleBundleRefresh();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
@@ -480,6 +554,7 @@ export default function CoursesPage() {
         detail: reason || undefined,
       });
     } finally {
+      saveInflightRef.current -= 1;
       setSaving(false);
     }
   };
@@ -533,6 +608,9 @@ export default function CoursesPage() {
     return (
       <div
         key={course.id}
+        onMouseEnter={() => onCourseRowHoverStart(course.id)}
+        onMouseLeave={onCourseRowHoverEnd}
+        onTouchStart={() => onCourseRowHoverStart(course.id)}
         onClick={() => canWrite && openEditCourse(course)}
         role={canWrite ? "button" : undefined}
         tabIndex={canWrite ? 0 : undefined}

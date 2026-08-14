@@ -77,15 +77,33 @@ export async function GET(req: NextRequest) {
 
   const { month, startDate, endDate } = getMonthRange(monthParam);
 
-  // 自動算出の報酬は v2 集計モデル（/api/me/rewards・admin/payments と一致）
-  const autoPayout = await computeDriverAutoPayout(supabase, orgId, driverId, startDate, endDate);
-  const calculatedIncome = autoPayout.total;
-
-  // リース控除（driver_leases）。DAILY はコース日額(courses.daily_lease)由来で日当へ反映。
-  const [lease, courseDailyLease] = await Promise.all([
+  // 自動算出・リース・調整・経費はすべて独立のため1波で並列取得する（旧: 直列4段）
+  const [autoPayout, lease, courseDailyLease, adHocRes, fixedRes, optionalRes] = await Promise.all([
+    // 自動算出の報酬は v2 集計モデル（/api/me/rewards・admin/payments と一致）
+    computeDriverAutoPayout(supabase, orgId, driverId, startDate, endDate),
+    // リース控除（driver_leases）。DAILY はコース日額(courses.daily_lease)由来で日当へ反映。
     loadDriverLease(supabase, driverId, startDate, endDate),
     loadCourseDailyLease(supabase, orgId),
+    supabase
+      .from("driver_ad_hoc_expenses")
+      .select("month, name, amount, created_at, sales_log_entry_id, sales_log_entries(log_date)")
+      .eq("driver_id", driverId)
+      .eq("month", month)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("driver_fixed_expenses")
+      .select("id, name, amount, cycle, valid_from, valid_to")
+      .eq("driver_id", driverId)
+      .eq("cycle", "MONTHLY")
+      .lte("valid_from", endDate)
+      .or(`valid_to.is.null,valid_to.gte.${startDate}`),
+    supabase
+      .from("driver_optional_expenses")
+      .select("id, name, amount")
+      .eq("driver_id", driverId)
+      .eq("month", month),
   ]);
+  const calculatedIncome = autoPayout.total;
   const perDay = autoPayout.days.map((d) => ({ date: d.date, courseId: d.courseId }));
   const leaseDeductions = computeLeaseDeduction(lease, perDay, courseDailyLease);
 
@@ -108,12 +126,7 @@ export async function GET(req: NextRequest) {
   });
 
   // 報酬調整（臨時経費）: amount は +控除 / -手当（報酬加算）
-  const { data: adHocRows, error: adHocError } = await supabase
-    .from("driver_ad_hoc_expenses")
-    .select("month, name, amount, created_at, sales_log_entry_id, sales_log_entries(log_date)")
-    .eq("driver_id", driverId)
-    .eq("month", month)
-    .order("created_at", { ascending: true });
+  const { data: adHocRows, error: adHocError } = adHocRes;
 
   if (adHocError) {
     console.error("[/api/admin/driver-rewards] driver_ad_hoc_expenses error", adHocError);
@@ -138,20 +151,7 @@ export async function GET(req: NextRequest) {
   });
 
   // 固定経費
-  const { data: fixedRows, error: fixedError } = await supabase
-    .from("driver_fixed_expenses")
-    .select(`
-      id,
-      name,
-      amount,
-      cycle,
-      valid_from,
-      valid_to
-    `)
-    .eq("driver_id", driverId)
-    .eq("cycle", "MONTHLY")
-    .lte("valid_from", endDate)
-    .or(`valid_to.is.null,valid_to.gte.${startDate}`);
+  const { data: fixedRows, error: fixedError } = fixedRes;
 
   if (fixedError) {
     console.error("[/api/admin/driver-rewards] driver_fixed_expenses error", fixedError);
@@ -170,11 +170,7 @@ export async function GET(req: NextRequest) {
   });
 
   // ドライバー入力の自由経費
-  const { data: optionalRows, error: optionalError } = await supabase
-    .from("driver_optional_expenses")
-    .select("id, name, amount")
-    .eq("driver_id", driverId)
-    .eq("month", month);
+  const { data: optionalRows, error: optionalError } = optionalRes;
 
   if (optionalError) {
     console.error("[/api/admin/driver-rewards] driver_optional_expenses error", optionalError);

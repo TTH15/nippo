@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { loadOrgCarrierIds } from "@/server/carriers/orgCarriers";
+import { loadUnitFieldsForUnits } from "@/server/carriers/unitFields";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -15,15 +16,22 @@ export async function GET(req: NextRequest) {
 
   const carriersQ = supabase.from("carriers").select("*").order("sort_order");
   const unitsQ = supabase.from("units").select("*").order("sort_order");
-  const [{ data: carriers, error: cErr }, { data: units, error: uErr }, { data: fields, error: fErr }] =
-    await Promise.all([
-      orgCarrierIds ? carriersQ.in("id", orgCarrierIds) : carriersQ,
-      orgCarrierIds ? unitsQ.in("carrier_id", orgCarrierIds) : unitsQ,
-      supabase.from("unit_fields").select("*").order("sort_order"),
-    ]);
+  const [{ data: carriers, error: cErr }, { data: units, error: uErr }] = await Promise.all([
+    orgCarrierIds ? carriersQ.in("id", orgCarrierIds) : carriersQ,
+    orgCarrierIds ? unitsQ.in("carrier_id", orgCarrierIds) : unitsQ,
+  ]);
 
-  if (cErr || uErr || fErr) {
-    console.error(cErr || uErr || fErr);
+  if (cErr || uErr) {
+    console.error(cErr || uErr);
+    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  }
+
+  // unit_fields は org で絞った units 経由で取得（全件SELECTは他社分の転送＋1000行切り詰め）
+  let fields: any[];
+  try {
+    fields = await loadUnitFieldsForUnits(supabase, (units ?? []).map((u: any) => u.id));
+  } catch (e) {
+    console.error(e);
     return NextResponse.json({ error: "DB error" }, { status: 500 });
   }
 

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_ACCEPT_MIME, DEFAULT_MAX_FILE_BYTES, type AnswerAttachment } from "./fields";
 import { verifyFileContent } from "@/server/storage/fileSignature";
-import { signedUrlOptions } from "@/server/storage/dataUrl";
+import { resolveStoredUrls } from "@/server/storage/dataUrl";
 
 // ============================================================
 // 諸報告の添付ファイル（Supabase Storage・非公開バケット）入出力。
@@ -48,21 +48,22 @@ export async function uploadReportFile(
   return { ok: true, path };
 }
 
-/** 添付に短時間の署名URLを付与（閲覧用）。 */
+/** 添付に短時間の署名URLを付与（閲覧用）。
+ *  createSignedUrls で一括発行（1件ずつだと添付数ぶんStorageへ往復する・P6）。
+ *  PDF のダウンロード強制（内蔵ビューアの JS 実行回避）は resolveStoredUrls 側が
+ *  signedUrlOptions でグループ分けして維持する。 */
 export async function signAttachments(
   supabase: SupabaseClient,
   attachments: AnswerAttachment[],
   expiresInSec = 60 * 30,
 ): Promise<(AnswerAttachment & { url: string | null })[]> {
-  return Promise.all(
-    attachments.map(async (a) => {
-      // PDF はダウンロード強制（内蔵ビューアの JS 実行を避ける）。画像は表示のまま。
-      const { data } = await supabase.storage
-        .from(REPORT_BUCKET)
-        .createSignedUrl(a.path, expiresInSec, signedUrlOptions(a.path));
-      return { ...a, url: data?.signedUrl ?? null };
-    }),
+  const urls = await resolveStoredUrls(
+    supabase,
+    REPORT_BUCKET,
+    attachments.map((a) => a.path),
+    expiresInSec,
   );
+  return attachments.map((a, i) => ({ ...a, url: urls[i] ?? null }));
 }
 
 /** Storage からオブジェクトを削除（報告削除時など）。 */

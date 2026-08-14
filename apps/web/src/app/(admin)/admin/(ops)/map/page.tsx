@@ -34,6 +34,7 @@ import { AdminLayout } from "@/lib/components/AdminLayout";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { useApi } from "@/lib/useApi";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { hasCapability } from "@/lib/capabilities";
 import { todayJST } from "@/lib/date";
@@ -527,12 +528,15 @@ export default function MapPage() {
   const [historyMinute, setHistoryMinute] = useState(12 * 60);
 
   // 履歴モードでは as-of（その時刻の位置）を取りに行く。ライブは従来どおり最新。
+  // スライダーはドラッグ中に段ごとの値が連続で入るため、落ち着いてからAPIを叩く
+  // （デバウンス無しだと1ドラッグで最大96リクエスト・2026-08 監査）。
+  const debouncedHistoryMinute = useDebouncedValue(historyMinute, 350);
   const asOfIso = useMemo(() => {
     if (!historyDate) return null;
-    const h = String(Math.floor(historyMinute / 60)).padStart(2, "0");
-    const m = String(historyMinute % 60).padStart(2, "0");
+    const h = String(Math.floor(debouncedHistoryMinute / 60)).padStart(2, "0");
+    const m = String(debouncedHistoryMinute % 60).padStart(2, "0");
     return new Date(`${historyDate}T${h}:${m}:00+09:00`).toISOString();
-  }, [historyDate, historyMinute]);
+  }, [historyDate, debouncedHistoryMinute]);
 
   const { data, isLoading, mutate } = useApi<{ vehicles: MapVehicle[] }>(
     asOfIso ? `/api/admin/map/vehicles?at=${encodeURIComponent(asOfIso)}` : "/api/admin/map/vehicles",
@@ -1204,19 +1208,50 @@ export default function MapPage() {
   const savePosition = useCallback(
     async (vehicle: MapVehicle, lat: number, lng: number) => {
       setPlacingMessage(`${plateText(vehicle)} の位置を保存しています…`);
+      // 楽観更新: 置いた位置をキャッシュへ即反映する（従来は再取得完了までピンが
+      // 一瞬元の位置へ戻っていた）。失敗時は revalidate で実際の状態に戻す。
+      const optimistic = () =>
+        mutate(
+          (prev) => {
+            if (!prev) return prev;
+            return {
+              vehicles: prev.vehicles.map((v) =>
+                v.id === vehicle.id
+                  ? {
+                      ...v,
+                      position: {
+                        ...(v.position ?? {}),
+                        lat,
+                        lng,
+                        at: new Date().toISOString(),
+                        source: "manual",
+                        kind: "manual",
+                        sessionStatus: v.position?.sessionStatus ?? "closed",
+                        driverName: v.position?.driverName ?? "",
+                        placedBy: v.position?.placedBy ?? "",
+                        note: v.position?.note ?? null,
+                      },
+                    }
+                  : v,
+              ),
+            };
+          },
+          { revalidate: false },
+        );
+      void optimistic();
       try {
         await apiFetch("/api/admin/map/positions", {
           method: "POST",
           body: JSON.stringify({ vehicleId: vehicle.id, lat, lng }),
         });
         setPlacingMessage(`${plateText(vehicle)} の位置を記録しました`);
-        await mutate();
         setTimeout(() => setPlacingMessage(null), 2500);
         return true;
       } catch (e) {
         console.error(e);
         setPlacingMessage("位置を保存できませんでした");
         setTimeout(() => setPlacingMessage(null), 4000);
+        void mutate(); // 失敗時はサーバー状態へ戻す
         return false;
       }
     },

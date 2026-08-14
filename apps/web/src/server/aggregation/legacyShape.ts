@@ -60,6 +60,11 @@ type Filters = {
   vehicleId?: string;
   /** 未承認のみ（承認待ち一覧）。DB 側で絞る＝全件取得してJSで捨てるのを避ける。 */
   pendingOnly?: boolean;
+  /**
+   * 特定の日付集合だけに絞る（要対応ビュー等）。IN 句の URL 上限のため
+   * 1回の呼び出しは IN_CLAUSE_BATCH_SIZE(200) 件以下にし、超える場合は呼び出し側で分割する。
+   */
+  dates?: string[];
 };
 
 type Options = {
@@ -129,6 +134,7 @@ export async function loadLegacyDailyRows(
       .eq("org_id", orgId);
     if (filters.start) q = q.gte("report_date", filters.start);
     if (filters.end) q = q.lte("report_date", filters.end);
+    if (filters.dates) q = q.in("report_date", filters.dates);
     if (filters.driverId) q = q.eq("driver_id", filters.driverId);
     if (filters.driverIdentityId) q = q.eq("identity_id", filters.driverIdentityId);
     if (filters.vehicleId) q = q.eq("vehicle_id", filters.vehicleId);

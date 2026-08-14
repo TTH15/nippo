@@ -1,6 +1,8 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { preload } from "swr";
+import { swrFetcher } from "@/lib/swr";
 import Link from "next/link";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -60,6 +62,29 @@ export default function CounterpartiesPage() {
   });
   const [rows, setRows] = useState<CounterpartySummaryRow[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // hover intent 先読み（P8）: 行に 120ms 留まったら明細（billing-detail）を裏取得して
+  // SWR キャッシュを温める（展開コンポーネントと同一キー）。通過だけでは撃たない。
+  const expandHoverTimerRef = useRef<number | null>(null);
+  const prefetchedDetailRef = useRef(new Set<string>());
+  const onRowHoverStart = useCallback(
+    (counterpartyId: string) => {
+      if (expandHoverTimerRef.current != null) window.clearTimeout(expandHoverTimerRef.current);
+      expandHoverTimerRef.current = window.setTimeout(() => {
+        expandHoverTimerRef.current = null;
+        const key = `/api/admin/counterparties/${counterpartyId}/billing-detail?month=${encodeURIComponent(month)}`;
+        if (prefetchedDetailRef.current.has(key)) return;
+        prefetchedDetailRef.current.add(key);
+        void preload(key, swrFetcher);
+      }, 120);
+    },
+    [month],
+  );
+  const onRowHoverEnd = useCallback(() => {
+    if (expandHoverTimerRef.current != null) {
+      window.clearTimeout(expandHoverTimerRef.current);
+      expandHoverTimerRef.current = null;
+    }
+  }, []);
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [createInvoiceError, setCreateInvoiceError] = useState<string | null>(null);
@@ -92,6 +117,8 @@ export default function CounterpartiesPage() {
     mutate: mutateSummary,
   } = useApi<{ month: string; rows: CounterpartySummaryRow[] }>(
     `/api/admin/counterparties/summary?month=${encodeURIComponent(month)}`,
+    // 全社月次集計（重い）。フォーカス復帰のたびに再集計＋手入力 draft の上書きが走らないようにする
+    { revalidateOnFocus: false },
   );
   const loading = isInitialLoading;
 
@@ -400,6 +427,8 @@ export default function CounterpartiesPage() {
                       <Fragment key={r.id}>
                         <tr
                           onClick={() => openRow(r)}
+                          onMouseEnter={() => onRowHoverStart(r.id)}
+                          onMouseLeave={onRowHoverEnd}
                           className={`cursor-pointer border-b border-slate-100 hover:bg-slate-50/80 ${
                             r.courseCount === 0 ? "opacity-60" : ""
                           }`}
