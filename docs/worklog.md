@@ -2217,3 +2217,38 @@ course-billing 事故（コース編集ロールが単価表で403）と同型�
 ### 検証
 - tsc --noEmit 緑。ブラウザ実確認は未（localhost:3002 はログイン画面で停止。
   PIN 入力は自動操作で行わない方針のため、次回ログイン済みセッションで目視確認）
+
+## 2026-08-15 運営画面UI改善: ドライバー一覧の絞り込み
+
+`apps/web/src/app/(admin)/admin/(resource)/users/page.tsx` のみ。未コミット。車両一覧と同パターン。
+
+- 稼働中/稼働終了タブの行に検索ボックス+属性チップを追加
+- **テキスト検索**: 名前・表示名・ドライバー番号（identities 両スロット）・事業所コード・
+  No.（list_no）・コース名・権限ラベルの部分一致
+- **属性チップ**（人数付き・0人は非表示）: すべて / 免許要更新（期限切れ+2ヶ月以内、
+  稼働中タブのみ表示）/ 免許未設定 / コース未設定 / 権限未設定
+- タブ切替時は属性チップをリセット（意味が変わるため）。テキスト検索は維持
+- 0件時は「条件に一致するドライバーがいません」+ 絞り込み解除リンク
+- 検証: tsc 緑・vitest 467 緑。ブラウザ目視は未（ログイン待ち）
+
+## 2026-08-15 本番障害調査: コース→担当ドライバー保存で 500
+
+### 原因（Vercel 本番ログ nippo-ace で特定）
+- `PUT /api/admin/courses/[id]/drivers` が Postgres 23502:
+  `null value in column "driver_id" of relation "driver_courses"`
+- migration 033 は driver_courses.driver_id を「参照用に残す」= **NOT NULL のまま**。
+  コース側割当API（2026-08-03 追加）は `{driver_identity_id, course_id}` だけで
+  upsert していたため、**新規追加ドライバーがいる保存は必ず失敗**していた
+  （外すだけの保存は delete のみなので成功 = 発覚が遅れた理由）
+- users 側の同処理は driver_id を含めており正常
+
+### 修正（未コミット・未デプロイ）
+- `courses/[id]/drivers/route.ts`: upsert 行に `driver_id` を追加（users 側と同形に）
+- `courses/page.tsx` saveAssign の失敗表示が ConfirmDialog（削除ボタン付き）の誤用
+  だったのを ErrorDialog に変更
+- tsc / vitest 467 緑。**本番反映にはデプロイが必要**
+
+### 調査回答: courses.max_drivers（1日あたりの最大人数）は使用中・削除不可
+- シフト作戦盤（shifts/page.tsx で10箇所超）で「コース×日のドライバー枠数
+  （maxSlots）」として盤面の行数・稼働人数集計・一括操作の範囲を決めている
+- 「担当を選ぶ」の割当可能人数とは別物（こちらは無制限で、盤面の同日枠数が max_drivers）

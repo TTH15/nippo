@@ -17,7 +17,7 @@ import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
 import { formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { Button } from "@/lib/ui/button";
-import { faTrash, faUser, faPhone, faCircleCheck, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
+import { faTrash, faUser, faPhone, faCircleCheck, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -213,6 +213,11 @@ export default function UsersPage() {
 
   // 稼働中/稼働終了の切替（既定は稼働中＝従来の一覧挙動）。
   const [statusFilter, setStatusFilter] = useState<"active" | "inactive">("active");
+  // 一覧の絞り込み（テキスト検索 + 属性チップ）。稼働中/稼働終了タブの取得結果に対して適用
+  const [searchQuery, setSearchQuery] = useState("");
+  const [attrFilter, setAttrFilter] = useState<
+    "all" | "license-due" | "license-unset" | "course-unset" | "role-unset"
+  >("all");
 
   const usersPageKey = (pageIndex: number, previousPageData: UsersPageResponse | null) => {
     if (previousPageData && !previousPageData.hasMore) return null;
@@ -283,6 +288,9 @@ export default function UsersPage() {
   // 引き継がずクリアする（切替直後に別ステータスの一覧が混ざって見えるのを防ぐ）。
   useEffect(() => {
     setDrivers([]);
+    // 属性チップはタブごとに意味が変わる（稼働終了に免許警告は無い）ためリセットする。
+    // テキスト検索は「同じ人を別タブで探す」場面があるため維持
+    setAttrFilter("all");
     void setSize(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
@@ -931,6 +939,65 @@ export default function UsersPage() {
     },
   });
 
+  // 絞り込み（テキスト検索 + 属性チップ）。名前・表示名・ドライバー番号・コース名・権限で部分一致
+  const searchNorm = searchQuery.trim().toLowerCase();
+  const matchesSearch = (d: Driver) => {
+    if (!searchNorm) return true;
+    const hay = [
+      d.name,
+      d.display_name,
+      getDisplayName(d),
+      d.driver_code,
+      d.office_code,
+      d.list_no != null ? String(d.list_no) : null,
+      roleLabelOf(d),
+      ...(d.driver_identities ?? []).flatMap((idn) => [idn.driver_code, idn.office_code]),
+      ...allIdentityCourses(d).map((dc) => dc.courses.name),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(searchNorm);
+  };
+  const isLicenseDue = (d: Driver) => {
+    const lv = computeLicenseLevel(d.license_expiry_date ?? null);
+    return lv === "expired" || lv === "within1Month" || lv === "within2Months";
+  };
+  const matchesAttr = (d: Driver) => {
+    switch (attrFilter) {
+      case "license-due":
+        return isLicenseDue(d);
+      case "license-unset":
+        return !d.license_expiry_date;
+      case "course-unset":
+        return allIdentityCourses(d).length === 0;
+      case "role-unset":
+        return !d.role_id;
+      default:
+        return true;
+    }
+  };
+  const filteredDrivers = drivers.filter((d) => matchesAttr(d) && matchesSearch(d));
+  const filterActive = attrFilter !== "all" || searchNorm !== "";
+  const clearFilters = () => {
+    setAttrFilter("all");
+    setSearchQuery("");
+  };
+  // 台数0のチップは出さない。「免許要更新」は稼働中タブのみ（稼働終了に更新を促す意味は無い）
+  const attrChips = (
+    [
+      { key: "all", label: "すべて", count: drivers.length },
+      { key: "license-due", label: "免許要更新", count: drivers.filter(isLicenseDue).length },
+      { key: "license-unset", label: "免許未設定", count: drivers.filter((d) => !d.license_expiry_date).length },
+      { key: "course-unset", label: "コース未設定", count: drivers.filter((d) => allIdentityCourses(d).length === 0).length },
+      { key: "role-unset", label: "権限未設定", count: drivers.filter((d) => !d.role_id).length },
+    ] as const
+  ).filter(
+    (c) =>
+      c.key === "all" ||
+      (c.count > 0 && (c.key !== "license-due" || statusFilter === "active")),
+  );
+
   return (
     <AdminLayout>
       <div className="w-full">
@@ -950,24 +1017,68 @@ export default function UsersPage() {
           )}
         </div>
 
-        <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-lg mb-4">
-          {(
-            [
-              { key: "active" as const, label: "稼働中" },
-              { key: "inactive" as const, label: "稼働終了" },
-            ]
-          ).map((o) => (
-            <button
-              key={o.key}
-              type="button"
-              onClick={() => setStatusFilter(o.key)}
-              className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-                statusFilter === o.key ? "bg-white text-slate-900 shadow-sm font-medium" : "text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              {o.label}
-            </button>
-          ))}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-lg">
+            {(
+              [
+                { key: "active" as const, label: "稼働中" },
+                { key: "inactive" as const, label: "稼働終了" },
+              ]
+            ).map((o) => (
+              <button
+                key={o.key}
+                type="button"
+                onClick={() => setStatusFilter(o.key)}
+                className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                  statusFilter === o.key ? "bg-white text-slate-900 shadow-sm font-medium" : "text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {/* 絞り込み: テキスト検索 + 属性チップ（2026-08-15。車両一覧と同パターン） */}
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 h-8 w-full sm:w-64 shadow-sm focus-within:border-slate-400">
+            <FontAwesomeIcon icon={faMagnifyingGlass} className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="名前・番号・コースで検索"
+              className="w-full bg-transparent text-xs outline-none placeholder:text-slate-400"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="text-slate-400 hover:text-slate-600"
+                aria-label="検索をクリア"
+              >
+                <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          {!loading && drivers.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {attrChips.map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  onClick={() => setAttrFilter(c.key)}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 h-7 text-xs font-medium transition-colors ${
+                    attrFilter === c.key
+                      ? "border-slate-800 bg-slate-800 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  {c.label}
+                  <span className={attrFilter === c.key ? "text-slate-300" : "text-slate-400"}>
+                    {c.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {loading ? (
@@ -1020,11 +1131,24 @@ export default function UsersPage() {
           </div>
         ) : drivers.length === 0 ? (
           <p className="text-sm text-slate-500">ドライバーが登録されていません</p>
+        ) : filteredDrivers.length === 0 ? (
+          <div className="flex items-center gap-3 text-sm text-slate-500">
+            条件に一致するドライバーがいません
+            {filterActive && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-xs font-medium text-slate-700 underline hover:text-slate-900"
+              >
+                絞り込みを解除
+              </button>
+            )}
+          </div>
         ) : (
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             {/* スマホ: カード一覧（横スクロール不要で全情報＋権限変更まで完結） */}
             <div className="md:hidden divide-y divide-slate-100">
-              {drivers.map((d) => {
+              {filteredDrivers.map((d) => {
                 const coursesOfDriver = allIdentityCourses(d);
                 const licenseStatus = getLicenseStatus(d.license_expiry_date);
                 return (
@@ -1119,7 +1243,7 @@ export default function UsersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {drivers.map((d) => {
+                  {filteredDrivers.map((d) => {
                     const coursesOfDriver = allIdentityCourses(d);
                     const licenseStatus = getLicenseStatus(d.license_expiry_date);
                     return (

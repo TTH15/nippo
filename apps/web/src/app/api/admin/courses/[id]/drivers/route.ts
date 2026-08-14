@@ -102,9 +102,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           skipped.push(driverId); // 勤務区分が未作成（未承認等）のドライバーは対象外
           return null;
         }
-        return { driver_identity_id: identityId, course_id: courseId };
+        // driver_id は migration 033 で「参照用に残す（NOT NULL のまま）」ため必須。
+        // 欠くと 23502 で保存が落ちる（2026-08-15 本番障害）。users 側の insert と同じ形にする
+        return { driver_id: driverId, driver_identity_id: identityId, course_id: courseId };
       })
-      .filter((r): r is { driver_identity_id: string; course_id: string } => r !== null);
+      .filter(
+        (r): r is { driver_id: string; driver_identity_id: string; course_id: string } =>
+          r !== null,
+      );
     if (rows.length > 0) {
       const { error } = await supabase.from("driver_courses").upsert(rows, {
         onConflict: "driver_identity_id,course_id",

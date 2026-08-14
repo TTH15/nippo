@@ -392,9 +392,11 @@ export default function CoursesPage() {
       // ドライバー一覧の「担当コース」も変わる。自画面だけ直しても一覧は未設定のまま残る。
       void invalidateApi("/api/admin/users");
     } catch (e) {
-      setConfirmState({
-        message: e instanceof Error ? e.message : "担当ドライバーの保存に失敗しました",
-        onConfirm: () => setConfirmState(null),
+      // ConfirmDialog（削除ボタン付き）を誤用していたのを ErrorDialog へ（2026-08-15）
+      setErrorState({
+        title: "担当ドライバーの保存に失敗しました",
+        message: "時間をおいて再度お試しください。",
+        detail: e instanceof Error ? e.message : undefined,
       });
     } finally {
       setAssignSaving(false);
