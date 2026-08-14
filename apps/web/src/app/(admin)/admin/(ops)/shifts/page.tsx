@@ -16,6 +16,8 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { AutoSaveTextInput } from "@/lib/components/AutoSaveTextInput";
 import { useCellCursors, type CellPeer } from "@/lib/realtime/cellCursors";
 import { useApi } from "@/lib/useApi";
+import { preload } from "swr";
+import { swrFetcher } from "@/lib/swr";
 import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
 import { slotDisplayLabel } from "@/lib/timeSlot";
@@ -461,6 +463,41 @@ function formatDate(dateStr: string): string {
 
 type Period = "first" | "second";
 
+/** 前後の半月（期間）。月またぎ込み（8月後半 +1 → 9月前半、1月前半 -1 → 前年12月後半） */
+function adjacentHalf(
+  year: number,
+  month: number,
+  period: Period,
+  dir: 1 | -1,
+): { year: number; month: number; period: Period } {
+  if (dir === 1) {
+    if (period === "first") return { year, month, period: "second" };
+    return month === 12
+      ? { year: year + 1, month: 1, period: "first" }
+      : { year, month: month + 1, period: "first" };
+  }
+  if (period === "second") return { year, month, period: "first" };
+  return month === 1
+    ? { year: year - 1, month: 12, period: "second" }
+    : { year, month: month - 1, period: "second" };
+}
+
+/** 「7月後半」のような期間の表示名。年が変わるときだけ「2027年1月前半」と年を付ける */
+function halfLabel(
+  t: { year: number; month: number; period: Period },
+  currentYear: number,
+): string {
+  const name = `${t.month}月${t.period === "first" ? "前半" : "後半"}`;
+  return t.year !== currentYear ? `${t.year}年${name}` : name;
+}
+
+/** 期間の日付列から API キー（start〜end）を組む */
+function halfDates(t: { year: number; month: number; period: Period }): string[] {
+  return t.period === "first"
+    ? getFirstHalfDates(t.year, t.month)
+    : getSecondHalfDates(t.year, t.month);
+}
+
 // 同時編集カーソル: セル右上に「そのセルを触っている人」の色付きバッジを重ねる。
 function CellPeersBadge({ peers }: { peers?: CellPeer[] }) {
   if (!peers || peers.length === 0) return null;
@@ -819,6 +856,49 @@ export default function ShiftsPage() {
   const switchPeriod = (p: Period) => {
     setPeriod(p);
   };
+
+  /** 隣の暦日（YYYY-MM-DD）。期間の境界越えの行き先計算に使う */
+  const adjacentDate = (date: string, dir: 1 | -1): string => {
+    const d = new Date(`${date}T12:00:00`);
+    d.setDate(d.getDate() + dir);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+
+  /** 前後の期間（半月）へ1ステップ移動。月またぎも自動（8月後半→9月前半 等） */
+  const stepPeriod = (dir: 1 | -1, focusDate?: string) => {
+    const t = adjacentHalf(yearMonth.year, yearMonth.month, period, dir);
+    setYearMonth({ year: t.year, month: t.month });
+    setPeriod(t.period);
+    // スマホの日別ビュー: 指定があればその日へ（スワイプの連続性）。無ければ期間の既定へ
+    setMobileDate(focusDate ?? null);
+  };
+
+  // ステッパー・スワイプ予告に出す行き先の名前（「7月後半」等。年またぎは年付き）
+  const prevHalfLabel = halfLabel(
+    adjacentHalf(yearMonth.year, yearMonth.month, period, -1),
+    yearMonth.year,
+  );
+  const nextHalfLabel = halfLabel(
+    adjacentHalf(yearMonth.year, yearMonth.month, period, 1),
+    yearMonth.year,
+  );
+
+  // 隣の期間（前後の半月）のデータを先読みして SWR キャッシュを温めておく。
+  // これで期間の境界（15↔16日・月またぎ）を越えてもスケルトンを挟まない。
+  // 現期間の取得完了（shiftsData 到着）を待ってから裏で取得し、本命の帯域を奪わない。
+  const prefetchedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!shiftsData) return;
+    for (const dir of [1, -1] as const) {
+      const dates = halfDates(adjacentHalf(yearMonth.year, yearMonth.month, period, dir));
+      const range = `start=${dates[0]}&end=${dates[dates.length - 1]}`;
+      for (const key of [`/api/admin/shifts?${range}`, `/api/admin/spot-jobs?${range}`]) {
+        if (prefetchedRef.current.has(key)) continue;
+        prefetchedRef.current.add(key);
+        void preload(key, swrFetcher);
+      }
+    }
+  }, [shiftsData, yearMonth.year, yearMonth.month, period]);
 
   const getCellKey = (date: string, courseId: string, slot: number) => `${date}:${courseId}:${slot}`;
 
@@ -1873,6 +1953,16 @@ export default function ShiftsPage() {
         </p>
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            {/* PC: 半月単位のステッパー（月またぎも1クリック。8月前半→7月後半 等） */}
+            <button
+              type="button"
+              onClick={() => stepPeriod(-1)}
+              title={`${prevHalfLabel}を表示`}
+              className="hidden md:flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              <FontAwesomeIcon icon={faChevronLeft} className="h-3 w-3" />
+              {prevHalfLabel}
+            </button>
             {/* 期間タブ（スマホは短いラベルで幅を節約） */}
             <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
               <button
@@ -1898,6 +1988,15 @@ export default function ShiftsPage() {
                 後半<span className="hidden md:inline">（16日〜）</span>
               </button>
             </div>
+            <button
+              type="button"
+              onClick={() => stepPeriod(1)}
+              title={`${nextHalfLabel}を表示`}
+              className="hidden md:flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              {nextHalfLabel}
+              <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3" />
+            </button>
             {/* 表示軸の切替（A3）: ドライバー軸/コース軸。スマホは日別ビューのため非表示 */}
             <div className="hidden md:flex rounded-lg border border-slate-300 overflow-hidden bg-white">
               <button
@@ -2040,9 +2139,10 @@ export default function ShiftsPage() {
               <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5">
                 <button
                   type="button"
-                  disabled={idx <= 0}
-                  onClick={() => setMobileDate(displayDates[idx - 1])}
-                  className="h-11 w-11 shrink-0 rounded-xl border border-slate-200 bg-white text-slate-600 active:bg-slate-100 disabled:opacity-30"
+                  onClick={() =>
+                    idx > 0 ? setMobileDate(displayDates[idx - 1]) : stepPeriod(-1, adjacentDate(date, -1))
+                  }
+                  className="h-11 w-11 shrink-0 rounded-xl border border-slate-200 bg-white text-slate-600 active:bg-slate-100"
                   aria-label="前の日"
                 >
                   <FontAwesomeIcon icon={faChevronLeft} className="h-4 w-4" />
@@ -2056,9 +2156,12 @@ export default function ShiftsPage() {
                 </div>
                 <button
                   type="button"
-                  disabled={idx >= displayDates.length - 1}
-                  onClick={() => setMobileDate(displayDates[idx + 1])}
-                  className="h-11 w-11 shrink-0 rounded-xl border border-slate-200 bg-white text-slate-600 active:bg-slate-100 disabled:opacity-30"
+                  onClick={() =>
+                    idx < displayDates.length - 1
+                      ? setMobileDate(displayDates[idx + 1])
+                      : stepPeriod(1, adjacentDate(date, 1))
+                  }
+                  className="h-11 w-11 shrink-0 rounded-xl border border-slate-200 bg-white text-slate-600 active:bg-slate-100"
                   aria-label="次の日"
                 >
                   <FontAwesomeIcon icon={faChevronRight} className="h-4 w-4" />
@@ -2162,7 +2265,12 @@ export default function ShiftsPage() {
                   pendingDirRef.current = 0;
                   const i = displayDates.indexOf(activeMobileDate);
                   const target = displayDates[i + dir];
-                  if (target) setMobileDate(target); // 中央への戻しは useLayoutEffect が行う
+                  if (target) {
+                    setMobileDate(target); // 中央への戻しは useLayoutEffect が行う
+                  } else {
+                    // 期間の境界を越えて隣の期間へ（15日→16日、月末→翌月1日）
+                    stepPeriod(dir, adjacentDate(activeMobileDate, dir));
+                  }
                 }}
                 onTouchStart={(e) => {
                   if (pendingDirRef.current) return; // 収束アニメ中は受け付けない
@@ -2180,22 +2288,17 @@ export default function ShiftsPage() {
                     st.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
                   }
                   if (st.axis !== "x") return;
-                  const i = displayDates.indexOf(activeMobileDate);
-                  const hasPrev = i > 0;
-                  const hasNext = i < displayDates.length - 1;
-                  // 端では引っ張り抵抗をかけて「これ以上ない」ことを示す
-                  const limited = (dx > 0 && !hasPrev) || (dx < 0 && !hasNext) ? dx / 4 : dx;
-                  st.dx = limited; // 判定は必ずこの値を使う（transform 文字列はブラウザが正規化する）
-                  setTrackOffset(limited, false);
+                  // 期間の端でも止めない（境界を越えたら隣の期間へ続く）
+                  st.dx = dx;
+                  setTrackOffset(dx, false);
                 }}
                 onTouchEnd={() => {
                   const st = swipeRef.current;
                   swipeRef.current = null;
                   if (!st || st.axis !== "x" || !activeMobileDate) return;
                   const moved = st.dx;
-                  const i = displayDates.indexOf(activeMobileDate);
-                  const goNext = moved <= -56 && i < displayDates.length - 1;
-                  const goPrev = moved >= 56 && i > 0;
+                  const goNext = moved <= -56;
+                  const goPrev = moved >= 56;
                   if (goNext || goPrev) {
                     pendingDirRef.current = goNext ? 1 : -1;
                     const el2 = trackRef.current;
@@ -2214,16 +2317,22 @@ export default function ShiftsPage() {
                   const i = displayDates.indexOf(date);
                   const prevDate = i > 0 ? displayDates[i - 1] : null;
                   const nextDate = i < displayDates.length - 1 ? displayDates[i + 1] : null;
-                  const panel = (d: string | null, key: string) => (
+                  const panel = (d: string | null, key: string, dir?: 1 | -1) => (
                     <div key={key} className="w-full shrink-0 px-0.5">
-                      {d ? renderDayList(d) : null}
+                      {d ? (
+                        renderDayList(d)
+                      ) : (
+                        <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-slate-200 text-xs text-slate-400">
+                          {dir === 1 ? `${nextHalfLabel}へ…` : `${prevHalfLabel}へ…`}
+                        </div>
+                      )}
                     </div>
                   );
                   return (
                     <>
-                      {panel(prevDate, "prev")}
+                      {panel(prevDate, "prev", -1)}
                       {panel(date, "cur")}
-                      {panel(nextDate, "next")}
+                      {panel(nextDate, "next", 1)}
                     </>
                   );
                 })()}
