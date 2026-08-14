@@ -1871,3 +1871,26 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - **詳細キャッシュを直接更新**: 保存後に detailCache を delete せず applyFormToDriver で書き換え
   （再オープンも hover 先読みの即表示を維持）。コース画面のキャッシュ無効化は identities 変更時のみ
 - 検証: tsc / vitest 444 / next build ✅（未コミット）
+
+## 2026-08-14 全画面の通信監査を開始（docs/perf-audit-2026-08.md 作成中）
+
+- 次セッションは docs/perf-audit-2026-08.md から着手する（ユーザー指示）
+- §1 に今日の修正9パターン（差分PUT/並列化/saveInflightガード/遅延refetch/集計分離/
+  SQL集計+フォールバック/バッチ署名/カーソルページング/hover先読み/隣接preload）を整理済み
+- §2（画面ごとの発見事項）と §3（着手順）は、並列調査エージェント4本
+  （経理系・運行系・マスタ系・ドライバー向け）の報告待ち。揃い次第このセッションで確定させる
+
+### 追記: 全画面監査の完了（docs/perf-audit-2026-08.md 確定）
+
+- 並列調査4本（経理/運行/マスタ/ドライバー向け）完了。§2に画面ごとの発見（file:line付き）、
+  §3に次セッションの着手順を確定
+- 重要な発見（性能以外も含む）:
+  - **セキュリティ**: org_id スコープ抜け3箇所（daily reports PUT / events GET / events ranking）
+  - **正確性**: aggregation/load.ts の単価テーブルが1000行サイレント切り詰め（金額が静かに狂う）、
+    請求書編集で attachments が消えるデータ欠落、ドライバーセレクタの件数欠け3画面、
+    invoices 一覧のページングなし（1000件超で月フォルダ消失）
+  - **重い全履歴集計**: daily/unread-count（2020年〜を全ページで60秒ごと）、
+    day-summary-range?pending=1、/api/me/team-status、payments/counterparties の展開N+1
+  - **巻き戻り競合**（users/shiftsと同型）: daily all タブ・notifications 設定・invoices スター・
+    counterparties draft・ドライバー希望休提出
+- 次セッションは docs/perf-audit-2026-08.md の §3（Step 0〜5）から着手
