@@ -12,9 +12,34 @@ export const dynamic = "force-dynamic";
 //   ドライバー×unit×日付 の「報告値」を返す。
 //   従量unit: 課金数量フィールドの合計。固定unit: 稼働=1/日（個数に依らない）。
 //   → 「宅/ネ」等のハードコードを廃し、設定した型がそのまま行になる。
+//
+// ★unit の合計（total）だけでなく、報告項目ごとの個数（fields）も返す。
+//   合計には課金対象（is_billable）しか入らないため、そのままだと
+//   **持戻個数や Amazon の午前/午後/4便の個数がどの画面からも参照できない**
+//   （FIXED unit は稼働1日に潰れる）。画面側の「内訳」表示がここを読む。
 // ============================================================
 
 type UnitMeta = { id: string; name: string; billingType: string; sortOrder: number };
+
+/** 個数として集計できる報告項目（数値入力のものだけ）。 */
+type FieldMeta = {
+  unitId: string;
+  key: string;
+  label: string;
+  groupLabel: string | null;
+  isBillable: boolean;
+  sortOrder: number;
+};
+
+/** 個数の入れ物（期間合計＋日別）。 */
+type Counts = { total: number; byDate: Record<string, number> };
+
+function addCount(target: Record<string, Counts>, key: string, date: string, value: number): void {
+  const cell = target[key] ?? { total: 0, byDate: {} };
+  cell.byDate[date] = (cell.byDate[date] ?? 0) + value;
+  cell.total += value;
+  target[key] = cell;
+}
 
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_reports");
@@ -25,6 +50,8 @@ export async function GET(req: NextRequest) {
   const start = url.searchParams.get("start") ?? "";
   const end = url.searchParams.get("end") ?? "";
   const driverId = url.searchParams.get("driver_id")?.trim() || "";
+  // 項目ごとの個数は日別まで持つとレスポンスが数倍になるため、要求された時だけ返す
+  const withFields = url.searchParams.get("fields") === "1";
   if (!start || !end) return NextResponse.json({ units: [], byDriver: {} });
 
   // 対象日報（却下以外）
@@ -48,16 +75,31 @@ export async function GET(req: NextRequest) {
   // units / unit_fields
   const [{ data: unitRows }, { data: fieldRows }] = await Promise.all([
     supabase.from("units").select("id, name, billing_type, sort_order"),
-    supabase.from("unit_fields").select("unit_id, field_key, is_billable"),
+    supabase
+      .from("unit_fields")
+      .select("unit_id, field_key, label, group_label, input_type, is_billable, sort_order"),
   ]);
   const unitMeta = new Map<string, UnitMeta>();
   (unitRows ?? []).forEach((u: any) => unitMeta.set(u.id, { id: u.id, name: u.name, billingType: u.billing_type, sortOrder: u.sort_order ?? 0 }));
+
   const billableByUnit = new Map<string, Set<string>>();
+  const fieldMeta = new Map<string, FieldMeta>();
   (fieldRows ?? []).forEach((f: any) => {
-    if (!f.is_billable) return;
-    const s = billableByUnit.get(f.unit_id) ?? new Set<string>();
-    s.add(f.field_key);
-    billableByUnit.set(f.unit_id, s);
+    if (f.is_billable) {
+      const s = billableByUnit.get(f.unit_id) ?? new Set<string>();
+      s.add(f.field_key);
+      billableByUnit.set(f.unit_id, s);
+    }
+    // 個数として数えられるのは数値入力の項目だけ（時刻・自由記述は対象外）
+    if (f.input_type !== "INT") return;
+    fieldMeta.set(`${f.unit_id}:${f.field_key}`, {
+      unitId: f.unit_id,
+      key: f.field_key,
+      label: f.label,
+      groupLabel: f.group_label ?? null,
+      isBillable: Boolean(f.is_billable),
+      sortOrder: f.sort_order ?? 0,
+    });
   });
 
   // report_entries（分割取得）。200件ずつのバッチを直列に待つと往復が積み上がるため並列で流す
@@ -95,7 +137,19 @@ export async function GET(req: NextRequest) {
   }
 
   const appearing = new Set<string>();
-  const byDriver: Record<string, Record<string, { total: number; byDate: Record<string, number> }>> = {};
+  const appearingFields = new Set<string>();
+  const byDriver: Record<
+    string,
+    Record<string, Counts & { fields: Record<string, Counts> }>
+  > = {};
+
+  const cellOf = (driverId: string, unitId: string) => {
+    byDriver[driverId] = byDriver[driverId] ?? {};
+    const cell = byDriver[driverId][unitId] ?? { total: 0, byDate: {}, fields: {} };
+    byDriver[driverId][unitId] = cell;
+    return cell;
+  };
+
   for (const ruKey of reportUnitSeen) {
     const [reportId, unitId] = ruKey.split(":");
     const info = reportInfo.get(reportId);
@@ -103,18 +157,42 @@ export async function GET(req: NextRequest) {
     if (!info || !meta) continue;
     const value = meta.billingType === "FIXED" ? 1 : (perReportUnitBillable.get(ruKey) ?? 0);
     appearing.add(unitId);
-    byDriver[info.driverId] = byDriver[info.driverId] ?? {};
-    const cell = byDriver[info.driverId][unitId] ?? { total: 0, byDate: {} };
+    const cell = cellOf(info.driverId, unitId);
     cell.byDate[info.date] = (cell.byDate[info.date] ?? 0) + value;
     cell.total += value;
-    byDriver[info.driverId][unitId] = cell;
+  }
+
+  // 報告項目ごとの個数（持戻・時間帯別など、合計には現れない値）
+  if (withFields) {
+    for (const e of entries) {
+      const info = reportInfo.get(e.report_id);
+      const field = fieldMeta.get(`${e.unit_id}:${e.field_key}`);
+      if (!info || !field || !unitMeta.has(e.unit_id)) continue;
+      const value = Number(e.value_num) || 0;
+      appearingFields.add(`${e.unit_id}:${e.field_key}`);
+      addCount(cellOf(info.driverId, e.unit_id).fields, e.field_key, info.date, value);
+    }
   }
 
   const units = Array.from(appearing)
     .map((id) => unitMeta.get(id)!)
     .filter(Boolean)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "ja"))
-    .map((m) => ({ id: m.id, name: m.name, billingType: m.billingType }));
+    .map((m) => ({
+      id: m.id,
+      name: m.name,
+      billingType: m.billingType,
+      // 期間内に報告のあった項目だけ（定義したが誰も入力していない項目は列を作らない）
+      fields: Array.from(fieldMeta.values())
+        .filter((f) => f.unitId === m.id && appearingFields.has(`${f.unitId}:${f.key}`))
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key))
+        .map((f) => ({
+          key: f.key,
+          label: f.label,
+          groupLabel: f.groupLabel,
+          isBillable: f.isBillable,
+        })),
+    }));
 
   return NextResponse.json({ units, byDriver });
 }

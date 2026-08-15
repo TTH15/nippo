@@ -16,7 +16,7 @@ import { apiFetch, getStoredDriver } from "@/lib/api";
 import { AutoSaveTextInput } from "@/lib/components/AutoSaveTextInput";
 import { useCellCursors, type CellPeer } from "@/lib/realtime/cellCursors";
 import { useApi } from "@/lib/useApi";
-import { preload } from "swr";
+import { preload, mutate } from "swr";
 import { swrFetcher } from "@/lib/swr";
 import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
@@ -31,6 +31,7 @@ import { cn } from "@/lib/ui/utils";
 import { TimePicker } from "@/lib/ui/time-picker";
 import { Check, ChevronDown, Download, RefreshCw, Settings } from "lucide-react";
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
+import PendingChangesBar, { PENDING_CHANGES_KEY } from "./PendingChangesBar";
 import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./ShiftImportModal";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
@@ -815,6 +816,9 @@ export default function ShiftsPage() {
         return;
       }
       void mutateShifts();
+      // 「通知済みの予定が変わったか」も同じタイミングで見直す。
+      // 操作の一つひとつではなく、手が止まってからまとめて評価する
+      void mutate(PENDING_CHANGES_KEY);
     }, 1500);
   }, [mutateShifts]);
 
@@ -4050,6 +4054,8 @@ export default function ShiftsPage() {
           </div>
         </div>
       )}
+      {/* 通知済みの日付に差分があるときだけ足元に出る。未通知の日付では現れない */}
+      {canWrite && <PendingChangesBar />}
     </AdminLayout>
   );
 }

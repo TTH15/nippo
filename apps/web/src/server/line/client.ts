@@ -82,9 +82,23 @@ export async function getMessageQuota(): Promise<LineQuota> {
   };
 }
 
+/**
+ * 送信できるメッセージ。
+ * flex は見た目だけの器で、altText に必ずテキスト版を入れる
+ * （通知バナー・Flex 非対応環境ではこちらが読まれる）。
+ */
+export type LineMessage =
+  | { type: "text"; text: string }
+  | { type: "flex"; altText: string; contents: Record<string, unknown> };
+
 /** 単一ユーザーへ push。 */
 export async function pushText(lineUserId: string, text: string): Promise<void> {
-  await callLine("/message/push", { to: lineUserId, messages: [{ type: "text", text }] });
+  await pushMessages(lineUserId, [{ type: "text", text }]);
+}
+
+/** 単一ユーザーへ push（カード等の任意メッセージ）。 */
+export async function pushMessages(lineUserId: string, messages: LineMessage[]): Promise<void> {
+  await callLine("/message/push", { to: lineUserId, messages });
 }
 
 /**
@@ -92,10 +106,18 @@ export async function pushText(lineUserId: string, text: string): Promise<void> 
  * 同一本文を多人数へ送る一斉配信用。呼び出し側で org スコープ済みのリストを渡すこと。
  */
 export async function multicastText(lineUserIds: string[], text: string): Promise<void> {
+  await multicastMessages(lineUserIds, [{ type: "text", text }]);
+}
+
+/** multicast（カード等の任意メッセージ）。同一内容を送る相手だけをまとめて渡すこと。 */
+export async function multicastMessages(
+  lineUserIds: string[],
+  messages: LineMessage[],
+): Promise<void> {
   const unique = [...new Set(lineUserIds)];
   for (let i = 0; i < unique.length; i += MULTICAST_CHUNK) {
     const chunk = unique.slice(i, i + MULTICAST_CHUNK);
-    await callLine("/message/multicast", { to: chunk, messages: [{ type: "text", text }] });
+    await callLine("/message/multicast", { to: chunk, messages });
   }
 }
 

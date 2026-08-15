@@ -170,7 +170,7 @@ export function SettingsTab({ canWrite }: { canWrite: boolean }) {
 
           <ToggleRow
             label="変更のお知らせ"
-            description="通知を送ったあとにコースや車両が変わったとき、【変更】として追って送ります。"
+            description="通知を送ったあとに予定が変わったら、シフト管理の画面で知らせます。内容を確認して送信したときだけ届きます（自動では送りません）。"
             checked={settings.changeEnabled}
             disabled={!canWrite}
             onChange={(v) => update({ changeEnabled: v })}

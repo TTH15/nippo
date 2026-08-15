@@ -12,7 +12,7 @@
 // org スコープのクエリで作ること（レイヤ1）。
 // ============================================================
 import { supabase } from "@/server/db/client";
-import { isLineConfigured, multicastText } from "@/server/line/client";
+import { isLineConfigured, multicastMessages, type LineMessage } from "@/server/line/client";
 import { isWebPushConfigured, sendWebPush } from "@/server/notifications/webpush";
 
 export type NotificationInput = {
@@ -25,6 +25,11 @@ export type NotificationInput = {
   payload?: Record<string, unknown>;
   /** 「org×日×種別×membership」等。同じキーの再送は黙って抑止される。 */
   dedupeKey?: string;
+  /**
+   * LINE に送る見た目（カード等）。省略時は title/body のテキストを送る。
+   * インボックスに入るのは常に title/body の方（§1-2 真実はインボックス）。
+   */
+  lineMessages?: LineMessage[];
 };
 
 export type DispatchResult = {
@@ -45,6 +50,25 @@ export type DispatchResult = {
 export function detectForeignRecipients(requested: string[], allowed: Iterable<string>): string[] {
   const allowedSet = new Set(allowed);
   return [...new Set(requested)].filter((id) => !allowedSet.has(id));
+}
+
+/**
+ * 入力と保存済みレコードを突き合わせる鍵。
+ * dedupe_key があればそれが一意。無い入力（手動配信など）は
+ * 受信者＋件名＋本文で引く（同じ値なら同じメッセージなので取り違えても実害が無い）。
+ */
+function messageKeyOf(row: {
+  identity_id?: unknown;
+  identityId?: string;
+  title: unknown;
+  body: unknown;
+  dedupe_key?: unknown;
+  dedupeKey?: string;
+}): string {
+  const dedupe = (row.dedupeKey ?? row.dedupe_key) as string | null | undefined;
+  if (dedupe) return `k:${dedupe}`;
+  const identityId = (row.identityId ?? row.identity_id) as string;
+  return `f:${identityId} ${row.title as string} ${row.body as string}`;
 }
 
 /**
@@ -110,7 +134,7 @@ export async function dispatchNotifications(
   const { data: created, error } = await supabase
     .from("notifications") // tenant-scope-ok: rows の各行に org_id を含む＋直前に assertSameOrg で受信者の越境を遮断
     .upsert(rows, { onConflict: "dedupe_key", ignoreDuplicates: true })
-    .select("id, identity_id, title, body");
+    .select("id, identity_id, title, body, dedupe_key");
   if (error) throw new Error(`通知の保存に失敗しました: ${error.message}`);
 
   const inserted = created ?? [];
@@ -169,36 +193,46 @@ export async function dispatchNotifications(
     (linked ?? []).map((r) => [r.id as string, r.line_user_id as string]),
   );
 
-  // 同一本文をまとめて multicast できるようグループ化（1人1通でも push より効率が良い）
-  const byMessage = new Map<string, string[]>();
+  // 保存された行から、入力（＝LINE の見た目）を引き直す。
+  // upsert は挿入された行しか返さないため、dedupeKey が無い入力も引けるよう
+  // 「受信者＋件名＋本文」を予備キーにする。
+  const inputByKey = new Map(inputs.map((i) => [messageKeyOf(i), i]));
+
+  // 同一メッセージをまとめて multicast できるようグループ化（1人1通でも push より効率が良い）
+  type Group = { messages: LineMessage[]; lineUserIds: string[]; notificationIds: string[] };
+  const groups = new Map<string, Group>();
+
   for (const n of inserted) {
     const lineUserId = lineUserIdByIdentity.get(n.identity_id as string);
     if (!lineUserId) continue; // 未連携＝インボックス＋Web Push のみ（§1-2）
-    const text = `${n.title}\n\n${n.body}`;
-    const list = byMessage.get(text) ?? [];
-    list.push(lineUserId);
-    byMessage.set(text, list);
+
+    const input = inputByKey.get(messageKeyOf(n));
+    const messages: LineMessage[] = input?.lineMessages ?? [
+      { type: "text", text: `${n.title}\n\n${n.body}` },
+    ];
+
+    const key = JSON.stringify(messages);
+    const group = groups.get(key) ?? { messages, lineUserIds: [], notificationIds: [] };
+    group.lineUserIds.push(lineUserId);
+    group.notificationIds.push(n.id as string);
+    groups.set(key, group);
   }
 
-  for (const [text, lineUserIds] of byMessage) {
-    const targets = inserted.filter((n) => {
-      const uid = lineUserIdByIdentity.get(n.identity_id as string);
-      return uid !== undefined && lineUserIds.includes(uid);
-    });
+  for (const group of groups.values()) {
     try {
-      await multicastText(lineUserIds, text);
-      result.lineSent += lineUserIds.length;
-      for (const n of targets) {
-        deliveries.push({ notification_id: n.id as string, channel: "line", status: "sent" });
+      await multicastMessages(group.lineUserIds, group.messages);
+      result.lineSent += group.lineUserIds.length;
+      for (const id of group.notificationIds) {
+        deliveries.push({ notification_id: id, channel: "line", status: "sent" });
       }
     } catch (e) {
       // 配信失敗はログに残すだけ。インボックスには既に届いている。
       const message = e instanceof Error ? e.message : String(e);
       console.error("[notifications] LINE 配信に失敗", message);
-      result.lineFailed += lineUserIds.length;
-      for (const n of targets) {
+      result.lineFailed += group.lineUserIds.length;
+      for (const id of group.notificationIds) {
         deliveries.push({
-          notification_id: n.id as string,
+          notification_id: id,
           channel: "line",
           status: "failed",
           error: message.slice(0, 500),

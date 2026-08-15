@@ -6,6 +6,7 @@ import {
   toLocalTimeStr,
   formatYearMonth,
   formatMonthDayJP,
+  formatMonthDayWeekdayJP,
   reportDateDefaultJST,
 } from "./calendar";
 
@@ -57,6 +58,19 @@ describe("formatMonthDayJP", () => {
   it("ゼロ埋めを外して M月D日", () => {
     expect(formatMonthDayJP("2026-06-05")).toBe("6月5日");
     expect(formatMonthDayJP("2026-12-25")).toBe("12月25日");
+  });
+});
+
+describe("formatMonthDayWeekdayJP", () => {
+  it("曜日を添える（通知で出勤日か休みかを読み違えないため）", () => {
+    expect(formatMonthDayWeekdayJP("2026-07-21")).toBe("7月21日(火)");
+    expect(formatMonthDayWeekdayJP("2026-07-20")).toBe("7月20日(月)");
+    expect(formatMonthDayWeekdayJP("2026-07-19")).toBe("7月19日(日)");
+  });
+
+  it("月初・年またぎでも曜日がずれない", () => {
+    expect(formatMonthDayWeekdayJP("2026-01-01")).toBe("1月1日(木)");
+    expect(formatMonthDayWeekdayJP("2026-12-31")).toBe("12月31日(木)");
   });
 });
 

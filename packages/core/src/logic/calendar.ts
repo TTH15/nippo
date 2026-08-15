@@ -69,6 +69,18 @@ export function formatMonthDayJP(dateStr: string): string {
   return `${m}月${d}日`;
 }
 
+const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"];
+
+/**
+ * "YYYY-MM-DD" → "M月D日(月)"。通知など「何曜日か」が判断に効く場面で使う。
+ * 曜日は UTC で計算する（暦日そのものを見るのでタイムゾーンに依存させない）。
+ */
+export function formatMonthDayWeekdayJP(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const weekday = WEEKDAY_JP[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${m}月${d}日(${weekday})`;
+}
+
 /**
  * 日報用のデフォルト日付（日本時間 午前3:00 で日付が切り替わる）。
  * 3:00 より前は「前日」、3:00 以降は「当日」を返す。
