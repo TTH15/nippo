@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, Fragment, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare, faRotateRight, faFileLines, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare, faRotateRight, faFileLines, faTriangleExclamation, faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
 import { swrFetcher } from "@/lib/swr";
@@ -936,8 +936,9 @@ export default function SalesPage() {
   const [logDeleteTarget, setLogDeleteTarget] = useState<SalesLogEntryRow | null>(null);
   const [logDeleteError, setLogDeleteError] = useState<string | null>(null);
   const [canWrite, setCanWrite] = useState(false);
-  const [selectedDayIso, setSelectedDayIso] = useState<string>("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  // テーブルビューのドリルダウン（開いているドライバー行。アコーディオン式に1人だけ）
+  const [expandedDriverId, setExpandedDriverId] = useState<string | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
 
@@ -1025,17 +1026,6 @@ export default function SalesPage() {
   const chartEndIso = endIso;
   const bucketQuery =
     chartUnit === "half" ? "&bucket=half" : chartUnit === "month" ? "&bucket=month" : "";
-
-  useEffect(() => {
-    if (!startIso || !endIso) return;
-    const businessToday = reportDateDefaultJST();
-    // 期間変更時は「現在選択日が期間内なら維持、期間外なら業務日/末日にクランプ」
-    setSelectedDayIso((prev) => {
-      if (prev && prev >= startIso && prev <= endIso) return prev;
-      if (businessToday >= startIso && businessToday <= endIso) return businessToday;
-      return endIso; // 期間外なら末日に寄せる
-    });
-  }, [startIso, endIso]);
 
   const prevRange = useMemo(() => {
     if (!chartStartIso || !chartEndIso) return null;
@@ -1346,12 +1336,6 @@ export default function SalesPage() {
   const filteredMidnights = midnights ?? [];
   const filteredCourseShifts = courseShifts;
 
-  const reportMap = useMemo(() => {
-    const map = new Map<string, ReportRow>();
-    (filteredReports ?? []).forEach((r) => map.set(`${r.driver_id}:${r.report_date}`, r));
-    return map;
-  }, [filteredReports]);
-
   const driverTotals = useMemo(() => {
     const totalsByDriver = new Map<string, { tk: number; nk: number; total: number }>();
     (filteredDrivers ?? []).forEach((d) => totalsByDriver.set(d.id, { tk: 0, nk: 0, total: 0 }));
@@ -1366,14 +1350,6 @@ export default function SalesPage() {
     });
     return totalsByDriver;
   }, [filteredDrivers, filteredReports]);
-
-  const midnightSet = useMemo(() => {
-    const s = new Set<string>();
-    (filteredMidnights ?? []).forEach((m) => {
-      s.add(`${m.driver_id}:${m.date}`);
-    });
-    return s;
-  }, [filteredMidnights]);
 
   const midnightCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1397,29 +1373,68 @@ export default function SalesPage() {
     });
   }, [filteredDrivers, summaryByDriver, courseShifts]);
 
-  // 集計表示タイトル付きコースごとの (driver_id, date) セット
-  const courseShiftSets = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    Object.entries(filteredCourseShifts).forEach(([courseId, list]) => {
-      const s = new Set<string>();
-      list.forEach(({ driver_id, date }) => s.add(`${driver_id}:${date}`));
-      map.set(courseId, s);
-    });
-    return map;
+  // 集計テーブル: 期間内に実績のあるユニット列だけ出す
+  const usedSummaryUnits = useMemo(
+    () =>
+      summaryUnits.filter((u) =>
+        summaryRowDrivers.some((d) => (summaryByDriver[d.id]?.[u.id]?.total ?? 0) !== 0),
+      ),
+    [summaryUnits, summaryRowDrivers, summaryByDriver],
+  );
+
+  // ドライバーごとの稼働日数（期間内にシフトが入った日のユニーク数）
+  const driverShiftDayCount = useMemo(() => {
+    const daySets = new Map<string, Set<string>>();
+    Object.values(filteredCourseShifts).forEach((list) =>
+      (list ?? []).forEach(({ driver_id, date }) => {
+        let set = daySets.get(driver_id);
+        if (!set) {
+          set = new Set();
+          daySets.set(driver_id, set);
+        }
+        set.add(date);
+      }),
+    );
+    const counts = new Map<string, number>();
+    daySets.forEach((set, id) => counts.set(id, set.size));
+    return counts;
   }, [filteredCourseShifts]);
 
-  // 集計表示タイトル付きコースごとのドライバー別日数
-  const courseShiftCounts = useMemo(() => {
-    const map = new Map<string, Map<string, number>>();
-    Object.entries(filteredCourseShifts).forEach(([courseId, list]) => {
-      const byDriver = new Map<string, number>();
-      list.forEach(({ driver_id }) => {
-        byDriver.set(driver_id, (byDriver.get(driver_id) ?? 0) + 1);
+  // ドリルダウン: そのドライバーの日別明細（実績かシフトがある日だけ・昇順）
+  const buildDriverDailyDetail = (driverId: string) => {
+    const unitData = summaryByDriver[driverId] ?? {};
+    const dates = new Set<string>();
+    usedSummaryUnits.forEach((u) => {
+      Object.entries(unitData[u.id]?.byDate ?? {}).forEach(([d, v]) => {
+        if (v) dates.add(d);
       });
-      map.set(courseId, byDriver);
     });
-    return map;
-  }, [filteredCourseShifts]);
+    const coursesByDate = new Map<string, string[]>();
+    Object.entries(filteredCourseShifts).forEach(([courseId, list]) => {
+      const name = summaryCourses.find((c) => c.id === courseId)?.summary_title;
+      (list ?? []).forEach(({ driver_id, date }) => {
+        if (driver_id !== driverId) return;
+        dates.add(date);
+        if (!name) return;
+        const arr = coursesByDate.get(date) ?? [];
+        arr.push(name);
+        coursesByDate.set(date, arr);
+      });
+    });
+    return Array.from(dates)
+      .sort()
+      .map((iso) => {
+        const [, m, d] = iso.split("-").map(Number);
+        return {
+          iso,
+          label: `${m}/${d}`,
+          units: Object.fromEntries(
+            usedSummaryUnits.map((u) => [u.id, unitData[u.id]?.byDate?.[iso] ?? 0]),
+          ) as Record<string, number>,
+          courses: coursesByDate.get(iso) ?? [],
+        };
+      });
+  };
 
   const totals = useMemo(() => {
     const yamato = displayData.reduce((s, d) => s + d.yamato, 0);
@@ -1527,42 +1542,61 @@ export default function SalesPage() {
         />
 
         {/* ダッシュボード内のビュー切替（グラフ / テーブル） */}
-        {tab !== "log" && (
-          <div className="inline-flex rounded-md border border-slate-200 bg-white p-0.5 mb-4">
-            <button
-              type="button"
-              onClick={() => setTab("analytics")}
-              className={`px-3 py-1.5 text-xs rounded transition-colors ${tab === "analytics" ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"}`}
-            >
-              グラフ
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("summary")}
-              className={`px-3 py-1.5 text-xs rounded transition-colors ${tab === "summary" ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"}`}
-            >
-              テーブル
-            </button>
-          </div>
-        )}
-
-        {/* 期間選択（単位トグル + 年月/任意範囲） + キャリア・コースフィルタ（アナリティクス / 集計 共通） */}
-        <div className="flex flex-col gap-4 mb-6">
-          <div className="flex flex-wrap items-center gap-3">
+        {/* ツールバー: ビュー・単位・期間・絞り込みを同じ様式で1行に（折返し可） */}
+        <div className="mb-6 flex flex-wrap items-center gap-2">
+          {tab !== "log" && (
             <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-lg">
-              {(tab === "analytics"
-                ? ([
-                    { key: "day", label: "日別" },
-                    { key: "half", label: "前後半" },
-                    { key: "month", label: "月別" },
-                    { key: "custom", label: "期間指定" },
-                  ] as const)
-                : ([
-                    { key: "day", label: "月" },
-                    { key: "custom", label: "期間指定" },
-                  ] as const)
+              {(
+                [
+                  { key: "analytics" as const, label: "グラフ" },
+                  { key: "summary" as const, label: "テーブル" },
+                ]
+              ).map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() => setTab(o.key)}
+                  className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                    tab === o.key ? "bg-white text-slate-900 shadow-sm font-medium" : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {tab === "analytics" && (
+            <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-lg">
+              {(
+                [
+                  { key: "day", label: "日別" },
+                  { key: "half", label: "前後半" },
+                  { key: "month", label: "月別" },
+                  { key: "custom", label: "期間指定" },
+                ] as const
+              ).map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() => setUnit(o.key)}
+                  className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                    unit === o.key ? "bg-white text-slate-900 shadow-sm font-medium" : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {tab !== "analytics" && (
+            <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-lg">
+              {(
+                [
+                  { key: "day", label: "月" },
+                  { key: "custom", label: "期間指定" },
+                ] as const
               ).map((o) => {
-                const active = tab === "analytics" ? unit === o.key : (unit === "custom" ? "custom" : "day") === o.key;
+                const active = (unit === "custom" ? "custom" : "day") === o.key;
                 return (
                   <button
                     key={o.key}
@@ -1577,55 +1611,137 @@ export default function SalesPage() {
                 );
               })}
             </div>
-            {unit === "custom" ? (
-              <DateRangePicker
-                value={customRange}
-                onChange={setCustomRange}
-                presets={["last_month", "current_month", "custom"]}
-              />
-            ) : (
-              <MonthYearPicker value={baseMonth} onChange={setBaseMonth} />
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <span className="text-xs text-slate-500">対象コース</span>
-            <CourseSelect
-              courses={courses}
-              value={selectedCourseIds}
-              onChange={setSelectedCourseIds}
-              codeToName={carrierNameByCode}
+          )}
+          {unit === "custom" ? (
+            <DateRangePicker
+              value={customRange}
+              onChange={setCustomRange}
+              presets={["last_month", "current_month", "custom"]}
             />
-            <span className="text-xs text-slate-500">対象ドライバー</span>
-            <div className="w-full sm:w-56">
-              <CustomSelect
-                size="sm"
-                value={selectedDriverId}
-                onChange={setSelectedDriverId}
-                options={[
-                  { value: "", label: "すべてのドライバー" },
-                  ...(drivers ?? []).map((d) => ({
-                    value: d.id,
-                    label: d.display_name ?? d.name,
-                  })),
-                ]}
-                clearable={false}
-              />
-            </div>
+          ) : (
+            <MonthYearPicker value={baseMonth} onChange={setBaseMonth} />
+          )}
+          <CourseSelect
+            courses={courses}
+            value={selectedCourseIds}
+            onChange={setSelectedCourseIds}
+            codeToName={carrierNameByCode}
+          />
+          <div className="w-full sm:w-52">
+            <CustomSelect
+              size="sm"
+              value={selectedDriverId}
+              onChange={setSelectedDriverId}
+              options={[
+                { value: "", label: "すべてのドライバー" },
+                ...(drivers ?? []).map((d) => ({
+                  value: d.id,
+                  label: d.display_name ?? d.name,
+                })),
+              ]}
+              clearable={false}
+            />
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-start gap-6">
-          <div className="w-full min-w-0 lg:flex-1">
+        <div className="w-full min-w-0">
             {tab === "analytics" && (
               <>
                 {loadingAnalytics ? (
-                  <div className="bg-white rounded-lg border border-slate-200 p-6">
-                    <Skeleton className="h-[420px] w-full" />
-                  </div>
+                  <>
+                    <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-px rounded-lg border border-slate-200 bg-slate-200 overflow-hidden">
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="bg-white p-4">
+                          <Skeleton className="h-3 w-14 mb-2" />
+                          <Skeleton className="h-6 w-24" />
+                          <Skeleton className="h-3 w-20 mt-1.5" />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="bg-white rounded-lg border border-slate-200 p-6">
+                      <Skeleton className="h-[420px] w-full" />
+                    </div>
+                  </>
                 ) : displayData.length === 0 ? (
                   <p className="text-sm text-slate-500 py-8">該当データがありません</p>
                 ) : (
                   <>
+                    {/* KPI スタット行: 売上 / 粗利 / 平均 / 稼働率（旧右サイドバーの畳み込み） */}
+                    <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-px rounded-lg border border-slate-200 bg-slate-200 overflow-hidden">
+                      <div className="bg-white p-4">
+                        <div className="text-xs font-semibold text-slate-500">売上</div>
+                        <div className="mt-0.5 text-xl font-bold text-slate-900 tracking-tight tabular-nums">
+                          {fmt(displayTotals.total)}
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                          {loadingPrev && <span>前期間計算中...</span>}
+                          {!loadingPrev && revenueChangePct != null && (
+                            <>
+                              <FontAwesomeIcon
+                                icon={revenueChangePct >= 0 ? faArrowTrendUp : faArrowTrendDown}
+                                className={revenueChangePct >= 0 ? "text-emerald-600" : "text-red-600"}
+                              />
+                              <span className={revenueChangePct >= 0 ? "text-emerald-600" : "text-red-600"}>
+                                {revenueChangePct >= 0 ? "+" : ""}
+                                {revenueChangePct.toFixed(1)}%
+                              </span>
+                              <span>前期間比</span>
+                            </>
+                          )}
+                          {!loadingPrev && revenueChangePct == null && <span>– 前期間比</span>}
+                        </div>
+                      </div>
+                      <div className="bg-white p-4">
+                        <div className="text-xs font-semibold text-slate-500">粗利</div>
+                        <div className="mt-0.5 text-xl font-bold text-slate-900 tracking-tight tabular-nums">
+                          {fmt(displayTotals.profit)}
+                          {margin != null && (
+                            <span className="text-sm font-semibold text-slate-500"> ({margin.toFixed(1)}%)</span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                          {marginDiff != null ? (
+                            <>
+                              <FontAwesomeIcon
+                                icon={marginDiff >= 0 ? faArrowTrendUp : faArrowTrendDown}
+                                className={marginDiff >= 0 ? "text-emerald-600" : "text-red-600"}
+                              />
+                              <span className={marginDiff >= 0 ? "text-emerald-600" : "text-red-600"}>
+                                {marginDiff >= 0 ? "+" : ""}
+                                {marginDiff.toFixed(2)}pt
+                              </span>
+                              <span>粗利率変化</span>
+                            </>
+                          ) : (
+                            <span>– 粗利率変化</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="bg-white p-4">
+                        <div className="text-xs font-semibold text-slate-500">
+                          {chartUnit === "half" ? "半月平均売上" : chartUnit === "month" ? "月平均売上" : "1日平均売上"}
+                        </div>
+                        <div className="mt-0.5 text-xl font-bold text-slate-900 tracking-tight tabular-nums">
+                          {fmt(Math.round(revenuePerDay))}
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          利益 <span className="font-semibold tabular-nums text-slate-700">{fmt(dailyAvg.profit)}</span>
+                        </div>
+                      </div>
+                      <div className="bg-white p-4">
+                        <div className="text-xs font-semibold text-slate-500">稼働率</div>
+                        <div className="mt-0.5 text-xl font-bold text-slate-900 tracking-tight tabular-nums">
+                          {displayData.length > 0 ? `${utilization.toFixed(1)}%` : "–"}
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          1人あたり売上{" "}
+                          <span className="font-semibold tabular-nums text-slate-700">
+                            {fmt(Math.round(revenuePerDriver))}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* チャート: 縦軸はデータに合わせて動的、縦方向は画面いっぱい */}
                     <div className="bg-white rounded-lg border border-slate-200 p-6 w-full" style={{ height: "clamp(420px, 65vh, 85vh)" }}>
                       <ResponsiveContainer width="100%" height="100%">
@@ -1651,6 +1767,22 @@ export default function SalesPage() {
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
+
+                    {/* データの裏付け（1行）: 集計の由来件数 */}
+                    {(() => {
+                      const totReports = displayData.reduce((s, d) => s + (Number(d.reportCount) || 0), 0);
+                      const totPending = displayData.reduce((s, d) => s + (Number(d.pendingCount) || 0), 0);
+                      const totLog = displayData.reduce((s, d) => s + (Number(d.logCount) || 0), 0);
+                      return (
+                        <p className="mt-2 text-right text-[11px] text-slate-400">
+                          承認済の日報 {totReports.toLocaleString("ja-JP")}件
+                          {totPending > 0 && (
+                            <span className="text-amber-600">・未承認 {totPending.toLocaleString("ja-JP")}件は未集計</span>
+                          )}
+                          ・手動調整 {totLog.toLocaleString("ja-JP")}件
+                        </p>
+                      );
+                    })()}
                   </>
                 )}
               </>
@@ -1658,221 +1790,112 @@ export default function SalesPage() {
 
             {tab === "summary" && (
               <>
-                <div className="text-sm text-slate-600 mb-3">
-                  承認済の日報をユニット別・日別に集計しています。
-                  <span className="text-slate-500">〇＝固定（日当）、数値＝従量の数量。</span>
-                </div>
-
                 {loadingSummary ? (
-                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                    {/* スマホ: ドライバー別の期間合計リスト（実表示と同じ畳み方） */}
-                    <div className="md:hidden divide-y divide-slate-100">
-                      <div className="bg-slate-50 px-3 py-2">
-                        <Skeleton className="h-3 w-52" />
-                      </div>
-                      {[...Array(6)].map((_, i) => (
-                        <div key={i} className="px-3 py-2.5">
-                          <Skeleton className="h-4 w-28" />
-                          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-                            <Skeleton className="h-3 w-20" />
-                            <Skeleton className="h-3 w-16" />
-                            <Skeleton className="h-3 w-24" />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="hidden md:block overflow-auto">
-                      <table className="min-w-max text-xs w-full">
-                        <thead>
-                          <tr className="border-b border-slate-200 bg-slate-50">
-                            <th className="px-3 py-2 text-left w-24"><Skeleton className="h-4 w-20" /></th>
-                            <th className="px-2 py-2 w-8" />
-                            {[...Array(14)].map((_, i) => (
-                              <th key={i} className="px-2 py-2 min-w-[64px]"><Skeleton className="h-4 w-10 mx-auto" /></th>
-                            ))}
-                            <th className="px-3 py-2 text-right w-24"><Skeleton className="h-4 w-14 ml-auto" /></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[...Array(10)].map((_, i) => (
-                            <tr key={i} className="border-t border-slate-100">
-                              <td className="px-3 py-2"><Skeleton className="h-4 w-16" /></td>
-                              <td className="px-2 py-2 w-8" />
-                              {[...Array(14)].map((_, j) => (
-                                <td key={j} className="px-2 py-2"><Skeleton className="h-5 w-8 mx-auto" /></td>
-                              ))}
-                              <td className="px-3 py-2 text-right"><Skeleton className="h-4 w-12 ml-auto" /></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className="bg-white border border-slate-200 rounded-lg p-4">
+                    <Skeleton className="h-8 w-full" />
+                    {[...Array(6)].map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full mt-1.5" />
+                    ))}
                   </div>
                 ) : summaryRowDrivers.length === 0 ? (
                   <p className="text-sm text-slate-500 py-8">この期間に稼働・実績のあるドライバーがいません</p>
                 ) : (
                   <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                    {/* スマホ: 日別マトリクス（期間×ドライバーで 2000px 超）は収まらないため、
-                        ドライバーごとの合計に畳む。日別の内訳は PC で確認する */}
-                    <div className="md:hidden divide-y divide-slate-100">
-                      <p className="bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-                        期間合計（日別の内訳はPCで表示されます）
-                      </p>
-                      {summaryRowDrivers.map((drv) => {
-                        const unitData = summaryByDriver[drv.id] ?? {};
-                        const usedUnits = summaryUnits.filter((u) => (unitData[u.id]?.total ?? 0) !== 0);
-                        const courseDays = summaryCourses
-                          .map((sc) => ({
-                            name: sc.summary_title,
-                            days: courseShiftCounts.get(sc.id)?.get(drv.id) ?? 0,
-                          }))
-                          .filter((x) => x.days > 0);
-                        return (
-                          <div key={drv.id} className="px-3 py-2.5">
-                            <p className="text-sm font-medium text-slate-900">
-                              {drv.display_name ?? drv.name}
-                            </p>
-                            {usedUnits.length === 0 && courseDays.length === 0 ? (
-                              <p className="mt-1 text-[11px] text-slate-400">実績なし</p>
-                            ) : (
-                              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
-                                {usedUnits.map((u) => {
-                                  const cell = unitData[u.id];
-                                  const fixed = u.billingType === "FIXED";
-                                  return (
-                                    <span key={u.id} className="text-slate-600">
-                                      {u.name}{" "}
-                                      <span className="font-semibold tabular-nums text-slate-900">
-                                        {fixed ? `${cell?.total ?? 0}日` : (cell?.total ?? 0)}
-                                      </span>
-                                    </span>
-                                  );
-                                })}
-                                {courseDays.map((c) => (
-                                  <span key={c.name} className="text-slate-500">
-                                    ↳{c.name}{" "}
-                                    <span className="font-semibold tabular-nums text-slate-700">{c.days}日</span>
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {/* PC: 日別マトリクス */}
-                    <div className="hidden md:block overflow-auto">
-                      <table className="min-w-max text-xs">
-                        <thead className="bg-slate-50">
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[560px] text-sm">
+                        <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                           <tr>
-                            <th className="sticky left-0 z-20 bg-slate-50 border-b border-slate-200 px-3 py-2 text-left min-w-[100px]">
-                              ドライバー
-                            </th>
-                            <th className="sticky left-[100px] z-10 bg-slate-50 border-b border-r border-slate-200 px-3 py-2 text-right min-w-[27px]"></th>
-                            {daysInRange.map((d) => (
-                              <th key={d.iso} className="border-b border-slate-200 px-2 py-2 text-center min-w-[64px]">
-                                {d.label}
+                            <th className="px-3 py-2.5 text-left font-semibold">ドライバー</th>
+                            {usedSummaryUnits.map((u) => (
+                              <th key={u.id} className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">
+                                {u.name}
                               </th>
                             ))}
-                            <th className="sticky right-0 z-20 bg-slate-50 border-b border-l border-slate-200 px-3 py-2 text-right min-w-[96px]">
-                              <div className="text-right">月計</div>
-                            </th>
+                            <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">稼働日数</th>
+                            <th className="w-8" />
                           </tr>
                         </thead>
                         <tbody>
                           {summaryRowDrivers.map((drv) => {
                             const unitData = summaryByDriver[drv.id] ?? {};
-                            const usedUnits = summaryUnits.filter((u) => (unitData[u.id]?.total ?? 0) !== 0);
+                            const expanded = expandedDriverId === drv.id;
+                            const workDays = driverShiftDayCount.get(drv.id) ?? 0;
+                            const detail = expanded ? buildDriverDailyDetail(drv.id) : null;
                             return (
                               <Fragment key={drv.id}>
-                                {usedUnits.length === 0 ? (
-                                  <tr className="border-t-2 border-slate-200">
-                                    <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-2 text-left">
-                                      <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>
-                                    </td>
-                                    <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-2 text-right">
-                                      <div className="text-[10px] text-slate-400">—</div>
-                                    </td>
-                                    {daysInRange.map((d) => (
-                                      <td key={d.iso} className="px-2 py-2 text-center text-slate-300">·</td>
-                                    ))}
-                                    <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-2 text-right text-slate-300">—</td>
-                                  </tr>
-                                ) : (
-                                  usedUnits.map((u, ui) => {
-                                    const cell = unitData[u.id] ?? { total: 0, byDate: {} as Record<string, number> };
+                                <tr
+                                  onClick={() => setExpandedDriverId(expanded ? null : drv.id)}
+                                  className={`border-t border-slate-100 cursor-pointer hover:bg-slate-50 ${expanded ? "bg-slate-50" : ""}`}
+                                >
+                                  <td className="px-3 py-2.5 font-medium text-slate-900 whitespace-nowrap">
+                                    {drv.display_name ?? drv.name}
+                                  </td>
+                                  {usedSummaryUnits.map((u) => {
+                                    const v = unitData[u.id]?.total ?? 0;
                                     const fixed = u.billingType === "FIXED";
                                     return (
-                                      <tr key={`${drv.id}-${u.id}`} className={ui === 0 ? "border-t-2 border-slate-200" : ""}>
-                                        <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-1.5 text-left">
-                                          {ui === 0 && <div className="font-medium text-slate-900">{drv.display_name ?? drv.name}</div>}
-                                        </td>
-                                        <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-1.5 text-right">
-                                          <div className="text-[10px] text-slate-500 whitespace-nowrap">{u.name}</div>
-                                        </td>
-                                        {daysInRange.map((d) => {
-                                          const v = cell.byDate[d.iso] ?? 0;
-                                          return (
-                                            <td key={d.iso} className={`px-2 py-1.5 text-center ${v ? "text-slate-900" : "text-slate-300"}`}>
-                                              {fixed ? (
-                                                v ? <span className="text-[11px] font-semibold text-amber-600">〇</span> : <span className="text-slate-300">·</span>
-                                              ) : (
-                                                <span className="tabular-nums text-[11px] font-semibold">{v || "·"}</span>
-                                              )}
-                                            </td>
-                                          );
-                                        })}
-                                        <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-1.5 text-right">
-                                          <span className="tabular-nums text-[11px] font-semibold text-slate-900">{fixed ? `${cell.total}日` : cell.total}</span>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })
-                                )}
-                                {summaryCourses.length > 0 &&
-                                  summaryCourses.map((sc) => {
-                                    const shiftSet = courseShiftSets.get(sc.id) ?? new Set<string>();
-                                    const shiftCountByDriver = courseShiftCounts.get(sc.id) ?? new Map<string, number>();
-                                    const days = shiftCountByDriver.get(drv.id) ?? 0;
-                                    if (days === 0) return null; // 0シフトのコース行は非表示（すっきり表示）
-                                    return (
-                                      <tr
-                                        key={`${drv.id}-${sc.id}`}
-                                        className="border-t border-slate-50 bg-slate-50/40"
+                                      <td
+                                        key={u.id}
+                                        className={`px-3 py-2.5 text-right tabular-nums ${v ? "font-semibold text-slate-900" : "text-slate-300"}`}
                                       >
-                                        <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-1.5 text-left">
-                                          <div className="text-[11px] text-slate-700">
-                                            <span className="mr-1 text-slate-500">↳</span>
-                                            {sc.summary_title}
-                                          </div>
-                                        </td>
-                                        <td className="sticky left-[100px] z-10 bg-white border-r border-slate-100 px-3 py-1.5 text-right">
-                                          <div className="text-[10px] text-slate-400">シフト</div>
-                                        </td>
-                                        {daysInRange.map((d) => {
-                                          const key = `${drv.id}:${d.iso}`;
-                                          const hasShift = shiftSet.has(key);
-                                          return (
-                                            <td
-                                              key={d.iso}
-                                              className={`px-2 py-1.5 text-center ${hasShift ? "text-slate-900" : "text-slate-300"}`}
-                                            >
-                                              {hasShift ? (
-                                                <div className="text-[11px] font-semibold text-amber-600">〇</div>
-                                              ) : (
-                                                <span className="text-slate-300">·</span>
-                                              )}
-                                            </td>
-                                          );
-                                        })}
-                                        <td className="sticky right-0 z-10 bg-white border-l border-slate-100 px-3 py-1.5 text-right">
-                                          <div className="tabular-nums text-[11px] font-semibold text-slate-900">
-                                            {days}日
-                                          </div>
-                                        </td>
-                                      </tr>
+                                        {v ? (fixed ? `${v}日` : fmt(v)) : "·"}
+                                      </td>
                                     );
                                   })}
+                                  <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900">
+                                    {workDays ? `${workDays}日` : <span className="font-normal text-slate-300">·</span>}
+                                  </td>
+                                  <td className="pr-3 text-center text-slate-400">
+                                    <FontAwesomeIcon icon={expanded ? faChevronUp : faChevronDown} className="w-3 h-3" />
+                                  </td>
+                                </tr>
+                                {expanded && detail && (
+                                  <tr className="border-t border-slate-100 bg-slate-50/60">
+                                    <td colSpan={usedSummaryUnits.length + 3} className="px-3 pb-3 pt-1">
+                                      {detail.length === 0 ? (
+                                        <p className="py-2 text-xs text-slate-400">この期間の日別実績はありません</p>
+                                      ) : (
+                                        <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+                                          <table className="w-full min-w-[480px] text-xs">
+                                            <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                                              <tr>
+                                                <th className="px-3 py-2 text-left font-semibold">日付</th>
+                                                {usedSummaryUnits.map((u) => (
+                                                  <th key={u.id} className="px-3 py-2 text-right font-semibold whitespace-nowrap">
+                                                    {u.name}
+                                                  </th>
+                                                ))}
+                                                <th className="px-3 py-2 text-left font-semibold">コース</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {detail.map((row) => (
+                                                <tr key={row.iso} className="border-t border-slate-100">
+                                                  <td className="px-3 py-1.5 whitespace-nowrap text-slate-700">{row.label}</td>
+                                                  {usedSummaryUnits.map((u) => {
+                                                    const v = row.units[u.id] ?? 0;
+                                                    const fixed = u.billingType === "FIXED";
+                                                    return (
+                                                      <td
+                                                        key={u.id}
+                                                        className={`px-3 py-1.5 text-right tabular-nums ${v ? "text-slate-900" : "text-slate-300"}`}
+                                                      >
+                                                        {v ? (fixed ? <span className="font-semibold text-amber-600">〇</span> : fmt(v)) : "·"}
+                                                      </td>
+                                                    );
+                                                  })}
+                                                  <td className="px-3 py-1.5 text-slate-600">
+                                                    {row.courses.length > 0 ? row.courses.join("、") : <span className="text-slate-300">—</span>}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                )}
                               </Fragment>
                             );
                           })}
@@ -1984,201 +2007,6 @@ export default function SalesPage() {
                 )}
               </>
             )}
-          </div>
-
-          {/* 右パネル: 分析サマリー */}
-          <div className="w-full lg:w-80 space-y-4">
-            {loadingAnalytics ? (
-              <>
-                <div className="bg-white rounded-lg border border-slate-200 p-4">
-                  <Skeleton className="h-3 w-14 mb-2" />
-                  <div className="space-y-2">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="flex justify-between gap-2">
-                        <Skeleton className="h-4 flex-1 max-w-[100px]" />
-                        <Skeleton className="h-4 w-20" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg border border-slate-200 p-4">
-                  <Skeleton className="h-3 w-12 mb-2" />
-                  <div className="space-y-2">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="flex justify-between gap-2">
-                        <Skeleton className="h-4 flex-1 max-w-[120px]" />
-                        <Skeleton className="h-4 w-20" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg border border-slate-200 p-4">
-                  <Skeleton className="h-3 w-16 mb-2" />
-                  <div className="space-y-2">
-                    {[1, 2].map((i) => (
-                      <div key={i} className="flex justify-between gap-2">
-                        <Skeleton className="h-4 flex-1 max-w-[100px]" />
-                        <Skeleton className="h-4 w-16" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                {/* 1日の売上（選択日）。前後半/月別のバケット表示では日別点が無いため出さない */}
-                {(chartUnit === "day" || chartUnit === "custom") && (
-                <div className="bg-white rounded-lg border border-slate-200 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-semibold text-slate-500 mb-1">1日の売上</div>
-                      {(() => {
-                        const day = selectedDayIso;
-                        const point = day ? displayData.find((d) => d.iso === day) : undefined;
-                        const dayRevenue = point ? (point.yamato + point.amazon + (point.other ?? 0)) : 0;
-                        const dayProfit = point ? (point.profit ?? 0) : 0;
-                        return (
-                          <>
-                            <div className="text-xl font-bold text-slate-900 tracking-tight">{fmt(dayRevenue)}</div>
-                            <div className="text-xs text-slate-500 mt-1">
-                              利益{" "}
-                              <span className={dayProfit >= 0 ? "text-emerald-600 font-semibold tabular-nums" : "text-red-600 font-semibold tabular-nums"}>
-                                {fmtSigned(dayProfit)}
-                              </span>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                    {/* 金額が7桁になる日でも折り返せるよう、固定幅ではなく縮小可にする */}
-                    <div className="w-32 shrink-0 sm:w-[150px]">
-                      <DatePicker
-                        value={selectedDayIso ? new Date(selectedDayIso + "T12:00:00") : undefined}
-                        onChange={(d) => setSelectedDayIso(d ? toLocalYmd(d) : "")}
-                        placeholder="日付"
-                        className="h-10 w-full"
-                      />
-                    </div>
-                  </div>
-                  {startIso && endIso && selectedDayIso && (selectedDayIso < startIso || selectedDayIso > endIso) && (
-                    <p className="mt-2 text-[11px] text-amber-700">
-                      選択日が期間外です（現在の期間: {startIso}〜{endIso}）
-                    </p>
-                  )}
-                </div>
-                )}
-
-                {/* 売上カード: 売上を大きく、前期間比は近くに小さく */}
-                <div className="bg-white rounded-lg border border-slate-200 p-4">
-                  <div className="text-xs font-semibold text-slate-500 mb-1">売上</div>
-                  <div className="text-2xl font-bold text-slate-900 tracking-tight">{fmt(displayTotals.total)}</div>
-                  <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                    {loadingPrev && <span>前期間計算中...</span>}
-                    {!loadingPrev && revenueChangePct != null && (
-                      <>
-                        <FontAwesomeIcon icon={revenueChangePct >= 0 ? faArrowTrendUp : faArrowTrendDown} className={revenueChangePct >= 0 ? "text-emerald-600" : "text-red-600"} />
-                        <span className={revenueChangePct >= 0 ? "text-emerald-600" : "text-red-600"}>
-                          {revenueChangePct >= 0 ? "+" : ""}{revenueChangePct.toFixed(1)}%
-                        </span>
-                        <span className="text-slate-500">前期間比</span>
-                      </>
-                    )}
-                    {!loadingPrev && revenueChangePct == null && <span>– 前期間比</span>}
-                  </div>
-                </div>
-
-                {/* 粗利カード: 粗利率は粗利の後ろにカッコ書き */}
-                <div className="bg-white rounded-lg border border-slate-200 p-4">
-                  <div className="text-xs font-semibold text-slate-500 mb-1">粗利</div>
-                  <div className="text-2xl font-bold text-slate-900 tracking-tight">
-                    {fmt(displayTotals.profit)}
-                    {margin != null && <span className="text-lg font-semibold text-slate-600"> ({margin.toFixed(1)}%)</span>}
-                  </div>
-                  <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                    {marginDiff != null && (
-                      <>
-                        <FontAwesomeIcon icon={marginDiff >= 0 ? faArrowTrendUp : faArrowTrendDown} className={marginDiff >= 0 ? "text-emerald-600" : "text-red-600"} />
-                        <span className={marginDiff >= 0 ? "text-emerald-600" : "text-red-600"}>
-                          {marginDiff >= 0 ? "+" : ""}{marginDiff.toFixed(2)}pt
-                        </span>
-                        <span className="text-slate-500">粗利率変化</span>
-                      </>
-                    )}
-                    {marginDiff == null && <span>– 粗利率変化</span>}
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {chartUnit === "half" ? "半月あたり平均" : chartUnit === "month" ? "月あたり平均" : "1日あたり平均"}{" "}
-                    <span className="font-semibold tabular-nums text-slate-700">{fmt(dailyAvg.profit)}</span>
-                  </div>
-                </div>
-
-                {/* データの裏付け（信憑性）: 売上・粗利が「承認済の日報」何件に基づくか／未承認で未集計の件数／手動調整の件数 */}
-                {(() => {
-                  const totReports = displayData.reduce((s, d) => s + (Number(d.reportCount) || 0), 0);
-                  const totPending = displayData.reduce((s, d) => s + (Number(d.pendingCount) || 0), 0);
-                  const totLog = displayData.reduce((s, d) => s + (Number(d.logCount) || 0), 0);
-                  return (
-                    <div className="bg-white rounded-lg border border-slate-200 p-4">
-                      <div className="text-xs font-semibold text-slate-500 mb-2">データの裏付け</div>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-2 text-slate-600">
-                            <FontAwesomeIcon icon={faFileLines} className="w-3.5 h-3.5 text-slate-400" />
-                            承認済の日報
-                          </span>
-                          <span className="font-semibold text-slate-900 tabular-nums">{totReports.toLocaleString("ja-JP")}件</span>
-                        </div>
-                        {totPending > 0 && (
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="flex items-center gap-2 text-amber-700">
-                              <FontAwesomeIcon icon={faTriangleExclamation} className="w-3.5 h-3.5" />
-                              未承認（未集計）
-                            </span>
-                            <span className="font-semibold text-amber-700 tabular-nums">{totPending.toLocaleString("ja-JP")}件</span>
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-2 text-slate-600">
-                            <FontAwesomeIcon icon={faPenToSquare} className="w-3.5 h-3.5 text-slate-400" />
-                            手動調整
-                          </span>
-                          <span className="font-semibold text-slate-900 tabular-nums">{totLog.toLocaleString("ja-JP")}件</span>
-                        </div>
-                      </div>
-                      <p className="mt-2 text-[11px] text-slate-400 leading-relaxed">
-                        売上・粗利は承認済の日報のみを集計しています
-                        {totPending > 0 ? `（未承認 ${totPending} 件は未反映）` : ""}。ペイメントの報酬もこの集計に基づきます。
-                      </p>
-                    </div>
-                  );
-                })()}
-
-                {/* その他指標: 1日平均・1人あたり・稼働率 */}
-                <div className="bg-white rounded-lg border border-slate-200 p-4">
-                  <div className="space-y-3 text-sm">
-                    <div>
-                      <div className="text-xs font-semibold text-slate-500 mb-0.5">
-                        {chartUnit === "half" ? "半月平均売上" : chartUnit === "month" ? "月平均売上" : "1日平均売上"}
-                      </div>
-                      <div className="font-semibold text-slate-900">{fmt(Math.round(revenuePerDay))}</div>
-                    </div>
-                    <hr className="border-slate-100" />
-                    <div>
-                      <div className="text-xs font-semibold text-slate-500 mb-0.5">1人あたり売上</div>
-                      <div className="font-semibold text-slate-900">{fmt(Math.round(revenuePerDriver))}</div>
-                    </div>
-                    <hr className="border-slate-100" />
-                    <div>
-                      <div className="text-xs font-semibold text-slate-500 mb-0.5">稼働率</div>
-                      <div className="font-semibold text-slate-900">
-                        {displayData.length > 0 ? `${utilization.toFixed(1)}%` : "–"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
         </div>
       </div>
 
