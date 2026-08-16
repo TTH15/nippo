@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, Fragment, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare, faRotateRight, faFileLines, faTriangleExclamation, faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
+import { faArrowTrendUp, faArrowTrendDown, faTrashCan, faPenToSquare, faRotateRight, faFileLines, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver } from "@/lib/api";
 import { swrFetcher } from "@/lib/swr";
@@ -38,7 +38,6 @@ type CarrierMeta = { id: string; key: string; profitKey: string; name: string };
 const CARRIER_COLORS = ["#334155", "#64748b", "#475569", "#94a3b8", "#1e293b", "#7c8aa5", "#0f172a"];
 type DriverRow = { id: string; name: string; display_name?: string | null };
 type CourseRow = { id: string; name: string; carrier?: "YAMATO" | "AMAZON" | "OTHER" | null; summary_title?: string | null };
-type SummaryCourseRow = { id: string; name: string; summary_title: string };
 type ReportRow = {
   driver_id: string;
   report_date: string;
@@ -53,43 +52,7 @@ type MidnightRow = {
   date: string;
 };
 
-type Tab = "analytics" | "summary" | "log";
-
-/** 個数（期間合計＋日別）。 */
-type Counts = { total: number; byDate: Record<string, number> };
-
-/**
- * 報告項目。合計（課金対象のみ）に現れない持戻・時間帯別の個数は
- * ここを見ないと参照できない。
- */
-type SummaryField = {
-  key: string;
-  label: string;
-  groupLabel: string | null;
-  isBillable: boolean;
-};
-
-type SummaryUnit = {
-  id: string;
-  name: string;
-  billingType: string;
-  fields?: SummaryField[];
-};
-
-type SummaryCell = Counts & { fields?: Record<string, Counts> };
-
-/** 集計テーブルの1列。合計モードは unit 単位、内訳モードは unit×項目。 */
-type SummaryColumn = {
-  key: string;
-  unitId: string;
-  /** 列見出し（内訳モードは項目名、合計モードは unit 名）。 */
-  label: string;
-  /** 内訳モードで unit 名をグループ見出しに出すため。 */
-  unitName: string;
-  fieldKey: string | null;
-  /** 稼働日数として「N日」表示にするか（FIXED unit の合計列）。 */
-  asDays: boolean;
-};
+type Tab = "analytics" | "log";
 
 type SalesLogTypeRow = { id: string; name: string; sort_order: number };
 type SalesLogEntryRow = {
@@ -946,18 +909,10 @@ export default function SalesPage() {
   const [customRange, setCustomRange] = useState<DateRangeValue | undefined>();
   const [deliveryData, setDeliveryData] = useState<DataPoint[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
-  const [loadingSummary, setLoadingSummary] = useState(false);
+
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [midnights, setMidnights] = useState<MidnightRow[]>([]);
-  const [summaryCourses, setSummaryCourses] = useState<SummaryCourseRow[]>([]);
-  // 集計テーブル(unit駆動)の動的データ
-  const [summaryUnits, setSummaryUnits] = useState<SummaryUnit[]>([]);
-  const [summaryByDriver, setSummaryByDriver] = useState<Record<string, Record<string, SummaryCell>>>({});
-  // 集計テーブルの列モード。「合計」は課金対象の合計（既定）、
-  // 「内訳」は報告項目ごと（持戻・時間帯別など、合計には現れない個数）を出す
-  const [summaryColumns, setSummaryColumns] = useState<"total" | "fields">("total");
-  const [courseShifts, setCourseShifts] = useState<Record<string, { driver_id: string; date: string }[]>>({});
   const [prevTotals, setPrevTotals] = useState<{ total: number; profit: number } | null>(null);
   const [loadingPrev, setLoadingPrev] = useState(false);
   const [courses, setCourses] = useState<CourseRow[]>([]);
@@ -1024,13 +979,11 @@ export default function SalesPage() {
   const driverIdQuery = debouncedSelectedDriverId ? `&driver_id=${debouncedSelectedDriverId}` : "";
   const salesFilterQuery = `${courseIdsQuery}${driverIdQuery}`;
 
-  // URL のクエリ (?tab=summary など) から初期タブを決定（クライアント側でのみ実行）
+  // URL のクエリ (?tab=log) から初期タブを決定（クライアント側でのみ実行）
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    const t = params.get("tab");
-    if (t === "summary") setTab("summary");
-    else if (t === "log") setTab("log");
+    if (params.get("tab") === "log") setTab("log");
   }, []);
 
   // テーブル・売上ログ・日別詳細の対象範囲: 期間指定なら任意範囲、それ以外は基準月
@@ -1168,8 +1121,6 @@ export default function SalesPage() {
     drivers: DriverRow[];
     reports: ReportRow[];
     midnights: MidnightRow[];
-    summaryCourses?: SummaryCourseRow[];
-    courseShifts?: Record<string, { driver_id: string; date: string }[]>;
   }>(salesReportsKey, swrFetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 10 * 60 * 1000,
@@ -1180,8 +1131,6 @@ export default function SalesPage() {
       setDrivers(salesReportsRes.drivers ?? []);
       setReports(salesReportsRes.reports ?? []);
       setMidnights(salesReportsRes.midnights ?? []);
-      setSummaryCourses(salesReportsRes.summaryCourses ?? []);
-      setCourseShifts(salesReportsRes.courseShifts ?? {});
     }
   }, [salesReportsRes]);
   useEffect(() => {
@@ -1189,42 +1138,8 @@ export default function SalesPage() {
       setDrivers([]);
       setReports([]);
       setMidnights([]);
-      setSummaryCourses([]);
-      setCourseShifts({});
     }
   }, [salesReportsError]);
-  useEffect(() => {
-    setLoadingSummary(tab === "summary" && salesReportsLoading);
-  }, [tab, salesReportsLoading]);
-
-  // 集計テーブル(unit駆動)の動的データを取得。
-  // 項目ごとの個数（持戻・時間帯別）は日別まで持つとレスポンスが膨らむため、
-  // 「内訳」に切り替えたときだけ取りに行く（キーが変わるので SWR が別途キャッシュする）。
-  const reportsSummaryKey =
-    startIso && endIso
-      ? `/api/admin/reports-summary?start=${startIso}&end=${endIso}${driverIdQuery}` +
-        (summaryColumns === "fields" ? "&fields=1" : "")
-      : null;
-  const { data: reportsSummaryRes, error: reportsSummaryError } = useSWR<{
-    units: SummaryUnit[];
-    byDriver: Record<string, Record<string, SummaryCell>>;
-  }>(reportsSummaryKey, swrFetcher, {
-    revalidateOnFocus: false,
-    dedupingInterval: 10 * 60 * 1000,
-    keepPreviousData: true,
-  });
-  useEffect(() => {
-    if (reportsSummaryRes) {
-      setSummaryUnits(reportsSummaryRes.units ?? []);
-      setSummaryByDriver(reportsSummaryRes.byDriver ?? {});
-    }
-  }, [reportsSummaryRes]);
-  useEffect(() => {
-    if (reportsSummaryError) {
-      setSummaryUnits([]);
-      setSummaryByDriver({});
-    }
-  }, [reportsSummaryError]);
 
   // 会社帰属ログの合計を全タブで使うため、日付範囲が決まったら常に取得する
   const salesLogKey =
@@ -1376,7 +1291,6 @@ export default function SalesPage() {
   );
   const filteredReports = reports ?? [];
   const filteredMidnights = midnights ?? [];
-  const filteredCourseShifts = courseShifts;
 
   const driverTotals = useMemo(() => {
     const totalsByDriver = new Map<string, { tk: number; nk: number; total: number }>();
@@ -1401,174 +1315,6 @@ export default function SalesPage() {
     return counts;
   }, [filteredMidnights]);
 
-  // テーブルビュー用: 期間内に一度もシフトが無く、かつ集計0のドライバー行は隠す（すっきり表示）。
-  // 行の形（ドライバー別）は維持し、実績ゼロ・未稼働の行だけ除外する。
-  const summaryRowDrivers = useMemo(() => {
-    const driversWithShift = new Set<string>();
-    Object.values(courseShifts ?? {}).forEach((list) =>
-      (list ?? []).forEach((s) => driversWithShift.add(s.driver_id)),
-    );
-    return (filteredDrivers ?? []).filter((d) => {
-      const unitData = summaryByDriver[d.id];
-      const hasData = unitData ? Object.values(unitData).some((c) => c.total !== 0) : false;
-      return hasData || driversWithShift.has(d.id);
-    });
-  }, [filteredDrivers, summaryByDriver, courseShifts]);
-
-  // 集計テーブル: 期間内に実績のあるユニット列だけ出す。
-  // 合計が 0 でも報告項目に値があれば残す（完了0・持戻ありの日を落とさない）。
-  const usedSummaryUnits = useMemo(
-    () =>
-      summaryUnits.filter((u) =>
-        summaryRowDrivers.some((d) => {
-          const cell = summaryByDriver[d.id]?.[u.id];
-          if (!cell) return false;
-          if (cell.total !== 0) return true;
-          return Object.values(cell.fields ?? {}).some((f) => f.total !== 0);
-        }),
-      ),
-    [summaryUnits, summaryRowDrivers, summaryByDriver],
-  );
-
-  // 集計テーブルの列。
-  // 合計モード: unit ごとに1列（FIXED は稼働日数）。
-  // 内訳モード: unit×報告項目。**持戻や Amazon の時間帯別など、
-  //   合計（課金対象のみ）には現れない個数を参照できるのはこちらだけ**。
-  const summaryColumnDefs = useMemo<SummaryColumn[]>(() => {
-    const fieldColumns =
-      summaryColumns === "fields"
-        ? usedSummaryUnits.flatMap((u) =>
-            (u.fields ?? []).map((f) => ({
-              key: `${u.id}:${f.key}`,
-              unitId: u.id,
-              // 「午前 完了個数」のように、時間帯の見出しがあれば前に付ける
-              label: f.groupLabel ? `${f.groupLabel} ${f.label}` : f.label,
-              unitName: u.name,
-              fieldKey: f.key,
-              asDays: false,
-            })),
-          )
-        : [];
-    // 内訳への切替直後は項目データがまだ届いていないので、合計の列のまま待つ（空表にしない）
-    if (fieldColumns.length > 0) return fieldColumns;
-
-    return usedSummaryUnits.map((u) => ({
-      key: u.id,
-      unitId: u.id,
-      label: u.name,
-      unitName: u.name,
-      fieldKey: null,
-      asDays: u.billingType === "FIXED",
-    }));
-  }, [summaryColumns, usedSummaryUnits]);
-
-  /** 1ドライバー・1列ぶんの値（期間合計 or 指定日）。 */
-  const summaryValueOf = useCallback(
-    (driverId: string, col: SummaryColumn, iso?: string): number => {
-      const cell = summaryByDriver[driverId]?.[col.unitId];
-      if (!cell) return 0;
-      const counts = col.fieldKey ? cell.fields?.[col.fieldKey] : cell;
-      if (!counts) return 0;
-      return (iso ? counts.byDate[iso] : counts.total) ?? 0;
-    },
-    [summaryByDriver],
-  );
-
-  // 内訳モードの見出し: unit ごとに列をまとめる（宅急便 | 完了個数 持戻個数 …）
-  const unitColumnGroups = useMemo(() => {
-    const groups: { unitId: string; unitName: string; span: number }[] = [];
-    for (const col of summaryColumnDefs) {
-      const last = groups[groups.length - 1];
-      if (last && last.unitId === col.unitId) last.span += 1;
-      else groups.push({ unitId: col.unitId, unitName: col.unitName, span: 1 });
-    }
-    return groups;
-  }, [summaryColumnDefs]);
-
-  /** その列が unit の切れ目か（内訳モードで境界に罫線を引く）。 */
-  const isUnitBoundary = useMemo(
-    () => summaryColumnDefs.map((col, i) => i > 0 && summaryColumnDefs[i - 1].unitId !== col.unitId),
-    [summaryColumnDefs],
-  );
-
-  /** 実際に項目単位の列が出ているか（切替直後の待ちでは false）。 */
-  const showingFieldColumns = summaryColumnDefs.some((c) => c.fieldKey !== null);
-
-  // 表示中のドライバー全員の合計（「この期間に会社全体で何個やったか」）。
-  // 行の絞り込みに追従させるため、API ではなく表示対象から積み上げる。
-  const summaryColumnTotals = useMemo(() => {
-    const totals = new Map<string, number>();
-    for (const col of summaryColumnDefs) {
-      let sum = 0;
-      for (const drv of summaryRowDrivers) sum += summaryValueOf(drv.id, col);
-      totals.set(col.key, sum);
-    }
-    return totals;
-  }, [summaryColumnDefs, summaryRowDrivers, summaryValueOf]);
-
-  // ドライバーごとの稼働日数（期間内にシフトが入った日のユニーク数）
-  const driverShiftDayCount = useMemo(() => {
-    const daySets = new Map<string, Set<string>>();
-    Object.values(filteredCourseShifts).forEach((list) =>
-      (list ?? []).forEach(({ driver_id, date }) => {
-        let set = daySets.get(driver_id);
-        if (!set) {
-          set = new Set();
-          daySets.set(driver_id, set);
-        }
-        set.add(date);
-      }),
-    );
-    const counts = new Map<string, number>();
-    daySets.forEach((set, id) => counts.set(id, set.size));
-    return counts;
-  }, [filteredCourseShifts]);
-
-  /** 合計行の稼働日数（延べ人日）。表示中の行だけを足す。 */
-  const totalShiftDays = useMemo(
-    () => summaryRowDrivers.reduce((sum, d) => sum + (driverShiftDayCount.get(d.id) ?? 0), 0),
-    [summaryRowDrivers, driverShiftDayCount],
-  );
-
-  // ドリルダウン: そのドライバーの日別明細（実績かシフトがある日だけ・昇順）
-  const buildDriverDailyDetail = (driverId: string) => {
-    const unitData = summaryByDriver[driverId] ?? {};
-    const dates = new Set<string>();
-    usedSummaryUnits.forEach((u) => {
-      const cell = unitData[u.id];
-      const buckets = [cell?.byDate, ...Object.values(cell?.fields ?? {}).map((f) => f.byDate)];
-      buckets.forEach((byDate) =>
-        Object.entries(byDate ?? {}).forEach(([d, v]) => {
-          if (v) dates.add(d);
-        }),
-      );
-    });
-    const coursesByDate = new Map<string, string[]>();
-    Object.entries(filteredCourseShifts).forEach(([courseId, list]) => {
-      const name = summaryCourses.find((c) => c.id === courseId)?.summary_title;
-      (list ?? []).forEach(({ driver_id, date }) => {
-        if (driver_id !== driverId) return;
-        dates.add(date);
-        if (!name) return;
-        const arr = coursesByDate.get(date) ?? [];
-        arr.push(name);
-        coursesByDate.set(date, arr);
-      });
-    });
-    return Array.from(dates)
-      .sort()
-      .map((iso) => {
-        const [, m, d] = iso.split("-").map(Number);
-        return {
-          iso,
-          label: `${m}/${d}`,
-          values: Object.fromEntries(
-            summaryColumnDefs.map((col) => [col.key, summaryValueOf(driverId, col, iso)]),
-          ) as Record<string, number>,
-          courses: coursesByDate.get(iso) ?? [],
-        };
-      });
-  };
 
   const totals = useMemo(() => {
     const yamato = displayData.reduce((s, d) => s + d.yamato, 0);
@@ -1675,30 +1421,8 @@ export default function SalesPage() {
           className="mb-3"
         />
 
-        {/* ダッシュボード内のビュー切替（グラフ / テーブル） */}
-        {/* ツールバー: ビュー・単位・期間・絞り込みを同じ様式で1行に（折返し可） */}
+        {/* ツールバー: 単位・期間・絞り込みを同じ様式で1行に（折返し可） */}
         <div className="mb-6 flex flex-wrap items-center gap-2">
-          {tab !== "log" && (
-            <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-lg">
-              {(
-                [
-                  { key: "analytics" as const, label: "グラフ" },
-                  { key: "summary" as const, label: "テーブル" },
-                ]
-              ).map((o) => (
-                <button
-                  key={o.key}
-                  type="button"
-                  onClick={() => setTab(o.key)}
-                  className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-                    tab === o.key ? "bg-white text-slate-900 shadow-sm font-medium" : "text-slate-500 hover:text-slate-900"
-                  }`}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          )}
           {tab === "analytics" && (
             <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-lg">
               {(
@@ -1918,195 +1642,6 @@ export default function SalesPage() {
                       );
                     })()}
                   </>
-                )}
-              </>
-            )}
-
-            {tab === "summary" && (
-              <>
-                {loadingSummary ? (
-                  <div className="bg-white border border-slate-200 rounded-lg p-4">
-                    <Skeleton className="h-8 w-full" />
-                    {[...Array(6)].map((_, i) => (
-                      <Skeleton key={i} className="h-10 w-full mt-1.5" />
-                    ))}
-                  </div>
-                ) : summaryRowDrivers.length === 0 ? (
-                  <p className="text-sm text-slate-500 py-8">この期間に稼働・実績のあるドライバーがいません</p>
-                ) : (
-                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                    {/* 合計は課金対象だけの数。持戻や時間帯別は「内訳」でしか見られない */}
-                    <div className="flex justify-end px-3 pt-3">
-                      <div className="inline-flex rounded-lg bg-slate-100 p-0.5">
-                        {(
-                          [
-                            ["total", "合計"],
-                            ["fields", "内訳"],
-                          ] as const
-                        ).map(([key, label]) => (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => setSummaryColumns(key)}
-                            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                              summaryColumns === key
-                                ? "bg-white text-slate-900 shadow-sm"
-                                : "text-slate-500 hover:text-slate-700"
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[560px] text-sm">
-                        <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-                          {showingFieldColumns && (
-                            <tr>
-                              <th className="px-3 pt-2.5 text-left font-semibold" />
-                              {unitColumnGroups.map((group) => (
-                                <th
-                                  key={group.unitId}
-                                  colSpan={group.span}
-                                  className="border-l border-slate-200 px-3 pt-2.5 text-center font-semibold whitespace-nowrap"
-                                >
-                                  {group.unitName}
-                                </th>
-                              ))}
-                              <th className="border-l border-slate-200" colSpan={2} />
-                            </tr>
-                          )}
-                          <tr>
-                            <th className="px-3 py-2.5 text-left font-semibold">ドライバー</th>
-                            {summaryColumnDefs.map((col, i) => (
-                              <th
-                                key={col.key}
-                                className={`px-3 py-2.5 text-right font-semibold whitespace-nowrap ${
-                                  showingFieldColumns && isUnitBoundary[i]
-                                    ? "border-l border-slate-200"
-                                    : ""
-                                }`}
-                              >
-                                {col.label}
-                              </th>
-                            ))}
-                            <th className="border-l border-slate-200 px-3 py-2.5 text-right font-semibold whitespace-nowrap">
-                              稼働日数
-                            </th>
-                            <th className="w-8" />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {summaryRowDrivers.map((drv) => {
-                            const expanded = expandedDriverId === drv.id;
-                            const workDays = driverShiftDayCount.get(drv.id) ?? 0;
-                            const detail = expanded ? buildDriverDailyDetail(drv.id) : null;
-                            return (
-                              <Fragment key={drv.id}>
-                                <tr
-                                  onClick={() => setExpandedDriverId(expanded ? null : drv.id)}
-                                  className={`border-t border-slate-100 cursor-pointer hover:bg-slate-50 ${expanded ? "bg-slate-50" : ""}`}
-                                >
-                                  <td className="px-3 py-2.5 font-medium text-slate-900 whitespace-nowrap">
-                                    {drv.display_name ?? drv.name}
-                                  </td>
-                                  {summaryColumnDefs.map((col, i) => {
-                                    const v = summaryValueOf(drv.id, col);
-                                    return (
-                                      <td
-                                        key={col.key}
-                                        className={`px-3 py-2.5 text-right tabular-nums ${
-                                          v ? "font-semibold text-slate-900" : "text-slate-300"
-                                        } ${showingFieldColumns && isUnitBoundary[i] ? "border-l border-slate-200" : ""}`}
-                                      >
-                                        {v ? (col.asDays ? `${v}日` : fmt(v)) : "·"}
-                                      </td>
-                                    );
-                                  })}
-                                  <td className="border-l border-slate-200 px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900">
-                                    {workDays ? `${workDays}日` : <span className="font-normal text-slate-300">·</span>}
-                                  </td>
-                                  <td className="pr-3 text-center text-slate-400">
-                                    <FontAwesomeIcon icon={expanded ? faChevronUp : faChevronDown} className="w-3 h-3" />
-                                  </td>
-                                </tr>
-                                {expanded && detail && (
-                                  <tr className="border-t border-slate-100 bg-slate-50/60">
-                                    <td colSpan={summaryColumnDefs.length + 3} className="px-3 pb-3 pt-1">
-                                      {detail.length === 0 ? (
-                                        <p className="py-2 text-xs text-slate-400">この期間の日別実績はありません</p>
-                                      ) : (
-                                        <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                                          <table className="w-full min-w-[480px] text-xs">
-                                            <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-                                              <tr>
-                                                <th className="px-3 py-2 text-left font-semibold">日付</th>
-                                                {summaryColumnDefs.map((col) => (
-                                                  <th key={col.key} className="px-3 py-2 text-right font-semibold whitespace-nowrap">
-                                                    {showingFieldColumns ? `${col.unitName} ${col.label}` : col.label}
-                                                  </th>
-                                                ))}
-                                                <th className="px-3 py-2 text-left font-semibold">コース</th>
-                                              </tr>
-                                            </thead>
-                                            <tbody>
-                                              {detail.map((row) => (
-                                                <tr key={row.iso} className="border-t border-slate-100">
-                                                  <td className="px-3 py-1.5 whitespace-nowrap text-slate-700">{row.label}</td>
-                                                  {summaryColumnDefs.map((col) => {
-                                                    const v = row.values[col.key] ?? 0;
-                                                    return (
-                                                      <td
-                                                        key={col.key}
-                                                        className={`px-3 py-1.5 text-right tabular-nums ${v ? "text-slate-900" : "text-slate-300"}`}
-                                                      >
-                                                        {v ? (col.asDays ? <span className="font-semibold text-amber-600">〇</span> : fmt(v)) : "·"}
-                                                      </td>
-                                                    );
-                                                  })}
-                                                  <td className="px-3 py-1.5 text-slate-600">
-                                                    {row.courses.length > 0 ? row.courses.join("、") : <span className="text-slate-300">—</span>}
-                                                  </td>
-                                                </tr>
-                                              ))}
-                                            </tbody>
-                                          </table>
-                                        </div>
-                                      )}
-                                    </td>
-                                  </tr>
-                                )}
-                              </Fragment>
-                            );
-                          })}
-                        </tbody>
-                        {/* 表示中のドライバー全員の合計。「この期間に何個やったか」への直答 */}
-                        <tfoot className="border-t-2 border-slate-200 bg-slate-50">
-                          <tr>
-                            <td className="px-3 py-2.5 font-semibold text-slate-900 whitespace-nowrap">合計</td>
-                            {summaryColumnDefs.map((col, i) => {
-                              const v = summaryColumnTotals.get(col.key) ?? 0;
-                              return (
-                                <td
-                                  key={col.key}
-                                  className={`px-3 py-2.5 text-right tabular-nums ${
-                                    v ? "font-semibold text-slate-900" : "text-slate-300"
-                                  } ${showingFieldColumns && isUnitBoundary[i] ? "border-l border-slate-200" : ""}`}
-                                >
-                                  {v ? (col.asDays ? `${v}日` : fmt(v)) : "·"}
-                                </td>
-                              );
-                            })}
-                            <td className="border-l border-slate-200 px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900">
-                              {totalShiftDays ? `${totalShiftDays}日` : <span className="font-normal text-slate-300">·</span>}
-                            </td>
-                            <td />
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  </div>
                 )}
               </>
             )}

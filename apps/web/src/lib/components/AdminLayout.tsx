@@ -17,6 +17,7 @@ import {
   faCalendar,
   faClock,
   faFileLines,
+  faBoxesStacked,
   faListUl,
   faRightFromBracket,
   faMoneyBill1Wave,
@@ -49,6 +50,7 @@ type NavItem =
 const navItems: NavItem[] = [
   { href: "/admin", label: "ダッシュボード", icon: faChartLine, cap: "can_view_reports" },
   { href: "/admin/daily", label: "報告", icon: faFileLines, cap: "can_view_reports" },
+  { href: "/admin/delivery", label: "配達実績", icon: faBoxesStacked, cap: "can_view_reports" },
   { href: "/admin/attendance", label: "勤怠", icon: faClock, cap: "can_view_vehicles", beta: true },
   { href: "/admin/shifts", label: "シフト", icon: faCalendar, cap: "can_view_shifts" },
   { href: "/admin/spot-jobs", label: "単発案件", icon: faBriefcase, cap: "can_view_shifts", beta: true },
