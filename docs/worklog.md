@@ -2607,3 +2607,42 @@ migration は**未適用**（`.env.local` は本番を指すため、こちら�
 - 日報を便ごとに（フォーム生成の course_id 重複排除、`values[courseId]` のキー、RPC 132/133）
 - 通知・PDF・ドライバー画面の便バッジ、便ごとの単価編集
 - Phase 3: 既存の「1便/2便」コースを統合するツール（名前からの自動推定でブラインド実行しない）
+
+## 2026-08-17 請求書編集で「読み込み中」が繰り返し出る不具合の修正
+
+報告: 請求書作成中に何度も「読み込み中」が出る。編集後の通信時に出ている模様。
+
+### 原因: `invalidateApi` がキャッシュを undefined で潰していた
+
+```ts
+// 修正前
+mutate(matcher, undefined, { revalidate: true })
+```
+
+SWR の mutate は**データ引数を渡したかどうかを arguments.length で判定**する
+（`node_modules/swr/dist/_internal/…` の `if (args.length < 3) return startRevalidate()`）。
+3つ渡していたため「data = undefined で上書き → 再検証」の経路に入り、購読側の data が
+一旦 undefined に戻っていた。
+
+`useApi` の `isInitialLoading` は `isLoading && data === undefined` なので、これが true に跳ねる。
+結果、請求書編集ページ（`[id]/edit`）で:
+
+1. 自動保存（1.2秒デバウンス）が走るたびに `invalidateApi("/api/admin/invoices")`
+2. 接頭辞は `includes` 一致なので、**一覧キーだけでなく詳細キー
+   `/api/admin/invoices/<id>`＝今まさに編集中の請求書**まで巻き込む
+3. data が undefined → 「読み込み中…」に差し替わる → **エディタが再マウント**
+
+見た目の煩わしさだけでなく、**Undo/Redo 履歴・保存状態・フォーカスが毎回失われていた**。
+
+### 直したこと
+
+- `invalidateApi` を**引数1つの mutate（再検証のみ）**に変更。今の値を保ったまま裏で取り直す
+  ＝ stale-while-revalidate 本来の振る舞い。**アプリ全体のちらつきに効く**
+- 請求書エディタの無効化対象を `"/api/admin/invoices?"` に絞り、編集中の請求書そのものを
+  取り直さないようにした（一覧キーは `?month=…` / `?months=1` なので `?` で分かれる）
+- `apps/web/src/lib/swr.test.ts` を新設。「mutate に**データ引数を渡さない**」を回帰テストで固定
+  （2つ目を足した時点で再発するため、引数の個数そのものを検証している）
+
+### 検証
+
+- tsc / build / vitest 547 緑。ブラウザ目視は未

@@ -197,11 +197,15 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
         window.history.replaceState(null, "", `/admin/invoices/${encodeURIComponent(newId)}/edit`);
       }
       setSaveStatus("saved");
-      // 一覧・詳細（プレビュー）の SWR キャッシュを無効化する。
+      // 一覧・プレビューの SWR キャッシュを再取得させる。
       // これを怠ると、新規作成した請求書が一覧に出てこない／編集後に
-      // 一覧やプレビューが旧値のまま、という状態になる。待たない。
-      // 一覧キーは月別（?month=…）+ フォルダ（?months=1）になったため、接頭辞一致で無効化する。
-      void invalidateApi("/api/admin/invoices");
+      // 一覧が旧値のまま、という状態になる。待たない。
+      //
+      // ★対象は一覧キー（?month=… / ?months=1）だけに絞る。
+      //   接頭辞一致なので "/api/admin/invoices" だと詳細キー
+      //   "/api/admin/invoices/<id>"＝今まさに編集中の請求書まで巻き込み、
+      //   自動保存のたびに自分の元データを取り直すことになる（無駄な上に事故のもと）。
+      void invalidateApi("/api/admin/invoices?");
     } catch (e) {
       setSaveStatus("error");
       setError(e instanceof Error ? e.message : "自動保存に失敗しました");

@@ -15,7 +15,7 @@ export function swrFetcher<T = unknown>(key: string): Promise<T> {
 }
 
 /**
- * 書き込み後に、関連する画面のキャッシュをまとめて無効化する。
+ * 書き込み後に、関連する画面のキャッシュをまとめて再取得させる。
  *
  * SWR のキャッシュはキー単位なので、各ページが自分のキーしか mutate しないと
  * 「コース画面で担当を設定 → ドライバー一覧では未設定のまま」のような取り残しが起きる
@@ -23,11 +23,14 @@ export function swrFetcher<T = unknown>(key: string): Promise<T> {
  * 影響するリソースのパス接頭辞を渡して、横断的に再取得させる。
  *
  * useSWRInfinite のキーは内部で "$inf$…" が前置されるため、startsWith ではなく includes で判定する。
+ *
+ * ★キャッシュを undefined で潰さないこと（引数1つの mutate = 再検証のみ）。
+ *   以前は `mutate(matcher, undefined, { revalidate: true })` としており、data が
+ *   一旦 undefined に戻るため購読側の isInitialLoading が true に跳ね、
+ *   **編集中の画面に「読み込み中」が挟まって内容が消えていた**
+ *   （請求書エディタは自動保存のたびに再マウントし、Undo履歴まで失われていた。2026-08-17 報告）。
+ *   新しい値が届くまでは今の表示を保つ ＝ stale-while-revalidate 本来の振る舞い。
  */
 export function invalidateApi(...prefixes: string[]) {
-  return mutate(
-    (key) => typeof key === "string" && prefixes.some((p) => key.includes(p)),
-    undefined,
-    { revalidate: true },
-  );
+  return mutate((key) => typeof key === "string" && prefixes.some((p) => key.includes(p)));
 }
