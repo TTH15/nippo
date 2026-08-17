@@ -133,9 +133,10 @@ export async function PUT(req: NextRequest) {
       payout_per_unit: num(r.payout_per_unit),
       updated_at: new Date().toISOString(),
     }));
+    // cycle_no は便ごとの単価（migration 136）。0 = 全便共通で、便を使わないコースは常にこれ
     const { error } = await supabase
       .from("course_unit_rates")
-      .upsert(rows, { onConflict: "course_id,unit_id" });
+      .upsert(rows, { onConflict: "course_id,cycle_no,unit_id" });
     if (error) {
       console.error(error);
       return NextResponse.json({ error: "従量単価の保存に失敗しました" }, { status: 500 });
@@ -154,7 +155,7 @@ export async function PUT(req: NextRequest) {
           fixed_payout: fixedPayout,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "course_id" },
+        { onConflict: "course_id,cycle_no" },
       );
     if (error) {
       console.error(error);

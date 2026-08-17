@@ -111,8 +111,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           r !== null,
       );
     if (rows.length > 0) {
+      // cycle_no は便（migration 136）。0 = 全便を担当可＝この画面が扱う粒度
       const { error } = await supabase.from("driver_courses").upsert(rows, {
-        onConflict: "driver_identity_id,course_id",
+        onConflict: "driver_identity_id,course_id,cycle_no",
       });
       if (error) {
         console.error("[courses/drivers] insert error", error);

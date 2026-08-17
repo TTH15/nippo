@@ -29,13 +29,34 @@ import { hasCapability } from "@/lib/capabilities";
 import { slotDisplayLabel } from "@/lib/timeSlot";
 import { Button } from "@/lib/ui/button";
 import { TimePicker } from "@/lib/ui/time-picker";
+import { cycleLabel } from "@repo/core/logic/courseCycle";
+import {
+  CourseCyclesEditor,
+  toCycleDrafts,
+  toCyclePayload,
+  type CycleDraft,
+} from "./CourseCyclesEditor";
 
 type CourseCarrier = "YAMATO" | "AMAZON" | "OTHER";
+type CourseCycleRow = {
+  id: string;
+  cycle_no: number;
+  label?: string | null;
+  meeting_place?: string | null;
+  meeting_time?: string | null;
+  arrival_time?: string | null;
+  end_time?: string | null;
+  max_drivers?: number | null;
+};
+
 type Course = {
   id: string;
   name: string;
   color: string;
   sort_order: number;
+  /** サイクル(便)を使うか。false=コース自身が時間を持つ（docs/design/course-cycle.md） */
+  uses_cycles?: boolean | null;
+  course_cycles?: CourseCycleRow[] | null;
   max_drivers?: number | null;
   carrier?: CourseCarrier | null;
   carrier_id?: string | null;
@@ -152,6 +173,9 @@ export default function CoursesPage() {
   const [newCourse, setNewCourse] = useState<CourseFormState>(EMPTY_COURSE_FORM);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [editForm, setEditForm] = useState<CourseFormState>(EMPTY_COURSE_FORM);
+  // 便は courses 本体とは別テーブルなので、フォーム状態も分けて持つ
+  const [editUsesCycles, setEditUsesCycles] = useState(false);
+  const [editCycles, setEditCycles] = useState<CycleDraft[]>([]);
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -483,6 +507,8 @@ export default function CoursesPage() {
       end_time: toTimeInputValue(course.end_time),
     };
     setEditForm(form);
+    setEditUsesCycles(Boolean(course.uses_cycles));
+    setEditCycles(toCycleDrafts(course.course_cycles ?? []));
     baselineFormRef.current = { ...form };
     setShowEditModal(true);
   };
@@ -535,6 +561,17 @@ export default function CoursesPage() {
       }
       const billingSave = billingRef.current?.save();
       if (billingSave) jobs.push(billingSave);
+      // 便は別テーブル（course_cycles）なので専用エンドポイントへ。
+      // サイクル未使用なら空配列を送って、既存の便があれば消す
+      jobs.push(
+        apiFetch(`/api/admin/courses/${editingCourse.id}/cycles`, {
+          method: "PUT",
+          body: JSON.stringify({
+            usesCycles: editUsesCycles,
+            cycles: editUsesCycles ? toCyclePayload(editCycles) : [],
+          }),
+        }),
+      );
       await Promise.all(jobs);
       baselineFormRef.current = { ...editForm };
       const updatedCourse: Course = {
@@ -675,7 +712,19 @@ export default function CoursesPage() {
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <h3 className="font-medium text-slate-900">{course.name}</h3>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <h3 className="font-medium text-slate-900">{course.name}</h3>
+              {/* 便を使うコースだけ、どんな便があるかを見出しに出す */}
+              {course.uses_cycles &&
+                (course.course_cycles ?? []).map((cy) => (
+                  <span
+                    key={cy.id}
+                    className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                  >
+                    {cycleLabel({ cycleNo: cy.cycle_no, label: cy.label })}
+                  </span>
+                ))}
+            </div>
             <div className="mt-1.5 flex flex-wrap gap-1">
               {assignedDrivers.length > 0 ? (
                 assignedDrivers.map((d) => (
@@ -862,11 +911,11 @@ export default function CoursesPage() {
                     size="md"
                   />
                 </div>
-                {/* 時間に関する設定を1箇所に集約（便区分=分類 / 標準時間=実時刻。役割は別物） */}
+                {/* 時間に関する設定を1箇所に集約（時間帯=分類 / 標準時間=実時刻。役割は別物） */}
                 <div className="rounded-lg border border-slate-200 p-3 space-y-3">
                   <p className="text-sm font-semibold text-slate-700">時間</p>
                   <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">便区分（時間帯）</label>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">時間帯</label>
                     <CustomSelect
                       options={[
                         { value: "", label: "終日（指定なし）" },
@@ -1050,11 +1099,12 @@ export default function CoursesPage() {
                     size="md"
                   />
                 </div>
-                {/* 時間に関する設定を1箇所に集約（便区分=分類 / 標準時間=実時刻。役割は別物） */}
+                {/* 時間に関する設定を1箇所に集約。
+                    「時間帯」= 分類（午前/午後）、「サイクル」= 1便/2便 の運用単位。役割は別物 */}
                 <div className="rounded-lg border border-slate-200 p-3 space-y-3">
                   <p className="text-sm font-semibold text-slate-700">時間</p>
                   <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">便区分（時間帯）</label>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">時間帯</label>
                     <CustomSelect
                       options={[
                         { value: "", label: "終日（指定なし）" },
@@ -1066,33 +1116,41 @@ export default function CoursesPage() {
                       size="md"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">標準時間（実際の集合・着車・終業）</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {([
-                        ["meeting_time", "集合"],
-                        ["arrival_time", "着車"],
-                        ["end_time", "終業"],
-                      ] as const).map(([key, label]) => (
-                        <div key={key}>
-                          <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
-                          <TimePicker
-                            value={editForm[key] || null}
-                            onChange={(v) => setEditForm((f) => ({ ...f, [key]: v ?? "" }))}
-                            placeholder="--:--"
-                            buttonClassName="px-2.5"
-                          />
+                  <CourseCyclesEditor
+                    usesCycles={editUsesCycles}
+                    cycles={editCycles}
+                    disabled={!canWrite}
+                    onUsesCyclesChange={setEditUsesCycles}
+                    onCyclesChange={setEditCycles}
+                    courseTimes={
+                      <div>
+                        <div className="grid grid-cols-3 gap-2">
+                          {([
+                            ["meeting_time", "集合"],
+                            ["arrival_time", "開始"],
+                            ["end_time", "終了目安"],
+                          ] as const).map(([key, label]) => (
+                            <div key={key}>
+                              <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
+                              <TimePicker
+                                value={editForm[key] || null}
+                                onChange={(v) => setEditForm((f) => ({ ...f, [key]: v ?? "" }))}
+                                placeholder="--:--"
+                                buttonClassName="px-2.5"
+                              />
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                    <input
-                      type="text"
-                      value={editForm.meeting_place}
-                      onChange={(e) => setEditForm((f) => ({ ...f, meeting_place: e.target.value }))}
-                      placeholder="集合場所（例: 横大路第2倉庫）"
-                      className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    />
-                  </div>
+                        <input
+                          type="text"
+                          value={editForm.meeting_place}
+                          onChange={(e) => setEditForm((f) => ({ ...f, meeting_place: e.target.value }))}
+                          placeholder="集合場所（例: 横大路第2倉庫）"
+                          className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                        />
+                      </div>
+                    }
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">コース名</label>

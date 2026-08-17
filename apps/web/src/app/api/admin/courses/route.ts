@@ -13,9 +13,13 @@ export async function GET(req: NextRequest) {
   const orgId = await resolveOrgId(user.driverId);
 
   // carrier_name はコース選択 UI（CoursePicker）のキャリア別グループ見出しに使う。
+  // course_cycles は便（migration 136）。uses_cycles=false のコースでは空配列になる。
   const { data: courses, error } = await supabase
     .from("courses")
-    .select("*, carriers ( id, name )")
+    .select(
+      `*, carriers ( id, name ),
+       course_cycles ( id, cycle_no, label, meeting_place, meeting_time, arrival_time, end_time, max_drivers, sort_order, active )`,
+    )
     .eq("org_id", orgId)
     .order("sort_order");
 
@@ -27,6 +31,10 @@ export async function GET(req: NextRequest) {
   const rows = (courses ?? []).map((c: Record<string, unknown>) => ({
     ...c,
     carrier_name: (c.carriers as { name?: string } | null)?.name ?? null,
+    // 便番号順に整える（入れ子 join の順序は保証されない）
+    course_cycles: ((c.course_cycles as { cycle_no: number }[] | null) ?? [])
+      .slice()
+      .sort((a, b) => a.cycle_no - b.cycle_no),
   }));
 
   return NextResponse.json({ courses: rows });

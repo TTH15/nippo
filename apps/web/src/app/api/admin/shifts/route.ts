@@ -195,7 +195,8 @@ export async function POST(req: NextRequest) {
     // Upsert
     const { data, error } = await supabase
       .from("shifts")
-      .upsert(upsertRow, { onConflict: "shift_date,course_id,slot" })
+      // cycle_no は便（migration 136）。便を使わないコースは 0 のままで従来と同じ挙動
+      .upsert(upsertRow, { onConflict: "shift_date,course_id,cycle_no,slot" })
       .select()
       .single();
 

@@ -2549,3 +2549,61 @@ Amazon は日当課金なので完了個数でも false）。そこで
 ### 検証
 
 - tsc / build / vitest 526 緑。ブラウザ目視は未（新ページ・売上ページとも要確認）
+
+## 2026-08-17 コースの「便（cycle）」— Phase 1
+
+「豊中Amazon 1便/2便」を別コースで作っている状態を、コースの構造で表現できるようにする。
+設計の正本: `docs/design/course-cycle.md`（ユーザー提供の検討ログを反映）。
+
+### 決めたこと
+
+- **統合案（1レコード＋cycle をキーに）を採用**。ユーザー選択。影響は広いが概念は純粋になる
+- **`courses.uses_cycles` で運用単位を明示**する。使わない→コース自身が時間を持つ（今と同じ）／
+  使う→時間は便が持つ。「便が無い」を NULL や0件で暗黙表現しない
+- **便が2つ以上あるコースだけバッジを出す**。1便しかないコースに「1便」は出さない
+- **サイクルの ON/OFF は既存の割当に遡及しない**。設定は「現在の定義」であって過去の記録ではない
+- 参照側は `cycle_no int NOT NULL DEFAULT 0`（NULL ではなく 0）。
+  **理由: Postgres の UNIQUE は NULL 同士を別物として扱うので、NULL だと重複を止められない**
+  （`NULLS NOT DISTINCT` は PG15+ でバージョン依存）。0 なら既存行が自動で埋まる
+
+### ★用語の整理（これをやらないと画面に「便」が2つ並ぶ）
+
+`courses.slot_id` の UI ラベルが**既に「便区分（時間帯）」**だった。実体は `shift_request_slots`
+（午前便/午後便）で、migration 078 では「時間帯マスタ」に改称済み。よって:
+
+| 実体 | これから |
+|---|---|
+| `course_cycles`（新設） | **便**（1便・2便） |
+| `courses.slot_id` / `shift_request_slots` | **時間帯**（「便」と呼ばない）← ラベル改称した |
+| `shifts.slot` | **枠**（同日同コースの何人目か。便ではない） |
+| `driver_identities.slot` | **勤務区分**（人の別人格） |
+
+### 実装（Phase 1・追加のみ）
+
+- migration 136: `courses.uses_cycles` ＋ `course_cycles` 新設 ＋
+  shifts / daily_reports_v2 / course_unit_rates / course_fixed_rates / driver_courses /
+  shift_change_logs に `cycle_no` ＋ 一意制約の張り替え
+  （`course_fixed_rates` は **PK を (course_id) → (course_id, cycle_no) に変更＝破壊的**）
+- `packages/core/src/logic/courseCycle.ts`: 表示名・バッジ条件・3段の時間解決・次の便番号（テスト16件）
+- `GET/PUT /api/admin/courses/[id]/cycles`（一覧まるごと置換。便を消してもシフトには遡及しない）
+- コース管理: 「運用単位（サイクルを使用する/しない）」の切替と便エディタ、一覧カードに便バッジ
+- 「便区分（時間帯）」→「時間帯」のラベル改称
+- `onConflict` の張り替え（shifts / course_unit_rates / course_fixed_rates / driver_courses）
+
+### ★デプロイ順の制約（重要）
+
+**コードと migration 136 は必ず一緒に出す。** `onConflict` が新しい制約名を指すため:
+
+- migration 未適用のままコードだけ出す → **シフトのセル保存が全部落ちる**
+- migration だけ先に当てる → 旧 `onConflict` が存在しない制約を指して同じく落ちる
+
+migration は**未適用**（`.env.local` は本番を指すため、こちらでは実行していない）。
+`npm run db:migrate` は dev/staging 専用ランナー。
+
+### 残り（Phase 2 以降）
+
+- シフト表を便ごとのセルに分ける＋**便バッジ**（バッジは便に割り当てられるようになって初めて意味を持つため、
+  グリッドの改修とセット）
+- 日報を便ごとに（フォーム生成の course_id 重複排除、`values[courseId]` のキー、RPC 132/133）
+- 通知・PDF・ドライバー画面の便バッジ、便ごとの単価編集
+- Phase 3: 既存の「1便/2便」コースを統合するツール（名前からの自動推定でブラインド実行しない）
