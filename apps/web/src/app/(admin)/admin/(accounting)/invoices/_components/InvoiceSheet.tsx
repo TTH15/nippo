@@ -6,6 +6,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -119,6 +120,65 @@ function resolveSummaryValue(ref: SummaryRowDef["value"], totals: InvoiceTotals,
 }
 
 /** インライン編集テキスト（readOnly のときは素のテキスト）。 */
+/**
+ * 住所の入力欄。**内容に合わせて高さが伸びる**。
+ * 固定 rows={2} だと3行以上の住所が編集画面で切れ、そのまま印刷にも出なかった
+ * （2026-08-18 指摘）。読み取り表示は div なので元から問題ない。
+ */
+function AddressArea({
+  html,
+  onChange,
+  className,
+}: {
+  html: string;
+  onChange: (html: string) => void;
+  className?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const text = html.replace(/<br\s*\/?>/gi, "\n");
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={text}
+      placeholder={"〒\n（住所）"}
+      onChange={(e) => onChange(e.target.value.replace(/\n/g, "<br/>"))}
+      className={cn("w-full bg-transparent outline-none focus:bg-blue-50 rounded-sm resize-none overflow-hidden", className)}
+    />
+  );
+}
+
+/**
+ * 「電話：」「登録番号：」のような値つきの1行。
+ * ★空のときはラベルごと消す。読み取り表示では描画せず、編集中は入力できるよう
+ *   画面には残したまま `hide-print` で印刷からだけ落とす（2026-08-18 指摘）。
+ */
+function LabeledLine({
+  readOnly,
+  label,
+  value,
+  onChange,
+}: {
+  readOnly: boolean;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  if (readOnly) return value ? <div>{`${label}${value}`}</div> : null;
+  return (
+    <div className={cn("flex items-baseline", !value && "hide-print")}>
+      <span className="shrink-0 whitespace-nowrap">{label}</span>
+      <T readOnly={false} value={value} onChange={onChange} />
+    </div>
+  );
+}
+
 function T({
   readOnly,
   value,
@@ -634,11 +694,16 @@ export function InvoiceSheet({
                   {st.honorific || "御中"}
                 </button>
               </div>
-              {readOnly ? (
-                <div className="mt-1 text-[12px] leading-[1.5]" dangerouslySetInnerHTML={{ __html: st.toAddrHtml || "〒<br/>（住所）" }} />
-              ) : (
-                <textarea value={st.toAddrHtml.replace(/<br\s*\/?>/gi, "\n")} placeholder={"〒\n（住所）"} onChange={(e) => set({ toAddrHtml: e.target.value.replace(/\n/g, "<br/>") })} className="mt-1 text-[12px] leading-[1.5] w-full bg-transparent outline-none focus:bg-blue-50 rounded-sm resize-none" rows={2} />
-              )}
+              <div className="mt-1 text-[12px] leading-[1.5]">
+                {readOnly ? (
+                  <div dangerouslySetInnerHTML={{ __html: st.toAddrHtml || "〒<br/>（住所）" }} />
+                ) : (
+                  <AddressArea html={st.toAddrHtml} onChange={(v) => set({ toAddrHtml: v })} />
+                )}
+                {/* 請求先の電話・登録番号。未設定ならラベルごと出さない */}
+                <LabeledLine readOnly={readOnly} label="電話：" value={st.toTel} onChange={(v) => set({ toTel: v })} />
+                <LabeledLine readOnly={readOnly} label="登録番号：" value={st.toReg} onChange={(v) => set({ toReg: v })} />
+              </div>
               <div className="mt-6 text-[12px]">下記の通りご請求申し上げます。</div>
             </div>
 
@@ -658,18 +723,10 @@ export function InvoiceSheet({
                 {readOnly ? (
                   <div dangerouslySetInnerHTML={{ __html: st.fromAddrHtml || "" }} />
                 ) : (
-                  <textarea value={st.fromAddrHtml.replace(/<br\s*\/?>/gi, "\n")} placeholder={"〒\n（住所）"} onChange={(e) => set({ fromAddrHtml: e.target.value.replace(/\n/g, "<br/>") })} className="text-[12px] leading-[1.6] w-full bg-transparent outline-none focus:bg-blue-50 rounded-sm resize-none" rows={2} />
+                  <AddressArea html={st.fromAddrHtml} onChange={(v) => set({ fromAddrHtml: v })} />
                 )}
-                {readOnly ? (
-                  st.fromTel ? <div>電話：{st.fromTel}</div> : null
-                ) : (
-                  <div className="flex items-baseline"><span className="shrink-0 whitespace-nowrap">電話：</span><T readOnly={readOnly} value={st.fromTel} onChange={(v) => set({ fromTel: v })} /></div>
-                )}
-                {readOnly ? (
-                  st.fromReg ? <div>登録番号：{st.fromReg}</div> : null
-                ) : (
-                  <div className="flex items-baseline"><span className="shrink-0 whitespace-nowrap">登録番号：</span><T readOnly={readOnly} value={st.fromReg} onChange={(v) => set({ fromReg: v })} /></div>
-                )}
+                <LabeledLine readOnly={readOnly} label="電話：" value={st.fromTel} onChange={(v) => set({ fromTel: v })} />
+                <LabeledLine readOnly={readOnly} label="登録番号：" value={st.fromReg} onChange={(v) => set({ fromReg: v })} />
               </div>
             </div>
           </div>

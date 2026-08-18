@@ -96,4 +96,48 @@ describe("InvoiceSheet", () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(document.activeElement).toBe(cell("main|0|0"));
   });
+
+  describe("宛先の電話・登録番号（2026-08-18）", () => {
+    it("readOnly：請求先の電話と登録番号を出す", () => {
+      render(
+        <InvoiceSheet
+          state={{ ...sample(), toTel: "075-000-0000", toReg: "T1234567890123" }}
+          readOnly
+        />,
+      );
+      expect(screen.getByText("電話：075-000-0000")).toBeInTheDocument();
+      expect(screen.getByText("登録番号：T1234567890123")).toBeInTheDocument();
+    });
+
+    it("readOnly：登録番号が空ならラベルごと出さない（受領請求書のドライバー等）", () => {
+      const st = { ...sample(), toTel: "", toReg: "", fromReg: "", fromTel: "" };
+      render(<InvoiceSheet state={st} readOnly />);
+      expect(screen.queryByText(/登録番号：/)).toBeNull();
+      expect(screen.queryByText(/電話：/)).toBeNull();
+    });
+
+    it("編集モード：空の登録番号の行は印刷から外す（hide-print）", () => {
+      const { container } = render(
+        <InvoiceSheet state={{ ...sample(), toReg: "" }} onChange={() => {}} />,
+      );
+      const labels = Array.from(container.querySelectorAll("span")).filter(
+        (el) => el.textContent === "登録番号：",
+      );
+      expect(labels.length).toBeGreaterThan(0);
+      // 空欄の行は画面には出す（入力できるように）が、印刷では消える
+      expect(labels.some((el) => el.parentElement?.className.includes("hide-print"))).toBe(true);
+    });
+
+    it("住所欄は内容に合わせて伸びる（rows 固定で切らない）", () => {
+      const st = { ...sample(), toAddrHtml: "〒600-0000<br/>京都府京都市中京区<br/>〇〇通△△下ル□□町1-2-3<br/>××ビル 5F" };
+      const { container } = render(<InvoiceSheet state={st} onChange={() => {}} />);
+      const area = Array.from(container.querySelectorAll("textarea")).find((el) =>
+        el.value.includes("××ビル"),
+      );
+      expect(area).toBeTruthy();
+      // 4行の住所が textarea の value にすべて入っている（切り捨てられていない）
+      expect(area!.value.split("\n")).toHaveLength(4);
+      expect(Number(area!.rows)).toBe(1); // 高さは scrollHeight で伸ばすので rows は 1 固定
+    });
+  });
 });

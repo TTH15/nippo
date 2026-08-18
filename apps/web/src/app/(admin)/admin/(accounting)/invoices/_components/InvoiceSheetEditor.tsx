@@ -161,6 +161,26 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addresses, st.counterpartyInvoiceAddressId, st.toName, st.kind]);
 
+  // 電話・登録番号を請求書に出すようにしたのは 2026-08-18。それ以前に作った請求書の
+  // payload には両方入っていないので、取引先の登録値から**空欄だけ**埋める
+  // （利用者が意図的に消した値を上書きしないよう、空のときしか触らない）。
+  useEffect(() => {
+    if (st.kind !== "outgoing" || !st.counterpartyInvoiceAddressId) return;
+    if (st.toTel.trim() && st.toReg.trim()) return;
+    const a = addresses.find((x) => x.id === st.counterpartyInvoiceAddressId);
+    if (!a) return;
+    const tel = a.phone ?? "";
+    const reg = a.invoice_no ?? "";
+    if ((!st.toTel.trim() && tel) || (!st.toReg.trim() && reg)) {
+      setStRaw((prev) => ({
+        ...prev,
+        toTel: prev.toTel.trim() ? prev.toTel : tel,
+        toReg: prev.toReg.trim() ? prev.toReg : reg,
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addresses, st.counterpartyInvoiceAddressId, st.toTel, st.toReg, st.kind]);
+
   /** 売上請求書の請求先にドライバー個人を選ぶ（自社 → ドライバー）。 */
   const selectRecipientDriver = (id: string) => {
     const d = drivers.find((x) => x.id === id);
