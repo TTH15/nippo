@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { preload } from "swr";
 import { swrFetcher } from "@/lib/swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -9,6 +9,7 @@ import { AdminLayout } from "@/lib/components/AdminLayout";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { PixelLoadingOverlay } from "@/lib/components/PixelBoxLoader";
 import { Button } from "@/lib/ui/button";
 import { apiFetch, getStoredDriver, getToken } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -56,11 +57,29 @@ const directionOptions: { value: "outgoing" | "incoming"; label: string }[] = [
   { value: "incoming", label: "自社に請求" },
 ];
 
+/** Finder のフォルダ列（年月 / 請求方向 / 取引先）の幅。右ペインは残り全部。 */
+type ColumnWidths = [number, number, number];
+const DEFAULT_COLUMN_WIDTHS: ColumnWidths = [160, 180, 240];
+const MIN_COLUMN_WIDTH = 110;
+const MAX_COLUMN_WIDTH = 420;
+
+function clampColumnWidth(px: number): number {
+  return Math.round(Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, px)));
+}
+
+function normalizeColumnWidths(value: unknown): ColumnWidths {
+  if (!Array.isArray(value) || value.length !== 3) return [...DEFAULT_COLUMN_WIDTHS];
+  return value.map((v, i) =>
+    Number.isFinite(Number(v)) ? clampColumnWidth(Number(v)) : DEFAULT_COLUMN_WIDTHS[i],
+  ) as ColumnWidths;
+}
+
 type FinderState = {
   selectedMonth?: string;
   selectedDirection?: "outgoing" | "incoming";
   selectedCounterparty?: string;
   filter?: "all" | SavedInvoice["status"];
+  columnWidths?: ColumnWidths;
 };
 
 function readFinderState(): FinderState {
@@ -126,8 +145,14 @@ export default function InvoicesPage() {
   const [showCreatePicker, setShowCreatePicker] = useState(false);
   // 作成ピッカーで選ぶ請求先（法人アドレスID）。売上は取引先ごとに明細経路で作成する。
   const [createCounterpartyId, setCreateCounterpartyId] = useState<string>("");
+  // 売上（自社が請求）の請求先種別。ドライバー個人宛は法人アドレス帳を経由しない。
+  const [createOutgoingTarget, setCreateOutgoingTarget] = useState<"corp" | "driver">("corp");
   // 作成ピッカーで選ぶドライバー。受領はドライバーごとに自動集計して作成する。
   const [createDriverId, setCreateDriverId] = useState<string>("");
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
+  const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() =>
+    normalizeColumnWidths(initialFinderState.columnWidths),
+  );
   const [selectedMonth, setSelectedMonth] = useState(() => {
     if (initialFinderState.selectedMonth && /^\d{4}-\d{2}$/.test(initialFinderState.selectedMonth)) {
       return initialFinderState.selectedMonth;
@@ -327,9 +352,10 @@ export default function InvoicesPage() {
       selectedDirection,
       selectedCounterparty,
       filter,
+      columnWidths,
     };
     window.localStorage.setItem(FINDER_STATE_STORAGE_KEY, JSON.stringify(state));
-  }, [filter, selectedCounterparty, selectedDirection, selectedMonth]);
+  }, [columnWidths, filter, selectedCounterparty, selectedDirection, selectedMonth]);
 
   useEffect(() => {
     return () => {
@@ -409,6 +435,85 @@ export default function InvoicesPage() {
     } finally {
       setUploading(false);
       if (uploadInputRef.current) uploadInputRef.current.value = "";
+    }
+  };
+
+  // ── フォルダ列の幅をドラッグで変える（右ペインの請求書明細が潰れないように） ──
+  const columnResizeRef = useRef<{ index: number; startX: number; startWidth: number } | null>(null);
+
+  const startColumnResize = (index: number) => (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    columnResizeRef.current = { index, startX: e.clientX, startWidth: columnWidths[index] };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const moveColumnResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = columnResizeRef.current;
+    if (!drag) return;
+    const next = clampColumnWidth(drag.startWidth + (e.clientX - drag.startX));
+    setColumnWidths((prev) =>
+      prev[drag.index] === next
+        ? prev
+        : (prev.map((w, i) => (i === drag.index ? next : w)) as ColumnWidths),
+    );
+  };
+
+  const endColumnResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!columnResizeRef.current) return;
+    columnResizeRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  const resetColumnWidth = (index: number) =>
+    setColumnWidths(
+      (prev) => prev.map((w, i) => (i === index ? DEFAULT_COLUMN_WIDTHS[i] : w)) as ColumnWidths,
+    );
+
+  /** 列の右端に置く 掴んで幅を変えるためのハンドル（xl 以上の3カラム表示のときだけ）。 */
+  const renderColumnResizer = (index: number) => (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      title="ドラッグで幅を変更（ダブルクリックで初期値に戻す）"
+      onPointerDown={startColumnResize(index)}
+      onPointerMove={moveColumnResize}
+      onPointerUp={endColumnResize}
+      onPointerCancel={endColumnResize}
+      onDoubleClick={() => resetColumnWidth(index)}
+      className="hidden xl:block absolute top-0 right-0 z-10 h-full w-2 translate-x-1/2 cursor-col-resize touch-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-slate-300 active:after:bg-slate-400"
+    />
+  );
+
+  /**
+   * 集計元を指定してサーバー側で下書きを作り、編集画面へ移動する。
+   * ペイメント画面・取引先画面と同じ from-source を叩く（作成ロジックはサーバーに1本化）。
+   */
+  const createFromSource = async (
+    source:
+      | { type: "counterparty"; counterpartyId: string }
+      | { type: "driver_payout"; driverId: string },
+  ) => {
+    if (!canWrite || creatingInvoice) return;
+    setErrorMessage(null);
+    setCreatingInvoice(true); // 成功時は遷移までオーバーレイを出し続ける（失敗時のみ解除）
+    try {
+      const res = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices/from-source", {
+        method: "POST",
+        body: JSON.stringify({
+          month: selectedMonth,
+          section: source.type === "driver_payout" ? "郵便局" : "ヤマト運輸",
+          source,
+        }),
+      });
+      if (!res?.invoice?.id) throw new Error("請求書IDが取得できませんでした");
+      window.location.href = `/admin/invoices/${encodeURIComponent(res.invoice.id)}/edit`;
+    } catch (e) {
+      console.error(e);
+      setCreatingInvoice(false);
+      setShowCreatePicker(false);
+      setErrorMessage(e instanceof Error ? e.message : "請求書の作成に失敗しました。");
     }
   };
 
@@ -522,6 +627,9 @@ export default function InvoicesPage() {
 
   return (
     <AdminLayout>
+      {creatingInvoice && (
+        <PixelLoadingOverlay message="請求書を作成しています…" subMessage="作成後、編集画面に移動します" />
+      )}
       <div className="w-full">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
@@ -531,7 +639,7 @@ export default function InvoicesPage() {
           {canWrite && (
             <Button variant="default" size="default" onClick={() => setShowCreatePicker(true)}>
               <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
-              保存先を選んで作成
+              請求書を作成
             </Button>
           )}
         </div>
@@ -548,8 +656,18 @@ export default function InvoicesPage() {
         )}
 
         <div className="soft-rise bg-white rounded-lg border border-slate-200 overflow-hidden">
-          <div className="grid grid-cols-1 xl:grid-cols-[160px_180px_240px_1fr]">
-            <div className="border-r border-slate-200 xl:min-h-[520px]">
+          <div
+            className="grid grid-cols-1 xl:grid-cols-[var(--fc1)_var(--fc2)_var(--fc3)_minmax(0,1fr)]"
+            style={
+              {
+                "--fc1": `${columnWidths[0]}px`,
+                "--fc2": `${columnWidths[1]}px`,
+                "--fc3": `${columnWidths[2]}px`,
+              } as CSSProperties
+            }
+          >
+            <div className="relative border-r border-slate-200 xl:min-h-[520px]">
+              {renderColumnResizer(0)}
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">年月</div>
               <div className="p-2 space-y-1 max-h-40 overflow-y-auto xl:max-h-none xl:overflow-visible">
                 {loading ? (
@@ -575,7 +693,8 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            <div className="border-r border-slate-200 xl:min-h-[520px]">
+            <div className="relative border-r border-slate-200 xl:min-h-[520px]">
+              {renderColumnResizer(1)}
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">請求方向</div>
               <div className="p-2 space-y-1 max-h-40 overflow-y-auto xl:max-h-none xl:overflow-visible">
                 {loading ? (
@@ -597,7 +716,8 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            <div className="border-r border-slate-200 xl:min-h-[520px]">
+            <div className="relative border-r border-slate-200 xl:min-h-[520px]">
+              {renderColumnResizer(2)}
               <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-500">取引先</div>
               <div className="p-2 space-y-1 max-h-40 overflow-y-auto xl:max-h-none xl:overflow-visible">
                 {loading ? (
@@ -932,11 +1052,11 @@ export default function InvoicesPage() {
         <div className="modal-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowCreatePicker(false)}>
           <div className="modal-panel-in w-full max-w-md rounded-lg bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 border-b border-slate-200">
-              <h2 className="text-base font-semibold text-slate-900">保存先フォルダを選択</h2>
+              <h2 className="text-base font-semibold text-slate-900">請求書を作成</h2>
             </div>
             <div className="px-5 py-4 space-y-3">
               <div>
-                <label className="block text-xs text-slate-600 mb-1">対象月フォルダ</label>
+                <label className="block text-xs text-slate-600 mb-1">対象月</label>
                 <MonthYearPicker
                   value={
                     /^\d{4}-\d{2}/.test(selectedMonth)
@@ -947,7 +1067,7 @@ export default function InvoicesPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-600 mb-1">請求方向フォルダ</label>
+                <label className="block text-xs text-slate-600 mb-1">請求方向</label>
                 <CustomSelect
                   options={directionOptions}
                   value={selectedDirection}
@@ -957,29 +1077,58 @@ export default function InvoicesPage() {
                 />
               </div>
               {selectedDirection === "outgoing" && (
-                <div>
-                  <label className="block text-xs text-slate-600 mb-1">請求先（取引先）</label>
-                  <CustomSelect
-                    options={invoiceAddresses}
-                    value={createCounterpartyId}
-                    onChange={(v) => setCreateCounterpartyId(v)}
-                    placeholder="取引先を選択…"
-                    clearable={false}
-                    size="default"
-                  />
-                  <p className="mt-1.5 text-[11px] text-slate-400 leading-relaxed">
-                    取引先ごとに当月の売上明細を自動集計して下書きを作成します。
-                    {invoiceAddresses.length === 0 && (
-                      <>
-                        {" "}
-                        <a href="/admin/invoices/addressbook" className="underline hover:text-slate-600">
-                          法人アドレス帳
-                        </a>
-                        で取引先を登録してください。
-                      </>
-                    )}
-                  </p>
-                </div>
+                <>
+                  <div>
+                    <label className="block text-xs text-slate-600 mb-1">請求先の種別</label>
+                    <CustomSelect
+                      options={[
+                        { value: "corp", label: "取引先（法人）" },
+                        { value: "driver", label: "ドライバー（個人）" },
+                      ]}
+                      value={createOutgoingTarget}
+                      onChange={(v) => setCreateOutgoingTarget(v === "driver" ? "driver" : "corp")}
+                      clearable={false}
+                      size="default"
+                    />
+                  </div>
+                  {createOutgoingTarget === "corp" ? (
+                    <div>
+                      <label className="block text-xs text-slate-600 mb-1">請求先（取引先）</label>
+                      <CustomSelect
+                        options={invoiceAddresses}
+                        value={createCounterpartyId}
+                        onChange={(v) => setCreateCounterpartyId(v)}
+                        placeholder="取引先を選択…"
+                        clearable={false}
+                        size="default"
+                      />
+                      <p className="mt-1.5 text-[11px] text-slate-400 leading-relaxed">
+                        取引先ごとに当月の売上明細を自動集計して下書きを作成します。
+                        {invoiceAddresses.length === 0 && (
+                          <>
+                            {" "}
+                            <a href="/admin/invoices/addressbook" className="underline hover:text-slate-600">
+                              法人アドレス帳
+                            </a>
+                            で取引先を登録してください。
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs text-slate-600 mb-1">請求先（ドライバー）</label>
+                      <CustomSelect
+                        options={driverOptions}
+                        value={createDriverId}
+                        onChange={(v) => setCreateDriverId(v)}
+                        placeholder="ドライバーを選択…"
+                        clearable={false}
+                        size="default"
+                      />
+                    </div>
+                  )}
+                </>
               )}
               {selectedDirection === "incoming" && (
                 <div>
@@ -1002,23 +1151,33 @@ export default function InvoicesPage() {
               <Button variant="ghost" size="sm" onClick={() => setShowCreatePicker(false)}>
                 キャンセル
               </Button>
-              {selectedDirection === "outgoing" ? (
-                <Button asChild variant="default" size="sm" className={!createCounterpartyId ? "pointer-events-none opacity-50" : undefined}>
-                  <a
-                    href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&kind=outgoing&direction=outgoing&section=${encodeURIComponent("ヤマト運輸")}&counterparty=${encodeURIComponent(createCounterpartyId)}`}
-                    aria-disabled={!createCounterpartyId}
-                  >
-                    この取引先で作成
-                  </a>
-                </Button>
-              ) : (
+              {selectedDirection === "outgoing" && createOutgoingTarget === "driver" ? (
+                // ドライバー個人宛は集計元が無い（白紙）。編集して初めて実体になる
                 <Button asChild variant="default" size="sm" className={!createDriverId ? "pointer-events-none opacity-50" : undefined}>
                   <a
-                    href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&kind=incoming&direction=incoming&section=${encodeURIComponent("郵便局")}&driver=${encodeURIComponent(createDriverId)}`}
+                    href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&kind=outgoing&direction=outgoing&toDriver=${encodeURIComponent(createDriverId)}`}
                     aria-disabled={!createDriverId}
                   >
                     このドライバーで作成
                   </a>
+                </Button>
+              ) : selectedDirection === "outgoing" ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={!createCounterpartyId || creatingInvoice}
+                  onClick={() => void createFromSource({ type: "counterparty", counterpartyId: createCounterpartyId })}
+                >
+                  この取引先で作成
+                </Button>
+              ) : (
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={!createDriverId || creatingInvoice}
+                  onClick={() => void createFromSource({ type: "driver_payout", driverId: createDriverId })}
+                >
+                  このドライバーで作成
                 </Button>
               )}
             </div>

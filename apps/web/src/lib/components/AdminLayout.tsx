@@ -63,6 +63,8 @@ const navItems: NavItem[] = [
       { href: "/admin/sales", label: "売上", icon: faChartColumn, cap: "can_view_billing" },
       { href: "/admin/payments", label: "ペイメント", icon: faMoneyBill1Wave, cap: "can_view_rewards" },
       { href: "/admin/invoices", label: "請求書", icon: faAddressBook, cap: "can_view_billing" },
+      // 取引先は月次の売上集計を見て請求書を作る業務画面。設定ではなく収支に置く
+      { href: "/admin/counterparties", label: "取引先", icon: faBuilding, cap: "can_view_billing" },
       { href: "/admin/adjustments", label: "調整履歴", icon: faListUl, cap: "can_view_billing" },
     ],
   },
@@ -83,7 +85,6 @@ const navItems: NavItem[] = [
       { href: "/admin/roles", label: "ロール・権限", icon: faUserShield, cap: "can_view_members" },
       { href: "/admin/carriers", label: "キャリア／フォーム設計", icon: faTruck, cap: "can_view_org_settings" },
       { href: "/admin/courses", label: "コース／単価表", icon: faRoute, cap: "can_view_org_settings" },
-      { href: "/admin/counterparties", label: "取引先", icon: faBuilding, cap: "can_view_billing" },
       { href: "/admin/report-kinds", label: "報告種別", icon: faFileLines, cap: "can_view_org_settings" },
       { href: "/admin/submit-screen", label: "送信後画面", icon: faMobileScreenButton, cap: "can_view_org_settings" },
     ],

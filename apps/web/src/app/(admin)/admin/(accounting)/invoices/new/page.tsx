@@ -53,6 +53,32 @@ function mapLines(rows?: { title?: string; qty?: number; price?: number; unit?: 
   }));
 }
 
+type DriverRow = {
+  id: string;
+  name: string;
+  postal_code?: string | null;
+  address?: string | null;
+  phone?: string | null;
+};
+
+/** 自社 → ドライバー個人の空の下書き（明細は手入力）。振込先は自社口座のまま。 */
+function buildDriverRecipientInitial(
+  month: string,
+  driverId: string,
+  driver: DriverRow | undefined,
+): EditorState {
+  const base = blankEditorState("outgoing");
+  return {
+    ...base,
+    period: month ? periodForMonth(month) : base.period,
+    honorific: "様",
+    toName: driver?.name ?? "",
+    toAddrHtml: addrHtml(driver?.postal_code, driver?.address),
+    toTel: driver?.phone ?? "",
+    parties: { ...base.parties, toParty: `drv-${driverId}` },
+  };
+}
+
 function buildInitial(kind: InvoiceKind, draft: DraftResp | undefined): EditorState {
   const base = blankEditorState(kind);
   if (!draft) return base;
@@ -106,13 +132,26 @@ function InvoiceNewPageContent() {
   const section = searchParams?.get("section") ?? "";
   const counterparty = searchParams?.get("counterparty") ?? "";
   const driver = searchParams?.get("driver") ?? "";
-  const wantDraft = kind === "incoming" ? Boolean(month && driver) : Boolean(month && section);
+  // 自社 → ドライバー個人（売上請求書）。自動集計は行わず空の下書きから始める。
+  const toDriver = kind === "outgoing" ? (searchParams?.get("toDriver") ?? "") : "";
+  const wantDraft =
+    kind === "incoming" ? Boolean(month && driver) : Boolean(!toDriver && month && section);
   const draftKey = wantDraft
     ? kind === "incoming"
       ? `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&driver=${encodeURIComponent(driver)}`
       : `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(section)}${counterparty ? `&counterparty=${encodeURIComponent(counterparty)}` : ""}`
     : null;
   const { data: draft, isInitialLoading: draftLoading } = useApi<DraftResp>(draftKey);
+
+  // 宛先ドライバーの氏名・住所は開く前に確定させる（エディタ側の自動保存が
+  // 「開いただけ」で空の請求書を作らないよう、初期状態に含めてから渡す）。
+  // キーはエディタ側の取得と同一なので追加のリクエストにはならない。
+  const { data: driverData, isInitialLoading: driversLoading } = useApi<{ drivers: DriverRow[] }>(
+    toDriver ? "/api/admin/users?all=1&status=all" : null,
+  );
+  const recipientDriver = toDriver
+    ? (driverData?.drivers ?? []).find((d) => d.id === toDriver)
+    : undefined;
 
   // 旧「編集」リンク（new?invoiceId=...）は編集ページへ転送中。
   if (invoiceId) {
@@ -153,10 +192,17 @@ function InvoiceNewPageContent() {
   return (
     <AdminLayout>
       <div className="-mx-3 -my-4 md:-m-6">
-        {wantDraft && draftLoading ? (
+        {(wantDraft && draftLoading) || (toDriver && driversLoading) ? (
           <div className="p-10 text-center text-slate-500">下書きを読み込み中…</div>
         ) : (
-          <InvoiceSheetEditor mode="new" initial={buildInitial(kind, wantDraft ? draft : undefined)} />
+          <InvoiceSheetEditor
+            mode="new"
+            initial={
+              toDriver
+                ? buildDriverRecipientInitial(month, toDriver, recipientDriver)
+                : buildInitial(kind, wantDraft ? draft : undefined)
+            }
+          />
         )}
       </div>
     </AdminLayout>

@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import {
+  bumpInvoiceNo,
+  isDuplicateInvoiceNo,
+  normalizeInvoiceNo,
+} from "@/server/billing/invoiceNumbering";
 import { storeInvoiceAttachments, signInvoiceAttachments } from "@/server/billing/invoiceAttachments";
 
 export const dynamic = "force-dynamic";
@@ -65,40 +70,6 @@ function isSystemGeneratedInvoice(payload: Record<string, unknown> | undefined):
   const source = String((payload as any)?.source ?? "");
   if (source === "uploaded_document") return false;
   return true;
-}
-
-function bumpInvoiceRevision(invoiceNo: string) {
-  const base = String(invoiceNo || "").trim();
-  if (!base) return "INV-MANUAL-R01";
-  const m = base.match(/^(.*)-R(\d{2})$/);
-  if (!m) return `${base}-R01`;
-  const n = Number(m[2]);
-  const next = Number.isFinite(n) ? Math.min(n + 1, 99) : 1;
-  return `${m[1]}-R${String(next).padStart(2, "0")}`;
-}
-
-function normalizeInvoiceNo(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-async function isDuplicateInvoiceNo(
-  orgId: string,
-  invoiceNo: string | null | undefined,
-  currentId: string,
-): Promise<boolean> {
-  const normalized = String(invoiceNo ?? "").trim();
-  if (!normalized) return false;
-  const { data, error } = await supabase
-    .from("invoice_documents")
-    .select("id")
-    .eq("org_id", orgId)
-    .eq("invoice_no", normalized)
-    .neq("id", currentId)
-    .limit(1);
-  if (error) throw error;
-  return (data ?? []).length > 0;
 }
 
 export async function GET(
@@ -282,7 +253,7 @@ export async function PATCH(
         : typeof body.invoiceNo === "string" && body.invoiceNo.trim()
           ? body.invoiceNo.trim()
           : "";
-    updates.invoice_no = bumpInvoiceRevision(baseInvoiceNo);
+    updates.invoice_no = bumpInvoiceNo(baseInvoiceNo);
   }
 
   try {
@@ -293,6 +264,7 @@ export async function PATCH(
       // 請求書番号が変更された場合のみ重複チェックする
       if (nextNo && nextNo !== currentNo) {
         const duplicated = await isDuplicateInvoiceNo(
+          supabase,
           orgId,
           nextNo,
           id,

@@ -213,46 +213,17 @@ export default function CounterpartiesPage() {
     setCreateInvoiceError(null);
     setCreatingInvoice(true); // 成功時は遷移までオーバーレイを出し続ける（失敗時のみ解除）
     try {
-      const res = await apiFetch<{ month: string; issueDate: string; dueDate: string; invoiceNo: string; tableData: { main: { title: string; qty: number; price: number }[]; deduct: { title: string; qty: number; price: number }[] } }>(
-        `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&section=${encodeURIComponent(r.suggestedSection)}&counterparty=${encodeURIComponent(r.id)}`
-      );
-      const amount =
-        (res.tableData?.main ?? []).reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) -
-        (res.tableData?.deduct ?? []).reduce((s, x) => s + (Number(x.qty) || 0) * (Number(x.price) || 0), 0);
-      const issueDateJp = `${res.issueDate.slice(0, 4)}年${Number(
-        res.issueDate.slice(5, 7),
-      )}月${Number(res.issueDate.slice(8, 10))}日`;
-      const dueDateJp = `${res.dueDate.slice(0, 4)}年${Number(
-        res.dueDate.slice(5, 7),
-      )}月${Number(res.dueDate.slice(8, 10))}日`;
-      const payload = {
-        issueDate: issueDateJp,
-        dueDate: dueDateJp,
-        invoiceNo: res.invoiceNo,
-        tableData: res.tableData,
-        toName: r.name,
-        subject: `${month.slice(0, 4)}年${Number(month.slice(5, 7))}月稼働分`,
-        section: r.suggestedSection,
-      };
-      const created = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices", {
+      // 明細の集計・採番・payload組み立てはすべてサーバー側（from-source）に任せる。
+      // ここで組み直すと、他の作成導線と中身がズレる。
+      const created = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices/from-source", {
         method: "POST",
         body: JSON.stringify({
           month,
           section: r.suggestedSection,
-          counterpartyInvoiceAddressId: r.id,
-          clientName: r.name,
-          issueDate: res.issueDate,
-          invoiceNo: res.invoiceNo,
-          amount,
-          status: "draft",
-          payload,
+          source: { type: "counterparty", counterpartyId: r.id },
         }),
       });
-      window.location.href = `/admin/invoices/new?invoiceId=${encodeURIComponent(
-        created.invoice.id,
-      )}&month=${encodeURIComponent(month)}&direction=outgoing&section=${encodeURIComponent(
-        r.suggestedSection,
-      )}&counterparty=${encodeURIComponent(r.id)}`;
+      window.location.href = `/admin/invoices/${encodeURIComponent(created.invoice.id)}/edit`;
     } catch (e) {
       console.error(e);
       setCreatingInvoice(false);

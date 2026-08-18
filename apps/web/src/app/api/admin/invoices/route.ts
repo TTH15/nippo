@@ -4,6 +4,11 @@ import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { storeInvoiceAttachments } from "@/server/billing/invoiceAttachments";
 import { fetchAllRows } from "@/server/aggregation/pagination";
+import {
+  bumpInvoiceNo,
+  normalizeInvoiceNo,
+  resolveUniqueInvoiceNo,
+} from "@/server/billing/invoiceNumbering";
 
 export const dynamic = "force-dynamic";
 
@@ -89,51 +94,6 @@ function isSystemGeneratedInvoice(payload: Record<string, unknown> | undefined):
   const source = String((payload as any)?.source ?? "");
   if (source === "uploaded_document") return false;
   return true;
-}
-
-function normalizeInvoiceNo(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function bumpInvoiceNo(invoiceNo: string): string {
-  const s = String(invoiceNo || "").trim();
-  if (!s) return "INV-MANUAL-R01";
-  const m = s.match(/^(.*)-R(\d{2})$/);
-  if (!m) return `${s}-R01`;
-  const next = Math.min((Number(m[2]) || 0) + 1, 99);
-  return `${m[1]}-R${String(next).padStart(2, "0")}`;
-}
-
-async function isDuplicateInvoiceNo(
-  orgId: string,
-  invoiceNo: string | null | undefined,
-): Promise<boolean> {
-  const normalized = String(invoiceNo ?? "").trim();
-  if (!normalized) return false;
-  const { data, error } = await supabase
-    .from("invoice_documents")
-    .select("id")
-    .eq("org_id", orgId)
-    .eq("invoice_no", normalized)
-    .limit(1);
-  if (error) throw error;
-  return (data ?? []).length > 0;
-}
-
-async function resolveUniqueInvoiceNo(
-  orgId: string,
-  invoiceNo: string | null,
-): Promise<string | null> {
-  let candidate = normalizeInvoiceNo(invoiceNo);
-  if (!candidate) return null;
-  for (let i = 0; i < 120; i++) {
-    const duplicated = await isDuplicateInvoiceNo(orgId, candidate);
-    if (!duplicated) return candidate;
-    candidate = bumpInvoiceNo(candidate);
-  }
-  return `${candidate}-${Date.now().toString().slice(-4)}`;
 }
 
 export async function GET(req: NextRequest) {
@@ -324,6 +284,7 @@ export async function POST(req: NextRequest) {
 
   try {
     insertRow.invoice_no = await resolveUniqueInvoiceNo(
+      supabase,
       orgId,
       typeof insertRow.invoice_no === "string" ? insertRow.invoice_no : null,
     );
@@ -344,6 +305,7 @@ export async function POST(req: NextRequest) {
     if (!error) break;
     if ((error as any)?.code !== "23505") break;
     insertRow.invoice_no = await resolveUniqueInvoiceNo(
+      supabase,
       orgId,
       typeof insertRow.invoice_no === "string" ? bumpInvoiceNo(insertRow.invoice_no) : "INV-MANUAL-R01",
     );

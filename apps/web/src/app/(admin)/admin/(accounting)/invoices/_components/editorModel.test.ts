@@ -7,6 +7,8 @@ import {
   payloadFromEditor,
   saveBodyFromEditor,
   defaultTargetPeriod,
+  isDriverRecipient,
+  validateForSave,
   type EditorState,
 } from "./editorModel";
 
@@ -160,5 +162,48 @@ describe("editorFromInvoice → saveBodyFromEditor 往復", () => {
     expect(st.main[0].title).toBe("ヤマト");
     expect(st.main[0].qty).toBe("100");
     expect(st.deduct[0].title).toBe("リース");
+  });
+});
+
+describe("自社 → ドライバー個人の請求書", () => {
+  const driverRecipient = (): EditorState => ({
+    ...blankEditorState("outgoing"),
+    toName: "山田太郎",
+    honorific: "様",
+    parties: { fromParty: "ace_creation", toParty: "drv-abc" },
+    main: [{ title: "車両リース料", qty: "1", unit: "式", price: "30000", priceBasis: "exclusive" }],
+  });
+
+  it("kind は売上請求書のまま（受領と誤判定しない）", () => {
+    const st = editorFromInvoice({
+      payload: { parties: { fromParty: "ace_creation", toParty: "drv-abc" } },
+    });
+    expect(st.kind).toBe("outgoing");
+    expect(isDriverRecipient(st)).toBe(true);
+  });
+
+  it("法人アドレス（取引先ID）が無くても保存できる", () => {
+    const st = driverRecipient();
+    expect(st.counterpartyInvoiceAddressId).toBeNull();
+    expect(validateForSave(st)).toEqual([]);
+  });
+
+  it("取引先宛は従来どおり取引先IDを要求する", () => {
+    const st: EditorState = {
+      ...driverRecipient(),
+      toName: "合同会社テスト",
+      parties: { fromParty: "ace_creation", toParty: "" },
+    };
+    expect(isDriverRecipient(st)).toBe(false);
+    expect(validateForSave(st).some((e) => e.includes("請求先（取引先）"))).toBe(true);
+  });
+
+  it("clientName はドライバー名（一覧のフォルダ名になる）", () => {
+    const body = saveBodyFromEditor(driverRecipient()) as {
+      clientName: string;
+      counterpartyInvoiceAddressId: string | null;
+    };
+    expect(body.clientName).toBe("山田太郎");
+    expect(body.counterpartyInvoiceAddressId).toBeNull();
   });
 });

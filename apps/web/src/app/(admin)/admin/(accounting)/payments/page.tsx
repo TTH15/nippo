@@ -98,33 +98,6 @@ function formatYen(amount: number): string {
   return `${amount.toLocaleString("ja-JP")}円`;
 }
 
-function nextMonthEndDate(year: number, month: number): string {
-  const y = month === 12 ? year + 1 : year;
-  const m = month === 12 ? 1 : month + 1;
-  const lastDay = new Date(y, m, 0).getDate();
-  return `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-}
-
-function todayIsoDate(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function nextInvoiceNoForDriver(month: string, driverId: string, existingNos: string[]): string {
-  const yyyymm = month.replace("-", "");
-  const driverKey = driverId.replace(/-/g, "").slice(0, 4).toUpperCase();
-  const prefix = `IN-${yyyymm}-${driverKey}-R`;
-  const maxRevision = existingNos.reduce((max, no) => {
-    const m = String(no).trim().match(new RegExp(`^IN-${yyyymm}-${driverKey}-R(\\d{2})$`));
-    if (!m) return max;
-    const n = Number(m[1]);
-    if (!Number.isFinite(n)) return max;
-    return Math.max(max, n);
-  }, -1);
-  const next = Math.min(maxRevision + 1, 99);
-  return `${prefix}${String(next).padStart(2, "0")}`;
-}
-
 export default function PaymentsPage() {
   const [canWrite, setCanWrite] = useState(false);
   const [yearMonth, setYearMonth] = useState(() => currentYearMonth());
@@ -289,164 +262,21 @@ export default function PaymentsPage() {
 
   const createIncomingInvoiceFromDriver = async (row: DriverPaymentRow) => {
     if (!canWrite) return;
-    // 請求書の取引先キーは本名で統一（表示名だと同一人物が分裂する）
-    const driverLabel = row.driverName;
-    const total = Math.max(0, Number(row.incomeLog) || 0);
-    const issueDate = todayIsoDate();
-    const dueDate = nextMonthEndDate(yearMonth.year, yearMonth.month);
-    let mainLines: Array<{ title: string; qty: number; price: number }> = [];
-    let deductLines: Array<{ title: string; qty: number; price: number }> = [];
-
     setCreatingInvoiceFor(row.driverId);
     try {
-      // 3本は互いに独立のため並列で取得する（旧: 直列 await でモーダル前の待ちが3倍）
-      const [detail, existing, breakdown] = await Promise.all([
-        apiFetch<{
-          driver: {
-            postal_code?: string | null;
-            address?: string | null;
-            phone?: string | null;
-            bank_name?: string | null;
-            bank_no?: string | null;
-            bank_holder?: string | null;
-          };
-        }>(`/api/admin/users/${encodeURIComponent(row.driverId)}`),
-        apiFetch<{ invoices: Array<{ invoiceNo?: string | null }> }>(
-          `/api/admin/invoices?month=${encodeURIComponent(monthStr)}`,
-        ),
-        apiFetch<{
-          lines: Array<{ title: string; qty: number; unitPrice: number; amount: number }>;
-          total: number;
-          leaseDeductions?: number;
-          leaseMode?: "MONTHLY" | "DAILY" | null;
-        }>(
-          `/api/admin/payments/driver-breakdown?driver_id=${encodeURIComponent(
-            row.driverId,
-          )}&month=${encodeURIComponent(monthStr)}`,
-        ),
-      ]);
-      const d = detail?.driver;
-      const invoiceNo = nextInvoiceNoForDriver(
-        monthStr,
-        row.driverId,
-        (existing.invoices ?? []).map((x) => x.invoiceNo || ""),
-      );
-      const postal = d?.postal_code?.trim() ? `〒${d.postal_code.trim()}` : "";
-      const addr = d?.address?.trim() ?? "";
-      const fromAddr = [postal, addr].filter(Boolean).join("<br />");
-      const fromTel = d?.phone?.trim() ?? "";
-      const bankName = d?.bank_name?.trim() ?? "";
-      const bankNo = d?.bank_no?.trim() ?? "";
-      const bankHolder = d?.bank_holder?.trim() ?? "";
-      mainLines = (breakdown.lines ?? [])
-        .filter((x) => (Number(x.qty) || 0) > 0 && (Number(x.unitPrice) || 0) > 0)
-        .map((x) => ({
-          title: x.title,
-          qty: Number(x.qty) || 0,
-          price: Number(x.unitPrice) || 0,
-        }));
-      if (mainLines.length === 0) {
-        mainLines = [{ title: `${monthStr} 業務委託料`, qty: 1, price: total }];
-      }
-      const [fixedRes, adHocRes] = await Promise.all([
-        apiFetch<{ expenses: FixedExpense[] }>(
-          `/api/admin/driver-expenses?driver_id=${encodeURIComponent(row.driverId)}`,
-        ),
-        apiFetch<{ expenses: AdHocExpense[] }>(
-          `/api/admin/driver-ad-hoc-expenses?driver_id=${encodeURIComponent(
-            row.driverId,
-          )}&month=${encodeURIComponent(monthStr)}`,
-        ),
-      ]);
-      const fixedDeductLines = (fixedRes.expenses ?? [])
-        .filter((x) => (Number(x.amount) || 0) > 0)
-        .map((x) => ({
-          title: x.name || "固定控除",
-          qty: 1,
-          price: Number(x.amount) || 0,
-        }));
-      const fixedAllowanceLines = (fixedRes.expenses ?? [])
-        .filter((x) => (Number(x.amount) || 0) < 0)
-        .map((x) => ({
-          title: `${x.name || "固定手当"}（手当）`,
-          qty: 1,
-          price: Math.abs(Number(x.amount) || 0),
-        }));
-      const adHocDeductLines = (adHocRes.expenses ?? [])
-        .filter((x) => (Number(x.amount) || 0) > 0)
-        .map((x) => ({
-          title: x.name || "当月控除",
-          qty: 1,
-          price: Number(x.amount) || 0,
-        }));
-      const adHocAllowanceLines = (adHocRes.expenses ?? [])
-        .filter((x) => (Number(x.amount) || 0) < 0)
-        .map((x) => ({
-          title: `${x.name || "当月手当"}（手当）`,
-          qty: 1,
-          price: Math.abs(Number(x.amount) || 0),
-        }));
-      const leaseDeductLines =
-        (Number(breakdown.leaseDeductions) || 0) > 0
-          ? [{ title: "リース代", qty: 1, price: Number(breakdown.leaseDeductions) || 0 }]
-          : [];
-      mainLines = [...mainLines, ...fixedAllowanceLines, ...adHocAllowanceLines];
-      deductLines = [...fixedDeductLines, ...adHocDeductLines, ...leaseDeductLines];
-      const computedTotal = Math.max(
-        0,
-        mainLines.reduce((sum, x) => sum + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) -
-          deductLines.reduce((sum, x) => sum + (Number(x.qty) || 0) * (Number(x.price) || 0), 0),
-      );
-
-      const res = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices", {
+      // 明細の集計・採番・payload組み立てはすべてサーバー側（from-source）に任せる。
+      // 以前はここで5本APIを叩いて組み直していて、固定経費の有効期間を見ていないなど
+      // 他の作成導線と結果がズレていた。
+      const res = await apiFetch<{ invoice: { id: string } }>("/api/admin/invoices/from-source", {
         method: "POST",
         body: JSON.stringify({
           month: monthStr,
           section: "郵便局",
-          clientName: driverLabel,
-          issueDate,
-          invoiceNo,
-          amount: computedTotal,
-          status: "draft",
-          payload: {
-            source: "system_invoice",
-            toName: "株式会社ACE CREATION",
-            toAddr: "",
-            subject: `${monthStr} 業務委託料のご請求`,
-            issueDate: `${issueDate.slice(0, 4)}年${Number(issueDate.slice(5, 7))}月${Number(issueDate.slice(8, 10))}日`,
-            invoiceNo,
-            billAmountDisplay: `¥${computedTotal.toLocaleString("ja-JP")}`,
-            fromName: driverLabel,
-            fromAddr,
-            fromTel,
-            fromReg: "",
-            dueDate: `${dueDate.slice(0, 4)}年${Number(dueDate.slice(5, 7))}月${Number(dueDate.slice(8, 10))}日`,
-            bankName,
-            bankNo,
-            bankHolder,
-            notes: "",
-            tableData: {
-              main: mainLines,
-              deduct: deductLines,
-            },
-            sectionSelections: {
-              main: "郵便局",
-            },
-            taxSettings: {
-              enabled: false,
-              rate: 10,
-            },
-            parties: {
-              fromParty: `drv-${row.driverId}`,
-              toParty: "ace_creation",
-            },
-          },
+          source: { type: "driver_payout", driverId: row.driverId },
         }),
       });
       if (!res?.invoice?.id) throw new Error("請求書IDが取得できませんでした");
-      window.location.href = `/admin/invoices/new?invoiceId=${encodeURIComponent(
-        res.invoice.id,
-      )}&month=${encodeURIComponent(monthStr)}&direction=incoming&section=${encodeURIComponent("郵便局")}`;
+      window.location.href = `/admin/invoices/${encodeURIComponent(res.invoice.id)}/edit`;
     } catch (e) {
       console.error(e);
       // 成功時は編集画面への遷移までオーバーレイを出し続けるため、失敗時のみ解除する

@@ -480,11 +480,20 @@ export function payloadFromEditor(st: EditorState): Record<string, unknown> {
   };
 }
 
+/**
+ * 請求先がドライバー個人か（自社 → ドライバーの請求書）。
+ * 法人アドレス（counterpartyInvoiceAddressId）は持たず、toParty に "drv-<id>" を入れて表す。
+ */
+export function isDriverRecipient(st: EditorState): boolean {
+  return st.kind === "outgoing" && st.parties.toParty.startsWith("drv-");
+}
+
 /** 保存前バリデーション。問題があればユーザー向けメッセージの配列を返す（空＝OK）。 */
 export function validateForSave(st: EditorState): string[] {
   const errors: string[] = [];
   if (st.kind === "outgoing") {
-    if (!st.counterpartyInvoiceAddressId) {
+    // ドライバー個人宛は法人アドレス帳を経由しないため、取引先IDは要求しない。
+    if (!isDriverRecipient(st) && !st.counterpartyInvoiceAddressId) {
       errors.push("請求先（取引先）が選択されていません。上部のメニューから請求先を選んでください。");
     }
     if (!st.toName.trim()) errors.push("請求先の名称が空です。");

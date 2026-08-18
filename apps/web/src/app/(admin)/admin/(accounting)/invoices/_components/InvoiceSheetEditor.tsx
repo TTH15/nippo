@@ -102,24 +102,42 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   const setPeriod = (start?: Date, end?: Date) =>
     setSt((p) => ({ ...p, period: formatPeriodJa(start, end) }));
 
+  // 売上請求書の請求先が法人（取引先）かドライバー個人か。ドライバー宛は
+  // 法人アドレス帳を経由せず、parties.toParty に "drv-<id>" を入れて表す。
+  const [outgoingTarget, setOutgoingTarget] = useState<"corp" | "driver">(
+    initial.kind === "outgoing" && initial.parties.toParty.startsWith("drv-") ? "driver" : "corp",
+  );
+
   const { data: addrData } = useApi<{ addresses: AddressRow[] }>(
-    st.kind === "outgoing" ? "/api/admin/invoice-addresses" : null,
+    st.kind === "outgoing" && outgoingTarget === "corp" ? "/api/admin/invoice-addresses" : null,
   );
   const addresses = addrData?.addresses ?? [];
   // status=all: 稼働終了(inactive)済みのドライバーも選べるようにする
   // （過去に遡って請求書を作成するケースがあるため）。
   // all=1: ページングなしの全件（limit はサーバで100にクランプされ、101人目以降が
   // セレクトから黙って欠けるため使わない）。
+  const needDrivers = st.kind === "incoming" || outgoingTarget === "driver";
   const { data: driverData } = useApi<{ drivers: DriverRow[] }>(
-    st.kind === "incoming" ? "/api/admin/users?all=1&status=all" : null,
+    needDrivers ? "/api/admin/users?all=1&status=all" : null,
   );
   const drivers = driverData?.drivers ?? [];
 
-  const changeKind = (kind: InvoiceKind) =>
+  const changeKind = (kind: InvoiceKind) => {
+    setOutgoingTarget("corp");
     setSt((prev) => {
       const base = blankEditorState(kind);
-      return { ...prev, kind, showStamp: base.showStamp, toName: base.toName, fromName: base.fromName, parties: base.parties };
+      return {
+        ...prev,
+        kind,
+        showStamp: base.showStamp,
+        toName: base.toName,
+        fromName: base.fromName,
+        honorific: base.honorific,
+        counterpartyInvoiceAddressId: null,
+        parties: base.parties,
+      };
     });
+  };
 
   const selectCounterparty = (id: string) => {
     const a = addresses.find((x) => x.id === id);
@@ -142,6 +160,47 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     if (a) selectCounterparty(a.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addresses, st.counterpartyInvoiceAddressId, st.toName, st.kind]);
+
+  /** 売上請求書の請求先にドライバー個人を選ぶ（自社 → ドライバー）。 */
+  const selectRecipientDriver = (id: string) => {
+    const d = drivers.find((x) => x.id === id);
+    setSt((prev) => ({
+      ...prev,
+      // 法人アドレス帳の取引先ではないため紐付けは持たない
+      counterpartyInvoiceAddressId: null,
+      toName: d ? d.name : prev.toName,
+      toAddrHtml: d ? addrHtml(d.postal_code, d.address) : prev.toAddrHtml,
+      toTel: d ? d.phone ?? "" : prev.toTel,
+      toReg: "",
+      honorific: "様",
+      parties: { ...prev.parties, toParty: id ? `drv-${id}` : prev.parties.toParty },
+    }));
+  };
+
+  // 作成ピッカーからの遷移では toParty（drv-<id>）だけが入る。ドライバー取得後に名称等を補完。
+  useEffect(() => {
+    if (st.kind !== "outgoing" || outgoingTarget !== "driver") return;
+    if (!st.parties.toParty.startsWith("drv-") || st.toName.trim()) return;
+    const id = st.parties.toParty.slice("drv-".length);
+    if (drivers.some((x) => x.id === id)) selectRecipientDriver(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drivers, st.parties.toParty, st.toName, st.kind, outgoingTarget]);
+
+  /** 請求先の種別（取引先 / ドライバー）を切り替える。選択済みの請求先はクリアする。 */
+  const changeOutgoingTarget = (target: "corp" | "driver") => {
+    if (target === outgoingTarget) return;
+    setOutgoingTarget(target);
+    setSt((prev) => ({
+      ...prev,
+      counterpartyInvoiceAddressId: null,
+      toName: "",
+      toAddrHtml: "",
+      toTel: "",
+      toReg: "",
+      honorific: target === "driver" ? "様" : "御中",
+      parties: { ...prev.parties, toParty: "" },
+    }));
+  };
 
   const selectDriver = (id: string) => {
     const d = drivers.find((x) => x.id === id);
@@ -284,15 +343,43 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
           ))}
         </div>
 
-        <div className="w-60">
-          {st.kind === "outgoing" ? (
+        {st.kind === "outgoing" && (
+          <div className="w-36">
             <CustomSelect
               size="sm"
-              placeholder="請求先（取引先）を選択…"
-              value={st.counterpartyInvoiceAddressId ?? ""}
-              onChange={(v) => selectCounterparty(v)}
-              options={addresses.map((a) => ({ value: a.id, label: a.name }))}
+              clearable={false}
+              value={outgoingTarget}
+              onChange={(v) => changeOutgoingTarget(v === "driver" ? "driver" : "corp")}
+              options={[
+                { value: "corp", label: "取引先へ請求" },
+                { value: "driver", label: "ドライバーへ請求" },
+              ]}
             />
+          </div>
+        )}
+
+        <div className="w-60">
+          {st.kind === "outgoing" ? (
+            outgoingTarget === "corp" ? (
+              <CustomSelect
+                size="sm"
+                placeholder="請求先（取引先）を選択…"
+                value={st.counterpartyInvoiceAddressId ?? ""}
+                onChange={(v) => selectCounterparty(v)}
+                options={addresses.map((a) => ({ value: a.id, label: a.name }))}
+              />
+            ) : (
+              <CustomSelect
+                size="sm"
+                placeholder="請求先（ドライバー）を選択…"
+                value={st.parties.toParty.startsWith("drv-") ? st.parties.toParty.slice(4) : ""}
+                onChange={(v) => selectRecipientDriver(v)}
+                options={drivers.map((d) => ({
+                  value: d.id,
+                  label: (d.display_name || d.name) + (d.status === "inactive" ? "（稼働終了）" : ""),
+                }))}
+              />
+            )
           ) : (
             <CustomSelect
               size="sm"
