@@ -11,11 +11,20 @@ import {
   faFileInvoice,
   faFloppyDisk,
   faBuilding,
+  faPenToSquare,
   faPlus,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { PixelLoadingOverlay } from "@/lib/components/PixelBoxLoader";
+import {
+  CounterpartyAddressFields,
+  EMPTY_COUNTERPARTY_ADDRESS_FORM,
+  counterpartyAddressBody,
+  counterpartyAddressFormFrom,
+  type CounterpartyAddressForm,
+} from "@/lib/components/CounterpartyAddressFields";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -90,15 +99,13 @@ export default function CounterpartiesPage() {
   const [createInvoiceError, setCreateInvoiceError] = useState<string | null>(null);
   // 請求書作成〜編集画面への遷移中（ボタンを押せたか分かるよう全画面ローダーを出す）
   const [creatingInvoice, setCreatingInvoice] = useState(false);
+  // 取引先の追加・編集は同じモーダル。editingId が null なら新規
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState({
-    name: "",
-    postalCode: "",
-    address: "",
-    phone: "",
-    invoiceNo: "",
-  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [addForm, setAddForm] = useState<CounterpartyAddressForm>(EMPTY_COUNTERPARTY_ADDRESS_FORM);
   const [addSaving, setAddSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmState, setConfirmState] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const [errorState, setErrorState] = useState<{
     title: string;
     message: string;
@@ -130,6 +137,19 @@ export default function CounterpartiesPage() {
     if (summaryError) setRows([]);
   }, [summaryError]);
 
+  // サマリーAPIは id / name / 請求メモしか返さない。編集モーダルに現在値を出すため
+  // 住所録そのものも取る（他画面と同じキーなので実質キャッシュ共有）。
+  const { data: addressData, mutate: mutateAddresses } = useApi<{
+    addresses: {
+      id: string;
+      name: string;
+      postal_code: string | null;
+      address: string | null;
+      phone: string | null;
+      invoice_no: string | null;
+    }[];
+  }>("/api/admin/invoice-addresses");
+
   // 書き込み後の再取得（旧 load の代替）。
   const load = useCallback(() => mutateSummary(), [mutateSummary]);
 
@@ -157,6 +177,26 @@ export default function CounterpartiesPage() {
     }
   };
 
+  /** 請求書の宛先として登録されている情報。旧・法人アドレス帳の表示を引き継ぐ。 */
+  const renderAddressLines = (id: string) => {
+    const a = (addressData?.addresses ?? []).find((x) => x.id === id);
+    const lines = [
+      a?.postal_code ? `〒 ${a.postal_code}` : null,
+      a?.address || null,
+      a?.phone ? `電話: ${a.phone}` : null,
+      a?.invoice_no ? `登録番号: ${a.invoice_no}` : null,
+    ].filter(Boolean) as string[];
+    return (
+      <div className="text-xs text-slate-600 space-y-0.5">
+        {lines.length > 0 ? (
+          lines.map((line) => <div key={line}>{line}</div>)
+        ) : (
+          <div className="text-slate-400">住所・登録番号は未登録</div>
+        )}
+      </div>
+    );
+  };
+
   const openRow = (r: CounterpartySummaryRow) => {
     setExpandedId((id) => (id === r.id ? null : r.id));
     setDraftNotes((d) => ({ ...d, [r.id]: r.billingNotes ?? "" }));
@@ -164,8 +204,50 @@ export default function CounterpartiesPage() {
 
   const openAddModal = () => {
     if (!canWrite) return;
-    setAddForm({ name: "", postalCode: "", address: "", phone: "", invoiceNo: "" });
+    setEditingId(null);
+    setAddForm(EMPTY_COUNTERPARTY_ADDRESS_FORM);
     setShowAddModal(true);
+  };
+
+  /** 既存の取引先を編集する（登録番号を後から入れる、住所を直す等）。 */
+  const openEditModal = (id: string, fallbackName: string) => {
+    if (!canWrite) return;
+    const row = (addressData?.addresses ?? []).find((a) => a.id === id);
+    setEditingId(id);
+    setAddForm(row ? counterpartyAddressFormFrom(row) : { ...EMPTY_COUNTERPARTY_ADDRESS_FORM, name: fallbackName });
+    setShowAddModal(true);
+  };
+
+  /** 取引先を削除する。請求書やコースから参照されていると DB 側で弾かれる。 */
+  const deleteCounterparty = () => {
+    if (!canWrite || !editingId) return;
+    const id = editingId;
+    const name = addForm.name.trim() || "この取引先";
+    setConfirmState({
+      message: `${name}を削除しますか？`,
+      onConfirm: async () => {
+        setDeleting(true);
+        try {
+          await apiFetch(`/api/admin/invoice-addresses/${encodeURIComponent(id)}`, { method: "DELETE" });
+          setShowAddModal(false);
+          void load();
+          void mutateAddresses();
+        } catch (e) {
+          console.error(e);
+          const reason = e instanceof Error ? e.message : "";
+          setErrorState({
+            title: "取引先の削除に失敗しました",
+            message:
+              "サーバーでエラーが発生したため、この取引先を削除できませんでした。\n\n" +
+              "請求書やコースから既に参照されている場合は削除できません。" +
+              "先に参照している側を外してから、もう一度お試しください。",
+            detail: reason || undefined,
+          });
+        } finally {
+          setDeleting(false);
+        }
+      },
+    });
   };
 
   const saveNewCounterparty = async () => {
@@ -179,26 +261,25 @@ export default function CounterpartiesPage() {
     }
     setAddSaving(true);
     try {
-      await apiFetch("/api/admin/invoice-addresses", {
-        method: "POST",
-        body: JSON.stringify({
-          name: addForm.name.trim(),
-          postalCode: addForm.postalCode.trim() || null,
-          address: addForm.address.trim() || null,
-          phone: addForm.phone.trim() || null,
-          invoiceNo: addForm.invoiceNo.trim() || null,
-        }),
-      });
+      await apiFetch(
+        editingId ? `/api/admin/invoice-addresses/${encodeURIComponent(editingId)}` : "/api/admin/invoice-addresses",
+        {
+          method: editingId ? "PUT" : "POST",
+          body: JSON.stringify(counterpartyAddressBody(addForm)),
+        },
+      );
       setShowAddModal(false);
+      // 名称を変えるとサマリーの行名も変わるため、両方取り直す
       void load();
+      void mutateAddresses();
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
       setErrorState({
-        title: "取引先の追加に失敗しました",
+        title: editingId ? "取引先の保存に失敗しました" : "取引先の追加に失敗しました",
         message:
-          "サーバーでエラーが発生したため、取引先を追加できませんでした。\n\n" +
-          "入力内容（郵便番号・住所・電話番号など）に誤りがないか確認し、もう一度追加してください。\n" +
+          `サーバーでエラーが発生したため、取引先を${editingId ? "保存" : "追加"}できませんでした。\n\n` +
+          "入力内容（郵便番号・住所・電話番号など）に誤りがないか確認し、もう一度お試しください。\n" +
           "同じエラーが続く場合は、システム管理者に連絡してください。",
         detail: reason || undefined,
       });
@@ -315,7 +396,15 @@ export default function CounterpartiesPage() {
                       </span>
                     </button>
                     {canWrite && (
-                      <div className="mt-2 flex justify-end">
+                      <div className="mt-2 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(r.id, r.name)}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700"
+                        >
+                          <FontAwesomeIcon icon={faPenToSquare} className="w-3 h-3" />
+                          取引先を編集
+                        </button>
                         <button
                           type="button"
                           onClick={() => void createInvoiceForCounterparty(r)}
@@ -428,17 +517,31 @@ export default function CounterpartiesPage() {
                           </td>
                           <td className="px-3 py-2 text-right">
                             {canWrite ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void createInvoiceForCounterparty(r);
-                                }}
-                                className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-900 border border-slate-200 rounded-md px-2 py-1.5 hover:bg-slate-50"
-                              >
-                                <FontAwesomeIcon icon={faFileInvoice} className="w-3 h-3" />
-                                請求書を保存して編集
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEditModal(r.id, r.name);
+                                  }}
+                                  className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-900 border border-slate-200 rounded-md px-2 py-1.5 hover:bg-slate-50"
+                                  title="住所・電話・インボイス登録番号を編集"
+                                >
+                                  <FontAwesomeIcon icon={faPenToSquare} className="w-3 h-3" />
+                                  編集
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void createInvoiceForCounterparty(r);
+                                  }}
+                                  className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-900 border border-slate-200 rounded-md px-2 py-1.5 hover:bg-slate-50"
+                                >
+                                  <FontAwesomeIcon icon={faFileInvoice} className="w-3 h-3" />
+                                  請求書を保存して編集
+                                </button>
+                              </div>
                             ) : (
                               <span className="text-xs text-slate-400">—</span>
                             )}
@@ -454,6 +557,10 @@ export default function CounterpartiesPage() {
                                 onRefreshSummary={() => void load()}
                               />
                               <div className="mt-6 pt-4 border-t border-slate-200">
+                                <div className="mb-4">
+                                  <p className="text-xs font-medium text-slate-500 mb-1">請求書の宛先</p>
+                                  {renderAddressLines(r.id)}
+                                </div>
                                 <label className="block text-xs font-medium text-slate-500 mb-1">
                                   社内メモ（請求書には出力されません）
                                 </label>
@@ -504,82 +611,52 @@ export default function CounterpartiesPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 pt-5 pb-3 border-b border-slate-200">
-              <h2 className="text-base font-semibold text-slate-900">取引先を追加</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                請求書の宛先（法人アドレス帳）に登録します。個人（ドライバー）はドライバー管理で登録してください。
-              </p>
+              <h2 className="text-base font-semibold text-slate-900">
+                {editingId ? "取引先を編集" : "取引先を追加"}
+              </h2>
             </div>
 
             <div className="px-5 py-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">会社名 *</label>
-                <input
-                  type="text"
-                  value={addForm.name}
-                  onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
-                  placeholder="株式会社○○"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">郵便番号</label>
-                <input
-                  type="text"
-                  value={addForm.postalCode}
-                  onChange={(e) => setAddForm((f) => ({ ...f, postalCode: e.target.value }))}
-                  placeholder="123-4567"
-                  maxLength={8}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">住所</label>
-                <input
-                  type="text"
-                  value={addForm.address}
-                  onChange={(e) => setAddForm((f) => ({ ...f, address: e.target.value }))}
-                  placeholder="東京都○○区○○1-2-3"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">電話番号</label>
-                <input
-                  type="text"
-                  value={addForm.phone}
-                  onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))}
-                  placeholder="03-1234-5678"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">インボイス登録番号</label>
-                <input
-                  type="text"
-                  value={addForm.invoiceNo}
-                  onChange={(e) => setAddForm((f) => ({ ...f, invoiceNo: e.target.value }))}
-                  placeholder="T1234567890123"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-              </div>
+              <CounterpartyAddressFields value={addForm} onChange={setAddForm} disabled={addSaving} />
             </div>
 
-            <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
-              <Button variant="ghost" size="sm" onClick={() => setShowAddModal(false)}>
-                キャンセル
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={saveNewCounterparty}
-                disabled={addSaving || !addForm.name.trim()}
-              >
-                {addSaving ? "保存中..." : "保存"}
-              </Button>
+            <div className="px-5 py-3 flex items-center justify-between gap-2 border-t border-slate-100">
+              <div>
+                {editingId && (
+                  <button
+                    type="button"
+                    onClick={deleteCounterparty}
+                    disabled={addSaving || deleting}
+                    className="text-xs text-red-500 hover:text-red-700 transition-colors disabled:opacity-50"
+                  >
+                    {deleting ? "削除中..." : "削除"}
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setShowAddModal(false)}>
+                  キャンセル
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={saveNewCounterparty}
+                  disabled={addSaving || deleting || !addForm.name.trim()}
+                >
+                  {addSaving ? "保存中..." : "保存"}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={!!confirmState}
+        message={confirmState?.message ?? ""}
+        onConfirm={confirmState?.onConfirm ?? (() => {})}
+        onClose={() => setConfirmState(null)}
+        confirmLabel="削除"
+      />
       <ErrorDialog
         open={!!errorState}
         title={errorState?.title}

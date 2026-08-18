@@ -16,3 +16,15 @@ react / react-native / expo を直接依存で足さないこと**（混在の�
 
 - vitest に react 系ライブラリを追加して「Objects are not valid as a React child」等で落ちたら、`apps/web/vitest.config.mts` の `deps.optimizer.client.include` に追加する
 - mobile の NativeWind は v4.2（Tailwind v3）。v5(Tailwind v4) は stable 化してから移行する
+
+## 作業ログは月別（2026-08-18 分割）
+
+- 本文は `docs/worklog/YYYY-MM.md` の末尾に追記する。**あわせて索引 `docs/worklog.md` の
+  「直近のエントリ」にも1行足す**（Stop フックが索引の mtime を見ているため）
+- 読むときは全文を読まない。`grep -n '^## ' docs/worklog/YYYY-MM.md` で見出しと行番号を
+  一覧してから、必要な節だけ `offset` / `limit` で読む
+
+## サブエージェント
+
+`.claude/agents/` に explorer / architect / reviewer / security / tester。全て読み取り専用で、
+ハコ虎固有の前提（RLS 不使用・本番DB直結・過去に踏んだ地雷）を常駐させてある。

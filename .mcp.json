@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "blender": {
+      "command": "/Users/H.Takaya/.local/bin/uv",
+      "args": [
+        "run",
+        "--script",
+        "scripts/blender-mcp/server.py"
+      ]
+    }
+  }
+}

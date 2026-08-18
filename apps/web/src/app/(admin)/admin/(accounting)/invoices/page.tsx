@@ -1107,10 +1107,10 @@ export default function InvoicesPage() {
                         {invoiceAddresses.length === 0 && (
                           <>
                             {" "}
-                            <a href="/admin/invoices/addressbook" className="underline hover:text-slate-600">
-                              法人アドレス帳
+                            <a href="/admin/counterparties" className="underline hover:text-slate-600">
+                              取引先
                             </a>
-                            で取引先を登録してください。
+                            ページで登録してください。
                           </>
                         )}
                       </p>
