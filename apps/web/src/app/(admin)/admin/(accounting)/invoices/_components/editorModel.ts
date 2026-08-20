@@ -336,9 +336,10 @@ export function editorFromInvoice(inv: ApiInvoice): EditorState {
     fromAddrHtml: s(p.fromAddr) || base.fromAddrHtml,
     fromTel: s(p.fromTel) || base.fromTel,
     fromReg: s(p.fromReg) || base.fromReg,
-    // 現行データは保存値を優先。旧データは outgoing の既定値へ戻し、
-    // 日本語の請求元名でも印影が消えないようにする。
-    showStamp: p.showStamp !== undefined ? Boolean(p.showStamp) : base.showStamp,
+    // 売上請求書の社印は会社設定を正本として必ず表示する。
+    // 過去に false で保存された請求書は、切替UIが無いため再表示できず、そのまま社印が
+    // 消えていた。受領請求書には自社印を押さない。
+    showStamp: kind === "outgoing" ? Boolean(getInvoiceIssuer().stampPath) : false,
     period: s(p.period || p.subject) || base.period,
     invoiceNo: s(p.invoiceNo) || s(inv.invoiceNo),
     taxEnabled: tax.enabled !== undefined ? Boolean(tax.enabled) : true,

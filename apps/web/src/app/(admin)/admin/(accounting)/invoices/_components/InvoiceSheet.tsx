@@ -711,15 +711,20 @@ export function InvoiceSheet({
             <div className="relative shrink-0 w-[42%]">
               {doc.showStamp && getInvoiceIssuer().stampPath ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={getInvoiceIssuer().stampPath} alt="" className="absolute right-0 top-8 w-20 opacity-90" />
+                <img
+                  src={getInvoiceIssuer().stampPath}
+                  alt=""
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-1 top-9 z-0 w-32 opacity-[0.85]"
+                />
               ) : null}
-              <div className="text-[12px] leading-[1.7]">
+              <div className="relative z-10 text-[12px] leading-[1.7]">
                 <div className="flex"><b className="shrink-0">対象期間：</b>
                   {st.period ? <span>{st.period}</span> : <span className="text-slate-400">{readOnly ? "" : "（上部で選択）"}</span>}
                 </div>
                 <div className="flex"><b className="shrink-0">請求書番号：</b><T readOnly={readOnly} value={st.invoiceNo} placeholder="INV-..." onChange={(v) => set({ invoiceNo: v })} /></div>
               </div>
-              <div className="mt-3 text-[12px] leading-[1.6]">
+              <div className="relative z-10 mt-3 text-[12px] leading-[1.6]">
                 <div className="text-[14px] font-semibold"><T readOnly={readOnly} value={st.fromName} placeholder="請求元 名称" bold onChange={(v) => set({ fromName: v })} /></div>
                 {readOnly ? (
                   <div dangerouslySetInnerHTML={{ __html: st.fromAddrHtml || "" }} />

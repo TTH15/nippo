@@ -80,14 +80,14 @@ describe("editorFromInvoice → saveBodyFromEditor 往復", () => {
     expect(st.showStamp).toBe(Boolean(getInvoiceIssuer().stampPath));
   });
 
-  it("保存済みの印影非表示設定は維持する", () => {
+  it("売上請求書は過去の非表示設定が残っていても会社設定の印影を復元する", () => {
     const st = editorFromInvoice({
       id: "no-stamp",
       direction: "outgoing",
       invoiceNo: "INV-NO-STAMP",
       payload: { showStamp: false },
     });
-    expect(st.showStamp).toBe(false);
+    expect(st.showStamp).toBe(Boolean(getInvoiceIssuer().stampPath));
   });
 
   it("kind/明細/金額を保持", () => {
