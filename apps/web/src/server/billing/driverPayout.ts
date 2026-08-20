@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { isCountableReport } from "@/server/aggregation/compute";
 import { inclusiveOf } from "@repo/core/logic/taxBasis";
+import { applyQuantityRule } from "@/server/billing/quantityRule";
 
 // ============================================================
 // ドライバーの「自動算出 報酬(payout)」を v2 集計モデルから算出する共有ロジック。
@@ -113,6 +114,7 @@ export async function computeDriverAutoPayout(
   // 集計用アキュムレータ（明細行）
   const linePuQty = new Map<string, number>(); // `${courseId}:${unitId}` -> qty
   const fixedDaysByCourse = new Map<string, number>();
+  const snapshotPayoutByKey = new Map<string, number>();
 
   const days: DriverDayPayout[] = [];
 
@@ -139,6 +141,8 @@ export async function computeDriverAutoPayout(
           text: `${prefix}${fdef.label} ${qty}個`,
         });
       }
+      // スナップショットがある承認済み日報は、後段で固定済み単価を使う。
+      if (r.rateSnapshot?.version === 1) continue;
       // 報酬（billable のみ・単価あり）
       const billable = unit?.fields.find((x) => x.fieldKey === e.fieldKey)?.isBillable;
       if (!billable || qty === 0) continue;
@@ -147,10 +151,27 @@ export async function computeDriverAutoPayout(
         : `${courseId}:0:${e.unitId}`;
       const rate = rateByCourseUnit.get(rateKey);
       if (!rate) continue;
-      dayPayout += qty * toDisplay(rate.payoutPerUnit);
-      linePuQty.set(rateKey, (linePuQty.get(rateKey) ?? 0) + qty);
+      const payoutQty = applyQuantityRule(qty, rate.payoutQuantityRule);
+      dayPayout += payoutQty * toDisplay(rate.payoutPerUnit);
+      linePuQty.set(rateKey, (linePuQty.get(rateKey) ?? 0) + payoutQty);
     }
 
+    if (r.rateSnapshot?.version === 1) {
+      for (const component of r.rateSnapshot.components) {
+        const displayPayout = toDisplay(component.payout);
+        dayPayout += displayPayout;
+        const unitPrice = component.quantity ? component.payout / component.quantity : 0;
+        const key = component.kind === "unit"
+          ? `${courseId}:${r.cycleNo ?? 0}:${component.unitId ?? ""}:snap:${unitPrice}`
+          : `${courseId}:${r.cycleNo ?? 0}:snap:${unitPrice}`;
+        snapshotPayoutByKey.set(key, unitPrice);
+        if (component.kind === "unit") {
+          linePuQty.set(key, (linePuQty.get(key) ?? 0) + component.quantity);
+        } else {
+          fixedDaysByCourse.set(key, (fixedDaysByCourse.get(key) ?? 0) + 1);
+        }
+      }
+    } else {
     // 固定
     const fixedKey = fixedByCourse.has(`${courseId}:${r.cycleNo ?? 0}`)
       ? `${courseId}:${r.cycleNo ?? 0}`
@@ -159,6 +180,7 @@ export async function computeDriverAutoPayout(
     if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
       dayPayout += toDisplay(fx.fixedPayout);
       fixedDaysByCourse.set(fixedKey, (fixedDaysByCourse.get(fixedKey) ?? 0) + 1);
+    }
     }
 
     const content =
@@ -176,7 +198,9 @@ export async function computeDriverAutoPayout(
   for (const [key, qty] of linePuQty) {
     const [courseId, , unitId] = key.split(":");
     const rate = rateByCourseUnit.get(key);
-    if (!rate || qty <= 0 || rate.payoutPerUnit <= 0) continue;
+    const snapshotPrice = snapshotPayoutByKey.get(key);
+    const unitPrice = snapshotPrice ?? rate?.payoutPerUnit ?? 0;
+    if (qty <= 0 || unitPrice <= 0) continue;
     const courseName = courseNameById.get(courseId) ?? "";
     const short = shortCourseLabel(courseName);
     lines.push({
@@ -185,14 +209,16 @@ export async function computeDriverAutoPayout(
       unitId,
       title: `${unitNameById.get(unitId) ?? ""}（${short}）`,
       qty,
-      unitPrice: toDisplay(rate.payoutPerUnit),
-      amount: qty * toDisplay(rate.payoutPerUnit),
+      unitPrice: toDisplay(unitPrice),
+      amount: qty * toDisplay(unitPrice),
     });
   }
   for (const [key, dayCount] of fixedDaysByCourse) {
     const [courseId, cycleNo] = key.split(":");
     const fx = fixedByCourse.get(key);
-    if (!fx || dayCount <= 0 || fx.fixedPayout <= 0) continue;
+    const snapshotPrice = snapshotPayoutByKey.get(key);
+    const unitPrice = snapshotPrice ?? fx?.fixedPayout ?? 0;
+    if (dayCount <= 0 || unitPrice <= 0) continue;
     const courseName = courseNameById.get(courseId) ?? "";
     const short = shortCourseLabel(courseName);
     lines.push({
@@ -201,8 +227,8 @@ export async function computeDriverAutoPayout(
       unitId: null,
       title: `${short}（固定${cycleNo !== "0" ? `・${cycleNo}便` : ""}）`,
       qty: dayCount,
-      unitPrice: toDisplay(fx.fixedPayout),
-      amount: dayCount * toDisplay(fx.fixedPayout),
+      unitPrice: toDisplay(unitPrice),
+      amount: dayCount * toDisplay(unitPrice),
     });
   }
   lines.sort((a, b) => a.title.localeCompare(b.title, "ja"));

@@ -84,14 +84,14 @@ export async function loadAggregationData(
     fetchAllRows((from, to) =>
       supabase
         .from("course_unit_rates")
-        .select("course_id, cycle_no, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit")
+        .select("course_id, cycle_no, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit, revenue_contract_amount, payout_contract_amount, revenue_quantity_rule, payout_quantity_rule")
         .order("id", { ascending: true })
         .range(from, to),
     ),
     fetchAllRows((from, to) =>
       supabase
         .from("course_fixed_rates")
-        .select("course_id, cycle_no, fixed_revenue, fixed_profit, fixed_payout")
+        .select("course_id, cycle_no, fixed_revenue, fixed_profit, fixed_payout, revenue_contract_amount, payout_contract_amount")
         // PK は course_id（id 列なし）
         .order("course_id", { ascending: true })
         .range(from, to),
@@ -101,7 +101,7 @@ export async function loadAggregationData(
         fetchAllRows((from, to) => {
           let q = supabase
             .from("daily_reports_v2")
-            .select("id, driver_id, report_date, course_id, cycle_no, carrier_id, approved_at, rejected_at")
+            .select("id, driver_id, report_date, course_id, cycle_no, carrier_id, approved_at, rejected_at, rate_snapshot")
             .eq("org_id", orgId)
             .gte("report_date", startDate)
             .lte("report_date", endDate);
@@ -189,6 +189,7 @@ export async function loadAggregationData(
     carrierId: r.carrier_id ?? null,
     approvedAt: r.approved_at ?? null,
     rejectedAt: r.rejected_at ?? null,
+    rateSnapshot: r.rate_snapshot ?? null,
     entries: entriesByReport.get(r.id) ?? [],
   }));
 
@@ -202,6 +203,10 @@ export async function loadAggregationData(
       revenuePerUnit: Number(r.revenue_per_unit) || 0,
       profitPerUnit: Number(r.profit_per_unit) || 0,
       payoutPerUnit: Number(r.payout_per_unit) || 0,
+      revenueContractAmount: r.revenue_contract_amount == null ? undefined : Number(r.revenue_contract_amount) || 0,
+      payoutContractAmount: r.payout_contract_amount == null ? undefined : Number(r.payout_contract_amount) || 0,
+      revenueQuantityRule: r.revenue_quantity_rule ?? { kind: "actual" },
+      payoutQuantityRule: r.payout_quantity_rule ?? { kind: "actual" },
     })),
     fixedRates: (fixedRates ?? []).map((r: any) => ({
       courseId: r.course_id,
@@ -209,6 +214,8 @@ export async function loadAggregationData(
       fixedRevenue: Number(r.fixed_revenue) || 0,
       fixedProfit: Number(r.fixed_profit) || 0,
       fixedPayout: Number(r.fixed_payout) || 0,
+      revenueContractAmount: r.revenue_contract_amount == null ? undefined : Number(r.revenue_contract_amount) || 0,
+      payoutContractAmount: r.payout_contract_amount == null ? undefined : Number(r.payout_contract_amount) || 0,
     })),
     reports,
     ledger: (ledgerRows ?? []).map((l: any) => ({

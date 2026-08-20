@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAnyPermission, isAuthError } from "@/server/auth";
 import { COURSE_BILLING_VIEW_CAPS, COURSE_BILLING_MANAGE_CAPS } from "@/server/auth/domainCaps";
 import { supabase } from "@/server/db/client";
+import { resolveOrgId } from "@/server/db/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest) {
   // 単価フォームを開けず 403 になる（2026-08-14 実地報告）。どちらかで可。
   const user = await requireAnyPermission(req, COURSE_BILLING_VIEW_CAPS);
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const courseId = req.nextUrl.searchParams.get("course_id") ?? "";
   const carrierIdParam = req.nextUrl.searchParams.get("carrier_id") ?? "";
@@ -32,20 +34,25 @@ export async function GET(req: NextRequest) {
   let courseName = "";
   let revenueTaxBasis: "exclusive" | "inclusive" = "exclusive";
   let payoutTaxBasis: "exclusive" | "inclusive" = "exclusive";
+  let revenueRateMode = "PER_PIECE";
+  let payoutRateMode = "PER_PIECE";
   if (courseId) {
     const { data: course } = await supabase
       .from("courses")
-      .select("id, name, carrier_id, revenue_tax_basis, payout_tax_basis")
+      .select("id, name, carrier_id, revenue_tax_basis, payout_tax_basis, revenue_rate_mode, payout_rate_mode")
       .eq("id", courseId)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (!course) return NextResponse.json({ error: "コースが見つかりません" }, { status: 404 });
     carrierId = (course as any).carrier_id as string | null;
     courseName = (course as any).name ?? "";
     revenueTaxBasis = (course as any).revenue_tax_basis === "inclusive" ? "inclusive" : "exclusive";
     payoutTaxBasis = (course as any).payout_tax_basis === "inclusive" ? "inclusive" : "exclusive";
+    revenueRateMode = (course as any).revenue_rate_mode ?? "PER_PIECE";
+    payoutRateMode = (course as any).payout_rate_mode ?? "PER_PIECE";
   }
 
-  const [{ data: units }, { data: unitRates }, { data: fixed }] = await Promise.all([
+  const [{ data: units }, { data: unitRates }, { data: versions }, { data: fixed }] = await Promise.all([
     carrierId
       ? supabase
           .from("units")
@@ -57,8 +64,16 @@ export async function GET(req: NextRequest) {
     courseId
       ? supabase
           .from("course_unit_rates")
-          .select("cycle_no, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit, revenue_contract_amount, payout_contract_amount")
+          .select("cycle_no, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit, revenue_contract_amount, payout_contract_amount, revenue_quantity_rule, payout_quantity_rule")
           .eq("course_id", courseId)
+      : Promise.resolve({ data: [] as any[] }),
+    courseId
+      ? supabase
+          .from("course_rate_versions")
+          .select("id, effective_from, created_at")
+          .eq("org_id", orgId)
+          .eq("course_id", courseId)
+          .order("effective_from", { ascending: false })
       : Promise.resolve({ data: [] as any[] }),
     courseId
       ? supabase
@@ -74,10 +89,13 @@ export async function GET(req: NextRequest) {
     carrierId,
     revenueTaxBasis,
     payoutTaxBasis,
+    revenueRateMode,
+    payoutRateMode,
     units: units ?? [],
     unitRates: unitRates ?? [],
     fixedRates: fixed ?? [],
     fixed: (fixed ?? []).find((r: any) => Number(r.cycle_no) === 0) ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 },
+    rateVersions: versions ?? [],
   });
 }
 
@@ -89,6 +107,8 @@ type UnitRateInput = {
   payout_per_unit?: number;
   revenue_contract_amount?: number;
   payout_contract_amount?: number;
+  revenue_quantity_rule?: unknown;
+  payout_quantity_rule?: unknown;
 };
 
 const num = (v: unknown) => Math.trunc(Number(v) || 0);
@@ -101,24 +121,52 @@ export async function PUT(req: NextRequest) {
   // 「コースの追加に失敗しました」と見える（2026-08-14 実地報告の原因）。
   const user = await requireAnyPermission(req, COURSE_BILLING_MANAGE_CAPS);
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const body = await req.json().catch(() => ({}));
   const courseId = typeof body.course_id === "string" ? body.course_id : "";
   if (!courseId) return NextResponse.json({ error: "course_id が必要です" }, { status: 400 });
+  const { data: ownCourse } = await supabase
+    .from("courses")
+    .select("id, created_at")
+    .eq("id", courseId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (!ownCourse) return NextResponse.json({ error: "コースが見つかりません" }, { status: 404 });
 
   const unitRates: UnitRateInput[] = Array.isArray(body.unitRates) ? body.unitRates : [];
   const fixed = body.fixed ?? {};
   const revenueTaxBasis = body.revenueTaxBasis === "inclusive" ? "inclusive" : "exclusive";
   const payoutTaxBasis = body.payoutTaxBasis === "inclusive" ? "inclusive" : "exclusive";
+  const validModes = new Set(["NONE", "PER_PIECE", "FIXED", "BOTH"]);
+  const revenueRateMode = validModes.has(body.revenueRateMode) ? body.revenueRateMode : "PER_PIECE";
+  const payoutRateMode = validModes.has(body.payoutRateMode) ? body.payoutRateMode : "PER_PIECE";
   const fixedRates = Array.isArray(body.fixedRates)
     ? body.fixedRates
     : [{ cycle_no: 0, ...fixed }];
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: existingVersion } = await supabase
+    .from("course_rate_versions")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("course_id", courseId)
+    .limit(1)
+    .maybeSingle();
+  // 初回だけコース作成日、2回目以降は実際に単価を保存した日を適用日とする。
+  // 同日の再保存は UNIQUE(course_id, effective_from) により同じ履歴を更新する。
+  const courseCreatedDate = String((ownCourse as any).created_at ?? "").slice(0, 10);
+  const effectiveFrom = existingVersion ? today : courseCreatedDate || today;
 
   // コースに「契約上の真の基準」を記録する（保存値自体は従来どおり常に税抜）。
   {
     const { error } = await supabase
       .from("courses")
-      .update({ revenue_tax_basis: revenueTaxBasis, payout_tax_basis: payoutTaxBasis })
+      .update({
+        revenue_tax_basis: revenueTaxBasis,
+        payout_tax_basis: payoutTaxBasis,
+        revenue_rate_mode: revenueRateMode,
+        payout_rate_mode: payoutRateMode,
+      })
       .eq("id", courseId);
     if (error) {
       console.error(error);
@@ -132,11 +180,13 @@ export async function PUT(req: NextRequest) {
       course_id: courseId,
       cycle_no: Number.isInteger(r.cycle_no) && Number(r.cycle_no) >= 0 ? Number(r.cycle_no) : 0,
       unit_id: r.unit_id,
-      revenue_per_unit: num(r.revenue_per_unit),
+      revenue_per_unit: revenueRateMode === "PER_PIECE" || revenueRateMode === "BOTH" ? num(r.revenue_per_unit) : 0,
       profit_per_unit: num(r.profit_per_unit),
-      payout_per_unit: num(r.payout_per_unit),
-      revenue_contract_amount: num(r.revenue_contract_amount),
-      payout_contract_amount: num(r.payout_contract_amount),
+      payout_per_unit: payoutRateMode === "PER_PIECE" || payoutRateMode === "BOTH" ? num(r.payout_per_unit) : 0,
+      revenue_contract_amount: revenueRateMode === "PER_PIECE" || revenueRateMode === "BOTH" ? num(r.revenue_contract_amount) : 0,
+      payout_contract_amount: payoutRateMode === "PER_PIECE" || payoutRateMode === "BOTH" ? num(r.payout_contract_amount) : 0,
+      revenue_quantity_rule: r.revenue_quantity_rule ?? { kind: "actual" },
+      payout_quantity_rule: r.payout_quantity_rule ?? { kind: "actual" },
       updated_at: new Date().toISOString(),
     }));
     // cycle_no は便ごとの単価（migration 136）。0 = 全便共通で、便を使わないコースは常にこれ
@@ -152,16 +202,16 @@ export async function PUT(req: NextRequest) {
   // --- 新: course_fixed_rates ---
   {
     const fixedRows = fixedRates.map((r: any) => {
-      const revenue = num(r.fixed_revenue);
-      const payout = num(r.fixed_payout);
+      const revenue = revenueRateMode === "FIXED" || revenueRateMode === "BOTH" ? num(r.fixed_revenue) : 0;
+      const payout = payoutRateMode === "FIXED" || payoutRateMode === "BOTH" ? num(r.fixed_payout) : 0;
       return {
         course_id: courseId,
         cycle_no: Number.isInteger(r.cycle_no) && Number(r.cycle_no) >= 0 ? Number(r.cycle_no) : 0,
         fixed_revenue: revenue,
         fixed_profit: revenue - payout,
         fixed_payout: payout,
-        revenue_contract_amount: num(r.revenue_contract_amount),
-        payout_contract_amount: num(r.payout_contract_amount),
+        revenue_contract_amount: revenueRateMode === "FIXED" || revenueRateMode === "BOTH" ? num(r.revenue_contract_amount) : 0,
+        payout_contract_amount: payoutRateMode === "FIXED" || payoutRateMode === "BOTH" ? num(r.payout_contract_amount) : 0,
         updated_at: new Date().toISOString(),
       };
     });
@@ -171,6 +221,24 @@ export async function PUT(req: NextRequest) {
     if (error) {
       console.error(error);
       return NextResponse.json({ error: "固定単価の保存に失敗しました" }, { status: 500 });
+    }
+  }
+
+  // 現在値の保存に成功した後で、適用開始日付き履歴も固定する。
+  {
+    const { error } = await supabase.from("course_rate_versions").upsert(
+      {
+        org_id: orgId,
+        course_id: courseId,
+        effective_from: effectiveFrom,
+        rate_data: { revenueTaxBasis, payoutTaxBasis, revenueRateMode, payoutRateMode, unitRates, fixedRates },
+        created_by: user.driverId,
+      },
+      { onConflict: "course_id,effective_from" },
+    );
+    if (error) {
+      console.error(error);
+      return NextResponse.json({ error: "単価履歴の保存に失敗しました" }, { status: 500 });
     }
   }
 

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { applyQuantityRule } from "@/server/billing/quantityRule";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { buildContext, buildContributions, isCountableReport } from "@/server/aggregation/compute";
 import { getDisplayName } from "@/lib/displayName";
@@ -42,6 +43,7 @@ export type SystemBillingLine = {
   quantity: number;
   unitPrice: number;
   amount: number;
+  priceBasis: "exclusive" | "inclusive";
 };
 
 /**
@@ -57,7 +59,7 @@ export async function computeCounterpartyMonthBillingDetail(
   // 1. 対象コース（sort_order 順を保持）
   const { data: courseRows, error: coursesErr } = await supabase
     .from("courses")
-    .select("id, name, sort_order")
+    .select("id, name, sort_order, revenue_tax_basis")
     .eq("org_id", orgId)
     .eq("counterparty_invoice_address_id", counterpartyInvoiceAddressId)
     .order("sort_order", { ascending: true });
@@ -66,7 +68,11 @@ export async function computeCounterpartyMonthBillingDetail(
 
   const orderedCourseIds = courseRows.map((c) => String(c.id));
   const courseNameById = new Map<string, string>();
-  courseRows.forEach((c) => courseNameById.set(String(c.id), String(c.name ?? "")));
+  const revenueBasisByCourse = new Map<string, "exclusive" | "inclusive">();
+  courseRows.forEach((c) => {
+    courseNameById.set(String(c.id), String(c.name ?? ""));
+    revenueBasisByCourse.set(String(c.id), c.revenue_tax_basis === "inclusive" ? "inclusive" : "exclusive");
+  });
   const allowed = new Set(orderedCourseIds);
 
   // 2. v2 正規化データ。取引先に紐づくコースの日報だけを読む
@@ -77,7 +83,7 @@ export async function computeCounterpartyMonthBillingDetail(
     withLedger: false,
   });
   const unitById = new Map(data.units.map((u) => [u.id, u]));
-  const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
+  const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}:${r.unitId}`, r]));
   const fixedByCourse = new Map(data.fixedRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}`, r]));
 
   // 3. 表示名・並び（unit 名/並び、ドライバー名）
@@ -98,16 +104,16 @@ export async function computeCounterpartyMonthBillingDetail(
   });
 
   // 4. 集計
-  // 従量: courseId -> unitId -> driverId -> 数量
+  // 従量: courseId -> `${cycleNo}:${unitId}` -> driverId -> 計算数量
   const puQty = new Map<string, Map<string, Map<string, number>>>();
   // 固定: courseId -> driverId -> 稼働日数
   const fixedDays = new Map<string, Map<string, number>>();
 
-  const addPu = (courseId: string, unitId: string, driverId: string, qty: number) => {
+  const addPu = (courseId: string, cycleUnitKey: string, driverId: string, qty: number) => {
     let byUnit = puQty.get(courseId);
     if (!byUnit) puQty.set(courseId, (byUnit = new Map()));
-    let byDriver = byUnit.get(unitId);
-    if (!byDriver) byUnit.set(unitId, (byDriver = new Map()));
+    let byDriver = byUnit.get(cycleUnitKey);
+    if (!byDriver) byUnit.set(cycleUnitKey, (byDriver = new Map()));
     byDriver.set(driverId, (byDriver.get(driverId) ?? 0) + qty);
   };
   const addFixed = (rateKey: string, driverId: string) => {
@@ -128,10 +134,14 @@ export async function computeCounterpartyMonthBillingDetail(
       if (!unit) continue;
       const f = unit.fields.find((x) => x.fieldKey === e.fieldKey);
       if (!f || !f.isBillable) continue;
-      if (!rateByCourseUnit.has(`${courseId}:${e.unitId}`)) continue;
+      const rateKey = rateByCourseUnit.has(`${courseId}:${r.cycleNo ?? 0}:${e.unitId}`)
+        ? `${courseId}:${r.cycleNo ?? 0}:${e.unitId}`
+        : `${courseId}:0:${e.unitId}`;
+      const rate = rateByCourseUnit.get(rateKey);
+      if (!rate) continue;
       const qty = e.valueNum ?? 0;
       if (!qty) continue;
-      addPu(courseId, e.unitId, driverId, qty);
+      addPu(courseId, `${rate.cycleNo ?? 0}:${e.unitId}`, driverId, applyQuantityRule(qty, rate.revenueQuantityRule));
     }
 
     // 固定（course_fixed_rates が非0なら 1 report = 1 稼働日）
@@ -156,28 +166,36 @@ export async function computeCounterpartyMonthBillingDetail(
     // 従量（unit を sort_order 順、driver を名前順）
     const unitMap = puQty.get(courseId);
     if (unitMap) {
-      const unitIds = [...unitMap.keys()].sort(
-        (a, b) => (unitSortById.get(a) ?? 0) - (unitSortById.get(b) ?? 0),
+      const cycleUnitKeys = [...unitMap.keys()].sort(
+        (a, b) => {
+          const [aCycle, aUnit] = a.split(":");
+          const [bCycle, bUnit] = b.split(":");
+          return Number(aCycle) - Number(bCycle) || (unitSortById.get(aUnit) ?? 0) - (unitSortById.get(bUnit) ?? 0);
+        },
       );
-      for (const unitId of unitIds) {
-        const rate = rateByCourseUnit.get(`${courseId}:${unitId}`);
+      for (const cycleUnitKey of cycleUnitKeys) {
+        const [cycleNo, unitId] = cycleUnitKey.split(":");
+        const rate = rateByCourseUnit.get(`${courseId}:${cycleNo}:${unitId}`);
         if (!rate) continue;
-        const drvMap = unitMap.get(unitId)!;
+        const drvMap = unitMap.get(cycleUnitKey)!;
         const unitName = unitNameById.get(unitId) ?? "";
         for (const driverId of [...drvMap.keys()].sort(byDriverNameAsc)) {
           const qty = drvMap.get(driverId) ?? 0;
           const amount = qty * rate.revenuePerUnit;
+          const priceBasis = revenueBasisByCourse.get(courseId) ?? "exclusive";
+          const contractUnitPrice = rate.revenueContractAmount ?? rate.revenuePerUnit;
           systemTotal += amount;
           systemLines.push({
             kind: "course_unit",
-            lineKey: `u:${courseId}:${unitId}:drv:${driverId}`,
+            lineKey: `u:${courseId}:cycle:${cycleNo}:${unitId}:drv:${driverId}`,
             courseId,
             courseName,
             unitId,
-            label: `${courseName} ${unitName}（${driverNameById.get(driverId) ?? "担当者"}）`,
+            label: `${courseName} ${unitName}${cycleNo !== "0" ? `・${cycleNo}便` : ""}（${driverNameById.get(driverId) ?? "担当者"}）`,
             quantity: qty,
-            unitPrice: rate.revenuePerUnit,
-            amount,
+            unitPrice: contractUnitPrice,
+            amount: qty * contractUnitPrice,
+            priceBasis,
           });
         }
       }
@@ -193,6 +211,8 @@ export async function computeCounterpartyMonthBillingDetail(
         const days = fdMap.get(driverId) ?? 0;
         if (!days) continue;
         const amount = days * fx.fixedRevenue;
+        const priceBasis = revenueBasisByCourse.get(courseId) ?? "exclusive";
+        const contractUnitPrice = fx.revenueContractAmount ?? fx.fixedRevenue;
         systemTotal += amount;
         systemLines.push({
           kind: "course_fixed",
@@ -201,8 +221,9 @@ export async function computeCounterpartyMonthBillingDetail(
           courseName,
           label: `${courseName}（固定売上${cycleNo !== "0" ? `・${cycleNo}便` : ""}・稼働日・${driverNameById.get(driverId) ?? "担当者"}）`,
           quantity: days,
-          unitPrice: fx.fixedRevenue,
-          amount,
+          unitPrice: contractUnitPrice,
+          amount: days * contractUnitPrice,
+          priceBasis,
         });
       }
     }

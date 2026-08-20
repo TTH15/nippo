@@ -15,6 +15,7 @@ import {
   type DraftTableData,
 } from "@/server/billing/invoiceDraft";
 import { bumpInvoiceNo, resolveUniqueInvoiceNo } from "@/server/billing/invoiceNumbering";
+import { computeInvoiceTotals } from "@repo/core/logic/reward";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,7 @@ function toPayloadLines(tableData: DraftTableData) {
       qty: l.qty,
       unit: l.unit ?? "",
       price: l.price,
-      priceBasis: "exclusive" as const,
+      priceBasis: l.priceBasis === "inclusive" ? "inclusive" as const : "exclusive" as const,
     }));
   return { main: map(tableData.main), deduct: map(tableData.deduct) };
 }
@@ -152,6 +153,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "取引先が見つかりません" }, { status: 404 });
     }
     const c = draft.counterparty;
+    const payloadTableData = toPayloadLines(draft.tableData);
+    const initialTotals = computeInvoiceTotals({
+      main: payloadTableData.main,
+      deduct: payloadTableData.deduct,
+      loanRepay: 0,
+      extraOutsourcing: 0,
+      taxEnabled: true,
+      taxRatePercent: 10,
+      displayBasis: draft.displayBasis,
+    });
     insertRow = {
       org_id: orgId,
       company_code: user.companyCode,
@@ -162,7 +173,7 @@ export async function POST(req: NextRequest) {
       client_name: c.name,
       issue_date: draft.issueDate,
       invoice_no: draft.invoiceNo,
-      amount: sumDraftTotal(draft.tableData),
+      amount: initialTotals.total,
       status: "draft",
       is_starred: false,
       payload: {
@@ -187,9 +198,9 @@ export async function POST(req: NextRequest) {
         bankNo: issuer.bankNo,
         bankHolder: issuer.bankHolder,
         notes: "",
-        tableData: toPayloadLines(draft.tableData),
+        tableData: payloadTableData,
         taxSettings: { enabled: true, rate: 10 },
-        displayBasis: "exclusive",
+        displayBasis: draft.displayBasis,
         parties: { fromParty: "ace_creation", toParty: `corp-${c.id}` },
       },
     };

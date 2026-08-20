@@ -24,4 +24,58 @@ describe("便別固定単価", () => {
     expect(reportContributions(report(1), ctx)[0].payout).toBe(7_000);
     expect(reportContributions(report(2), ctx)[0].payout).toBe(13_000);
   });
+
+  it("承認時スナップショットを現在の単価より優先する", () => {
+    const ctx = buildContext([], [], [
+      { courseId: "c1", cycleNo: 1, fixedRevenue: 20_000, fixedProfit: 5_000, fixedPayout: 15_000 },
+    ]);
+    const approved = {
+      ...report(1),
+      rateSnapshot: {
+        version: 1 as const,
+        capturedAt: "2026-08-21T00:00:00Z",
+        components: [{
+          kind: "fixed" as const,
+          unitId: null,
+          quantity: 1,
+          revenueContractAmount: 17_000,
+          revenueBasis: "exclusive" as const,
+          payoutContractAmount: 13_000,
+          payoutBasis: "exclusive" as const,
+          revenue: 17_000,
+          payout: 13_000,
+          profit: 4_000,
+        }],
+      },
+    };
+    expect(reportContributions(approved, ctx)[0]).toMatchObject({
+      revenue: 17_000,
+      payout: 13_000,
+      profit: 4_000,
+    });
+  });
+});
+
+describe("数量条件付き従量単価", () => {
+  it("売上だけ最低100個、支払は実数で計算できる", () => {
+    const withEntry: DailyReport = {
+      ...report(1),
+      entries: [{ unitId: "u1", fieldKey: "count", valueNum: 80 }],
+    };
+    const ctx = buildContext(
+      [{ id: "u1", carrierId: "carrier-1", code: null, billingType: "PER_PIECE", fields: [{ fieldKey: "count", isBillable: true }] }],
+      [{
+        courseId: "c1", cycleNo: 1, unitId: "u1",
+        revenuePerUnit: 180, payoutPerUnit: 150, profitPerUnit: 30,
+        revenueQuantityRule: { kind: "minimum", minimum: 100, scope: "report" },
+        payoutQuantityRule: { kind: "actual" },
+      }],
+      [],
+    );
+    expect(reportContributions(withEntry, ctx)[0]).toMatchObject({
+      revenue: 18_000,
+      payout: 12_000,
+      profit: 6_000,
+    });
+  });
 });

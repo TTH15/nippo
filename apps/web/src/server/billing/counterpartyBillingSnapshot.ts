@@ -10,6 +10,7 @@ export type SnapshotMainLine = {
   quantity: number;
   unitPrice: number;
   amount: number;
+  priceBasis?: "exclusive" | "inclusive";
 };
 
 export type SnapshotDeductLine = {
@@ -215,6 +216,7 @@ export async function buildCounterpartyBillingSnapshot(
       quantity: s.quantity,
       unitPrice: s.unitPrice,
       amount: roundMoney(s.amount),
+      priceBasis: s.priceBasis,
     });
   }
 

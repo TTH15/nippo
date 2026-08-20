@@ -39,6 +39,7 @@ export async function PUT(
     const updates: Record<string, unknown> = {
       approved_at: null,
       approved_by: null,
+      rate_snapshot: null,
       rejected_at: null,
       rejected_by: null,
     };

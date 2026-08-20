@@ -19,6 +19,7 @@ import type {
   Money,
   UnitDef,
 } from "./types";
+import { applyQuantityRule } from "@/server/billing/quantityRule";
 
 export function zeroMoney(): Money {
   return { revenue: 0, profit: 0, payout: 0 };
@@ -93,6 +94,23 @@ export function reportContributions(
   if (!courseId) return []; // コース不明は自動算出できない
   const out: Contribution[] = [];
 
+  // 承認時スナップショットがあれば現在の単価マスタより優先する。
+  // これにより、後日の単価変更で承認済み期間の売上・報酬・粗利が動かない。
+  if (report.rateSnapshot?.version === 1) {
+    return report.rateSnapshot.components.map((component) => ({
+      date: report.reportDate,
+      driverId: report.driverId,
+      courseId,
+      carrierId: report.carrierId,
+      unitId: component.unitId,
+      counterpartyId: null,
+      source: component.kind === "unit" ? "auto_per_piece" : "auto_fixed",
+      revenue: component.revenue,
+      profit: component.profit,
+      payout: component.payout,
+    }));
+  }
+
   // --- 従量分 ---
   for (const e of report.entries) {
     if (!isBillableField(ctx, e.unitId, e.fieldKey)) continue;
@@ -100,8 +118,12 @@ export function reportContributions(
       ctx.unitRateByCourseUnit.get(`${courseId}:${report.cycleNo ?? 0}:${e.unitId}`) ??
       ctx.unitRateByCourseUnit.get(`${courseId}:0:${e.unitId}`);
     if (!rate) continue;
-    const qty = e.valueNum ?? 0;
-    if (qty === 0) continue;
+    const actualQty = e.valueNum ?? 0;
+    if (actualQty === 0) continue;
+    const revenueQty = applyQuantityRule(actualQty, rate.revenueQuantityRule);
+    const payoutQty = applyQuantityRule(actualQty, rate.payoutQuantityRule);
+    const revenue = revenueQty * rate.revenuePerUnit;
+    const payout = payoutQty * rate.payoutPerUnit;
     out.push({
       date: report.reportDate,
       driverId: report.driverId,
@@ -110,9 +132,9 @@ export function reportContributions(
       unitId: e.unitId,
       counterpartyId: null,
       source: "auto_per_piece",
-      revenue: qty * rate.revenuePerUnit,
-      profit: qty * rate.profitPerUnit,
-      payout: qty * rate.payoutPerUnit,
+      revenue,
+      profit: revenue - payout,
+      payout,
     });
   }
 

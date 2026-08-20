@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { captureReportRateSnapshots } from "@/server/aggregation/rateSnapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -128,6 +129,8 @@ export async function POST(req: NextRequest) {
     }
     savedReportIds.push(reportId);
   }
+
+  await captureReportRateSnapshots(supabase, orgId, savedReportIds);
 
   return NextResponse.json({ ok: true, reportIds: savedReportIds });
 }

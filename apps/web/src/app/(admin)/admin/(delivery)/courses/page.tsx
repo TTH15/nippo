@@ -176,6 +176,7 @@ export default function CoursesPage() {
   // 便は courses 本体とは別テーブルなので、フォーム状態も分けて持つ
   const [editUsesCycles, setEditUsesCycles] = useState(false);
   const [editCycles, setEditCycles] = useState<CycleDraft[]>([]);
+  const [editBillingRevision, setEditBillingRevision] = useState(0);
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -349,7 +350,7 @@ export default function CoursesPage() {
   // 「保存を押し忘れて閉じた」で消えることはない（2026-08-06 全画面展開）。
   const persistRef = useRef<(() => Promise<void>) | null>(null);
   const { status: autoSave, flush: flushAutoSave } = useAutoSave({
-    value: editForm,
+    value: { editForm, editBillingRevision },
     enabled: showEditModal && !!editingCourse && canWrite && !!editForm.name.trim(),
     resetKey: editingCourse?.id ?? null,
     onSave: async () => {
@@ -457,7 +458,7 @@ export default function CoursesPage() {
       // （従来は「コースの追加に失敗しました」と出るのに一覧には作成済みコースが
       // 現れる紛らわしい状態だった・2026-08-14 実地報告）。
       try {
-        await createBillingRef.current?.save(createdCourse.id);
+        await createBillingRef.current?.save(createdCourse.id, { force: true });
       } catch (e) {
         console.error(e);
         setErrorState({
@@ -509,6 +510,7 @@ export default function CoursesPage() {
     setEditForm(form);
     setEditUsesCycles(Boolean(course.uses_cycles));
     setEditCycles(toCycleDrafts(course.course_cycles ?? []));
+    setEditBillingRevision(0);
     baselineFormRef.current = { ...form };
     setShowEditModal(true);
   };
@@ -1249,6 +1251,7 @@ export default function CoursesPage() {
                     courseId={editingCourse.id}
                     usesCycles={editUsesCycles}
                     cycles={editCycles}
+                    onDirty={() => setEditBillingRevision((revision) => revision + 1)}
                     onError={(msg) => setErrorState({ title: "単価設定", message: msg })}
                   />
                 </div>

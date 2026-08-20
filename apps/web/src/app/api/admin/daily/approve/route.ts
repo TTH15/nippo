@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { captureReportRateSnapshots } from "@/server/aggregation/rateSnapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     // v2 は1日複数コース行があり得るため、未却下の各行のメーターを車両へ反映。
     const { data: reportRows, error: reportErr } = await supabase
       .from("daily_reports_v2")
-      .select("vehicle_id, meter_value")
+      .select("id, vehicle_id, meter_value")
       .eq("org_id", orgId)
       .eq("driver_id", driverId)
       .eq("report_date", date)
@@ -110,6 +111,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 適用単価を承認時点で固定してから、v2 を承認する。
+    await captureReportRateSnapshots(supabase, orgId, (reportRows ?? []).map((r) => r.id));
+
     // v2 を承認（同日同ドライバーの未却下行をまとめて）
     const { error } = await supabase
       .from("daily_reports_v2")
@@ -135,4 +139,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
-

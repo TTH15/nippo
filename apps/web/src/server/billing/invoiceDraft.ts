@@ -11,7 +11,7 @@ import { loadDriverLease, loadCourseDailyLease, computeLeaseDeduction } from "./
 
 export type Section = "Amazon" | "ヤマト運輸" | "郵便局";
 
-export type DraftLine = { title: string; qty: number; price: number; unit?: string };
+export type DraftLine = { title: string; qty: number; price: number; unit?: string; priceBasis?: "exclusive" | "inclusive" };
 export type DraftTableData = { main: DraftLine[]; deduct: DraftLine[] };
 
 export type MonthRange = { month: string; startDate: string; endDate: string };
@@ -41,6 +41,7 @@ export type CounterpartyDraft = {
   issueDate: string;
   dueDate: string;
   invoiceNo: string;
+  displayBasis: "exclusive" | "inclusive";
   counterparty: {
     id: string;
     name: string;
@@ -344,6 +345,7 @@ export async function buildCounterpartyDraft(
     title: line.label,
     qty: line.quantity,
     price: line.unitPrice,
+    priceBasis: line.priceBasis,
   }));
   const deduct: DraftLine[] = snap.deductLines.map((line) => ({
     title: line.label,
@@ -365,6 +367,8 @@ export async function buildCounterpartyDraft(
       counterpartyId,
       counterpartyName: addr.name,
     }),
+    // 税込契約行を含む取引先請求は、契約額を壊さない税込表示を既定にする。
+    displayBasis: main.some((line) => line.priceBasis === "inclusive") ? "inclusive" : "exclusive",
     counterparty: {
       id: addr.id,
       name: addr.name,

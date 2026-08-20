@@ -29,6 +29,10 @@ export type CourseUnitRate = {
   revenuePerUnit: number;
   profitPerUnit: number;
   payoutPerUnit: number;
+  revenueContractAmount?: number;
+  payoutContractAmount?: number;
+  revenueQuantityRule?: import("@/server/billing/quantityRule").QuantityRule;
+  payoutQuantityRule?: import("@/server/billing/quantityRule").QuantityRule;
 };
 
 /** 固定(日当)分: course 単位（従量と加算される） */
@@ -38,6 +42,8 @@ export type CourseFixedRate = {
   fixedRevenue: number;
   fixedProfit: number;
   fixedPayout: number;
+  revenueContractAmount?: number;
+  payoutContractAmount?: number;
 };
 
 export type ReportEntry = {
@@ -55,6 +61,7 @@ export type DailyReport = {
   carrierId: string | null;
   approvedAt: string | null;
   rejectedAt: string | null;
+  rateSnapshot?: import("./rateSnapshot").ReportRateSnapshot | null;
   entries: ReportEntry[];
 };
 
