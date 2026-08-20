@@ -1,6 +1,9 @@
 "use client";
 
 import { PLATE_GLYPHS, PLATE_GLYPH_CANVAS, type PlateGlyphMeta } from "@/lib/plateGlyphs.generated";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faExclamation } from "@fortawesome/free-solid-svg-icons";
+import { computeOilStatus } from "@repo/core/logic/oilChange";
 
 export function plateDigits(raw: string): [string, string, string, string] {
   const digits = raw.replace(/\D/g, "").slice(0, 4);
@@ -119,6 +122,13 @@ export function VehiclePlate({
   const hasPlate =
     vehicle.number_prefix || vehicle.number_hiragana || vehicle.number_numeric;
   const scheme = plateScheme(vehicle.plate_color);
+  const oilStatus = computeOilStatus(vehicle);
+  const oilWarning = oilStatus && oilStatus.level !== "safe" ? oilStatus : null;
+  const warningLabel = oilWarning
+    ? oilWarning.remaining < 0
+      ? `オイル交換時期を${Math.abs(oilWarning.remaining).toLocaleString()}km超過しています`
+      : `オイル交換まで残り${oilWarning.remaining.toLocaleString()}kmです`
+    : "";
   const size = compact ? "max-w-[100px] min-w-0" : "max-w-[240px]";
   // plate の見た目は「外側の幅」に比例させる（デバイス依存を減らす）
   // cqw: コンテナ幅の 1% なので、100cqw がコンテナ幅になる
@@ -361,6 +371,19 @@ export function VehiclePlate({
           )}
         </div>
       </div>
+      {oilWarning ? (
+        <span
+          role="img"
+          aria-label={warningLabel}
+          title={warningLabel}
+          className={`absolute right-[2%] top-[2%] z-10 flex items-center justify-center rounded-full border-2 border-white text-white shadow-md ${
+            oilWarning.level === "critical" ? "bg-red-600" : "bg-amber-500"
+          }`}
+          style={{ width: "22%", aspectRatio: "1 / 1", fontSize: scaleLenPx(compact ? 10 : 24) }}
+        >
+          <FontAwesomeIcon icon={faExclamation} aria-hidden />
+        </span>
+      ) : null}
     </div>
   ) : (
     <div className="bg-slate-100 aspect-[2/1] flex items-center justify-center text-slate-500 text-sm p-2 rounded-lg">

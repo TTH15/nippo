@@ -57,16 +57,15 @@ export async function GET(req: NextRequest) {
     courseId
       ? supabase
           .from("course_unit_rates")
-          .select("unit_id, revenue_per_unit, profit_per_unit, payout_per_unit")
+          .select("cycle_no, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit, revenue_contract_amount, payout_contract_amount")
           .eq("course_id", courseId)
       : Promise.resolve({ data: [] as any[] }),
     courseId
       ? supabase
           .from("course_fixed_rates")
-          .select("fixed_revenue, fixed_profit, fixed_payout")
+          .select("cycle_no, fixed_revenue, fixed_profit, fixed_payout, revenue_contract_amount, payout_contract_amount")
           .eq("course_id", courseId)
-          .maybeSingle()
-      : Promise.resolve({ data: null as any }),
+      : Promise.resolve({ data: [] as any[] }),
   ]);
 
   return NextResponse.json({
@@ -77,15 +76,19 @@ export async function GET(req: NextRequest) {
     payoutTaxBasis,
     units: units ?? [],
     unitRates: unitRates ?? [],
-    fixed: fixed ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 },
+    fixedRates: fixed ?? [],
+    fixed: (fixed ?? []).find((r: any) => Number(r.cycle_no) === 0) ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 },
   });
 }
 
 type UnitRateInput = {
+  cycle_no?: number;
   unit_id: string;
   revenue_per_unit?: number;
   profit_per_unit?: number;
   payout_per_unit?: number;
+  revenue_contract_amount?: number;
+  payout_contract_amount?: number;
 };
 
 const num = (v: unknown) => Math.trunc(Number(v) || 0);
@@ -105,11 +108,11 @@ export async function PUT(req: NextRequest) {
 
   const unitRates: UnitRateInput[] = Array.isArray(body.unitRates) ? body.unitRates : [];
   const fixed = body.fixed ?? {};
-  const fixedRevenue = num(fixed.fixed_revenue);
-  const fixedProfit = num(fixed.fixed_profit);
-  const fixedPayout = num(fixed.fixed_payout);
   const revenueTaxBasis = body.revenueTaxBasis === "inclusive" ? "inclusive" : "exclusive";
   const payoutTaxBasis = body.payoutTaxBasis === "inclusive" ? "inclusive" : "exclusive";
+  const fixedRates = Array.isArray(body.fixedRates)
+    ? body.fixedRates
+    : [{ cycle_no: 0, ...fixed }];
 
   // コースに「契約上の真の基準」を記録する（保存値自体は従来どおり常に税抜）。
   {
@@ -127,10 +130,13 @@ export async function PUT(req: NextRequest) {
   if (unitRates.length > 0) {
     const rows = unitRates.map((r) => ({
       course_id: courseId,
+      cycle_no: Number.isInteger(r.cycle_no) && Number(r.cycle_no) >= 0 ? Number(r.cycle_no) : 0,
       unit_id: r.unit_id,
       revenue_per_unit: num(r.revenue_per_unit),
       profit_per_unit: num(r.profit_per_unit),
       payout_per_unit: num(r.payout_per_unit),
+      revenue_contract_amount: num(r.revenue_contract_amount),
+      payout_contract_amount: num(r.payout_contract_amount),
       updated_at: new Date().toISOString(),
     }));
     // cycle_no は便ごとの単価（migration 136）。0 = 全便共通で、便を使わないコースは常にこれ
@@ -145,18 +151,23 @@ export async function PUT(req: NextRequest) {
 
   // --- 新: course_fixed_rates ---
   {
+    const fixedRows = fixedRates.map((r: any) => {
+      const revenue = num(r.fixed_revenue);
+      const payout = num(r.fixed_payout);
+      return {
+        course_id: courseId,
+        cycle_no: Number.isInteger(r.cycle_no) && Number(r.cycle_no) >= 0 ? Number(r.cycle_no) : 0,
+        fixed_revenue: revenue,
+        fixed_profit: revenue - payout,
+        fixed_payout: payout,
+        revenue_contract_amount: num(r.revenue_contract_amount),
+        payout_contract_amount: num(r.payout_contract_amount),
+        updated_at: new Date().toISOString(),
+      };
+    });
     const { error } = await supabase
       .from("course_fixed_rates")
-      .upsert(
-        {
-          course_id: courseId,
-          fixed_revenue: fixedRevenue,
-          fixed_profit: fixedProfit,
-          fixed_payout: fixedPayout,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "course_id,cycle_no" },
-      );
+      .upsert(fixedRows, { onConflict: "course_id,cycle_no" });
     if (error) {
       console.error(error);
       return NextResponse.json({ error: "固定単価の保存に失敗しました" }, { status: 500 });

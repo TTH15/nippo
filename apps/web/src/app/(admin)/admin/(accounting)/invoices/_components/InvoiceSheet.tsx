@@ -15,6 +15,7 @@ import { faGripVertical, faPlus, faTrashCan, faScissors } from "@fortawesome/fre
 import { computeInvoiceTotals, resolveRowPrice } from "@repo/core/logic/reward";
 import type { InvoiceTotals } from "@repo/core/types";
 import { cn } from "@/lib/ui/utils";
+import { getInvoiceIssuer } from "@/config/companies";
 import { INVOICE_KIND_CONFIG, type SummaryRowDef } from "./invoiceKinds";
 import {
   type EditorState,
@@ -708,9 +709,9 @@ export function InvoiceSheet({
             </div>
 
             <div className="relative shrink-0 w-[42%]">
-              {doc.showStamp ? (
+              {doc.showStamp && getInvoiceIssuer().stampPath ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src="/invoice/ACE_CREATION_stamp_1.png" alt="" className="absolute right-0 top-8 w-20 opacity-90" />
+                <img src={getInvoiceIssuer().stampPath} alt="" className="absolute right-0 top-8 w-20 opacity-90" />
               ) : null}
               <div className="text-[12px] leading-[1.7]">
                 <div className="flex"><b className="shrink-0">対象期間：</b>

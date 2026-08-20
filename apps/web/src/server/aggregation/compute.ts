@@ -41,9 +41,9 @@ export function isCountableReport(r: DailyReport): boolean {
 export type AggregationContext = {
   /** unitId -> UnitDef */
   unitById: Map<string, UnitDef>;
-  /** `${courseId}:${unitId}` -> CourseUnitRate */
+  /** `${courseId}:${cycleNo}:${unitId}` -> CourseUnitRate */
   unitRateByCourseUnit: Map<string, CourseUnitRate>;
-  /** courseId -> CourseFixedRate */
+  /** `${courseId}:${cycleNo}` -> CourseFixedRate */
   fixedRateByCourse: Map<string, CourseFixedRate>;
 };
 
@@ -57,11 +57,11 @@ export function buildContext(
 
   const unitRateByCourseUnit = new Map<string, CourseUnitRate>();
   unitRates.forEach((r) =>
-    unitRateByCourseUnit.set(`${r.courseId}:${r.unitId}`, r),
+    unitRateByCourseUnit.set(`${r.courseId}:${r.cycleNo ?? 0}:${r.unitId}`, r),
   );
 
   const fixedRateByCourse = new Map<string, CourseFixedRate>();
-  fixedRates.forEach((r) => fixedRateByCourse.set(r.courseId, r));
+  fixedRates.forEach((r) => fixedRateByCourse.set(`${r.courseId}:${r.cycleNo ?? 0}`, r));
 
   return { unitById, unitRateByCourseUnit, fixedRateByCourse };
 }
@@ -96,7 +96,9 @@ export function reportContributions(
   // --- 従量分 ---
   for (const e of report.entries) {
     if (!isBillableField(ctx, e.unitId, e.fieldKey)) continue;
-    const rate = ctx.unitRateByCourseUnit.get(`${courseId}:${e.unitId}`);
+    const rate =
+      ctx.unitRateByCourseUnit.get(`${courseId}:${report.cycleNo ?? 0}:${e.unitId}`) ??
+      ctx.unitRateByCourseUnit.get(`${courseId}:0:${e.unitId}`);
     if (!rate) continue;
     const qty = e.valueNum ?? 0;
     if (qty === 0) continue;
@@ -115,7 +117,9 @@ export function reportContributions(
   }
 
   // --- 固定(日当)分 ---
-  const fx = ctx.fixedRateByCourse.get(courseId);
+  const fx =
+    ctx.fixedRateByCourse.get(`${courseId}:${report.cycleNo ?? 0}`) ??
+    ctx.fixedRateByCourse.get(`${courseId}:0`);
   if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
     out.push({
       date: report.reportDate,

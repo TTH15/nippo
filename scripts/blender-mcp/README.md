@@ -15,7 +15,9 @@ Claude Code → MCP サーバー(server.py) → [TCP 127.0.0.1:9876] → アド�
 | `server.py` | MCP サーバー。`bridge.py` を MCP のツールとして公開するだけの薄い層 |
 | `launch.sh` | Blender をブリッジ付きで起動する |
 | `export-keivan.sh` | 軽バンを組み立て直して .blend と glb を書き出す |
-| `models/keivan.py` | **軽バンモデルの正本**（パラメトリック） |
+| `models/keivan_from_scan.py` | **軽バンの正本**。Meshy 生成モデルを減面して整える |
+| `MATERIAL-GUIDE.md` | 塗り分けの手順（Blender 未経験者向け） |
+| `models/keivan.py` | 旧・手書きパラメトリック版（地図用の低ポリとして保留中） |
 | `models/_export_epilogue.py` | 書き出し手順。`keivan.py` の後ろに連結して実行する |
 
 ## 使い方

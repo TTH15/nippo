@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InvoiceSheet } from "./InvoiceSheet";
 import { blankEditorState, type EditorState } from "./editorModel";
+import { getInvoiceIssuer } from "@/config/companies";
 
 function Harness({ init }: { init: EditorState }) {
   const [st, setSt] = useState(init);
@@ -22,6 +23,12 @@ function sample(): EditorState {
 }
 
 describe("InvoiceSheet", () => {
+  it("発行請求書に設定済みの印影画像を表示する", () => {
+    const { container } = render(<InvoiceSheet state={sample()} readOnly />);
+    const stamp = container.querySelector(`img[src="${getInvoiceIssuer().stampPath}"]`);
+    expect(stamp).not.toBeNull();
+  });
+
   it("readOnly：主要セクションと差引き請求額を表示（テキスト）", () => {
     render(<InvoiceSheet state={sample()} readOnly />);
     expect(screen.getByText("御 請 求 書")).toBeInTheDocument();

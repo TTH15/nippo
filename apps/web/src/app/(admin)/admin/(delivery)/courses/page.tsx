@@ -1247,6 +1247,8 @@ export default function CoursesPage() {
                   <CourseRateEditor
                     ref={billingRef}
                     courseId={editingCourse.id}
+                    usesCycles={editUsesCycles}
+                    cycles={editCycles}
                     onError={(msg) => setErrorState({ title: "単価設定", message: msg })}
                   />
                 </div>

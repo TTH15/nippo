@@ -2,8 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { createGltfLoader } from "@/lib/three/gltf-loader";
 
 // ============================================================
 // 車両3Dモデルのプレビュー（2026-08-10）。
@@ -103,7 +103,7 @@ export function VehicleModelPreview({
     const observer = new ResizeObserver(resize);
     observer.observe(host);
 
-    new GLTFLoader().load(
+    createGltfLoader().load(
       modelUrl,
       (gltf) => {
         if (disposed) return;

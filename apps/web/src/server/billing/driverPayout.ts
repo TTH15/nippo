@@ -68,8 +68,8 @@ export async function computeDriverAutoPayout(
     withLedger: false,
   });
   const unitById = new Map(data.units.map((u) => [u.id, u]));
-  const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
-  const fixedByCourse = new Map(data.fixedRates.map((r) => [r.courseId, r]));
+  const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}:${r.unitId}`, r]));
+  const fixedByCourse = new Map(data.fixedRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}`, r]));
 
   // 表示用ラベル: コース名 / unit名 / unit_fields(label,input_type,group_label,sort)
   const [{ data: courseRows }, { data: unitRows }, { data: fieldRows }] = await Promise.all([
@@ -142,17 +142,23 @@ export async function computeDriverAutoPayout(
       // 報酬（billable のみ・単価あり）
       const billable = unit?.fields.find((x) => x.fieldKey === e.fieldKey)?.isBillable;
       if (!billable || qty === 0) continue;
-      const rate = rateByCourseUnit.get(`${courseId}:${e.unitId}`);
+      const rateKey = rateByCourseUnit.has(`${courseId}:${r.cycleNo ?? 0}:${e.unitId}`)
+        ? `${courseId}:${r.cycleNo ?? 0}:${e.unitId}`
+        : `${courseId}:0:${e.unitId}`;
+      const rate = rateByCourseUnit.get(rateKey);
       if (!rate) continue;
       dayPayout += qty * toDisplay(rate.payoutPerUnit);
-      linePuQty.set(`${courseId}:${e.unitId}`, (linePuQty.get(`${courseId}:${e.unitId}`) ?? 0) + qty);
+      linePuQty.set(rateKey, (linePuQty.get(rateKey) ?? 0) + qty);
     }
 
     // 固定
-    const fx = fixedByCourse.get(courseId);
+    const fixedKey = fixedByCourse.has(`${courseId}:${r.cycleNo ?? 0}`)
+      ? `${courseId}:${r.cycleNo ?? 0}`
+      : `${courseId}:0`;
+    const fx = fixedByCourse.get(fixedKey);
     if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
       dayPayout += toDisplay(fx.fixedPayout);
-      fixedDaysByCourse.set(courseId, (fixedDaysByCourse.get(courseId) ?? 0) + 1);
+      fixedDaysByCourse.set(fixedKey, (fixedDaysByCourse.get(fixedKey) ?? 0) + 1);
     }
 
     const content =
@@ -168,7 +174,7 @@ export async function computeDriverAutoPayout(
   // 明細行
   const lines: DriverPayoutLine[] = [];
   for (const [key, qty] of linePuQty) {
-    const [courseId, unitId] = key.split(":");
+    const [courseId, , unitId] = key.split(":");
     const rate = rateByCourseUnit.get(key);
     if (!rate || qty <= 0 || rate.payoutPerUnit <= 0) continue;
     const courseName = courseNameById.get(courseId) ?? "";
@@ -183,8 +189,9 @@ export async function computeDriverAutoPayout(
       amount: qty * toDisplay(rate.payoutPerUnit),
     });
   }
-  for (const [courseId, dayCount] of fixedDaysByCourse) {
-    const fx = fixedByCourse.get(courseId);
+  for (const [key, dayCount] of fixedDaysByCourse) {
+    const [courseId, cycleNo] = key.split(":");
+    const fx = fixedByCourse.get(key);
     if (!fx || dayCount <= 0 || fx.fixedPayout <= 0) continue;
     const courseName = courseNameById.get(courseId) ?? "";
     const short = shortCourseLabel(courseName);
@@ -192,7 +199,7 @@ export async function computeDriverAutoPayout(
       courseId,
       courseName,
       unitId: null,
-      title: `${short}（固定）`,
+      title: `${short}（固定${cycleNo !== "0" ? `・${cycleNo}便` : ""}）`,
       qty: dayCount,
       unitPrice: toDisplay(fx.fixedPayout),
       amount: dayCount * toDisplay(fx.fixedPayout),

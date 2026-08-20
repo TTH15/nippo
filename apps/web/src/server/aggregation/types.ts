@@ -24,6 +24,7 @@ export type UnitDef = {
 /** 従量分: course × unit ごとの単価 */
 export type CourseUnitRate = {
   courseId: string;
+  cycleNo?: number;
   unitId: string;
   revenuePerUnit: number;
   profitPerUnit: number;
@@ -33,6 +34,7 @@ export type CourseUnitRate = {
 /** 固定(日当)分: course 単位（従量と加算される） */
 export type CourseFixedRate = {
   courseId: string;
+  cycleNo?: number;
   fixedRevenue: number;
   fixedProfit: number;
   fixedPayout: number;
@@ -49,6 +51,7 @@ export type DailyReport = {
   driverId: string;
   reportDate: string; // YYYY-MM-DD
   courseId: string | null;
+  cycleNo?: number;
   carrierId: string | null;
   approvedAt: string | null;
   rejectedAt: string | null;

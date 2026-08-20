@@ -70,6 +70,26 @@ describe("payloadFromEditor", () => {
 });
 
 describe("editorFromInvoice → saveBodyFromEditor 往復", () => {
+  it("旧形式の発行請求書でも既定の印影を復元する", () => {
+    const st = editorFromInvoice({
+      id: "legacy-outgoing",
+      direction: "outgoing",
+      invoiceNo: "INV-OLD",
+      payload: { fromName: "株式会社エースクリエイション" },
+    });
+    expect(st.showStamp).toBe(Boolean(getInvoiceIssuer().stampPath));
+  });
+
+  it("保存済みの印影非表示設定は維持する", () => {
+    const st = editorFromInvoice({
+      id: "no-stamp",
+      direction: "outgoing",
+      invoiceNo: "INV-NO-STAMP",
+      payload: { showStamp: false },
+    });
+    expect(st.showStamp).toBe(false);
+  });
+
   it("kind/明細/金額を保持", () => {
     const inv = {
       id: "i1",

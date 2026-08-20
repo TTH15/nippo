@@ -84,14 +84,14 @@ export async function loadAggregationData(
     fetchAllRows((from, to) =>
       supabase
         .from("course_unit_rates")
-        .select("course_id, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit")
+        .select("course_id, cycle_no, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit")
         .order("id", { ascending: true })
         .range(from, to),
     ),
     fetchAllRows((from, to) =>
       supabase
         .from("course_fixed_rates")
-        .select("course_id, fixed_revenue, fixed_profit, fixed_payout")
+        .select("course_id, cycle_no, fixed_revenue, fixed_profit, fixed_payout")
         // PK は course_id（id 列なし）
         .order("course_id", { ascending: true })
         .range(from, to),
@@ -101,7 +101,7 @@ export async function loadAggregationData(
         fetchAllRows((from, to) => {
           let q = supabase
             .from("daily_reports_v2")
-            .select("id, driver_id, report_date, course_id, carrier_id, approved_at, rejected_at")
+            .select("id, driver_id, report_date, course_id, cycle_no, carrier_id, approved_at, rejected_at")
             .eq("org_id", orgId)
             .gte("report_date", startDate)
             .lte("report_date", endDate);
@@ -185,6 +185,7 @@ export async function loadAggregationData(
     driverId: r.driver_id,
     reportDate: r.report_date,
     courseId: r.course_id ?? null,
+    cycleNo: Number(r.cycle_no) || 0,
     carrierId: r.carrier_id ?? null,
     approvedAt: r.approved_at ?? null,
     rejectedAt: r.rejected_at ?? null,
@@ -196,6 +197,7 @@ export async function loadAggregationData(
     units: unitDefs,
     unitRates: (unitRates ?? []).map((r: any) => ({
       courseId: r.course_id,
+      cycleNo: Number(r.cycle_no) || 0,
       unitId: r.unit_id,
       revenuePerUnit: Number(r.revenue_per_unit) || 0,
       profitPerUnit: Number(r.profit_per_unit) || 0,
@@ -203,6 +205,7 @@ export async function loadAggregationData(
     })),
     fixedRates: (fixedRates ?? []).map((r: any) => ({
       courseId: r.course_id,
+      cycleNo: Number(r.cycle_no) || 0,
       fixedRevenue: Number(r.fixed_revenue) || 0,
       fixedProfit: Number(r.fixed_profit) || 0,
       fixedPayout: Number(r.fixed_payout) || 0,

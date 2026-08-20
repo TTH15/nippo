@@ -336,8 +336,9 @@ export function editorFromInvoice(inv: ApiInvoice): EditorState {
     fromAddrHtml: s(p.fromAddr) || base.fromAddrHtml,
     fromTel: s(p.fromTel) || base.fromTel,
     fromReg: s(p.fromReg) || base.fromReg,
-    showStamp:
-      s(p?.parties?.fromParty) === "ace_creation" || /ACE\s*CREATION/i.test(fromName),
+    // 現行データは保存値を優先。旧データは outgoing の既定値へ戻し、
+    // 日本語の請求元名でも印影が消えないようにする。
+    showStamp: p.showStamp !== undefined ? Boolean(p.showStamp) : base.showStamp,
     period: s(p.period || p.subject) || base.period,
     invoiceNo: s(p.invoiceNo) || s(inv.invoiceNo),
     taxEnabled: tax.enabled !== undefined ? Boolean(tax.enabled) : true,

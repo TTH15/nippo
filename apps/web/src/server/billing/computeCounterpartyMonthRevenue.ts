@@ -78,7 +78,7 @@ export async function computeCounterpartyMonthBillingDetail(
   });
   const unitById = new Map(data.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
-  const fixedByCourse = new Map(data.fixedRates.map((r) => [r.courseId, r]));
+  const fixedByCourse = new Map(data.fixedRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}`, r]));
 
   // 3. 表示名・並び（unit 名/並び、ドライバー名）
   const [{ data: unitRows }, { data: driverRows }] = await Promise.all([
@@ -110,9 +110,9 @@ export async function computeCounterpartyMonthBillingDetail(
     if (!byDriver) byUnit.set(unitId, (byDriver = new Map()));
     byDriver.set(driverId, (byDriver.get(driverId) ?? 0) + qty);
   };
-  const addFixed = (courseId: string, driverId: string) => {
-    let byDriver = fixedDays.get(courseId);
-    if (!byDriver) fixedDays.set(courseId, (byDriver = new Map()));
+  const addFixed = (rateKey: string, driverId: string) => {
+    let byDriver = fixedDays.get(rateKey);
+    if (!byDriver) fixedDays.set(rateKey, (byDriver = new Map()));
     byDriver.set(driverId, (byDriver.get(driverId) ?? 0) + 1);
   };
 
@@ -135,9 +135,12 @@ export async function computeCounterpartyMonthBillingDetail(
     }
 
     // 固定（course_fixed_rates が非0なら 1 report = 1 稼働日）
-    const fx = fixedByCourse.get(courseId);
+    const fixedKey = fixedByCourse.has(`${courseId}:${r.cycleNo ?? 0}`)
+      ? `${courseId}:${r.cycleNo ?? 0}`
+      : `${courseId}:0`;
+    const fx = fixedByCourse.get(fixedKey);
     if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
-      addFixed(courseId, driverId);
+      addFixed(fixedKey, driverId);
     }
   }
 
@@ -181,9 +184,11 @@ export async function computeCounterpartyMonthBillingDetail(
     }
 
     // 固定（driver を名前順）
-    const fx = fixedByCourse.get(courseId);
-    const fdMap = fixedDays.get(courseId);
-    if (fx && fdMap) {
+    for (const [fixedKey, fdMap] of fixedDays) {
+      const [fixedCourseId, cycleNo] = fixedKey.split(":");
+      if (fixedCourseId !== courseId) continue;
+      const fx = fixedByCourse.get(fixedKey);
+      if (!fx) continue;
       for (const driverId of [...fdMap.keys()].sort(byDriverNameAsc)) {
         const days = fdMap.get(driverId) ?? 0;
         if (!days) continue;
@@ -191,10 +196,10 @@ export async function computeCounterpartyMonthBillingDetail(
         systemTotal += amount;
         systemLines.push({
           kind: "course_fixed",
-          lineKey: `fx:${courseId}:drv:${driverId}`,
+          lineKey: `fx:${courseId}:cycle:${cycleNo}:drv:${driverId}`,
           courseId,
           courseName,
-          label: `${courseName}（固定売上・稼働日・${driverNameById.get(driverId) ?? "担当者"}）`,
+          label: `${courseName}（固定売上${cycleNo !== "0" ? `・${cycleNo}便` : ""}・稼働日・${driverNameById.get(driverId) ?? "担当者"}）`,
           quantity: days,
           unitPrice: fx.fixedRevenue,
           amount,

@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
 
   const { data: fleet } = await supabase
     .from("vehicles")
-    .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand")
+    .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, is_ev, last_oil_change_mileage, oil_change_interval")
     .eq("owner_org_id", orgId)
     .eq("is_disposed", false)
     .order("manufacturer")

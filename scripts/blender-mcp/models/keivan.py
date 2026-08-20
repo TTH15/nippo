@@ -43,48 +43,62 @@ HEIGHT = 1.895
 HALF_L = LENGTH / 2
 HALF_W = WIDTH / 2
 
-WHEEL_RADIUS = 0.285
+WHEEL_RADIUS = 0.30
 WHEEL_WIDTH = 0.15
-RIM_RADIUS = 0.165
-WHEELBASE = 2.41
+RIM_RADIUS = 0.175
+# 前後オーバーハングは非対称（前が短い）。実測: 前輪中心 前端から0.41m / 後輪中心 後端から0.55m
+AXLE_FRONT_X = HALF_L - 0.44
+AXLE_REAR_X = -HALF_L + 0.55
 AXLE_Z = WHEEL_RADIUS
-ARCH_RADIUS = 0.375  # フェンダーのくり抜き半径。タイヤより一回り大きく
+ARCH_RADIUS = 0.39  # フェンダーのくり抜き半径。タイヤより一回り大きく
 
-BODY_BOTTOM = 0.30
+BODY_BOTTOM = 0.28
 ROOF = HEIGHT - 0.02
 
 # 側面シルエット（X=前後, Z=上下）。組み立て中は前が +X。最後に -Y 向きへ回す。
-# ★キャブオーバーなので「鼻はほぼ無い」。フロントガラスは立ち、前面は垂直に近い。
-#   ここを寝かせると宅配トラックに見える。
+#
+# ★2026-08-18: 目分量で作ったら「ハイエースのような大きいバン」になった。
+#   参照モデル（日産 NV100 クリッパー＝エブリイ OEM）を Blender に読み込み、
+#   全長 3.395m へ正規化して**輪郭を実測**し、その値で組み直した。
+#   実測して分かった、軽バンらしさを決める2点:
+#     1. **前面は z=1.10 付近までほぼ垂直**（自分のは z=0.94 から寝ていた）
+#     2. **平らなルーフが始まるのは前端から 1.20m**（自分のは 0.72m ＝ 早すぎた）。
+#        A ピラーからルーフへの立ち上がりが長く、そこが緩い曲線になっている
+#   ルーフが早く始まるほど「長い箱」に見え、大型バンの印象になる。
+P_FRONT_LOW = (HALF_L - 0.05, BODY_BOTTOM)
+P_FACE_LOW = (HALF_L, BODY_BOTTOM + 0.16)
+P_FACE_TOP = (HALF_L - 0.01, 1.05)      # ここまで前面はほぼ垂直
+P_COWL = (HALF_L - 0.10, 1.14)
+P_WS_BASE = (HALF_L - 0.34, 1.25)       # フロントガラス下端
+P_WS_MID = (HALF_L - 0.63, 1.56)
+P_WS_TOP = (HALF_L - 0.95, 1.82)
+P_ROOF_FRONT = (HALF_L - 1.20, ROOF)
 P_ROOF_REAR = (-HALF_L + 0.09, ROOF)
-P_ROOF_FRONT = (HALF_L - 0.72, ROOF)
-P_WS_BASE = (HALF_L - 0.20, ROOF - 0.64)      # フロントガラス下端
-P_COWL = (HALF_L - 0.05, ROOF - 0.79)         # ごく短いボンネット
-P_FACE_TOP = (HALF_L, ROOF - 0.94)            # 前面上端
-P_FACE_LOW = (HALF_L, BODY_BOTTOM + 0.28)     # 前面下
 P_REAR_TOP = (-HALF_L, ROOF - 0.13)
-P_REAR_LOW = (-HALF_L, BODY_BOTTOM + 0.18)
+P_REAR_LOW = (-HALF_L, BODY_BOTTOM + 0.16)
 
 SIDE_PROFILE = [
-    (-HALF_L + 0.03, BODY_BOTTOM),
+    (-HALF_L + 0.04, BODY_BOTTOM),
     P_REAR_LOW,
     P_REAR_TOP,
     P_ROOF_REAR,
     P_ROOF_FRONT,
+    P_WS_TOP,
+    P_WS_MID,
     P_WS_BASE,
     P_COWL,
     P_FACE_TOP,
     P_FACE_LOW,
-    (HALF_L - 0.06, BODY_BOTTOM),
+    P_FRONT_LOW,
 ]
 
 # 窓の帯（垂直な側面の範囲に収める）
-BELT_TOP = ROOF - 0.15
-BELT_BOTTOM = ROOF - 0.66
+BELT_TOP = ROOF - 0.10
+BELT_BOTTOM = 1.25   # フロントガラス下端と同じ高さでベルトラインが繋がる（実測）
 
 # ドアの区切り（X）。実車は 運転席ドア / スライドドア / クォーター の3枚
-DOOR_FRONT_REAR_EDGE = 0.30    # 運転席ドアの後端
-SLIDE_DOOR_REAR_EDGE = -0.52   # スライドドアの後端
+DOOR_FRONT_REAR_EDGE = 0.11    # 運転席ドアの後端（実測）
+SLIDE_DOOR_REAR_EDGE = -0.77   # スライドドアの後端（実測）
 
 SURFACE_OFFSET = 0.008  # 車体表面からの浮かせ量。Zファイティングを避ける最小限
 
@@ -270,7 +284,7 @@ def part_body():
     # フェンダー（ホイールアーチ）を左右それぞれの側面からくり抜く。
     # ★左右を貫通させると前から見て隙間が抜けて見える。片側ずつ浅く彫る
     cutters = []
-    for label, x in (("front", WHEELBASE / 2), ("rear", -WHEELBASE / 2)):
+    for label, x in (("front", AXLE_FRONT_X), ("rear", AXLE_REAR_X)):
         for sign, side in ((1, "l"), (-1, "r")):
             cm = _cylinder(20, ARCH_RADIUS, 0.42, center=(x, sign * (HALF_W - 0.03), AXLE_Z))
             cutter_mesh = bpy.data.meshes.new(f"__arch_{label}_{side}")
@@ -300,13 +314,19 @@ def part_body():
 def part_glass():
     objects = []
 
-    a, b, edge = _outward_offset(P_ROOF_FRONT, P_WS_BASE)
-    inset = edge * 0.05
-    bm = _quad(
-        [((a + inset).x, (a + inset).z), ((b - inset).x, (b - inset).z)],
-        -HALF_W * 0.85, HALF_W * 0.85,
-    )
-    objects.append(_instance("windshield", _mesh_from_bmesh("keivan_windshield", bm, "glass")))
+    # フロントガラスは A ピラーの曲線に沿わせる（1枚の平板だと車体を突き抜ける）。
+    # ルーフへの立ち上がり区間は車体色なので、ガラスは WS_TOP〜WS_BASE だけ
+    for i, (p1, p2) in enumerate(((P_WS_TOP, P_WS_MID), (P_WS_MID, P_WS_BASE))):
+        a, b, edge = _outward_offset(p1, p2)
+        head = edge * (0.05 if i == 0 else 0.0)
+        tail = edge * (0.05 if i == 1 else 0.0)
+        bm = _quad(
+            [((a + head).x, (a + head).z), ((b - tail).x, (b - tail).z)],
+            -HALF_W * 0.85, HALF_W * 0.85,
+        )
+        objects.append(
+            _instance(f"windshield_{i}", _mesh_from_bmesh(f"keivan_windshield_{i}", bm, "glass"))
+        )
 
     a, b, edge = _outward_offset(P_REAR_TOP, (-HALF_L, ROOF - 0.70))
     inset = edge * 0.02
@@ -317,11 +337,12 @@ def part_glass():
     objects.append(_instance("rear_window", _mesh_from_bmesh("keivan_rear_window", bm, "glass")))
 
     # 側面は3枚（運転席ドア / スライドドア / クォーター）。実車の分割に合わせる
-    # ★前端は A ピラーより後ろに収める。越えると黒い舌のように飛び出す
     panes = {
+        # ★前端は A ピラー（フロントガラスの傾き）に沿わせる。越えると
+        #   窓が車体からはみ出した黒い舌のように飛び出す
         "door_front": [
-            (P_ROOF_FRONT[0] + 0.05, BELT_TOP),
-            (P_ROOF_FRONT[0] + 0.19, BELT_BOTTOM),
+            (P_WS_TOP[0] + 0.11, BELT_TOP),
+            (P_WS_BASE[0] - 0.06, BELT_BOTTOM),
             (DOOR_FRONT_REAR_EDGE + 0.03, BELT_BOTTOM),
             (DOOR_FRONT_REAR_EDGE + 0.03, BELT_TOP),
         ],
@@ -463,7 +484,7 @@ def part_wheel():
 
     tread = HALF_W - WHEEL_WIDTH / 2 + 0.005
     objects = []
-    for label, x in (("front", WHEELBASE / 2), ("rear", -WHEELBASE / 2)):
+    for label, x in (("front", AXLE_FRONT_X), ("rear", AXLE_REAR_X)):
         for sign, side in ((1, "l"), (-1, "r")):
             y = sign * tread
             objects.append(_instance(f"wheel_{label}_{side}", tire_mesh, location=(x, y, AXLE_Z)))

@@ -13,14 +13,24 @@ type Unit = {
   billing_type: "PER_PIECE" | "FIXED";
 };
 type UnitRate = {
+  cycle_no?: number;
   unit_id: string;
   revenue_per_unit: number;
   profit_per_unit: number;
   payout_per_unit: number;
+  revenue_contract_amount?: number | null;
+  payout_contract_amount?: number | null;
 };
-type Fixed = { fixed_revenue: number; fixed_profit: number; fixed_payout: number };
+type Fixed = {
+  cycle_no?: number;
+  fixed_revenue: number;
+  fixed_profit: number;
+  fixed_payout: number;
+  revenue_contract_amount?: number | null;
+  payout_contract_amount?: number | null;
+};
 
-// 単価は税抜（円）で保存する。税抜/税込モードの切替では入力値を再計算せず、保存時のみ換算する。
+// 集計単価は税抜（円）で保存し、契約上の入力原額も別列へ保持する。
 // 売上は税込で提示されることが多い一方、支払（ドライバー）は税抜の確定額で渡されることが多いため、
 // 売上と支払で税区分モードを別々に持てるようにしている。
 // このモードはコースに「契約上の真の基準」として永続化され（revenue_tax_basis/payout_tax_basis）、
@@ -42,6 +52,7 @@ type LoadResponse = {
   units: Unit[];
   unitRates: UnitRate[];
   fixed: Fixed;
+  fixedRates?: Fixed[];
 };
 
 const basisToMode = (b: "exclusive" | "inclusive" | undefined): TaxMode => (b === "inclusive" ? "incl" : "excl");
@@ -69,13 +80,17 @@ export const CourseRateEditor = forwardRef<
   {
     courseId: string | null;
     carrierId?: string | null;
+    usesCycles?: boolean;
+    cycles?: { cycleNo: number; label?: string | null }[];
     onError: (msg: string) => void;
   }
->(function CourseRateEditor({ courseId, carrierId, onError }, ref) {
+>(function CourseRateEditor({ courseId, carrierId, usesCycles = false, cycles = [], onError }, ref) {
   const [units, setUnits] = useState<Unit[]>([]);
   const [carrierMissing, setCarrierMissing] = useState(false);
   const [rates, setRates] = useState<Record<string, UnitRate>>({});
-  const [fixed, setFixed] = useState<Fixed>({ fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 });
+  const [fixedByCycle, setFixedByCycle] = useState<Record<number, Fixed>>({
+    0: { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 },
+  });
   const [revenueTaxMode, setRevenueTaxMode] = useState<TaxMode>("excl");
   const [payoutTaxMode, setPayoutTaxMode] = useState<TaxMode>("excl");
 
@@ -103,7 +118,7 @@ export const CourseRateEditor = forwardRef<
     if (createModeNoCarrier) {
       setUnits([]);
       setRates({});
-      setFixed({ fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 });
+      setFixedByCycle({ 0: { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 } });
       setCarrierMissing(false);
       setRevenueTaxMode("excl");
       setPayoutTaxMode("excl");
@@ -125,9 +140,13 @@ export const CourseRateEditor = forwardRef<
     setUnits(res.units ?? []);
     const map: Record<string, UnitRate> = {};
     (res.units ?? []).forEach((u) => {
-      const found = (res.unitRates ?? []).find((r) => r.unit_id === u.id);
-      const revenue = rMode === "incl" ? toIncl(found?.revenue_per_unit ?? 0) : found?.revenue_per_unit ?? 0;
-      const payout = pMode === "incl" ? toIncl(found?.payout_per_unit ?? 0) : found?.payout_per_unit ?? 0;
+      const found = (res.unitRates ?? []).find((r) => (r.cycle_no ?? 0) === 0 && r.unit_id === u.id);
+      const revenue = rMode === "incl"
+        ? found?.revenue_contract_amount ?? toIncl(found?.revenue_per_unit ?? 0)
+        : found?.revenue_per_unit ?? 0;
+      const payout = pMode === "incl"
+        ? found?.payout_contract_amount ?? toIncl(found?.payout_per_unit ?? 0)
+        : found?.payout_per_unit ?? 0;
       map[u.id] = {
         unit_id: u.id,
         revenue_per_unit: revenue,
@@ -136,15 +155,20 @@ export const CourseRateEditor = forwardRef<
       };
     });
     setRates(map);
-    const fixedRevenueRaw = res.fixed?.fixed_revenue ?? 0;
-    const fixedPayoutRaw = res.fixed?.fixed_payout ?? 0;
-    const fixedRevenue = rMode === "incl" ? toIncl(fixedRevenueRaw) : fixedRevenueRaw;
-    const fixedPayout = pMode === "incl" ? toIncl(fixedPayoutRaw) : fixedPayoutRaw;
-    setFixed({
-      fixed_revenue: fixedRevenue,
-      fixed_profit: recomputeProfitWith(rMode, pMode, fixedRevenue, fixedPayout),
-      fixed_payout: fixedPayout,
+    const fixedMap: Record<number, Fixed> = {};
+    const sourceFixed = res.fixedRates?.length ? res.fixedRates : [{ ...res.fixed, cycle_no: 0 }];
+    sourceFixed.forEach((f) => {
+      const cycleNo = f.cycle_no ?? 0;
+      const revenue = rMode === "incl" ? f.revenue_contract_amount ?? toIncl(f.fixed_revenue ?? 0) : f.fixed_revenue ?? 0;
+      const payout = pMode === "incl" ? f.payout_contract_amount ?? toIncl(f.fixed_payout ?? 0) : f.fixed_payout ?? 0;
+      fixedMap[cycleNo] = {
+        cycle_no: cycleNo,
+        fixed_revenue: revenue,
+        fixed_profit: recomputeProfitWith(rMode, pMode, revenue, payout),
+        fixed_payout: payout,
+      };
     });
+    setFixedByCycle(fixedMap);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [billingData]);
 
@@ -166,19 +190,34 @@ export const CourseRateEditor = forwardRef<
           const payout_per_unit = toExclFor(payoutTaxMode, r.payout_per_unit);
           return {
             unit_id: r.unit_id,
+            cycle_no: 0,
             revenue_per_unit,
             payout_per_unit,
             profit_per_unit: deriveProfit(revenue_per_unit, payout_per_unit),
+            revenue_contract_amount: r.revenue_per_unit,
+            payout_contract_amount: r.payout_per_unit,
           };
         });
-        const fixed_revenue = toExclFor(revenueTaxMode, fixed.fixed_revenue);
-        const fixed_payout = toExclFor(payoutTaxMode, fixed.fixed_payout);
+        const activeCycleNos = usesCycles ? cycles.map((c) => c.cycleNo) : [0];
+        const fixedRates = activeCycleNos.map((cycleNo) => {
+          const f = fixedByCycle[cycleNo] ?? fixedByCycle[0] ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 };
+          const fixed_revenue = toExclFor(revenueTaxMode, f.fixed_revenue);
+          const fixed_payout = toExclFor(payoutTaxMode, f.fixed_payout);
+          return {
+            cycle_no: cycleNo,
+            fixed_revenue,
+            fixed_payout,
+            fixed_profit: deriveProfit(fixed_revenue, fixed_payout),
+            revenue_contract_amount: f.fixed_revenue,
+            payout_contract_amount: f.fixed_payout,
+          };
+        });
         await apiFetch("/api/admin/course-billing", {
           method: "PUT",
           body: JSON.stringify({
             course_id: id,
             unitRates,
-            fixed: { fixed_revenue, fixed_payout, fixed_profit: deriveProfit(fixed_revenue, fixed_payout) },
+            fixedRates,
             revenueTaxBasis: modeToBasis(revenueTaxMode),
             payoutTaxBasis: modeToBasis(payoutTaxMode),
           }),
@@ -189,7 +228,7 @@ export const CourseRateEditor = forwardRef<
         void invalidateApi(`/api/admin/course-billing?course_id=${id}`);
       },
     }),
-    [courseId, rates, fixed, revenueTaxMode, payoutTaxMode],
+    [courseId, rates, fixedByCycle, revenueTaxMode, payoutTaxMode, usesCycles, cycles],
   );
 
   // 利益は常に税抜ベース。売上・支払それぞれのモードを税抜に揃えてから差し引く。
@@ -210,17 +249,47 @@ export const CourseRateEditor = forwardRef<
     });
   }
 
-  function setFixedField(key: "fixed_revenue" | "fixed_payout", value: number) {
+  function setFixedField(cycleNo: number, key: "fixed_revenue" | "fixed_payout", value: number) {
     dirtyRef.current = true;
-    setFixed((f) => {
+    setFixedByCycle((prev) => {
+      const f = prev[cycleNo] ?? { cycle_no: cycleNo, fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 };
       const next = { ...f, [key]: value };
       next.fixed_profit = recomputeProfit(next.fixed_revenue, next.fixed_payout);
-      return next;
+      return { ...prev, [cycleNo]: next };
     });
   }
 
-  // 入力欄には常に入力した数値をそのまま表示する（税抜/税込の切替では再計算しない）。
-  // hint は「今の数値をもう一方の税区分だと仮に換算するといくらか」の参考表示。
+  const convertRevenueMode = (nextMode: TaxMode) => {
+    if (nextMode === revenueTaxMode) return;
+    dirtyRef.current = true;
+    const convert = nextMode === "incl" ? toIncl : toExcl;
+    setRates((prev) => Object.fromEntries(Object.entries(prev).map(([k, r]) => {
+      const revenue = convert(r.revenue_per_unit);
+      return [k, { ...r, revenue_per_unit: revenue, profit_per_unit: recomputeProfitWith(nextMode, payoutTaxMode, revenue, r.payout_per_unit) }];
+    })));
+    setFixedByCycle((prev) => Object.fromEntries(Object.entries(prev).map(([k, f]) => {
+      const revenue = convert(f.fixed_revenue);
+      return [k, { ...f, fixed_revenue: revenue, fixed_profit: recomputeProfitWith(nextMode, payoutTaxMode, revenue, f.fixed_payout) }];
+    })));
+    setRevenueTaxMode(nextMode);
+  };
+
+  const convertPayoutMode = (nextMode: TaxMode) => {
+    if (nextMode === payoutTaxMode) return;
+    dirtyRef.current = true;
+    const convert = nextMode === "incl" ? toIncl : toExcl;
+    setRates((prev) => Object.fromEntries(Object.entries(prev).map(([k, r]) => {
+      const payout = convert(r.payout_per_unit);
+      return [k, { ...r, payout_per_unit: payout, profit_per_unit: recomputeProfitWith(revenueTaxMode, nextMode, r.revenue_per_unit, payout) }];
+    })));
+    setFixedByCycle((prev) => Object.fromEntries(Object.entries(prev).map(([k, f]) => {
+      const payout = convert(f.fixed_payout);
+      return [k, { ...f, fixed_payout: payout, fixed_profit: recomputeProfitWith(revenueTaxMode, nextMode, f.fixed_revenue, payout) }];
+    })));
+    setPayoutTaxMode(nextMode);
+  };
+
+  // hint は「今の数値をもう一方の税区分だと換算するといくらか」の参考表示。
   const hintFor = (mode: TaxMode, raw: number) =>
     mode === "incl" ? `税抜 ¥${toExcl(raw).toLocaleString()}` : `税込 ¥${toIncl(raw).toLocaleString()}`;
 
@@ -235,15 +304,15 @@ export const CourseRateEditor = forwardRef<
         <span className="text-[11px] text-slate-500">入力単位</span>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-slate-400">売上</span>
-          <TaxModeToggle value={revenueTaxMode} onChange={(m) => { dirtyRef.current = true; setRevenueTaxMode(m); }} />
+          <TaxModeToggle value={revenueTaxMode} onChange={convertRevenueMode} />
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-slate-400">支払</span>
-          <TaxModeToggle value={payoutTaxMode} onChange={(m) => { dirtyRef.current = true; setPayoutTaxMode(m); }} />
+          <TaxModeToggle value={payoutTaxMode} onChange={convertPayoutMode} />
         </div>
       </div>
       <p className="text-[10px] text-slate-400">
-        切替時は数値そのまま／保存時のみ税抜に換算（10%）。利益は税抜ベースで自動計算されます。
+        税区分を切り替えると入力額も換算します。利益は売上・支払をそれぞれ税抜に揃えて自動計算します。
       </p>
 
       {createModeNoCarrier ? (
@@ -303,25 +372,39 @@ export const CourseRateEditor = forwardRef<
           {/* 固定（日当） */}
           <div>
             <h4 className="text-xs font-semibold text-slate-700 mb-2">固定（日当 / 1シフト）</h4>
-            <div className="grid grid-cols-3 gap-2">
-              <NumField
-                label="売上"
-                value={fixed.fixed_revenue}
-                onChange={(v) => setFixedField("fixed_revenue", v)}
-                hint={hintFor(revenueTaxMode, fixed.fixed_revenue)}
-              />
-              <NumField
-                label="利益（自動計算）"
-                value={fixed.fixed_profit}
-                hint={`税込 ¥${toIncl(fixed.fixed_profit).toLocaleString()}`}
-                readOnly
-              />
-              <NumField
-                label="支払"
-                value={fixed.fixed_payout}
-                onChange={(v) => setFixedField("fixed_payout", v)}
-                hint={hintFor(payoutTaxMode, fixed.fixed_payout)}
-              />
+            <div className="space-y-3">
+              {(usesCycles ? cycles : [{ cycleNo: 0, label: null }]).map((cycle) => {
+                const f = fixedByCycle[cycle.cycleNo] ?? fixedByCycle[0] ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 };
+                return (
+                  <div key={cycle.cycleNo} className={usesCycles ? "rounded border border-slate-200 p-3" : ""}>
+                    {usesCycles ? (
+                      <div className="mb-2 text-xs font-semibold text-slate-700">
+                        {cycle.label?.trim() || `${cycle.cycleNo}便`}
+                      </div>
+                    ) : null}
+                    <div className="grid grid-cols-3 gap-2">
+                      <NumField
+                        label="売上"
+                        value={f.fixed_revenue}
+                        onChange={(v) => setFixedField(cycle.cycleNo, "fixed_revenue", v)}
+                        hint={hintFor(revenueTaxMode, f.fixed_revenue)}
+                      />
+                      <NumField
+                        label="利益（税抜・自動計算）"
+                        value={f.fixed_profit}
+                        hint={`税込 ¥${toIncl(f.fixed_profit).toLocaleString()}`}
+                        readOnly
+                      />
+                      <NumField
+                        label="支払"
+                        value={f.fixed_payout}
+                        onChange={(v) => setFixedField(cycle.cycleNo, "fixed_payout", v)}
+                        hint={hintFor(payoutTaxMode, f.fixed_payout)}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <p className="text-[10px] text-slate-400 mt-1">混在コース（歩合＋日当）は従量と固定の両方を入力してください。</p>
           </div>

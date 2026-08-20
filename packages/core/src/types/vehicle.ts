@@ -15,6 +15,11 @@ export type VehiclePlateData = {
   plate_color?: PlateColor | string | null;
   manufacturer?: string | null;
   brand?: string | null;
+  /** プレート上の整備警告表示に使う任意情報。取得しない画面は従来どおり表示のみ。 */
+  current_mileage?: number | null;
+  is_ev?: boolean | null;
+  last_oil_change_mileage?: number | null;
+  oil_change_interval?: number | null;
 };
 
 /** 日報送信フォームで扱う車両（プレート情報＋走行距離・EV判定＋オイル交換情報） */
