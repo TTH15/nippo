@@ -23,6 +23,7 @@ describe("VehiclePlate の整備警告", () => {
       />,
     );
     expect(screen.getByRole("img", { name: "オイル交換まで残り250kmです" })).toBeInTheDocument();
+    expect(screen.getByRole("tooltip")).toHaveTextContent("オイル交換まで残り250kmです");
   });
 
   it("安全圏またはEVなら警告を表示しない", () => {

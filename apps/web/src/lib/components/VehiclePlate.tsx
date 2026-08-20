@@ -1,8 +1,9 @@
 "use client";
 
+import { useId } from "react";
 import { PLATE_GLYPHS, PLATE_GLYPH_CANVAS, type PlateGlyphMeta } from "@/lib/plateGlyphs.generated";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faOilCan } from "@fortawesome/free-solid-svg-icons";
 import { computeOilStatus } from "@repo/core/logic/oilChange";
 
 export function plateDigits(raw: string): [string, string, string, string] {
@@ -119,6 +120,7 @@ export function VehiclePlate({
   glow?: boolean;
   className?: string;
 }) {
+  const warningId = useId();
   const hasPlate =
     vehicle.number_prefix || vehicle.number_hiragana || vehicle.number_numeric;
   const scheme = plateScheme(vehicle.plate_color);
@@ -182,7 +184,7 @@ export function VehiclePlate({
   const classSlotW = maxGlyphW(classCat.glyphs, /^\d$/);
 
   const interactive = typeof onClick === "function";
-  const wrapperClass = `block text-left rounded-lg overflow-hidden ${
+  const wrapperClass = `relative block text-left rounded-lg overflow-visible ${
     interactive ? "border-2 transition-all" : "border-0"
   } ${
     interactive
@@ -371,25 +373,34 @@ export function VehiclePlate({
           )}
         </div>
       </div>
-      {oilWarning ? (
-        <span
-          role="img"
-          aria-label={warningLabel}
-          title={warningLabel}
-          className={`absolute right-[2%] top-[2%] z-10 flex items-center justify-center rounded-full border-2 border-white text-white shadow-md ${
-            oilWarning.level === "critical" ? "bg-red-600" : "bg-amber-500"
-          }`}
-          style={{ width: "22%", aspectRatio: "1 / 1", fontSize: scaleLenPx(compact ? 10 : 24) }}
-        >
-          <FontAwesomeIcon icon={faExclamation} aria-hidden />
-        </span>
-      ) : null}
     </div>
   ) : (
     <div className="bg-slate-100 aspect-[2/1] flex items-center justify-center text-slate-500 text-sm p-2 rounded-lg">
       {[vehicle.manufacturer, vehicle.brand].filter(Boolean).join(" ") || "車両"}
     </div>
   );
+
+  const warning = oilWarning ? (
+    <span
+      role="img"
+      tabIndex={0}
+      aria-label={warningLabel}
+      aria-describedby={warningId}
+      className={`group absolute right-[-4%] top-[-8%] z-20 flex items-center justify-center rounded-full border-2 border-white text-white shadow-md outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 ${
+        oilWarning.level === "critical" ? "bg-red-600" : "bg-amber-500"
+      }`}
+      style={{ width: "22%", aspectRatio: "1 / 1", fontSize: scaleLenPx(compact ? 10 : 24) }}
+    >
+      <FontAwesomeIcon icon={faOilCan} aria-hidden />
+      <span
+        id={warningId}
+        role="tooltip"
+        className="pointer-events-none absolute right-0 top-[calc(100%+0.35rem)] z-30 w-max max-w-64 rounded bg-slate-900 px-2.5 py-1.5 text-left text-xs font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus:opacity-100"
+      >
+        {warningLabel}
+      </span>
+    </span>
+  ) : null;
 
   return interactive ? (
     <button
@@ -400,10 +411,12 @@ export function VehiclePlate({
       style={wrapperStyle}
     >
       {inner}
+      {warning}
     </button>
   ) : (
     <div className={wrapperClass} style={wrapperStyle}>
       {inner}
+      {warning}
     </div>
   );
 }
