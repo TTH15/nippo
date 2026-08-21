@@ -3,6 +3,8 @@ node_modules
 .git
 apps/mobile
 sample
-invoice
+# ルート直下の請求書PDF保管庫だけを除外する。
+# `invoice` だけだと apps/web/public/invoice まで除外され、社印PNGが本番404になる。
+/invoice/
 docs
 *.log

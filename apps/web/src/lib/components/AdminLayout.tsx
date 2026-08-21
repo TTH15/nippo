@@ -82,6 +82,7 @@ const navItems: NavItem[] = [
     label: "設定",
     icon: faGear,
     children: [
+      { href: "/admin/organization", label: "会社設定", icon: faBuilding, cap: "can_view_org_settings" },
       { href: "/admin/roles", label: "ロール・権限", icon: faUserShield, cap: "can_view_members" },
       { href: "/admin/carriers", label: "キャリア／フォーム設計", icon: faTruck, cap: "can_view_org_settings" },
       { href: "/admin/courses", label: "コース／単価表", icon: faRoute, cap: "can_view_org_settings" },

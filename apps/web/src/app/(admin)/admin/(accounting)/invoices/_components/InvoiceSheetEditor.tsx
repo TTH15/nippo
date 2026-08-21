@@ -28,6 +28,12 @@ import { type InvoiceKind } from "./invoiceKinds";
 // 既存レコードを更新する（保存のたびに新規作成＝フォルダに増やさない）。Undo/Redo対応。
 
 type AddressRow = { id: string; name: string; postal_code?: string; address?: string; phone?: string; invoice_no?: string };
+type OrganizationSettings = {
+  name: string; stampUrl: string | null;
+  invoice_postal_code: string | null; invoice_address: string | null; invoice_tel: string | null;
+  invoice_registration_no: string | null; invoice_bank_name: string | null;
+  invoice_bank_no: string | null; invoice_bank_holder: string | null;
+};
 type DriverRow = {
   id: string; name: string; display_name?: string | null; status?: string;
   postal_code?: string | null; address?: string | null; phone?: string | null;
@@ -111,6 +117,29 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   const { data: addrData } = useApi<{ addresses: AddressRow[] }>(
     st.kind === "outgoing" && outgoingTarget === "corp" ? "/api/admin/invoice-addresses" : null,
   );
+  const { data: organizationData } = useApi<{ settings: OrganizationSettings }>(
+    "/api/admin/organization-settings",
+    { revalidateOnFocus: false },
+  );
+  const invoiceIssuer = organizationData?.settings
+    ? { name: organizationData.settings.name, stampPath: organizationData.settings.stampUrl ?? "" }
+    : undefined;
+  const organizationAppliedRef = useRef(false);
+  useEffect(() => {
+    const org = organizationData?.settings;
+    if (mode !== "new" || !org || organizationAppliedRef.current) return;
+    organizationAppliedRef.current = true;
+    const addressHtml = [org.invoice_postal_code ? `〒${org.invoice_postal_code}` : "", org.invoice_address ?? ""]
+      .filter(Boolean).join("<br/>");
+    setStRaw((prev) => prev.kind === "outgoing" ? {
+      ...prev, fromName: org.name, fromAddrHtml: addressHtml, fromTel: org.invoice_tel ?? "",
+      fromReg: org.invoice_registration_no ?? "", bankName: org.invoice_bank_name ?? "",
+      bankNo: org.invoice_bank_no ?? "", bankHolder: org.invoice_bank_holder ?? "",
+    } : {
+      ...prev, toName: org.name, toAddrHtml: addressHtml, toTel: org.invoice_tel ?? "",
+      toReg: org.invoice_registration_no ?? "",
+    });
+  }, [mode, organizationData]);
   const addresses = addrData?.addresses ?? [];
   // status=all: 稼働終了(inactive)済みのドライバーも選べるようにする
   // （過去に遡って請求書を作成するケースがあるため）。
@@ -519,7 +548,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
 
       {/* 帳票（直接インライン編集。実際の改ページ位置をライブに可視化） */}
       <div className="flex-1 overflow-auto">
-        <PaginatedInvoiceSheet state={st} onChange={setSt} sheetRef={sheetRef} />
+        <PaginatedInvoiceSheet state={st} onChange={setSt} sheetRef={sheetRef} issuer={invoiceIssuer} />
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type Ref } from "react";
-import { InvoiceSheet } from "./InvoiceSheet";
+import { InvoiceSheet, type InvoiceIssuerDisplay } from "./InvoiceSheet";
 import type { EditorState } from "./editorModel";
 import { collectPageUnits, computePageIndices, PAGE_CONTENT_HEIGHT_PX } from "./paginate";
 
@@ -29,12 +29,14 @@ export function PaginatedInvoiceSheet({
   onChange,
   sheetRef,
   className,
+  issuer,
 }: {
   state: EditorState;
   readOnly?: boolean;
   onChange?: (next: EditorState) => void;
   sheetRef?: Ref<HTMLDivElement>;
   className?: string;
+  issuer?: InvoiceIssuerDisplay;
 }) {
   const measureRef = useRef<HTMLDivElement>(null);
   const [pageIndices, setPageIndices] = useState<Map<string, number>>(EMPTY_INDICES);
@@ -87,7 +89,7 @@ export function PaginatedInvoiceSheet({
           実際の印刷より過大な高さになり、本来1ページに収まる内容でも
           不要な改ページが入ってしまう。ページ割りは常に「印刷される見た目」で判定する。 */}
       <div style={{ position: "absolute", left: 0, top: 0, zIndex: -1, visibility: "hidden", pointerEvents: "none" }} aria-hidden>
-        <InvoiceSheet state={state} readOnly printRoot={false} interactive={false} sheetRef={measureRef} />
+        <InvoiceSheet state={state} readOnly printRoot={false} interactive={false} sheetRef={measureRef} issuer={issuer} />
       </div>
       {/* 実際に表示・編集され、そのまま印刷対象になる実体。 */}
       <InvoiceSheet
@@ -97,6 +99,7 @@ export function PaginatedInvoiceSheet({
         sheetRef={sheetRef}
         className={className}
         pageIndexOf={pageIndexOf}
+        issuer={issuer}
       />
     </>
   );

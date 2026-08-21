@@ -36,6 +36,8 @@ import {
   moveLine,
 } from "./lineGrid";
 
+export type InvoiceIssuerDisplay = { name: string; stampPath: string };
+
 type Section = "main" | "deduct";
 
 // 画面上でページの継ぎ目を示すグレーの余白（印刷には出さない。UI上の見た目だけの値で
@@ -432,6 +434,7 @@ export function InvoiceSheet({
   printRoot = true,
   pageIndexOf,
   interactive = true,
+  issuer,
 }: {
   state: EditorState;
   readOnly?: boolean;
@@ -446,15 +449,14 @@ export function InvoiceSheet({
    * （画面専用の計測用クローンが、実体と同じ data-cell を持って document.querySelector を
    * 誤誘導しないようにするため。入力欄自体の見た目/サイズは readOnly の値どおりに保つ）。既定 true。 */
   interactive?: boolean;
+  issuer?: InvoiceIssuerDisplay;
 }) {
   const st = state;
   const config = INVOICE_KIND_CONFIG[st.kind] ?? INVOICE_KIND_CONFIG.outgoing;
   const C = config.theme;
   const doc = docDataFromEditor(st);
-  const invoiceIssuer = getInvoiceIssuer();
-  const shouldShowIssuerStamp = Boolean(
-    invoiceIssuer.stampPath && st.fromName.trim() === invoiceIssuer.name.trim(),
-  );
+  const invoiceIssuer = issuer ?? getInvoiceIssuer();
+  const shouldShowIssuerStamp = st.kind === "outgoing" && Boolean(invoiceIssuer.stampPath);
   const totals = computeInvoiceTotals({
     main: doc.main,
     deduct: doc.deduct,
