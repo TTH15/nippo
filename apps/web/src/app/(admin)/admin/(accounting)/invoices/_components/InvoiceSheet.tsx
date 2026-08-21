@@ -451,6 +451,10 @@ export function InvoiceSheet({
   const config = INVOICE_KIND_CONFIG[st.kind] ?? INVOICE_KIND_CONFIG.outgoing;
   const C = config.theme;
   const doc = docDataFromEditor(st);
+  const invoiceIssuer = getInvoiceIssuer();
+  const shouldShowIssuerStamp = Boolean(
+    invoiceIssuer.stampPath && st.fromName.trim() === invoiceIssuer.name.trim(),
+  );
   const totals = computeInvoiceTotals({
     main: doc.main,
     deduct: doc.deduct,
@@ -709,13 +713,15 @@ export function InvoiceSheet({
             </div>
 
             <div className="relative shrink-0 w-[42%]">
-              {st.kind === "outgoing" && getInvoiceIssuer().stampPath ? (
+              {shouldShowIssuerStamp ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={getInvoiceIssuer().stampPath}
+                  src={invoiceIssuer.stampPath}
                   alt=""
                   aria-hidden="true"
-                  className="pointer-events-none absolute right-1 top-9 z-0 w-32 opacity-[0.85]"
+                  data-invoice-stamp="issuer"
+                  onError={() => console.error("請求書の社印画像を読み込めませんでした", invoiceIssuer.stampPath)}
+                  className="pointer-events-none absolute right-1 top-9 z-[1] block w-32 opacity-[0.85]"
                 />
               ) : null}
               <div className="relative z-10 text-[12px] leading-[1.7]">
