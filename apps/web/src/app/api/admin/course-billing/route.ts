@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
     payoutRateMode = (course as any).payout_rate_mode ?? "PER_PIECE";
   }
 
-  const [{ data: units }, { data: unitRates }, { data: versions }, { data: fixed }] = await Promise.all([
+  const [{ data: units }, { data: unitRates }, { data: versions }, { data: fixed }, { data: fixedBundle }] = await Promise.all([
     carrierId
       ? supabase
           .from("units")
@@ -81,6 +81,13 @@ export async function GET(req: NextRequest) {
           .select("cycle_no, fixed_revenue, fixed_profit, fixed_payout, revenue_contract_amount, payout_contract_amount")
           .eq("course_id", courseId)
       : Promise.resolve({ data: [] as any[] }),
+    courseId
+      ? supabase
+          .from("course_fixed_rate_bundles")
+          .select("required_cycle_nos, fixed_revenue, fixed_payout, revenue_contract_amount, payout_contract_amount")
+          .eq("course_id", courseId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
   return NextResponse.json({
@@ -94,6 +101,7 @@ export async function GET(req: NextRequest) {
     units: units ?? [],
     unitRates: unitRates ?? [],
     fixedRates: fixed ?? [],
+    fixedBundle: fixedBundle ?? null,
     fixed: (fixed ?? []).find((r: any) => Number(r.cycle_no) === 0) ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 },
     rateVersions: versions ?? [],
   });
@@ -144,6 +152,7 @@ export async function PUT(req: NextRequest) {
   const fixedRates = Array.isArray(body.fixedRates)
     ? body.fixedRates
     : [{ cycle_no: 0, ...fixed }];
+  const fixedBundle = body.fixedBundle && typeof body.fixedBundle === "object" ? body.fixedBundle : null;
   const today = new Date().toISOString().slice(0, 10);
   const { data: existingVersion } = await supabase
     .from("course_rate_versions")
@@ -225,13 +234,31 @@ export async function PUT(req: NextRequest) {
   }
 
   // 現在値の保存に成功した後で、適用開始日付き履歴も固定する。
+  if (fixedBundle) {
+    const revenueContract = fixedBundle.revenue_contract_amount == null ? null : num(fixedBundle.revenue_contract_amount);
+    const payoutContract = fixedBundle.payout_contract_amount == null ? null : num(fixedBundle.payout_contract_amount);
+    const { error } = await supabase.from("course_fixed_rate_bundles").upsert({
+      course_id: courseId,
+      required_cycle_nos: Array.isArray(fixedBundle.required_cycle_nos)
+        ? fixedBundle.required_cycle_nos.filter((value: unknown) => Number.isInteger(value) && Number(value) > 0)
+        : [],
+      fixed_revenue: revenueContract == null ? null : (revenueTaxBasis === "inclusive" ? Math.round(revenueContract / 1.1) : revenueContract),
+      fixed_payout: payoutContract == null ? null : (payoutTaxBasis === "inclusive" ? Math.round(payoutContract / 1.1) : payoutContract),
+      revenue_contract_amount: revenueContract,
+      payout_contract_amount: payoutContract,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "course_id" });
+    if (error) return NextResponse.json({ error: "全日日当の保存に失敗しました" }, { status: 500 });
+  }
+
+  // 現在値の保存に成功した後で、適用開始日付き履歴も固定する。
   {
     const { error } = await supabase.from("course_rate_versions").upsert(
       {
         org_id: orgId,
         course_id: courseId,
         effective_from: effectiveFrom,
-        rate_data: { revenueTaxBasis, payoutTaxBasis, revenueRateMode, payoutRateMode, unitRates, fixedRates },
+        rate_data: { revenueTaxBasis, payoutTaxBasis, revenueRateMode, payoutRateMode, unitRates, fixedRates, fixedBundle },
         created_by: user.driverId,
       },
       { onConflict: "course_id,effective_from" },

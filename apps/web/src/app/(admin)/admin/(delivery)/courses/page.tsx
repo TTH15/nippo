@@ -11,6 +11,9 @@ import {
   faCat,
   faTruck,
   faCheck,
+  faCircleInfo,
+  faRoute,
+  faCoins,
 } from "@fortawesome/free-solid-svg-icons";
 import { faAmazon } from "@fortawesome/free-brands-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
@@ -1106,15 +1109,25 @@ export default function CoursesPage() {
           onClick={() => void closeEditModal()}
         >
           <div className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-3 text-lg font-semibold text-slate-900">コース編集</h2>
+            <div className="mb-3 flex shrink-0 items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                <FontAwesomeIcon icon={carrierIcon(carriers.find((carrier) => carrier.id === editForm.carrierId)?.code ?? null)} className="h-5 w-5" />
+              </div>
+              <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: editForm.color }} />
+              <div className="min-w-0">
+                <h2 className="truncate text-lg font-semibold text-slate-900">{editForm.name || "名称未設定のコース"}</h2>
+                <div className="text-xs text-slate-500">{carriers.find((carrier) => carrier.id === editForm.carrierId)?.name ?? "キャリア未設定"}</div>
+              </div>
+            </div>
             <div className="mb-4 flex shrink-0 gap-1 border-b border-slate-200">
               {([
-                ["basic", "基本情報"],
-                ["operation", "運行・サイクル"],
-                ["pricing", "単価・契約"],
-              ] as const).map(([key, label]) => (
+                ["basic", "基本情報", faCircleInfo],
+                ["operation", "運行設定", faRoute],
+                ["pricing", "単価設定", faCoins],
+              ] as const).map(([key, label, icon]) => (
                 <button key={key} type="button" onClick={() => setEditModalTab(key)}
-                  className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${editModalTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+                  className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${editModalTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+                  <FontAwesomeIcon icon={icon} className="h-3.5 w-3.5" />
                   {label}
                 </button>
               ))}
@@ -1124,7 +1137,7 @@ export default function CoursesPage() {
             <div className="mx-auto grid max-w-4xl grid-cols-1 gap-y-4">
               {/* 列1: 基本情報＋請求関連・人数・色 */}
               <div className="space-y-4">
-                {editModalTab === "basic" && <div>
+                {editModalTab === "basic" && <div className="max-w-sm">
                   <label className="block text-sm font-medium text-slate-600 mb-1">キャリア</label>
                   <CustomSelect
                     options={carriers.map((c) => ({ value: c.id, label: c.name }))}
@@ -1136,30 +1149,44 @@ export default function CoursesPage() {
                 </div>}
                 {/* 時間に関する設定を1箇所に集約。
                     「時間帯」= 分類（午前/午後）、「サイクル」= 1便/2便 の運用単位。役割は別物 */}
-                {editModalTab === "operation" && <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-                  <p className="text-sm font-semibold text-slate-700">時間</p>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">時間帯</label>
-                    <CustomSelect
-                      options={[
-                        { value: "", label: "終日（指定なし）" },
-                        ...slots.map((s) => ({ value: s.id, label: slotOptionLabel(s) })),
-                      ]}
-                      value={editForm.slotId}
-                      onChange={(v) => setEditForm((f) => ({ ...f, slotId: v }))}
-                      clearable={false}
-                      size="md"
-                    />
-                  </div>
+                {editModalTab === "operation" && <div className="max-w-3xl">
                   <CourseCyclesEditor
                     usesCycles={editUsesCycles}
                     cycles={editCycles}
                     disabled={!canWrite}
                     onUsesCyclesChange={setEditUsesCycles}
                     onCyclesChange={setEditCycles}
+                    courseTimes={
+                      <div>
+                        <div className="grid grid-cols-3 gap-2">
+                          {([
+                            ["meeting_time", "集合"],
+                            ["arrival_time", "開始"],
+                            ["end_time", "終了目安"],
+                          ] as const).map(([key, label]) => (
+                            <div key={key}>
+                              <span className="mb-0.5 block text-xs text-slate-500">{label}</span>
+                              <TimePicker value={editForm[key] || null}
+                                onChange={(value) => setEditForm((form) => ({ ...form, [key]: value ?? "" }))}
+                                placeholder="--:--" buttonClassName="px-2.5" />
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 flex gap-2">
+                          <input type="text" value={editForm.meeting_place}
+                            onChange={(event) => setEditForm((form) => ({ ...form, meeting_place: event.target.value }))}
+                            placeholder="集合場所"
+                            className="min-w-0 flex-1 rounded border border-slate-200 px-2.5 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400" />
+                          <input type="text" inputMode="numeric" value={editForm.max_drivers}
+                            onChange={(event) => setEditForm((form) => ({ ...form, max_drivers: event.target.value.replace(/\D/g, "") }))}
+                            placeholder="人数"
+                            className="w-24 rounded border border-slate-200 px-2.5 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400" />
+                        </div>
+                      </div>
+                    }
                   />
                 </div>}
-                {editModalTab === "basic" && <div>
+                {editModalTab === "basic" && <div className="max-w-2xl">
                   <label className="block text-sm font-medium text-slate-600 mb-1">コース名</label>
                   <input
                     type="text"
@@ -1168,7 +1195,7 @@ export default function CoursesPage() {
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
                 </div>}
-                {editModalTab === "basic" && <div>
+                {editModalTab === "basic" && <div className="max-w-lg">
                   <label className="block text-sm font-medium text-slate-600 mb-1">略記（集計・シフト表示用）</label>
                   <input
                     type="text"
@@ -1179,7 +1206,7 @@ export default function CoursesPage() {
                   />
                   <p className="mt-1 text-xs text-slate-500">未入力の場合はコース名を表示します。</p>
                 </div>}
-                {editModalTab === "basic" && <div>
+                {editModalTab === "basic" && <div className="max-w-2xl">
                   <label className="block text-sm font-medium text-slate-600 mb-1">取引先（請求先）</label>
                   <CustomSelect
                     options={[
@@ -1193,7 +1220,7 @@ export default function CoursesPage() {
                     disabled={invoiceAddresses.length === 0}
                   />
                 </div>}
-                {editModalTab === "basic" && <div>
+                {editModalTab === "basic" && <div className="max-w-xs">
                   <label className="block text-sm font-medium text-slate-600 mb-1">いつもの1日の人数</label>
                   <input
                     type="text"
@@ -1208,7 +1235,7 @@ export default function CoursesPage() {
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
                 </div>}
-                {editModalTab === "basic" && <div>
+                {editModalTab === "basic" && <div className="max-w-2xl">
                   <label className="block text-sm font-medium text-slate-600 mb-2">色</label>
                   <div className="flex flex-wrap gap-2 mb-2">
                     {COLORS.map((c) => (

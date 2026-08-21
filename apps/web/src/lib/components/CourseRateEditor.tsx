@@ -32,6 +32,11 @@ type Fixed = {
   revenue_contract_amount?: number | null;
   payout_contract_amount?: number | null;
 };
+type FixedBundle = {
+  required_cycle_nos: number[];
+  revenue_contract_amount: number | null;
+  payout_contract_amount: number | null;
+};
 
 // 集計単価は税抜（円）で保存し、契約上の入力原額も別列へ保持する。
 // 売上は税込で提示されることが多い一方、支払（ドライバー）は税抜の確定額で渡されることが多いため、
@@ -62,6 +67,7 @@ type LoadResponse = {
   unitRates: UnitRate[];
   fixed: Fixed;
   fixedRates?: Fixed[];
+  fixedBundle?: (FixedBundle & { fixed_revenue?: number | null; fixed_payout?: number | null }) | null;
 };
 
 const basisToMode = (b: "exclusive" | "inclusive" | undefined): TaxMode => (b === "inclusive" ? "incl" : "excl");
@@ -101,6 +107,9 @@ export const CourseRateEditor = forwardRef<
   const [fixedByCycle, setFixedByCycle] = useState<Record<number, Fixed>>({
     0: { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 },
   });
+  const [fixedBundle, setFixedBundle] = useState<FixedBundle>({
+    required_cycle_nos: [], revenue_contract_amount: null, payout_contract_amount: null,
+  });
   const [revenueTaxMode, setRevenueTaxMode] = useState<TaxMode>("excl");
   const [payoutTaxMode, setPayoutTaxMode] = useState<TaxMode>("excl");
   const [revenueRateMode, setRevenueRateMode] = useState<RateMode>("PER_PIECE");
@@ -133,6 +142,7 @@ export const CourseRateEditor = forwardRef<
       setUnits([]);
       setRates({});
       setFixedByCycle({ 0: { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 } });
+      setFixedBundle({ required_cycle_nos: [], revenue_contract_amount: null, payout_contract_amount: null });
       setCarrierMissing(false);
       setRevenueTaxMode("excl");
       setPayoutTaxMode("excl");
@@ -192,6 +202,13 @@ export const CourseRateEditor = forwardRef<
       };
     });
     setFixedByCycle(fixedMap);
+    setFixedBundle({
+      required_cycle_nos: res.fixedBundle?.required_cycle_nos ?? cycles.map((cycle) => cycle.cycleNo),
+      revenue_contract_amount: res.fixedBundle?.revenue_contract_amount
+        ?? (res.fixedBundle?.fixed_revenue == null ? null : rMode === "incl" ? toIncl(res.fixedBundle.fixed_revenue) : res.fixedBundle.fixed_revenue),
+      payout_contract_amount: res.fixedBundle?.payout_contract_amount
+        ?? (res.fixedBundle?.fixed_payout == null ? null : pMode === "incl" ? toIncl(res.fixedBundle.fixed_payout) : res.fixedBundle.fixed_payout),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [billingData]);
 
@@ -248,6 +265,10 @@ export const CourseRateEditor = forwardRef<
             course_id: id,
             unitRates,
             fixedRates,
+            fixedBundle: usesCycles ? {
+              ...fixedBundle,
+              required_cycle_nos: cycles.map((cycle) => cycle.cycleNo),
+            } : null,
             revenueTaxBasis: modeToBasis(revenueTaxMode),
             payoutTaxBasis: modeToBasis(payoutTaxMode),
             revenueRateMode,
@@ -261,7 +282,7 @@ export const CourseRateEditor = forwardRef<
         void invalidateApi(`/api/admin/course-billing?course_id=${id}`);
       },
     }),
-    [courseId, rates, fixedByCycle, revenueTaxMode, payoutTaxMode, revenueRateMode, payoutRateMode, usesCycles, cycles, units],
+    [courseId, rates, fixedByCycle, fixedBundle, revenueTaxMode, payoutTaxMode, revenueRateMode, payoutRateMode, usesCycles, cycles, units],
   );
 
   function markDirty() {
@@ -306,6 +327,11 @@ export const CourseRateEditor = forwardRef<
       next.fixed_profit = recomputeProfit(next.fixed_revenue, next.fixed_payout);
       return { ...prev, [cycleNo]: next };
     });
+  }
+
+  function setBundleField(key: "revenue_contract_amount" | "payout_contract_amount", value: number | null) {
+    markDirty();
+    setFixedBundle((current) => ({ ...current, [key]: value }));
   }
 
   const changeRevenueMode = (nextMode: TaxMode) => {
@@ -440,23 +466,26 @@ export const CourseRateEditor = forwardRef<
             <div className="space-y-3">
               {usesCycles && cycles.length > 1 ? (
                 <div className="rounded border border-slate-300 bg-slate-50 px-3 py-2.5">
-                  <div className="mb-2 text-xs font-semibold text-slate-700">全サイクル稼働時の日当合計</div>
+                  <div className="mb-2 text-xs font-semibold text-slate-700">全日の日当</div>
                   <div className="grid grid-cols-2 gap-2">
                     {hasFixed(revenueRateMode) ? (
-                      <AmountSummary
+                      <OptionalNumField
                         label={`売上日当（${taxLabel(revenueTaxMode)}）`}
-                        value={cycleFixedTotals.revenue}
-                        hint={hintFor(revenueTaxMode, cycleFixedTotals.revenue)}
+                        value={fixedBundle.revenue_contract_amount}
+                        fallback={cycleFixedTotals.revenue}
+                        onChange={(value) => setBundleField("revenue_contract_amount", value)}
                       />
                     ) : <NotApplicable label="売上" mode={revenueRateMode} />}
                     {hasFixed(payoutRateMode) ? (
-                      <AmountSummary
+                      <OptionalNumField
                         label={`支払日当（${taxLabel(payoutTaxMode)}）`}
-                        value={cycleFixedTotals.payout}
-                        hint={hintFor(payoutTaxMode, cycleFixedTotals.payout)}
+                        value={fixedBundle.payout_contract_amount}
+                        fallback={cycleFixedTotals.payout}
+                        onChange={(value) => setBundleField("payout_contract_amount", value)}
                       />
                     ) : <NotApplicable label="支払" mode={payoutRateMode} />}
                   </div>
+                  <div className="mt-1 text-[10px] text-slate-400">未入力の場合は便別日当の合計を使用します。</div>
                 </div>
               ) : null}
               {(usesCycles ? cycles : [{ cycleNo: 0, label: null }]).map((cycle) => {
@@ -635,14 +664,23 @@ function NumField({
   );
 }
 
-function AmountSummary({ label, value, hint }: { label: string; value: number; hint: string }) {
+function OptionalNumField({ label, value, fallback, onChange }: {
+  label: string;
+  value: number | null;
+  fallback: number;
+  onChange: (value: number | null) => void;
+}) {
   return (
-    <div>
+    <label className="block">
       <span className="mb-1 block text-[10px] text-slate-500">{label}</span>
-      <div className="rounded border border-slate-200 bg-white px-2.5 py-2 text-right font-semibold text-slate-800">
-        ¥{value.toLocaleString()}
-      </div>
-      <span className="mt-0.5 block text-right text-[10px] text-slate-400">{hint}</span>
-    </div>
+      <input type="text" inputMode="numeric" pattern="[0-9]*"
+        value={value ?? ""}
+        placeholder={`自動 ¥${fallback.toLocaleString()}`}
+        onChange={(event) => {
+          const digits = event.target.value.replace(/\D/g, "");
+          onChange(digits === "" ? null : Number(digits));
+        }}
+        className="w-full rounded border border-slate-300 bg-white px-2.5 py-2 text-right placeholder:text-slate-400" />
+    </label>
   );
 }

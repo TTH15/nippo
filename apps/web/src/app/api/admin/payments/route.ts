@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
     ]);
 
   const codeByCarrier = new Map(data.carriers.map((c) => [c.id, c.code]));
-  const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
+  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles);
   const auto = buildContributions(data.reports, [], ctx);
 
   const autoPayoutByDriver = sumBy(auto, (c) => c.driverId);

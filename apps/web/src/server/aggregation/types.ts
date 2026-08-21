@@ -46,6 +46,13 @@ export type CourseFixedRate = {
   payoutContractAmount?: number;
 };
 
+export type CourseFixedRateBundle = {
+  courseId: string;
+  requiredCycleNos: number[];
+  fixedRevenue: number | null;
+  fixedPayout: number | null;
+};
+
 export type ReportEntry = {
   unitId: string;
   fieldKey: string;

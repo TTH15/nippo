@@ -281,7 +281,7 @@ export async function computeSectionMonthRevenue(
   }
 
   const data = await loadAggregationData(supabase, orgId, startDate, endDate);
-  const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
+  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles);
   const contribs = buildContributions(data.reports, [], ctx); // ledger 無し = auto のみ
 
   const carrierCodeByCourse = await loadCarrierCodeByCourse(supabase, orgId);

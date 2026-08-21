@@ -8,6 +8,7 @@ import { loadOrgCarrierIds } from "@/server/carriers/orgCarriers";
 import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "./pagination";
 import type {
   CourseFixedRate,
+  CourseFixedRateBundle,
   CourseUnitRate,
   DailyReport,
   LedgerEntry,
@@ -22,6 +23,7 @@ export type AggregationData = {
   units: UnitDef[];
   unitRates: CourseUnitRate[];
   fixedRates: CourseFixedRate[];
+  fixedRateBundles: CourseFixedRateBundle[];
   reports: DailyReport[];
   ledger: LedgerEntry[];
 };
@@ -56,6 +58,7 @@ export async function loadAggregationData(
     carriers,
     units,
     unitFields,
+    fixedRateBundles,
     unitRates,
     fixedRates,
     reportRows,
@@ -79,6 +82,13 @@ export async function loadAggregationData(
         .select("unit_id, field_key, is_billable")
         // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
         .order("id", { ascending: true })
+        .range(from, to),
+    ),
+    fetchAllRows((from, to) =>
+      supabase
+        .from("course_fixed_rate_bundles")
+        .select("course_id, required_cycle_nos, fixed_revenue, fixed_payout")
+        .order("course_id", { ascending: true })
         .range(from, to),
     ),
     fetchAllRows((from, to) =>
@@ -216,6 +226,12 @@ export async function loadAggregationData(
       fixedPayout: Number(r.fixed_payout) || 0,
       revenueContractAmount: r.revenue_contract_amount == null ? undefined : Number(r.revenue_contract_amount) || 0,
       payoutContractAmount: r.payout_contract_amount == null ? undefined : Number(r.payout_contract_amount) || 0,
+    })),
+    fixedRateBundles: (fixedRateBundles ?? []).map((r: any) => ({
+      courseId: r.course_id,
+      requiredCycleNos: Array.isArray(r.required_cycle_nos) ? r.required_cycle_nos.map(Number) : [],
+      fixedRevenue: r.fixed_revenue == null ? null : Number(r.fixed_revenue),
+      fixedPayout: r.fixed_payout == null ? null : Number(r.fixed_payout),
     })),
     reports,
     ledger: (ledgerRows ?? []).map((l: any) => ({

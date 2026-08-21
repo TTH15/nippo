@@ -13,6 +13,7 @@
 import type {
   Contribution,
   CourseFixedRate,
+  CourseFixedRateBundle,
   CourseUnitRate,
   DailyReport,
   LedgerEntry,
@@ -46,12 +47,14 @@ export type AggregationContext = {
   unitRateByCourseUnit: Map<string, CourseUnitRate>;
   /** `${courseId}:${cycleNo}` -> CourseFixedRate */
   fixedRateByCourse: Map<string, CourseFixedRate>;
+  fixedBundleByCourse: Map<string, CourseFixedRateBundle>;
 };
 
 export function buildContext(
   units: UnitDef[],
   unitRates: CourseUnitRate[],
   fixedRates: CourseFixedRate[],
+  fixedBundles: CourseFixedRateBundle[] = [],
 ): AggregationContext {
   const unitById = new Map<string, UnitDef>();
   units.forEach((u) => unitById.set(u.id, u));
@@ -64,7 +67,8 @@ export function buildContext(
   const fixedRateByCourse = new Map<string, CourseFixedRate>();
   fixedRates.forEach((r) => fixedRateByCourse.set(`${r.courseId}:${r.cycleNo ?? 0}`, r));
 
-  return { unitById, unitRateByCourseUnit, fixedRateByCourse };
+  const fixedBundleByCourse = new Map(fixedBundles.map((bundle) => [bundle.courseId, bundle]));
+  return { unitById, unitRateByCourseUnit, fixedRateByCourse, fixedBundleByCourse };
 }
 
 /** どの field が従量課金の数量かを引く */
@@ -184,8 +188,57 @@ export function buildContributions(
 ): Contribution[] {
   const out: Contribution[] = [];
   for (const r of reports) out.push(...reportContributions(r, ctx));
+  applyFixedBundleAdjustments(reports, out, ctx);
   out.push(...ledgerContributions(ledger));
   return out;
+}
+
+function hasAllCycles(reports: DailyReport[], required: number[]): boolean {
+  const actual = new Set(reports.filter(isCountableReport).map((report) => report.cycleNo ?? 0));
+  return required.length > 1 && required.every((cycleNo) => actual.has(cycleNo));
+}
+
+/** 全日単価は便別固定額の「追加」ではなく置換。売上はコース/日、支払はドライバー/コース/日で判定する。 */
+function applyFixedBundleAdjustments(reports: DailyReport[], out: Contribution[], ctx: AggregationContext): void {
+  const courseDays = new Map<string, DailyReport[]>();
+  for (const report of reports) {
+    if (!isCountableReport(report) || !report.courseId) continue;
+    const key = `${report.reportDate}:${report.courseId}`;
+    courseDays.set(key, [...(courseDays.get(key) ?? []), report]);
+  }
+
+  for (const [key, dayReports] of courseDays) {
+    const courseId = dayReports[0].courseId!;
+    const snapshotBundle = dayReports.find((report) => report.rateSnapshot?.fixedBundle)?.rateSnapshot?.fixedBundle;
+    const bundle = snapshotBundle ? { courseId, ...snapshotBundle } : ctx.fixedBundleByCourse.get(courseId);
+    if (!bundle || !hasAllCycles(dayReports, bundle.requiredCycleNos)) continue;
+    const [date] = key.split(":");
+
+    if (bundle.fixedRevenue != null) {
+      const baseRevenue = out.filter((item) => item.date === date && item.courseId === courseId && item.source === "auto_fixed")
+        .reduce((sum, item) => sum + item.revenue, 0);
+      const revenueDelta = bundle.fixedRevenue - baseRevenue;
+      if (revenueDelta !== 0) out.push({
+        date, courseId, driverId: null, carrierId: dayReports[0].carrierId, unitId: null, counterpartyId: null,
+        source: "auto_fixed", revenue: revenueDelta, payout: 0, profit: revenueDelta,
+      });
+    }
+
+    if (bundle.fixedPayout != null) {
+      const byDriver = new Map<string, DailyReport[]>();
+      dayReports.forEach((report) => byDriver.set(report.driverId, [...(byDriver.get(report.driverId) ?? []), report]));
+      for (const [driverId, driverReports] of byDriver) {
+        if (!hasAllCycles(driverReports, bundle.requiredCycleNos)) continue;
+        const basePayout = out.filter((item) => item.date === date && item.courseId === courseId && item.driverId === driverId && item.source === "auto_fixed")
+          .reduce((sum, item) => sum + item.payout, 0);
+        const payoutDelta = bundle.fixedPayout - basePayout;
+        if (payoutDelta !== 0) out.push({
+          date, courseId, driverId, carrierId: driverReports[0].carrierId, unitId: null, counterpartyId: null,
+          source: "auto_fixed", revenue: 0, payout: payoutDelta, profit: -payoutDelta,
+        });
+      }
+    }
+  }
 }
 
 /** 指定キーで Money を合算 */

@@ -69,6 +69,8 @@ type Props = {
   disabled?: boolean;
   onUsesCyclesChange: (value: boolean) => void;
   onCyclesChange: (cycles: CycleDraft[]) => void;
+  /** 単一運行時にコース本体へ保存する標準時刻。 */
+  courseTimes: React.ReactNode;
 };
 
 export function CourseCyclesEditor({
@@ -77,6 +79,7 @@ export function CourseCyclesEditor({
   disabled,
   onUsesCyclesChange,
   onCyclesChange,
+  courseTimes,
 }: Props) {
   const update = (key: string, patch: Partial<CourseCycle>) => {
     onCyclesChange(cycles.map((c) => (c.key === key ? { ...c, ...patch } : c)));
@@ -214,7 +217,12 @@ export function CourseCyclesEditor({
             サイクルを追加
           </button>
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+          <div className="mb-2 text-xs font-semibold text-slate-700">標準運行</div>
+          {courseTimes}
+        </div>
+      )}
     </div>
   );
 }

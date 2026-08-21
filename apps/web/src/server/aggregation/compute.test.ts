@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildContext, reportContributions } from "./compute";
+import { buildContext, buildContributions, reportContributions } from "./compute";
 import type { CourseFixedRate, DailyReport } from "./types";
 
 const report = (cycleNo: number): DailyReport => ({
@@ -53,6 +53,26 @@ describe("便別固定単価", () => {
       payout: 13_000,
       profit: 4_000,
     });
+  });
+
+  it("全日単価は売上をコース単位、支払を同一ドライバー単位で便別合計から置き換える", () => {
+    const ctx = buildContext([], [], [
+      { courseId: "c1", cycleNo: 1, fixedRevenue: 10_000, fixedProfit: 3_000, fixedPayout: 7_000 },
+      { courseId: "c1", cycleNo: 2, fixedRevenue: 10_000, fixedProfit: 3_000, fixedPayout: 7_000 },
+    ], [{ courseId: "c1", requiredCycleNos: [1, 2], fixedRevenue: 22_000, fixedPayout: 15_000 }]);
+
+    const contributions = buildContributions([report(1), report(2)], [], ctx);
+    const total = contributions.reduce((sum, item) => ({
+      revenue: sum.revenue + item.revenue,
+      payout: sum.payout + item.payout,
+      profit: sum.profit + item.profit,
+    }), { revenue: 0, payout: 0, profit: 0 });
+    expect(total).toEqual({ revenue: 22_000, payout: 15_000, profit: 7_000 });
+
+    const splitDriver = { ...report(2), driverId: "d2" };
+    const split = buildContributions([report(1), splitDriver], [], ctx);
+    expect(split.reduce((sum, item) => sum + item.revenue, 0)).toBe(22_000);
+    expect(split.reduce((sum, item) => sum + item.payout, 0)).toBe(14_000);
   });
 });
 

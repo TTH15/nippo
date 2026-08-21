@@ -19,6 +19,11 @@ export type ReportRateSnapshot = {
   version: 1;
   capturedAt: string;
   components: ReportRateSnapshotComponent[];
+  fixedBundle?: {
+    requiredCycleNos: number[];
+    fixedRevenue: number | null;
+    fixedPayout: number | null;
+  };
 };
 
 const n = (value: unknown) => Math.trunc(Number(value) || 0);
@@ -49,7 +54,7 @@ export async function captureReportRateSnapshots(
   if (reportError) throw reportError;
 
   const courseIds = Array.from(new Set((reports ?? []).map((r) => r.course_id).filter(Boolean)));
-  const [{ data: courses }, { data: unitRates }, { data: fixedRates }, { data: entries }, { data: versions }] = await Promise.all([
+  const [{ data: courses }, { data: unitRates }, { data: fixedRates }, { data: fixedBundles }, { data: entries }, { data: versions }] = await Promise.all([
     supabase
       .from("courses")
       .select("id, revenue_tax_basis, payout_tax_basis, revenue_rate_mode, payout_rate_mode")
@@ -62,6 +67,10 @@ export async function captureReportRateSnapshots(
     supabase
       .from("course_fixed_rates")
       .select("course_id, cycle_no, fixed_revenue, fixed_payout, revenue_contract_amount, payout_contract_amount")
+      .in("course_id", courseIds),
+    supabase
+      .from("course_fixed_rate_bundles")
+      .select("course_id, required_cycle_nos, fixed_revenue, fixed_payout")
       .in("course_id", courseIds),
     supabase
       .from("report_entries")
@@ -165,7 +174,20 @@ export async function captureReportRateSnapshots(
       });
     }
 
-    const snapshot: ReportRateSnapshot = { version: 1, capturedAt, components };
+    const versionBundle = versionData?.fixedBundle as any;
+    const currentBundle = (fixedBundles ?? []).find((bundle: any) => bundle.course_id === report.course_id);
+    const bundle = versionBundle ? {
+      requiredCycleNos: Array.isArray(versionBundle.required_cycle_nos) ? versionBundle.required_cycle_nos.map(Number) : [],
+      fixedRevenue: versionBundle.revenue_contract_amount == null ? null
+        : revenueBasis === "inclusive" ? Math.round(n(versionBundle.revenue_contract_amount) / 1.1) : n(versionBundle.revenue_contract_amount),
+      fixedPayout: versionBundle.payout_contract_amount == null ? null
+        : payoutBasis === "inclusive" ? Math.round(n(versionBundle.payout_contract_amount) / 1.1) : n(versionBundle.payout_contract_amount),
+    } : currentBundle ? {
+      requiredCycleNos: Array.isArray(currentBundle.required_cycle_nos) ? currentBundle.required_cycle_nos.map(Number) : [],
+      fixedRevenue: currentBundle.fixed_revenue == null ? null : n(currentBundle.fixed_revenue),
+      fixedPayout: currentBundle.fixed_payout == null ? null : n(currentBundle.fixed_payout),
+    } : undefined;
+    const snapshot: ReportRateSnapshot = { version: 1, capturedAt, components, fixedBundle: bundle };
     const { error } = await supabase
       .from("daily_reports_v2")
       .update({ rate_snapshot: snapshot })
