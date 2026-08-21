@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
     const shiftDate = typeof body.shiftDate === "string" ? body.shiftDate : "";
     const courseId = typeof body.courseId === "string" ? body.courseId : "";
     const slot = body.slot;
+    const cycleNo = Number.isInteger(body.cycleNo) && Number(body.cycleNo) >= 0 ? Number(body.cycleNo) : 0;
 
     if (!shiftDate || !courseId) {
       return NextResponse.json({ error: "shiftDate and courseId are required" }, { status: 400 });
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
       .update(updates)
       .eq("shift_date", shiftDate)
       .eq("course_id", courseId)
+      .eq("cycle_no", cycleNo)
       .eq("slot", slotNumber)
       .select()
       .maybeSingle();

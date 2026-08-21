@@ -48,8 +48,9 @@ export async function GET(req: NextRequest) {
   // Get courses
   const { data: courses } = await supabase
     .from("courses")
-    .select("*")
+    .select("*, course_cycles(id, cycle_no, label, meeting_place, meeting_time, arrival_time, end_time, max_drivers, sort_order, active)")
     .eq("org_id", orgId)
+    .is("archived_at", null)
     .order("sort_order");
 
   const { data: fleet } = await supabase
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
     .from("shifts")
     .select(
       `
-      id, shift_date, course_id, slot, driver_id, vehicle_id, uses_external_vehicle,
+      id, shift_date, course_id, cycle_no, slot, driver_id, vehicle_id, uses_external_vehicle,
       meeting_place, meeting_time, arrival_time, end_time,
       drivers (id, name, display_name)
     `,
@@ -157,11 +158,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { shiftDate, courseId, driverId, slot } = body as {
+    const { shiftDate, courseId, driverId, slot, cycleNo } = body as {
       shiftDate?: string;
       courseId?: string;
       driverId?: string | null;
       slot?: number;
+      cycleNo?: number;
     };
 
     if (!shiftDate || !courseId) {
@@ -169,6 +171,7 @@ export async function POST(req: NextRequest) {
     }
 
     const slotNumber = Number.isFinite(slot) && Number(slot) >= 1 ? Math.floor(Number(slot)) : 1;
+    const cycleNumber = Number.isInteger(cycleNo) && Number(cycleNo) >= 0 ? Number(cycleNo) : 0;
 
     // 変更ログ用に変更前の割当を読む（軽い1読取。ログ自体はベストエフォート）。
     const { data: prevRow } = await supabase
@@ -176,12 +179,14 @@ export async function POST(req: NextRequest) {
       .select("driver_id")
       .eq("shift_date", shiftDate)
       .eq("course_id", courseId)
+      .eq("cycle_no", cycleNumber)
       .eq("slot", slotNumber)
       .maybeSingle();
 
     const upsertRow: Record<string, unknown> = {
       shift_date: shiftDate,
       course_id: courseId,
+      cycle_no: cycleNumber,
       slot: slotNumber,
       driver_id: driverId || null,
       updated_at: new Date().toISOString(),

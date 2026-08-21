@@ -15,10 +15,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { shiftDate, courseId, slot, vehicleId, usesExternalVehicle } = body as {
+    const { shiftDate, courseId, slot, cycleNo, vehicleId, usesExternalVehicle } = body as {
       shiftDate?: string;
       courseId?: string;
       slot?: number;
+      cycleNo?: number;
       /** null で車両をクリア */
       vehicleId?: string | null;
       /** 他社の車両を利用するフラグ */
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
     }
 
     const slotNumber = Number.isFinite(slot) && Number(slot) >= 1 ? Math.floor(Number(slot)) : 1;
+    const cycleNumber = Number.isInteger(cycleNo) && Number(cycleNo) >= 0 ? Number(cycleNo) : 0;
 
     // 他社車両フラグが立っているときは自社フリート車両をクリアする。
     const external = usesExternalVehicle === true;
@@ -58,6 +60,7 @@ export async function POST(req: NextRequest) {
       .select("vehicle_id, uses_external_vehicle")
       .eq("shift_date", shiftDate)
       .eq("course_id", courseId)
+      .eq("cycle_no", cycleNumber)
       .eq("slot", slotNumber)
       .maybeSingle();
 
@@ -70,6 +73,7 @@ export async function POST(req: NextRequest) {
       })
       .eq("shift_date", shiftDate)
       .eq("course_id", courseId)
+      .eq("cycle_no", cycleNumber)
       .eq("slot", slotNumber)
       .select()
       .maybeSingle();
