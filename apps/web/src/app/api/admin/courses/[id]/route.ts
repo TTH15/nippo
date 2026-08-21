@@ -130,18 +130,34 @@ export async function PUT(
           : 1;
       updates.max_drivers = capacity;
     }
+    if ("archived" in bodyRec) {
+      updates.archived_at = bodyRec.archived === true ? new Date().toISOString() : null;
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
 
-    const { error } = await supabase
+    const { data: updatedCourse, error } = await supabase
       .from("courses")
       .update(updates)
       .eq("id", id)
-      .eq("org_id", orgId);
+      .eq("org_id", orgId)
+      .select("id")
+      .maybeSingle();
 
     if (error) throw error;
+    if (!updatedCourse) return NextResponse.json({ error: "Course not found" }, { status: 404 });
+
+    // 担当割当は現在の運用情報なので、アーカイブ時だけ解除する。
+    // 日報・シフト・単価履歴は過去計算に必要なため保持する。
+    if (bodyRec.archived === true) {
+      const { error: assignmentError } = await supabase
+        .from("driver_courses")
+        .delete()
+        .eq("course_id", id);
+      if (assignmentError) throw assignmentError;
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
@@ -179,4 +195,3 @@ export async function DELETE(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
-

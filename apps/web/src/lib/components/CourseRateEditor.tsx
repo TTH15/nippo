@@ -346,6 +346,13 @@ export const CourseRateEditor = forwardRef<
   const hintFor = (mode: TaxMode, raw: number) =>
     mode === "incl" ? `税抜換算 ¥${toExcl(raw).toLocaleString()}` : `税込換算 ¥${toIncl(raw).toLocaleString()}`;
   const taxLabel = (mode: TaxMode) => (mode === "incl" ? "税込" : "税抜");
+  const cycleFixedTotals = cycles.reduce((total, cycle) => {
+    const fixed = fixedByCycle[cycle.cycleNo] ?? { fixed_revenue: 0, fixed_payout: 0 };
+    return {
+      revenue: total.revenue + fixed.fixed_revenue,
+      payout: total.payout + fixed.fixed_payout,
+    };
+  }, { revenue: 0, payout: 0 });
 
   return (
     <div className="space-y-4 text-sm">
@@ -431,6 +438,27 @@ export const CourseRateEditor = forwardRef<
           {(hasFixed(revenueRateMode) || hasFixed(payoutRateMode)) && <div>
             <h4 className="text-xs font-semibold text-slate-700 mb-2">固定（日当 / 1シフト）</h4>
             <div className="space-y-3">
+              {usesCycles && cycles.length > 1 ? (
+                <div className="rounded border border-slate-300 bg-slate-50 px-3 py-2.5">
+                  <div className="mb-2 text-xs font-semibold text-slate-700">全サイクル稼働時の日当合計</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {hasFixed(revenueRateMode) ? (
+                      <AmountSummary
+                        label={`売上日当（${taxLabel(revenueTaxMode)}）`}
+                        value={cycleFixedTotals.revenue}
+                        hint={hintFor(revenueTaxMode, cycleFixedTotals.revenue)}
+                      />
+                    ) : <NotApplicable label="売上" mode={revenueRateMode} />}
+                    {hasFixed(payoutRateMode) ? (
+                      <AmountSummary
+                        label={`支払日当（${taxLabel(payoutTaxMode)}）`}
+                        value={cycleFixedTotals.payout}
+                        hint={hintFor(payoutTaxMode, cycleFixedTotals.payout)}
+                      />
+                    ) : <NotApplicable label="支払" mode={payoutRateMode} />}
+                  </div>
+                </div>
+              ) : null}
               {(usesCycles ? cycles : [{ cycleNo: 0, label: null }]).map((cycle) => {
                 const f = fixedByCycle[cycle.cycleNo] ?? fixedByCycle[0] ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 };
                 return (
@@ -604,5 +632,17 @@ function NumField({
       />
       {hint && <span className="block text-[10px] text-slate-400 mt-0.5 text-right">{hint}</span>}
     </label>
+  );
+}
+
+function AmountSummary({ label, value, hint }: { label: string; value: number; hint: string }) {
+  return (
+    <div>
+      <span className="mb-1 block text-[10px] text-slate-500">{label}</span>
+      <div className="rounded border border-slate-200 bg-white px-2.5 py-2 text-right font-semibold text-slate-800">
+        ¥{value.toLocaleString()}
+      </div>
+      <span className="mt-0.5 block text-right text-[10px] text-slate-400">{hint}</span>
+    </div>
   );
 }

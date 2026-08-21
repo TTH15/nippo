@@ -70,6 +70,7 @@ type Course = {
   meeting_time?: string | null;
   arrival_time?: string | null;
   end_time?: string | null;
+  archived_at?: string | null;
 };
 
 type TimeSlot = { id: string; name: string; startTime: string | null; endTime: string | null };
@@ -177,12 +178,15 @@ export default function CoursesPage() {
   const [editUsesCycles, setEditUsesCycles] = useState(false);
   const [editCycles, setEditCycles] = useState<CycleDraft[]>([]);
   const [editBillingRevision, setEditBillingRevision] = useState(0);
+  const [editModalTab, setEditModalTab] = useState<"basic" | "operation" | "pricing">("basic");
+  const [showArchivedCourses, setShowArchivedCourses] = useState(false);
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmState, setConfirmState] = useState<{
     message: string;
     onConfirm: () => void;
+    confirmLabel?: string;
   } | null>(null);
   const [errorState, setErrorState] = useState<{
     title: string;
@@ -196,7 +200,7 @@ export default function CoursesPage() {
   // キャリア別にコースをグルーピング（カラム=キャリアマスタ順、未設定は末尾）
   const carrierGroups = useMemo(() => {
     const byCarrier = new Map<string, Course[]>();
-    for (const c of courses) {
+    for (const c of courses.filter((course) => showArchivedCourses ? !!course.archived_at : !course.archived_at)) {
       const key = c.carrier_id ?? NO_CARRIER_KEY;
       const arr = byCarrier.get(key) ?? [];
       arr.push(c);
@@ -221,7 +225,7 @@ export default function CoursesPage() {
       groups.push({ key: NO_CARRIER_KEY, name: "キャリア未設定", code: null, courses: none });
     }
     return groups;
-  }, [courses, carriers]);
+  }, [courses, carriers, showArchivedCourses]);
 
   const reorderCourses = async (newOrder: Course[]) => {
     if (!canWrite) return;
@@ -285,7 +289,7 @@ export default function CoursesPage() {
   }>("admin/courses:bundle", {
     fetcher: async () => {
       const [coursesRes, usersRes, invoiceAddressesRes, carriersRes, slotsRes] = await Promise.all([
-        apiFetch<{ courses: Course[] }>("/api/admin/courses"),
+        apiFetch<{ courses: Course[] }>("/api/admin/courses?include_archived=1"),
         // 名簿・請求の権限が無いロールでは 403 になる。コース一覧（設定権限）まで
         // 巻き込まず、担当ドライバー・請求先の候補が空になるだけに留める。
         // all=1: ページングなしの全件（既定 limit=20 のままだと21人目以降の
@@ -511,6 +515,7 @@ export default function CoursesPage() {
     setEditUsesCycles(Boolean(course.uses_cycles));
     setEditCycles(toCycleDrafts(course.course_cycles ?? []));
     setEditBillingRevision(0);
+    setEditModalTab("basic");
     baselineFormRef.current = { ...form };
     setShowEditModal(true);
   };
@@ -656,6 +661,40 @@ export default function CoursesPage() {
     });
   };
 
+  const setCourseArchived = (course: Course, archived: boolean) => {
+    if (!canWrite) return;
+    setConfirmState({
+      message: archived
+        ? `${course.name} をアーカイブしますか？\n通常のコース一覧と新しい割り当て候補から外れますが、過去の計算記録は残ります。`
+        : `${course.name} を稼働中へ戻しますか？`,
+      confirmLabel: archived ? "アーカイブ" : "稼働中に戻す",
+      onConfirm: async () => {
+        setSaving(true);
+        try {
+          await apiFetch(`/api/admin/courses/${course.id}`, {
+            method: "PUT",
+            body: JSON.stringify({ archived }),
+          });
+          const archivedAt = archived ? new Date().toISOString() : null;
+          setCourses((prev) => prev.map((item) => item.id === course.id
+            ? { ...item, archived_at: archivedAt }
+            : item));
+          setShowEditModal(false);
+          setEditingCourse(null);
+          void refreshBundle();
+        } catch (e) {
+          setErrorState({
+            title: archived ? "アーカイブに失敗しました" : "アーカイブ解除に失敗しました",
+            message: "時間をおいて再度お試しください。",
+            detail: e instanceof Error ? e.message : undefined,
+          });
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
+  };
+
   const renderCourseRow = (course: Course, group: { key: string; courses: Course[] }) => {
     const assignedDrivers = getDriversForCourse(course.id);
     const isDragOver = dragOverId === course.id;
@@ -693,7 +732,7 @@ export default function CoursesPage() {
         style={{ borderLeftColor: course.color }}
       >
         <div className="flex items-center justify-between gap-3">
-          {canWrite && !reordering && (
+          {canWrite && !course.archived_at && !reordering && (
             <div
               draggable
               onClick={(e) => e.stopPropagation()}
@@ -716,6 +755,9 @@ export default function CoursesPage() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <h3 className="font-medium text-slate-900">{course.name}</h3>
+              {course.archived_at ? (
+                <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">アーカイブ済み</span>
+              ) : null}
               {/* 便を使うコースだけ、どんな便があるかを見出しに出す */}
               {course.uses_cycles &&
                 (course.course_cycles ?? []).map((cy) => (
@@ -737,7 +779,7 @@ export default function CoursesPage() {
               ) : (
                 <span className="text-xs text-slate-400">担当ドライバー未設定</span>
               )}
-              {canWrite && (
+              {canWrite && !course.archived_at && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -768,12 +810,17 @@ export default function CoursesPage() {
       <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-slate-900">コース管理</h1>
-          {canWrite && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="default" onClick={() => setShowArchivedCourses((value) => !value)}>
+              {showArchivedCourses ? "稼働中のコース" : "アーカイブ"}
+            </Button>
+          {canWrite && !showArchivedCourses && (
             <Button variant="default" size="default" onClick={() => setShowModal(true)}>
               <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
               新規追加
             </Button>
           )}
+          </div>
         </div>
 
         {loading ? (
@@ -1058,13 +1105,26 @@ export default function CoursesPage() {
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
           onClick={() => void closeEditModal()}
         >
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-6xl max-h-[95vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">コース編集</h2>
+          <div className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-3 text-lg font-semibold text-slate-900">コース編集</h2>
+            <div className="mb-4 flex shrink-0 gap-1 border-b border-slate-200">
+              {([
+                ["basic", "基本情報"],
+                ["operation", "運行・サイクル"],
+                ["pricing", "単価・契約"],
+              ] as const).map(([key, label]) => (
+                <button key={key} type="button" onClick={() => setEditModalTab(key)}
+                  className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${editModalTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className="mx-auto grid max-w-4xl grid-cols-1 gap-y-4">
               {/* 列1: 基本情報＋請求関連・人数・色 */}
               <div className="space-y-4">
-                <div>
+                {editModalTab === "basic" && <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">キャリア</label>
                   <CustomSelect
                     options={carriers.map((c) => ({ value: c.id, label: c.name }))}
@@ -1073,10 +1133,10 @@ export default function CoursesPage() {
                     clearable={false}
                     size="md"
                   />
-                </div>
+                </div>}
                 {/* 時間に関する設定を1箇所に集約。
                     「時間帯」= 分類（午前/午後）、「サイクル」= 1便/2便 の運用単位。役割は別物 */}
-                <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+                {editModalTab === "operation" && <div className="rounded-lg border border-slate-200 p-3 space-y-3">
                   <p className="text-sm font-semibold text-slate-700">時間</p>
                   <div>
                     <label className="block text-sm font-medium text-slate-600 mb-1">時間帯</label>
@@ -1098,8 +1158,8 @@ export default function CoursesPage() {
                     onUsesCyclesChange={setEditUsesCycles}
                     onCyclesChange={setEditCycles}
                   />
-                </div>
-                <div>
+                </div>}
+                {editModalTab === "basic" && <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">コース名</label>
                   <input
                     type="text"
@@ -1107,8 +1167,8 @@ export default function CoursesPage() {
                     onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
-                </div>
-                <div>
+                </div>}
+                {editModalTab === "basic" && <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">略記（集計・シフト表示用）</label>
                   <input
                     type="text"
@@ -1118,8 +1178,8 @@ export default function CoursesPage() {
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
                   <p className="mt-1 text-xs text-slate-500">未入力の場合はコース名を表示します。</p>
-                </div>
-                <div>
+                </div>}
+                {editModalTab === "basic" && <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">取引先（請求先）</label>
                   <CustomSelect
                     options={[
@@ -1132,8 +1192,8 @@ export default function CoursesPage() {
                     size="md"
                     disabled={invoiceAddresses.length === 0}
                   />
-                </div>
-                <div>
+                </div>}
+                {editModalTab === "basic" && <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">いつもの1日の人数</label>
                   <input
                     type="text"
@@ -1147,8 +1207,8 @@ export default function CoursesPage() {
                     placeholder="2"
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
-                </div>
-                <div>
+                </div>}
+                {editModalTab === "basic" && <div>
                   <label className="block text-sm font-medium text-slate-600 mb-2">色</label>
                   <div className="flex flex-wrap gap-2 mb-2">
                     {COLORS.map((c) => (
@@ -1173,11 +1233,11 @@ export default function CoursesPage() {
                     />
                     <span className="text-xs text-slate-500">好きな色を選択</span>
                   </div>
-                </div>
+                </div>}
               </div>
 
               {/* 列2: 日額リース＋単価設定 */}
-              <div className="space-y-4 md:border-l md:border-slate-100 md:pl-6">
+              {editModalTab === "pricing" && <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">日額リース代（円/稼働日）</label>
                   <input
@@ -1200,20 +1260,29 @@ export default function CoursesPage() {
                     onError={(msg) => setErrorState({ title: "単価設定", message: msg })}
                   />
                 </div>
-              </div>
+              </div>}
+            </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-200">
-              <button
-                onClick={() => {
-                  deleteCourse(editingCourse.id, editingCourse.name);
-                  setShowEditModal(false);
-                  setEditingCourse(null);
-                }}
-                className="px-4 py-2 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50 transition-colors"
-              >
-                削除
-              </button>
+            <div className="mt-3 flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 pt-4">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCourseArchived(editingCourse, !editingCourse.archived_at)}
+                  className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-50"
+                >
+                  {editingCourse.archived_at ? "稼働中に戻す" : "アーカイブ"}
+                </button>
+                <button
+                  onClick={() => {
+                    deleteCourse(editingCourse.id, editingCourse.name);
+                    setShowEditModal(false);
+                    setEditingCourse(null);
+                  }}
+                  className="px-4 py-2 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50 transition-colors"
+                >
+                  削除
+                </button>
+              </div>
               <div className="flex items-center gap-3">
                 <span className="text-xs text-slate-400">
                   {saving || autoSave === "saving"
@@ -1242,7 +1311,7 @@ export default function CoursesPage() {
         message={confirmState?.message ?? ""}
         onConfirm={confirmState?.onConfirm ?? (() => { })}
         onClose={() => setConfirmState(null)}
-        confirmLabel="削除"
+        confirmLabel={confirmState?.confirmLabel ?? "削除"}
       />
       <ErrorDialog
         open={!!errorState}

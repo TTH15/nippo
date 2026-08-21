@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
 
   // carrier_name はコース選択 UI（CoursePicker）のキャリア別グループ見出しに使う。
   // course_cycles は便（migration 136）。uses_cycles=false のコースでは空配列になる。
-  const { data: courses, error } = await supabase
+  const includeArchived = req.nextUrl.searchParams.get("include_archived") === "1";
+  let coursesQuery = supabase
     .from("courses")
     .select(
       `*, carriers ( id, name ),
@@ -22,6 +23,8 @@ export async function GET(req: NextRequest) {
     )
     .eq("org_id", orgId)
     .order("sort_order");
+  if (!includeArchived) coursesQuery = coursesQuery.is("archived_at", null);
+  const { data: courses, error } = await coursesQuery;
 
   if (error) {
     console.error(error);
