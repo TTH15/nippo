@@ -978,6 +978,21 @@ export default function ShiftsPage() {
       effectiveMaxSlotByCourseDate.get(`${date}:${course.id}:${cycleNo}`) ?? 0,
     );
 
+  /**
+   * サイクル導入前の shift は cycle_no=0 のまま保持される。
+   * サイクル制へ切り替えた後も、その日に旧形式の割当があれば標準コースとして走査する。
+   */
+  const cycleNosForCourseOnDate = (course: Course, date: string): number[] => {
+    if (!course.uses_cycles) return [0];
+    const cycleNos = (course.course_cycles ?? [])
+      .filter((cycle) => cycle.active !== false)
+      .map((cycle) => cycle.cycle_no);
+    if ((effectiveMaxSlotByCourseDate.get(`${date}:${course.id}:0`) ?? 0) > 0) {
+      cycleNos.unshift(0);
+    }
+    return [...new Set(cycleNos)];
+  };
+
   // slot_id を便名に解決（NULL/不明＝「全休」）。希望休一覧/注記用。
   const slotName = (slotId: string | null): string =>
     slotId == null ? "全休" : slots.find((s) => s.id === slotId)?.name ?? "便";
@@ -1005,10 +1020,12 @@ export default function ShiftsPage() {
     for (const date of displayDates) {
       const set = new Set<string>();
       for (const course of courses) {
-        const maxSlots = slotCountFor(course, date);
-        for (let slot = 1; slot <= maxSlots; slot++) {
-          const did = getCurrentDriverId(date, course.id, slot);
-          if (did) set.add(did);
+        for (const cycleNo of cycleNosForCourseOnDate(course, date)) {
+          const maxSlots = slotCountFor(course, date, cycleNo);
+          for (let slot = 1; slot <= maxSlots; slot++) {
+            const did = getCurrentDriverId(date, course.id, slot, cycleNo);
+            if (did) set.add(did);
+          }
         }
       }
       m.set(date, set.size);
@@ -1039,10 +1056,7 @@ export default function ShiftsPage() {
   ): { courseId: string; cycleNo: number; slot: number }[] => {
     const out: { courseId: string; cycleNo: number; slot: number }[] = [];
     for (const c of courses) {
-      const cycleNos = c.uses_cycles
-        ? (c.course_cycles ?? []).filter((cycle) => cycle.active !== false).map((cycle) => cycle.cycle_no)
-        : [0];
-      for (const cycleNo of cycleNos) {
+      for (const cycleNo of cycleNosForCourseOnDate(c, date)) {
         const maxSlots = slotCountFor(c, date, cycleNo);
         for (let s = 1; s <= maxSlots; s++) {
           if (getEffectiveIdFromMap(localMap, date, c.id, s, cycleNo) === driverId) {
