@@ -78,8 +78,12 @@ function courseShiftLabel(course: Course): string {
 
 function courseCycleLabel(course: Course, cycleNo: number): string {
   if (!cycleNo) return courseShiftLabel(course);
+  return `${courseShiftLabel(course)} ${courseCycleBadge(course, cycleNo)}`;
+}
+
+function courseCycleBadge(course: Course, cycleNo: number): string {
   const cycle = course.course_cycles?.find((item) => item.cycle_no === cycleNo);
-  return `${courseShiftLabel(course)} ${cycle?.label?.trim() || `${cycleNo}便`}`;
+  return cycle?.label?.trim() || `C${cycleNo}`;
 }
 
 /** 同日×同ドライバーの車両上書き用（ISO日付 と UUID はどちらもハイフンを含むため区切りに | を使う） */
@@ -2619,10 +2623,18 @@ export default function ShiftsPage() {
                           // 便指定の休み希望（全休でない場合のみ。割当はブロックせず注記表示）。
                           const slotOffs = off ? [] : getDriverSlotOffNames(driver.id, date);
                           const placements = findDriverPlacementsOnDate(localShifts, date, driver.id);
-                          const assignedCourses = placements
-                            .map((p) => courses.find((c) => c.id === p.courseId))
-                            .filter((c): c is Course => Boolean(c))
-                            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+                          const assignedCourses = Array.from(
+                            placements.reduce((groups, placement) => {
+                              const course = courses.find((item) => item.id === placement.courseId);
+                              if (!course) return groups;
+                              const current = groups.get(course.id);
+                              if (current) current.placements.push(placement);
+                              else groups.set(course.id, { course, placements: [placement] });
+                              return groups;
+                            }, new Map<string, { course: Course; placements: typeof placements }>()),
+                          )
+                            .map(([, group]) => group)
+                            .sort((a, b) => (a.course.sort_order ?? 0) - (b.course.sort_order ?? 0));
                           const hasAny = placements.length > 0;
                           // 車両は「1日1台」前提。代表 placement（先頭コース）で読み書きする
                           const placement = placements[0] ?? null;
@@ -2800,7 +2812,7 @@ export default function ShiftsPage() {
                                       ))}
                                       {hasAny ? (
                                         <>
-                                          {assignedCourses.map((course) => (
+                                          {assignedCourses.map(({ course, placements: coursePlacements }) => (
                                             <span
                                               key={course.id}
                                               title={courseAbbrevTooltip(course)}
@@ -2810,6 +2822,13 @@ export default function ShiftsPage() {
                                               <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-slate-900">
                                                 {courseShiftLabel(course)}
                                               </span>
+                                              {coursePlacements.map((item) =>
+                                                item.cycleNo ? (
+                                                  <span key={item.cycleNo} className="ml-1 shrink-0 rounded bg-white/75 px-1 py-0.5 text-[9px] font-bold leading-none text-slate-700 shadow-sm">
+                                                    {courseCycleBadge(course, item.cycleNo)}
+                                                  </span>
+                                                ) : null,
+                                              )}
                                               {slotLabelById(course.slot_id) && (
                                                 <span className="ml-1 shrink-0 text-[9px] font-medium leading-tight text-slate-600">
                                                   {slotLabelById(course.slot_id)}
@@ -3805,29 +3824,43 @@ export default function ShiftsPage() {
                     )}
                     {assignedCourses.length > 0 ? (
                       <div className="flex flex-col gap-1.5">
-                        {assignedCourses.map(({ course, placement }) => (
+                        {Array.from(
+                          assignedCourses.reduce((groups, item) => {
+                            const current = groups.get(item.course.id);
+                            if (current) current.push(item.placement);
+                            else groups.set(item.course.id, [item.placement]);
+                            return groups;
+                          }, new Map<string, typeof placements>()),
+                        ).map(([courseId, coursePlacements]) => {
+                          const course = courses.find((item) => item.id === courseId);
+                          if (!course) return null;
+                          return (
                           <div
-                            key={`${course.id}:${placement.cycleNo}`}
+                            key={course.id}
                             title={courseAbbrevTooltip(course)}
                             className="flex h-9 items-center gap-1 rounded-lg px-2.5"
                             style={courseCellSurface(course.color)}
                           >
                             <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-900">
-                              {courseCycleLabel(course, placement.cycleNo)}
+                              {courseShiftLabel(course)}
                             </span>
-                            {canWrite && (
+                            {coursePlacements.map((item) => item.cycleNo ? (
                               <button
+                                key={item.cycleNo}
                                 type="button"
-                                onClick={() => removeDriverFromCourseOnDate(date, driverId, course.id, placement.cycleNo)}
-                                className="shrink-0 px-1.5 text-base leading-none text-slate-500 hover:text-rose-600"
-                                title="このコースを外す"
-                                aria-label="このコースを外す"
+                                disabled={!canWrite}
+                                onClick={() => removeDriverFromCourseOnDate(date, driverId, course.id, item.cycleNo)}
+                                className="inline-flex shrink-0 items-center gap-1 rounded bg-white/75 px-1.5 py-1 text-[10px] font-bold leading-none text-slate-700 shadow-sm hover:text-rose-600 disabled:pointer-events-none"
+                                title={`${courseCycleBadge(course, item.cycleNo)}を外す`}
                               >
-                                ×
+                                {courseCycleBadge(course, item.cycleNo)}{canWrite && <span aria-hidden="true">×</span>}
                               </button>
-                            )}
+                            ) : canWrite ? (
+                              <button key="course" type="button" onClick={() => removeDriverFromCourseOnDate(date, driverId, course.id, 0)} className="shrink-0 px-1.5 text-base leading-none text-slate-500 hover:text-rose-600" title="このコースを外す">×</button>
+                            ) : null)}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="text-xs text-slate-400">未割当</p>
@@ -3838,28 +3871,36 @@ export default function ShiftsPage() {
                       const usage = courseUsageByDriver.get(driverId);
                       const recent = usage ? addable.filter(({ course }) => usage.has(course.id)) : [];
                       const others = usage ? addable.filter(({ course }) => !usage.has(course.id)) : addable;
-                      const chip = ({ course, cycleNo }: { course: Course; cycleNo: number }) => (
-                        <button
-                          key={`${course.id}:${cycleNo}`}
-                          type="button"
-                          onClick={() => addDriverToCourseOnDate(date, driverId, course.id, cycleNo)}
-                          className="inline-flex items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-[13px] font-medium text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-100"
-                        >
-                          ＋{courseCycleLabel(course, cycleNo)}
-                        </button>
+                      const grouped = (items: typeof addable) => Array.from(
+                        items.reduce((groups, item) => {
+                          const current = groups.get(item.course.id);
+                          if (current) current.cycleNos.push(item.cycleNo);
+                          else groups.set(item.course.id, { course: item.course, cycleNos: [item.cycleNo] });
+                          return groups;
+                        }, new Map<string, { course: Course; cycleNos: number[] }>()),
+                      ).map(([, group]) => group);
+                      const chip = ({ course, cycleNos }: { course: Course; cycleNos: number[] }) => (
+                        <div key={course.id} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-2 py-1.5">
+                          <span className="text-[13px] font-medium text-slate-700">{courseShiftLabel(course)}</span>
+                          {cycleNos.map((cycleNo) => (
+                            <button key={cycleNo} type="button" onClick={() => addDriverToCourseOnDate(date, driverId, course.id, cycleNo)} className="rounded-md bg-white px-2 py-1 text-[11px] font-bold text-slate-700 shadow-sm transition-colors hover:bg-slate-200">
+                              ＋{cycleNo ? courseCycleBadge(course, cycleNo) : "追加"}
+                            </button>
+                          ))}
+                        </div>
                       );
                       if (recent.length === 0 || others.length === 0) {
-                        return <div className="flex flex-wrap gap-1.5 pt-0.5">{addable.map(chip)}</div>;
+                        return <div className="flex flex-wrap gap-1.5 pt-0.5">{grouped(addable).map(chip)}</div>;
                       }
                       return (
                         <div className="space-y-2 pt-0.5">
                           <div>
                             <p className="mb-1 text-[10px] text-slate-400">最近入ったコース</p>
-                            <div className="flex flex-wrap gap-1.5">{recent.map(chip)}</div>
+                            <div className="flex flex-wrap gap-1.5">{grouped(recent).map(chip)}</div>
                           </div>
                           <div>
                             <p className="mb-1 text-[10px] text-slate-400">その他</p>
-                            <div className="flex flex-wrap gap-1.5">{others.map(chip)}</div>
+                            <div className="flex flex-wrap gap-1.5">{grouped(others).map(chip)}</div>
                           </div>
                         </div>
                       );
