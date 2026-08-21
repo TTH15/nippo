@@ -24,7 +24,7 @@ function sample(): EditorState {
 
 describe("InvoiceSheet", () => {
   it("発行請求書に設定済みの印影画像を表示する", () => {
-    const { container } = render(<InvoiceSheet state={sample()} readOnly />);
+    const { container } = render(<InvoiceSheet state={{ ...sample(), showStamp: false }} readOnly />);
     const stamp = container.querySelector(`img[src="${getInvoiceIssuer().stampPath}"]`);
     expect(stamp).not.toBeNull();
   });

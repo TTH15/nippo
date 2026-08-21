@@ -709,7 +709,7 @@ export function InvoiceSheet({
             </div>
 
             <div className="relative shrink-0 w-[42%]">
-              {doc.showStamp && getInvoiceIssuer().stampPath ? (
+              {st.kind === "outgoing" && getInvoiceIssuer().stampPath ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={getInvoiceIssuer().stampPath}
