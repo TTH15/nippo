@@ -9,7 +9,7 @@ import { cycleLabel, nextCycleNo, type CourseCycle } from "@repo/core/logic/cour
 // コースの「運用単位」— サイクル(便)を使うか、コース自身が時間を持つか。
 // 設計: docs/design/course-cycle.md
 //
-//   使用しない: コースが1日の稼働時間を持つ（洛南R のような単便のコース）
+//   使用しない: 時刻を便単位で管理しない単便コース
 //   使用する  : 時間は便が持つ（豊中Amazon の 1便/2便/3便）
 //
 // 「便が無い」を空欄や0件で暗黙表現せず、切替として明示する。
@@ -69,8 +69,6 @@ type Props = {
   disabled?: boolean;
   onUsesCyclesChange: (value: boolean) => void;
   onCyclesChange: (cycles: CycleDraft[]) => void;
-  /** サイクルを使わないときに出す、コース自身の時間の入力欄。 */
-  courseTimes: React.ReactNode;
 };
 
 export function CourseCyclesEditor({
@@ -79,7 +77,6 @@ export function CourseCyclesEditor({
   disabled,
   onUsesCyclesChange,
   onCyclesChange,
-  courseTimes,
 }: Props) {
   const update = (key: string, patch: Partial<CourseCycle>) => {
     onCyclesChange(cycles.map((c) => (c.key === key ? { ...c, ...patch } : c)));
@@ -134,9 +131,7 @@ export function CourseCyclesEditor({
         ))}
       </div>
 
-      {!usesCycles ? (
-        courseTimes
-      ) : (
+      {usesCycles ? (
         <div className="space-y-2">
           {cycles.map((cycle) => (
             <div key={cycle.key} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
@@ -219,7 +214,7 @@ export function CourseCyclesEditor({
             サイクルを追加
           </button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

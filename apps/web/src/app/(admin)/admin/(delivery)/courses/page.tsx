@@ -929,33 +929,6 @@ export default function CoursesPage() {
                       size="md"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">標準時間（実際の集合・着車・終業）</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {([
-                        ["meeting_time", "集合"],
-                        ["arrival_time", "着車"],
-                        ["end_time", "終業"],
-                      ] as const).map(([key, label]) => (
-                        <div key={key}>
-                          <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
-                          <TimePicker
-                            value={newCourse[key] || null}
-                            onChange={(v) => setNewCourse((f) => ({ ...f, [key]: v ?? "" }))}
-                            placeholder="--:--"
-                            buttonClassName="px-2.5"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    <input
-                      type="text"
-                      value={newCourse.meeting_place}
-                      onChange={(e) => setNewCourse((f) => ({ ...f, meeting_place: e.target.value }))}
-                      placeholder="集合場所"
-                      className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    />
-                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">コース名</label>
@@ -1124,34 +1097,6 @@ export default function CoursesPage() {
                     disabled={!canWrite}
                     onUsesCyclesChange={setEditUsesCycles}
                     onCyclesChange={setEditCycles}
-                    courseTimes={
-                      <div>
-                        <div className="grid grid-cols-3 gap-2">
-                          {([
-                            ["meeting_time", "集合"],
-                            ["arrival_time", "開始"],
-                            ["end_time", "終了目安"],
-                          ] as const).map(([key, label]) => (
-                            <div key={key}>
-                              <span className="block text-xs text-slate-500 mb-0.5">{label}</span>
-                              <TimePicker
-                                value={editForm[key] || null}
-                                onChange={(v) => setEditForm((f) => ({ ...f, [key]: v ?? "" }))}
-                                placeholder="--:--"
-                                buttonClassName="px-2.5"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                        <input
-                          type="text"
-                          value={editForm.meeting_place}
-                          onChange={(e) => setEditForm((f) => ({ ...f, meeting_place: e.target.value }))}
-                          placeholder="集合場所（例: 横大路第2倉庫）"
-                          className="mt-2 w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                        />
-                      </div>
-                    }
                   />
                 </div>
                 <div>

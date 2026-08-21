@@ -344,34 +344,23 @@ export const CourseRateEditor = forwardRef<
 
   // hint は「今の数値をもう一方の税区分だと換算するといくらか」の参考表示。
   const hintFor = (mode: TaxMode, raw: number) =>
-    mode === "incl" ? `税抜 ¥${toExcl(raw).toLocaleString()}` : `税込 ¥${toIncl(raw).toLocaleString()}`;
+    mode === "incl" ? `税抜換算 ¥${toExcl(raw).toLocaleString()}` : `税込換算 ¥${toIncl(raw).toLocaleString()}`;
+  const taxLabel = (mode: TaxMode) => (mode === "incl" ? "税込" : "税抜");
 
   return (
     <div className="space-y-4 text-sm">
       <div>
         <h3 className="text-sm font-semibold text-slate-800">単価設定</h3>
-        <p className="text-[11px] text-slate-500 mt-0.5">従量（個数×単価）と固定（日当）は加算されます。両方0なら計上なし。</p>
       </div>
 
-      <div className="flex items-center gap-4">
-        <span className="text-[11px] text-slate-500">入力単位</span>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-slate-400">売上</span>
-          <TaxModeToggle value={revenueTaxMode} onChange={changeRevenueMode} />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-slate-400">支払</span>
-          <TaxModeToggle value={payoutTaxMode} onChange={changePayoutMode} />
-        </div>
-      </div>
       <div className="grid grid-cols-2 gap-3">
-        <RateModeField label="取引先への売上" value={revenueRateMode} onChange={(mode) => { markDirty(); setRevenueRateMode(mode); }} />
-        <RateModeField label="ドライバーへの支払" value={payoutRateMode} onChange={(mode) => { markDirty(); setPayoutRateMode(mode); }} />
+        <RateModeField label="取引先への売上" value={revenueRateMode}
+          taxMode={revenueTaxMode} onTaxModeChange={changeRevenueMode}
+          onChange={(mode) => { markDirty(); setRevenueRateMode(mode); }} />
+        <RateModeField label="ドライバーへの支払" value={payoutRateMode}
+          taxMode={payoutTaxMode} onTaxModeChange={changePayoutMode}
+          onChange={(mode) => { markDirty(); setPayoutRateMode(mode); }} />
       </div>
-      <p className="text-[10px] text-slate-400">
-        売上と支払は別々の計算方式を選べます。粗利は日報・月次集計で、税抜売上から税抜支払を差し引いて算出します。単価変更は保存日から適用されます。
-      </p>
-
       {createModeNoCarrier ? (
         <div className="rounded bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
           左で「キャリア」を選択すると、そのキャリアの単価設定が表示されます。
@@ -390,7 +379,7 @@ export const CourseRateEditor = forwardRef<
           {/* 従量（unit別） */}
           {units.length > 0 && (hasPerPiece(revenueRateMode) || hasPerPiece(payoutRateMode)) && (
             <div>
-              <h4 className="text-xs font-semibold text-slate-700 mb-2">従量（便・型ごとの単価 / 個）</h4>
+              <h4 className="text-xs font-semibold text-slate-700 mb-2">個数単価（便・型ごと）</h4>
               <div className="space-y-3">
                 {(usesCycles ? cycles : [{ cycleNo: 0, label: null }]).map((cycle) => (
                   <div key={cycle.cycleNo} className={usesCycles ? "rounded border border-slate-200 bg-slate-50/40 p-3" : ""}>
@@ -412,20 +401,20 @@ export const CourseRateEditor = forwardRef<
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                               {hasPerPiece(revenueRateMode) ? (
-                                <NumField label="売上/個" value={r.revenue_per_unit}
+                                <NumField label={`売上単価（${taxLabel(revenueTaxMode)}）/個`} value={r.revenue_per_unit}
                                   onChange={(v) => setRate(cycle.cycleNo, u.id, "revenue_per_unit", v)}
                                   hint={hintFor(revenueTaxMode, r.revenue_per_unit)} />
                               ) : <NotApplicable label="売上" mode={revenueRateMode} />}
                               {hasPerPiece(payoutRateMode) ? (
-                                <NumField label="支払/個" value={r.payout_per_unit}
+                                <NumField label={`支払単価（${taxLabel(payoutTaxMode)}）/個`} value={r.payout_per_unit}
                                   onChange={(v) => setRate(cycle.cycleNo, u.id, "payout_per_unit", v)}
                                   hint={hintFor(payoutTaxMode, r.payout_per_unit)} />
                               ) : <NotApplicable label="支払" mode={payoutRateMode} />}
                             </div>
                             <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
-                              {hasPerPiece(revenueRateMode) ? <QuantityRuleField label="売上の数量計算" value={r.revenue_quantity_rule}
+                              {hasPerPiece(revenueRateMode) ? <QuantityRuleField label="売上" value={r.revenue_quantity_rule}
                                 onChange={(rule) => setQuantityRule(cycle.cycleNo, u.id, "revenue", rule)} /> : <div />}
-                              {hasPerPiece(payoutRateMode) ? <QuantityRuleField label="支払の数量計算" value={r.payout_quantity_rule}
+                              {hasPerPiece(payoutRateMode) ? <QuantityRuleField label="支払" value={r.payout_quantity_rule}
                                 onChange={(rule) => setQuantityRule(cycle.cycleNo, u.id, "payout", rule)} /> : <div />}
                             </div>
                           </div>
@@ -453,13 +442,13 @@ export const CourseRateEditor = forwardRef<
                     ) : null}
                     <div className="grid grid-cols-2 gap-2">
                       {hasFixed(revenueRateMode) ? <NumField
-                        label="売上"
+                        label={`売上日当（${taxLabel(revenueTaxMode)}）`}
                         value={f.fixed_revenue}
                         onChange={(v) => setFixedField(cycle.cycleNo, "fixed_revenue", v)}
                         hint={hintFor(revenueTaxMode, f.fixed_revenue)}
                       /> : <NotApplicable label="売上" mode={revenueRateMode} />}
                       {hasFixed(payoutRateMode) ? <NumField
-                        label="支払"
+                        label={`支払日当（${taxLabel(payoutTaxMode)}）`}
                         value={f.fixed_payout}
                         onChange={(v) => setFixedField(cycle.cycleNo, "fixed_payout", v)}
                         hint={hintFor(payoutTaxMode, f.fixed_payout)}
@@ -469,7 +458,6 @@ export const CourseRateEditor = forwardRef<
                 );
               })}
             </div>
-            <p className="text-[10px] text-slate-400 mt-1">混在コース（歩合＋日当）は従量と固定の両方を入力してください。</p>
           </div>}
         </>
       )}
@@ -477,18 +465,31 @@ export const CourseRateEditor = forwardRef<
   );
 });
 
-function RateModeField({ label, value, onChange }: { label: string; value: RateMode; onChange: (value: RateMode) => void }) {
+function RateModeField({ label, value, taxMode, onChange, onTaxModeChange }: {
+  label: string;
+  value: RateMode;
+  taxMode: TaxMode;
+  onChange: (value: RateMode) => void;
+  onTaxModeChange: (value: TaxMode) => void;
+}) {
   return (
-    <label className="block rounded border border-slate-200 bg-slate-50 px-3 py-2">
-      <span className="mb-1 block text-[11px] font-medium text-slate-600">{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value as RateMode)}
-        className="w-full rounded border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-700">
-        <option value="PER_PIECE">個数で計算</option>
-        <option value="FIXED">日当で計算</option>
-        <option value="BOTH">個数＋日当</option>
-        <option value="NONE">計上しない</option>
-      </select>
-    </label>
+    <div className="rounded border border-slate-200 bg-slate-50 px-3 py-3">
+      <div className="mb-2 text-[11px] font-semibold text-slate-700">{label}</div>
+      <label className="block">
+        <span className="mb-1 block text-[10px] text-slate-500">計算方法</span>
+        <select value={value} onChange={(e) => onChange(e.target.value as RateMode)}
+          className="w-full rounded border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-700">
+          <option value="PER_PIECE">個数で計算</option>
+          <option value="FIXED">日当で計算</option>
+          <option value="BOTH">個数＋日当</option>
+          <option value="NONE">計上しない</option>
+        </select>
+      </label>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-[10px] text-slate-500">単価の税区分</span>
+        <TaxModeToggle value={taxMode} onChange={onTaxModeChange} />
+      </div>
+    </div>
   );
 }
 
@@ -528,29 +529,27 @@ function QuantityRuleField({ label, value, onChange }: {
   onChange: (rule: QuantityRule) => void;
 }) {
   const rule = value?.kind === "minimum" ? value : { kind: "actual" as const };
+  const enabled = rule.kind === "minimum";
   return (
-    <div>
-      <label className="block text-[10px] text-slate-500 mb-1">{label}</label>
-      <div className="flex gap-2">
-        <select
-          value={rule.kind}
-          onChange={(e) => onChange(e.target.value === "minimum"
+    <div className="rounded border border-slate-200 bg-slate-50/70 px-2.5 py-2">
+      <div className="mb-1 text-[10px] font-medium text-slate-500">{label}の数量計算</div>
+      <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-700">
+        <input type="checkbox" checked={enabled}
+          onChange={(e) => onChange(e.target.checked
             ? { kind: "minimum", minimum: 100, scope: "report" }
             : { kind: "actual" })}
-          className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-2 text-xs"
-        >
-          <option value="actual">実数で計算</option>
-          <option value="minimum">最低数量を保証</option>
-        </select>
-        {rule.kind === "minimum" ? (
-          <label className="flex items-center gap-1 text-xs text-slate-500">
-            <input type="text" inputMode="numeric" pattern="[0-9]*" value={rule.minimum}
-              onChange={(e) => onChange({ kind: "minimum", minimum: Math.max(0, Number(e.target.value.replace(/\D/g, "")) || 0), scope: "report" })}
-              className="w-20 rounded border border-slate-300 px-2 py-2 text-right" />
-            個/日報
-          </label>
-        ) : null}
-      </div>
+          className="h-4 w-4 rounded border-slate-300 accent-slate-800" />
+        最低個数を保証する
+      </label>
+      {enabled ? (
+        <label className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500">
+          <span className="shrink-0">1日報あたり</span>
+          <input type="text" inputMode="numeric" pattern="[0-9]*" value={rule.minimum}
+            onChange={(e) => onChange({ kind: "minimum", minimum: Math.max(0, Number(e.target.value.replace(/\D/g, "")) || 0), scope: "report" })}
+            className="min-w-0 w-20 rounded border border-slate-300 bg-white px-2 py-1.5 text-right text-xs text-slate-700" />
+          <span className="shrink-0">個として計算</span>
+        </label>
+      ) : null}
     </div>
   );
 }
