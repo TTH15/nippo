@@ -43,6 +43,7 @@ import useSWRInfinite from "swr/infinite";
 import { swrFetcher } from "@/lib/swr";
 import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
+import { compressImageFileToDataUrl } from "@/lib/clientImageCompression";
 import { Button } from "@/lib/ui/button";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { VehicleRecoveryDetail } from "./VehicleRecoveryDetail";
@@ -176,6 +177,7 @@ export default function VehiclesPage() {
     driverIds: [] as string[],
   });
   const [saving, setSaving] = useState(false);
+  const [imageProcessing, setImageProcessing] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [imageDragOver, setImageDragOver] = useState(false);
   const [openDriverPopoverVehicleId, setOpenDriverPopoverVehicleId] = useState<string | null>(null);
@@ -596,12 +598,14 @@ export default function VehiclesPage() {
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
+      const tooLarge = /(?:HTTP\s*)?413|payload too large|request entity too large/i.test(reason);
       setErrorState({
         title: "車両の保存に失敗しました",
-        message:
-          "サーバーでエラーが発生したため、車両情報を保存できませんでした。\n\n" +
-          "入力内容（メーカー名・ブランド名・メーター値など）に不足や不正な値がないか確認し、もう一度保存してください。\n" +
-          "同じエラーが続く場合は、システム管理者に連絡してください。",
+        message: tooLarge
+          ? "車両画像のデータが大きすぎるため保存できませんでした。\n\n画像を選び直すと自動的に保存用サイズへ縮小されます。選び直した後、もう一度保存してください。"
+          : "サーバーでエラーが発生したため、車両情報を保存できませんでした。\n\n" +
+            "入力内容（メーカー名・ブランド名・メーター値など）に不足や不正な値がないか確認し、もう一度保存してください。\n" +
+            "同じエラーが続く場合は、システム管理者に連絡してください。",
         detail: reason || undefined,
       });
     } finally {
@@ -609,14 +613,22 @@ export default function VehiclesPage() {
     }
   };
 
-  const readImageFileAsDataUrl = (file: File) => {
-    if (!file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = typeof reader.result === "string" ? reader.result : "";
-      if (url) setForm((f) => ({ ...f, imageDataUrl: url }));
-    };
-    reader.readAsDataURL(file);
+  const readImageFileAsDataUrl = async (file: File) => {
+    if (imageProcessing) return;
+    setImageProcessing(true);
+    try {
+      const url = await compressImageFileToDataUrl(file);
+      setForm((f) => ({ ...f, imageDataUrl: url }));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "画像を処理できませんでした";
+      setErrorState({
+        title: "車両画像を読み込めませんでした",
+        message: "JPEG・PNG・WebPの画像を選び直してください。既存の車両画像は変更されていません。",
+        detail,
+      });
+    } finally {
+      setImageProcessing(false);
+    }
   };
 
   // 編集中の車両だけ自動保存する（新規追加は「保存」で確定）。
@@ -2277,7 +2289,7 @@ export default function VehiclesPage() {
                       e.preventDefault();
                       setImageDragOver(false);
                       const file = e.dataTransfer.files?.[0];
-                      if (file) readImageFileAsDataUrl(file);
+                      if (file) void readImageFileAsDataUrl(file);
                     }}
                   >
                     <input
@@ -2287,7 +2299,8 @@ export default function VehiclesPage() {
                       className="hidden"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) readImageFileAsDataUrl(file);
+                        if (file) void readImageFileAsDataUrl(file);
+                        e.currentTarget.value = "";
                       }}
                     />
 
@@ -2320,6 +2333,11 @@ export default function VehiclesPage() {
                             ここに画像をドロップするか、クリックして選択してください
                           </div>
                         </div>
+                      </div>
+                    )}
+                    {imageProcessing && (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-md bg-white/85 text-sm font-medium text-slate-700">
+                        画像を保存用サイズへ調整しています
                       </div>
                     )}
                   </div>
