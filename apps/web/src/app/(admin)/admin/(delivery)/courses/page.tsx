@@ -1108,14 +1108,21 @@ export default function CoursesPage() {
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
           onClick={() => void closeEditModal()}
         >
-          <div className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+          <div className="flex h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg bg-white p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex shrink-0 items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
                 <FontAwesomeIcon icon={carrierIcon(carriers.find((carrier) => carrier.id === editForm.carrierId)?.code ?? null)} className="h-5 w-5" />
               </div>
               <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: editForm.color }} />
-              <div className="min-w-0">
-                <h2 className="truncate text-lg font-semibold text-slate-900">{editForm.name || "名称未設定のコース"}</h2>
+              <div className="min-w-0 flex-1">
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(event) => setEditForm((form) => ({ ...form, name: event.target.value }))}
+                  placeholder="コース名"
+                  aria-label="コース名"
+                  className="w-full max-w-2xl rounded-md border border-transparent bg-transparent px-1 py-0.5 text-lg font-semibold text-slate-900 outline-none transition-colors hover:border-slate-200 focus:border-amber-400 focus:bg-amber-50/40"
+                />
                 <div className="text-xs text-slate-500">{carriers.find((carrier) => carrier.id === editForm.carrierId)?.name ?? "キャリア未設定"}</div>
               </div>
             </div>
@@ -1134,10 +1141,10 @@ export default function CoursesPage() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            <div className="mx-auto grid max-w-4xl grid-cols-1 gap-y-4">
+            <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-y-4">
               {/* 列1: 基本情報＋請求関連・人数・色 */}
-              <div className="space-y-4">
-                {editModalTab === "basic" && <div className="max-w-sm">
+              <div className={editModalTab === "basic" ? "grid grid-cols-1 gap-4 md:grid-cols-12" : "space-y-4"}>
+                {editModalTab === "basic" && <div className="order-1 md:col-span-6">
                   <label className="block text-sm font-medium text-slate-600 mb-1">キャリア</label>
                   <CustomSelect
                     options={carriers.map((c) => ({ value: c.id, label: c.name }))}
@@ -1186,16 +1193,7 @@ export default function CoursesPage() {
                     }
                   />
                 </div>}
-                {editModalTab === "basic" && <div className="max-w-2xl">
-                  <label className="block text-sm font-medium text-slate-600 mb-1">コース名</label>
-                  <input
-                    type="text"
-                    value={editForm.name}
-                    onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  />
-                </div>}
-                {editModalTab === "basic" && <div className="max-w-lg">
+                {editModalTab === "basic" && <div className="order-3 md:col-span-6">
                   <label className="block text-sm font-medium text-slate-600 mb-1">略記（集計・シフト表示用）</label>
                   <input
                     type="text"
@@ -1206,7 +1204,7 @@ export default function CoursesPage() {
                   />
                   <p className="mt-1 text-xs text-slate-500">未入力の場合はコース名を表示します。</p>
                 </div>}
-                {editModalTab === "basic" && <div className="max-w-2xl">
+                {editModalTab === "basic" && <div className="order-2 md:col-span-6">
                   <label className="block text-sm font-medium text-slate-600 mb-1">取引先（請求先）</label>
                   <CustomSelect
                     options={[
@@ -1220,7 +1218,7 @@ export default function CoursesPage() {
                     disabled={invoiceAddresses.length === 0}
                   />
                 </div>}
-                {editModalTab === "basic" && <div className="max-w-xs">
+                {editModalTab === "basic" && <div className="order-4 md:col-span-2">
                   <label className="block text-sm font-medium text-slate-600 mb-1">いつもの1日の人数</label>
                   <input
                     type="text"
@@ -1235,7 +1233,7 @@ export default function CoursesPage() {
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
                 </div>}
-                {editModalTab === "basic" && <div className="max-w-2xl">
+                {editModalTab === "basic" && <div className="order-5 md:col-span-4">
                   <label className="block text-sm font-medium text-slate-600 mb-2">色</label>
                   <div className="flex flex-wrap gap-2 mb-2">
                     {COLORS.map((c) => (

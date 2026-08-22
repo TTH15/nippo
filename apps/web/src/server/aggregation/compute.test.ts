@@ -77,6 +77,19 @@ describe("便別固定単価", () => {
 });
 
 describe("数量条件付き従量単価", () => {
+  it("日当と歩合は加算する", () => {
+    const withEntry: DailyReport = {
+      ...report(1),
+      entries: [{ unitId: "u1", fieldKey: "count", valueNum: 100 }],
+    };
+    const ctx = buildContext(
+      [{ id: "u1", carrierId: "carrier-1", code: null, billingType: "PER_PIECE", fields: [{ fieldKey: "count", isBillable: true }] }],
+      [{ courseId: "c1", cycleNo: 1, unitId: "u1", revenuePerUnit: 0, payoutPerUnit: 150, profitPerUnit: -150 }],
+      [{ courseId: "c1", cycleNo: 1, fixedRevenue: 0, fixedProfit: -6_500, fixedPayout: 6_500 }],
+    );
+    expect(reportContributions(withEntry, ctx).reduce((sum, item) => sum + item.payout, 0)).toBe(21_500);
+  });
+
   it("売上だけ最低100個、支払は実数で計算できる", () => {
     const withEntry: DailyReport = {
       ...report(1),

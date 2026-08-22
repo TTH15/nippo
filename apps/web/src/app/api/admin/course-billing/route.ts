@@ -3,8 +3,11 @@ import { requireAnyPermission, isAuthError } from "@/server/auth";
 import { COURSE_BILLING_VIEW_CAPS, COURSE_BILLING_MANAGE_CAPS } from "@/server/auth/domainCaps";
 import { supabase } from "@/server/db/client";
 import { resolveOrgId } from "@/server/db/tenant";
+import { exclusiveOf } from "@repo/core/logic/taxBasis";
 
 export const dynamic = "force-dynamic";
+const taxBasis = (value: unknown, fallback: "exclusive" | "inclusive" = "exclusive"): "exclusive" | "inclusive" =>
+  value === "inclusive" ? "inclusive" : value === "exclusive" ? "exclusive" : fallback;
 
 // ============================================================
 // コース課金（新モデル）の取得/保存
@@ -34,20 +37,28 @@ export async function GET(req: NextRequest) {
   let courseName = "";
   let revenueTaxBasis: "exclusive" | "inclusive" = "exclusive";
   let payoutTaxBasis: "exclusive" | "inclusive" = "exclusive";
+  let revenuePieceTaxBasis: "exclusive" | "inclusive" = "exclusive";
+  let payoutPieceTaxBasis: "exclusive" | "inclusive" = "exclusive";
+  let revenueFixedTaxBasis: "exclusive" | "inclusive" = "exclusive";
+  let payoutFixedTaxBasis: "exclusive" | "inclusive" = "exclusive";
   let revenueRateMode = "PER_PIECE";
   let payoutRateMode = "PER_PIECE";
   if (courseId) {
     const { data: course } = await supabase
       .from("courses")
-      .select("id, name, carrier_id, revenue_tax_basis, payout_tax_basis, revenue_rate_mode, payout_rate_mode")
+      .select("id, name, carrier_id, revenue_tax_basis, payout_tax_basis, revenue_piece_tax_basis, payout_piece_tax_basis, revenue_fixed_tax_basis, payout_fixed_tax_basis, revenue_rate_mode, payout_rate_mode")
       .eq("id", courseId)
       .eq("org_id", orgId)
       .maybeSingle();
     if (!course) return NextResponse.json({ error: "コースが見つかりません" }, { status: 404 });
     carrierId = (course as any).carrier_id as string | null;
     courseName = (course as any).name ?? "";
-    revenueTaxBasis = (course as any).revenue_tax_basis === "inclusive" ? "inclusive" : "exclusive";
-    payoutTaxBasis = (course as any).payout_tax_basis === "inclusive" ? "inclusive" : "exclusive";
+    revenueTaxBasis = taxBasis((course as any).revenue_tax_basis);
+    payoutTaxBasis = taxBasis((course as any).payout_tax_basis);
+    revenuePieceTaxBasis = taxBasis((course as any).revenue_piece_tax_basis, revenueTaxBasis);
+    payoutPieceTaxBasis = taxBasis((course as any).payout_piece_tax_basis, payoutTaxBasis);
+    revenueFixedTaxBasis = taxBasis((course as any).revenue_fixed_tax_basis, revenueTaxBasis);
+    payoutFixedTaxBasis = taxBasis((course as any).payout_fixed_tax_basis, payoutTaxBasis);
     revenueRateMode = (course as any).revenue_rate_mode ?? "PER_PIECE";
     payoutRateMode = (course as any).payout_rate_mode ?? "PER_PIECE";
   }
@@ -96,6 +107,10 @@ export async function GET(req: NextRequest) {
     carrierId,
     revenueTaxBasis,
     payoutTaxBasis,
+    revenuePieceTaxBasis,
+    payoutPieceTaxBasis,
+    revenueFixedTaxBasis,
+    payoutFixedTaxBasis,
     revenueRateMode,
     payoutRateMode,
     units: units ?? [],
@@ -144,8 +159,12 @@ export async function PUT(req: NextRequest) {
 
   const unitRates: UnitRateInput[] = Array.isArray(body.unitRates) ? body.unitRates : [];
   const fixed = body.fixed ?? {};
-  const revenueTaxBasis = body.revenueTaxBasis === "inclusive" ? "inclusive" : "exclusive";
-  const payoutTaxBasis = body.payoutTaxBasis === "inclusive" ? "inclusive" : "exclusive";
+  const revenueTaxBasis = taxBasis(body.revenueTaxBasis);
+  const payoutTaxBasis = taxBasis(body.payoutTaxBasis);
+  const revenuePieceTaxBasis = taxBasis(body.revenuePieceTaxBasis, revenueTaxBasis);
+  const payoutPieceTaxBasis = taxBasis(body.payoutPieceTaxBasis, payoutTaxBasis);
+  const revenueFixedTaxBasis = taxBasis(body.revenueFixedTaxBasis, revenueTaxBasis);
+  const payoutFixedTaxBasis = taxBasis(body.payoutFixedTaxBasis, payoutTaxBasis);
   const validModes = new Set(["NONE", "PER_PIECE", "FIXED", "BOTH"]);
   const revenueRateMode = validModes.has(body.revenueRateMode) ? body.revenueRateMode : "PER_PIECE";
   const payoutRateMode = validModes.has(body.payoutRateMode) ? body.payoutRateMode : "PER_PIECE";
@@ -173,6 +192,10 @@ export async function PUT(req: NextRequest) {
       .update({
         revenue_tax_basis: revenueTaxBasis,
         payout_tax_basis: payoutTaxBasis,
+        revenue_piece_tax_basis: revenuePieceTaxBasis,
+        payout_piece_tax_basis: payoutPieceTaxBasis,
+        revenue_fixed_tax_basis: revenueFixedTaxBasis,
+        payout_fixed_tax_basis: payoutFixedTaxBasis,
         revenue_rate_mode: revenueRateMode,
         payout_rate_mode: payoutRateMode,
       })
@@ -242,8 +265,8 @@ export async function PUT(req: NextRequest) {
       required_cycle_nos: Array.isArray(fixedBundle.required_cycle_nos)
         ? fixedBundle.required_cycle_nos.filter((value: unknown) => Number.isInteger(value) && Number(value) > 0)
         : [],
-      fixed_revenue: revenueContract == null ? null : (revenueTaxBasis === "inclusive" ? Math.round(revenueContract / 1.1) : revenueContract),
-      fixed_payout: payoutContract == null ? null : (payoutTaxBasis === "inclusive" ? Math.round(payoutContract / 1.1) : payoutContract),
+      fixed_revenue: revenueContract == null ? null : exclusiveOf(revenueContract, revenueFixedTaxBasis),
+      fixed_payout: payoutContract == null ? null : exclusiveOf(payoutContract, payoutFixedTaxBasis),
       revenue_contract_amount: revenueContract,
       payout_contract_amount: payoutContract,
       updated_at: new Date().toISOString(),
@@ -258,7 +281,11 @@ export async function PUT(req: NextRequest) {
         org_id: orgId,
         course_id: courseId,
         effective_from: effectiveFrom,
-        rate_data: { revenueTaxBasis, payoutTaxBasis, revenueRateMode, payoutRateMode, unitRates, fixedRates, fixedBundle },
+        rate_data: {
+          revenueTaxBasis, payoutTaxBasis,
+          revenuePieceTaxBasis, payoutPieceTaxBasis, revenueFixedTaxBasis, payoutFixedTaxBasis,
+          revenueRateMode, payoutRateMode, unitRates, fixedRates, fixedBundle,
+        },
         created_by: user.driverId,
       },
       { onConflict: "course_id,effective_from" },

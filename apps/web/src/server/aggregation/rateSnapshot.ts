@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { exclusiveContractTotal, exclusiveOf } from "@repo/core/logic/taxBasis";
 import { applyQuantityRule } from "@/server/billing/quantityRule";
 
 export type ReportRateSnapshotComponent = {
@@ -38,6 +39,17 @@ export function selectEffectiveRateVersion<T extends { course_id: string; effect
     .sort((a, b) => String(b.effective_from).localeCompare(String(a.effective_from)))[0] ?? null;
 }
 
+export function resolveCategoryTaxBases(versionData: any, course: any) {
+  const legacyRevenueBasis = (versionData?.revenueTaxBasis ?? course.revenue_tax_basis) === "inclusive" ? "inclusive" : "exclusive";
+  const legacyPayoutBasis = (versionData?.payoutTaxBasis ?? course.payout_tax_basis) === "inclusive" ? "inclusive" : "exclusive";
+  return {
+    revenuePieceBasis: (versionData?.revenuePieceTaxBasis ?? course.revenue_piece_tax_basis ?? legacyRevenueBasis) === "inclusive" ? "inclusive" : "exclusive",
+    payoutPieceBasis: (versionData?.payoutPieceTaxBasis ?? course.payout_piece_tax_basis ?? legacyPayoutBasis) === "inclusive" ? "inclusive" : "exclusive",
+    revenueFixedBasis: (versionData?.revenueFixedTaxBasis ?? course.revenue_fixed_tax_basis ?? legacyRevenueBasis) === "inclusive" ? "inclusive" : "exclusive",
+    payoutFixedBasis: (versionData?.payoutFixedTaxBasis ?? course.payout_fixed_tax_basis ?? legacyPayoutBasis) === "inclusive" ? "inclusive" : "exclusive",
+  } as const;
+}
+
 /** 承認時点の適用単価を日報へ固定する。以後の単価マスタ変更で過去集計を動かさない。 */
 export async function captureReportRateSnapshots(
   supabase: SupabaseClient,
@@ -57,7 +69,7 @@ export async function captureReportRateSnapshots(
   const [{ data: courses }, { data: unitRates }, { data: fixedRates }, { data: fixedBundles }, { data: entries }, { data: versions }] = await Promise.all([
     supabase
       .from("courses")
-      .select("id, revenue_tax_basis, payout_tax_basis, revenue_rate_mode, payout_rate_mode")
+      .select("id, revenue_tax_basis, payout_tax_basis, revenue_piece_tax_basis, payout_piece_tax_basis, revenue_fixed_tax_basis, payout_fixed_tax_basis, revenue_rate_mode, payout_rate_mode")
       .eq("org_id", orgId)
       .in("id", courseIds),
     supabase
@@ -112,8 +124,7 @@ export async function captureReportRateSnapshots(
     const versionFixedRates = Array.isArray(versionData?.fixedRates) ? versionData.fixedRates as any[] : null;
     const activeUnitRates = versionUnitRates ?? unitRates ?? [];
     const activeFixedRates = versionFixedRates ?? fixedRates ?? [];
-    const revenueBasis = (versionData?.revenueTaxBasis ?? course.revenue_tax_basis) === "inclusive" ? "inclusive" : "exclusive";
-    const payoutBasis = (versionData?.payoutTaxBasis ?? course.payout_tax_basis) === "inclusive" ? "inclusive" : "exclusive";
+    const { revenuePieceBasis, payoutPieceBasis, revenueFixedBasis, payoutFixedBasis } = resolveCategoryTaxBases(versionData, course);
     const revenueRateMode = String(versionData?.revenueRateMode ?? course.revenue_rate_mode ?? "BOTH");
     const payoutRateMode = String(versionData?.payoutRateMode ?? course.payout_rate_mode ?? "BOTH");
     const revenueUsesPiece = revenueRateMode === "PER_PIECE" || revenueRateMode === "BOTH";
@@ -133,8 +144,14 @@ export async function captureReportRateSnapshots(
       if (!rate || actualQuantity === 0) continue;
       const revenueQuantity = applyQuantityRule(actualQuantity, rate.revenue_quantity_rule);
       const payoutQuantity = applyQuantityRule(actualQuantity, rate.payout_quantity_rule);
-      const revenue = revenueUsesPiece ? n(rate.revenue_per_unit) * revenueQuantity : 0;
-      const payout = payoutUsesPiece ? n(rate.payout_per_unit) * payoutQuantity : 0;
+      const revenueContractAmount = n(rate.revenue_contract_amount ?? rate.revenue_per_unit);
+      const payoutContractAmount = n(rate.payout_contract_amount ?? rate.payout_per_unit);
+      const revenue = revenueUsesPiece
+        ? exclusiveContractTotal(revenueContractAmount, revenueQuantity, revenuePieceBasis)
+        : 0;
+      const payout = payoutUsesPiece
+        ? exclusiveContractTotal(payoutContractAmount, payoutQuantity, payoutPieceBasis)
+        : 0;
       if (revenue === 0 && payout === 0) continue;
       components.push({
         kind: "unit",
@@ -142,10 +159,10 @@ export async function captureReportRateSnapshots(
         // 既存表示との互換上 quantity は売上側の計算数量。実績値は別に保持する。
         quantity: revenueQuantity,
         actualQuantity,
-        revenueContractAmount: n(rate.revenue_contract_amount ?? rate.revenue_per_unit),
-        revenueBasis,
-        payoutContractAmount: n(rate.payout_contract_amount ?? rate.payout_per_unit),
-        payoutBasis,
+        revenueContractAmount,
+        revenueBasis: revenuePieceBasis,
+        payoutContractAmount,
+        payoutBasis: payoutPieceBasis,
         revenue,
         payout,
         profit: revenue - payout,
@@ -158,16 +175,22 @@ export async function captureReportRateSnapshots(
       (r.course_id == null || r.course_id === report.course_id) && n(r.cycle_no) === 0,
     );
     if (fixed && (n(fixed.fixed_revenue) !== 0 || n(fixed.fixed_payout) !== 0)) {
-      const revenue = revenueUsesFixed ? n(fixed.fixed_revenue) : 0;
-      const payout = payoutUsesFixed ? n(fixed.fixed_payout) : 0;
+      const revenueContractAmount = n(fixed.revenue_contract_amount ?? fixed.fixed_revenue);
+      const payoutContractAmount = n(fixed.payout_contract_amount ?? fixed.fixed_payout);
+      const revenue = revenueUsesFixed
+        ? exclusiveContractTotal(revenueContractAmount, 1, revenueFixedBasis)
+        : 0;
+      const payout = payoutUsesFixed
+        ? exclusiveContractTotal(payoutContractAmount, 1, payoutFixedBasis)
+        : 0;
       if (revenue !== 0 || payout !== 0) components.push({
         kind: "fixed",
         unitId: null,
         quantity: 1,
-        revenueContractAmount: n(fixed.revenue_contract_amount ?? fixed.fixed_revenue),
-        revenueBasis,
-        payoutContractAmount: n(fixed.payout_contract_amount ?? fixed.fixed_payout),
-        payoutBasis,
+        revenueContractAmount,
+        revenueBasis: revenueFixedBasis,
+        payoutContractAmount,
+        payoutBasis: payoutFixedBasis,
         revenue,
         payout,
         profit: revenue - payout,
@@ -179,9 +202,9 @@ export async function captureReportRateSnapshots(
     const bundle = versionBundle ? {
       requiredCycleNos: Array.isArray(versionBundle.required_cycle_nos) ? versionBundle.required_cycle_nos.map(Number) : [],
       fixedRevenue: versionBundle.revenue_contract_amount == null ? null
-        : revenueBasis === "inclusive" ? Math.round(n(versionBundle.revenue_contract_amount) / 1.1) : n(versionBundle.revenue_contract_amount),
+        : exclusiveOf(n(versionBundle.revenue_contract_amount), revenueFixedBasis),
       fixedPayout: versionBundle.payout_contract_amount == null ? null
-        : payoutBasis === "inclusive" ? Math.round(n(versionBundle.payout_contract_amount) / 1.1) : n(versionBundle.payout_contract_amount),
+        : exclusiveOf(n(versionBundle.payout_contract_amount), payoutFixedBasis),
     } : currentBundle ? {
       requiredCycleNos: Array.isArray(currentBundle.required_cycle_nos) ? currentBundle.required_cycle_nos.map(Number) : [],
       fixedRevenue: currentBundle.fixed_revenue == null ? null : n(currentBundle.fixed_revenue),

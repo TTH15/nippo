@@ -5,6 +5,7 @@
 // ============================================================
 
 const ITEMS: { href: string; title: string; desc: string }[] = [
+  { href: "/preview/course-rate", title: "コース単価設定", desc: "売上・支払カード、税抜・税込換算、日当・歩合（モック・保存なし）" },
   { href: "/preview/onboarding", title: "初期登録ウィザード", desc: "招待リンク→氏名→SMS→Face ID→免許→顔→住所→申請完了（モック・SMS/DBなしで通し確認）" },
   { href: "/preview/post-submit", title: "送信後画面", desc: "個数の報告後に見える画面（報酬・チーム累計ポイント・ランキング）" },
   { href: "/preview/animations", title: "アニメーション", desc: "カウントアップ・膨張演出・ボーナス付与オーバーレイ" },

@@ -211,6 +211,14 @@ migrations 001〜098 を適用した後の最終状態。
 | counterparty_invoice_address_id | uuid | nullable |
 | carrier_id | uuid | nullable, FK → carriers(id) ON DELETE SET NULL |
 | daily_lease | int | NOT NULL, DEFAULT 0 |
+| revenue_tax_basis | text | NOT NULL, legacy fallback: exclusive/inclusive |
+| payout_tax_basis | text | NOT NULL, legacy fallback: exclusive/inclusive |
+| revenue_piece_tax_basis | text | NOT NULL, 売上歩合の契約税基準 |
+| payout_piece_tax_basis | text | NOT NULL, 支払歩合の契約税基準 |
+| revenue_fixed_tax_basis | text | NOT NULL, 売上日当の契約税基準 |
+| payout_fixed_tax_basis | text | NOT NULL, 支払日当の契約税基準 |
+| revenue_rate_mode | text | NOT NULL, NONE/PER_PIECE/FIXED/BOTH |
+| payout_rate_mode | text | NOT NULL, NONE/PER_PIECE/FIXED/BOTH |
 
 ---
 

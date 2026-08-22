@@ -28,6 +28,9 @@ function carrierBucketFromCode(code: string | null | undefined): "YAMATO" | "AMA
   return "OTHER";
 }
 
+const taxBasis = (value: unknown, fallback: "exclusive" | "inclusive" = "exclusive"): "exclusive" | "inclusive" =>
+  value === "inclusive" ? "inclusive" : value === "exclusive" ? "exclusive" : fallback;
+
 export type SystemBillingLineKind = "course_fixed" | "course_unit";
 
 /** システム集計行（コース別・請求書明細風） */
@@ -59,7 +62,7 @@ export async function computeCounterpartyMonthBillingDetail(
   // 1. 対象コース（sort_order 順を保持）
   const { data: courseRows, error: coursesErr } = await supabase
     .from("courses")
-    .select("id, name, sort_order, revenue_tax_basis")
+    .select("id, name, sort_order, revenue_tax_basis, revenue_piece_tax_basis, revenue_fixed_tax_basis")
     .eq("org_id", orgId)
     .eq("counterparty_invoice_address_id", counterpartyInvoiceAddressId)
     .order("sort_order", { ascending: true });
@@ -68,10 +71,13 @@ export async function computeCounterpartyMonthBillingDetail(
 
   const orderedCourseIds = courseRows.map((c) => String(c.id));
   const courseNameById = new Map<string, string>();
-  const revenueBasisByCourse = new Map<string, "exclusive" | "inclusive">();
+  const revenuePieceBasisByCourse = new Map<string, "exclusive" | "inclusive">();
+  const revenueFixedBasisByCourse = new Map<string, "exclusive" | "inclusive">();
   courseRows.forEach((c) => {
     courseNameById.set(String(c.id), String(c.name ?? ""));
-    revenueBasisByCourse.set(String(c.id), c.revenue_tax_basis === "inclusive" ? "inclusive" : "exclusive");
+    const legacyBasis = taxBasis(c.revenue_tax_basis);
+    revenuePieceBasisByCourse.set(String(c.id), taxBasis(c.revenue_piece_tax_basis, legacyBasis));
+    revenueFixedBasisByCourse.set(String(c.id), taxBasis(c.revenue_fixed_tax_basis, legacyBasis));
   });
   const allowed = new Set(orderedCourseIds);
 
@@ -85,6 +91,12 @@ export async function computeCounterpartyMonthBillingDetail(
   const unitById = new Map(data.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}:${r.unitId}`, r]));
   const fixedByCourse = new Map(data.fixedRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}`, r]));
+  const aggregationContext = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles);
+  // 内部集計は承認時スナップショットを正本にする。これにより単価変更後も過去月が動かず、
+  // admin/sales と同じ v2 集計結果になる。請求明細側は契約単価・契約税基準を別途保持する。
+  const systemTotal = buildContributions(data.reports, [], aggregationContext)
+    .filter((item) => item.courseId != null && allowed.has(item.courseId))
+    .reduce((sum, item) => sum + item.revenue, 0);
 
   // 3. 表示名・並び（unit 名/並び、ドライバー名）
   const [{ data: unitRows }, { data: driverRows }] = await Promise.all([
@@ -156,7 +168,6 @@ export async function computeCounterpartyMonthBillingDetail(
 
   // 5. 明細生成
   const systemLines: SystemBillingLine[] = [];
-  let systemTotal = 0;
   const byDriverNameAsc = (a: string, b: string) =>
     (driverNameById.get(a) ?? "").localeCompare(driverNameById.get(b) ?? "", "ja");
 
@@ -181,10 +192,8 @@ export async function computeCounterpartyMonthBillingDetail(
         const unitName = unitNameById.get(unitId) ?? "";
         for (const driverId of [...drvMap.keys()].sort(byDriverNameAsc)) {
           const qty = drvMap.get(driverId) ?? 0;
-          const amount = qty * rate.revenuePerUnit;
-          const priceBasis = revenueBasisByCourse.get(courseId) ?? "exclusive";
+          const priceBasis = revenuePieceBasisByCourse.get(courseId) ?? "exclusive";
           const contractUnitPrice = rate.revenueContractAmount ?? rate.revenuePerUnit;
-          systemTotal += amount;
           systemLines.push({
             kind: "course_unit",
             lineKey: `u:${courseId}:cycle:${cycleNo}:${unitId}:drv:${driverId}`,
@@ -210,10 +219,8 @@ export async function computeCounterpartyMonthBillingDetail(
       for (const driverId of [...fdMap.keys()].sort(byDriverNameAsc)) {
         const days = fdMap.get(driverId) ?? 0;
         if (!days) continue;
-        const amount = days * fx.fixedRevenue;
-        const priceBasis = revenueBasisByCourse.get(courseId) ?? "exclusive";
+        const priceBasis = revenueFixedBasisByCourse.get(courseId) ?? "exclusive";
         const contractUnitPrice = fx.revenueContractAmount ?? fx.fixedRevenue;
-        systemTotal += amount;
         systemLines.push({
           kind: "course_fixed",
           lineKey: `fx:${courseId}:cycle:${cycleNo}:drv:${driverId}`,

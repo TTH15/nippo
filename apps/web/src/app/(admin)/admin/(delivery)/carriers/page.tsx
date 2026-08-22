@@ -268,7 +268,7 @@ export default function CarriersPage() {
                       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold text-slate-800">{u.name}</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{u.billing_type === "FIXED" ? "固定(日当)" : "従量(個数×単価)"}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">報告単位</span>
                         </div>
                         {canWrite && (
                           <div className="flex items-center gap-3 text-slate-400 text-xs">
@@ -426,16 +426,12 @@ function CarrierModal({ mode, initial, onSave, onClose }: { mode: "create" | "ed
 
 function UnitModal({ mode, initialName, initialBilling, onSave, onClose }: { mode: "create" | "edit"; initialName: string; initialBilling: BillingType; onSave: (name: string, b: BillingType) => void; onClose: () => void }) {
   const [name, setName] = useState(initialName);
-  const [billing, setBilling] = useState<BillingType>(initialBilling);
   return (
-    <ModalShell title={`型(unit)を${mode === "create" ? "追加" : "編集"}`} onClose={onClose} onSave={() => onSave(name, billing)}>
+    <ModalShell title={`型(unit)を${mode === "create" ? "追加" : "編集"}`} onClose={onClose} onSave={() => onSave(name, initialBilling)}>
       <LabeledField label="型の名前（集計の単位）"><input value={name} onChange={(e) => setName(e.target.value)} className="w-full px-2 py-1.5 border border-slate-300 rounded" placeholder="例: 宅急便 / ネコポス / Amazon配送" /></LabeledField>
-      <LabeledField label="この型の課金の基本">
-        <div className="space-y-1.5">
-          <label className="flex items-start gap-2"><input type="radio" checked={billing === "PER_PIECE"} onChange={() => setBilling("PER_PIECE")} className="mt-0.5" /><span><b className="text-slate-700">従量</b><span className="text-[11px] text-slate-500"> — 個数 × 単価で計算（例: 完了個数）</span></span></label>
-          <label className="flex items-start gap-2"><input type="radio" checked={billing === "FIXED"} onChange={() => setBilling("FIXED")} className="mt-0.5" /><span><b className="text-slate-700">固定</b><span className="text-[11px] text-slate-500"> — 1シフトいくらの日当（個数に依らない）</span></span></label>
-        </div>
-      </LabeledField>
+      <p className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
+        日当・歩合などの契約条件は、コースの「単価設定」で売上と支払を分けて設定します。
+      </p>
     </ModalShell>
   );
 }

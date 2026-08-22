@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectEffectiveRateVersion } from "./rateSnapshot";
+import { resolveCategoryTaxBases, selectEffectiveRateVersion } from "./rateSnapshot";
 
 describe("selectEffectiveRateVersion", () => {
   const versions = [
@@ -15,5 +15,33 @@ describe("selectEffectiveRateVersion", () => {
 
   it("適用開始前ならnull", () => {
     expect(selectEffectiveRateVersion(versions, "c1", "2025-12-31")).toBeNull();
+  });
+});
+
+describe("resolveCategoryTaxBases", () => {
+  it("日当と歩合で異なる税基準を保持する", () => {
+    expect(resolveCategoryTaxBases({
+      revenuePieceTaxBasis: "exclusive",
+      revenueFixedTaxBasis: "inclusive",
+      payoutPieceTaxBasis: "inclusive",
+      payoutFixedTaxBasis: "exclusive",
+    }, {})).toEqual({
+      revenuePieceBasis: "exclusive",
+      revenueFixedBasis: "inclusive",
+      payoutPieceBasis: "inclusive",
+      payoutFixedBasis: "exclusive",
+    });
+  });
+
+  it("新しい区分が無い履歴は旧コース税区分を引き継ぐ", () => {
+    expect(resolveCategoryTaxBases({}, {
+      revenue_tax_basis: "inclusive",
+      payout_tax_basis: "exclusive",
+    })).toEqual({
+      revenuePieceBasis: "inclusive",
+      revenueFixedBasis: "inclusive",
+      payoutPieceBasis: "exclusive",
+      payoutFixedBasis: "exclusive",
+    });
   });
 });

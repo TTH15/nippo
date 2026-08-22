@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100">
+<rect width="1600" height="1100" fill="#e5e7eb"/><rect x="55" y="35" width="1490" height="1030" rx="24" fill="#fff"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'Noto Sans JP',sans-serif;fill:#1e293b}.muted{fill:#64748b}.faint{fill:#94a3b8}.white{fill:#fff}.h{font-size:28px;font-weight:700}.body{font-size:20px}.small{font-size:15px}.tiny{font-size:13px}.money{font-size:24px;font-weight:700}.card{fill:#f8fafc;stroke:#dbe3ee;stroke-width:2}.row{fill:#fff;stroke:#d6dee9;stroke-width:2}.selected{fill:#fffaf0;stroke:#f59e0b;stroke-width:3}.disabled{fill:#edf2f7}.line{stroke:#e2e8f0;stroke-width:2}</style>
+
+<!-- modal header -->
+<rect x="95" y="70" width="56" height="56" rx="14" fill="#f1f5f9"/><text x="123" y="107" text-anchor="middle" font-size="28">a</text><circle cx="174" cy="98" r="9" fill="#f59e0b"/><text x="200" y="108" class="h">Amazon 上鳥羽吉祥院</text><rect x="590" y="76" width="34" height="34" rx="8" fill="#f1f5f9"/><path d="M600 101l14-14 4 4-14 14-6 2z" fill="#64748b"/><text x="200" y="136" class="small muted">Amazon</text><text x="1245" y="105" class="small muted">B3｜マネーレール</text>
+<line x1="95" y1="165" x2="1505" y2="165" class="line"/><text x="110" y="207" class="body muted">基本情報</text><text x="265" y="207" class="body muted">運行設定</text><text x="420" y="207" class="body" fill="#c2410c">単価設定</text>
+
+<!-- money rail, drawn behind nodes and cards -->
+<path d="M180 315H1420" fill="none" stroke="#cbd5e1" stroke-width="12" stroke-linecap="round"/><path d="M720 315l-20-16v32zM915 315l-20-16v32zM1390 315l-20-16v32z" fill="#94a3b8"/>
+
+<!-- counterparty icon -->
+<circle cx="145" cy="315" r="54" fill="#eff6ff" stroke="#bfdbfe" stroke-width="2"/><path d="M117 341h56M124 341v-48h42v48M134 304h8m8 0h8m-24 13h8m8 0h8m-24 13h8m8 0h8" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round"/><text x="145" y="390" text-anchor="middle" class="small muted">取引先</text>
+
+<!-- sales overlay card -->
+<rect x="245" y="270" width="430" height="90" rx="15" fill="#fff" stroke="#93c5fd" stroke-width="3"/><text x="275" y="307" class="small muted">売上</text><text x="645" y="334" text-anchor="end" class="h">¥17,000 / 日</text>
+
+<!-- own company icon -->
+<circle cx="800" cy="315" r="62" fill="#1e293b" stroke="#fff" stroke-width="8"/><path d="M767 341h66M775 341v-42l25-14 25 14v42M788 341v-25h24v25" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><text x="800" y="397" text-anchor="middle" class="small" font-weight="700">自社</text>
+
+<!-- payout overlay card -->
+<rect x="925" y="270" width="430" height="90" rx="15" fill="#fff" stroke="#fdba74" stroke-width="3"/><text x="955" y="307" class="small muted">支払</text><text x="1325" y="334" text-anchor="end" class="h">¥13,000 / 日</text>
+
+<!-- driver icon -->
+<circle cx="1455" cy="315" r="54" fill="#fff7ed" stroke="#fed7aa" stroke-width="2"/><circle cx="1455" cy="298" r="15" fill="none" stroke="#ea580c" stroke-width="4"/><path d="M1427 342c3-19 13-29 28-29s25 10 28 29" fill="none" stroke="#ea580c" stroke-width="4" stroke-linecap="round"/><text x="1455" y="390" text-anchor="middle" class="small muted">ドライバー</text>
+
+<!-- detail cards -->
+<rect x="105" y="430" width="665" height="505" rx="16" class="card"/><rect x="830" y="430" width="665" height="505" rx="16" class="card"/>
+<text x="135" y="475" class="body" font-weight="700">売上の計算</text><text x="860" y="475" class="body" font-weight="700">支払の計算</text>
+
+<!-- independent basis -->
+<rect x="135" y="497" width="190" height="49" rx="10" fill="#fff" stroke="#2563eb" stroke-width="2"/><rect x="153" y="512" width="19" height="19" rx="5" fill="#1e293b"/><path d="M158 521l4 4 7-9" fill="none" stroke="#fff" stroke-width="2.4"/><text x="187" y="530" class="small">日当</text><rect x="337" y="497" width="190" height="49" rx="10" fill="#fff" stroke="#2563eb" stroke-width="2"/><rect x="355" y="512" width="19" height="19" rx="5" fill="#1e293b"/><path d="M360 521l4 4 7-9" fill="none" stroke="#fff" stroke-width="2.4"/><text x="389" y="530" class="small">個数単価</text>
+<rect x="860" y="497" width="190" height="49" rx="10" fill="#fff" stroke="#ea580c" stroke-width="2"/><rect x="878" y="512" width="19" height="19" rx="5" fill="#1e293b"/><path d="M883 521l4 4 7-9" fill="none" stroke="#fff" stroke-width="2.4"/><text x="912" y="530" class="small">日当</text><rect x="1062" y="497" width="190" height="49" rx="10" fill="#fff" stroke="#ea580c" stroke-width="2"/><rect x="1080" y="512" width="19" height="19" rx="5" fill="#1e293b"/><path d="M1085 521l4 4 7-9" fill="none" stroke="#fff" stroke-width="2.4"/><text x="1114" y="530" class="small">個数単価</text>
+
+<!-- daily horizontal taxes -->
+<text x="135" y="590" class="body" font-weight="700">日当</text><rect x="135" y="607" width="288" height="76" rx="11" class="selected"/><text x="155" y="633" class="tiny muted">税抜・入力</text><text x="400" y="665" text-anchor="end" class="money">¥17,000</text><rect x="437" y="607" width="288" height="76" rx="11" class="disabled"/><text x="457" y="633" class="tiny muted">税込・自動</text><text x="702" y="665" text-anchor="end" class="money muted">¥18,700</text>
+<text x="860" y="590" class="body" font-weight="700">日当</text><rect x="860" y="607" width="288" height="76" rx="11" class="disabled"/><text x="880" y="633" class="tiny muted">税抜・自動</text><text x="1125" y="665" text-anchor="end" class="money muted">¥11,818</text><rect x="1162" y="607" width="288" height="76" rx="11" class="selected"/><text x="1182" y="633" class="tiny muted">税込・入力</text><text x="1427" y="665" text-anchor="end" class="money">¥13,000</text>
+
+<!-- piece horizontal taxes -->
+<text x="135" y="735" class="body" font-weight="700">個数単価 <tspan class="tiny muted">/ 個</tspan></text><rect x="135" y="752" width="288" height="76" rx="11" class="selected"/><text x="155" y="778" class="tiny muted">税抜・入力</text><text x="400" y="810" text-anchor="end" class="money">¥160</text><rect x="437" y="752" width="288" height="76" rx="11" class="disabled"/><text x="457" y="778" class="tiny muted">税込・自動</text><text x="702" y="810" text-anchor="end" class="money muted">¥176</text>
+<text x="860" y="735" class="body" font-weight="700">個数単価 <tspan class="tiny muted">/ 個</tspan></text><rect x="860" y="752" width="288" height="76" rx="11" class="disabled"/><text x="880" y="778" class="tiny muted">税抜・自動</text><text x="1125" y="810" text-anchor="end" class="money muted">¥136</text><rect x="1162" y="752" width="288" height="76" rx="11" class="selected"/><text x="1182" y="778" class="tiny muted">税込・入力</text><text x="1427" y="810" text-anchor="end" class="money">¥150</text>
+
+<!-- minimum -->
+<rect x="135" y="855" width="590" height="54" rx="10" fill="#fff" stroke="#d6dee9"/><rect x="155" y="872" width="20" height="20" rx="5" fill="#fff" stroke="#94a3b8" stroke-width="2"/><text x="190" y="891" class="small">最低個数を保証</text><rect x="860" y="855" width="590" height="54" rx="10" fill="#fff" stroke="#d6dee9"/><rect x="880" y="872" width="20" height="20" rx="5" fill="#fff" stroke="#94a3b8" stroke-width="2"/><text x="915" y="891" class="small">最低個数を保証</text>
+
+<!-- margin -->
+<text x="105" y="980" class="body" font-weight="700">税抜粗利</text><rect x="105" y="997" width="665" height="52" rx="11" fill="#f8fafc" stroke="#dbe3ee"/><text x="135" y="1030" class="small muted">日当</text><text x="740" y="1034" text-anchor="end" class="money">¥5,182 / 日</text><rect x="830" y="997" width="665" height="52" rx="11" fill="#f8fafc" stroke="#dbe3ee"/><text x="860" y="1030" class="small muted">個数</text><text x="1465" y="1034" text-anchor="end" class="money">¥24 / 個</text>
+</svg>
