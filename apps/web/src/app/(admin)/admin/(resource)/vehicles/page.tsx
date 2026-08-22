@@ -257,12 +257,14 @@ export default function VehiclesPage() {
   };
   const {
     data: vehiclePages,
+    error: vehiclesLoadError,
     isLoading: vehiclesInitialLoading,
     setSize: setVehiclesSize,
     mutate: mutateVehiclePages,
   } = useSWRInfinite<{
     vehicles: Vehicle[];
     canViewCost?: boolean;
+    availabilitySupported?: boolean;
     hasMore?: boolean;
     nextCursor?: string;
   }>(vehiclesPageKey, swrFetcher, {
@@ -328,6 +330,7 @@ export default function VehiclesPage() {
   // サーバーの判定（API の canViewCost）を正とする — localStorage の capabilities は
   // ログイン時のスナップショットで、権限追加後も再ログインするまで古いため。
   const canViewCost = firstVehiclesPage?.canViewCost === true;
+  const availabilitySupported = firstVehiclesPage?.availabilitySupported !== false;
 
   const defaultRangeLast30Days = () => {
     const end = todayJST();
@@ -861,6 +864,18 @@ export default function VehiclesPage() {
           )}
         </div>
 
+        {!loading && !availabilitySupported && (
+          <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 md:p-4">
+            <FontAwesomeIcon icon={faTriangleExclamation} className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <div>
+              <p className="font-semibold">既存車両を互換モードで表示しています</p>
+              <p className="mt-0.5 text-xs text-amber-800">
+                一時使用不可の設定はmigration 147適用後に利用できます。車両データへの変更はありません。
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* オイル交換の警告サマリー（要交換・接近の台数を上部に強調表示） */}
         {!loading && oilAlertTotal > 0 && (
           <div
@@ -957,7 +972,17 @@ export default function VehiclesPage() {
         )}
         </div>
 
-        {loading ? (
+        {vehiclesLoadError ? (
+          <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <FontAwesomeIcon icon={faCircleExclamation} className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-semibold">車両一覧を取得できませんでした</p>
+              <p className="mt-1 text-xs text-red-700">
+                登録済み車両は削除されていません。再読み込みしても直らない場合は管理者へご連絡ください。
+              </p>
+            </div>
+          </div>
+        ) : loading ? (
           // 実カードと同じ骨格（上部1行＋左:プレート/写真・右:ゲージ2本）。
           // スマホは左側が横並び、PC は縦積みという実表示の分岐もそのまま再現する。
           <div className="space-y-4">

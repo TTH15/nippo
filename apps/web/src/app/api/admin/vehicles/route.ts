@@ -7,6 +7,7 @@ import { stripVehicleCostAll } from "@/server/vehicles/cost";
 import { filterActiveVehicleDrivers, type VehicleDriverRow } from "@/server/vehicles/activeDrivers";
 import { storeVehicleImage, VEHICLE_IMAGE_BUCKET } from "@/server/vehicles/imageStorage";
 import { resolveStoredUrls } from "@/server/storage/dataUrl";
+import { isMissingVehicleAvailabilityColumns } from "@/server/vehicles/availabilitySchema";
 
 export const dynamic = "force-dynamic";
 
@@ -54,11 +55,13 @@ export async function GET(req: NextRequest) {
   // ★ select("*") にしない。image_url に data URL が混ざると1台あたり数百KB になり、
   //   一覧のレスポンスが一気に肥大する（実測: 画像込み 1630ms/3777KB → 列指定 217ms/11KB）。
   //   列を明示しておけば、将来 data URL が紛れ込んでも一覧は太らない。
-  let query = supabase
-    .from("vehicles")
-    .select(`
+  const loadVehicles = (includeAvailability: boolean) => {
+    // 動的テンプレートをselect()へ直接渡すとSupabaseの型パーサーが過剰展開するため、
+    // ここでは実行時文字列として明示する。
+    const availabilityColumns = includeAvailability ? "is_unavailable, unavailable_reason," : "";
+    const selectColumns: string = `
       id, owner_org_id, manufacturer, brand, model_key, model_code, body_color,
-      is_disposed, is_unavailable, unavailable_reason, is_ev,
+      is_disposed, ${availabilityColumns} is_ev,
       number_prefix, number_class, number_hiragana, number_numeric, plate_color,
       current_mileage, last_oil_change_mileage, oil_change_interval,
       purchase_cost, purchase_cost_items, lease_cost, monthly_insurance,
@@ -69,15 +72,27 @@ export async function GET(req: NextRequest) {
         driver_id,
         drivers (id, name, display_name, works_as_driver, status)
       )
-    `)
-    .eq("owner_org_id", orgId)
-    .order("manufacturer")
-    .order("brand")
-    // ページ間で行の重複・欠落を起こさないよう一意なタイブレークを付ける
-    .order("id");
-  // limit+1 行取って hasMore を判定する
-  if (limit !== null) query = query.range(offset, offset + limit);
-  const { data: vehiclesRaw, error } = await query;
+    `;
+    let query = supabase
+      .from("vehicles")
+      .select(selectColumns)
+      .eq("owner_org_id", orgId)
+      .order("manufacturer")
+      .order("brand")
+      // ページ間で行の重複・欠落を起こさないよう一意なタイブレークを付ける
+      .order("id");
+    // limit+1 行取って hasMore を判定する
+    if (limit !== null) query = query.range(offset, offset + limit);
+    return query;
+  };
+
+  let availabilitySupported = true;
+  let { data: vehiclesRaw, error } = await loadVehicles(true);
+  if (isMissingVehicleAvailabilityColumns(error)) {
+    // コードが先にデプロイされmigration 147が未適用でも、既存車両を消えたように見せない。
+    availabilitySupported = false;
+    ({ data: vehiclesRaw, error } = await loadVehicles(false));
+  }
 
   if (error) {
     console.error(error);
@@ -89,9 +104,11 @@ export async function GET(req: NextRequest) {
 
   // 利用ドライバーは「稼働中」だけを返す（詳細は server/vehicles/activeDrivers.ts）。
   const rawVehicles: Array<{ id: string; [key: string]: unknown }> = (
-    (vehicles ?? []) as Array<{ id: string; [key: string]: unknown }>
+    (vehicles ?? []) as unknown as Array<{ id: string; [key: string]: unknown }>
   ).map((v) => ({
     ...v,
+    is_unavailable: v.is_unavailable ?? false,
+    unavailable_reason: v.unavailable_reason ?? null,
     vehicle_drivers: filterActiveVehicleDrivers(v.vehicle_drivers as VehicleDriverRow[] | null),
   }));
 
@@ -112,6 +129,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     vehicles: stripVehicleCostAll(activeDriverVehicles, canViewCost),
     canViewCost,
+    availabilitySupported,
     ...(limit !== null ? { hasMore, nextCursor: String(offset + limit) } : {}),
   });
 }
