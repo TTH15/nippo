@@ -144,8 +144,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       isDisposed = false,
-      isUnavailable = false,
-      unavailableReason = null,
+      isUnavailable,
+      unavailableReason,
       isEv = false,
       manufacturer,
       brand,
@@ -203,12 +203,17 @@ export async function POST(req: NextRequest) {
         model_code: typeof modelCode === "string" && modelCode.trim() ? modelCode.trim().toUpperCase() : null,
         body_color: typeof bodyColor === "string" && /^#[0-9a-fA-F]{6}$/.test(bodyColor) ? bodyColor : null,
         is_disposed: !!isDisposed,
-        // 廃車と一時使用不可は排他的。廃車を優先する。
-        is_unavailable: !isDisposed && !!isUnavailable,
-        unavailable_reason:
-          !isDisposed && isUnavailable && typeof unavailableReason === "string"
-            ? unavailableReason.trim().slice(0, 120) || null
-            : null,
+        // migration 147 未適用環境との互換性のため、クライアントが状態を送った場合だけ列へ書く。
+        ...(isUnavailable !== undefined || unavailableReason !== undefined
+          ? {
+              // 廃車と一時使用不可は排他的。廃車を優先する。
+              is_unavailable: !isDisposed && !!isUnavailable,
+              unavailable_reason:
+                !isDisposed && isUnavailable && typeof unavailableReason === "string"
+                  ? unavailableReason.trim().slice(0, 120) || null
+                  : null,
+            }
+          : {}),
         is_ev: !!isEv,
         // プレート色（実物4種）。不正値・未指定は black（現行運用は軽事業のみ）
         plate_color: ["white", "yellow", "green", "black"].includes(plateColor) ? plateColor : "black",

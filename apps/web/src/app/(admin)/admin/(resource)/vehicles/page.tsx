@@ -502,10 +502,15 @@ export default function VehiclesPage() {
       const imageUnchanged =
         editingVehicle != null && (form.imageDataUrl.trim() || null) === (editingVehicle.image_url ?? null);
 
+      const availabilityPayload = availabilitySupported
+        ? {
+            isUnavailable: form.isUnavailable,
+            unavailableReason: form.isUnavailable ? form.unavailableReason.trim() || null : null,
+          }
+        : {};
       const payload = {
         isDisposed: form.isDisposed,
-        isUnavailable: form.isUnavailable,
-        unavailableReason: form.isUnavailable ? form.unavailableReason.trim() || null : null,
+        ...availabilityPayload,
         isEv: form.isEv,
         manufacturer: form.manufacturer || null,
         // 地図の3Dモデルはメーカー・車種名から自動で決める（表に無ければ既定モデル）
@@ -544,8 +549,12 @@ export default function VehiclesPage() {
         const updatedVehicle: Vehicle = {
           ...editingVehicle,
           is_disposed: form.isDisposed,
-          is_unavailable: form.isUnavailable,
-          unavailable_reason: payload.unavailableReason,
+          is_unavailable: availabilitySupported ? form.isUnavailable : editingVehicle.is_unavailable,
+          unavailable_reason: availabilitySupported
+            ? form.isUnavailable
+              ? form.unavailableReason.trim() || null
+              : null
+            : editingVehicle.unavailable_reason,
           is_ev: form.isEv,
           manufacturer: payload.manufacturer,
           brand: payload.brand,
@@ -1833,9 +1842,10 @@ export default function VehiclesPage() {
                     })()}
                   </div>
                 </div>
-                <div className={`rounded border transition-colors ${
-                  form.isUnavailable ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"
-                }`}>
+                {availabilitySupported && (
+                  <div className={`rounded border transition-colors ${
+                    form.isUnavailable ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"
+                  }`}>
                   <label className="flex items-center justify-between px-3 py-2">
                     <span>
                       <span className="block text-sm font-medium text-slate-700">一時的に使用不可</span>
@@ -1887,7 +1897,8 @@ export default function VehiclesPage() {
                       </div>
                     </div>
                   </div>
-                </div>
+                  </div>
+                )}
                 <div>
                   <label className="flex items-center justify-between px-3 py-2 rounded border border-slate-200 bg-slate-50">
                     <span className="text-sm font-medium text-slate-500">廃車にする</span>
