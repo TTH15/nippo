@@ -34,10 +34,16 @@ export async function resolveScanTarget(
       return { ok: false, code: "unknown", message: qrCodeMessage("unknown"), method, vehicleId: null, usage: null };
     }
     const r = await resolveVehicleByToken(token, orgId, onDate);
+    const unavailableMessage =
+      r.code === "vehicle_inactive" && r.vehicle?.isUnavailable
+        ? r.vehicle.unavailableReason
+          ? `この車両は一時使用不可です（${r.vehicle.unavailableReason}）。運営に連絡してください。`
+          : "この車両は一時使用不可です。運営に連絡してください。"
+        : null;
     return {
       ok: r.code === "ok",
       code: r.code,
-      message: qrCodeMessage(r.code),
+      message: unavailableMessage ?? qrCodeMessage(r.code),
       method,
       vehicleId: r.vehicle?.id ?? null,
       usage: r.usage ?? null,
@@ -50,10 +56,16 @@ export async function resolveScanTarget(
     return { ok: false, code: "unknown", message: "車両が指定されていません。", method, vehicleId: null, usage: null };
   }
   const a = await authorizeVehicleForOrg(vehicleId, orgId, onDate);
+  const unavailableMessage =
+    a.code === "vehicle_inactive" && a.vehicle?.isUnavailable
+      ? a.vehicle.unavailableReason
+        ? `この車両は一時使用不可です（${a.vehicle.unavailableReason}）。運営に連絡してください。`
+        : "この車両は一時使用不可です。運営に連絡してください。"
+      : null;
   return {
     ok: a.code === "ok",
     code: a.code,
-    message: qrCodeMessage(a.code),
+    message: unavailableMessage ?? qrCodeMessage(a.code),
     method,
     vehicleId: a.vehicle?.id ?? null,
     usage: a.usage ?? null,

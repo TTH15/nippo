@@ -24,6 +24,8 @@ export type ResolvedVehicle = {
   id: string;
   ownerOrgId: string | null;
   isDisposed: boolean;
+  isUnavailable: boolean;
+  unavailableReason: string | null;
   // 表示用のナンバー（プレートOCR照合・確認画面用）
   numberPrefix: string | null;
   numberClass: string | null;
@@ -49,6 +51,8 @@ function mapVehicle(v: Record<string, unknown>): ResolvedVehicle {
     id: v.id as string,
     ownerOrgId: (v.owner_org_id as string | null) ?? null,
     isDisposed: !!v.is_disposed,
+    isUnavailable: !!v.is_unavailable,
+    unavailableReason: (v.unavailable_reason as string | null) ?? null,
     numberPrefix: (v.number_prefix as string | null) ?? null,
     numberClass: (v.number_class as string | null) ?? null,
     numberHiragana: (v.number_hiragana as string | null) ?? null,
@@ -57,7 +61,7 @@ function mapVehicle(v: Record<string, unknown>): ResolvedVehicle {
 }
 
 const VEHICLE_COLS =
-  "id, owner_org_id, is_disposed, number_prefix, number_class, number_hiragana, number_numeric";
+  "id, owner_org_id, is_disposed, is_unavailable, unavailable_reason, number_prefix, number_class, number_hiragana, number_numeric";
 
 /**
  * 車両ID を requesterOrgId の文脈で認可する（所有org or 当日の借用org）。
@@ -77,7 +81,7 @@ export async function authorizeVehicleForOrg(
 
   if (!v) return { code: "unknown" };
   const vehicle = mapVehicle(v);
-  if (vehicle.isDisposed) return { code: "vehicle_inactive", vehicle };
+  if (vehicle.isDisposed || vehicle.isUnavailable) return { code: "vehicle_inactive", vehicle };
 
   // 所有org なら即OK
   if (vehicle.ownerOrgId && vehicle.ownerOrgId === requesterOrgId) {

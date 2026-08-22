@@ -131,6 +131,9 @@ export function VehiclePlate({
       ? `オイル交換時期を${Math.abs(oilWarning.remaining).toLocaleString()}km超過しています`
       : `オイル交換まで残り${oilWarning.remaining.toLocaleString()}kmです`
     : "";
+  const unavailableLabel = vehicle.unavailable_reason?.trim()
+    ? `一時使用不可：${vehicle.unavailable_reason.trim()}`
+    : "一時使用不可";
   const size = compact ? "max-w-[100px] min-w-0" : "max-w-[240px]";
   // plate の見た目は「外側の幅」に比例させる（デバイス依存を減らす）
   // cqw: コンテナ幅の 1% なので、100cqw がコンテナ幅になる
@@ -402,6 +405,18 @@ export function VehiclePlate({
     </span>
   ) : null;
 
+  const unavailable = vehicle.is_unavailable ? (
+    <span
+      role="status"
+      aria-label={unavailableLabel}
+      title={unavailableLabel}
+      className="absolute left-[-3%] top-[-9%] z-20 rounded border-2 border-white bg-amber-500 px-[5%] py-[2%] font-bold leading-none text-slate-950 shadow-md"
+      style={{ fontSize: scaleLenPx(compact ? 7 : 16) }}
+    >
+      使用不可
+    </span>
+  ) : null;
+
   return interactive ? (
     <button
       type="button"
@@ -412,11 +427,13 @@ export function VehiclePlate({
     >
       {inner}
       {warning}
+      {unavailable}
     </button>
   ) : (
     <div className={wrapperClass} style={wrapperStyle}>
       {inner}
       {warning}
+      {unavailable}
     </div>
   );
 }

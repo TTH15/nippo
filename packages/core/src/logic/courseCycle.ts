@@ -48,6 +48,23 @@ export function badgeForShift(
   return cycle ? cycleLabel(cycle) : `${cycleNo}便`;
 }
 
+/**
+ * 同じコースの、その日の割当をまとめて表示するときに便バッジが必要か。
+ * 全サイクルが揃っている状態を通常表示（コース名だけ）とし、一部だけの割当を特殊表示する。
+ * マスターに無い便番号が含まれる場合は、異常を隠さないためバッジを残す。
+ */
+export function shouldShowCycleBadgesForSelection(
+  selectedCycleNos: number[] | null | undefined,
+  availableCycleNos: number[] | null | undefined,
+): boolean {
+  const selected = new Set((selectedCycleNos ?? []).filter((cycleNo) => Number.isInteger(cycleNo) && cycleNo >= 1));
+  if (selected.size === 0) return false;
+
+  const available = new Set((availableCycleNos ?? []).filter((cycleNo) => Number.isInteger(cycleNo) && cycleNo >= 1));
+  if (available.size === 0 || selected.size !== available.size) return true;
+  return [...selected].some((cycleNo) => !available.has(cycleNo));
+}
+
 export type CourseTimes = {
   meetingPlace?: string | null;
   meetingTime?: string | null;

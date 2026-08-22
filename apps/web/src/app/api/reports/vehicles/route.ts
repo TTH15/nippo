@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
       )
       .eq("owner_org_id", orgId)
       .eq("is_disposed", false)
+      .eq("is_unavailable", false)
       .order("manufacturer")
       .order("brand");
 
@@ -62,6 +63,7 @@ export async function GET(req: NextRequest) {
     )
     .in("id", vehicleIds)
     .eq("is_disposed", false)
+    .eq("is_unavailable", false)
     .order("manufacturer")
     .order("brand");
 

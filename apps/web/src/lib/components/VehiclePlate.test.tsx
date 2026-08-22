@@ -53,3 +53,21 @@ describe("VehiclePlate の整備警告", () => {
     expect(screen.queryByRole("img")).toBeNull();
   });
 });
+
+describe("VehiclePlate の一時使用不可表示", () => {
+  it("使用不可ラベルと理由をアクセシブルな名前で表示する", () => {
+    render(
+      <VehiclePlate
+        vehicle={{
+          ...baseVehicle,
+          is_unavailable: true,
+          unavailable_reason: "故障のため修理中",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: "一時使用不可：故障のため修理中" })).toHaveTextContent(
+      "使用不可",
+    );
+  });
+});

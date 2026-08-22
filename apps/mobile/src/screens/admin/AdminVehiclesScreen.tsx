@@ -30,7 +30,8 @@ export function AdminVehiclesScreen() {
     setError("");
     try {
       const res = await apiFetch<{ vehicles: VehicleRow[] }>("/api/admin/vehicles");
-      setVehicles((res.vehicles ?? []).filter((v) => !v.is_disposed));
+      // 故障・整備待ちの車両は、運営モードの「移動を記録」候補からも除外する。
+      setVehicles((res.vehicles ?? []).filter((v) => !v.is_disposed && !v.is_unavailable));
     } catch (e) {
       setError(e instanceof Error ? e.message : "取得に失敗しました");
     } finally {

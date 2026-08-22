@@ -40,6 +40,29 @@ export async function POST(req: NextRequest) {
 
     // 貸出中の車両はその日付に紐付け不可。
     if (resolvedVehicleId) {
+      const { data: vehicle, error: vehicleError } = await supabase
+        .from("vehicles")
+        .select("id, is_disposed, is_unavailable, unavailable_reason")
+        .eq("id", resolvedVehicleId)
+        .eq("owner_org_id", user.orgId)
+        .maybeSingle();
+      if (vehicleError) throw vehicleError;
+      if (!vehicle || vehicle.is_disposed) {
+        return NextResponse.json(
+          { error: "この車両は現在利用できません。" },
+          { status: 409 },
+        );
+      }
+      if (vehicle.is_unavailable) {
+        const reason = typeof vehicle.unavailable_reason === "string" && vehicle.unavailable_reason.trim()
+          ? `（${vehicle.unavailable_reason.trim()}）`
+          : "";
+        return NextResponse.json(
+          { error: `この車両は一時使用不可に設定されています${reason}。` },
+          { status: 409 },
+        );
+      }
+
       const { data: loan } = await supabase
         .from("vehicle_loans")
         .select("id")

@@ -756,21 +756,81 @@ WebAuthn 資格情報（088・Phase 6 で使用、現状は空）。
 
 ---
 
+### shift_import_batches
+AIシフト表取り込みの実行単位。取り込んだ行を一括で取り消すために使う。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK, DEFAULT gen_random_uuid() |
+| org_id | uuid | NOT NULL |
+| created_by | uuid | nullable, FK → drivers(id) ON DELETE SET NULL |
+| sources | text[] | NOT NULL, DEFAULT '{}' |
+| registered | int | NOT NULL, DEFAULT 0 |
+| reverted_at | timestamptz | nullable |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+
+---
+
+### shift_import_format_profiles
+管理者が確定したシフト表の構造プロファイル。同形式の次回読み取りを高速化する。元ファイル・氏名・日別割当は保持しない。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK, DEFAULT gen_random_uuid() |
+| org_id | uuid | NOT NULL |
+| format_key | text | NOT NULL |
+| mime_type | text | NOT NULL |
+| layout_profile | text | NOT NULL |
+| use_count | int | NOT NULL, DEFAULT 1 |
+| last_used_at | timestamptz | NOT NULL, DEFAULT now() |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+| updated_at | timestamptz | NOT NULL, DEFAULT now() |
+| UNIQUE | | (org_id, format_key) |
+
+---
+
+### shift_import_label_maps
+管理者が確定したシフト表のラベルとコース・便の対応辞書。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| org_id | uuid | PK(複合) |
+| raw_label | text | PK(複合) |
+| course_id | uuid | NOT NULL, FK → courses(id) ON DELETE CASCADE |
+| cycle_no | int | NOT NULL, DEFAULT 0, CHECK >= 0。0=全サイクルまたは便なし |
+| updated_at | timestamptz | NOT NULL, DEFAULT now() |
+
+---
+
+### shift_import_name_maps
+管理者が確定したシフト表の氏名表記とドライバーの対応辞書。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| org_id | uuid | PK(複合) |
+| raw_name | text | PK(複合) |
+| driver_id | uuid | NOT NULL, FK → drivers(id) ON DELETE CASCADE |
+| updated_at | timestamptz | NOT NULL, DEFAULT now() |
+
+---
+
 ### shifts
-シフト（コース×日付×スロット）。
+シフト（コース×便×日付×スロット）。
 
 | カラム | 型 | 制約 |
 |--------|-----|------|
 | id | uuid | PK |
 | shift_date | date | NOT NULL |
 | course_id | uuid | NOT NULL, FK → courses(id) ON DELETE CASCADE |
+| cycle_no | int | NOT NULL, DEFAULT 0。0=サイクルなし |
 | driver_id | uuid | nullable, FK → drivers(id) ON DELETE SET NULL |
 | created_at | timestamptz | NOT NULL, DEFAULT now() |
 | updated_at | timestamptz | NOT NULL, DEFAULT now() |
 | slot | int | NOT NULL, DEFAULT 1 |
 | vehicle_id | uuid | nullable, FK → vehicles(id) ON DELETE SET NULL |
 | uses_external_vehicle | boolean | NOT NULL, DEFAULT false |
-| UNIQUE | | (shift_date, course_id, slot) |
+| import_batch_id | uuid | nullable, FK → shift_import_batches(id) ON DELETE SET NULL |
+| UNIQUE | | (shift_date, course_id, cycle_no, slot) |
 
 ---
 
@@ -984,6 +1044,8 @@ WebAuthn 資格情報（088・Phase 6 で使用、現状は空）。
 | image_url | text | nullable |
 | jibaiseki_renewal_month | char(7) | nullable |
 | is_disposed | boolean | NOT NULL, DEFAULT false |
+| is_unavailable | boolean | NOT NULL, DEFAULT false（一時使用不可） |
+| unavailable_reason | text | nullable、最大120文字 |
 | is_ev | boolean | NOT NULL, DEFAULT false |
 | purchase_cost_items | jsonb | nullable |
 | recovery_start_month | date | nullable |

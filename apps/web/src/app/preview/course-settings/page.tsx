@@ -229,7 +229,7 @@ export default function CourseSettingsPreviewPage() {
 
   return (
     <main className="min-h-screen bg-slate-200 px-3 py-4 text-slate-800 sm:px-6 sm:py-6">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-[1540px] flex-col overflow-hidden rounded-2xl border border-white/70 bg-white shadow-2xl shadow-slate-500/20">
+      <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-[1280px] flex-col overflow-hidden rounded-2xl border border-white/70 bg-white shadow-2xl shadow-slate-500/20 lg:w-[88vw] xl:w-[72vw]">
         <header className="flex shrink-0 items-center gap-3 px-5 py-4 sm:px-8">
           <Link href="/preview" aria-label="プレビュー一覧へ戻る" className="mr-1 flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-300">
             <FontAwesomeIcon icon={faArrowLeft} className="h-3.5 w-3.5" />
@@ -262,7 +262,7 @@ export default function CourseSettingsPreviewPage() {
         </nav>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 lg:px-10">
-          <div className="grid min-h-full grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(330px,0.78fr)_72px_minmax(650px,1.42fr)] xl:gap-0">
+          <div className="grid min-h-full grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(270px,0.75fr)_48px_minmax(0,1.45fr)] xl:gap-0">
             <section ref={basicSectionRef} className="rounded-2xl border border-slate-200 bg-slate-50/45 p-5 sm:p-6" aria-labelledby="basic-heading">
               <div className="mb-5 flex items-start justify-between gap-4">
                 <div>

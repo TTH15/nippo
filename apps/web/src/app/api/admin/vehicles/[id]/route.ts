@@ -50,6 +50,8 @@ export async function PUT(
     const body = await req.json();
     const {
       isDisposed,
+      isUnavailable,
+      unavailableReason,
       isEv,
       manufacturer,
       modelKey,
@@ -95,6 +97,23 @@ export async function PUT(
     }
     if (brand !== undefined) updates.brand = brand?.trim() || null;
     if (isDisposed !== undefined) updates.is_disposed = !!isDisposed;
+    if (isUnavailable !== undefined) {
+      updates.is_unavailable = !!isUnavailable;
+      updates.unavailable_reason =
+        isUnavailable && typeof unavailableReason === "string"
+          ? unavailableReason.trim().slice(0, 120) || null
+          : null;
+      // 一時使用不可へ戻す操作では、過去の廃車フラグが残らないようにする。
+      if (isUnavailable && isDisposed !== true) updates.is_disposed = false;
+    } else if (unavailableReason !== undefined) {
+      updates.unavailable_reason =
+        typeof unavailableReason === "string" ? unavailableReason.trim().slice(0, 120) || null : null;
+    }
+    // 廃車を優先し、同時に二つの状態を持たせない。
+    if (isDisposed === true) {
+      updates.is_unavailable = false;
+      updates.unavailable_reason = null;
+    }
     if (isEv !== undefined) updates.is_ev = !!isEv;
     if (plateColor !== undefined) {
       updates.plate_color = ["white", "yellow", "green", "black"].includes(plateColor) ? plateColor : "black";

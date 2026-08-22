@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
       )
       .eq("owner_org_id", orgId)
       .eq("is_disposed", false)
+      .eq("is_unavailable", false)
       .order("manufacturer")
       .order("brand");
 
@@ -55,4 +56,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
-

@@ -67,6 +67,8 @@ type VehicleDriver = {
 type Vehicle = {
   id: string;
   is_disposed?: boolean | null;
+  is_unavailable?: boolean | null;
+  unavailable_reason?: string | null;
   is_ev?: boolean | null;
   manufacturer?: string | null;
   body_color?: string | null;
@@ -145,6 +147,8 @@ export default function VehiclesPage() {
   const [showBulkQr, setShowBulkQr] = useState(false);
   const [form, setForm] = useState({
     isDisposed: false,
+    isUnavailable: false,
+    unavailableReason: "",
     isEv: false,
     manufacturer: "",
     bodyColor: "",
@@ -197,7 +201,7 @@ export default function VehiclesPage() {
   const [numberFocused, setNumberFocused] = useState(false);
   // 一覧の絞り込み（状態チップ + テキスト検索）
   const [statusFilter, setStatusFilter] = useState<
-    "all" | "oil-critical" | "oil-warn" | "inspection" | "disposed"
+    "all" | "unavailable" | "oil-critical" | "oil-warn" | "inspection" | "disposed"
   >("all");
   const [searchQuery, setSearchQuery] = useState("");
   // バナーのチップから該当カードへ飛んだ直後の一時ハイライト
@@ -370,6 +374,8 @@ export default function VehiclesPage() {
     setEditingVehicle(null);
     setForm({
       isDisposed: false,
+      isUnavailable: false,
+      unavailableReason: "",
       isEv: false,
       manufacturer: "",
       bodyColor: "",
@@ -416,6 +422,8 @@ export default function VehiclesPage() {
         : [{ sign: "+", label: "初期費用", amount: String(v.purchase_cost || 0) }];
     setForm({
       isDisposed: !!v.is_disposed,
+      isUnavailable: !!v.is_unavailable,
+      unavailableReason: v.unavailable_reason || "",
       isEv: !!v.is_ev,
       manufacturer: v.manufacturer || "",
       bodyColor: v.body_color || "",
@@ -493,6 +501,8 @@ export default function VehiclesPage() {
 
       const payload = {
         isDisposed: form.isDisposed,
+        isUnavailable: form.isUnavailable,
+        unavailableReason: form.isUnavailable ? form.unavailableReason.trim() || null : null,
         isEv: form.isEv,
         manufacturer: form.manufacturer || null,
         // 地図の3Dモデルはメーカー・車種名から自動で決める（表に無ければ既定モデル）
@@ -531,6 +541,9 @@ export default function VehiclesPage() {
         const updatedVehicle: Vehicle = {
           ...editingVehicle,
           is_disposed: form.isDisposed,
+          is_unavailable: form.isUnavailable,
+          unavailable_reason: payload.unavailableReason,
+          is_ev: form.isEv,
           manufacturer: payload.manufacturer,
           brand: payload.brand,
           plate_color: payload.plateColor,
@@ -750,6 +763,9 @@ export default function VehiclesPage() {
     const aDisposed = !!a.is_disposed;
     const bDisposed = !!b.is_disposed;
     if (aDisposed !== bDisposed) return aDisposed ? 1 : -1;
+    const aUnavailable = !!a.is_unavailable;
+    const bUnavailable = !!b.is_unavailable;
+    if (aUnavailable !== bUnavailable) return aUnavailable ? 1 : -1;
     return 0;
   });
 
@@ -765,6 +781,7 @@ export default function VehiclesPage() {
       v.number_class,
       v.number_hiragana,
       v.number_numeric,
+      v.unavailable_reason,
       ...(v.vehicle_drivers ?? []).flatMap((vd) => [vd.drivers?.name, getDisplayName(vd.drivers)]),
     ]
       .filter(Boolean)
@@ -774,6 +791,8 @@ export default function VehiclesPage() {
   };
   const matchesStatus = (v: Vehicle) => {
     switch (statusFilter) {
+      case "unavailable":
+        return !!v.is_unavailable && !v.is_disposed;
       case "oil-critical":
         return isOilCritical(v);
       case "oil-warn":
@@ -797,6 +816,7 @@ export default function VehiclesPage() {
   const statusChips = (
     [
       { key: "all", label: "すべて", count: vehicles.length },
+      { key: "unavailable", label: "一時使用不可", count: vehicles.filter((v) => !!v.is_unavailable && !v.is_disposed).length },
       { key: "oil-critical", label: "オイル要交換", count: oilCriticalCount },
       { key: "oil-warn", label: "オイル接近", count: oilWarnCount },
       { key: "inspection", label: "車検・自賠責が近い", count: vehicles.filter(isInspectionSoon).length },
@@ -1027,7 +1047,9 @@ export default function VehiclesPage() {
                   className={`soft-rise rounded-lg border p-4 sm:p-6 md:p-8 shadow-sm relative ${canWrite ? "cursor-pointer hover:border-slate-300 transition-colors" : ""} ${
                     v.is_disposed
                       ? "bg-red-50 border-red-200"
-                      : "bg-white border-slate-200"
+                      : v.is_unavailable
+                        ? "bg-amber-50/70 border-amber-300"
+                        : "bg-white border-slate-200"
                   } ${
                     highlightId === v.id
                       ? isOilCritical(v)
@@ -1045,6 +1067,18 @@ export default function VehiclesPage() {
                     {v.is_disposed && (
                       <span className="inline-flex items-center h-6 px-2 rounded text-xs font-semibold bg-red-600 text-white shrink-0">
                         廃車
+                      </span>
+                    )}
+                    {!v.is_disposed && v.is_unavailable && (
+                      <span
+                        title={v.unavailable_reason || "一時使用不可"}
+                        className="inline-flex items-center gap-1 h-6 max-w-full px-2 rounded text-xs font-semibold bg-amber-500 text-slate-950 shrink-0"
+                      >
+                        <FontAwesomeIcon icon={faTriangleExclamation} className="w-3 h-3" />
+                        使用不可
+                        {v.unavailable_reason && (
+                          <span className="max-w-56 truncate font-medium">・{v.unavailable_reason}</span>
+                        )}
                       </span>
                     )}
                     {!v.is_disposed && v.oil_change_interval > 0 && oilRemaining < 100 && (
@@ -1774,6 +1808,61 @@ export default function VehiclesPage() {
                     })()}
                   </div>
                 </div>
+                <div className={`rounded border transition-colors ${
+                  form.isUnavailable ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"
+                }`}>
+                  <label className="flex items-center justify-between px-3 py-2">
+                    <span>
+                      <span className="block text-sm font-medium text-slate-700">一時的に使用不可</span>
+                      <span className="block mt-0.5 text-xs text-slate-500">故障・整備待ちなど、新しい配車や打刻から除外します</span>
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-label="一時的に使用不可"
+                      aria-checked={form.isUnavailable}
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          isUnavailable: !f.isUnavailable,
+                          isDisposed: !f.isUnavailable ? false : f.isDisposed,
+                          unavailableReason: !f.isUnavailable ? f.unavailableReason : "",
+                        }))
+                      }
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                        form.isUnavailable ? "bg-amber-500" : "bg-slate-300"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                          form.isUnavailable ? "translate-x-5" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </label>
+                  <div
+                    className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out ${
+                      form.isUnavailable ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                    }`}
+                  >
+                    <div className="overflow-hidden">
+                      <div className="border-t border-amber-200 px-3 py-3">
+                        <label className="block text-xs font-medium text-amber-900 mb-1" htmlFor="vehicle-unavailable-reason">
+                          使用不可の理由
+                        </label>
+                        <input
+                          id="vehicle-unavailable-reason"
+                          type="text"
+                          maxLength={120}
+                          value={form.unavailableReason}
+                          onChange={(e) => setForm((f) => ({ ...f, unavailableReason: e.target.value }))}
+                          placeholder="例：故障のため修理中"
+                          className="w-full rounded border border-amber-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <div>
                   <label className="flex items-center justify-between px-3 py-2 rounded border border-slate-200 bg-slate-50">
                     <span className="text-sm font-medium text-slate-500">廃車にする</span>
@@ -1781,7 +1870,14 @@ export default function VehiclesPage() {
                       type="button"
                       role="switch"
                       aria-checked={form.isDisposed}
-                      onClick={() => setForm((f) => ({ ...f, isDisposed: !f.isDisposed }))}
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          isDisposed: !f.isDisposed,
+                          isUnavailable: !f.isDisposed ? false : f.isUnavailable,
+                          unavailableReason: !f.isDisposed ? "" : f.unavailableReason,
+                        }))
+                      }
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                         form.isDisposed ? "bg-red-600" : "bg-slate-300"
                       }`}

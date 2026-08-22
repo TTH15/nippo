@@ -1182,7 +1182,7 @@ export default function CoursesPage() {
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
           onClick={() => void closeEditModal()}
         >
-          <div className="flex h-[92vh] w-full max-w-[1540px] flex-col overflow-hidden rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex h-[92vh] w-[calc(100vw-2rem)] max-w-[1280px] flex-col overflow-hidden rounded-2xl bg-white p-5 shadow-2xl lg:w-[88vw] xl:w-[72vw]" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex shrink-0 items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
                 <FontAwesomeIcon icon={carrierIcon(carriers.find((carrier) => carrier.id === editForm.carrierId)?.code ?? null)} className="h-5 w-5" />
@@ -1223,9 +1223,9 @@ export default function CoursesPage() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            <div className="mx-auto w-full max-w-[1440px]">
+            <div className="mx-auto w-full">
               {editModalTab === "settings" && (
-                <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(330px,0.78fr)_72px_minmax(650px,1.42fr)] xl:gap-x-0 xl:gap-y-5">
+                <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(270px,0.75fr)_48px_minmax(0,1.45fr)] xl:gap-x-0 xl:gap-y-5">
                   {editValidationVisible && editSettingsErrors.length > 0 && (
                     <div role="alert" className="col-span-full flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-800">
                       <FontAwesomeIcon icon={faCircleExclamation} className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />

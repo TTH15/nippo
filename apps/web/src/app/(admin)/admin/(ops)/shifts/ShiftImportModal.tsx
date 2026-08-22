@@ -14,6 +14,12 @@ import {
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { apiFetch, getToken } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
+import {
+  SHIFT_IMPORT_IGNORE,
+  encodeShiftImportCourseChoice,
+  expandShiftImportCourseChoice,
+  parseShiftImportCourseChoice,
+} from "@/lib/shiftImportCycles";
 
 // ============================================================
 // シフト表の AI 取り込み。
@@ -76,6 +82,7 @@ type ExtractedPerson = {
 type ExtractedLabel = {
   label: string;
   suggestedCourseId: string | null;
+  suggestedCycleNo: number;
   suggestionSource: "saved" | "guessed" | null;
   isOff: boolean;
 };
@@ -96,7 +103,14 @@ type ExtractResult = {
   conflicts: MergeConflict[];
   driverContext: DriverContext;
   warnings: string[];
-  sources: { name: string; title: string }[];
+  sources: {
+    name: string;
+    title: string;
+    formatKey: string | null;
+    mime: string;
+    formatProfile: string;
+    analysisMode: "standard" | "fast" | "fallback";
+  }[];
 };
 type ImportBatch = {
   id: string;
@@ -110,7 +124,18 @@ interface Props {
   open: boolean;
   year: number;
   month: number;
-  courses: { id: string; name: string; color: string; summary_title?: string | null }[];
+  courses: {
+    id: string;
+    name: string;
+    color: string;
+    summary_title?: string | null;
+    uses_cycles?: boolean | null;
+    course_cycles?: {
+      cycle_no: number;
+      label?: string | null;
+      active?: boolean | null;
+    }[] | null;
+  }[];
   drivers: { id: string; name: string; display_name?: string | null }[];
   /** 取り込むファイル。ページ全体のドロップでも追加されるため親が保持する */
   files: File[];
@@ -122,7 +147,7 @@ interface Props {
   onChangeTarget: (year: number, month: number) => void;
 }
 
-const IGNORE = "__ignore";
+const IGNORE = SHIFT_IMPORT_IGNORE;
 
 function hexToRgba(hex: string, alpha: number): string {
   const raw = (hex || "").replace("#", "").trim();
@@ -187,15 +212,35 @@ export default function ShiftImportModal({
   );
   const courseOptions = useMemo(
     () => [
-      ...courses.map((c) => ({ value: c.id, label: c.summary_title?.trim() || c.name })),
+      ...courses.flatMap((course) => {
+        const label = course.summary_title?.trim() || course.name;
+        if (!course.uses_cycles) {
+          return [{ value: encodeShiftImportCourseChoice(course.id, 0), label }];
+        }
+        const cycles = (course.course_cycles ?? []).filter((cycle) => cycle.active !== false);
+        return [
+          {
+            value: encodeShiftImportCourseChoice(course.id, 0),
+            label: `${label}（全サイクル）`,
+          },
+          ...cycles.map((cycle) => ({
+            value: encodeShiftImportCourseChoice(course.id, cycle.cycle_no),
+            label: `${label}・${cycle.label?.trim() || `C${cycle.cycle_no}`}`,
+          })),
+        ];
+      }),
       { value: IGNORE, label: "取り込まない" },
     ],
     [courses],
   );
   const courseById = useMemo(() => new Map(courses.map((c) => [c.id, c])), [courses]);
-  const courseLabel = (id: string) => {
+  const courseLabel = (id: string, cycleNo = 0) => {
     const c = courseById.get(id);
-    return c ? c.summary_title?.trim() || c.name : id;
+    if (!c) return id;
+    const base = c.summary_title?.trim() || c.name;
+    if (!cycleNo) return c.uses_cycles ? `${base}（全サイクル）` : base;
+    const cycle = c.course_cycles?.find((item) => item.cycle_no === cycleNo);
+    return `${base}・${cycle?.label?.trim() || `C${cycleNo}`}`;
   };
   const driverName = (id: string) => {
     const d = drivers.find((x) => x.id === id);
@@ -252,7 +297,7 @@ export default function ShiftImportModal({
       .filter((d) => d >= 1 && d <= daysInMonth)
       .sort((a, b) => a - b);
 
-    type Cand = { personName: string; day: number; label: string; courseId: string };
+    type Cand = { personName: string; day: number; label: string; courseId: string; cycleNo: number };
     const byDriverDay = new Map<string, Cand[]>();
     for (const p of result.people) {
       const driverId = personMap[p.name];
@@ -261,30 +306,52 @@ export default function ShiftImportModal({
         const day = Number(dayStr);
         if (day < 1 || day > daysInMonth) continue;
         const label = rawLabel.trim();
-        const courseId = labelMap[label];
-        if (!courseId || courseId === IGNORE) continue;
+        const choice = labelMap[label];
+        if (!choice || choice === IGNORE) continue;
+        const parsedChoice = parseShiftImportCourseChoice(choice);
+        if (!parsedChoice) continue;
+        const course = courseById.get(parsedChoice.courseId);
+        const expandedChoices = expandShiftImportCourseChoice(parsedChoice, course);
         const key = `${driverId}|${day}`;
         if (!byDriverDay.has(key)) byDriverDay.set(key, []);
-        byDriverDay.get(key)!.push({ personName: p.name, day, label, courseId });
+        for (const expanded of expandedChoices) {
+          byDriverDay.get(key)!.push({
+            personName: p.name,
+            day,
+            label,
+            courseId: parsedChoice.courseId,
+            cycleNo: expanded.cycleNo,
+          });
+        }
       }
     }
 
-    const assignments: { date: string; courseId: string; driverId: string }[] = [];
+    const assignments: { date: string; courseId: string; cycleNo: number; driverId: string }[] = [];
     const droppedCells = new Set<string>(); // `${personName}|${day}`
     const conflictNotes: { text: string; confident: boolean }[] = [];
 
     for (const [key, cands] of byDriverDay) {
       const [driverId, dayStr] = key.split("|");
       const day = Number(dayStr);
-      const distinct = [...new Map(cands.map((c) => [c.courseId, c])).values()];
-      let kept = distinct[0];
-      if (distinct.length > 1) {
+      const distinct = [
+        ...new Map(cands.map((c) => [`${c.courseId}|${c.cycleNo}`, c])).values(),
+      ];
+      const courseGroups = new Map<string, Cand[]>();
+      for (const cand of distinct) {
+        const group = courseGroups.get(cand.courseId) ?? [];
+        group.push(cand);
+        courseGroups.set(cand.courseId, group);
+      }
+      let keptCourseId = distinct[0].courseId;
+      if (courseGroups.size > 1) {
         const ctx = result.driverContext[driverId];
-        const inCharge = ctx ? distinct.filter((c) => ctx.courseIds.includes(c.courseId)) : [];
-        const pool = inCharge.length > 0 ? inCharge : distinct;
+        const courseCandidates = [...courseGroups.values()].map((group) => group[0]);
+        const inCharge = ctx ? courseCandidates.filter((c) => ctx.courseIds.includes(c.courseId)) : [];
+        const pool = inCharge.length > 0 ? inCharge : courseCandidates;
         const countOf = (c: Cand) => ctx?.recentCourseCounts[c.courseId] ?? 0;
-        kept = [...pool].sort((a, b) => countOf(b) - countOf(a))[0];
-        const others = distinct.filter((c) => c.courseId !== kept.courseId);
+        const kept = [...pool].sort((a, b) => countOf(b) - countOf(a))[0];
+        keptCourseId = kept.courseId;
+        const others = courseCandidates.filter((c) => c.courseId !== keptCourseId);
         const confident =
           inCharge.length === 1 ||
           (countOf(kept) >= 2 && others.every((c) => (ctx?.recentCourseCounts[c.courseId] ?? 0) === 0));
@@ -295,12 +362,19 @@ export default function ShiftImportModal({
         }
         conflictNotes.push({
           text: `${driverName(driverId)} ${month}/${day}: 「${others
-            .map((o) => `${o.personName}→${courseLabel(o.courseId)}`)
+            .map((o) => `${o.personName}→${courseLabel(o.courseId, o.cycleNo)}`)
             .join("」「")}」と重複。実績から「${courseLabel(kept.courseId)}」を採用（同姓の別人=人違いの可能性も確認してください）`,
           confident,
         });
       }
-      assignments.push({ date: dateOf(day), courseId: kept.courseId, driverId });
+      for (const kept of distinct.filter((cand) => cand.courseId === keptCourseId)) {
+        assignments.push({
+          date: dateOf(day),
+          courseId: kept.courseId,
+          cycleNo: kept.cycleNo,
+          driverId,
+        });
+      }
     }
 
     // 担当外コース（人違いシグナル）: 担当コースは必ず登録されている運用のため、
@@ -313,8 +387,9 @@ export default function ShiftImportModal({
       if (!ctx || ctx.courseIds.length === 0) continue;
       const usedCourseIds = new Set(
         Object.values(p.days)
-          .map((v) => labelMap[v.trim()])
-          .filter((v): v is string => Boolean(v) && v !== IGNORE),
+          .map((v) => parseShiftImportCourseChoice(labelMap[v.trim()]))
+          .filter((v): v is { courseId: string; cycleNo: number } => !!v)
+          .map((v) => v.courseId),
       );
       const outside = [...usedCourseIds].filter((cid) => !ctx.courseIds.includes(cid));
       if (outside.length > 0) {
@@ -390,7 +465,11 @@ export default function ShiftImportModal({
       const pm: Record<string, string> = {};
       for (const p of data.people) pm[p.name] = p.suggestedDriverId ?? "";
       const lm: Record<string, string> = {};
-      for (const l of data.labels) lm[l.label] = l.suggestedCourseId ?? "";
+      for (const l of data.labels) {
+        lm[l.label] = l.suggestedCourseId
+          ? encodeShiftImportCourseChoice(l.suggestedCourseId, l.suggestedCycleNo ?? 0)
+          : "";
+      }
       setPersonMap(pm);
       setLabelMap(lm);
     } catch (e) {
@@ -410,7 +489,10 @@ export default function ShiftImportModal({
         .map(([rawName, driverId]) => ({ rawName, driverId }));
       const labelMappings = Object.entries(labelMap)
         .filter(([, v]) => v && v !== IGNORE)
-        .map(([rawLabel, courseId]) => ({ rawLabel, courseId }));
+        .flatMap(([rawLabel, value]) => {
+          const choice = parseShiftImportCourseChoice(value);
+          return choice ? [{ rawLabel, ...choice }] : [];
+        });
       const json = (await apiFetch("/api/admin/shifts/import/apply", {
         method: "POST",
         body: JSON.stringify({
@@ -418,6 +500,13 @@ export default function ShiftImportModal({
           nameMappings,
           labelMappings,
           sources: result.sources.map((s) => s.name),
+          formatProfiles: result.sources
+            .filter((source) => source.formatKey && source.formatProfile)
+            .map((source) => ({
+              formatKey: source.formatKey,
+              mime: source.mime,
+              formatProfile: source.formatProfile,
+            })),
         }),
       })) as {
         registered: number;
@@ -676,6 +765,13 @@ export default function ShiftImportModal({
           ) : (
             /* ステップ2: 検算・マッピング・プレビュー */
             <div className="space-y-5">
+              {result.sources.some((source) => source.analysisMode !== "standard") && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-2.5 text-xs text-sky-800">
+                  {result.sources.some((source) => source.analysisMode === "fast")
+                    ? "前回確定した同形式の構造を使って高速に読み取りました。"
+                    : "前回形式の高速読み取りを検算し、不一致があったため通常の精密読み取りへ自動で切り替えました。"}
+                </div>
+              )}
               {/* 検算（資料内の集計との突き合わせ）。内訳は折りたたみで情報量を抑える */}
               {(result.checks.dayTotals.length > 0 || mappedPersonTotals.length > 0) && (
                 <div
@@ -902,6 +998,14 @@ export default function ShiftImportModal({
                                     </td>
                                   );
                                 }
+                                const mappedChoice = parseShiftImportCourseChoice(mappedCourse);
+                                if (!mappedChoice) {
+                                  return (
+                                    <td key={d} className="border-b border-l border-slate-100 text-center bg-amber-100 text-amber-800">
+                                      {raw.slice(0, 2)}?
+                                    </td>
+                                  );
+                                }
                                 if (droppedByConflict || !mapped) {
                                   return (
                                     <td
@@ -909,19 +1013,19 @@ export default function ShiftImportModal({
                                       className="border-b border-l border-slate-100 text-center bg-red-50 text-red-400 line-through"
                                       title={droppedByConflict ? "同日重複のため除外（警告参照）" : "ドライバー未選択"}
                                     >
-                                      {courseLabel(mappedCourse).slice(0, 3)}
+                                      {courseLabel(mappedChoice.courseId, mappedChoice.cycleNo).slice(0, 5)}
                                     </td>
                                   );
                                 }
-                                const color = courseById.get(mappedCourse)?.color ?? "#94a3b8";
+                                const color = courseById.get(mappedChoice.courseId)?.color ?? "#94a3b8";
                                 return (
                                   <td
                                     key={d}
                                     className="border-b border-l border-slate-100 text-center text-slate-800 whitespace-nowrap px-1"
                                     style={{ background: hexToRgba(color, 0.35) }}
-                                    title={`${raw} → ${courseLabel(mappedCourse)}`}
+                                    title={`${raw} → ${courseLabel(mappedChoice.courseId, mappedChoice.cycleNo)}`}
                                   >
-                                    {courseLabel(mappedCourse).slice(0, 3)}
+                                    {courseLabel(mappedChoice.courseId, mappedChoice.cycleNo).slice(0, 5)}
                                   </td>
                                 );
                               })}

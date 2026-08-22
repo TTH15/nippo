@@ -11,7 +11,10 @@ import {
   isOffLabel,
   suggestDriverId,
   suggestCourseId,
+  suggestCycleNo,
   resolveCourseByName,
+  shiftImportFormatKey,
+  isReliableFastExtraction,
   type ImportFile,
 } from "@/server/ai/shiftImport";
 
@@ -89,12 +92,52 @@ export async function POST(req: NextRequest) {
       .eq("status", "active");
     const { data: courses } = await supabase
       .from("courses")
-      .select("id, name, summary_title")
+      .select("id, name, summary_title, uses_cycles, course_cycles(cycle_no, label, active)")
       .eq("org_id", orgId);
 
-    // ファイルごとに並列で読み取り（1件の失敗はエラー扱いにせず warning に落とす）
+    // 確定済みの同形式プロファイルを先に引く。migration 148 未適用時は空扱いで通常解析を続ける。
+    const formatKeys = files
+      .map((file) => shiftImportFormatKey(file.name, file.mime))
+      .filter((key): key is string => !!key);
+    const profileByKey = new Map<string, { layout_profile: string }>();
+    if (formatKeys.length > 0) {
+      const { data: profiles } = await supabase
+        .from("shift_import_format_profiles")
+        .select("format_key, layout_profile")
+        .eq("org_id", orgId)
+        .in("format_key", [...new Set(formatKeys)]);
+      for (const profile of profiles ?? []) profileByKey.set(profile.format_key, profile);
+    }
+
+    // ファイルごとに並列で読み取り。確定済み形式は高速モデルを先に使い、
+    // 最低限の検算に落ちた場合だけ通常モデルへ自動フォールバックする。
     const settled = await Promise.allSettled(
-      files.map((f) => extractShiftFile(f, { year, month }, courses ?? [])),
+      files.map(async (file) => {
+        const formatKey = shiftImportFormatKey(file.name, file.mime);
+        const savedProfile = formatKey ? profileByKey.get(formatKey)?.layout_profile ?? null : null;
+        if (savedProfile) {
+          try {
+            const fast = await extractShiftFile(file, { year, month }, courses ?? [], {
+              knownFormatProfile: savedProfile,
+              fast: true,
+            });
+            if (isReliableFastExtraction(fast)) {
+              return { result: fast, formatKey, mime: file.mime, analysisMode: "fast" as const };
+            }
+          } catch (error) {
+            console.warn(`[shift-import] fast extraction fallback: ${file.name}`, error);
+          }
+        }
+        const standard = await extractShiftFile(file, { year, month }, courses ?? [], {
+          knownFormatProfile: savedProfile,
+        });
+        return {
+          result: standard,
+          formatKey,
+          mime: file.mime,
+          analysisMode: savedProfile ? ("fallback" as const) : ("standard" as const),
+        };
+      }),
     );
     const results = settled.flatMap((s) => (s.status === "fulfilled" ? [s.value] : []));
     const failures = settled.flatMap((s, i) =>
@@ -109,14 +152,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const merged = mergeExtractedFiles(results);
+    const merged = mergeExtractedFiles(results.map((entry) => entry.result));
     // 資料内の集計（出勤日数・◯◯人数）と抽出結果の検算
     const checks = computeChecks(merged.people, merged.dayTotals);
     const driverIds = (drivers ?? []).map((d) => d.id);
 
     // 確定済み辞書（migration 119 未適用でも動くよう、失敗時は空扱い）
     const nameDict = new Map<string, string>();
-    const labelDict = new Map<string, string>();
+    const labelDict = new Map<string, { courseId: string; cycleNo: number }>();
     {
       const { data } = await supabase
         .from("shift_import_name_maps")
@@ -127,9 +170,11 @@ export async function POST(req: NextRequest) {
     {
       const { data } = await supabase
         .from("shift_import_label_maps")
-        .select("raw_label, course_id")
+        .select("raw_label, course_id, cycle_no")
         .eq("org_id", orgId);
-      for (const m of data ?? []) labelDict.set(m.raw_label, m.course_id);
+      for (const m of data ?? []) {
+        labelDict.set(m.raw_label, { courseId: m.course_id, cycleNo: Number(m.cycle_no) || 0 });
+      }
     }
 
     // 人違い検出・同日重複の解決に使う文脈:
@@ -192,9 +237,18 @@ export async function POST(req: NextRequest) {
       const matched = saved ? null : suggestCourseId(label, courses ?? []);
       const guessName = merged.labelGuesses[normalizeJa(label)];
       const ai = saved || matched || !guessName ? null : resolveCourseByName(guessName, courses ?? []);
+      const courseId = saved?.courseId ?? matched ?? ai;
+      const course = (courses ?? []).find((item) => item.id === courseId);
+      const guessedCycle = guessName
+        ? results
+            .flatMap((entry) => entry.result.labelGuesses ?? [])
+            .find((guess) => normalizeJa(guess.label) === normalizeJa(label))?.cycleNo ?? null
+        : null;
+      const cycleNo = saved?.cycleNo ?? guessedCycle ?? suggestCycleNo(label, course);
       return {
         label,
-        suggestedCourseId: saved ?? matched ?? ai,
+        suggestedCourseId: courseId,
+        suggestedCycleNo: courseId ? cycleNo : 0,
         suggestionSource: saved
           ? ("saved" as const)
           : matched || ai
@@ -211,7 +265,21 @@ export async function POST(req: NextRequest) {
       conflicts: merged.conflicts,
       driverContext,
       warnings: [...failures, ...merged.warnings],
-      sources: results.map((r) => ({ name: r.sourceName, title: r.title })),
+      sources: results.map((entry) => {
+        // AI が誤って氏名を構造説明に含めても保存しないよう、抽出済みの氏名を伏せる。
+        let profile = entry.result.formatProfile?.trim() || "";
+        for (const person of entry.result.people) {
+          if (person.name.trim()) profile = profile.split(person.name.trim()).join("氏名");
+        }
+        return {
+          name: entry.result.sourceName,
+          title: entry.result.title,
+          formatKey: entry.formatKey,
+          mime: entry.mime,
+          formatProfile: profile.slice(0, 2000),
+          analysisMode: entry.analysisMode,
+        };
+      }),
     });
   } catch (err) {
     console.error("[admin/shifts/import] error", err);

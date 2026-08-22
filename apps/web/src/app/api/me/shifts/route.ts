@@ -12,6 +12,8 @@ type MeShiftVehicle = {
   number_numeric: string | null;
   manufacturer: string | null;
   brand: string | null;
+  is_unavailable: boolean | null;
+  unavailable_reason: string | null;
   current_mileage: number | null;
   is_ev: boolean | null;
   last_oil_change_mileage: number | null;
@@ -79,7 +81,7 @@ export async function GET(req: NextRequest) {
     const { data: vehicles, error: vErr } = await supabase
       .from("vehicles")
       .select(
-        "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, is_ev, last_oil_change_mileage, oil_change_interval",
+        "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, is_unavailable, unavailable_reason, current_mileage, is_ev, last_oil_change_mileage, oil_change_interval",
       )
       .in("id", vehicleIds);
     if (vErr) {
@@ -94,6 +96,8 @@ export async function GET(req: NextRequest) {
           number_numeric: v.number_numeric ?? null,
           manufacturer: v.manufacturer ?? null,
           brand: v.brand ?? null,
+          is_unavailable: v.is_unavailable ?? null,
+          unavailable_reason: v.unavailable_reason ?? null,
           current_mileage: v.current_mileage ?? null,
           is_ev: v.is_ev ?? null,
           last_oil_change_mileage: v.last_oil_change_mileage ?? null,

@@ -46,10 +46,10 @@ export async function GET(req: NextRequest) {
 
   // shifts 以外に依存しない取得は1波にまとめる（旧: 直列の積み上げ。me/report-form と同型）
   const [{ data: shiftVehicle }, { data: courses }, { data: existingReports }] = await Promise.all([
-    // その日にシフトで割り当てられた車両（先頭の非null）。廃車(is_disposed)は既定車両から除外
+    // その日にシフトで割り当てられた車両（先頭の非null）。廃車・一時使用不可は既定から除外
     rawShiftVehicleId
-      ? supabase.from("vehicles").select("is_disposed").eq("id", rawShiftVehicleId).maybeSingle()
-      : Promise.resolve({ data: null as { is_disposed: boolean } | null }),
+      ? supabase.from("vehicles").select("is_disposed, is_unavailable").eq("id", rawShiftVehicleId).maybeSingle()
+      : Promise.resolve({ data: null as { is_disposed: boolean; is_unavailable: boolean } | null }),
     // コース → キャリア
     courseIds.length
       ? supabase.from("courses").select("id, name, color, summary_title, carrier_id").in("id", courseIds)
@@ -65,7 +65,10 @@ export async function GET(req: NextRequest) {
           .in("course_id", courseIds)
       : Promise.resolve({ data: [] as any[] }),
   ]);
-  const shiftVehicleId = rawShiftVehicleId && !shiftVehicle?.is_disposed ? rawShiftVehicleId : null;
+  const shiftVehicleId =
+    rawShiftVehicleId && !shiftVehicle?.is_disposed && !shiftVehicle?.is_unavailable
+      ? rawShiftVehicleId
+      : null;
 
   if (courseIds.length === 0) {
     return NextResponse.json({ shifts: [], shiftVehicleId });

@@ -36,6 +36,7 @@ import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./Shi
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
 import type { SpotJob } from "../spot-jobs/types";
+import { shouldShowCycleBadgesForSelection } from "@repo/core/logic/courseCycle";
 
 type Course = {
   id: string;
@@ -84,6 +85,14 @@ function courseCycleLabel(course: Course, cycleNo: number): string {
 function courseCycleBadge(course: Course, cycleNo: number): string {
   const cycle = course.course_cycles?.find((item) => item.cycle_no === cycleNo);
   return cycle?.label?.trim() || `C${cycleNo}`;
+}
+
+function activeCourseCycleNos(course: Course): number[] {
+  return course.uses_cycles
+    ? (course.course_cycles ?? [])
+      .filter((cycle) => cycle.active !== false)
+      .map((cycle) => cycle.cycle_no)
+    : [];
 }
 
 /** 同日×同ドライバーの車両上書き用（ISO日付 と UUID はどちらもハイフンを含むため区切りに | を使う） */
@@ -244,16 +253,23 @@ function VehicleOptionList({
   const row = (v: VehiclePlateData) => {
     const selected = valueId === v.id;
     const isLoaned = loanedIds?.has(v.id) ?? false;
+    const isUnavailable = !!v.is_unavailable;
+    const unavailableReason = v.unavailable_reason?.trim();
     const takenByName = !selected ? takenBy?.get(v.id) : undefined;
-    // 他ドライバー使用中はクリック可（確認後に重複割り当て）。貸出中のみ不可。
+    // 他ドライバー使用中はクリック可（確認後に重複割り当て）。
+    // 貸出中と一時使用不可は新規選択できない（既に選択中なら表示は維持する）。
     return (
       <button
         key={v.id}
         type="button"
-        disabled={disabled || isLoaned}
+        disabled={disabled || isLoaned || (isUnavailable && !selected)}
         title={
           isLoaned
             ? "貸出中"
+            : isUnavailable
+              ? unavailableReason
+                ? `一時使用不可：${unavailableReason}`
+                : "一時使用不可"
             : takenByName
               ? `${takenByName} さんが使用中（クリックで重複割り当ての確認）`
               : undefined
@@ -266,13 +282,15 @@ function VehicleOptionList({
           "relative w-full rounded-md p-0.5 flex flex-col items-center gap-0.5 transition-all",
           isLoaned || takenByName
             ? "grayscale opacity-45"
+            : isUnavailable
+              ? "opacity-55"
             : selected
               ? "bg-slate-900/5 ring-2 ring-slate-900"
               : "hover:bg-slate-50/90",
-          isLoaned && "cursor-not-allowed",
+          (isLoaned || (isUnavailable && !selected)) && "cursor-not-allowed",
         )}
         onClick={() => {
-          if (isLoaned) return;
+          if (isLoaned || (isUnavailable && !selected)) return;
           onChange(v.id);
         }}
       >
@@ -286,9 +304,13 @@ function VehicleOptionList({
           )}
           {/* 使用不可の理由はプレートに重ねる。グリッドの上下行でどちらの車両の
               ラベルか紛れるのを防ぐ（グレースケールの上なので赤が読める）。 */}
-          {(isLoaned || takenByName) && (
+          {(isLoaned || isUnavailable || takenByName) && (
             <span className="absolute inset-x-0 bottom-0 bg-white/85 px-1 py-0.5 text-[9px] font-bold leading-none text-rose-600">
-              {isLoaned ? "貸出中" : `${takenByName} さん使用中`}
+              {isLoaned
+                ? "貸出中"
+                : isUnavailable
+                  ? unavailableReason || "一時使用不可"
+                  : `${takenByName} さん使用中`}
             </span>
           )}
         </div>
@@ -1930,15 +1952,34 @@ export default function ShiftsPage() {
                           希望休と重複
                         </span>
                       )}
-                      {assignedCourses.map(({ course, placement }) => (
-                        <span
-                          key={`${course.id}:${placement.cycleNo}`}
-                          className="max-w-full truncate rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
-                          style={courseCellSurface(course.color)}
-                        >
-                          {courseCycleLabel(course, placement.cycleNo)}
-                        </span>
-                      ))}
+                      {Array.from(
+                        assignedCourses.reduce((groups, item) => {
+                          const current = groups.get(item.course.id);
+                          if (current) current.placements.push(item.placement);
+                          else groups.set(item.course.id, { course: item.course, placements: [item.placement] });
+                          return groups;
+                        }, new Map<string, { course: Course; placements: typeof placements }>()),
+                      ).map(([, { course, placements: coursePlacements }]) => {
+                        const selectedCycleNos = [...new Set(coursePlacements.map((placement) => placement.cycleNo))];
+                        const showCycleBadges = shouldShowCycleBadgesForSelection(
+                          selectedCycleNos,
+                          activeCourseCycleNos(course),
+                        );
+                        return (
+                          <span
+                            key={course.id}
+                            className="inline-flex max-w-full min-w-0 items-center rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
+                            style={courseCellSurface(course.color)}
+                          >
+                            <span className="min-w-0 truncate">{courseShiftLabel(course)}</span>
+                            {showCycleBadges && selectedCycleNos.map((cycleNo) => cycleNo ? (
+                              <span key={cycleNo} className="ml-1 shrink-0 rounded bg-white/75 px-1 py-0.5 text-[9px] font-bold leading-none text-slate-700 shadow-sm">
+                                {courseCycleBadge(course, cycleNo)}
+                              </span>
+                            ) : null)}
+                          </span>
+                        );
+                      })}
                     </>
                   ) : (
                     <span className="text-[12px] text-slate-400">
@@ -2510,7 +2551,8 @@ export default function ShiftsPage() {
                         <tr key={course.id}>
                           <td
                             className={cn(
-                              "sticky left-0 z-10 bg-white py-2 px-3 align-middle border-r border-slate-200/95",
+                              // 車両プレートのオイル警告(z-20)より前、固定ヘッダー(z-30)より後ろに置く。
+                              "sticky left-0 z-[25] bg-white py-2 px-3 align-middle border-r border-slate-200/95",
                               !isLastCourse && "border-b-2 border-slate-300",
                             )}
                           >
@@ -2625,7 +2667,8 @@ export default function ShiftsPage() {
                       <tr key={driver.id}>
                         <td
                           className={cn(
-                            "sticky left-0 z-10 bg-white py-2 px-3 align-middle border-r border-slate-200/95",
+                            // 横スクロール時もオイル警告(z-20)をドライバー名の下へ通す。
+                            "sticky left-0 z-[25] bg-white py-2 px-3 align-middle border-r border-slate-200/95",
                             !isLastDriver && "border-b-2 border-slate-300",
                           )}
                         >
@@ -2826,30 +2869,37 @@ export default function ShiftsPage() {
                                       ))}
                                       {hasAny ? (
                                         <>
-                                          {assignedCourses.map(({ course, placements: coursePlacements }) => (
-                                            <span
-                                              key={course.id}
-                                              title={courseAbbrevTooltip(course)}
-                                              className="flex h-6 w-full min-w-0 items-center overflow-hidden rounded-[6px] px-1.5"
-                                              style={courseCellSurface(course.color)}
-                                            >
-                                              <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-slate-900">
-                                                {courseShiftLabel(course)}
-                                              </span>
-                                              {coursePlacements.map((item) =>
-                                                item.cycleNo ? (
-                                                  <span key={item.cycleNo} className="ml-1 shrink-0 rounded bg-white/75 px-1 py-0.5 text-[9px] font-bold leading-none text-slate-700 shadow-sm">
-                                                    {courseCycleBadge(course, item.cycleNo)}
-                                                  </span>
-                                                ) : null,
-                                              )}
-                                              {slotLabelById(course.slot_id) && (
-                                                <span className="ml-1 shrink-0 text-[9px] font-medium leading-tight text-slate-600">
-                                                  {slotLabelById(course.slot_id)}
+                                          {assignedCourses.map(({ course, placements: coursePlacements }) => {
+                                            const selectedCycleNos = [...new Set(coursePlacements.map((item) => item.cycleNo))];
+                                            const showCycleBadges = shouldShowCycleBadgesForSelection(
+                                              selectedCycleNos,
+                                              activeCourseCycleNos(course),
+                                            );
+                                            return (
+                                              <span
+                                                key={course.id}
+                                                title={courseAbbrevTooltip(course)}
+                                                className="flex h-6 w-full min-w-0 items-center overflow-hidden rounded-[6px] px-1.5"
+                                                style={courseCellSurface(course.color)}
+                                              >
+                                                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-slate-900">
+                                                  {courseShiftLabel(course)}
                                                 </span>
-                                              )}
-                                            </span>
-                                          ))}
+                                                {showCycleBadges && selectedCycleNos.map((cycleNo) =>
+                                                  cycleNo ? (
+                                                    <span key={cycleNo} className="ml-1 shrink-0 rounded bg-white/75 px-1 py-0.5 text-[9px] font-bold leading-none text-slate-700 shadow-sm">
+                                                      {courseCycleBadge(course, cycleNo)}
+                                                    </span>
+                                                  ) : null,
+                                                )}
+                                                {slotLabelById(course.slot_id) && (
+                                                  <span className="ml-1 shrink-0 text-[9px] font-medium leading-tight text-slate-600">
+                                                    {slotLabelById(course.slot_id)}
+                                                  </span>
+                                                )}
+                                              </span>
+                                            );
+                                          })}
                                           {density === "detail" &&
                                             (() => {
                                               // 実効集合時刻（シフト上書き ?? コース標準）をコース順に併記

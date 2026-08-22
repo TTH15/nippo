@@ -5,6 +5,7 @@ import {
   nextCycleNo,
   resolveCourseTimes,
   shouldShowCycleBadge,
+  shouldShowCycleBadgesForSelection,
   type CourseCycle,
 } from "./courseCycle";
 
@@ -65,6 +66,28 @@ describe("badgeForShift", () => {
 
   it("マスタから消えた便番号でも番号だけは出す（黙って隠さない）", () => {
     expect(badgeForShift(3, two)).toBe("3便");
+  });
+});
+
+describe("shouldShowCycleBadgesForSelection", () => {
+  it("全サイクルが選ばれている場合はバッジを出さない", () => {
+    expect(shouldShowCycleBadgesForSelection([1, 2], [1, 2])).toBe(false);
+    expect(shouldShowCycleBadgesForSelection([2, 1, 1], [1, 2])).toBe(false);
+  });
+
+  it("一部のサイクルだけなら識別バッジを出す", () => {
+    expect(shouldShowCycleBadgesForSelection([1], [1, 2])).toBe(true);
+    expect(shouldShowCycleBadgesForSelection([2], [1, 2])).toBe(true);
+  });
+
+  it("単一サイクルをすべて選んだ場合とサイクル未使用では出さない", () => {
+    expect(shouldShowCycleBadgesForSelection([1], [1])).toBe(false);
+    expect(shouldShowCycleBadgesForSelection([0], [1, 2])).toBe(false);
+  });
+
+  it("マスター外のサイクルは隠さない", () => {
+    expect(shouldShowCycleBadgesForSelection([1, 3], [1, 2])).toBe(true);
+    expect(shouldShowCycleBadgesForSelection([3], [])).toBe(true);
   });
 });
 

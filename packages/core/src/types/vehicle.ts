@@ -15,6 +15,9 @@ export type VehiclePlateData = {
   plate_color?: PlateColor | string | null;
   manufacturer?: string | null;
   brand?: string | null;
+  /** 故障・整備待ち等による一時的な利用停止。廃車とは別に扱う。 */
+  is_unavailable?: boolean | null;
+  unavailable_reason?: string | null;
   /** プレート上の整備警告表示に使う任意情報。取得しない画面は従来どおり表示のみ。 */
   current_mileage?: number | null;
   is_ev?: boolean | null;

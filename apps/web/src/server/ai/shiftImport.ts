@@ -2,10 +2,14 @@
 // 取引先ごとに形式がバラバラ（行=人/行=日付、〇/休、色付き略号、分割スクショ等）なため、
 // 固定パーサーではなく Claude の vision + structured outputs で「人 × 日 × セル文字」を抽出する。
 // マージ・ドライバー/コースへの対応付けはサーバー側で行い、最終確定は管理者がプレビューで行う。
+import { createHash } from "node:crypto";
 import { getAnthropic } from "./client";
 
 // コスト優先の既定（ユーザー方針）。精度検証時は env で claude-opus-5 等に切替可能。
 const MODEL = process.env.HAKOTORA_AI_MODEL || "claude-sonnet-5";
+// 一度確定した表形式は、構造ヒントを渡して軽量モデルで先に読む。
+// 精度検算に失敗した場合は MODEL へ自動フォールバックするため、安全側を維持できる。
+const FAST_MODEL = process.env.HAKOTORA_AI_FAST_MODEL || "claude-haiku-4-5";
 // 思考の深さ。表の読み取りは知覚・転記タスクで深い推論は不要なため low を既定にする
 // （未指定だと high 相当で待ち時間が数倍になる。合成シフト表での検証は low/medium とも全セル正解、
 //   high は3倍遅くて精度向上なし＝bench-shift-import.ts 参照。実ファイルで精度が落ちる場合は
@@ -22,7 +26,12 @@ export type ExtractedPerson = { name: string; days: ExtractedDay[]; total: numbe
 /** 資料内の「日別の人数集計」（例: 豊中人数）。抽出結果の検算に使う */
 export type ExtractedDayTotal = { day: number; label: string; count: number };
 /** ラベル→コースの AI 推定。「〇」のようにファイル名・表タイトルからしか判断できない表記のため */
-export type ExtractedLabelGuess = { label: string; courseName: string | null };
+export type ExtractedLabelGuess = {
+  label: string;
+  courseName: string | null;
+  /** C1/C2など、表記から特定できた便。全便・不明は null。 */
+  cycleNo: number | null;
+};
 export type ExtractedFileResult = {
   sourceName: string;
   title: string;
@@ -33,10 +42,18 @@ export type ExtractedFileResult = {
   people: ExtractedPerson[];
   dayTotals: ExtractedDayTotal[];
   labelGuesses: ExtractedLabelGuess[];
+  /** 翌月以降に再利用できる、氏名や日別内容を含まない表構造の説明。 */
+  formatProfile: string;
   warnings: string[];
 };
 
-export type CourseRef = { id: string; name: string; summary_title?: string | null };
+export type CourseRef = {
+  id: string;
+  name: string;
+  summary_title?: string | null;
+  uses_cycles?: boolean | null;
+  course_cycles?: { cycle_no: number; label?: string | null; active?: boolean | null }[] | null;
+};
 
 /**
  * AI 出力の「日:内容」文字列を分解する（出力トークン削減のための圧縮表現）。
@@ -143,16 +160,25 @@ const OUTPUT_SCHEMA = {
             anyOf: [{ type: "string" }, { type: "null" }],
             description: "対応しそうな登録済みコースの name（一覧の表記そのまま）。確信が無ければ null",
           },
+          cycleNo: {
+            anyOf: [{ type: "integer" }, { type: "null" }],
+            description: "C1/C2・1便/2便などで特定できる便番号。不明・全便は null",
+          },
         },
-        required: ["label", "courseName"],
+        required: ["label", "courseName", "cycleNo"],
         additionalProperties: false,
       },
       description:
         "この表に出てくる勤務ラベル（休み以外）それぞれについて、登録済みコース一覧のどれに対応しそうかの推定。ファイル名・表のタイトル・拠点名を手掛かりにする（例: 枚方ミッドナイトの表の「〇」→ ミッドナイト系コース）",
     },
+    formatProfile: {
+      type: "string",
+      description:
+        "次回同じ帳票形式を読むための短い構造説明。氏名・具体的な日別勤務内容は含めず、行列の向き、日付見出し、氏名列、集計欄、セル表記規則だけを書く",
+    },
     warnings: { type: "array", items: { type: "string" } },
   },
-  required: ["title", "period", "weekdays", "people", "dayTotals", "labelGuesses", "warnings"],
+  required: ["title", "period", "weekdays", "people", "dayTotals", "labelGuesses", "formatProfile", "warnings"],
   additionalProperties: false,
 } as const;
 
@@ -163,14 +189,27 @@ function buildPrompt(
   month: number,
   fileName: string,
   courses: CourseRef[],
+  knownFormatProfile?: string | null,
 ): string {
   const courseList = courses
-    .map((c) => (c.summary_title?.trim() ? `${c.name}（略記: ${c.summary_title.trim()}）` : c.name))
+    .map((c) => {
+      const base = c.summary_title?.trim() ? `${c.name}（略記: ${c.summary_title.trim()}）` : c.name;
+      const cycles = c.uses_cycles
+        ? (c.course_cycles ?? [])
+            .filter((cycle) => cycle.active !== false)
+            .map((cycle) => cycle.label?.trim() || `C${cycle.cycle_no}`)
+            .join("・")
+        : "";
+      return cycles ? `${base}［便: ${cycles}］` : base;
+    })
     .join(" / ");
   return [
     `これは配送ドライバーのシフト表です（ファイル名: ${fileName}）。取り込み先は ${year}年${month}月 です。表を読み取り、全員分の「氏名 × 日 × セルの内容」を抽出してください。`,
     "",
     `登録済みコース一覧: ${courseList || "（なし）"}`,
+    knownFormatProfile
+      ? `前回確定した同形式の構造: ${knownFormatProfile}\nこの構造を優先して読み、実際の表と違う場合だけ現物を正としてください。`
+      : "",
     "",
     "ルール:",
     `- まず表・ファイル名に書かれている年月を period に、曜日の行があれば weekdays に入れる。`,
@@ -183,7 +222,9 @@ function buildPrompt(
     "- 画像がスプレッドシートのスクリーンショットの一部（列が途中で切れている等）の場合は、写っている範囲だけを抽出する。",
     "- people には集計行（人数・合計・必要人数など）や氏名でない行を含めない。",
     "- 表に「出勤日数」のような人別合計列があれば total に、「◯◯人数」のような日別の実割当人数の集計行があれば dayTotals に入れる（検算に使う。必要人数・予定数は対象外）。",
-    "- 勤務ラベル（休み以外）ごとに、登録済みコース一覧のどれに対応しそうかを labelGuesses に入れる。「〇」のような記号だけのラベルも、ファイル名や表のタイトル・拠点名から対応コースを推定する（例: ミッドナイトのシフト表の「〇」→ ミッドナイト系コース）。courseName は一覧の name をそのまま書く。対応しそうなコースが無ければ null。",
+    "- 勤務ラベル（休み以外）ごとに、登録済みコース一覧のどれに対応しそうかを labelGuesses に入れる。「〇」のような記号だけのラベルも、ファイル名や表のタイトル・拠点名から対応コースを推定する。courseName は一覧の name をそのまま書く。対応しそうなコースが無ければ null。",
+    "- ラベルに C1/C2、1便/2便などがあれば cycleNo に便番号を入れる。コースだけで便が特定できない場合や全便なら null。",
+    "- formatProfile には、翌月に同じ形式を読むための表構造だけを簡潔に記述する。氏名・具体的な日別割当・個人情報は絶対に含めない。",
     "- 判読が難しいセル・自信がない箇所は warnings に日本語で残す。",
   ].join("\n");
 }
@@ -193,6 +234,7 @@ export async function extractShiftFile(
   file: ImportFile,
   ym: { year: number; month: number },
   courses: CourseRef[],
+  options?: { knownFormatProfile?: string | null; fast?: boolean },
 ): Promise<ExtractedFileResult> {
   const client = getAnthropic();
   const data = Buffer.from(file.bytes).toString("base64");
@@ -214,8 +256,8 @@ export async function extractShiftFile(
         };
 
   const stream = client.messages.stream({
-    model: MODEL,
-    max_tokens: 64000,
+    model: options?.fast ? FAST_MODEL : MODEL,
+    max_tokens: options?.fast ? 32000 : 64000,
     output_config: {
       effort: EFFORT,
       format: { type: "json_schema", schema: OUTPUT_SCHEMA as unknown as Record<string, unknown> },
@@ -223,7 +265,13 @@ export async function extractShiftFile(
     messages: [
       {
         role: "user",
-        content: [mediaBlock, { type: "text", text: buildPrompt(ym.year, ym.month, file.name, courses) }],
+        content: [
+          mediaBlock,
+          {
+            type: "text",
+            text: buildPrompt(ym.year, ym.month, file.name, courses, options?.knownFormatProfile),
+          },
+        ],
       },
     ],
   });
@@ -291,6 +339,41 @@ export async function extractShiftFile(
   }
 
   return { ...parsed, sourceName: file.name };
+}
+
+/**
+ * 月・日付部分を除いたファイル名の系統から、同じ帳票形式を引くためのキーを作る。
+ * 「2026年8月 豊中シフト.pdf」→ 翌月の同系列へ一致する。名前が汎用的すぎる場合は学習しない。
+ */
+export function shiftImportFormatKey(fileName: string, mime: string): string | null {
+  const stem = fileName
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\.(pdf|jpe?g|png|webp|gif)$/i, "")
+    .replace(/20\d{2}\s*[年._\-/]?\s*\d{1,2}\s*月?/g, "")
+    .replace(/\d{1,2}\s*月/g, "")
+    .replace(/(?:前半|後半|上期|下期)/g, "")
+    .replace(/\d+/g, "")
+    .replace(/[\s　._\-/()[\]（）]+/g, "");
+  if (stem.length < 3) return null;
+  // ファイル名に氏名などが含まれていても、新設テーブルへそのまま残さない。
+  const digest = createHash("sha256").update(stem).digest("hex");
+  return `${mime}:${digest}`;
+}
+
+/** 高速モデルの結果を通常モデルへフォールバックさせる最低限の検算。 */
+export function isReliableFastExtraction(result: ExtractedFileResult): boolean {
+  if (result.people.length === 0) return false;
+  const withDays = result.people.filter((person) => person.days.some((day) => day.label.trim() !== ""));
+  if (withDays.length === 0) return false;
+  const peopleWithTotal = result.people.filter((person) => person.total !== null);
+  if (peopleWithTotal.length >= 2) {
+    const matched = peopleWithTotal.filter(
+      (person) => person.days.filter((day) => !isOffLabel(day.label)).length === person.total,
+    ).length;
+    if (matched / peopleWithTotal.length < 0.7) return false;
+  }
+  return true;
 }
 
 // ---- マージ・対応付け（AI を使わない決定的処理） ----
@@ -462,4 +545,17 @@ export function suggestCourseId(
     return names.some((n) => n === raw || n.includes(raw) || raw.includes(n));
   });
   return candidates.length === 1 ? candidates[0].id : null;
+}
+
+/** C1 / C2 / 1便 / 2便などの表記を、対象コースの有効な便番号へ解決する。 */
+export function suggestCycleNo(label: string, course: CourseRef | null | undefined): number {
+  if (!course?.uses_cycles) return 0;
+  const normalized = label.normalize("NFKC");
+  const match = normalized.match(/(?:^|[^A-Z0-9])C\s*(\d+)(?:$|[^0-9])/i) ?? normalized.match(/(\d+)\s*便/);
+  if (!match) return 0;
+  const cycleNo = Number(match[1]);
+  const active = (course.course_cycles ?? []).some(
+    (cycle) => cycle.active !== false && cycle.cycle_no === cycleNo,
+  );
+  return active ? cycleNo : 0;
 }
