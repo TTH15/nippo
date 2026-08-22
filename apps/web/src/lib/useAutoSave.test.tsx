@@ -92,11 +92,55 @@ describe("useAutoSave", () => {
 
     rerender({ v: { name: "確定したい" } });
     await act(async () => {
-      result.current.flush();
-      await Promise.resolve();
+      expect(await result.current.flush()).toBe(true);
     });
 
     expect(onSave).toHaveBeenCalledWith({ name: "確定したい" });
+  });
+
+  it("flush() は実行中の保存完了を待って結果を返す", async () => {
+    let resolveSave: (() => void) | null = null;
+    const onSave = vi.fn(() => new Promise<void>((resolve) => { resolveSave = resolve; }));
+    const { result, rerender } = renderHook(({ v }) => useAutoSave({ value: v, onSave }), {
+      initialProps: { v: { name: "初期" } },
+    });
+
+    rerender({ v: { name: "保存待ち" } });
+    let settled = false;
+    let flushPromise: Promise<boolean> | null = null;
+    await act(async () => {
+      flushPromise = result.current.flush().then((value) => {
+        settled = true;
+        return value;
+      });
+      await Promise.resolve();
+    });
+    expect(settled).toBe(false);
+
+    await act(async () => {
+      resolveSave?.();
+      expect(await flushPromise).toBe(true);
+    });
+    expect(settled).toBe(true);
+  });
+
+  it("失敗後の flush() は同じ値を再送する", async () => {
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new Error("保存失敗"))
+      .mockResolvedValue(undefined);
+    const { result, rerender } = renderHook(({ v }) => useAutoSave({ value: v, onSave }), {
+      initialProps: { v: { name: "初期" } },
+    });
+
+    rerender({ v: { name: "再送対象" } });
+    await act(async () => {
+      expect(await result.current.flush()).toBe(false);
+    });
+    await act(async () => {
+      expect(await result.current.flush()).toBe(true);
+    });
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSave).toHaveBeenLastCalledWith({ name: "再送対象" });
   });
 
   it("enabled が false の間は保存しない", async () => {

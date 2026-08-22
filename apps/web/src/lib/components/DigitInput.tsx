@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { normalizeDigitText } from "@/lib/numericInput";
 
-export function DigitInput({ value, onValueChange, allowEmpty = false, readOnly = false, disabled = false, placeholder, className, ariaLabel }: {
+export function DigitInput({ value, onValueChange, allowEmpty = false, readOnly = false, disabled = false, placeholder, className, ariaLabel, id, ariaInvalid, ariaDescribedBy }: {
   value: number | null;
   onValueChange?: (value: number | null) => void;
   allowEmpty?: boolean;
@@ -12,6 +12,9 @@ export function DigitInput({ value, onValueChange, allowEmpty = false, readOnly 
   placeholder?: string;
   className: string;
   ariaLabel?: string;
+  id?: string;
+  ariaInvalid?: boolean;
+  ariaDescribedBy?: string;
 }) {
   // IME変換中は全角数字をそのまま保持し、確定時にだけ半角へ正規化する。
   // ローカル文字列を持つことで、必須項目の全消去時に0が即座に戻る問題も避ける。
@@ -34,6 +37,7 @@ export function DigitInput({ value, onValueChange, allowEmpty = false, readOnly 
 
   return (
     <input
+      id={id}
       type="text"
       inputMode="numeric"
       pattern="[0-9０-９]*"
@@ -42,6 +46,8 @@ export function DigitInput({ value, onValueChange, allowEmpty = false, readOnly 
       disabled={disabled}
       placeholder={placeholder}
       aria-label={ariaLabel}
+      aria-invalid={ariaInvalid || undefined}
+      aria-describedby={ariaDescribedBy}
       onCompositionStart={readOnly ? undefined : () => { composingRef.current = true; }}
       onCompositionEnd={readOnly ? undefined : (event) => {
         composingRef.current = false;

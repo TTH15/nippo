@@ -1,7 +1,7 @@
 "use client";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowLeft, faBox, faCircleInfo, faCoins, faRoute } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft, faBox, faCoins, faGear } from "@fortawesome/free-solid-svg-icons";
 import Link from "next/link";
 import { CourseRateEditor, type CourseRatePreviewData } from "@/lib/components/CourseRateEditor";
 
@@ -52,16 +52,14 @@ export default function CourseRatePreviewPage() {
         </header>
 
         <nav className="flex gap-1 border-b border-slate-200 px-4 sm:px-8" aria-label="コース編集タブ">
-          {([
-            ["基本情報", faCircleInfo],
-            ["運行設定", faRoute],
-            ["単価設定", faCoins],
-          ] as const).map(([label, icon]) => (
-            <button key={label} type="button" disabled={label !== "単価設定"}
-              className={`inline-flex items-center gap-2 border-b-2 px-3 py-3 text-sm font-medium ${label === "単価設定" ? "border-amber-500 text-amber-700" : "border-transparent text-slate-400"}`}>
-              <FontAwesomeIcon icon={icon} className="h-3.5 w-3.5" />{label}
-            </button>
-          ))}
+          <Link href="/preview/course-settings"
+            className="inline-flex items-center gap-2 border-b-2 border-transparent px-3 py-3 text-sm font-medium text-slate-500 transition-colors hover:text-slate-700">
+            <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />コース設定
+          </Link>
+          <button type="button" aria-current="page"
+            className="inline-flex items-center gap-2 border-b-2 border-amber-500 px-3 py-3 text-sm font-medium text-amber-700">
+            <FontAwesomeIcon icon={faCoins} className="h-3.5 w-3.5" />単価設定
+          </button>
         </nav>
 
         <div className="px-5 py-7 sm:px-10 lg:px-16">

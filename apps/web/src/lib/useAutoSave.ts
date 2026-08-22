@@ -44,7 +44,7 @@ export type UseAutoSave = {
   status: AutoSaveStatus;
   error: Error | null;
   /** 保留中の保存を今すぐ実行する（モーダルを閉じるとき等）。何も無ければ何もしない */
-  flush: () => void;
+  flush: () => Promise<boolean>;
   /** 保留中の保存があるか（「保存中…」表示や離脱確認に使う） */
   hasPending: boolean;
 };
@@ -66,6 +66,8 @@ export function useAutoSave<T>({
   const latest = useRef(value);
   const lastSerialized = useRef<string | null>(null);
   const savingRef = useRef(false);
+  const activeRunRef = useRef<Promise<boolean> | null>(null);
+  const lastRunSucceededRef = useRef(true);
   /** 保存中に来た変更。完了後にもう一度保存する */
   const dirtyWhileSaving = useRef(false);
   // 最新の onSave を参照する（依存に入れると毎レンダー再スケジュールされてしまう）
@@ -74,36 +76,53 @@ export function useAutoSave<T>({
 
 
 
-  const run = useCallback(async () => {
+  const run = useCallback((): Promise<boolean> => {
     if (savingRef.current) {
       // 実行中なら、終わったあとにもう一度走らせる（最後の入力を落とさない）
       dirtyWhileSaving.current = true;
-      return;
+      return activeRunRef.current ?? Promise.resolve(true);
     }
-    savingRef.current = true;
-    setStatus("saving");
-    setHasPending(false);
-    try {
-      await onSaveRef.current(latest.current);
-      setError(null);
-      setStatus("saved");
-    } catch (e) {
-      setError(e instanceof Error ? e : new Error(String(e)));
-      setStatus("error");
-    } finally {
-      savingRef.current = false;
-      if (dirtyWhileSaving.current) {
+    const execute = async () => {
+      let succeeded = true;
+      do {
         dirtyWhileSaving.current = false;
-        void run();
-      }
-    }
+        savingRef.current = true;
+        setStatus("saving");
+        setHasPending(false);
+        try {
+          await onSaveRef.current(latest.current);
+          setError(null);
+          setStatus("saved");
+          succeeded = true;
+        } catch (e) {
+          setError(e instanceof Error ? e : new Error(String(e)));
+          setStatus("error");
+          succeeded = false;
+        } finally {
+          savingRef.current = false;
+        }
+      } while (dirtyWhileSaving.current);
+      lastRunSucceededRef.current = succeeded;
+      return succeeded;
+    };
+    const promise = execute();
+    activeRunRef.current = promise;
+    void promise.finally(() => {
+      if (activeRunRef.current === promise) activeRunRef.current = null;
+    });
+    return promise;
   }, []);
 
   const flush = useCallback(() => {
-    if (!timer.current) return;
-    clearTimeout(timer.current);
-    timer.current = null;
-    void run();
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+      return run();
+    }
+    if (activeRunRef.current) return activeRunRef.current;
+    // 直前の保存が失敗している場合は、閉じる操作を再試行として扱う。
+    if (!lastRunSucceededRef.current) return run();
+    return Promise.resolve(true);
   }, [run]);
 
   // 編集対象の切り替え。**値の effect より前に宣言する**こと（宣言順に実行されるため、

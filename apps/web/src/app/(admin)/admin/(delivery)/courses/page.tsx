@@ -11,9 +11,10 @@ import {
   faCat,
   faTruck,
   faCheck,
-  faCircleInfo,
-  faRoute,
   faCoins,
+  faGear,
+  faPalette,
+  faCircleExclamation,
 } from "@fortawesome/free-solid-svg-icons";
 import { faAmazon } from "@fortawesome/free-brands-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
@@ -31,7 +32,7 @@ import { getDisplayName } from "@/lib/displayName";
 import { hasCapability } from "@/lib/capabilities";
 import { slotDisplayLabel } from "@/lib/timeSlot";
 import { Button } from "@/lib/ui/button";
-import { TimePicker } from "@/lib/ui/time-picker";
+import { DigitInput } from "@/lib/components/DigitInput";
 import { cycleLabel } from "@repo/core/logic/courseCycle";
 import {
   CourseCyclesEditor,
@@ -39,6 +40,12 @@ import {
   toCyclePayload,
   type CycleDraft,
 } from "./CourseCyclesEditor";
+import { CourseFlowConnector } from "./CourseFlowConnector";
+import { CourseTimeField } from "./CourseTimeField";
+import {
+  validateCourseSettings,
+  type CourseSettingsValidationField,
+} from "./courseSettingsValidation";
 
 type CourseCarrier = "YAMATO" | "AMAZON" | "OTHER";
 type CourseCycleRow = {
@@ -120,10 +127,8 @@ function slotOptionLabel(s: TimeSlot): string {
 }
 
 const COLORS = [
-  "#3b82f6", "#2563eb", "#0ea5e9", "#06b6d4", "#14b8a6",
-  "#22c55e", "#84cc16", "#eab308", "#f59e0b", "#f97316",
-  "#ef4444", "#dc2626", "#ec4899", "#d946ef", "#8b5cf6",
-  "#6366f1", "#4f46e5", "#64748b", "#475569", "#334155",
+  "#2563eb", "#0891b2", "#0f766e", "#16a34a", "#84cc16",
+  "#ca8a04", "#ea580c", "#dc2626", "#db2777", "#7c3aed",
 ];
 
 type CourseFormState = {
@@ -181,11 +186,16 @@ export default function CoursesPage() {
   const [editUsesCycles, setEditUsesCycles] = useState(false);
   const [editCycles, setEditCycles] = useState<CycleDraft[]>([]);
   const [editBillingRevision, setEditBillingRevision] = useState(0);
-  const [editModalTab, setEditModalTab] = useState<"basic" | "operation" | "pricing">("basic");
+  const [editModalTab, setEditModalTab] = useState<"settings" | "pricing">("settings");
+  const [editColorOpen, setEditColorOpen] = useState(false);
+  const [editValidationVisible, setEditValidationVisible] = useState(false);
+  const basicSectionRef = useRef<HTMLElement>(null);
+  const operationSectionRef = useRef<HTMLElement>(null);
   const [showArchivedCourses, setShowArchivedCourses] = useState(false);
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [closingEditModal, setClosingEditModal] = useState(false);
   const [confirmState, setConfirmState] = useState<{
     message: string;
     onConfirm: () => void;
@@ -199,6 +209,19 @@ export default function CoursesPage() {
   const [reordering, setReordering] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const editSettingsErrors = useMemo(
+    () => validateCourseSettings({
+      name: editForm.name,
+      maxDrivers: editForm.max_drivers,
+      usesCycles: editUsesCycles,
+      cycleCount: editCycles.length,
+    }),
+    [editForm.name, editForm.max_drivers, editUsesCycles, editCycles.length],
+  );
+  const editSettingsValid = editSettingsErrors.length === 0;
+  const editErrorFor = (field: CourseSettingsValidationField) =>
+    editValidationVisible ? editSettingsErrors.find((error) => error.field === field) : undefined;
 
   // キャリア別にコースをグルーピング（カラム=キャリアマスタ順、未設定は末尾）
   const carrierGroups = useMemo(() => {
@@ -357,8 +380,8 @@ export default function CoursesPage() {
   // 「保存を押し忘れて閉じた」で消えることはない（2026-08-06 全画面展開）。
   const persistRef = useRef<(() => Promise<void>) | null>(null);
   const { status: autoSave, flush: flushAutoSave } = useAutoSave({
-    value: { editForm, editBillingRevision },
-    enabled: showEditModal && !!editingCourse && canWrite && !!editForm.name.trim(),
+    value: { editForm, editUsesCycles, editCycles, editBillingRevision },
+    enabled: showEditModal && !!editingCourse && canWrite && editSettingsValid,
     resetKey: editingCourse?.id ?? null,
     onSave: async () => {
       await persistRef.current?.();
@@ -368,8 +391,9 @@ export default function CoursesPage() {
   // 差分PUT の基準値（モーダルを開いた時点/最後に保存した時点のフォーム値）。
   // users/page.tsx と同型（P1）。変わった項目だけをサーバーへ送る。
   const baselineFormRef = useRef<CourseFormState | null>(null);
-  // 二重保存ガード（P3）: closeEditModal が flushAutoSave 直後に persist を再実行しても
-  // 同一PUT×2 が並走しない。SWR→state 同期・遅延 refetch も実行中はスキップ/延期する。
+  const baselineOperationRef = useRef("");
+  // 二重保存ガード（P3）: 自動保存の再実行や遅延refetchが重なっても、
+  // 同一PUTを並走させず、サーバー状態で楽観反映を巻き戻さない。
   const saveInflightRef = useRef(0);
   const bundleRefreshTimer = useRef<number | null>(null);
   const scheduleBundleRefresh = useCallback(() => {
@@ -516,10 +540,18 @@ export default function CoursesPage() {
     };
     setEditForm(form);
     setEditUsesCycles(Boolean(course.uses_cycles));
-    setEditCycles(toCycleDrafts(course.course_cycles ?? []));
+    const cycleDrafts = toCycleDrafts(course.course_cycles ?? []);
+    setEditCycles(cycleDrafts);
     setEditBillingRevision(0);
-    setEditModalTab("basic");
+    setEditModalTab("settings");
+    setEditColorOpen(false);
+    setEditValidationVisible(false);
+    setClosingEditModal(false);
     baselineFormRef.current = { ...form };
+    baselineOperationRef.current = JSON.stringify({
+      usesCycles: Boolean(course.uses_cycles),
+      cycles: Boolean(course.uses_cycles) ? toCyclePayload(cycleDrafts) : [],
+    });
     setShowEditModal(true);
   };
 
@@ -530,8 +562,7 @@ export default function CoursesPage() {
   const persistCourseEdit = async () => {
     if (!canWrite || !editingCourse) return;
     if (!editForm.name.trim()) return;
-    // 二重保存ガード: flushAutoSave が発火させた保存の実行中に closeEditModal から
-    // 再度呼ばれても、同一内容のPUTを並走させない（P3）
+    // 二重保存ガード: 同一内容のPUTを並走させない（P3）
     if (saveInflightRef.current > 0) return;
     saveInflightRef.current += 1;
     setSaving(true);
@@ -571,19 +602,23 @@ export default function CoursesPage() {
       }
       const billingSave = billingRef.current?.save();
       if (billingSave) jobs.push(billingSave);
-      // 便は別テーブル（course_cycles）なので専用エンドポイントへ。
-      // サイクル未使用なら空配列を送って、既存の便があれば消す
-      jobs.push(
-        apiFetch(`/api/admin/courses/${editingCourse.id}/cycles`, {
-          method: "PUT",
-          body: JSON.stringify({
-            usesCycles: editUsesCycles,
-            cycles: editUsesCycles ? toCyclePayload(editCycles) : [],
+      // 便は別テーブルなので、基本情報だけの変更では書き直さない。
+      const operationPayload = {
+        usesCycles: editUsesCycles,
+        cycles: editUsesCycles ? toCyclePayload(editCycles) : [],
+      };
+      const operationSnapshot = JSON.stringify(operationPayload);
+      if (baselineOperationRef.current !== operationSnapshot) {
+        jobs.push(
+          apiFetch(`/api/admin/courses/${editingCourse.id}/cycles`, {
+            method: "PUT",
+            body: operationSnapshot,
           }),
-        }),
-      );
+        );
+      }
       await Promise.all(jobs);
       baselineFormRef.current = { ...editForm };
+      baselineOperationRef.current = operationSnapshot;
       const updatedCourse: Course = {
         ...editingCourse,
         name: editForm.name.trim(),
@@ -600,6 +635,22 @@ export default function CoursesPage() {
         meeting_time: editForm.meeting_time || null,
         arrival_time: editForm.arrival_time || null,
         end_time: editForm.end_time || null,
+        uses_cycles: editUsesCycles,
+        course_cycles: editUsesCycles
+          ? editCycles.map((cycle) => {
+            const existing = editingCourse.course_cycles?.find((row) => row.cycle_no === cycle.cycleNo);
+            return {
+              id: existing?.id ?? cycle.key,
+              cycle_no: cycle.cycleNo,
+              label: cycle.label,
+              meeting_place: cycle.meetingPlace,
+              meeting_time: cycle.meetingTime,
+              arrival_time: cycle.arrivalTime,
+              end_time: cycle.endTime,
+              max_drivers: cycle.maxDrivers,
+            };
+          })
+          : [],
       };
       setCourses((prev) => prev.map((c) => (c.id === editingCourse.id ? updatedCourse : c)));
       // 5APIの全再取得を毎回待たず、落ち着いてから1回だけ（P3 遅延 refetch）
@@ -615,6 +666,7 @@ export default function CoursesPage() {
           "同じエラーが続く場合は、システム管理者に連絡してください。",
         detail: reason || undefined,
       });
+      throw e;
     } finally {
       saveInflightRef.current -= 1;
       setSaving(false);
@@ -627,12 +679,34 @@ export default function CoursesPage() {
 
   persistRef.current = persistCourseEdit;
 
-  /** 編集モーダルを閉じる。単価は自動保存の監視外なので、閉じる前に必ず保存する。 */
+  const focusCourseValidationField = (field: CourseSettingsValidationField) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const container = document.querySelector<HTMLElement>(`[data-course-validation-field="${field}"]`);
+        const target = container?.querySelector<HTMLElement>("input, button");
+        container?.scrollIntoView({ behavior: "smooth", block: "center" });
+        target?.focus({ preventScroll: true });
+      });
+    });
+  };
+
+  /** 保留中・実行中の自動保存が完了してから編集モーダルを閉じる。 */
   const closeEditModal = async () => {
-    flushAutoSave();
-    await persistCourseEdit();
-    setShowEditModal(false);
-    setEditingCourse(null);
+    if (closingEditModal) return;
+    if (!editSettingsValid) {
+      setEditValidationVisible(true);
+      setEditModalTab("settings");
+      setEditColorOpen(false);
+      focusCourseValidationField(editSettingsErrors[0].field);
+      return;
+    }
+    setClosingEditModal(true);
+    const saved = await flushAutoSave();
+    if (saved) {
+      setShowEditModal(false);
+      setEditingCourse(null);
+    }
+    setClosingEditModal(false);
   };
 
   const deleteCourse = async (courseId: string, name: string) => {
@@ -1108,158 +1182,191 @@ export default function CoursesPage() {
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
           onClick={() => void closeEditModal()}
         >
-          <div className="flex h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg bg-white p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+          <div className="flex h-[92vh] w-full max-w-[1540px] flex-col overflow-hidden rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex shrink-0 items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
                 <FontAwesomeIcon icon={carrierIcon(carriers.find((carrier) => carrier.id === editForm.carrierId)?.code ?? null)} className="h-5 w-5" />
               </div>
               <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: editForm.color }} />
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1" data-course-validation-field="name">
                 <input
+                  id="edit-course-name"
                   type="text"
                   value={editForm.name}
                   onChange={(event) => setEditForm((form) => ({ ...form, name: event.target.value }))}
                   placeholder="コース名"
                   aria-label="コース名"
-                  className="w-full max-w-2xl rounded-md border border-transparent bg-transparent px-1 py-0.5 text-lg font-semibold text-slate-900 outline-none transition-colors hover:border-slate-200 focus:border-amber-400 focus:bg-amber-50/40"
+                  aria-invalid={Boolean(editErrorFor("name")) || undefined}
+                  aria-describedby={editErrorFor("name") ? "edit-course-name-error" : undefined}
+                  className={`w-full max-w-2xl rounded-md border bg-transparent px-1 py-0.5 text-lg font-semibold text-slate-900 outline-none transition-colors ${editErrorFor("name") ? "border-red-400 bg-red-50/60 focus:border-red-500 focus:ring-2 focus:ring-red-100" : "border-transparent hover:border-slate-200 focus:border-amber-400 focus:bg-amber-50/40"}`}
                 />
                 <div className="text-xs text-slate-500">{carriers.find((carrier) => carrier.id === editForm.carrierId)?.name ?? "キャリア未設定"}</div>
+                {editErrorFor("name") && <p id="edit-course-name-error" className="mt-1 text-xs font-medium text-red-600">{editErrorFor("name")?.message}</p>}
               </div>
             </div>
             <div className="mb-4 flex shrink-0 gap-1 border-b border-slate-200">
               {([
-                ["basic", "基本情報", faCircleInfo],
-                ["operation", "運行設定", faRoute],
+                ["settings", "コース設定", faGear],
                 ["pricing", "単価設定", faCoins],
               ] as const).map(([key, label, icon]) => (
                 <button key={key} type="button" onClick={() => setEditModalTab(key)}
                   className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${editModalTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
                   <FontAwesomeIcon icon={icon} className="h-3.5 w-3.5" />
                   {label}
+                  {key === "settings" && editValidationVisible && editSettingsErrors.length > 0 && (
+                    <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                      {editSettingsErrors.length}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-y-4">
-              {/* 列1: 基本情報＋請求関連・人数・色 */}
-              <div className={editModalTab === "basic" ? "grid grid-cols-1 gap-4 md:grid-cols-12" : "space-y-4"}>
-                {editModalTab === "basic" && <div className="order-1 md:col-span-6">
-                  <label className="block text-sm font-medium text-slate-600 mb-1">キャリア</label>
-                  <CustomSelect
-                    options={carriers.map((c) => ({ value: c.id, label: c.name }))}
-                    value={editForm.carrierId}
-                    onChange={(v) => setEditForm((f) => ({ ...f, carrierId: v }))}
-                    clearable={false}
-                    size="md"
-                  />
-                </div>}
-                {/* 時間に関する設定を1箇所に集約。
-                    「時間帯」= 分類（午前/午後）、「サイクル」= 1便/2便 の運用単位。役割は別物 */}
-                {editModalTab === "operation" && <div className="max-w-3xl">
-                  <CourseCyclesEditor
-                    usesCycles={editUsesCycles}
-                    cycles={editCycles}
-                    disabled={!canWrite}
-                    onUsesCyclesChange={setEditUsesCycles}
-                    onCyclesChange={setEditCycles}
-                    courseTimes={
+            <div className="mx-auto w-full max-w-[1440px]">
+              {editModalTab === "settings" && (
+                <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(330px,0.78fr)_72px_minmax(650px,1.42fr)] xl:gap-x-0 xl:gap-y-5">
+                  {editValidationVisible && editSettingsErrors.length > 0 && (
+                    <div role="alert" className="col-span-full flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-800">
+                      <FontAwesomeIcon icon={faCircleExclamation} className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold">保存する前にコース設定を確認してください</p>
+                        <ul className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                          {editSettingsErrors.map((error) => (
+                            <li key={error.field}>
+                              <button type="button" onClick={() => focusCourseValidationField(error.field)} className="text-left font-medium underline decoration-red-300 underline-offset-2 hover:text-red-950 focus:outline-none focus:ring-2 focus:ring-red-300">
+                                {error.message}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+                  <section ref={basicSectionRef} className="rounded-2xl border border-slate-200 bg-slate-50/45 p-5 sm:p-6" aria-labelledby="course-basic-heading">
+                    <div className="mb-5 flex items-start justify-between gap-4">
                       <div>
-                        <div className="grid grid-cols-3 gap-2">
-                          {([
-                            ["meeting_time", "集合"],
-                            ["arrival_time", "開始"],
-                            ["end_time", "終了目安"],
-                          ] as const).map(([key, label]) => (
+                        <h2 id="course-basic-heading" className="text-base font-bold text-slate-900">基本情報</h2>
+                        <p className="mt-1 text-xs text-slate-400">すべての運行サイクルに共通</p>
+                      </div>
+                      <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold tracking-wide text-slate-500">コース共通</span>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-slate-500">キャリア</label>
+                        <CustomSelect options={carriers.map((c) => ({ value: c.id, label: c.name }))} value={editForm.carrierId}
+                          onChange={(value) => setEditForm((form) => ({ ...form, carrierId: value }))} clearable={false} size="md" />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-slate-500">取引先（請求先）</label>
+                        <CustomSelect options={[{ value: "", label: "未設定" }, ...invoiceAddresses.map((address) => ({ value: address.id, label: address.name }))]}
+                          value={editForm.counterparty_invoice_address_id}
+                          onChange={(value) => setEditForm((form) => ({ ...form, counterparty_invoice_address_id: value }))}
+                          clearable={false} size="md" disabled={invoiceAddresses.length === 0} />
+                      </div>
+                      <label className="block">
+                        <span className="mb-1.5 block text-xs font-medium text-slate-500">略記（集計・シフト表示用）</span>
+                        <input type="text" value={editForm.summary_title}
+                          onChange={(event) => setEditForm((form) => ({ ...form, summary_title: event.target.value }))}
+                          placeholder="例: 横大路、ミッドナイト"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100" />
+                        <span className="mt-1.5 block text-[11px] text-slate-400">未入力の場合はコース名を表示します。</span>
+                      </label>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-slate-500">時間帯</label>
+                        <CustomSelect options={[{ value: "", label: "終日（指定なし）" }, ...slots.map((slot) => ({ value: slot.id, label: slotOptionLabel(slot) }))]}
+                          value={editForm.slotId} onChange={(value) => setEditForm((form) => ({ ...form, slotId: value }))}
+                          clearable={false} size="md" />
+                      </div>
+
+                      <div className="border-t border-slate-200 pt-4">
+                        <div className="grid grid-cols-[minmax(0,1fr)_minmax(150px,0.9fr)] gap-3">
+                          <label className="block" data-course-validation-field="maxDrivers">
+                            <span className="mb-1.5 block text-xs font-medium text-slate-500">いつもの1日の人数</span>
+                            <DigitInput value={editForm.max_drivers === "" ? null : Number(editForm.max_drivers)} allowEmpty
+                              onValueChange={(value) => setEditForm((form) => ({ ...form, max_drivers: value == null ? "" : String(value) }))}
+                              placeholder="2" ariaLabel="いつもの1日の人数" id="edit-course-max-drivers"
+                              ariaInvalid={Boolean(editErrorFor("maxDrivers"))}
+                              ariaDescribedBy={editErrorFor("maxDrivers") ? "edit-course-max-drivers-error" : undefined}
+                              className={`w-full rounded-lg border bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition ${editErrorFor("maxDrivers") ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100" : "border-slate-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-100"}`} />
+                            {editErrorFor("maxDrivers") && <span id="edit-course-max-drivers-error" className="mt-1.5 block text-[11px] font-medium text-red-600">{editErrorFor("maxDrivers")?.message}</span>}
+                          </label>
+                          <div className="relative">
+                            <span className="mb-1.5 block text-xs font-medium text-slate-500">色</span>
+                            <button type="button" onClick={() => setEditColorOpen((open) => !open)} aria-expanded={editColorOpen} aria-label="コース色を選択"
+                              className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-600 transition hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-200">
+                              <span className="h-7 w-7 shrink-0 rounded-md border border-slate-300 shadow-inner" style={{ backgroundColor: editForm.color }} />
+                              <span className="min-w-0 flex-1 truncate">色を選択</span>
+                              <FontAwesomeIcon icon={faPalette} className="h-3 w-3 text-slate-400" />
+                            </button>
+                            {editColorOpen && (
+                              <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-60 rounded-xl border border-slate-200 bg-white p-3 shadow-xl shadow-slate-300/40">
+                                <div className="grid grid-cols-5 gap-2" role="group" aria-label="コース色">
+                                  <span className="col-span-5 mb-0.5 text-[10px] font-semibold text-slate-400">おすすめの色</span>
+                                  {COLORS.map((color) => (
+                                    <button key={color} type="button" aria-label={`色 ${color}`} aria-pressed={editForm.color === color}
+                                      onClick={() => { setEditForm((form) => ({ ...form, color })); setEditColorOpen(false); }}
+                                      className={`h-7 w-7 rounded-full border-2 transition hover:scale-110 focus:outline-none focus:ring-2 focus:ring-amber-300 ${editForm.color === color ? "border-slate-900" : "border-transparent"}`}
+                                      style={{ backgroundColor: color }} />
+                                  ))}
+                                </div>
+                                <label className="mt-3 flex cursor-pointer items-center gap-2 border-t border-slate-100 pt-3 text-xs font-medium text-slate-600">
+                                  <input type="color" value={editForm.color} onChange={(event) => setEditForm((form) => ({ ...form, color: event.target.value }))}
+                                    aria-label="好きな色を選択" className="h-8 w-10 cursor-pointer rounded-md border border-slate-200 bg-white p-1" />
+                                  <span className="min-w-0 flex-1">好きな色を選択</span>
+                                  <span className="font-mono text-[10px] uppercase text-slate-400">{editForm.color}</span>
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <CourseFlowConnector sourceRef={basicSectionRef} targetRef={operationSectionRef}
+                    targetKeys={editUsesCycles ? editCycles.map((cycle) => cycle.key) : ["standard"]} usesCycles={editUsesCycles} />
+
+                  <div data-course-validation-field="cycles" className={editErrorFor("cycles") ? "rounded-2xl ring-2 ring-red-300 ring-offset-2" : undefined}>
+                    <CourseCyclesEditor usesCycles={editUsesCycles} cycles={editCycles} disabled={!canWrite}
+                      onUsesCyclesChange={setEditUsesCycles} onCyclesChange={setEditCycles} sectionRef={operationSectionRef}
+                      courseTimes={
+                      <div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                          {([[
+                            "meeting_time", "集合",
+                          ], ["arrival_time", "開始"], ["end_time", "終了目安"]] as const).map(([key, label]) => (
                             <div key={key}>
-                              <span className="mb-0.5 block text-xs text-slate-500">{label}</span>
-                              <TimePicker value={editForm[key] || null}
+                              <span className="mb-1.5 block text-xs font-medium text-slate-500">{label}</span>
+                              <CourseTimeField value={editForm[key] || null}
                                 onChange={(value) => setEditForm((form) => ({ ...form, [key]: value ?? "" }))}
-                                placeholder="--:--" buttonClassName="px-2.5" />
+                                ariaLabel={`標準運行の${label}時刻`} />
                             </div>
                           ))}
                         </div>
-                        <div className="mt-2 flex gap-2">
-                          <input type="text" value={editForm.meeting_place}
-                            onChange={(event) => setEditForm((form) => ({ ...form, meeting_place: event.target.value }))}
-                            placeholder="集合場所"
-                            className="min-w-0 flex-1 rounded border border-slate-200 px-2.5 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400" />
-                          <input type="text" inputMode="numeric" value={editForm.max_drivers}
-                            onChange={(event) => setEditForm((form) => ({ ...form, max_drivers: event.target.value.replace(/\D/g, "") }))}
-                            placeholder="人数"
-                            className="w-24 rounded border border-slate-200 px-2.5 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400" />
+                        <div className="mt-3 grid grid-cols-[minmax(0,1fr)_112px] gap-3">
+                          <label className="block min-w-0">
+                            <span className="mb-1.5 block text-xs font-medium text-slate-500">集合場所</span>
+                            <input type="text" value={editForm.meeting_place}
+                              onChange={(event) => setEditForm((form) => ({ ...form, meeting_place: event.target.value }))}
+                              placeholder="集合場所"
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100" />
+                          </label>
+                          <label className="block">
+                            <span className="mb-1.5 block text-xs font-medium text-slate-500">人数</span>
+                            <DigitInput value={editForm.max_drivers === "" ? null : Number(editForm.max_drivers)} allowEmpty
+                              onValueChange={(value) => setEditForm((form) => ({ ...form, max_drivers: value == null ? "" : String(value) }))}
+                              placeholder="人数" ariaLabel="標準運行の人数"
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100" />
+                          </label>
                         </div>
                       </div>
-                    }
-                  />
-                </div>}
-                {editModalTab === "basic" && <div className="order-3 md:col-span-6">
-                  <label className="block text-sm font-medium text-slate-600 mb-1">略記（集計・シフト表示用）</label>
-                  <input
-                    type="text"
-                    value={editForm.summary_title}
-                    onChange={(e) => setEditForm((f) => ({ ...f, summary_title: e.target.value }))}
-                    placeholder="例: 横大路、ミッドナイト"
-                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">未入力の場合はコース名を表示します。</p>
-                </div>}
-                {editModalTab === "basic" && <div className="order-2 md:col-span-6">
-                  <label className="block text-sm font-medium text-slate-600 mb-1">取引先（請求先）</label>
-                  <CustomSelect
-                    options={[
-                      { value: "", label: "未設定" },
-                      ...invoiceAddresses.map((a) => ({ value: a.id, label: a.name })),
-                    ]}
-                    value={editForm.counterparty_invoice_address_id}
-                    onChange={(v) => setEditForm((f) => ({ ...f, counterparty_invoice_address_id: v }))}
-                    clearable={false}
-                    size="md"
-                    disabled={invoiceAddresses.length === 0}
-                  />
-                </div>}
-                {editModalTab === "basic" && <div className="order-4 md:col-span-2">
-                  <label className="block text-sm font-medium text-slate-600 mb-1">いつもの1日の人数</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={editForm.max_drivers}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, "");
-                      setEditForm((f) => ({ ...f, max_drivers: v }));
-                    }}
-                    placeholder="2"
-                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                  />
-                </div>}
-                {editModalTab === "basic" && <div className="order-5 md:col-span-4">
-                  <label className="block text-sm font-medium text-slate-600 mb-2">色</label>
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {COLORS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setEditForm((f) => ({ ...f, color: c }))}
-                        className={`w-7 h-7 rounded-full border-2 transition-all ${editForm.color === c ? "border-slate-900 scale-110" : "border-transparent"
-                          }`}
-                        style={{ backgroundColor: c }}
-                      />
-                    ))}
+                      } />
+                    {editErrorFor("cycles") && <p className="mt-2 text-xs font-medium text-red-600">{editErrorFor("cycles")?.message}</p>}
                   </div>
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className="text-xs text-slate-500">または</span>
-                    <input
-                      type="color"
-                      value={editForm.color}
-                      onChange={(e) => setEditForm((f) => ({ ...f, color: e.target.value }))}
-                      className="w-9 h-9 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
-                      title="好きな色を選択"
-                    />
-                    <span className="text-xs text-slate-500">好きな色を選択</span>
-                  </div>
-                </div>}
-              </div>
+                </div>
+              )}
 
               {/* 列2: 日額リース＋単価設定 */}
               {editModalTab === "pricing" && <div className="space-y-4">
@@ -1309,8 +1416,10 @@ export default function CoursesPage() {
                 </button>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-slate-400">
-                  {saving || autoSave === "saving"
+                <span className={`text-xs ${autoSave === "error" || (editValidationVisible && !editSettingsValid) ? "text-red-600" : "text-slate-400"}`} aria-live="polite">
+                  {editValidationVisible && !editSettingsValid
+                    ? "入力内容を確認してください"
+                    : saving || autoSave === "saving"
                     ? "保存中…"
                     : autoSave === "saved"
                       ? "自動保存しました"
@@ -1320,10 +1429,11 @@ export default function CoursesPage() {
                 </span>
                 <button
                   onClick={() => void closeEditModal()}
-                  disabled={saving || !editForm.name.trim()}
+                  disabled={saving || closingEditModal}
+                  aria-busy={closingEditModal || undefined}
                   className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
                 >
-                  {saving ? "保存中..." : "保存して閉じる"}
+                  保存して閉じる
                 </button>
               </div>
             </div>
