@@ -33,6 +33,7 @@ import { Check, ChevronDown, Download, RefreshCw, Settings } from "lucide-react"
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
 import PendingChangesBar, { PENDING_CHANGES_KEY } from "./PendingChangesBar";
 import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./ShiftImportModal";
+import ShiftMemoBoard from "./ShiftMemoBoard";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
 import type { SpotJob } from "../spot-jobs/types";
@@ -563,6 +564,7 @@ function CellPeersBadge({ peers }: { peers?: CellPeer[] }) {
 }
 
 export default function ShiftsPage() {
+  const [workspaceView, setWorkspaceView] = useState<"shift" | "memo">("shift");
   const [canWrite, setCanWrite] = useState(false);
   // 配車（車両割当）はシフト編集と独立の can_dispatch でゲート（A1）。
   const [canDispatch, setCanDispatch] = useState(false);
@@ -590,7 +592,7 @@ export default function ShiftsPage() {
   const [dropActive, setDropActive] = useState(false);
   const dragDepthRef = useRef(0);
   useEffect(() => {
-    if (!canWrite) return;
+    if (!canWrite || workspaceView !== "shift") return;
     const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
     const onDragEnter = (e: DragEvent) => {
       if (!hasFiles(e)) return;
@@ -627,7 +629,7 @@ export default function ShiftsPage() {
       window.removeEventListener("dragleave", onDragLeave);
       window.removeEventListener("drop", onDrop);
     };
-  }, [canWrite]);
+  }, [canWrite, workspaceView]);
   const [yearMonth, setYearMonth] = useState(currentYearMonth());
   // デフォルトは「今日」を含む期間（1〜15日=前半 / 16日〜=後半）
   const [period, setPeriod] = useState<Period>(() => (new Date().getDate() >= 16 ? "second" : "first"));
@@ -2105,7 +2107,31 @@ export default function ShiftsPage() {
         >
         {/* 1行目: 見出し＋年月。2行目: 期間タブ＋操作ボタン（高さを抑えて表を広く見せる） */}
         <div className="flex items-center justify-between gap-2 mb-2">
-          <h1 className="text-lg md:text-xl font-bold text-slate-900 shrink-0">シフト管理</h1>
+          <div className="flex min-w-0 items-center gap-2 md:gap-3">
+            <h1 className="text-lg md:text-xl font-bold text-slate-900 shrink-0">シフト管理</h1>
+            <div className="flex overflow-hidden rounded-lg border border-slate-300 bg-white">
+              <button
+                type="button"
+                onClick={() => setWorkspaceView("shift")}
+                className={cn(
+                  "px-2.5 py-1.5 text-xs font-semibold transition-colors md:px-3",
+                  workspaceView === "shift" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50",
+                )}
+              >
+                シフト表
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkspaceView("memo")}
+                className={cn(
+                  "border-l border-slate-300 px-2.5 py-1.5 text-xs font-semibold transition-colors md:px-3",
+                  workspaceView === "memo" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50",
+                )}
+              >
+                シフトメモ
+              </button>
+            </div>
+          </div>
           <MonthYearPicker
             value={yearMonth}
             onChange={handleYearMonthChange}
@@ -2158,8 +2184,8 @@ export default function ShiftsPage() {
               {nextHalfLabel}
               <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3" />
             </button>
-            {/* 表示軸の切替（A3）: ドライバー軸/コース軸。スマホは日別ビューのため非表示 */}
-            <div className="hidden md:flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+            {/* 表示軸・密度は正式シフト表だけの操作。メモには管理表の設定を持ち込まない。 */}
+            {workspaceView === "shift" && <div className="hidden md:flex rounded-lg border border-slate-300 overflow-hidden bg-white">
               <button
                 type="button"
                 onClick={() => setViewAxis("driver")}
@@ -2178,9 +2204,9 @@ export default function ShiftsPage() {
               >
                 コース軸
               </button>
-            </div>
+            </div>}
             {/* 表示密度（A3）: 簡易=コースのみ / 標準=＋車両 / 詳細=＋集合時刻。スマホは日別ビューのため非表示 */}
-            <div className="hidden md:flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+            {workspaceView === "shift" && <div className="hidden md:flex rounded-lg border border-slate-300 overflow-hidden bg-white">
               {(
                 [
                   ["compact", "簡易", "コースだけを表示（1画面の情報量を最小に）"],
@@ -2200,11 +2226,11 @@ export default function ShiftsPage() {
                   {label}
                 </button>
               ))}
-            </div>
+            </div>}
           </div>
           {/* 操作ボタン群（エクスポート／更新／設定）は右寄せで1行にまとめる。
               シフト表の AI 取り込みはボタンではなく、画面へのファイルドロップが入口。 */}
-          <div className="flex items-center gap-2 shrink-0">
+          {workspaceView === "shift" && <div className="flex items-center gap-2 shrink-0">
             <div className="relative">
               {/* スマホは省スペースのためアイコンのみ（PC は従来のラベル付き） */}
               <button
@@ -2266,10 +2292,10 @@ export default function ShiftsPage() {
             >
               <Settings className="w-4 h-4" />
             </button>
-          </div>
+          </div>}
         </div>
 
-        {(canWrite || canLoan) && (
+        {workspaceView === "shift" && (canWrite || canLoan) && (
           <div className="mb-2 flex items-center gap-2 text-[11px] md:text-xs text-slate-500">
             <span
               className={`inline-block h-2 w-2 rounded-full ${
@@ -2281,6 +2307,17 @@ export default function ShiftsPage() {
         )}
 
         </div>
+
+        {workspaceView === "memo" ? (
+          <ShiftMemoBoard
+            dates={displayDates}
+            courses={courses}
+            drivers={drivers}
+            canWrite={canWrite}
+            today={today}
+          />
+        ) : (
+        <>
 
         {/* スマホ: 日付ナビと絞り込みタブだけを固定する
             （下までスクロールしても「何日を見ているか」が常に分かる） */}
@@ -3443,6 +3480,8 @@ export default function ShiftsPage() {
             </table>
           </div>
         </div>
+        </>
+        )}
       </div>
       {/* 希望休 管理モーダル（セルクリックで開く。その日の希望休一覧＋削除＋変更履歴） */}
       {offModal && (() => {
@@ -4197,7 +4236,7 @@ export default function ShiftsPage() {
         onChangeTarget={(y, m) => setYearMonth({ year: y, month: m })}
       />
       {/* ドラッグ中の全画面ドロップフィールド。drop 自体は window リスナが受けるため pointer-events は切る */}
-      {dropActive && (
+      {workspaceView === "shift" && dropActive && (
         <div className="fixed inset-0 z-[60] bg-slate-900/50 p-4 md:p-8 pointer-events-none">
           <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-2xl border-4 border-dashed border-white/80 text-white">
             <FontAwesomeIcon icon={faFileImport} className="text-4xl" />
@@ -4207,7 +4246,7 @@ export default function ShiftsPage() {
         </div>
       )}
       {/* 通知済みの日付に差分があるときだけ足元に出る。未通知の日付では現れない */}
-      {canWrite && <PendingChangesBar />}
+      {workspaceView === "shift" && canWrite && <PendingChangesBar />}
     </AdminLayout>
   );
 }

@@ -814,6 +814,26 @@ AIシフト表取り込みの実行単位。取り込んだ行を一括で取り
 
 ---
 
+### shift_memo_days
+正式シフトへ影響しない、運営共有のシフト下書き。日付単位で名前札と自由メモを保持する。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| id | uuid | PK, DEFAULT gen_random_uuid() |
+| org_id | uuid | NOT NULL, FK → organizations(id) ON DELETE CASCADE |
+| memo_date | date | NOT NULL |
+| placements | jsonb | NOT NULL, DEFAULT `[]`, 配列 |
+| note | text | NOT NULL, DEFAULT `''`, 2000文字以内 |
+| updated_by | uuid | nullable, FK → drivers(id) ON DELETE SET NULL |
+| created_at | timestamptz | NOT NULL, DEFAULT now() |
+| updated_at | timestamptz | NOT NULL, DEFAULT now() |
+| UNIQUE | | (org_id, memo_date) |
+
+`placements` は `{ id, courseId, cycleNo, driverId, label }` の配列。登録外の自由文字札は
+`driverId=null` とし、同じ人の重複配置や担当外配置もメモとして許容する。
+
+---
+
 ### shifts
 シフト（コース×便×日付×スロット）。
 
@@ -1080,6 +1100,7 @@ drivers
   │     ├── daily_reports.driver_identity_id
   │     └── daily_reports_v2.identity_id
   ├── shifts.driver_id
+  ├── shift_memo_days.updated_by
   ├── daily_reports.driver_id
   ├── daily_reports_v2.driver_id
   ├── oil_change_reports.driver_id
