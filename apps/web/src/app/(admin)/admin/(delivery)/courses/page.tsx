@@ -15,6 +15,7 @@ import {
   faGear,
   faPalette,
   faCircleExclamation,
+  faBuilding,
 } from "@fortawesome/free-solid-svg-icons";
 import { faAmazon } from "@fortawesome/free-brands-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
@@ -774,6 +775,9 @@ export default function CoursesPage() {
 
   const renderCourseRow = (course: Course, group: { key: string; courses: Course[] }) => {
     const assignedDrivers = getDriversForCourse(course.id);
+    const counterpartyName = course.counterparty_invoice_address_id
+      ? invoiceAddresses.find((address) => address.id === course.counterparty_invoice_address_id)?.name ?? "未設定"
+      : "未設定";
     const isDragOver = dragOverId === course.id;
     return (
       <div
@@ -845,6 +849,11 @@ export default function CoursesPage() {
                     {cycleLabel({ cycleNo: cy.cycle_no, label: cy.label })}
                   </span>
                 ))}
+            </div>
+            <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-slate-500">
+              <FontAwesomeIcon icon={faBuilding} className="h-3 w-3 shrink-0 text-slate-300" />
+              <span className="shrink-0 text-slate-400">取引先</span>
+              <span className="truncate font-medium text-slate-600" title={counterpartyName}>{counterpartyName}</span>
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1">
               {assignedDrivers.length > 0 ? (

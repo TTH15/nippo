@@ -1102,7 +1102,7 @@ export default function UsersPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    {["No.", "ドライバー", "表示名", "コース", "免許期限", "権限"].map((h) => (
+                    {["No.", "ドライバー", "ドライバーコード", "表示名", "コース", "免許期限", "権限"].map((h) => (
                       <th key={h} className="px-4 py-3 text-left">
                         <Skeleton className="h-3 w-16" />
                       </th>
@@ -1119,6 +1119,7 @@ export default function UsersPage() {
                           <Skeleton className="h-4 w-24" />
                         </div>
                       </td>
+                      <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
                       <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
                       <td className="px-4 py-3"><Skeleton className="h-4 w-28 rounded" /></td>
                       <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
@@ -1179,6 +1180,9 @@ export default function UsersPage() {
                             <span className="truncate text-xs text-slate-500">{getDisplayName(d)}</span>
                           )}
                         </p>
+                        <p className="mt-0.5 truncate font-mono text-[11px] tracking-wide text-slate-400">
+                          {d.driver_code || "コード未設定"}
+                        </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           {coursesOfDriver.slice(0, 2).map((dc) => (
                             <span
@@ -1231,11 +1235,12 @@ export default function UsersPage() {
             </div>
             {/* PC: 既存テーブル */}
             <div className="hidden md:block overflow-x-auto table-scroll table-scroll-fade">
-              <table className="w-full text-sm min-w-[760px]">
+              <table className="w-full text-sm min-w-[900px]">
                 <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold w-12">No.</th>
                     <th className="px-4 py-3 text-left font-semibold">ドライバー</th>
+                    <th className="px-4 py-3 text-left font-semibold">ドライバーコード</th>
                     <th className="px-4 py-3 text-left font-semibold">表示名</th>
                     <th className="px-4 py-3 text-left font-semibold">コース</th>
                     <th className="px-4 py-3 text-left font-semibold">免許期限</th>
@@ -1268,6 +1273,7 @@ export default function UsersPage() {
                             <span className="font-semibold text-slate-900 whitespace-nowrap">{d.name}</span>
                           </div>
                         </td>
+                        <td className="px-4 py-3 font-mono text-xs tracking-wide text-slate-500 whitespace-nowrap">{d.driver_code || "—"}</td>
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{getDisplayName(d)}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5 max-w-[230px] overflow-hidden">
