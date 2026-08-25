@@ -34,8 +34,9 @@ import {
   faTruck,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
+import { exportBodySlices, exportEdgeVelocity, selectedShortageCount } from "@/lib/shiftMemoExport";
 import { cn } from "@/lib/ui/utils";
-import { assignedPersonCount, exportBodySlices, exportEdgeVelocity, findDuplicateCourseIds, selectedShortageCount, shortageCount } from "./previewLogic";
+import { assignedPersonCount, findDuplicateCourseIds, shortageCount } from "./previewLogic";
 
 type Course = {
   id: string;

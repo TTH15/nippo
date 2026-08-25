@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { assignedPersonCount, exportBodySlices, exportEdgeVelocity, findDuplicateCourseIds, selectedShortageCount, shortageCount } from "./previewLogic";
+import {
+  exportBodySlices,
+  exportDateLabel,
+  exportDateRangeFromColumns,
+  exportEdgeVelocity,
+  exportPeriodLabel,
+  selectedShortageCount,
+} from "@/lib/shiftMemoExport";
+import { assignedPersonCount, findDuplicateCourseIds, shortageCount } from "./previewLogic";
 
 const courseIds = ["course-a", "course-b", "course-c"];
 
@@ -58,6 +66,22 @@ describe("exportEdgeVelocity", () => {
 
   it("中央付近ではスクロールしない", () => {
     expect(exportEdgeVelocity(500, 211, 801)).toBe(0);
+  });
+});
+
+describe("shift memo export dates", () => {
+  const dates = ["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04"];
+
+  it("選択した列から実日付の範囲を求める", () => {
+    expect(exportDateRangeFromColumns(266, 152, 190, 76, dates)).toEqual({
+      start: "2026-08-02",
+      end: "2026-08-03",
+    });
+  });
+
+  it("同月の範囲を曜日付きで表示する", () => {
+    expect(exportDateLabel("2026-08-01", "2026-08-03")).toBe("2026年8月1日（土）〜3日（月）");
+    expect(exportPeriodLabel(dates)).toBe("2026年8月 前半");
   });
 });
 
