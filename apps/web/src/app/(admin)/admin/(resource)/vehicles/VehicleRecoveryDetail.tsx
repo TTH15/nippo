@@ -217,17 +217,17 @@ export function VehicleRecoveryDetail({
           )}
 
           {/* 月次テーブル */}
-          <div className="border border-slate-200 rounded-lg overflow-hidden">
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
             <div className="max-h-[420px] overflow-y-auto">
-              <table className="w-full text-xs">
+              <table className="min-w-[760px] w-full text-xs">
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
-                    <th className="px-3 py-2 text-left text-slate-600">月</th>
-                    <th className="px-3 py-2 text-right text-slate-600">リース代</th>
-                    <th className="px-3 py-2 text-right text-slate-600">日額リース</th>
-                    <th className="px-3 py-2 text-right text-slate-600">保険料</th>
-                    <th className="px-3 py-2 text-right text-slate-600">月回収額</th>
-                    <th className="px-3 py-2 text-right text-slate-600">累計回収額</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-left text-slate-600">月</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right text-slate-600">リース代</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right text-slate-600">日額リース</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right text-slate-600">保険料</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right text-slate-600">月回収額</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right text-slate-600">累計回収額</th>
                     <th className="px-2 py-2 w-12 text-center text-slate-600"></th>
                   </tr>
                 </thead>

@@ -303,7 +303,7 @@ export default function RolesPage() {
         </p>
 
         {creating && (
-          <div className="mb-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3">
+          <div className="mb-4 flex flex-col items-stretch gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center">
             <input
               autoFocus
               value={newLabel}

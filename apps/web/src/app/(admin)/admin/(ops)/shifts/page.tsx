@@ -112,6 +112,18 @@ function formatPlateOneLine(v: VehiclePlateData): string {
   return parts.join(" ").trim() || "—";
 }
 
+/** html2canvas向けの簡易ナンバープレート配色。CSS maskを使わず共有画像へ描く。 */
+function mobileExportPlateScheme(color: VehiclePlateData["plate_color"]): {
+  bg: string;
+  frame: string;
+  text: string;
+} {
+  if (color === "yellow") return { bg: "#f2c50f", frame: "#a8880a", text: "#151515" };
+  if (color === "white") return { bg: "#f4f5f1", frame: "#9aa0a6", text: "#17603e" };
+  if (color === "green") return { bg: "#0a5a40", frame: "#d5d9de", text: "#ffffff" };
+  return { bg: "#000000", frame: "#b8a038", text: "#e8d44d" };
+}
+
 function courseAbbrevTooltip(course: Course): string {
   const abbr = courseShiftLabel(course);
   const base = abbr !== course.name ? `${abbr}（${course.name}）` : abbr;
@@ -702,6 +714,10 @@ export default function ShiftsPage() {
   const [refreshing, setRefreshing] = useState(false);
   // スマホの日別ビュー（B）: 表示中の1日。null=期間内の今日 or 先頭日にフォールバック。
   const [mobileDate, setMobileDate] = useState<string | null>(null);
+  // スマホ日別ビューの画像保存対象。固定の日付ナビと中央の日別リストを
+  // 一時的な画面外DOMへ複製し、スクロール位置に関係なく末尾まで書き出す。
+  const mobileDateHeaderRef = useRef<HTMLDivElement | null>(null);
+  const mobileDayListRef = useRef<HTMLDivElement | null>(null);
   // 日別ビューの左右スワイプ（ページめくり）。指の動きに追従させるため、
   // 再描画を挟まず track の transform を直接書き換える。
   const swipeRef = useRef<{ x: number; y: number; axis: "?" | "x" | "y"; dx: number } | null>(null);
@@ -720,7 +736,7 @@ export default function ShiftsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mobileDate, period, yearMonth.year, yearMonth.month]);
   // 日別ビューの絞り込みタブ。全員=在籍全員 / 稼働=割当あり / 未割当=割当なし（希望休を含む）。
-  const [mobileFilter, setMobileFilter] = useState<"all" | "working" | "unassigned">("all");
+  const [mobileFilter, setMobileFilter] = useState<"all" | "working" | "unassigned">("working");
   // コース軸ビューのセル（コース×日）モーダル。担当可能ドライバーの追加・解除を行う。
   const [courseCellModal, setCourseCellModal] = useState<{ courseId: string; date: string } | null>(
     null,
@@ -1883,7 +1899,7 @@ export default function ShiftsPage() {
     // 並べ替えはしない（driversWithCourses = API の list_no 昇順をそのまま使う）
 
   /** 日別ビューの1日分リスト（スワイプのプレビューで前後日も同じ関数で描く） */
-  const renderDayList = (date: string) => {
+  const renderDayList = (date: string, isCurrentPanel = false) => {
     const allRows = getDayRows(date);
     const rows =
       mobileFilter === "working"
@@ -1893,7 +1909,7 @@ export default function ShiftsPage() {
           : allRows;
     const dayJobs = spotJobsByDate.get(date) ?? [];
     return (
-      <div className="space-y-3">
+      <div ref={isCurrentPanel ? mobileDayListRef : undefined} className="space-y-3">
       {/* 単発案件（その日の全件。ゲスト・名前だけの参加者もここで見える） */}
       {dayJobs.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -1970,6 +1986,7 @@ export default function ShiftsPage() {
                         return (
                           <span
                             key={course.id}
+                            data-mobile-export-course-color={course.color}
                             className="inline-flex max-w-full min-w-0 items-center rounded-[6px] px-2 py-0.5 text-[12px] font-semibold text-slate-900"
                             style={courseCellSurface(course.color)}
                           >
@@ -1990,7 +2007,15 @@ export default function ShiftsPage() {
                   )}
                 </span>
                 {hasAny && (
-                  <span className="flex w-[5.5rem] shrink-0 justify-end">
+                  <span
+                    className="flex w-[5.5rem] shrink-0 justify-end"
+                    data-mobile-export-plate={plate ? "true" : undefined}
+                    data-mobile-export-plate-color={plate?.plate_color ?? "black"}
+                    data-mobile-export-plate-region={plate?.number_prefix ?? "京都"}
+                    data-mobile-export-plate-class={plate?.number_class ?? "400"}
+                    data-mobile-export-plate-kana={plate?.number_hiragana ?? "わ"}
+                    data-mobile-export-plate-number={plate?.number_numeric ? formatPlateNumeric(plate.number_numeric) : ""}
+                  >
                     {plate ? (
                       // w-full が無いと flex アイテムとして幅が決まらず（内部が w-full のため）
                       // プレートが潰れて見えなくなる
@@ -2096,6 +2121,130 @@ export default function ShiftsPage() {
     }
   };
 
+  /** スマホで表示中の日付ナビ・絞り込み・日別配車を縦長の1枚へ保存する。 */
+  const handleMobileDayExport = async () => {
+    if (exporting || !activeMobileDate) return;
+    const header = mobileDateHeaderRef.current;
+    const list = mobileDayListRef.current;
+    if (!header || !list) return;
+
+    let stage: HTMLDivElement | null = null;
+    let objectUrl: string | null = null;
+    try {
+      setExporting(true);
+      setExportMenuOpen(false);
+      await document.fonts.ready;
+
+      const captureWidth = Math.ceil(header.getBoundingClientRect().width);
+      stage = document.createElement("div");
+      stage.setAttribute("aria-hidden", "true");
+      Object.assign(stage.style, {
+        position: "fixed",
+        left: "-10000px",
+        top: "0",
+        width: `${captureWidth}px`,
+        boxSizing: "border-box",
+        background: "#f8fafc",
+        zIndex: "-1",
+      });
+
+      const headerClone = header.cloneNode(true) as HTMLDivElement;
+      Object.assign(headerClone.style, {
+        position: "static",
+        top: "auto",
+        width: "100%",
+        marginLeft: "0",
+        marginRight: "0",
+        boxSizing: "border-box",
+      });
+
+      const listWrap = document.createElement("div");
+      Object.assign(listWrap.style, {
+        width: "100%",
+        padding: "0 12px 12px",
+        boxSizing: "border-box",
+      });
+      const listClone = list.cloneNode(true) as HTMLDivElement;
+      Object.assign(listClone.style, {
+        width: "100%",
+        boxSizing: "border-box",
+      });
+      // html2canvas が inset shadow と CSS mask を描けないため、共有画像のコース札と
+      // ナンバープレートだけ同じ情報を持つ単純なborder／テキスト表現へ置き換える。
+      listClone.querySelectorAll<HTMLElement>("[data-mobile-export-course-color]").forEach((chip) => {
+        const color = chip.dataset.mobileExportCourseColor ?? "#94a3b8";
+        Object.assign(chip.style, courseCellSurfaceExport(color), { boxShadow: "none" });
+      });
+      listClone.querySelectorAll<HTMLElement>("[data-mobile-export-plate='true']").forEach((slot) => {
+        const color = (slot.dataset.mobileExportPlateColor || "black") as VehiclePlateData["plate_color"];
+        const scheme = mobileExportPlateScheme(color);
+        const plate = document.createElement("div");
+        Object.assign(plate.style, {
+          width: "88px",
+          height: "44px",
+          boxSizing: "border-box",
+          overflow: "hidden",
+          borderRadius: "8px",
+          border: `2px solid ${scheme.frame}`,
+          background: scheme.bg,
+          color: scheme.text,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+          textAlign: "center",
+          fontFamily: "sans-serif",
+          fontWeight: "700",
+        });
+        const top = document.createElement("div");
+        top.textContent = `${slot.dataset.mobileExportPlateRegion ?? "京都"} ${slot.dataset.mobileExportPlateClass ?? "400"}`;
+        Object.assign(top.style, { height: "16px", fontSize: "10px", lineHeight: "16px", whiteSpace: "nowrap" });
+        const bottom = document.createElement("div");
+        bottom.textContent = `${slot.dataset.mobileExportPlateKana ?? "わ"} ${slot.dataset.mobileExportPlateNumber ?? ""}`;
+        Object.assign(bottom.style, { height: "24px", fontSize: "17px", lineHeight: "22px", letterSpacing: "1px", whiteSpace: "nowrap" });
+        plate.append(top, bottom);
+        slot.replaceChildren(plate);
+      });
+      listWrap.appendChild(listClone);
+      stage.append(headerClone, listWrap);
+      document.body.appendChild(stage);
+
+      const { default: html2canvas } = await import("html2canvas");
+      const canvas = await html2canvas(stage, {
+        backgroundColor: "#f8fafc",
+        scale: Math.min(3, Math.max(2, window.devicePixelRatio || 1)),
+        useCORS: true,
+        logging: false,
+        width: captureWidth,
+        height: stage.scrollHeight,
+        windowWidth: captureWidth,
+        windowHeight: stage.scrollHeight,
+        scrollX: 0,
+        scrollY: 0,
+      });
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("PNG blob could not be created");
+
+      objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const filterLabel = mobileFilter === "working" ? "working" : mobileFilter === "unassigned" ? "unassigned" : "all";
+      link.href = objectUrl;
+      link.download = `dispatch_${activeMobileDate}_${filterLabel}.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (e) {
+      console.error(e);
+      setErrorState({
+        title: "画像の保存に失敗しました",
+        message: "表示中の日別配車を画像にできませんでした。もう一度お試しください。",
+      });
+    } finally {
+      stage?.remove();
+      // Safari では click 直後に URL を破棄すると保存が始まる前に無効になることがある。
+      const urlToRevoke = objectUrl;
+      if (urlToRevoke) window.setTimeout(() => URL.revokeObjectURL(urlToRevoke), 1000);
+      setExporting(false);
+    }
+  };
+
   return (
     <AdminLayout>
       <div className="max-w-full">
@@ -2106,37 +2255,39 @@ export default function ShiftsPage() {
           style={{ top: "var(--admin-header-h, 0px)" }}
         >
         {/* 1行目: 見出し＋年月。2行目: 期間タブ＋操作ボタン（高さを抑えて表を広く見せる） */}
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <div className="flex min-w-0 items-center gap-2 md:gap-3">
-            <h1 className="text-lg md:text-xl font-bold text-slate-900 shrink-0">シフト管理</h1>
-            <div className="flex overflow-hidden rounded-lg border border-slate-300 bg-white">
-              <button
-                type="button"
-                onClick={() => setWorkspaceView("shift")}
-                className={cn(
-                  "px-2.5 py-1.5 text-xs font-semibold transition-colors md:px-3",
-                  workspaceView === "shift" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50",
-                )}
-              >
-                シフト表
-              </button>
-              <button
-                type="button"
-                onClick={() => setWorkspaceView("memo")}
-                className={cn(
-                  "border-l border-slate-300 px-2.5 py-1.5 text-xs font-semibold transition-colors md:px-3",
-                  workspaceView === "memo" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50",
-                )}
-              >
-                シフトメモ
-              </button>
-            </div>
+        <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:flex">
+          <h1 className="order-1 shrink-0 text-lg font-bold text-slate-900 md:order-none md:text-xl">シフト管理</h1>
+          <div className="order-3 col-span-2 flex w-full overflow-hidden rounded-lg border border-slate-300 bg-white md:order-none md:col-span-1 md:w-auto">
+            <button
+              type="button"
+              aria-pressed={workspaceView === "shift"}
+              onClick={() => setWorkspaceView("shift")}
+              className={cn(
+                "min-w-0 flex-1 whitespace-nowrap px-3 py-1.5 text-xs font-semibold transition-colors md:flex-none",
+                workspaceView === "shift" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50",
+              )}
+            >
+              シフト表
+            </button>
+            <button
+              type="button"
+              aria-pressed={workspaceView === "memo"}
+              onClick={() => setWorkspaceView("memo")}
+              className={cn(
+                "min-w-0 flex-1 whitespace-nowrap border-l border-slate-300 px-3 py-1.5 text-xs font-semibold transition-colors md:flex-none",
+                workspaceView === "memo" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50",
+              )}
+            >
+              シフトメモ
+            </button>
           </div>
-          <MonthYearPicker
-            value={yearMonth}
-            onChange={handleYearMonthChange}
-            placeholder="年月を選択"
-          />
+          <div className="order-2 shrink-0 [&_button]:w-[140px] md:order-none md:ml-auto md:[&_button]:w-[180px]">
+            <MonthYearPicker
+              value={yearMonth}
+              onChange={handleYearMonthChange}
+              placeholder="年月を選択"
+            />
+          </div>
         </div>
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
@@ -2235,10 +2386,16 @@ export default function ShiftsPage() {
               {/* スマホは省スペースのためアイコンのみ（PC は従来のラベル付き） */}
               <button
                 type="button"
-                onClick={() => setExportMenuOpen((o) => !o)}
+                onClick={() => {
+                  if (window.matchMedia("(max-width: 767px)").matches) {
+                    void handleMobileDayExport();
+                    return;
+                  }
+                  setExportMenuOpen((o) => !o);
+                }}
                 disabled={exporting || loading}
-                title="エクスポート（PNG / PDF）"
-                aria-label="エクスポート"
+                title="シフトを画像保存・エクスポート"
+                aria-label="シフトを画像保存・エクスポート"
                 className="h-9 w-9 md:w-auto md:px-3 md:py-1.5 text-xs font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1"
               >
                 <Download className={cn("w-4 h-4 md:hidden", exporting && "animate-pulse")} />
@@ -2331,6 +2488,7 @@ export default function ShiftsPage() {
           const isToday = date === today;
           return (
             <div
+              ref={mobileDateHeaderRef}
               className="md:hidden sticky z-30 -mx-3 px-3 bg-slate-50 pt-1 pb-2 space-y-2 border-b border-slate-200/80"
               style={{ top: "var(--admin-header-h, 0px)" }}
             >
@@ -2376,6 +2534,7 @@ export default function ShiftsPage() {
                   <button
                     key={key}
                     type="button"
+                    aria-pressed={mobileFilter === key}
                     onClick={() => setMobileFilter(key)}
                     className={cn(
                       "flex-1 px-2 py-1.5 text-[13px] font-medium transition-colors",
@@ -2518,7 +2677,7 @@ export default function ShiftsPage() {
                   const panel = (d: string | null, key: string, dir?: 1 | -1) => (
                     <div key={key} className="w-full shrink-0 px-0.5">
                       {d ? (
-                        renderDayList(d)
+                        renderDayList(d, key === "cur")
                       ) : (
                         <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-slate-200 text-xs text-slate-400">
                           {dir === 1 ? `${nextHalfLabel}へ…` : `${prevHalfLabel}へ…`}

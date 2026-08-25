@@ -76,8 +76,8 @@ export default function AdjustmentsPage() {
         ) : entries.length === 0 ? (
           <p className="text-sm text-slate-500 py-8 text-center">この月の調整はありません。</p>
         ) : (
-          <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+            <table className="min-w-[520px] w-full text-sm">
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium w-24">日付</th>

@@ -18,16 +18,18 @@ interface UnderlineTabsProps {
 export function UnderlineTabs({ tabs, value, onChange, className }: UnderlineTabsProps) {
   return (
     <div className={className}>
-      <div className="flex gap-6 border-b border-slate-200">
+      <div role="tablist" className="flex gap-6 overflow-x-auto border-b border-slate-200">
         {tabs.map((t) => {
           const isActive = value === t.value;
           return (
             <button
               key={t.value}
               type="button"
+              role="tab"
+              aria-selected={isActive}
               onClick={() => onChange(t.value)}
               className={`
-                relative pb-3 pt-0.5 text-sm font-medium transition-colors
+                relative shrink-0 whitespace-nowrap pb-3 pt-0.5 text-sm font-medium transition-colors
                 ${isActive ? "text-blue-600" : "text-slate-600 hover:text-slate-900"}
               `}
             >

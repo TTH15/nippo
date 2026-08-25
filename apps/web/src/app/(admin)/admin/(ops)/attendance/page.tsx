@@ -138,17 +138,17 @@ export default function AttendancePage() {
           <div className="py-16 text-center text-slate-400">この日の勤怠はありません</div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="w-full text-sm">
+            <table className="min-w-[900px] w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500 text-xs">
-                  <th className="text-left font-medium px-3 py-2.5">ドライバー</th>
-                  <th className="text-left font-medium px-3 py-2.5">車両</th>
-                  <th className="text-left font-medium px-3 py-2.5">出勤</th>
-                  <th className="text-left font-medium px-3 py-2.5">退勤</th>
-                  <th className="text-left font-medium px-3 py-2.5">稼働</th>
-                  <th className="text-left font-medium px-3 py-2.5">メーター</th>
-                  <th className="text-left font-medium px-3 py-2.5">状態</th>
-                  <th className="text-right font-medium px-3 py-2.5">承認</th>
+                  <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">ドライバー</th>
+                  <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">車両</th>
+                  <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">出勤</th>
+                  <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">退勤</th>
+                  <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">稼働</th>
+                  <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">メーター</th>
+                  <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">状態</th>
+                  <th className="whitespace-nowrap text-right font-medium px-3 py-2.5">承認</th>
                 </tr>
               </thead>
               <tbody>

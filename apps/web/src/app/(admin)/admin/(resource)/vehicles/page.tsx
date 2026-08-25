@@ -1089,7 +1089,16 @@ export default function VehiclesPage() {
                     if ((e.target as HTMLElement).closest('button, a, input, [role="switch"]')) return;
                     if (canWrite) openEdit(v);
                   }}
+                  onKeyDown={(e) => {
+                    if (!canWrite || (e.target as HTMLElement).closest('button, a, input, [role="switch"]')) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openEdit(v);
+                    }
+                  }}
                   role={canWrite ? "button" : undefined}
+                  tabIndex={canWrite ? 0 : undefined}
+                  aria-label={canWrite ? `${v.manufacturer} ${v.brand}を編集` : undefined}
                   className={`soft-rise rounded-lg border p-4 sm:p-6 md:p-8 shadow-sm relative ${canWrite ? "cursor-pointer hover:border-slate-300 transition-colors" : ""} ${
                     v.is_disposed
                       ? "bg-red-50 border-red-200"
@@ -1471,7 +1480,7 @@ export default function VehiclesPage() {
       {showModal && canWrite && (
         <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => { flushAutoSave(); setShowModal(false); }}>
           <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 flex flex-col min-h-0 flex-1">
+            <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
               <div className="flex items-start justify-between mb-4">
                 <h2 className="text-lg font-semibold text-slate-900">
                   {editingVehicle ? "車両情報編集" : "新規車両追加"}
@@ -1533,7 +1542,7 @@ export default function VehiclesPage() {
                   ) : (
                     <div className="space-y-2">
                       {/* チップを縦に並べると場所を取るので、メーカー→車種の2段セレクトにする（2026-08-11） */}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <select
                           value={otherVehicle ? "__other__" : form.manufacturer}
                           onChange={(e) => {
@@ -1583,7 +1592,7 @@ export default function VehiclesPage() {
                       </div>
 
                       {otherVehicle && (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <input
                             type="text"
                             value={form.manufacturer}
@@ -1603,7 +1612,7 @@ export default function VehiclesPage() {
 
                       {/* 型式（世代）。同じ車種でも年代で形が違う。車検証の「型式」欄をそのまま */}
                       {form.brand && (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <select
                             value={
                               generationsOf(form.manufacturer, form.brand).some(
@@ -1737,7 +1746,7 @@ export default function VehiclesPage() {
                     ))}
                     <span className="ml-1 text-[11px] text-slate-400">黒=軽の事業用（当面は黒のみ）</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 mb-2">
+                  <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <input
                       type="text"
                       value={form.numberPrefix}
@@ -1970,7 +1979,7 @@ export default function VehiclesPage() {
                 </div>
 
                 {/* 車検・自賠責は車両そのものの基礎情報なので「基本」に置く（旧: 記録タブ） */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">次回車検予定日</label>
                     <DatePicker
@@ -2056,7 +2065,7 @@ export default function VehiclesPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">現在メーター (km)</label>
                     <input
@@ -2096,8 +2105,8 @@ export default function VehiclesPage() {
                 <>
                 <div>
                   <label className="block text-sm font-medium text-slate-500 mb-1">購入費用明細 (円)</label>
-                  <div className="border border-slate-200 rounded-md overflow-hidden">
-                    <table className="w-full text-xs">
+                  <div className="overflow-x-auto rounded-md border border-slate-200">
+                    <table className="min-w-[520px] w-full text-xs">
                       <thead className="bg-slate-50">
                         <tr>
                           <th className="px-2 py-2 text-left text-slate-600 w-20">符号</th>
@@ -2213,7 +2222,7 @@ export default function VehiclesPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">月々保険料 (円)</label>
                     <input
@@ -2236,7 +2245,7 @@ export default function VehiclesPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">回収開始月</label>
                     <MonthYearPicker
