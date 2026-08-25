@@ -39,7 +39,7 @@ async function main() {
   const orgId = org!.id as string;
   // v2 集計の auto(従量+固定) contributions
   const data = await loadAggregationData(supabase, orgId, start, end);
-  const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
+  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles);
   const contribs = buildContributions(data.reports, [], ctx); // ledger 抜き = system auto のみ
 
   // course -> counterparty

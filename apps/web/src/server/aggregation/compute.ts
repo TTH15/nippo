@@ -101,7 +101,7 @@ export function reportContributions(
   // 承認時スナップショットがあれば現在の単価マスタより優先する。
   // これにより、後日の単価変更で承認済み期間の売上・報酬・粗利が動かない。
   if (report.rateSnapshot?.version === 1) {
-    return report.rateSnapshot.components.map((component) => ({
+    const snapshotContributions: Contribution[] = report.rateSnapshot.components.map((component) => ({
       date: report.reportDate,
       driverId: report.driverId,
       courseId,
@@ -113,6 +113,29 @@ export function reportContributions(
       profit: component.profit,
       payout: component.payout,
     }));
+    // サイクル対応前の提出APIは、C1/C2のあるコースもcycle_no=0の1日報へ
+    // 畳んでいた。単価履歴が便別だけの場合、承認時snapshot.componentsが空になり
+    // 売上・日当が0円になるため、snapshot内に固定済みの全日契約で補完する。
+    const legacyBundle = report.rateSnapshot.fixedBundle;
+    const hasFixed = report.rateSnapshot.components.some((component) => component.kind === "fixed");
+    if ((report.cycleNo ?? 0) === 0 && !hasFixed && legacyBundle &&
+        (legacyBundle.fixedRevenue != null || legacyBundle.fixedPayout != null)) {
+      const revenue = legacyBundle.fixedRevenue ?? 0;
+      const payout = legacyBundle.fixedPayout ?? 0;
+      snapshotContributions.push({
+        date: report.reportDate,
+        driverId: report.driverId,
+        courseId,
+        carrierId: report.carrierId,
+        unitId: null,
+        counterpartyId: null,
+        source: "auto_fixed",
+        revenue,
+        profit: revenue - payout,
+        payout,
+      });
+    }
+    return snapshotContributions;
   }
 
   // --- 従量分 ---
@@ -195,7 +218,9 @@ export function buildContributions(
 
 function hasAllCycles(reports: DailyReport[], required: number[]): boolean {
   const actual = new Set(reports.filter(isCountableReport).map((report) => report.cycleNo ?? 0));
-  return required.length > 1 && required.every((cycleNo) => actual.has(cycleNo));
+  // cycle_no=0はサイクル導入前に「コース全体＝全日」として保存された日報。
+  // 新規提出はC1/C2を明示するため、0だけ後方互換として全便成立と扱う。
+  return required.length > 1 && (actual.has(0) || required.every((cycleNo) => actual.has(cycleNo)));
 }
 
 /** 全日単価は便別固定額の「追加」ではなく置換。売上はコース/日、支払はドライバー/コース/日で判定する。 */

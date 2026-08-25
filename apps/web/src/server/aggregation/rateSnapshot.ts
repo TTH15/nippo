@@ -210,6 +210,27 @@ export async function captureReportRateSnapshots(
       fixedRevenue: currentBundle.fixed_revenue == null ? null : n(currentBundle.fixed_revenue),
       fixedPayout: currentBundle.fixed_payout == null ? null : n(currentBundle.fixed_payout),
     } : undefined;
+
+    // サイクル対応前の日報はC1/C2をcycle_no=0の1件へまとめていた。
+    // 便別固定単価しかない場合でも、全日契約を明示的な固定componentとして
+    // 保存し直し、承認後の売上・報酬を0円にしない。
+    if (cycleNo === 0 && !components.some((component) => component.kind === "fixed") && bundle &&
+        (bundle.fixedRevenue != null || bundle.fixedPayout != null)) {
+      const revenue = bundle.fixedRevenue ?? 0;
+      const payout = bundle.fixedPayout ?? 0;
+      components.push({
+        kind: "fixed",
+        unitId: null,
+        quantity: 1,
+        revenueContractAmount: revenue,
+        revenueBasis: "exclusive",
+        payoutContractAmount: payout,
+        payoutBasis: "exclusive",
+        revenue,
+        payout,
+        profit: revenue - payout,
+      });
+    }
     const snapshot: ReportRateSnapshot = { version: 1, capturedAt, components, fixedBundle: bundle };
     const { error } = await supabase
       .from("daily_reports_v2")

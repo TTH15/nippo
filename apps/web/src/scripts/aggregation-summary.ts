@@ -35,7 +35,7 @@ async function main() {
   const { data: org } = await supabase.from("organizations").select("id").eq("code", "ACE").single();
   const orgId = org!.id as string;
   const data = await loadAggregationData(supabase, orgId, start, end);
-  const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
+  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles);
   const contribs = buildContributions(data.reports, data.ledger, ctx);
 
   const codeByCarrier = new Map(data.carriers.map((c) => [c.id, c.code]));

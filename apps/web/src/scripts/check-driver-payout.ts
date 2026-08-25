@@ -38,7 +38,7 @@ async function main() {
   const { data: org } = await supabase.from("organizations").select("id").eq("code", "ACE").single();
   const orgId = org!.id as string;
   const data = await loadAggregationData(supabase, orgId, start, end);
-  const ctx = buildContext(data.units, data.unitRates, data.fixedRates);
+  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles);
   const auto = buildContributions(data.reports, [], ctx); // ledger 抜き = 自動算出のみ
   const expectedByDriver = sumBy(auto, (c) => c.driverId);
 

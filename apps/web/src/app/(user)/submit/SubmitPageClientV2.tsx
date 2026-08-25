@@ -29,6 +29,7 @@ import {
   buildReportItems,
   buildVehicleCards,
   groupFieldsByLabel,
+  reportFormKey,
 } from "@repo/core/logic/dailyReport";
 
 // ============================================================
@@ -152,10 +153,10 @@ export default function SubmitPageClientV2() {
   }>("/api/me/shift-deadline-reminder");
   const deadlineReminder = reminderData?.reminder ?? null;
 
-  function setVal(courseId: string, unitId: string, fieldKey: string, v: string) {
+  function setVal(formKey: string, unitId: string, fieldKey: string, v: string) {
     setValues((prev) => ({
       ...prev,
-      [courseId]: { ...prev[courseId], [unitId]: { ...prev[courseId]?.[unitId], [fieldKey]: v } },
+      [formKey]: { ...prev[formKey], [unitId]: { ...prev[formKey]?.[unitId], [fieldKey]: v } },
     }));
   }
 
@@ -474,21 +475,29 @@ export default function SubmitPageClientV2() {
         <p className="text-sm text-slate-500 py-6 text-center">この日のシフトがありません。</p>
       ) : (
         <div className="space-y-4">
-          {shifts.map((s) => (
-            <div key={s.courseId} className="rounded-lg border border-slate-200 bg-white">
+          {shifts.map((s) => {
+            const formKey = reportFormKey(s.courseId, s.cycleNo);
+            return (
+            <div key={formKey} className="rounded-lg border border-slate-200 bg-white">
               <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color ?? "#94a3b8" }} />
                 <span className="font-medium text-slate-800">{s.courseName}</span>
+                {(s.cycleNo ?? 0) > 0 && (
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                    {s.cycleLabel || `C${s.cycleNo}`}
+                  </span>
+                )}
                 {s.carrierName && <span className="text-[11px] text-slate-400">{s.carrierName}</span>}
               </div>
               <div className="px-4 py-3 space-y-4">
                 {s.units.length === 0 && <p className="text-xs text-slate-400">報告項目が設定されていません。</p>}
                 {s.units.map((u) => (
-                  <UnitFields key={u.id} unit={u} courseId={s.courseId} values={values} setVal={setVal} />
+                  <UnitFields key={u.id} unit={u} formKey={formKey} values={values} setVal={setVal} />
                 ))}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -634,14 +643,14 @@ export default function SubmitPageClientV2() {
 
 function UnitFields({
   unit,
-  courseId,
+  formKey,
   values,
   setVal,
 }: {
   unit: UnitDef;
-  courseId: string;
+  formKey: string;
   values: ValueMap;
-  setVal: (courseId: string, unitId: string, fieldKey: string, v: string) => void;
+  setVal: (formKey: string, unitId: string, fieldKey: string, v: string) => void;
 }) {
   // group_label でグルーピング（null はグループなし）
   const groups = groupFieldsByLabel(unit.fields);
@@ -655,7 +664,7 @@ function UnitFields({
             {groupKey && <div className="text-[11px] text-indigo-600 mb-1">{groupKey}</div>}
             <div className="grid grid-cols-2 gap-3">
               {fields.map((f) => {
-                const val = values[courseId]?.[unit.id]?.[f.fieldKey] ?? "";
+                const val = values[formKey]?.[unit.id]?.[f.fieldKey] ?? "";
                 // BOOL: カード内トグル
                 if (f.inputType === "BOOL") {
                   return (
@@ -666,7 +675,7 @@ function UnitFields({
                       <input
                         type="checkbox"
                         checked={val === "true"}
-                        onChange={(e) => setVal(courseId, unit.id, f.fieldKey, e.target.checked ? "true" : "false")}
+                        onChange={(e) => setVal(formKey, unit.id, f.fieldKey, e.target.checked ? "true" : "false")}
                         className="h-5 w-5 accent-brand-700"
                       />
                       <span className="text-xs font-semibold text-slate-500">
@@ -690,7 +699,7 @@ function UnitFields({
                       min={isInt ? "0" : undefined}
                       placeholder={isInt ? "0" : ""}
                       value={val}
-                      onChange={(e) => setVal(courseId, unit.id, f.fieldKey, e.target.value)}
+                      onChange={(e) => setVal(formKey, unit.id, f.fieldKey, e.target.value)}
                       className={
                         isInt
                           ? "w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
