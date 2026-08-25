@@ -1905,8 +1905,8 @@ export default function MapPage() {
             <div ref={containerRef} className="h-[70vh] min-h-[420px] w-full" />
 
             {/* 視点の操作パネル＋設定＋共有ビュー */}
-            <div className="absolute left-3 top-3 flex flex-col items-start gap-2">
-              <div className="flex items-center gap-2">
+            <div className="absolute left-3 right-3 top-3 flex flex-col items-start gap-2 md:right-auto">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="flex overflow-hidden rounded-lg bg-white/95 p-1 shadow">
                   {(["2d", "3d"] as const).map((mode) => (
                     <button
@@ -2098,7 +2098,7 @@ export default function MapPage() {
 
             {/* 配達エリア: コースを選んで面を描く（エリアはコースの属性・2026-08-10 合意） */}
             {areaPanelOpen && !editingAreaCourse && (
-              <div className="absolute right-3 top-3 z-10 max-h-[70%] w-[min(280px,calc(100vw-3rem))] overflow-y-auto rounded-xl bg-white p-3 shadow-lg">
+              <div className="absolute bottom-3 left-3 right-3 z-10 max-h-[55%] overflow-y-auto rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:max-h-[70%] md:w-[min(280px,calc(100vw-3rem))]">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-700">配達エリア</span>
                   <button
@@ -2144,7 +2144,7 @@ export default function MapPage() {
 
             {/* エリア描画中のパネル */}
             {editingAreaCourse && (
-              <div className="absolute right-3 top-3 z-10 w-[min(280px,calc(100vw-3rem))] rounded-xl bg-white p-3 shadow-lg">
+              <div className="absolute bottom-3 left-3 right-3 z-10 rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:w-[min(280px,calc(100vw-3rem))]">
                 <div className="mb-1 flex items-center gap-2">
                   <span
                     className="h-3 w-3 shrink-0 rounded-sm"
@@ -2197,7 +2197,7 @@ export default function MapPage() {
 
             {/* 駐車区画の作成（航空写真に合わせて囲む → 長方形に整えて保存） */}
             {slotPlace && (
-              <div className="absolute right-3 top-3 z-10 w-[min(300px,calc(100vw-3rem))] rounded-xl bg-white p-3 shadow-lg">
+              <div className="absolute bottom-3 left-3 right-3 z-10 rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:w-[min(300px,calc(100vw-3rem))]">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="truncate text-xs font-bold text-slate-700">
                     {slotPlace.name} の駐車区画

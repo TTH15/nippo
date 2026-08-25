@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { preload } from "swr";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBriefcase, faPlus, faTrash, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+import { faBriefcase, faPlus, faPen, faTrash, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -190,14 +190,14 @@ export default function SpotJobsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="w-full text-sm">
+            <table className="min-w-[900px] w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500 text-xs">
                   <th className="text-left font-medium px-3 py-2.5 whitespace-nowrap">日付</th>
-                  <th className="text-left font-medium px-3 py-2.5">案件名</th>
+                  <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">案件名</th>
                   <th className="text-left font-medium px-3 py-2.5 whitespace-nowrap">時間</th>
-                  <th className="text-left font-medium px-3 py-2.5">集合場所</th>
-                  <th className="text-left font-medium px-3 py-2.5">参加者</th>
+                  <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">集合場所</th>
+                  <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">参加者</th>
                   <th className="text-right font-medium px-3 py-2.5 whitespace-nowrap">請求（参考）</th>
                   <th className="text-left font-medium px-3 py-2.5 whitespace-nowrap">状態</th>
                   {canWrite && <th className="px-3 py-2.5" />}
@@ -234,6 +234,18 @@ export default function SpotJobsPage() {
                     {canWrite && (
                       <td className="px-3 py-2.5 text-right">
                         <button
+                          type="button"
+                          title="編集"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setModal({ mode: "edit", job });
+                          }}
+                          className="mr-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        >
+                          <FontAwesomeIcon icon={faPen} className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
                           title="削除"
                           onClick={(e) => {
                             e.stopPropagation();

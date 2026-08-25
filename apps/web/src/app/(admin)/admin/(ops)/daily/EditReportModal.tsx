@@ -182,7 +182,7 @@ export default function EditReportModal({
                           {g.label && (
                             <div className="text-xs font-semibold text-amber-600 mb-2">{g.label}</div>
                           )}
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             {g.fields.map((f) => {
                               const val = values[u.unitId]?.[f.fieldKey] ?? "";
                               if (f.inputType === "BOOL") {

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { Button } from "@/lib/ui/button";
@@ -213,7 +213,7 @@ export function SettingsTab({ canWrite }: { canWrite: boolean }) {
         </div>
 
         <div className="mt-4 flex items-center justify-end gap-3">
-          {savedAt && <span className="text-sm text-emerald-600">✓ 保存しました</span>}
+          {savedAt && <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600"><FontAwesomeIcon icon={faCheck} className="h-3 w-3" />保存しました</span>}
           <Button size="touch" onClick={save} disabled={!canWrite || saving}>
             {saving ? "保存中..." : "保存"}
           </Button>

@@ -585,7 +585,7 @@ export default function PendingApprovalPage() {
   return (
     <AdminLayout>
       <div className="max-w-3xl mx-auto p-4 space-y-6">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <FontAwesomeIcon icon={faUserPlus} className="h-5 w-5 text-slate-700" />
             <h1 className="text-lg font-bold text-slate-900">ドライバーの参加・承認</h1>
@@ -594,7 +594,7 @@ export default function PendingApprovalPage() {
           <button
             type="button"
             onClick={() => setInviteModalOpen(true)}
-            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+            className="inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
           >
             <FontAwesomeIcon icon={faLink} className="h-3 w-3" />
             招待リンク

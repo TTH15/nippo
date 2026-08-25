@@ -1424,7 +1424,7 @@ export default function SalesPage() {
         {/* ツールバー: 単位・期間・絞り込みを同じ様式で1行に（折返し可） */}
         <div className="mb-6 flex flex-wrap items-center gap-2">
           {tab === "analytics" && (
-            <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-lg">
+            <div className="grid w-full grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 sm:inline-flex sm:w-auto">
               {(
                 [
                   { key: "day", label: "日別" },
@@ -1437,7 +1437,7 @@ export default function SalesPage() {
                   key={o.key}
                   type="button"
                   onClick={() => setUnit(o.key)}
-                  className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                  className={`whitespace-nowrap px-4 py-1.5 text-sm rounded-md transition-colors ${
                     unit === o.key ? "bg-white text-slate-900 shadow-sm font-medium" : "text-slate-500 hover:text-slate-900"
                   }`}
                 >

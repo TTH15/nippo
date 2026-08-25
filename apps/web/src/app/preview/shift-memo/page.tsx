@@ -1,7 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowLeft,
@@ -20,36 +30,69 @@ import {
   faTruck,
 } from "@fortawesome/free-solid-svg-icons";
 import { cn } from "@/lib/ui/utils";
-import { findDuplicateCourseIds } from "./previewLogic";
+import { assignedPersonCount, findDuplicateCourseIds, shortageCount } from "./previewLogic";
 
-type Course = { id: string; name: string; carrier: string; routeId: string; color: string };
-type RouteGroup = { id: string; name: string; carrier: string; color: string };
+type Course = {
+  id: string;
+  name: string;
+  carrier: string;
+  routeId: string;
+  color: string;
+  activeWeekdays: number[];
+  requiredCount: number;
+};
+type RouteGroup = {
+  id: string;
+  name: string;
+  carrier: string;
+  color: string;
+  defaultWeekdays: number[];
+  defaultRequiredCount: number;
+};
 type PersonToken = { name: string; sourceKey?: string };
+type PanelAnchor = { left: number; top: number; right: number; bottom: number };
+type ActivePanel =
+  | { kind: "add"; routeId: string; anchor: PanelAnchor }
+  | { kind: "edit"; courseId: string; anchor: PanelAnchor }
+  | null;
 
 const DAYS = Array.from({ length: 15 }, (_, index) => index + 1);
 const WEEKDAYS = ["土", "日", "月", "火", "水", "木", "金", "土", "日", "月", "火", "水", "木", "金", "土"];
+const WEEKDAY_NUMBERS = [6, 0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6];
+const WEEKDAY_OPTIONS = [
+  { value: 1, label: "月" },
+  { value: 2, label: "火" },
+  { value: 3, label: "水" },
+  { value: 4, label: "木" },
+  { value: 5, label: "金" },
+  { value: 6, label: "土" },
+  { value: 0, label: "日" },
+];
+const MON_TO_SAT = [1, 2, 3, 4, 5, 6];
+const TUE_TO_SAT = [2, 3, 4, 5, 6];
+const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
 const PEOPLE = ["日笠", "坂田", "廣瀬", "猪上", "木下", "梶原", "勝政", "平石", "島本", "杉本", "池畑", "木村", "吉田", "磯江", "辻村", "桑野", "川人", "山本", "西脇", "平中"];
 const ROUTE_GROUPS: RouteGroup[] = [
-  { id: "yamato-yokooji", name: "横大路", carrier: "ヤマト運輸", color: "#3b82f6" },
-  { id: "yamato-mibu", name: "壬生", carrier: "ヤマト運輸", color: "#ef4444" },
-  { id: "yamato-ujitawara", name: "宇治田原", carrier: "ヤマト運輸", color: "#22c55e" },
-  { id: "yamato-mid", name: "ミッド", carrier: "ヤマト運輸", color: "#8b5cf6" },
-  { id: "amazon-kamitoba", name: "上鳥羽吉祥院", carrier: "Amazon", color: "#f59e0b" },
-  { id: "other-spot", name: "スポット便", carrier: "その他", color: "#f97316" },
+  { id: "yamato-yokooji", name: "横大路", carrier: "ヤマト運輸", color: "#3b82f6", defaultWeekdays: MON_TO_SAT, defaultRequiredCount: 2 },
+  { id: "yamato-mibu", name: "壬生", carrier: "ヤマト運輸", color: "#ef4444", defaultWeekdays: MON_TO_SAT, defaultRequiredCount: 1 },
+  { id: "yamato-ujitawara", name: "宇治田原", carrier: "ヤマト運輸", color: "#22c55e", defaultWeekdays: TUE_TO_SAT, defaultRequiredCount: 1 },
+  { id: "yamato-mid", name: "ミッド", carrier: "ヤマト運輸", color: "#8b5cf6", defaultWeekdays: MON_TO_SAT, defaultRequiredCount: 1 },
+  { id: "amazon-kamitoba", name: "上鳥羽吉祥院", carrier: "Amazon", color: "#f59e0b", defaultWeekdays: EVERY_DAY, defaultRequiredCount: 1 },
+  { id: "other-spot", name: "スポット便", carrier: "その他", color: "#f97316", defaultWeekdays: MON_TO_SAT, defaultRequiredCount: 1 },
 ];
 const INITIAL_COURSES: Course[] = [
-  { id: "yokooji-hazukashi", name: "羽束師菱川町", carrier: "ヤマト運輸", routeId: "yamato-yokooji", color: "#3b82f6" },
-  { id: "yokooji-koga", name: "久我西出町", carrier: "ヤマト運輸", routeId: "yamato-yokooji", color: "#06b6d4" },
-  { id: "yokooji-shimosu", name: "横大路下三栖", carrier: "ヤマト運輸", routeId: "yamato-yokooji", color: "#6366f1" },
-  { id: "mibu-matsubara", name: "壬生松原町", carrier: "ヤマト運輸", routeId: "yamato-mibu", color: "#ef4444" },
-  { id: "mibu-bojo", name: "壬生坊城町", carrier: "ヤマト運輸", routeId: "yamato-mibu", color: "#f97316" },
-  { id: "ujitawara-gonokuchi", name: "郷之口", carrier: "ヤマト運輸", routeId: "yamato-ujitawara", color: "#22c55e" },
-  { id: "ujitawara-tachikawa", name: "立川", carrier: "ヤマト運輸", routeId: "yamato-ujitawara", color: "#84cc16" },
-  { id: "mid-area-a", name: "ミッド Aエリア", carrier: "ヤマト運輸", routeId: "yamato-mid", color: "#8b5cf6" },
-  { id: "mid-area-b", name: "ミッド Bエリア", carrier: "ヤマト運輸", routeId: "yamato-mid", color: "#a855f7" },
-  { id: "amazon-nishikujo", name: "西九条エリア", carrier: "Amazon", routeId: "amazon-kamitoba", color: "#f59e0b" },
-  { id: "amazon-kisshoin", name: "吉祥院エリア", carrier: "Amazon", routeId: "amazon-kamitoba", color: "#ec4899" },
-  { id: "spot-free", name: "フリー枠", carrier: "その他", routeId: "other-spot", color: "#f97316" },
+  { id: "yokooji-mozume", name: "物集女", carrier: "ヤマト運輸", routeId: "yamato-yokooji", color: "#3b82f6", activeWeekdays: TUE_TO_SAT, requiredCount: 2 },
+  { id: "yokooji-kuze", name: "久世", carrier: "ヤマト運輸", routeId: "yamato-yokooji", color: "#06b6d4", activeWeekdays: MON_TO_SAT, requiredCount: 2 },
+  { id: "yokooji-shimosu", name: "横大路下三栖", carrier: "ヤマト運輸", routeId: "yamato-yokooji", color: "#6366f1", activeWeekdays: MON_TO_SAT, requiredCount: 1 },
+  { id: "mibu-matsubara", name: "壬生松原町", carrier: "ヤマト運輸", routeId: "yamato-mibu", color: "#ef4444", activeWeekdays: MON_TO_SAT, requiredCount: 1 },
+  { id: "mibu-bojo", name: "壬生坊城町", carrier: "ヤマト運輸", routeId: "yamato-mibu", color: "#f97316", activeWeekdays: MON_TO_SAT, requiredCount: 1 },
+  { id: "ujitawara-gonokuchi", name: "郷之口", carrier: "ヤマト運輸", routeId: "yamato-ujitawara", color: "#22c55e", activeWeekdays: TUE_TO_SAT, requiredCount: 1 },
+  { id: "ujitawara-tachikawa", name: "立川", carrier: "ヤマト運輸", routeId: "yamato-ujitawara", color: "#84cc16", activeWeekdays: TUE_TO_SAT, requiredCount: 1 },
+  { id: "mid-area-a", name: "ミッド Aエリア", carrier: "ヤマト運輸", routeId: "yamato-mid", color: "#8b5cf6", activeWeekdays: MON_TO_SAT, requiredCount: 1 },
+  { id: "mid-area-b", name: "ミッド Bエリア", carrier: "ヤマト運輸", routeId: "yamato-mid", color: "#a855f7", activeWeekdays: MON_TO_SAT, requiredCount: 1 },
+  { id: "amazon-nishikujo", name: "西九条エリア", carrier: "Amazon", routeId: "amazon-kamitoba", color: "#f59e0b", activeWeekdays: EVERY_DAY, requiredCount: 2 },
+  { id: "amazon-kisshoin", name: "吉祥院エリア", carrier: "Amazon", routeId: "amazon-kamitoba", color: "#ec4899", activeWeekdays: EVERY_DAY, requiredCount: 2 },
+  { id: "spot-free", name: "フリー枠", carrier: "その他", routeId: "other-spot", color: "#f97316", activeWeekdays: MON_TO_SAT, requiredCount: 1 },
 ];
 
 const PERSON_COLORS = ["#06b6d4", "#8b5cf6", "#f97316", "#22c55e", "#3b82f6", "#ec4899"];
@@ -60,16 +103,60 @@ function cellKey(courseId: string, day: number): string {
   return `${courseId}:${day}`;
 }
 
+function isCourseActive(course: Course, day: number): boolean {
+  return course.activeWeekdays.includes(WEEKDAY_NUMBERS[day - 1]);
+}
+
+function weekdaySummary(activeWeekdays: number[]): string {
+  return WEEKDAY_OPTIONS.filter((weekday) => activeWeekdays.includes(weekday.value))
+    .map((weekday) => weekday.label)
+    .join("・");
+}
+
 function colorForPerson(name: string): string {
   let sum = 0;
   for (const char of name) sum += char.charCodeAt(0);
   return PERSON_COLORS[sum % PERSON_COLORS.length];
 }
 
+function trapDialogFocus(event: ReactKeyboardEvent<HTMLElement>, onClose: () => void) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    onClose();
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  ));
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function floatingPanelPosition(anchor: PanelAnchor, width: number, height: number) {
+  const margin = 12;
+  const gap = 8;
+  const safeWidth = Math.min(width, window.innerWidth - margin * 2);
+  const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - safeWidth - margin));
+  const top = anchor.bottom + gap + height <= window.innerHeight - margin
+    ? anchor.bottom + gap
+    : Math.max(margin, anchor.top - height - gap);
+  return { left, top, width: safeWidth };
+}
+
 function createMockAssignments(): Record<string, string[]> {
   const result: Record<string, string[]> = {};
   INITIAL_COURSES.forEach((course, courseIndex) => {
     DAYS.forEach((day) => {
+      if (!isCourseActive(course, day)) return;
       if ((day + courseIndex * 2) % 4 === 0) return;
       result[cellKey(course.id, day)] = [PEOPLE[(day * 3 + courseIndex * 2) % PEOPLE.length]];
       if ((day + courseIndex) % 5 === 0) {
@@ -80,16 +167,43 @@ function createMockAssignments(): Record<string, string[]> {
   return result;
 }
 
-function PersonSlip({ name, sourceKey }: { name: string; sourceKey?: string }) {
+function PersonSlip({
+  name,
+  sourceKey,
+  selected = false,
+  onSelect,
+  onRemove,
+}: {
+  name: string;
+  sourceKey?: string;
+  selected?: boolean;
+  onSelect?: (token: PersonToken) => void;
+  onRemove?: () => void;
+}) {
+  const token = { name, sourceKey };
   return (
     <div
       draggable
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`${name}の名前札${sourceKey ? "。Deleteキーで配置解除" : ""}`}
+      onClick={() => onSelect?.(token)}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect?.(token);
+        } else if (sourceKey && onRemove && (event.key === "Delete" || event.key === "Backspace")) {
+          event.preventDefault();
+          onRemove();
+        }
+      }}
       onDragStart={(event) => {
-        const token: PersonToken = { name, sourceKey };
         event.dataTransfer.effectAllowed = sourceKey ? "move" : "copy";
         event.dataTransfer.setData(PERSON_DRAG_TYPE, JSON.stringify(token));
       }}
-      className="inline-flex h-7 max-w-full cursor-grab items-center overflow-hidden rounded-md border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.08)] active:cursor-grabbing"
+      className={cn("inline-flex h-7 max-w-full cursor-grab items-center overflow-hidden rounded-md border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.08)] outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-indigo-500", selected && "ring-2 ring-indigo-500")}
       style={{ borderLeftColor: colorForPerson(name), borderLeftWidth: 3 }}
     >
       <span className="min-w-0 truncate px-2">{name}</span>
@@ -107,11 +221,12 @@ export default function ShiftMemoPreviewPage() {
   const [courseOrder, setCourseOrder] = useState(INITIAL_COURSES.map((course) => course.id));
   const [hiddenCourseIds, setHiddenCourseIds] = useState<string[]>([]);
   const [hiddenOpen, setHiddenOpen] = useState(false);
-  const [courseMenuId, setCourseMenuId] = useState<string | null>(null);
-  const [addingRouteId, setAddingRouteId] = useState<string | null>(null);
+  const [activePanel, setActivePanel] = useState<ActivePanel>(null);
+  const activePanelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [newCourseName, setNewCourseName] = useState("");
-  const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
-  const [editingCourseName, setEditingCourseName] = useState("");
+  const [settingsCourseName, setSettingsCourseName] = useState("");
+  const [settingsWeekdays, setSettingsWeekdays] = useState<number[]>([]);
+  const [settingsRequiredCount, setSettingsRequiredCount] = useState(1);
   const [pendingDuplicate, setPendingDuplicate] = useState<{
     token: PersonToken;
     targetKey: string;
@@ -120,7 +235,38 @@ export default function ShiftMemoPreviewPage() {
   const [search, setSearch] = useState("");
   const [customName, setCustomName] = useState("");
   const [extraPeople, setExtraPeople] = useState<string[]>([]);
+  const [selectedToken, setSelectedToken] = useState<PersonToken | null>(null);
+  const [liveMessage, setLiveMessage] = useState("");
   const [note, setNote] = useState("鈴木さんは午前だけ。応援1名は昼までに確定予定。\nミッド社員の配置は前日に再確認する。");
+  const addingRouteId = activePanel?.kind === "add" ? activePanel.routeId : null;
+  const settingsCourseId = activePanel?.kind === "edit" ? activePanel.courseId : null;
+
+  const closeActivePanel = (restoreFocus = false) => {
+    setActivePanel(null);
+    if (restoreFocus) requestAnimationFrame(() => activePanelTriggerRef.current?.focus());
+  };
+
+  useEffect(() => {
+    if (!activePanel) return;
+    const closeOnScroll = () => {
+      setActivePanel(null);
+      requestAnimationFrame(() => activePanelTriggerRef.current?.focus({ preventScroll: true }));
+    };
+    const repositionOnResize = () => {
+      const rect = activePanelTriggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const { left, top, right, bottom } = rect;
+      setActivePanel((current) => current ? { ...current, anchor: { left, top, right, bottom } } : null);
+    };
+    window.addEventListener("scroll", closeOnScroll, true);
+    window.addEventListener("resize", repositionOnResize);
+    window.visualViewport?.addEventListener("resize", repositionOnResize);
+    return () => {
+      window.removeEventListener("scroll", closeOnScroll, true);
+      window.removeEventListener("resize", repositionOnResize);
+      window.visualViewport?.removeEventListener("resize", repositionOnResize);
+    };
+  }, [activePanel]);
 
   const orderedCourses = useMemo(() => {
     const byId = new Map(courses.map((course) => [course.id, course]));
@@ -130,6 +276,12 @@ export default function ShiftMemoPreviewPage() {
   const hiddenCourses = orderedCourses.filter((course) => hiddenCourseIds.includes(course.id));
   const filteredPeople = [...PEOPLE, ...extraPeople].filter((name) => name.includes(search.trim()));
   const boardWidth = courseWidth + dayWidth * DAYS.length;
+  const shortageFor = (course: Course, day: number) => shortageCount(
+    isCourseActive(course, day),
+    course.requiredCount,
+    assignments[cellKey(course.id, day)] ?? [],
+  );
+  const dayShortage = (day: number) => visibleCourses.reduce((total, course) => total + shortageFor(course, day), 0);
 
   const applyPersonDrop = (token: PersonToken, targetKey: string) => {
     if (token.sourceKey === targetKey) return;
@@ -144,13 +296,11 @@ export default function ShiftMemoPreviewPage() {
       next[targetKey] = [...(next[targetKey] ?? []), token.name];
       return next;
     });
+    const targetName = courses.find((course) => course.id === targetKey.split(":")[0])?.name ?? "担当枠";
+    setLiveMessage(`${token.name}を${targetName}へ配置しました`);
   };
 
-  const dropPerson = (event: DragEvent, targetKey: string) => {
-    const raw = event.dataTransfer.getData(PERSON_DRAG_TYPE);
-    if (!raw) return;
-    event.preventDefault();
-    const token = JSON.parse(raw) as PersonToken;
+  const requestPersonPlacement = (token: PersonToken, targetKey: string) => {
     if (token.sourceKey === targetKey) return;
 
     const targetDay = Number(targetKey.split(":").at(-1));
@@ -167,10 +317,36 @@ export default function ShiftMemoPreviewPage() {
 
     if (existingCourseNames.length > 0) {
       setPendingDuplicate({ token, targetKey, existingCourseNames });
+      setSelectedToken(null);
       return;
     }
 
     applyPersonDrop(token, targetKey);
+    setSelectedToken(null);
+  };
+
+  const dropPerson = (event: DragEvent, targetKey: string) => {
+    const raw = event.dataTransfer.getData(PERSON_DRAG_TYPE);
+    if (!raw) return;
+    event.preventDefault();
+    requestPersonPlacement(JSON.parse(raw) as PersonToken, targetKey);
+  };
+
+  const selectPersonToken = (token: PersonToken) => {
+    const sameToken = selectedToken?.name === token.name && selectedToken.sourceKey === token.sourceKey;
+    setSelectedToken(sameToken ? null : token);
+    setLiveMessage(sameToken ? `${token.name}の選択を解除しました` : `${token.name}を選択しました。配置先でEnterキーを押してください`);
+  };
+
+  const removePerson = (sourceKey: string, name: string) => {
+    setAssignments((current) => {
+      const source = [...(current[sourceKey] ?? [])];
+      const sourceIndex = source.indexOf(name);
+      if (sourceIndex >= 0) source.splice(sourceIndex, 1);
+      return { ...current, [sourceKey]: source };
+    });
+    setSelectedToken(null);
+    setLiveMessage(`${name}の配置を解除しました`);
   };
 
   const returnPersonToRack = (event: DragEvent) => {
@@ -179,12 +355,7 @@ export default function ShiftMemoPreviewPage() {
     event.preventDefault();
     const token = JSON.parse(raw) as PersonToken;
     if (!token.sourceKey) return;
-    setAssignments((current) => {
-      const source = [...(current[token.sourceKey!] ?? [])];
-      const sourceIndex = source.indexOf(token.name);
-      if (sourceIndex >= 0) source.splice(sourceIndex, 1);
-      return { ...current, [token.sourceKey!]: source };
-    });
+    removePerson(token.sourceKey, token.name);
   };
 
   const addCustomName = () => {
@@ -209,19 +380,64 @@ export default function ShiftMemoPreviewPage() {
     const name = newCourseName.trim().slice(0, 30);
     if (!name) return;
     const id = `custom-${route.id}-${Date.now()}`;
-    setCourses((current) => [...current, { id, name, carrier: route.carrier, routeId: route.id, color: route.color }]);
+    setCourses((current) => [...current, {
+      id,
+      name,
+      carrier: route.carrier,
+      routeId: route.id,
+      color: route.color,
+      activeWeekdays: [...route.defaultWeekdays],
+      requiredCount: route.defaultRequiredCount,
+    }]);
     setCourseOrder((current) => [...current, id]);
     setNewCourseName("");
-    setAddingRouteId(null);
+    closeActivePanel(true);
   };
 
-  const saveCourseName = (courseId: string) => {
-    const name = editingCourseName.trim().slice(0, 30);
-    if (name) {
-      setCourses((current) => current.map((course) => course.id === courseId ? { ...course, name } : course));
+  const openAddCourse = (route: RouteGroup, event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (addingRouteId === route.id) {
+      closeActivePanel(true);
+      return;
     }
-    setEditingCourseId(null);
-    setEditingCourseName("");
+    activePanelTriggerRef.current = event.currentTarget;
+    const { left, top, right, bottom } = event.currentTarget.getBoundingClientRect();
+    setNewCourseName("");
+    setActivePanel({ kind: "add", routeId: route.id, anchor: { left, top, right, bottom } });
+  };
+
+  const openCourseSettings = (course: Course, event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (settingsCourseId === course.id) {
+      closeActivePanel(true);
+      return;
+    }
+    activePanelTriggerRef.current = event.currentTarget;
+    const { left, top, right, bottom } = event.currentTarget.getBoundingClientRect();
+    setActivePanel({ kind: "edit", courseId: course.id, anchor: { left, top, right, bottom } });
+    setSettingsCourseName(course.name);
+    setSettingsWeekdays([...course.activeWeekdays]);
+    setSettingsRequiredCount(course.requiredCount);
+  };
+
+  const saveCourseSettings = (courseId: string) => {
+    const name = settingsCourseName.trim().slice(0, 30);
+    if (!name || settingsWeekdays.length === 0) return;
+    setCourses((current) => current.map((course) => course.id === courseId
+      ? {
+          ...course,
+          name,
+          activeWeekdays: [...settingsWeekdays].sort((a, b) => a - b),
+          requiredCount: Math.max(1, Math.min(10, settingsRequiredCount)),
+        }
+      : course));
+    closeActivePanel(true);
+  };
+
+  const hideCourse = (course: Course) => {
+    setHiddenCourseIds((ids) => ids.includes(course.id) ? ids : [...ids, course.id]);
+    setActivePanel(null);
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>(`[data-route-add="${course.routeId}"]`)?.focus();
+    });
   };
 
   const startResize = (
@@ -250,10 +466,24 @@ export default function ShiftMemoPreviewPage() {
     course,
     people: assignments[cellKey(course.id, selectedDay)] ?? [],
   }));
+  const selectedShortages = selectedAssignments
+    .map((entry) => ({ ...entry, shortage: shortageFor(entry.course, selectedDay) }))
+    .filter((entry) => entry.shortage > 0);
+  const activeRoute = activePanel?.kind === "add"
+    ? ROUTE_GROUPS.find((route) => route.id === activePanel.routeId)
+    : undefined;
+  const activeCourse = activePanel?.kind === "edit"
+    ? courses.find((course) => course.id === activePanel.courseId)
+    : undefined;
 
   return (
     <main className="h-dvh overflow-hidden bg-slate-100 p-3 text-slate-900 md:p-5">
-      <div className="mx-auto flex h-[calc(100dvh-1.5rem)] min-h-0 max-w-[1900px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-300/30 md:h-[calc(100dvh-2.5rem)]">
+      <p className="sr-only" aria-live="polite">{liveMessage}</p>
+      <div
+        inert={activePanel !== null || pendingDuplicate !== null ? true : undefined}
+        aria-hidden={activePanel !== null || pendingDuplicate !== null ? true : undefined}
+        className="mx-auto flex h-[calc(100dvh-1.5rem)] min-h-0 max-w-[1900px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-300/30 md:h-[calc(100dvh-2.5rem)]"
+      >
         <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-slate-200 px-4 py-3 md:px-6">
           <Link href="/preview" aria-label="プレビュー一覧へ戻る" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700">
             <FontAwesomeIcon icon={faArrowLeft} />
@@ -265,7 +495,6 @@ export default function ShiftMemoPreviewPage() {
                 <FontAwesomeIcon icon={faLock} className="h-3 w-3" />個人メモ
               </span>
             </div>
-            <p className="text-[10px] text-slate-400">この端末だけに保存する想定・実際の保存なし</p>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <div className="flex h-9 items-center overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -317,10 +546,12 @@ export default function ShiftMemoPreviewPage() {
               </div>
               {DAYS.map((day, index) => {
                 const weekend = WEEKDAYS[index] === "土" ? "sat" : WEEKDAYS[index] === "日" ? "sun" : null;
+                const shortage = dayShortage(day);
                 return (
                   <div key={day} className={cn("sticky top-0 z-40 h-16 border-b border-r border-slate-200 bg-slate-50 text-xs font-bold transition", selectedDay === day && "bg-indigo-50 text-indigo-700 ring-2 ring-inset ring-indigo-500", selectedDay !== day && weekend === "sat" && "text-blue-600", selectedDay !== day && weekend === "sun" && "text-rose-600")}>
                     <button type="button" onClick={() => setSelectedDay(day)} className="flex h-full w-full flex-col items-center justify-center">
-                      <span className="text-sm">{day}日</span><span className="mt-0.5 text-[10px]">（{WEEKDAYS[index]}）</span>
+                      <span className="text-sm">{day}日</span><span className="text-[10px]">（{WEEKDAYS[index]}）</span>
+                      {shortage > 0 && <span className="mt-0.5 rounded-full bg-amber-100 px-1.5 text-[8px] font-bold leading-4 text-amber-700">不足{shortage}</span>}
                     </button>
                     <button
                       type="button"
@@ -341,7 +572,7 @@ export default function ShiftMemoPreviewPage() {
 
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute bottom-0 top-16 z-[35] border-x-2 border-indigo-500"
+                className="pointer-events-none absolute bottom-0 top-16 z-20 border-x-2 border-indigo-500"
                 style={{ left: courseWidth + (selectedDay - 1) * dayWidth, width: dayWidth }}
               />
 
@@ -353,46 +584,54 @@ export default function ShiftMemoPreviewPage() {
                       <div className="truncate text-[9px] font-medium text-slate-400">{route.carrier}</div>
                       <div className="truncate text-[11px] font-bold text-slate-700">{route.name}</div>
                     </div>
-                    <button type="button" onClick={() => { setAddingRouteId((id) => id === route.id ? null : route.id); setNewCourseName(""); }} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700" aria-label={`${route.name}に町名・担当枠を追加`} title="町名・担当枠を追加"><FontAwesomeIcon icon={faPlus} className="h-3 w-3" /></button>
-                    {addingRouteId === route.id && (
-                      <div className="absolute left-2 top-10 z-50 w-64 rounded-xl border border-slate-200 bg-white p-2.5 shadow-xl">
-                        <label className="mb-1.5 block text-[10px] font-bold text-slate-600">{route.name}に担当枠を追加</label>
-                        <div className="flex h-8 overflow-hidden rounded-lg border border-slate-200 focus-within:border-indigo-400">
-                          <input autoFocus value={newCourseName} onChange={(event) => setNewCourseName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addCourse(route); if (event.key === "Escape") setAddingRouteId(null); }} placeholder="町名・エリア名・作業名" className="min-w-0 flex-1 px-2 text-[11px] outline-none" />
-                          <button type="button" onClick={() => addCourse(route)} className="border-l border-slate-200 bg-slate-800 px-3 text-[10px] font-semibold text-white hover:bg-slate-700">追加</button>
-                        </div>
-                      </div>
-                    )}
+                    <button type="button" data-route-add={route.id} onClick={(event) => openAddCourse(route, event)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700" aria-label={`${route.name}に町名・担当枠を追加`} aria-haspopup="dialog" aria-expanded={addingRouteId === route.id} title="町名・担当枠を追加"><FontAwesomeIcon icon={faPlus} className="h-3 w-3" /></button>
                   </div>
-                  <div className="flex h-11 items-center border-b border-slate-200 bg-slate-100/80 px-3 text-[9px] text-slate-400" style={{ gridColumn: `span ${DAYS.length}` }}>
-                    町名・エリア・応援枠などを自由に追加できます
-                  </div>
+                  <div className="h-11 border-b border-slate-200 bg-slate-100/80" style={{ gridColumn: `span ${DAYS.length}` }} />
 
                   {visibleCourses.filter((course) => course.routeId === route.id).map((course) => (
                     <div key={course.id} className="contents">
                       <div onDragOver={(event) => event.preventDefault()} onDrop={(event) => { const sourceId = event.dataTransfer.getData(COURSE_DRAG_TYPE); if (sourceId) reorderCourse(sourceId, course.id); }} className="group/course sticky left-0 z-30 flex min-h-28 items-center gap-2 border-b border-r border-slate-200 bg-white px-2.5">
                         <button type="button" draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(COURSE_DRAG_TYPE, course.id); }} className="inline-flex h-7 w-6 cursor-grab items-center justify-center rounded text-slate-300 hover:bg-slate-100 hover:text-slate-500 active:cursor-grabbing" aria-label={`${course.name}を並べ替える`}><FontAwesomeIcon icon={faGripLines} className="h-3.5 w-3.5" /></button>
                         <span className="h-12 w-1 shrink-0 rounded-full" style={{ backgroundColor: course.color }} />
-                        {editingCourseId === course.id ? (
-                          <input autoFocus value={editingCourseName} onChange={(event) => setEditingCourseName(event.target.value)} onBlur={() => saveCourseName(course.id)} onKeyDown={(event) => { if (event.key === "Enter") saveCourseName(course.id); if (event.key === "Escape") { setEditingCourseId(null); setEditingCourseName(""); } }} className="min-w-0 flex-1 rounded-md border border-indigo-300 px-2 py-1 text-xs font-bold text-slate-700 outline-none" aria-label={`${course.name}の名前`} />
-                        ) : (
-                          <span className="min-w-0 flex-1 text-xs font-bold leading-snug text-slate-700" title={course.name}>{course.name}</span>
-                        )}
-                        <button type="button" onClick={() => setCourseMenuId((id) => id === course.id ? null : course.id)} className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-white/95 text-slate-400 opacity-0 shadow-sm ring-1 ring-slate-200 transition hover:text-slate-700 focus:opacity-100 group-hover/course:opacity-100" aria-label={`${course.name}の操作`}><FontAwesomeIcon icon={faEllipsis} className="h-3 w-3" /></button>
-                        {courseMenuId === course.id && (
-                          <div className="absolute right-1.5 top-9 z-40 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-                            <button type="button" onClick={() => { setEditingCourseId(course.id); setEditingCourseName(course.name); setCourseMenuId(null); }} className="flex h-8 w-full items-center whitespace-nowrap rounded-md px-2.5 text-left text-[10px] font-medium text-slate-600 hover:bg-slate-100">名前を変更</button>
-                            <button type="button" onClick={() => { setHiddenCourseIds((ids) => [...ids, course.id]); setCourseMenuId(null); }} className="inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-md px-2.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100"><FontAwesomeIcon icon={faEyeSlash} className="h-3 w-3 text-slate-400" />この担当枠を非表示</button>
-                          </div>
-                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold leading-snug text-slate-700" title={course.name}>{course.name}</div>
+                          <div className="mt-1 text-[9px] leading-tight text-slate-400">{weekdaySummary(course.activeWeekdays)}・{course.requiredCount}人</div>
+                        </div>
+                        <button type="button" onClick={(event) => openCourseSettings(course, event)} className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-white/95 text-slate-400 shadow-sm ring-1 ring-slate-200 transition hover:text-slate-700" aria-label={`${course.name}を編集`} aria-haspopup="dialog" aria-expanded={settingsCourseId === course.id} title="担当枠を編集"><FontAwesomeIcon icon={faEllipsis} className="h-3 w-3" /></button>
                       </div>
                       {DAYS.map((day) => {
                         const key = cellKey(course.id, day);
                         const people = assignments[key] ?? [];
+                        const active = isCourseActive(course, day);
+                        const assignedCount = assignedPersonCount(people);
+                        const shortage = shortageFor(course, day);
                         return (
-                          <div key={key} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropPerson(event, key)} onClick={() => setSelectedDay(day)} className={cn("flex min-h-28 cursor-pointer flex-col content-start items-start gap-1.5 border-b border-r border-slate-200 p-1.5 transition hover:bg-slate-50", selectedDay === day && "bg-indigo-50/45")}>
-                            {people.map((name, personIndex) => <PersonSlip key={`${name}-${personIndex}`} name={name} sourceKey={key} />)}
-                            {people.length === 0 && <span className="m-auto text-base font-light text-slate-300">＋</span>}
+                          <div
+                            key={key}
+                            onDragOver={(event) => { if (active) event.preventDefault(); }}
+                            onDrop={(event) => { if (active) dropPerson(event, key); }}
+                            onClick={() => setSelectedDay(day)}
+                            className={cn("relative flex min-h-28 cursor-pointer flex-col content-start items-start gap-1.5 border-b border-r border-slate-200 p-1.5 pt-6 transition", active ? "hover:bg-slate-50" : "bg-slate-100/80", selectedDay === day && active && "bg-indigo-50/45")}
+                            style={!active ? { backgroundImage: "repeating-linear-gradient(135deg, transparent, transparent 8px, rgba(148,163,184,0.08) 8px, rgba(148,163,184,0.08) 10px)" } : undefined}
+                          >
+                            {active ? (
+                              shortage > 0
+                                ? <span className="absolute right-1.5 top-1.5 rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span>
+                                : <span className="absolute right-1.5 top-1.5 text-[9px] font-medium tabular-nums text-slate-400">{assignedCount}/{course.requiredCount}</span>
+                            ) : (
+                              <span className={cn("absolute right-1.5 top-1.5 text-[9px] font-medium", people.length > 0 ? "text-amber-700" : "text-slate-400")}>{people.length > 0 ? "非稼働に配置" : "非稼働"}</span>
+                            )}
+                            {people.map((name, personIndex) => (
+                              <PersonSlip
+                                key={`${name}-${personIndex}`}
+                                name={name}
+                                sourceKey={key}
+                                selected={selectedToken?.name === name && selectedToken.sourceKey === key}
+                                onSelect={selectPersonToken}
+                                onRemove={() => removePerson(key, name)}
+                              />
+                            ))}
+                            {active && people.length === 0 && <span className="m-auto text-base font-light text-slate-300">＋</span>}
                           </div>
                         );
                       })}
@@ -419,17 +658,29 @@ export default function ShiftMemoPreviewPage() {
 
           <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-slate-50/70">
             <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
-              <h2 className="text-lg font-black text-slate-900">8月{selectedDay}日（{WEEKDAYS[selectedDay - 1]}）</h2>
-              <p className="mt-0.5 text-[10px] text-slate-500">札全体をドラッグして、左のセルまたは下の担当枠へ置きます。</p>
+              <h2 className="text-lg font-black text-slate-900">2026年8月{selectedDay}日（{WEEKDAYS[selectedDay - 1]}）</h2>
             </div>
             <div className="space-y-4 p-3.5">
+              {selectedShortages.length > 0 ? (
+                <section className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-xs font-bold text-amber-900">不足している担当枠</h3>
+                    <span className="rounded-full bg-amber-200/70 px-2 py-0.5 text-[10px] font-bold text-amber-800">あと{selectedShortages.reduce((total, entry) => total + entry.shortage, 0)}人</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {selectedShortages.map(({ course, shortage }) => (
+                      <span key={course.id} className="rounded-md border border-amber-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700">{course.name} <span className="text-amber-700">あと{shortage}</span></span>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
               <section onDragOver={(event) => event.preventDefault()} onDrop={returnPersonToRack} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="text-xs font-bold text-slate-700">名前札</span>
-                  <span className="text-[9px] text-slate-400">配置済みの札をここへ戻すと解除</span>
                 </div>
                 <div className="mb-2 flex h-8 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5"><FontAwesomeIcon icon={faMagnifyingGlass} className="h-3 w-3 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="名前を検索" className="min-w-0 flex-1 bg-transparent text-xs outline-none" /></div>
-                <div className="flex min-h-11 max-h-36 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-dashed border-slate-200 bg-slate-50/60 p-1.5">{filteredPeople.map((name) => <PersonSlip key={name} name={name} />)}</div>
+                <div className="flex min-h-11 max-h-36 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-dashed border-slate-200 bg-slate-50/60 p-1.5">{filteredPeople.map((name) => <PersonSlip key={name} name={name} selected={selectedToken?.name === name && !selectedToken.sourceKey} onSelect={selectPersonToken} />)}</div>
                 <div className="mt-2 flex h-8 items-center rounded-lg border border-dashed border-slate-300 pl-2.5">
                   <input value={customName} onChange={(event) => setCustomName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addCustomName()} placeholder="応援1名・未定など" className="min-w-0 flex-1 text-xs outline-none" />
                   <button type="button" onClick={addCustomName} className="inline-flex h-full items-center gap-1 px-2 text-[10px] font-medium text-slate-600 hover:bg-slate-50"><FontAwesomeIcon icon={faPlus} className="h-2.5 w-2.5" />文字札</button>
@@ -440,15 +691,41 @@ export default function ShiftMemoPreviewPage() {
                 <div className="flex items-center justify-between"><h3 className="text-xs font-bold text-slate-600">この日の配置</h3><span className="text-[10px] text-slate-400">{selectedAssignments.reduce((sum, entry) => sum + entry.people.length, 0)}枚</span></div>
                 {selectedAssignments.map(({ course, people }) => {
                   const key = cellKey(course.id, selectedDay);
+                  const active = isCourseActive(course, selectedDay);
+                  const shortage = shortageFor(course, selectedDay);
                   return (
-                    <div key={course.id} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropPerson(event, key)} className="rounded-lg border border-slate-200 bg-white p-2.5">
+                    <div
+                      key={course.id}
+                      role="group"
+                      tabIndex={active ? 0 : undefined}
+                      aria-label={`${course.name}の配置先${selectedToken ? `。${selectedToken.name}を配置するにはEnterキー` : ""}`}
+                      onKeyDown={(event) => {
+                        if (active && selectedToken && (event.key === "Enter" || event.key === " ")) {
+                          event.preventDefault();
+                          requestPersonPlacement(selectedToken, key);
+                        }
+                      }}
+                      onDragOver={(event) => { if (active) event.preventDefault(); }}
+                      onDrop={(event) => { if (active) dropPerson(event, key); }}
+                      className={cn("rounded-lg border p-2.5 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", active ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-100/80")}
+                    >
                       <div className="mb-2 flex items-center gap-2">
                         <span className="h-4 w-1 rounded-full" style={{ backgroundColor: course.color }} />
-                        <div className="min-w-0"><div className="truncate text-[9px] text-slate-400">{ROUTE_GROUPS.find((route) => route.id === course.routeId)?.name}</div><h4 className="truncate text-[11px] font-bold text-slate-700">{course.name}</h4></div>
+                        <div className="min-w-0 flex-1"><div className="truncate text-[9px] text-slate-400">{ROUTE_GROUPS.find((route) => route.id === course.routeId)?.name}・必要{course.requiredCount}人</div><h4 className="truncate text-[11px] font-bold text-slate-700">{course.name}</h4></div>
+                        {!active ? <span className="text-[9px] font-medium text-slate-400">非稼働</span> : shortage > 0 ? <span className="rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span> : null}
                       </div>
-                      <div className="flex min-h-8 flex-wrap gap-1.5 rounded-md border border-dashed border-slate-200 bg-slate-50/50 p-1.5">
-                        {people.map((name, index) => <PersonSlip key={`${name}-${index}`} name={name} sourceKey={key} />)}
-                        {people.length === 0 && <span className="m-auto text-[10px] text-slate-300">ここに名前を置く</span>}
+                      <div className={cn("flex min-h-8 flex-wrap gap-1.5 rounded-md border border-dashed p-1.5", active ? "border-slate-200 bg-slate-50/50" : "border-slate-200 bg-slate-100")}>
+                        {people.map((name, index) => (
+                          <PersonSlip
+                            key={`${name}-${index}`}
+                            name={name}
+                            sourceKey={key}
+                            selected={selectedToken?.name === name && selectedToken.sourceKey === key}
+                            onSelect={selectPersonToken}
+                            onRemove={() => removePerson(key, name)}
+                          />
+                        ))}
+                        {people.length === 0 && <span className="m-auto text-[10px] text-slate-300">{active ? "＋" : "非稼働"}</span>}
                       </div>
                     </div>
                   );
@@ -464,24 +741,97 @@ export default function ShiftMemoPreviewPage() {
         </div>
       </div>
 
+      {activePanel?.kind === "add" && activeRoute && createPortal(
+        <>
+          <div className="fixed inset-0 z-[90]" role="presentation" onMouseDown={() => closeActivePanel(true)} />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${activeRoute.name}に担当枠を追加`}
+            onKeyDown={(event) => trapDialogFocus(event, () => closeActivePanel(true))}
+            className="fixed z-[100] rounded-xl border border-slate-200 bg-white p-2.5 shadow-2xl"
+            style={floatingPanelPosition(activePanel.anchor, 256, 92)}
+          >
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <label htmlFor="new-assignment-name" className="text-[10px] font-bold text-slate-600">{activeRoute.name}に担当枠を追加</label>
+              <button type="button" onClick={() => closeActivePanel(true)} className="text-[10px] text-slate-400 hover:text-slate-700">閉じる</button>
+            </div>
+            <div className="flex h-8 overflow-hidden rounded-lg border border-slate-200 focus-within:border-indigo-400">
+              <input id="new-assignment-name" autoFocus value={newCourseName} onChange={(event) => setNewCourseName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addCourse(activeRoute); }} placeholder="町名・エリア名・作業名" className="min-w-0 flex-1 px-2 text-[11px] outline-none" />
+              <button type="button" onClick={() => addCourse(activeRoute)} className="border-l border-slate-200 bg-slate-800 px-3 text-[10px] font-semibold text-white hover:bg-slate-700">追加</button>
+            </div>
+          </section>
+        </>,
+        document.body,
+      )}
+
+      {activePanel?.kind === "edit" && activeCourse && createPortal(
+        <>
+          <div className="fixed inset-0 z-[90]" role="presentation" onMouseDown={() => closeActivePanel(true)} />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="assignment-editor-title"
+            onKeyDown={(event) => trapDialogFocus(event, () => closeActivePanel(true))}
+            className="fixed z-[100] rounded-xl border border-slate-200 bg-white p-2.5 shadow-2xl"
+            style={floatingPanelPosition(activePanel.anchor, 320, 218)}
+          >
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div id="assignment-editor-title" className="text-[10px] font-bold text-slate-700">担当枠を編集</div>
+              <button type="button" onClick={() => closeActivePanel(true)} className="text-[10px] text-slate-400 hover:text-slate-700">閉じる</button>
+            </div>
+            <input autoFocus value={settingsCourseName} onChange={(event) => setSettingsCourseName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") saveCourseSettings(activeCourse.id); }} className="mb-2 h-8 w-full rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-700 outline-none focus:border-indigo-400" aria-label="担当枠名" />
+            <div className="mb-2 grid grid-cols-[1fr_auto] items-end gap-2">
+              <div>
+                <div className="mb-1 text-[9px] font-medium text-slate-500">稼働曜日</div>
+                <div className="grid grid-cols-7 gap-1">
+                  {WEEKDAY_OPTIONS.map((weekday) => {
+                    const active = settingsWeekdays.includes(weekday.value);
+                    return (
+                      <button key={weekday.value} type="button" aria-pressed={active} onClick={() => setSettingsWeekdays((current) => active ? current.filter((value) => value !== weekday.value) : [...current, weekday.value])} className={cn("h-7 rounded-md border text-[10px] font-bold", active ? "border-slate-800 bg-slate-800 text-white" : "border-slate-200 bg-white text-slate-400 hover:border-slate-400")}>{weekday.label}</button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-center text-[9px] font-medium text-slate-500">必要人数</div>
+                <div className="flex h-7 items-center overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                  <button type="button" onClick={() => setSettingsRequiredCount((count) => Math.max(1, count - 1))} className="h-full w-7 text-sm text-slate-500 hover:bg-slate-100" aria-label="必要人数を減らす">−</button>
+                  <span className="w-7 text-center text-xs font-bold tabular-nums text-slate-800">{settingsRequiredCount}</span>
+                  <button type="button" onClick={() => setSettingsRequiredCount((count) => Math.min(10, count + 1))} className="h-full w-7 text-sm text-slate-500 hover:bg-slate-100" aria-label="必要人数を増やす">＋</button>
+                </div>
+              </div>
+            </div>
+            {(settingsWeekdays.length === 0 || !settingsCourseName.trim()) && (
+              <p className="mb-2 text-[9px] text-rose-600">名前と稼働日を設定してください</p>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <button type="button" onClick={() => hideCourse(activeCourse)} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[9px] font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-600"><FontAwesomeIcon icon={faEyeSlash} className="h-2.5 w-2.5" />非表示</button>
+              <button type="button" disabled={settingsWeekdays.length === 0 || !settingsCourseName.trim()} onClick={() => saveCourseSettings(activeCourse.id)} className="h-8 min-w-28 rounded-lg bg-slate-900 px-4 text-[10px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40">設定を反映</button>
+            </div>
+          </section>
+        </>,
+        document.body,
+      )}
+
       {pendingDuplicate && (() => {
         const targetCourseId = pendingDuplicate.targetKey.split(":")[0];
         const targetDay = Number(pendingDuplicate.targetKey.split(":").at(-1));
         const targetCourseName = courses.find((course) => course.id === targetCourseId)?.name ?? "選択した担当枠";
         return (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-[2px]" role="presentation" onMouseDown={() => setPendingDuplicate(null)}>
-            <section role="alertdialog" aria-modal="true" aria-labelledby="duplicate-title" className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <section role="alertdialog" aria-modal="true" aria-labelledby="duplicate-title" className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => trapDialogFocus(event, () => setPendingDuplicate(null))}>
               <div className="flex items-start gap-3">
                 <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600"><FontAwesomeIcon icon={faTriangleExclamation} className="h-4 w-4" /></span>
                 <div>
                   <h2 id="duplicate-title" className="text-sm font-black text-slate-900">同じ日に配置済みです</h2>
                   <p className="mt-2 text-xs leading-relaxed text-slate-600">
-                    {pendingDuplicate.token.name}さんは8月{targetDay}日に「{pendingDuplicate.existingCourseNames.join("」「")}」へ置かれています。「{targetCourseName}」にも置きますか？
+                    {pendingDuplicate.token.name}さんは2026年8月{targetDay}日に「{pendingDuplicate.existingCourseNames.join("」「")}」へ置かれています。「{targetCourseName}」にも置きますか？
                   </p>
                 </div>
               </div>
               <div className="mt-5 flex justify-end gap-2">
-                <button type="button" onClick={() => setPendingDuplicate(null)} className="h-9 rounded-lg border border-slate-200 px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50">キャンセル</button>
+                <button autoFocus type="button" onClick={() => setPendingDuplicate(null)} className="h-9 rounded-lg border border-slate-200 px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50">キャンセル</button>
                 <button type="button" onClick={() => { applyPersonDrop(pendingDuplicate.token, pendingDuplicate.targetKey); setPendingDuplicate(null); }} className="h-9 rounded-lg bg-slate-900 px-4 text-xs font-semibold text-white hover:bg-slate-700">それでも配置</button>
               </div>
             </section>

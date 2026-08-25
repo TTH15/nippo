@@ -209,7 +209,7 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
                       s.units.map((u) => (
                         <div key={u.id}>
                           <div className="text-xs font-semibold text-slate-600 mb-2">{u.name}</div>
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             {u.fields.map((f) => {
                               const val = values[s.courseId]?.[u.id]?.[f.fieldKey] ?? "";
                               if (f.inputType === "BOOL") {

@@ -1,6 +1,6 @@
 ---
 name: hakotora-subagents
-description: ハコ虎で explorer、architect、reviewer、security、tester の役割を指定した調査・設計・監査・検証、または複数サブエージェントへの委任を依頼されたときに使う。
+description: ハコ虎で explorer、architect、reviewer、ui-auditor、security、tester の役割を指定した調査・設計・UI監査・検証、または複数サブエージェントへの委任を依頼されたときに使う。
 ---
 
 # ハコ虎サブエージェント
@@ -12,6 +12,7 @@ description: ハコ虎で explorer、architect、reviewer、security、tester �
 - コードの場所・呼び出し元・データフロー調査: `explorer.md`
 - 実装前の方針・変更手順・スキーマ設計: `architect.md`
 - 実装後の差分監査: `reviewer.md`
+- 完成UIのVisual / Interaction / Console監査: `ui-auditor.md`
 - 認証・認可・テナント分離の点検: `security.md`
 - 型検査・テスト・ビルド: `tester.md`
 

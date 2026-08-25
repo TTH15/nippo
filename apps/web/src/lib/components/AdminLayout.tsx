@@ -31,6 +31,7 @@ import {
   faBell,
   faMapLocationDot,
   faBriefcase,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { clearAuth, getStoredDriver, type StoredDriver } from "@/lib/api";
@@ -499,6 +500,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         {/* モバイル用ドロワーナビ。常時マウントし、開閉ともスライド＋フェードで滑らかに動かす
             （条件付きマウントだと初期状態が無く transition が効かない） */}
         <div
+          inert={mobileNavOpen ? undefined : true}
           className={`fixed inset-0 z-50 md:hidden ${mobileNavOpen ? "" : "pointer-events-none"}`}
           aria-hidden={!mobileNavOpen}
         >
@@ -537,7 +539,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                   className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100"
                   aria-label="メニューを閉じる"
                 >
-                  ×
+                  <FontAwesomeIcon icon={faXmark} className="h-4 w-4" />
                 </button>
               </div>
               <nav className="flex-1 overflow-y-auto py-3">

@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
   const { data: drivers } = await supabase
     .from("drivers")
     .select(`
-      id, name, display_name, role, list_no,
+      id, name, display_name, role, list_no, driver_code,
       driver_identities (
         driver_courses (course_id)
       )

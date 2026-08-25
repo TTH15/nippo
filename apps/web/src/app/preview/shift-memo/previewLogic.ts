@@ -20,3 +20,12 @@ export function findDuplicateCourseIds(
     return true;
   });
 }
+
+export function assignedPersonCount(people: string[]): number {
+  return new Set(people).size;
+}
+
+export function shortageCount(active: boolean, requiredCount: number, people: string[]): number {
+  if (!active) return 0;
+  return Math.max(0, requiredCount - assignedPersonCount(people));
+}

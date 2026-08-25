@@ -1405,8 +1405,8 @@ export default function CoursesPage() {
             </div>
             </div>
 
-            <div className="mt-3 flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 pt-4">
-              <div className="flex items-center gap-2">
+            <div className="mt-3 flex shrink-0 flex-col items-stretch gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center justify-between gap-2 sm:justify-start">
                 <button
                   onClick={() => setCourseArchived(editingCourse, !editingCourse.archived_at)}
                   className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-50"
@@ -1424,7 +1424,7 @@ export default function CoursesPage() {
                   削除
                 </button>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center justify-between gap-3 sm:justify-end">
                 <span className={`text-xs ${autoSave === "error" || (editValidationVisible && !editSettingsValid) ? "text-red-600" : "text-slate-400"}`} aria-live="polite">
                   {editValidationVisible && !editSettingsValid
                     ? "入力内容を確認してください"
@@ -1440,7 +1440,7 @@ export default function CoursesPage() {
                   onClick={() => void closeEditModal()}
                   disabled={saving || closingEditModal}
                   aria-busy={closingEditModal || undefined}
-                  className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                  className="shrink-0 whitespace-nowrap px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
                 >
                   保存して閉じる
                 </button>
