@@ -33,7 +33,7 @@ import { Check, ChevronDown, Download, RefreshCw, Settings } from "lucide-react"
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
 import PendingChangesBar, { PENDING_CHANGES_KEY } from "./PendingChangesBar";
 import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./ShiftImportModal";
-import ShiftMemoBoard from "./ShiftMemoBoard";
+import PersonalShiftMemoBoard from "./PersonalShiftMemoBoard";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
 import type { SpotJob } from "../spot-jobs/types";
@@ -45,6 +45,7 @@ type Course = {
   color: string;
   sort_order: number;
   max_drivers?: number | null;
+  counterparty_invoice_address_id?: string | null;
   /** コース編集画面の「略記」。未設定時はコース名を表示 */
   summary_title?: string | null;
   slot_id?: string | null;
@@ -437,6 +438,7 @@ type Driver = {
   display_name?: string | null;
   /** ドライバー名簿と同じ No.。API が list_no 昇順で返すため、画面側では並べ替えない */
   list_no?: number | null;
+  driver_code?: string | null;
   driver_identities?: { driver_courses: { course_id: string }[] }[];
   driver_courses?: { course_id: string }[];
 };
@@ -2466,11 +2468,11 @@ export default function ShiftsPage() {
         </div>
 
         {workspaceView === "memo" ? (
-          <ShiftMemoBoard
+          <PersonalShiftMemoBoard
+            key={`${displayDates[0] ?? ""}:${displayDates.at(-1) ?? ""}`}
             dates={displayDates}
             courses={courses}
             drivers={drivers}
-            canWrite={canWrite}
             today={today}
           />
         ) : (
