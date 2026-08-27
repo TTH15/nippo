@@ -23,7 +23,8 @@ const previewData: CourseRatePreviewData = {
   payoutRateMode: "BOTH",
   units: [{ id: "preview-parcel", name: "配完個数", code: "DELIVERED", billing_type: "PER_PIECE" }],
   unitRates: [
-    { cycle_no: 1, unit_id: "preview-parcel", revenue_per_unit: 160, profit_per_unit: 24, payout_per_unit: 136, revenue_contract_amount: 160, payout_contract_amount: 150 },
+    // 小数の契約単価（157.5円/個）を含めて、単価入力・税換算参考額の小数表示を確認できるようにする
+    { cycle_no: 1, unit_id: "preview-parcel", revenue_per_unit: 157.5, profit_per_unit: 21.5, payout_per_unit: 136, revenue_contract_amount: 157.5, payout_contract_amount: 150 },
     { cycle_no: 2, unit_id: "preview-parcel", revenue_per_unit: 160, profit_per_unit: 24, payout_per_unit: 136, revenue_contract_amount: 160, payout_contract_amount: 150 },
   ],
   fixed: { fixed_revenue: 17000, fixed_profit: 5182, fixed_payout: 11818 },

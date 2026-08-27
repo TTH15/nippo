@@ -46,6 +46,19 @@ export type CourseFixedRate = {
   payoutContractAmount?: number;
 };
 
+/**
+ * コースの計算方式（migration 141）。NONE は「その契約が存在しない」ことを表し、
+ * 単価行に古い値が残っていても集計へ載せない。
+ * 支払が NONE のコースは支払0＝売上全額が自社利益になる。
+ */
+export type RateMode = "NONE" | "PER_PIECE" | "FIXED" | "BOTH";
+
+export type CourseRateModes = {
+  courseId: string;
+  revenueRateMode: RateMode;
+  payoutRateMode: RateMode;
+};
+
 export type CourseFixedRateBundle = {
   courseId: string;
   requiredCycleNos: number[];

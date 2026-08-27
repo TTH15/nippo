@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { exclusiveContractTotal, exclusiveOf } from "@repo/core/logic/taxBasis";
+import { exclusiveContractTotal, exclusiveUnitPriceOf, roundUnitPrice } from "@repo/core/logic/taxBasis";
 import { applyQuantityRule } from "@/server/billing/quantityRule";
 
 export type ReportRateSnapshotComponent = {
@@ -28,6 +28,8 @@ export type ReportRateSnapshot = {
 };
 
 const n = (value: unknown) => Math.trunc(Number(value) || 0);
+/** 契約単価は小数を許す（例: 157.5円/個）。金額の丸めは行合計で1回だけ行う。 */
+const price = (value: unknown) => roundUnitPrice(Number(value) || 0);
 
 export function selectEffectiveRateVersion<T extends { course_id: string; effective_from: string }>(
   versions: T[],
@@ -144,8 +146,8 @@ export async function captureReportRateSnapshots(
       if (!rate || actualQuantity === 0) continue;
       const revenueQuantity = applyQuantityRule(actualQuantity, rate.revenue_quantity_rule);
       const payoutQuantity = applyQuantityRule(actualQuantity, rate.payout_quantity_rule);
-      const revenueContractAmount = n(rate.revenue_contract_amount ?? rate.revenue_per_unit);
-      const payoutContractAmount = n(rate.payout_contract_amount ?? rate.payout_per_unit);
+      const revenueContractAmount = price(rate.revenue_contract_amount ?? rate.revenue_per_unit);
+      const payoutContractAmount = price(rate.payout_contract_amount ?? rate.payout_per_unit);
       const revenue = revenueUsesPiece
         ? exclusiveContractTotal(revenueContractAmount, revenueQuantity, revenuePieceBasis)
         : 0;
@@ -174,9 +176,9 @@ export async function captureReportRateSnapshots(
     ) ?? activeFixedRates.find((r) =>
       (r.course_id == null || r.course_id === report.course_id) && n(r.cycle_no) === 0,
     );
-    if (fixed && (n(fixed.fixed_revenue) !== 0 || n(fixed.fixed_payout) !== 0)) {
-      const revenueContractAmount = n(fixed.revenue_contract_amount ?? fixed.fixed_revenue);
-      const payoutContractAmount = n(fixed.payout_contract_amount ?? fixed.fixed_payout);
+    if (fixed && (price(fixed.fixed_revenue) !== 0 || price(fixed.fixed_payout) !== 0)) {
+      const revenueContractAmount = price(fixed.revenue_contract_amount ?? fixed.fixed_revenue);
+      const payoutContractAmount = price(fixed.payout_contract_amount ?? fixed.fixed_payout);
       const revenue = revenueUsesFixed
         ? exclusiveContractTotal(revenueContractAmount, 1, revenueFixedBasis)
         : 0;
@@ -202,13 +204,13 @@ export async function captureReportRateSnapshots(
     const bundle = versionBundle ? {
       requiredCycleNos: Array.isArray(versionBundle.required_cycle_nos) ? versionBundle.required_cycle_nos.map(Number) : [],
       fixedRevenue: versionBundle.revenue_contract_amount == null ? null
-        : exclusiveOf(n(versionBundle.revenue_contract_amount), revenueFixedBasis),
+        : exclusiveUnitPriceOf(price(versionBundle.revenue_contract_amount), revenueFixedBasis),
       fixedPayout: versionBundle.payout_contract_amount == null ? null
-        : exclusiveOf(n(versionBundle.payout_contract_amount), payoutFixedBasis),
+        : exclusiveUnitPriceOf(price(versionBundle.payout_contract_amount), payoutFixedBasis),
     } : currentBundle ? {
       requiredCycleNos: Array.isArray(currentBundle.required_cycle_nos) ? currentBundle.required_cycle_nos.map(Number) : [],
-      fixedRevenue: currentBundle.fixed_revenue == null ? null : n(currentBundle.fixed_revenue),
-      fixedPayout: currentBundle.fixed_payout == null ? null : n(currentBundle.fixed_payout),
+      fixedRevenue: currentBundle.fixed_revenue == null ? null : price(currentBundle.fixed_revenue),
+      fixedPayout: currentBundle.fixed_payout == null ? null : price(currentBundle.fixed_payout),
     } : undefined;
     const snapshot: ReportRateSnapshot = { version: 1, capturedAt, components, fixedBundle: bundle };
     const { error } = await supabase

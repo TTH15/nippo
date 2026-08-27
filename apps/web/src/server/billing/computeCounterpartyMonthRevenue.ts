@@ -91,7 +91,17 @@ export async function computeCounterpartyMonthBillingDetail(
   const unitById = new Map(data.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}:${r.unitId}`, r]));
   const fixedByCourse = new Map(data.fixedRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}`, r]));
-  const aggregationContext = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles);
+  // 売上の計算方式(NONE/PER_PIECE/FIXED/BOTH)が正本。方式外の単価行は請求明細にも載せない。
+  const revenueModeByCourse = new Map(data.courseRateModes.map((m) => [m.courseId, m.revenueRateMode]));
+  const revenueUsesPiece = (courseId: string) => {
+    const mode = revenueModeByCourse.get(courseId) ?? "BOTH";
+    return mode === "PER_PIECE" || mode === "BOTH";
+  };
+  const revenueUsesFixed = (courseId: string) => {
+    const mode = revenueModeByCourse.get(courseId) ?? "BOTH";
+    return mode === "FIXED" || mode === "BOTH";
+  };
+  const aggregationContext = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseRateModes);
   // 内部集計は承認時スナップショットを正本にする。これにより単価変更後も過去月が動かず、
   // admin/sales と同じ v2 集計結果になる。請求明細側は契約単価・契約税基準を別途保持する。
   const systemTotal = buildContributions(data.reports, [], aggregationContext)
@@ -142,6 +152,7 @@ export async function computeCounterpartyMonthBillingDetail(
 
     // 従量
     for (const e of r.entries) {
+      if (!revenueUsesPiece(courseId)) break;
       const unit = unitById.get(e.unitId);
       if (!unit) continue;
       const f = unit.fields.find((x) => x.fieldKey === e.fieldKey);
@@ -161,7 +172,7 @@ export async function computeCounterpartyMonthBillingDetail(
       ? `${courseId}:${r.cycleNo ?? 0}`
       : `${courseId}:0`;
     const fx = fixedByCourse.get(fixedKey);
-    if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
+    if (fx && revenueUsesFixed(courseId) && fx.fixedRevenue !== 0) {
       addFixed(fixedKey, driverId);
     }
   }
@@ -203,7 +214,8 @@ export async function computeCounterpartyMonthBillingDetail(
             label: `${courseName} ${unitName}${cycleNo !== "0" ? `・${cycleNo}便` : ""}（${driverNameById.get(driverId) ?? "担当者"}）`,
             quantity: qty,
             unitPrice: contractUnitPrice,
-            amount: qty * contractUnitPrice,
+            // 単価は小数を許すが、明細金額は円単位へ丸める
+            amount: Math.round(qty * contractUnitPrice),
             priceBasis,
           });
         }
@@ -229,7 +241,7 @@ export async function computeCounterpartyMonthBillingDetail(
           label: `${courseName}（固定売上${cycleNo !== "0" ? `・${cycleNo}便` : ""}・稼働日・${driverNameById.get(driverId) ?? "担当者"}）`,
           quantity: days,
           unitPrice: contractUnitPrice,
-          amount: days * contractUnitPrice,
+          amount: Math.round(days * contractUnitPrice),
           priceBasis,
         });
       }
@@ -288,7 +300,7 @@ export async function computeSectionMonthRevenue(
   }
 
   const data = await loadAggregationData(supabase, orgId, startDate, endDate);
-  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles);
+  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseRateModes);
   const contribs = buildContributions(data.reports, [], ctx); // ledger 無し = auto のみ
 
   const carrierCodeByCourse = await loadCarrierCodeByCourse(supabase, orgId);

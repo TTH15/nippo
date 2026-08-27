@@ -6,7 +6,7 @@ import { useApi } from "@/lib/useApi";
 import { invalidateApi } from "@/lib/swr";
 import { DigitInput } from "@/lib/components/DigitInput";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
-import { exclusiveOf, inclusiveOf } from "@repo/core/logic/taxBasis";
+import { exclusiveUnitPriceOf, inclusiveUnitPriceOf, roundUnitPrice, UNIT_PRICE_DECIMALS } from "@repo/core/logic/taxBasis";
 import type { QuantityRule } from "@/server/billing/quantityRule";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBuilding, faUser, faWarehouse } from "@fortawesome/free-solid-svg-icons";
@@ -54,13 +54,23 @@ type RateConfirmState = {
   tone: "danger" | "neutral";
   onConfirm: () => void;
 };
-const toIncl = (excl: number) => inclusiveOf(excl, "exclusive");
-const toExcl = (incl: number) => exclusiveOf(incl, "inclusive");
+// 単価は小数を許す（例: 157.5円/個）。税換算でも円未満を切り捨てない。
+const toIncl = (excl: number) => inclusiveUnitPriceOf(excl, "exclusive");
+const toExcl = (incl: number) => exclusiveUnitPriceOf(incl, "inclusive");
+/** 単価の表示。小数がある場合だけ小数第2位まで見せる（157 は「157」、157.5 は「157.5」） */
+const formatPrice = (value: number) =>
+  value.toLocaleString("ja-JP", { maximumFractionDigits: UNIT_PRICE_DECIMALS });
+/** numeric 列は JSON で文字列になり得る。null/undefined は null のまま返す。 */
+const num = (value: unknown): number | null => {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
 const toExclFor = (mode: TaxMode, raw: number) => (mode === "incl" ? toExcl(raw) : raw);
 
 // 会社利益は手入力させず、売上 − 支払 で自動計算する（入力ミスで合計が合わなくなるのを防ぐ）。
 // 売上・支払それぞれのモードに関わらず、両方を税抜に揃えてから差し引く。
-const deriveProfit = (revenue: number, payout: number) => revenue - payout;
+const deriveProfit = (revenue: number, payout: number) => roundUnitPrice(revenue - payout);
 const rateKey = (cycleNo: number, unitId: string) => `${cycleNo}:${unitId}`;
 const hasPerPiece = (mode: RateMode) => mode === "PER_PIECE" || mode === "BOTH";
 const hasFixed = (mode: RateMode) => mode === "FIXED" || mode === "BOTH";
@@ -197,12 +207,13 @@ export const CourseRateEditor = forwardRef<
     activeCycles.forEach((cycle) => (res.units ?? []).forEach((u) => {
       const found = (res.unitRates ?? []).find((r) => (r.cycle_no ?? 0) === cycle.cycleNo && r.unit_id === u.id)
         ?? (res.unitRates ?? []).find((r) => (r.cycle_no ?? 0) === 0 && r.unit_id === u.id);
+      // numeric 列は JSON 上で数値/文字列どちらにもなり得るため、必ず数値へ寄せる
       const revenue = revenuePieceMode === "incl"
-        ? found?.revenue_contract_amount ?? toIncl(found?.revenue_per_unit ?? 0)
-        : found?.revenue_per_unit ?? 0;
+        ? num(found?.revenue_contract_amount) ?? toIncl(num(found?.revenue_per_unit) ?? 0)
+        : num(found?.revenue_per_unit) ?? 0;
       const payout = payoutPieceMode === "incl"
-        ? found?.payout_contract_amount ?? toIncl(found?.payout_per_unit ?? 0)
-        : found?.payout_per_unit ?? 0;
+        ? num(found?.payout_contract_amount) ?? toIncl(num(found?.payout_per_unit) ?? 0)
+        : num(found?.payout_per_unit) ?? 0;
       map[rateKey(cycle.cycleNo, u.id)] = {
         unit_id: u.id,
         cycle_no: cycle.cycleNo,
@@ -218,8 +229,8 @@ export const CourseRateEditor = forwardRef<
     const sourceFixed = res.fixedRates?.length ? res.fixedRates : [{ ...res.fixed, cycle_no: 0 }];
     sourceFixed.forEach((f) => {
       const cycleNo = f.cycle_no ?? 0;
-      const revenue = revenueFixedMode === "incl" ? f.revenue_contract_amount ?? toIncl(f.fixed_revenue ?? 0) : f.fixed_revenue ?? 0;
-      const payout = payoutFixedMode === "incl" ? f.payout_contract_amount ?? toIncl(f.fixed_payout ?? 0) : f.fixed_payout ?? 0;
+      const revenue = revenueFixedMode === "incl" ? num(f.revenue_contract_amount) ?? toIncl(num(f.fixed_revenue) ?? 0) : num(f.fixed_revenue) ?? 0;
+      const payout = payoutFixedMode === "incl" ? num(f.payout_contract_amount) ?? toIncl(num(f.fixed_payout) ?? 0) : num(f.fixed_payout) ?? 0;
       fixedMap[cycleNo] = {
         cycle_no: cycleNo,
         fixed_revenue: revenue,
@@ -230,10 +241,10 @@ export const CourseRateEditor = forwardRef<
     setFixedByCycle(fixedMap);
     setFixedBundle({
       required_cycle_nos: res.fixedBundle?.required_cycle_nos ?? cycles.map((cycle) => cycle.cycleNo),
-      revenue_contract_amount: res.fixedBundle?.revenue_contract_amount
-        ?? (res.fixedBundle?.fixed_revenue == null ? null : revenueFixedMode === "incl" ? toIncl(res.fixedBundle.fixed_revenue) : res.fixedBundle.fixed_revenue),
-      payout_contract_amount: res.fixedBundle?.payout_contract_amount
-        ?? (res.fixedBundle?.fixed_payout == null ? null : payoutFixedMode === "incl" ? toIncl(res.fixedBundle.fixed_payout) : res.fixedBundle.fixed_payout),
+      revenue_contract_amount: num(res.fixedBundle?.revenue_contract_amount)
+        ?? (num(res.fixedBundle?.fixed_revenue) == null ? null : revenueFixedMode === "incl" ? toIncl(num(res.fixedBundle?.fixed_revenue)!) : num(res.fixedBundle?.fixed_revenue)!),
+      payout_contract_amount: num(res.fixedBundle?.payout_contract_amount)
+        ?? (num(res.fixedBundle?.fixed_payout) == null ? null : payoutFixedMode === "incl" ? toIncl(num(res.fixedBundle?.fixed_payout)!) : num(res.fixedBundle?.fixed_payout)!),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [billingData, previewData]);
@@ -679,8 +690,11 @@ function TaxAmountPairFrame({ mode, value, onModeChange, input }: {
   onModeChange: (mode: TaxMode) => void;
   input: ReactNode;
 }) {
-  const exclusive = mode === "excl" ? value : toExcl(value);
-  const inclusive = mode === "incl" ? value : toIncl(value);
+  // 契約単価が整数なら参考額も円単位で見せる（日当が「¥6,499.9」に見えるのを避ける）。
+  // 小数を入れた単価だけ、換算後も小数第2位まで見せる。
+  const roundIfWhole = (derived: number) => (Number.isInteger(value) ? Math.round(derived) : derived);
+  const exclusive = mode === "excl" ? value : roundIfWhole(toExcl(value));
+  const inclusive = mode === "incl" ? value : roundIfWhole(toIncl(value));
   const cardClass = (active: boolean) => `rounded-lg border-2 p-2 motion-safe:transition-[border-color,background-color,box-shadow] motion-safe:duration-150 ${
     active
       ? "border-amber-500 bg-amber-50/70 shadow-sm"
@@ -692,13 +706,13 @@ function TaxAmountPairFrame({ mode, value, onModeChange, input }: {
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onModeChange("excl"); } }}
         className={cardClass(mode === "excl")}>
         <span className="mb-1 block text-[10px]">{mode === "excl" ? "契約単価・税抜" : "税抜参考"}</span>
-        {mode === "excl" ? input : <span className="block py-1.5 text-right text-base font-semibold">¥{exclusive.toLocaleString()}</span>}
+        {mode === "excl" ? input : <span className="block py-1.5 text-right text-base font-semibold">¥{formatPrice(exclusive)}</span>}
       </div>
       <div role="button" tabIndex={0} onClick={() => onModeChange("incl")}
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onModeChange("incl"); } }}
         className={cardClass(mode === "incl")}>
         <span className="mb-1 block text-[10px]">{mode === "incl" ? "契約単価・税込" : "税込参考"}</span>
-        {mode === "incl" ? input : <span className="block py-1.5 text-right text-base font-semibold">¥{inclusive.toLocaleString()}</span>}
+        {mode === "incl" ? input : <span className="block py-1.5 text-right text-base font-semibold">¥{formatPrice(inclusive)}</span>}
       </div>
     </div>
   );
@@ -777,6 +791,7 @@ function NumField({
       <DigitInput
         value={value}
         readOnly={readOnly}
+        decimals={UNIT_PRICE_DECIMALS}
         onValueChange={(next) => onChange?.(next ?? 0)}
         className={`w-full rounded text-right ${compact ? "border border-slate-300 bg-white px-2.5 py-1.5 text-base font-semibold shadow-sm outline-none motion-safe:transition-[border-color,box-shadow] motion-safe:duration-150 hover:border-slate-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20" : "border px-2.5 py-2"} ${
           readOnly ? "border-slate-200 bg-slate-50 text-slate-500" : compact ? "" : "border-slate-300"
@@ -800,7 +815,8 @@ function OptionalNumField({ label, value, fallback, onChange, compact = false }:
       <DigitInput
         value={value}
         allowEmpty
-        placeholder={`自動 ¥${fallback.toLocaleString()}`}
+        decimals={UNIT_PRICE_DECIMALS}
+        placeholder={`自動 ¥${formatPrice(fallback)}`}
         onValueChange={onChange}
         className={`w-full rounded border border-slate-300 bg-white text-right shadow-sm outline-none placeholder:text-slate-400 motion-safe:transition-[border-color,box-shadow] motion-safe:duration-150 hover:border-slate-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 ${compact ? "px-2.5 py-1.5 text-base font-semibold" : "px-2.5 py-2"}`} />
     </label>

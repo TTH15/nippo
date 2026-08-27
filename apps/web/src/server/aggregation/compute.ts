@@ -14,10 +14,12 @@ import type {
   Contribution,
   CourseFixedRate,
   CourseFixedRateBundle,
+  CourseRateModes,
   CourseUnitRate,
   DailyReport,
   LedgerEntry,
   Money,
+  RateMode,
   UnitDef,
 } from "./types";
 import { applyQuantityRule } from "@/server/billing/quantityRule";
@@ -48,13 +50,25 @@ export type AggregationContext = {
   /** `${courseId}:${cycleNo}` -> CourseFixedRate */
   fixedRateByCourse: Map<string, CourseFixedRate>;
   fixedBundleByCourse: Map<string, CourseFixedRateBundle>;
+  /** courseId -> 売上/支払の計算方式。未登録は BOTH（＝単価行の値をそのまま使う従来挙動） */
+  rateModeByCourse: Map<string, { revenue: RateMode; payout: RateMode }>;
 };
+
+/**
+ * コース単価は「計算方式(NONE/PER_PIECE/FIXED/BOTH)」が正本。
+ * 方式から外れた単価行（例: 自動支払なしのコースに残った旧支払単価）は 0 として扱う。
+ * これにより「支払なし」のコースは支払0＝売上全額が自社利益として売上ページへ載る。
+ */
+const allowsPiece = (mode: RateMode) => mode === "PER_PIECE" || mode === "BOTH";
+const allowsFixed = (mode: RateMode) => mode === "FIXED" || mode === "BOTH";
+const DEFAULT_RATE_MODES = { revenue: "BOTH" as RateMode, payout: "BOTH" as RateMode };
 
 export function buildContext(
   units: UnitDef[],
   unitRates: CourseUnitRate[],
   fixedRates: CourseFixedRate[],
   fixedBundles: CourseFixedRateBundle[] = [],
+  courseRateModes: CourseRateModes[] = [],
 ): AggregationContext {
   const unitById = new Map<string, UnitDef>();
   units.forEach((u) => unitById.set(u.id, u));
@@ -68,7 +82,15 @@ export function buildContext(
   fixedRates.forEach((r) => fixedRateByCourse.set(`${r.courseId}:${r.cycleNo ?? 0}`, r));
 
   const fixedBundleByCourse = new Map(fixedBundles.map((bundle) => [bundle.courseId, bundle]));
-  return { unitById, unitRateByCourseUnit, fixedRateByCourse, fixedBundleByCourse };
+  const rateModeByCourse = new Map(
+    courseRateModes.map((m) => [m.courseId, { revenue: m.revenueRateMode, payout: m.payoutRateMode }]),
+  );
+  return { unitById, unitRateByCourseUnit, fixedRateByCourse, fixedBundleByCourse, rateModeByCourse };
+}
+
+/** コースの計算方式を引く（未登録＝従来挙動の BOTH） */
+export function rateModesOf(ctx: AggregationContext, courseId: string) {
+  return ctx.rateModeByCourse.get(courseId) ?? DEFAULT_RATE_MODES;
 }
 
 /** どの field が従量課金の数量かを引く */
@@ -98,21 +120,30 @@ export function reportContributions(
   if (!courseId) return []; // コース不明は自動算出できない
   const out: Contribution[] = [];
 
+  const modes = rateModesOf(ctx, courseId);
+
   // 承認時スナップショットがあれば現在の単価マスタより優先する。
   // これにより、後日の単価変更で承認済み期間の売上・報酬・粗利が動かない。
+  // ただし「契約そのものが無い(NONE)」はコース属性であり単価改定とは別軸のため、
+  // スナップショットより優先して 0 にする（支払なし → 売上全額が自社利益）。
   if (report.rateSnapshot?.version === 1) {
-    return report.rateSnapshot.components.map((component) => ({
-      date: report.reportDate,
-      driverId: report.driverId,
-      courseId,
-      carrierId: report.carrierId,
-      unitId: component.unitId,
-      counterpartyId: null,
-      source: component.kind === "unit" ? "auto_per_piece" : "auto_fixed",
-      revenue: component.revenue,
-      profit: component.profit,
-      payout: component.payout,
-    }));
+    return report.rateSnapshot.components.map((component) => {
+      const piece = component.kind === "unit";
+      const revenue = (piece ? allowsPiece(modes.revenue) : allowsFixed(modes.revenue)) ? component.revenue : 0;
+      const payout = (piece ? allowsPiece(modes.payout) : allowsFixed(modes.payout)) ? component.payout : 0;
+      return {
+        date: report.reportDate,
+        driverId: report.driverId,
+        courseId,
+        carrierId: report.carrierId,
+        unitId: component.unitId,
+        counterpartyId: null,
+        source: (piece ? "auto_per_piece" : "auto_fixed") as Contribution["source"],
+        revenue,
+        payout,
+        profit: revenue - payout,
+      };
+    });
   }
 
   // --- 従量分 ---
@@ -126,8 +157,10 @@ export function reportContributions(
     if (actualQty === 0) continue;
     const revenueQty = applyQuantityRule(actualQty, rate.revenueQuantityRule);
     const payoutQty = applyQuantityRule(actualQty, rate.payoutQuantityRule);
-    const revenue = revenueQty * rate.revenuePerUnit;
-    const payout = payoutQty * rate.payoutPerUnit;
+    // 単価は小数を許す（例: 157.5円/個）。円未満は行合計で一度だけ丸める。
+    const revenue = allowsPiece(modes.revenue) ? Math.round(revenueQty * rate.revenuePerUnit) : 0;
+    const payout = allowsPiece(modes.payout) ? Math.round(payoutQty * rate.payoutPerUnit) : 0;
+    if (revenue === 0 && payout === 0) continue;
     out.push({
       date: report.reportDate,
       driverId: report.driverId,
@@ -146,19 +179,24 @@ export function reportContributions(
   const fx =
     ctx.fixedRateByCourse.get(`${courseId}:${report.cycleNo ?? 0}`) ??
     ctx.fixedRateByCourse.get(`${courseId}:0`);
-  if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
-    out.push({
-      date: report.reportDate,
-      driverId: report.driverId,
-      courseId,
-      carrierId: report.carrierId,
-      unitId: null,
-      counterpartyId: null,
-      source: "auto_fixed",
-      revenue: fx.fixedRevenue,
-      profit: fx.fixedProfit,
-      payout: fx.fixedPayout,
-    });
+  if (fx) {
+    // 保存済みの fixed_profit ではなく売上−支払で導出する。方式がNONEの側は0。
+    const revenue = allowsFixed(modes.revenue) ? Math.round(fx.fixedRevenue) : 0;
+    const payout = allowsFixed(modes.payout) ? Math.round(fx.fixedPayout) : 0;
+    if (revenue !== 0 || payout !== 0) {
+      out.push({
+        date: report.reportDate,
+        driverId: report.driverId,
+        courseId,
+        carrierId: report.carrierId,
+        unitId: null,
+        counterpartyId: null,
+        source: "auto_fixed",
+        revenue,
+        payout,
+        profit: revenue - payout,
+      });
+    }
   }
 
   return out;
@@ -213,8 +251,9 @@ function applyFixedBundleAdjustments(reports: DailyReport[], out: Contribution[]
     const bundle = snapshotBundle ? { courseId, ...snapshotBundle } : ctx.fixedBundleByCourse.get(courseId);
     if (!bundle || !hasAllCycles(dayReports, bundle.requiredCycleNos)) continue;
     const [date] = key.split(":");
+    const modes = rateModesOf(ctx, courseId);
 
-    if (bundle.fixedRevenue != null) {
+    if (bundle.fixedRevenue != null && allowsFixed(modes.revenue)) {
       const baseRevenue = out.filter((item) => item.date === date && item.courseId === courseId && item.source === "auto_fixed")
         .reduce((sum, item) => sum + item.revenue, 0);
       const revenueDelta = bundle.fixedRevenue - baseRevenue;
@@ -224,7 +263,7 @@ function applyFixedBundleAdjustments(reports: DailyReport[], out: Contribution[]
       });
     }
 
-    if (bundle.fixedPayout != null) {
+    if (bundle.fixedPayout != null && allowsFixed(modes.payout)) {
       const byDriver = new Map<string, DailyReport[]>();
       dayReports.forEach((report) => byDriver.set(report.driverId, [...(byDriver.get(report.driverId) ?? []), report]));
       for (const [driverId, driverReports] of byDriver) {

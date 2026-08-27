@@ -71,6 +71,17 @@ export async function computeDriverAutoPayout(
   const unitById = new Map(data.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}:${r.unitId}`, r]));
   const fixedByCourse = new Map(data.fixedRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}`, r]));
+  // 支払の計算方式(NONE/PER_PIECE/FIXED/BOTH)が正本。「自動支払なし」のコースは
+  // 単価行に旧値が残っていても報酬0として扱う（売上全額が自社利益になる）。
+  const payoutModeByCourse = new Map(data.courseRateModes.map((m) => [m.courseId, m.payoutRateMode]));
+  const payoutUsesPiece = (courseId: string) => {
+    const mode = payoutModeByCourse.get(courseId) ?? "BOTH";
+    return mode === "PER_PIECE" || mode === "BOTH";
+  };
+  const payoutUsesFixed = (courseId: string) => {
+    const mode = payoutModeByCourse.get(courseId) ?? "BOTH";
+    return mode === "FIXED" || mode === "BOTH";
+  };
 
   // 表示用ラベル: コース名 / unit名 / unit_fields(label,input_type,group_label,sort)
   const [{ data: courseRows }, { data: unitRows }, { data: fieldRows }] = await Promise.all([
@@ -143,6 +154,7 @@ export async function computeDriverAutoPayout(
       }
       // スナップショットがある承認済み日報は、後段で固定済み単価を使う。
       if (r.rateSnapshot?.version === 1) continue;
+      if (!payoutUsesPiece(courseId)) continue;
       // 報酬（billable のみ・単価あり）
       const billable = unit?.fields.find((x) => x.fieldKey === e.fieldKey)?.isBillable;
       if (!billable || qty === 0) continue;
@@ -152,12 +164,15 @@ export async function computeDriverAutoPayout(
       const rate = rateByCourseUnit.get(rateKey);
       if (!rate) continue;
       const payoutQty = applyQuantityRule(qty, rate.payoutQuantityRule);
-      dayPayout += payoutQty * toDisplay(rate.payoutPerUnit);
+      // 単価は小数を許す（例: 157.5円/個）。円未満は行合計で一度だけ丸める。
+      dayPayout += Math.round(payoutQty * toDisplay(rate.payoutPerUnit));
       linePuQty.set(rateKey, (linePuQty.get(rateKey) ?? 0) + payoutQty);
     }
 
     if (r.rateSnapshot?.version === 1) {
       for (const component of r.rateSnapshot.components) {
+        const usesPayout = component.kind === "unit" ? payoutUsesPiece(courseId) : payoutUsesFixed(courseId);
+        if (!usesPayout) continue;
         const displayPayout = toDisplay(component.payout);
         dayPayout += displayPayout;
         const unitPrice = component.quantity ? component.payout / component.quantity : 0;
@@ -177,8 +192,8 @@ export async function computeDriverAutoPayout(
       ? `${courseId}:${r.cycleNo ?? 0}`
       : `${courseId}:0`;
     const fx = fixedByCourse.get(fixedKey);
-    if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
-      dayPayout += toDisplay(fx.fixedPayout);
+    if (fx && payoutUsesFixed(courseId) && fx.fixedPayout !== 0) {
+      dayPayout += Math.round(toDisplay(fx.fixedPayout));
       fixedDaysByCourse.set(fixedKey, (fixedDaysByCourse.get(fixedKey) ?? 0) + 1);
     }
     }
@@ -210,7 +225,7 @@ export async function computeDriverAutoPayout(
       title: `${unitNameById.get(unitId) ?? ""}（${short}）`,
       qty,
       unitPrice: toDisplay(unitPrice),
-      amount: qty * toDisplay(unitPrice),
+      amount: Math.round(qty * toDisplay(unitPrice)),
     });
   }
   for (const [key, dayCount] of fixedDaysByCourse) {
@@ -228,7 +243,7 @@ export async function computeDriverAutoPayout(
       title: `${short}（固定${cycleNo !== "0" ? `・${cycleNo}便` : ""}）`,
       qty: dayCount,
       unitPrice: toDisplay(unitPrice),
-      amount: dayCount * toDisplay(unitPrice),
+      amount: Math.round(dayCount * toDisplay(unitPrice)),
     });
   }
   lines.sort((a, b) => a.title.localeCompare(b.title, "ja"));

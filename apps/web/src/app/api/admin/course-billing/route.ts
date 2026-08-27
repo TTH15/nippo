@@ -3,7 +3,7 @@ import { requireAnyPermission, isAuthError } from "@/server/auth";
 import { COURSE_BILLING_VIEW_CAPS, COURSE_BILLING_MANAGE_CAPS } from "@/server/auth/domainCaps";
 import { supabase } from "@/server/db/client";
 import { resolveOrgId } from "@/server/db/tenant";
-import { exclusiveOf } from "@repo/core/logic/taxBasis";
+import { exclusiveUnitPriceOf, roundUnitPrice } from "@repo/core/logic/taxBasis";
 
 export const dynamic = "force-dynamic";
 const taxBasis = (value: unknown, fallback: "exclusive" | "inclusive" = "exclusive"): "exclusive" | "inclusive" =>
@@ -134,7 +134,8 @@ type UnitRateInput = {
   payout_quantity_rule?: unknown;
 };
 
-const num = (v: unknown) => Math.trunc(Number(v) || 0);
+// 契約単価は小数を許す（例: 157.5円/個）。0.01円単位へ丸めて保存する。
+const num = (v: unknown) => roundUnitPrice(Number(v) || 0);
 
 // PUT: 単価保存（新テーブル upsert ＋ 旧 course_rates 同期）
 export async function PUT(req: NextRequest) {
@@ -208,19 +209,27 @@ export async function PUT(req: NextRequest) {
 
   // --- 新: course_unit_rates ---
   if (unitRates.length > 0) {
-    const rows = unitRates.map((r) => ({
-      course_id: courseId,
-      cycle_no: Number.isInteger(r.cycle_no) && Number(r.cycle_no) >= 0 ? Number(r.cycle_no) : 0,
-      unit_id: r.unit_id,
-      revenue_per_unit: revenueRateMode === "PER_PIECE" || revenueRateMode === "BOTH" ? num(r.revenue_per_unit) : 0,
-      profit_per_unit: num(r.profit_per_unit),
-      payout_per_unit: payoutRateMode === "PER_PIECE" || payoutRateMode === "BOTH" ? num(r.payout_per_unit) : 0,
-      revenue_contract_amount: revenueRateMode === "PER_PIECE" || revenueRateMode === "BOTH" ? num(r.revenue_contract_amount) : 0,
-      payout_contract_amount: payoutRateMode === "PER_PIECE" || payoutRateMode === "BOTH" ? num(r.payout_contract_amount) : 0,
-      revenue_quantity_rule: r.revenue_quantity_rule ?? { kind: "actual" },
-      payout_quantity_rule: r.payout_quantity_rule ?? { kind: "actual" },
-      updated_at: new Date().toISOString(),
-    }));
+    const rows = unitRates.map((r) => {
+      const usesRevenue = revenueRateMode === "PER_PIECE" || revenueRateMode === "BOTH";
+      const usesPayout = payoutRateMode === "PER_PIECE" || payoutRateMode === "BOTH";
+      const revenue = usesRevenue ? num(r.revenue_per_unit) : 0;
+      const payout = usesPayout ? num(r.payout_per_unit) : 0;
+      return {
+        course_id: courseId,
+        cycle_no: Number.isInteger(r.cycle_no) && Number(r.cycle_no) >= 0 ? Number(r.cycle_no) : 0,
+        unit_id: r.unit_id,
+        revenue_per_unit: revenue,
+        // 利益はクライアント値を信用せず売上−支払で導出する
+        // （支払なしのコースで「売上−旧支払」が残ると利益が過少になるため）。
+        profit_per_unit: roundUnitPrice(revenue - payout),
+        payout_per_unit: payout,
+        revenue_contract_amount: usesRevenue ? num(r.revenue_contract_amount) : 0,
+        payout_contract_amount: usesPayout ? num(r.payout_contract_amount) : 0,
+        revenue_quantity_rule: r.revenue_quantity_rule ?? { kind: "actual" },
+        payout_quantity_rule: r.payout_quantity_rule ?? { kind: "actual" },
+        updated_at: new Date().toISOString(),
+      };
+    });
     // cycle_no は便ごとの単価（migration 136）。0 = 全便共通で、便を使わないコースは常にこれ
     const { error } = await supabase
       .from("course_unit_rates")
@@ -240,7 +249,7 @@ export async function PUT(req: NextRequest) {
         course_id: courseId,
         cycle_no: Number.isInteger(r.cycle_no) && Number(r.cycle_no) >= 0 ? Number(r.cycle_no) : 0,
         fixed_revenue: revenue,
-        fixed_profit: revenue - payout,
+        fixed_profit: roundUnitPrice(revenue - payout),
         fixed_payout: payout,
         revenue_contract_amount: revenueRateMode === "FIXED" || revenueRateMode === "BOTH" ? num(r.revenue_contract_amount) : 0,
         payout_contract_amount: payoutRateMode === "FIXED" || payoutRateMode === "BOTH" ? num(r.payout_contract_amount) : 0,
@@ -265,8 +274,8 @@ export async function PUT(req: NextRequest) {
       required_cycle_nos: Array.isArray(fixedBundle.required_cycle_nos)
         ? fixedBundle.required_cycle_nos.filter((value: unknown) => Number.isInteger(value) && Number(value) > 0)
         : [],
-      fixed_revenue: revenueContract == null ? null : exclusiveOf(revenueContract, revenueFixedTaxBasis),
-      fixed_payout: payoutContract == null ? null : exclusiveOf(payoutContract, payoutFixedTaxBasis),
+      fixed_revenue: revenueContract == null ? null : exclusiveUnitPriceOf(revenueContract, revenueFixedTaxBasis),
+      fixed_payout: payoutContract == null ? null : exclusiveUnitPriceOf(payoutContract, payoutFixedTaxBasis),
       revenue_contract_amount: revenueContract,
       payout_contract_amount: payoutContract,
       updated_at: new Date().toISOString(),

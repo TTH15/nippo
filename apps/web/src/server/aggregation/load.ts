@@ -9,7 +9,9 @@ import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "./pagination";
 import type {
   CourseFixedRate,
   CourseFixedRateBundle,
+  CourseRateModes,
   CourseUnitRate,
+  RateMode,
   DailyReport,
   LedgerEntry,
   ReportEntry,
@@ -18,9 +20,15 @@ import type {
 
 export type CarrierInfo = { id: string; code: string | null };
 
+const RATE_MODES: RateMode[] = ["NONE", "PER_PIECE", "FIXED", "BOTH"];
+/** 列が未適用/NULL のときは従来挙動（単価行の値をそのまま使う）へフォールバックする。 */
+const rateMode = (value: unknown): RateMode =>
+  RATE_MODES.includes(value as RateMode) ? (value as RateMode) : "BOTH";
+
 export type AggregationData = {
   carriers: CarrierInfo[];
   units: UnitDef[];
+  courseRateModes: CourseRateModes[];
   unitRates: CourseUnitRate[];
   fixedRates: CourseFixedRate[];
   fixedRateBundles: CourseFixedRateBundle[];
@@ -57,6 +65,7 @@ export async function loadAggregationData(
   const [
     carriers,
     units,
+    courseModeRows,
     unitFields,
     fixedRateBundles,
     unitRates,
@@ -76,6 +85,16 @@ export async function loadAggregationData(
         .order("id", { ascending: true })
         .range(from, to);
     }),
+    fetchAllRows((from, to) =>
+      supabase
+        // コースの計算方式(NONE/PER_PIECE/FIXED/BOTH)は単価行より上位の正本。
+        // 「自動支払なし」のコースへ古い支払単価が残っていても集計に載せない。
+        .from("courses")
+        .select("id, revenue_rate_mode, payout_rate_mode")
+        .eq("org_id", orgId)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
     fetchAllRows((from, to) =>
       supabase
         .from("unit_fields")
@@ -206,6 +225,11 @@ export async function loadAggregationData(
   return {
     carriers: (carriers ?? []).map((c: any) => ({ id: c.id, code: c.code ?? null })),
     units: unitDefs,
+    courseRateModes: (courseModeRows ?? []).map((c: any) => ({
+      courseId: c.id,
+      revenueRateMode: rateMode(c.revenue_rate_mode),
+      payoutRateMode: rateMode(c.payout_rate_mode),
+    })),
     unitRates: (unitRates ?? []).map((r: any) => ({
       courseId: r.course_id,
       cycleNo: Number(r.cycle_no) || 0,

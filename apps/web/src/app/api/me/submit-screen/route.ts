@@ -30,6 +30,16 @@ export async function GET(req: NextRequest) {
   const unitById = new Map(dayData.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(dayData.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
   const fixedByCourse = new Map(dayData.fixedRates.map((r) => [r.courseId, r]));
+  // 「自動支払なし」のコースは支払0（単価行に旧値が残っていても見込みに載せない）
+  const payoutModeByCourse = new Map(dayData.courseRateModes.map((m) => [m.courseId, m.payoutRateMode]));
+  const payoutUsesPiece = (courseId: string) => {
+    const mode = payoutModeByCourse.get(courseId) ?? "BOTH";
+    return mode === "PER_PIECE" || mode === "BOTH";
+  };
+  const payoutUsesFixed = (courseId: string) => {
+    const mode = payoutModeByCourse.get(courseId) ?? "BOTH";
+    return mode === "FIXED" || mode === "BOTH";
+  };
 
   let todayReward = 0;
   let leaseToday = 0; // 当日コースの最大日額（DAILY時）
@@ -42,10 +52,12 @@ export async function GET(req: NextRequest) {
       if (!billable) continue;
       const rate = rateByCourseUnit.get(`${r.courseId}:${e.unitId}`);
       // 保存値(payoutPerUnit)は常に税抜。ドライバー本人向けの見込み額は実際の支払額に近い税込で見せる。
-      if (rate) todayReward += (e.valueNum ?? 0) * inclusiveOf(rate.payoutPerUnit, "exclusive");
+      if (rate && payoutUsesPiece(r.courseId)) {
+        todayReward += Math.round((e.valueNum ?? 0) * inclusiveOf(rate.payoutPerUnit, "exclusive"));
+      }
     }
     const fx = fixedByCourse.get(r.courseId);
-    if (fx && (fx.fixedRevenue !== 0 || fx.fixedProfit !== 0 || fx.fixedPayout !== 0)) {
+    if (fx && payoutUsesFixed(r.courseId) && fx.fixedPayout !== 0) {
       todayReward += inclusiveOf(fx.fixedPayout, "exclusive");
     }
     leaseToday = Math.max(leaseToday, leaseDailyRateForCourse(lease, r.courseId, courseDailyLease));

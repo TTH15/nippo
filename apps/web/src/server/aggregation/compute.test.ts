@@ -112,3 +112,106 @@ describe("数量条件付き従量単価", () => {
     });
   });
 });
+
+describe("支払なしコース（payoutRateMode = NONE）", () => {
+  const unit = {
+    id: "u1", carrierId: "carrier-1", code: null,
+    billingType: "PER_PIECE" as const, fields: [{ fieldKey: "count", isBillable: true }],
+  };
+  const withEntry: DailyReport = {
+    ...report(1),
+    entries: [{ unitId: "u1", fieldKey: "count", valueNum: 100 }],
+  };
+
+  it("単価行に旧支払が残っていても支払0・売上全額が自社利益になる", () => {
+    const ctx = buildContext(
+      [unit],
+      [{ courseId: "c1", cycleNo: 1, unitId: "u1", revenuePerUnit: 157, payoutPerUnit: 136, profitPerUnit: 21 }],
+      [{ courseId: "c1", cycleNo: 1, fixedRevenue: 17_000, fixedProfit: 5_182, fixedPayout: 11_818 }],
+      [],
+      [{ courseId: "c1", revenueRateMode: "BOTH", payoutRateMode: "NONE" }],
+    );
+    const total = reportContributions(withEntry, ctx).reduce((sum, item) => ({
+      revenue: sum.revenue + item.revenue,
+      payout: sum.payout + item.payout,
+      profit: sum.profit + item.profit,
+    }), { revenue: 0, payout: 0, profit: 0 });
+    expect(total).toEqual({ revenue: 32_700, payout: 0, profit: 32_700 });
+  });
+
+  it("承認時スナップショットの支払よりコースの支払なし設定を優先する", () => {
+    const ctx = buildContext([], [], [], [], [
+      { courseId: "c1", revenueRateMode: "FIXED", payoutRateMode: "NONE" },
+    ]);
+    const approved = {
+      ...report(1),
+      rateSnapshot: {
+        version: 1 as const,
+        capturedAt: "2026-08-21T00:00:00Z",
+        components: [{
+          kind: "fixed" as const,
+          unitId: null,
+          quantity: 1,
+          revenueContractAmount: 17_000,
+          revenueBasis: "exclusive" as const,
+          payoutContractAmount: 13_000,
+          payoutBasis: "exclusive" as const,
+          revenue: 17_000,
+          payout: 13_000,
+          profit: 4_000,
+        }],
+      },
+    };
+    expect(reportContributions(approved, ctx)[0]).toMatchObject({
+      revenue: 17_000,
+      payout: 0,
+      profit: 17_000,
+    });
+  });
+
+  it("方式を渡さない呼び出しは従来どおり単価行の値をそのまま使う", () => {
+    const ctx = buildContext(
+      [unit],
+      [{ courseId: "c1", cycleNo: 1, unitId: "u1", revenuePerUnit: 157, payoutPerUnit: 136, profitPerUnit: 21 }],
+      [],
+    );
+    expect(reportContributions(withEntry, ctx)[0]).toMatchObject({
+      revenue: 15_700,
+      payout: 13_600,
+      profit: 2_100,
+    });
+  });
+});
+
+describe("小数の契約単価", () => {
+  it("157.5円/個 × 100個 は行合計で丸めて 15,750円になる", () => {
+    const ctx = buildContext(
+      [{ id: "u1", carrierId: "carrier-1", code: null, billingType: "PER_PIECE", fields: [{ fieldKey: "count", isBillable: true }] }],
+      [{ courseId: "c1", cycleNo: 1, unitId: "u1", revenuePerUnit: 157.5, payoutPerUnit: 136.25, profitPerUnit: 21.25 }],
+      [],
+    );
+    const withEntry: DailyReport = {
+      ...report(1),
+      entries: [{ unitId: "u1", fieldKey: "count", valueNum: 100 }],
+    };
+    expect(reportContributions(withEntry, ctx)[0]).toMatchObject({
+      revenue: 15_750,
+      payout: 13_625,
+      profit: 2_125,
+    });
+  });
+
+  it("行合計は円単位へ丸める（単価ごとに丸めない）", () => {
+    const ctx = buildContext(
+      [{ id: "u1", carrierId: "carrier-1", code: null, billingType: "PER_PIECE", fields: [{ fieldKey: "count", isBillable: true }] }],
+      [{ courseId: "c1", cycleNo: 1, unitId: "u1", revenuePerUnit: 157.5, payoutPerUnit: 0, profitPerUnit: 157.5 }],
+      [],
+    );
+    const withEntry: DailyReport = {
+      ...report(1),
+      entries: [{ unitId: "u1", fieldKey: "count", valueNum: 3 }],
+    };
+    // 157.5 × 3 = 472.5 → 473（1個ずつ丸めた 158×3=474 にはしない）
+    expect(reportContributions(withEntry, ctx)[0].revenue).toBe(473);
+  });
+});
