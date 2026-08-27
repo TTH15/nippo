@@ -10,12 +10,13 @@ export const dynamic = "force-dynamic";
 // 運営の代理入力：指定ドライバーの日報を運営が新規作成/上書きする。
 //   ドライバーが提出していない過去分などを、運営が個数を入れて集計に乗せる用途。
 //   作成後はそのまま承認済みにする（集計は approved_at != null のみ対象のため）。
-//   (driver, date, course) 単位で上書き。entries は report_entries(縦持ち)。
+//   (driver, date, course, cycle) 単位で上書き。entries は report_entries(縦持ち)。
 // ============================================================
 
 type EntryInput = { unitId: string; fieldKey: string; valueNum?: number | null; valueText?: string | null };
 type ItemInput = {
   courseId: string;
+  cycleNo?: number;
   carrierId?: string | null;
   vehicleId?: string | null;
   meterValue?: number | null;
@@ -34,16 +35,19 @@ export async function POST(req: NextRequest) {
   if (!driverId) return NextResponse.json({ error: "driverId が必要です" }, { status: 400 });
   if (!reportDate) return NextResponse.json({ error: "reportDate が必要です" }, { status: 400 });
   if (items.length === 0) return NextResponse.json({ error: "items が空です" }, { status: 400 });
+  const itemKeys = items.filter((item) => item.courseId)
+    .map((item) => `${item.courseId}:${Number(item.cycleNo) || 0}`);
+  if (new Set(itemKeys).size !== itemKeys.length) {
+    return NextResponse.json({ error: "同じコース・便が重複しています" }, { status: 400 });
+  }
 
   // シフト未登録の場合は不可（売上・報酬計算がシフト基準のため）
-  const { data: shiftRow } = await supabase
+  const { data: shiftRows } = await supabase
     .from("shifts")
-    .select("id")
+    .select("id, course_id, cycle_no")
     .eq("driver_id", driverId)
-    .eq("shift_date", reportDate)
-    .limit(1)
-    .maybeSingle();
-  if (!shiftRow) {
+    .eq("shift_date", reportDate);
+  if (!shiftRows || shiftRows.length === 0) {
     return NextResponse.json(
       { error: "シフト未登録のため代理入力できません。先にシフト登録をしてください。" },
       { status: 400 },
@@ -62,11 +66,17 @@ export async function POST(req: NextRequest) {
     .eq("org_id", orgId)
     .maybeSingle();
   if (!targetDriver) return NextResponse.json({ error: "ドライバーが見つかりません" }, { status: 404 });
+  const allowedShiftKeys = new Set(
+    shiftRows
+      .filter((row) => row.course_id)
+      .map((row) => `${row.course_id}:${Number(row.cycle_no) || 0}`),
+  );
 
   for (const item of items) {
     if (!item.courseId) continue;
+    const cycleNo = Number.isInteger(item.cycleNo) && Number(item.cycleNo) >= 0 ? Number(item.cycleNo) : 0;
 
-    // 既存（未却下）の同 (driver,date,course) を探して上書き、無ければ作成
+    // 既存（未却下）の同 (driver,date,course,cycle) を探して上書き、無ければ作成
     const { data: existing } = await supabase
       .from("daily_reports_v2")
       .select("id")
@@ -74,14 +84,19 @@ export async function POST(req: NextRequest) {
       .eq("driver_id", driverId)
       .eq("report_date", reportDate)
       .eq("course_id", item.courseId)
+      .eq("cycle_no", cycleNo)
       .is("rejected_at", null)
       .maybeSingle();
+    if (!allowedShiftKeys.has(`${item.courseId}:${cycleNo}`) && !existing) {
+      return NextResponse.json({ error: "シフトにないコース・便は代理入力できません" }, { status: 400 });
+    }
 
     const header = {
       org_id: orgId,
       driver_id: driverId,
       report_date: reportDate,
       course_id: item.courseId,
+      cycle_no: cycleNo,
       carrier_id: item.carrierId ?? null,
       vehicle_id: item.vehicleId ?? null,
       meter_value: typeof item.meterValue === "number" ? item.meterValue : null,

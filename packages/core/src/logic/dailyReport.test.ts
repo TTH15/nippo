@@ -8,6 +8,8 @@ import {
   buildReportItems,
   buildVehicleCards,
   groupFieldsByLabel,
+  reportFormKey,
+  resolveReportCycleChoices,
 } from "./dailyReport";
 import type { ShiftForm, FieldDef, SubmitVehicle, ValueMap } from "../types";
 
@@ -27,6 +29,10 @@ function shift(courseId: string, fields: FieldDef[], existing: ShiftForm["existi
   };
 }
 
+function cycleShift(courseId: string, cycleNo: number, fields: FieldDef[], existing: ShiftForm["existing"] = null): ShiftForm {
+  return { ...shift(courseId, fields, existing), cycleNo, cycleLabel: `C${cycleNo}` };
+}
+
 const veh = (id: string, over: Partial<SubmitVehicle> = {}): SubmitVehicle => ({ id, ...over });
 
 describe("buildInitialValues", () => {
@@ -39,6 +45,16 @@ describe("buildInitialValues", () => {
       }),
     ];
     expect(buildInitialValues(shifts)).toEqual({ co1: { u1: { qty: "12", note: "" } } });
+  });
+  it("同一コースのC1/C2を別の入力領域へ初期化する", () => {
+    const shifts = [
+      cycleShift("co1", 1, [field("qty", "INT")], { vehicleId: null, meterValue: null, values: { u1: { qty: 10 } } }),
+      cycleShift("co1", 2, [field("qty", "INT")], { vehicleId: null, meterValue: null, values: { u1: { qty: 20 } } }),
+    ];
+    expect(buildInitialValues(shifts)).toEqual({
+      "co1:1": { u1: { qty: "10" } },
+      "co1:2": { u1: { qty: "20" } },
+    });
   });
   it("existing なしは全て空文字", () => {
     expect(buildInitialValues([shift("co1", [field("qty", "INT")])])).toEqual({
@@ -95,6 +111,7 @@ describe("buildReportItems", () => {
     expect(items).toEqual([
       {
         courseId: "co1",
+        cycleNo: 0,
         carrierId: "c1",
         vehicleId: "v1",
         meterValue: 14567,
@@ -105,6 +122,15 @@ describe("buildReportItems", () => {
       },
     ]);
   });
+  it("同一コースのC1/C2を別itemとして送信する", () => {
+    const shifts = [cycleShift("co1", 1, [field("qty", "INT")]), cycleShift("co1", 2, [field("qty", "INT")])];
+    const values: ValueMap = {
+      "co1:1": { u1: { qty: "5" } },
+      "co1:2": { u1: { qty: "8" } },
+    };
+    expect(buildReportItems(shifts, values, null, null).map((item) => ({ cycleNo: item.cycleNo, qty: item.entries[0].valueNum })))
+      .toEqual([{ cycleNo: 1, qty: 5 }, { cycleNo: 2, qty: 8 }]);
+  });
   it("INT の空入力は valueNum:0", () => {
     const shifts = [shift("co1", [field("qty", "INT")])];
     const items = buildReportItems(shifts, { co1: { u1: { qty: "" } } }, null, null);
@@ -114,6 +140,31 @@ describe("buildReportItems", () => {
     const shifts = [shift("co1", [field("note", "TEXT")])];
     const items = buildReportItems(shifts, {}, null, null);
     expect(items[0].entries[0]).toEqual({ unitId: "u1", fieldKey: "note", valueNum: null, valueText: "" });
+  });
+});
+
+describe("reportFormKey", () => {
+  it("cycle 0は従来キー、C1/C2は別キーになる", () => {
+    expect(reportFormKey("co1", 0)).toBe("co1");
+    expect(reportFormKey("co1", 1)).toBe("co1:1");
+    expect(reportFormKey("co1", 2)).toBe("co1:2");
+  });
+});
+
+describe("resolveReportCycleChoices", () => {
+  const shifts = [{ courseId: "co1", cycleNo: 1 }, { courseId: "co1", cycleNo: 2 }];
+
+  it("新規日付はC1/C2を別フォームにする", () => {
+    expect(resolveReportCycleChoices(shifts, [])).toEqual(shifts);
+  });
+
+  it("旧cycle_no=0日報だけがある日は1フォームへ畳む", () => {
+    expect(resolveReportCycleChoices(shifts, [{ courseId: "co1", cycleNo: 0 }]))
+      .toEqual([{ courseId: "co1", cycleNo: 0 }]);
+  });
+
+  it("便別日報が既にあれば便別フォームを維持する", () => {
+    expect(resolveReportCycleChoices(shifts, [{ courseId: "co1", cycleNo: 1 }])).toEqual(shifts);
   });
 });
 

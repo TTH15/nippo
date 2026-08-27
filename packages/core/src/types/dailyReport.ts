@@ -22,6 +22,9 @@ export type UnitDef = {
 /** その日のシフト（コース）1件ぶんの日報フォーム */
 export type ShiftForm = {
   courseId: string;
+  /** 便。0はサイクル導入前の「コース全体」または便を使わないコース。 */
+  cycleNo?: number;
+  cycleLabel?: string | null;
   courseName: string;
   color: string | null;
   carrierId: string | null;
@@ -34,7 +37,7 @@ export type ShiftForm = {
   } | null;
 };
 
-/** 入力値のネストマップ: values[courseId][unitId][fieldKey] = string */
+/** 入力値のネストマップ: values[courseId:cycleNo][unitId][fieldKey] = string */
 export type ValueMap = Record<string, Record<string, Record<string, string>>>;
 
 /** 日報送信payloadの1項目（report_entries の1行に対応）。 */
@@ -48,6 +51,7 @@ export type ReportEntry = {
 /** 日報送信payloadの1シフト分（POST /api/reports/v2 の items 要素）。 */
 export type ReportItem = {
   courseId: string;
+  cycleNo: number;
   carrierId: string | null;
   vehicleId: string | null;
   meterValue: number | null;

@@ -74,6 +74,61 @@ describe("便別固定単価", () => {
     expect(split.reduce((sum, item) => sum + item.revenue, 0)).toBe(22_000);
     expect(split.reduce((sum, item) => sum + item.payout, 0)).toBe(14_000);
   });
+
+  it("旧cycle_no=0日報の空スナップショットを全日単価で補完する", () => {
+    const legacy = {
+      ...report(0),
+      rateSnapshot: {
+        version: 1 as const,
+        capturedAt: "2026-08-23T00:00:00Z",
+        components: [],
+        fixedBundle: {
+          requiredCycleNos: [1, 2],
+          fixedRevenue: 15_454,
+          fixedPayout: 11_818,
+        },
+      },
+    };
+    const ctx = buildContext([], [], [], [{
+      courseId: "c1",
+      requiredCycleNos: [1, 2],
+      fixedRevenue: 15_454,
+      fixedPayout: 11_818,
+    }]);
+
+    expect(reportContributions(legacy, ctx)).toEqual([expect.objectContaining({
+      source: "auto_fixed",
+      revenue: 15_454,
+      payout: 11_818,
+      profit: 3_636,
+    })]);
+  });
+
+  it("旧cycle_no=0日報が同一コースに複数あっても売上は1日分、報酬は人数分にする", () => {
+    const snapshot = {
+      version: 1 as const,
+      capturedAt: "2026-08-23T00:00:00Z",
+      components: [],
+      fixedBundle: {
+        requiredCycleNos: [1, 2],
+        fixedRevenue: 15_454,
+        fixedPayout: 11_818,
+      },
+    };
+    const ctx = buildContext([], [], [], [{
+      courseId: "c1",
+      requiredCycleNos: [1, 2],
+      fixedRevenue: 15_454,
+      fixedPayout: 11_818,
+    }]);
+    const contributions = buildContributions([
+      { ...report(0), id: "legacy-1", rateSnapshot: snapshot },
+      { ...report(0), id: "legacy-2", driverId: "d2", rateSnapshot: snapshot },
+    ], [], ctx);
+
+    expect(contributions.reduce((sum, item) => sum + item.revenue, 0)).toBe(15_454);
+    expect(contributions.reduce((sum, item) => sum + item.payout, 0)).toBe(23_636);
+  });
 });
 
 describe("数量条件付き従量単価", () => {

@@ -8,16 +8,56 @@ import type {
   SubmitVehicle,
 } from "../types";
 
+/** コース内のC1/C2を別フォームとして保持するための安定キー。 */
+export function reportFormKey(courseId: string, cycleNo = 0): string {
+  return cycleNo > 0 ? `${courseId}:${cycleNo}` : courseId;
+}
+
+export type ReportCycleChoice = { courseId: string; cycleNo: number };
+
+/**
+ * 旧cycle_no=0日報が残る日は、編集時にC1/C2を新規作成して二重計上しないよう
+ * コース全体の1フォームへ畳む。新規日付や便別日報がある日は便別のまま返す。
+ */
+export function resolveReportCycleChoices(
+  shiftChoices: ReportCycleChoice[],
+  existingChoices: ReportCycleChoice[],
+): ReportCycleChoice[] {
+  const existingByCourse = new Map<string, Set<number>>();
+  for (const choice of existingChoices) {
+    const cycles = existingByCourse.get(choice.courseId) ?? new Set<number>();
+    cycles.add(choice.cycleNo);
+    existingByCourse.set(choice.courseId, cycles);
+  }
+
+  const collapsedCourses = new Set<string>();
+  const result: ReportCycleChoice[] = [];
+  for (const choice of shiftChoices) {
+    const existingCycles = existingByCourse.get(choice.courseId);
+    const legacyOnly = existingCycles?.has(0) && ![...existingCycles].some((cycleNo) => cycleNo > 0);
+    if (legacyOnly) {
+      if (!collapsedCourses.has(choice.courseId)) {
+        result.push({ courseId: choice.courseId, cycleNo: 0 });
+        collapsedCourses.add(choice.courseId);
+      }
+    } else {
+      result.push(choice);
+    }
+  }
+  return result;
+}
+
 /** その日のシフト群から、既存reportの値で初期化した入力マップを構築（未入力は ""）。 */
 export function buildInitialValues(shifts: ShiftForm[]): ValueMap {
   const init: ValueMap = {};
   shifts.forEach((s) => {
-    init[s.courseId] = {};
+    const formKey = reportFormKey(s.courseId, s.cycleNo);
+    init[formKey] = {};
     s.units.forEach((u) => {
-      init[s.courseId][u.id] = {};
+      init[formKey][u.id] = {};
       u.fields.forEach((f) => {
         const existing = s.existing?.values?.[u.id]?.[f.fieldKey];
-        init[s.courseId][u.id][f.fieldKey] = existing != null ? String(existing) : "";
+        init[formKey][u.id][f.fieldKey] = existing != null ? String(existing) : "";
       });
     });
   });
@@ -70,12 +110,13 @@ export function buildReportItems(
 ): ReportItem[] {
   return shifts.map((s) => ({
     courseId: s.courseId,
+    cycleNo: s.cycleNo ?? 0,
     carrierId: s.carrierId,
     vehicleId,
     meterValue,
     entries: s.units.flatMap((u) =>
       u.fields.map((f) => {
-        const raw = values[s.courseId]?.[u.id]?.[f.fieldKey] ?? "";
+        const raw = values[reportFormKey(s.courseId, s.cycleNo)]?.[u.id]?.[f.fieldKey] ?? "";
         const isNumeric = f.inputType === "INT";
         return {
           unitId: u.id,

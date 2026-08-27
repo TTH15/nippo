@@ -3,6 +3,7 @@ import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
+import { buildContext, buildContributions } from "@/server/aggregation/compute";
 import { loadSubmitScreenConfig } from "@/server/submitScreen/config";
 import { resolveBlocks, normalizeBlocks, defaultBlocksFromConfig } from "@/server/submitScreen/blocks";
 import { loadDriverLease, loadCourseDailyLease, leaseDailyRateForCourse } from "@/server/billing/driverLease";
@@ -27,42 +28,22 @@ export async function GET(req: NextRequest) {
   ]);
 
   // --- 今日の報酬見込み（v2・未承認も含む / 却下は除外） ---
-  const unitById = new Map(dayData.units.map((u) => [u.id, u]));
-  const rateByCourseUnit = new Map(dayData.unitRates.map((r) => [`${r.courseId}:${r.unitId}`, r]));
-  const fixedByCourse = new Map(dayData.fixedRates.map((r) => [r.courseId, r]));
-  // 「自動支払なし」のコースは支払0（単価行に旧値が残っていても見込みに載せない）
-  const payoutModeByCourse = new Map(dayData.courseRateModes.map((m) => [m.courseId, m.payoutRateMode]));
-  const payoutUsesPiece = (courseId: string) => {
-    const mode = payoutModeByCourse.get(courseId) ?? "BOTH";
-    return mode === "PER_PIECE" || mode === "BOTH";
-  };
-  const payoutUsesFixed = (courseId: string) => {
-    const mode = payoutModeByCourse.get(courseId) ?? "BOTH";
-    return mode === "FIXED" || mode === "BOTH";
-  };
-
-  let todayReward = 0;
+  // 売上・月次支払と同じ集計エンジンを使い、便別単価・全日日当・snapshotの
+  // 解決規則を一本化する。見込みでは未承認も仮承認扱いにする。
+  const previewReports = dayData.reports
+    .filter((report) => report.rejectedAt == null)
+    .map((report) => ({ ...report, approvedAt: report.approvedAt ?? "preview" }));
+  const context = buildContext(dayData.units, dayData.unitRates, dayData.fixedRates, dayData.fixedRateBundles, dayData.courseRateModes);
+  const todayContributions = buildContributions(previewReports, [], context)
+    .filter((contribution) => contribution.driverId === driverId);
+  const todayRewardBeforeLease = todayContributions.reduce((total, contribution) => total + contribution.payout, 0);
   let leaseToday = 0; // 当日コースの最大日額（DAILY時）
   for (const r of dayData.reports) {
     if (r.driverId !== driverId || r.reportDate !== date || r.rejectedAt) continue;
     if (!r.courseId) continue;
-    for (const e of r.entries) {
-      const unit = unitById.get(e.unitId);
-      const billable = unit?.fields.find((x) => x.fieldKey === e.fieldKey)?.isBillable;
-      if (!billable) continue;
-      const rate = rateByCourseUnit.get(`${r.courseId}:${e.unitId}`);
-      // 保存値(payoutPerUnit)は常に税抜。ドライバー本人向けの見込み額は実際の支払額に近い税込で見せる。
-      if (rate && payoutUsesPiece(r.courseId)) {
-        todayReward += Math.round((e.valueNum ?? 0) * inclusiveOf(rate.payoutPerUnit, "exclusive"));
-      }
-    }
-    const fx = fixedByCourse.get(r.courseId);
-    if (fx && payoutUsesFixed(r.courseId) && fx.fixedPayout !== 0) {
-      todayReward += inclusiveOf(fx.fixedPayout, "exclusive");
-    }
     leaseToday = Math.max(leaseToday, leaseDailyRateForCourse(lease, r.courseId, courseDailyLease));
   }
-  todayReward -= leaseToday;
+  const todayReward = inclusiveOf(todayRewardBeforeLease, "exclusive") - leaseToday;
 
   // --- 送信後画面のブロックを解決 ---
   // blocks 未設定なら従来フラット設定から既定ブロックを導出（後方互換）。

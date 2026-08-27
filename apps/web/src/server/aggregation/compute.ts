@@ -127,7 +127,7 @@ export function reportContributions(
   // ただし「契約そのものが無い(NONE)」はコース属性であり単価改定とは別軸のため、
   // スナップショットより優先して 0 にする（支払なし → 売上全額が自社利益）。
   if (report.rateSnapshot?.version === 1) {
-    return report.rateSnapshot.components.map((component) => {
+    const snapshotContributions: Contribution[] = report.rateSnapshot.components.map((component) => {
       const piece = component.kind === "unit";
       const revenue = (piece ? allowsPiece(modes.revenue) : allowsFixed(modes.revenue)) ? component.revenue : 0;
       const payout = (piece ? allowsPiece(modes.payout) : allowsFixed(modes.payout)) ? component.payout : 0;
@@ -144,6 +144,32 @@ export function reportContributions(
         profit: revenue - payout,
       };
     });
+    // サイクル対応前の提出APIは、C1/C2のあるコースもcycle_no=0の1日報へ
+    // 畳んでいた。単価履歴が便別だけの場合、承認時snapshot.componentsが空になり
+    // 売上・日当が0円になるため、snapshot内に固定済みの全日契約で補完する。
+    const legacyBundle = report.rateSnapshot.fixedBundle;
+    const hasFixedComponent = report.rateSnapshot.components.some((component) => component.kind === "fixed");
+    if ((report.cycleNo ?? 0) === 0 && !hasFixedComponent && legacyBundle &&
+        (legacyBundle.fixedRevenue != null || legacyBundle.fixedPayout != null)) {
+      // 補完分も日当契約なので、日当の計算方式がNONEの側は0にする。
+      const revenue = allowsFixed(modes.revenue) ? legacyBundle.fixedRevenue ?? 0 : 0;
+      const payout = allowsFixed(modes.payout) ? legacyBundle.fixedPayout ?? 0 : 0;
+      if (revenue !== 0 || payout !== 0) {
+        snapshotContributions.push({
+          date: report.reportDate,
+          driverId: report.driverId,
+          courseId,
+          carrierId: report.carrierId,
+          unitId: null,
+          counterpartyId: null,
+          source: "auto_fixed",
+          revenue,
+          payout,
+          profit: revenue - payout,
+        });
+      }
+    }
+    return snapshotContributions;
   }
 
   // --- 従量分 ---
@@ -233,7 +259,9 @@ export function buildContributions(
 
 function hasAllCycles(reports: DailyReport[], required: number[]): boolean {
   const actual = new Set(reports.filter(isCountableReport).map((report) => report.cycleNo ?? 0));
-  return required.length > 1 && required.every((cycleNo) => actual.has(cycleNo));
+  // cycle_no=0はサイクル導入前に「コース全体＝全日」として保存された日報。
+  // 新規提出はC1/C2を明示するため、0だけ後方互換として全便成立と扱う。
+  return required.length > 1 && (actual.has(0) || required.every((cycleNo) => actual.has(cycleNo)));
 }
 
 /** 全日単価は便別固定額の「追加」ではなく置換。売上はコース/日、支払はドライバー/コース/日で判定する。 */

@@ -11,6 +11,7 @@ import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Skeleton } from "@/lib/components/Skeleton";
+import { reportFormKey } from "@repo/core/logic/dailyReport";
 
 type Field = {
   fieldKey: string;
@@ -23,6 +24,8 @@ type Field = {
 type Unit = { id: string; name: string; code: string; billingType: string; fields: Field[] };
 type ShiftForm = {
   courseId: string;
+  cycleNo?: number;
+  cycleLabel?: string | null;
   courseName: string;
   color: string | null;
   carrierId: string | null;
@@ -38,7 +41,7 @@ type ShiftForm = {
 
 type Target = { driverId: string; driverName: string; date: string };
 
-// values[courseId][unitId][fieldKey] = string
+// values[courseId:cycleNo][unitId][fieldKey] = string
 type Values = Record<string, Record<string, Record<string, string>>>;
 
 interface ProxyReportModalProps {
@@ -90,12 +93,13 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
     // 既存値を prefill
     const init: Values = {};
     loaded.forEach((s) => {
-      init[s.courseId] = {};
+      const shiftKey = reportFormKey(s.courseId, s.cycleNo);
+      init[shiftKey] = {};
       s.units.forEach((u) => {
-        init[s.courseId][u.id] = {};
+        init[shiftKey][u.id] = {};
         u.fields.forEach((f) => {
           const ev = s.existing?.values?.[u.id]?.[f.fieldKey];
-          init[s.courseId][u.id][f.fieldKey] = ev != null ? String(ev) : "";
+          init[shiftKey][u.id][f.fieldKey] = ev != null ? String(ev) : "";
         });
       });
     });
@@ -109,12 +113,12 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
 
   if (!target) return null;
 
-  const setVal = (courseId: string, unitId: string, fieldKey: string, v: string) =>
+  const setVal = (shiftKey: string, unitId: string, fieldKey: string, v: string) =>
     setValues((prev) => ({
       ...prev,
-      [courseId]: {
-        ...prev[courseId],
-        [unitId]: { ...prev[courseId]?.[unitId], [fieldKey]: v },
+      [shiftKey]: {
+        ...prev[shiftKey],
+        [unitId]: { ...prev[shiftKey]?.[unitId], [fieldKey]: v },
       },
     }));
 
@@ -126,12 +130,13 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
     try {
       const items = shifts.map((s) => ({
         courseId: s.courseId,
+        cycleNo: s.cycleNo ?? 0,
         carrierId: s.carrierId,
         vehicleId: s.existing?.vehicleId ?? shiftVehicleId,
         meterValue: s.existing?.meterValue ?? null,
         entries: s.units.flatMap((u) =>
           u.fields.map((f) => {
-            const raw = values[s.courseId]?.[u.id]?.[f.fieldKey] ?? "";
+            const raw = values[reportFormKey(s.courseId, s.cycleNo)]?.[u.id]?.[f.fieldKey] ?? "";
             const isNumeric = f.inputType === "INT";
             return {
               unitId: u.id,
@@ -191,13 +196,20 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
             </div>
           ) : (
             <div className="space-y-5">
-              {shifts.map((s) => (
-                <div key={s.courseId} className="rounded-lg border border-slate-200">
+              {shifts.map((s) => {
+                const shiftKey = reportFormKey(s.courseId, s.cycleNo);
+                return (
+                <div key={shiftKey} className="rounded-lg border border-slate-200">
                   <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50 rounded-t-lg flex items-center gap-2">
                     {s.color && (
                       <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: s.color }} />
                     )}
                     <span className="text-sm font-semibold text-slate-800">{s.courseName}</span>
+                    {(s.cycleNo ?? 0) > 0 && (
+                      <span className="rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                        {s.cycleLabel || `C${s.cycleNo}`}
+                      </span>
+                    )}
                     {s.carrierName && (
                       <span className="text-[11px] text-slate-500">/ {s.carrierName}</span>
                     )}
@@ -211,7 +223,7 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
                           <div className="text-xs font-semibold text-slate-600 mb-2">{u.name}</div>
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             {u.fields.map((f) => {
-                              const val = values[s.courseId]?.[u.id]?.[f.fieldKey] ?? "";
+                              const val = values[shiftKey]?.[u.id]?.[f.fieldKey] ?? "";
                               if (f.inputType === "BOOL") {
                                 return (
                                   <label
@@ -221,7 +233,7 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
                                     <input
                                       type="checkbox"
                                       checked={val === "true"}
-                                      onChange={(e) => setVal(s.courseId, u.id, f.fieldKey, e.target.checked ? "true" : "false")}
+                                      onChange={(e) => setVal(shiftKey, u.id, f.fieldKey, e.target.checked ? "true" : "false")}
                                       className="h-4 w-4 accent-slate-800"
                                     />
                                     <span className="text-xs text-slate-700">
@@ -244,7 +256,7 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
                                     min={isInt ? 0 : undefined}
                                     placeholder={isInt ? "0" : ""}
                                     value={val}
-                                    onChange={(e) => setVal(s.courseId, u.id, f.fieldKey, e.target.value)}
+                                    onChange={(e) => setVal(shiftKey, u.id, f.fieldKey, e.target.value)}
                                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded"
                                   />
                                 </div>
@@ -256,7 +268,8 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

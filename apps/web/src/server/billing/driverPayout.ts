@@ -170,6 +170,7 @@ export async function computeDriverAutoPayout(
     }
 
     if (r.rateSnapshot?.version === 1) {
+      let hasFixedComponent = false;
       for (const component of r.rateSnapshot.components) {
         const usesPayout = component.kind === "unit" ? payoutUsesPiece(courseId) : payoutUsesFixed(courseId);
         if (!usesPayout) continue;
@@ -183,8 +184,19 @@ export async function computeDriverAutoPayout(
         if (component.kind === "unit") {
           linePuQty.set(key, (linePuQty.get(key) ?? 0) + component.quantity);
         } else {
+          hasFixedComponent = true;
           fixedDaysByCourse.set(key, (fixedDaysByCourse.get(key) ?? 0) + 1);
         }
+      }
+      // サイクル対応前のcycle_no=0日報は、便別単価と一致せず承認時componentが
+      // 空になっていた。snapshotに固定済みの全日契約があれば報酬を補完する。
+      const legacyBundle = r.rateSnapshot.fixedBundle;
+      if ((r.cycleNo ?? 0) === 0 && !hasFixedComponent && legacyBundle?.fixedPayout != null) {
+        const displayPayout = toDisplay(legacyBundle.fixedPayout);
+        dayPayout += displayPayout;
+        const key = `${courseId}:0:snap:${legacyBundle.fixedPayout}`;
+        snapshotPayoutByKey.set(key, legacyBundle.fixedPayout);
+        fixedDaysByCourse.set(key, (fixedDaysByCourse.get(key) ?? 0) + 1);
       }
     } else {
     // 固定

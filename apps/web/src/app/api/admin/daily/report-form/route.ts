@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { resolveReportCycleChoices } from "@repo/core/logic/dailyReport";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
   // その日のシフト（コース）
   const { data: shiftRows } = await supabase
     .from("shifts")
-    .select("course_id, slot, vehicle_id")
+    .select("course_id, cycle_no, slot, vehicle_id")
     .eq("driver_id", driverId)
     .eq("shift_date", date)
     .order("slot");
@@ -43,6 +44,13 @@ export async function GET(req: NextRequest) {
   const rawShiftVehicleId: string | null =
     (shiftRows ?? []).map((s: any) => s.vehicle_id).find((v: string | null) => !!v) ?? null;
   const courseIds = Array.from(new Set((shiftRows ?? []).map((s: any) => s.course_id).filter(Boolean)));
+  const rawShiftChoices = Array.from(
+    new Map(
+      (shiftRows ?? [])
+        .filter((s: any) => s.course_id)
+        .map((s: any) => [`${s.course_id}:${Number(s.cycle_no) || 0}`, { courseId: s.course_id, cycleNo: Number(s.cycle_no) || 0 }]),
+    ).values(),
+  );
 
   // shifts 以外に依存しない取得は1波にまとめる（旧: 直列の積み上げ。me/report-form と同型）
   const [{ data: shiftVehicle }, { data: courses }, { data: existingReports }] = await Promise.all([
@@ -52,13 +60,13 @@ export async function GET(req: NextRequest) {
       : Promise.resolve({ data: null as { is_disposed: boolean; is_unavailable: boolean } | null }),
     // コース → キャリア
     courseIds.length
-      ? supabase.from("courses").select("id, name, color, summary_title, carrier_id").in("id", courseIds)
+      ? supabase.from("courses").select("id, name, color, summary_title, carrier_id, course_cycles(cycle_no, label)").in("id", courseIds)
       : Promise.resolve({ data: [] as any[] }),
     // 既存 v2 レポート（prefill）
     courseIds.length
       ? supabase
           .from("daily_reports_v2")
-          .select("id, course_id, vehicle_id, meter_value, approved_at, rejected_at")
+          .select("id, course_id, cycle_no, vehicle_id, meter_value, approved_at, rejected_at")
           .eq("org_id", orgId)
           .eq("driver_id", driverId)
           .eq("report_date", date)
@@ -113,7 +121,16 @@ export async function GET(req: NextRequest) {
     unitsByCarrier.set(u.carrier_id, arr);
   });
 
-  const reportByCourse = new Map<string, any>((existingReports ?? []).map((r: any) => [r.course_id, r]));
+  const reportByCourseCycle = new Map<string, any>(
+    (existingReports ?? []).map((r: any) => [`${r.course_id}:${Number(r.cycle_no) || 0}`, r]),
+  );
+  const shiftChoices = resolveReportCycleChoices(
+    rawShiftChoices,
+    (existingReports ?? []).filter((report: any) => report.rejected_at == null).map((report: any) => ({
+      courseId: String(report.course_id),
+      cycleNo: Number(report.cycle_no) || 0,
+    })),
+  );
   const entriesByReport = new Map<string, Record<string, Record<string, number | string>>>();
   (existingEntries ?? []).forEach((e: any) => {
     const m = entriesByReport.get(e.report_id) ?? {};
@@ -124,11 +141,14 @@ export async function GET(req: NextRequest) {
 
   const courseById = new Map<string, any>((courses ?? []).map((c: any) => [c.id, c]));
 
-  const shifts = courseIds.map((courseId) => {
+  const shifts = shiftChoices.map(({ courseId, cycleNo }) => {
     const c = courseById.get(courseId);
-    const existing = reportByCourse.get(courseId);
+    const existing = reportByCourseCycle.get(`${courseId}:${cycleNo}`);
+    const cycle = (c?.course_cycles ?? []).find((item: any) => Number(item.cycle_no) === cycleNo);
     return {
       courseId,
+      cycleNo,
+      cycleLabel: cycle?.label ?? (cycleNo > 0 ? `C${cycleNo}` : null),
       courseName: c?.summary_title?.trim() || c?.name || "",
       color: c?.color ?? null,
       carrierId: c?.carrier_id ?? null,

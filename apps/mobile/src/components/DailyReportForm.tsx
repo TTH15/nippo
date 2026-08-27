@@ -10,6 +10,7 @@ import {
   buildReportItems,
   buildVehicleCards,
   groupFieldsByLabel,
+  reportFormKey,
 } from "@repo/core/logic/dailyReport";
 
 // 日報入力フォーム（submit-v2）。値構築・整形は Web と同じ @repo/core/logic/dailyReport。
@@ -104,12 +105,12 @@ export const DailyReportForm = forwardRef<
     };
   }, [date]);
 
-  const setVal = (courseId: string, unitId: string, fieldKey: string, v: string) =>
+  const setVal = (formKey: string, unitId: string, fieldKey: string, v: string) =>
     setValues((prev) => ({
       ...prev,
-      [courseId]: {
-        ...prev[courseId],
-        [unitId]: { ...prev[courseId]?.[unitId], [fieldKey]: v },
+      [formKey]: {
+        ...prev[formKey],
+        [unitId]: { ...prev[formKey]?.[unitId], [fieldKey]: v },
       },
     }));
 
@@ -214,24 +215,29 @@ export const DailyReportForm = forwardRef<
       ) : shifts.length === 0 ? (
         <Text className="text-brand-300 py-4 text-center">この日のシフトはありません</Text>
       ) : (
-        shifts.map((s) => (
-          <View key={s.courseId} className="bg-white rounded-[10px] border border-brand-200 p-3 gap-2.5 mt-1.5">
-            <Text className="text-base font-bold text-brand-900">{s.courseName}</Text>
-            {s.units.map((u) => (
+        shifts.map((s) => {
+          const formKey = reportFormKey(s.courseId, s.cycleNo);
+          const cycleLabel = s.cycleLabel || `C${s.cycleNo ?? 0}`;
+          return (
+            <View key={formKey} className="bg-white rounded-[10px] border border-brand-200 p-3 gap-2.5 mt-1.5">
+              <Text className="text-base font-bold text-brand-900">
+                {s.courseName}{(s.cycleNo ?? 0) > 0 ? `  ${cycleLabel}` : ""}
+              </Text>
+              {s.units.map((u) => (
               <View key={u.id} className="gap-1.5">
                 <Text className="text-sm font-semibold text-brand-700">{u.name}</Text>
                 {groupFieldsByLabel(u.fields).map(([group, fields]) => (
                   <View key={group || "_"} className="gap-1.5 pl-1">
                     {group ? <Text className="text-xs text-brand-500 mt-1">{group}</Text> : null}
                     {fields.map((f) => {
-                      const raw = values[s.courseId]?.[u.id]?.[f.fieldKey] ?? "";
+                      const raw = values[formKey]?.[u.id]?.[f.fieldKey] ?? "";
                       if (f.inputType === "BOOL") {
                         const on = raw === "true";
                         return (
                           <Pressable
                             key={f.fieldKey}
                             className="flex-row items-center justify-between py-1.5"
-                            onPress={() => setVal(s.courseId, u.id, f.fieldKey, on ? "false" : "true")}
+                            onPress={() => setVal(formKey, u.id, f.fieldKey, on ? "false" : "true")}
                           >
                             <Text className="text-[13px] text-brand-700">{f.label}</Text>
                             <View
@@ -249,7 +255,7 @@ export const DailyReportForm = forwardRef<
                             className={INPUT}
                             value={raw}
                             onChangeText={(t) =>
-                              setVal(s.courseId, u.id, f.fieldKey, f.inputType === "INT" ? t.replace(/[^0-9]/g, "") : t)
+                              setVal(formKey, u.id, f.fieldKey, f.inputType === "INT" ? t.replace(/[^0-9]/g, "") : t)
                             }
                             keyboardType={f.inputType === "INT" ? "number-pad" : "default"}
                             placeholder={f.inputType === "TIME" ? "HH:MM" : ""}
@@ -260,9 +266,10 @@ export const DailyReportForm = forwardRef<
                   </View>
                 ))}
               </View>
-            ))}
-          </View>
-        ))
+              ))}
+            </View>
+          );
+        })
       )}
 
       {error ? <Text className="text-red-600 py-1">{error}</Text> : null}

@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 type EntryInput = { unitId: string; fieldKey: string; valueNum?: number | null; valueText?: string | null };
 type ItemInput = {
   courseId: string;
+  cycleNo?: number;
   carrierId?: string | null;
   vehicleId?: string | null;
   meterValue?: number | null;
@@ -48,31 +49,64 @@ export async function POST(req: NextRequest) {
   const orgId = await resolveOrgId(user.driverId);
 
   const validItems = items.filter((i) => i.courseId);
+  const itemKeys = validItems.map((item) => `${item.courseId}:${Number(item.cycleNo) || 0}`);
+  if (new Set(itemKeys).size !== itemKeys.length) {
+    return NextResponse.json({ error: "同じコース・便が重複しています" }, { status: 400 });
+  }
 
-  // 既存（未却下）の同 (driver,date,course) を1クエリでまとめて引く
+  // 既存（未却下）の同 (driver,date,course,cycle) を1クエリでまとめて引く
   // （旧: item ごとに SELECT→UPDATE/INSERT→DELETE→INSERT の4往復を直列実行）
-  const { data: existingRows, error: existingErr } = await supabase
-    .from("daily_reports_v2")
-    .select("id, course_id")
-    .eq("driver_id", user.driverId)
-    .eq("report_date", reportDate)
-    .in("course_id", validItems.map((i) => i.courseId))
-    .is("rejected_at", null);
+  const [{ data: existingRows, error: existingErr }, { data: shiftRows, error: shiftErr }] = await Promise.all([
+    supabase
+      .from("daily_reports_v2")
+      .select("id, course_id, cycle_no")
+      .eq("org_id", orgId)
+      .eq("driver_id", user.driverId)
+      .eq("report_date", reportDate)
+      .in("course_id", validItems.map((i) => i.courseId))
+      .is("rejected_at", null),
+    supabase
+      .from("shifts")
+      .select("course_id, cycle_no")
+      .eq("driver_id", user.driverId)
+      .eq("shift_date", reportDate),
+  ]);
   if (existingErr) {
     console.error(existingErr);
     return NextResponse.json({ error: "日報の保存に失敗しました" }, { status: 500 });
   }
-  const existingByCourse = new Map(
-    (existingRows ?? []).map((r: { id: string; course_id: string | null }) => [r.course_id, r.id]),
+  if (shiftErr) {
+    console.error(shiftErr);
+    return NextResponse.json({ error: "シフトの確認に失敗しました" }, { status: 500 });
+  }
+  const existingByCourseCycle = new Map(
+    (existingRows ?? []).map((r: { id: string; course_id: string | null; cycle_no: number | null }) => [
+      `${r.course_id}:${Number(r.cycle_no) || 0}`,
+      r.id,
+    ]),
   );
+  const allowedShiftKeys = new Set(
+    (shiftRows ?? [])
+      .filter((row) => row.course_id)
+      .map((row) => `${row.course_id}:${Number(row.cycle_no) || 0}`),
+  );
+  const invalidItem = validItems.find((item) => {
+    const key = `${item.courseId}:${Number(item.cycleNo) || 0}`;
+    return !allowedShiftKeys.has(key) && !existingByCourseCycle.has(key);
+  });
+  if (invalidItem) {
+    return NextResponse.json({ error: "シフトにないコース・便は提出できません" }, { status: 400 });
+  }
 
   // item 同士は独立（コースが異なる）ため並列で保存する
   const saveItem = async (item: ItemInput): Promise<string> => {
+    const cycleNo = Number.isInteger(item.cycleNo) && Number(item.cycleNo) >= 0 ? Number(item.cycleNo) : 0;
     const header = {
       org_id: orgId,
       driver_id: user.driverId,
       report_date: reportDate,
       course_id: item.courseId,
+      cycle_no: cycleNo,
       carrier_id: item.carrierId ?? null,
       identity_id: driverIdentityId,
       vehicle_id: item.vehicleId ?? null,
@@ -86,7 +120,7 @@ export async function POST(req: NextRequest) {
     };
 
     let reportId: string;
-    const existingId = existingByCourse.get(item.courseId);
+    const existingId = existingByCourseCycle.get(`${item.courseId}:${cycleNo}`);
     if (existingId) {
       const { error } = await supabase.from("daily_reports_v2").update(header).eq("id", existingId);
       if (error) {

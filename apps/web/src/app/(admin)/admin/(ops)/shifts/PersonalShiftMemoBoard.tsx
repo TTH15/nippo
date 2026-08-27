@@ -14,10 +14,14 @@ import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faChevronDown,
+  faCropSimple,
+  faDownload,
   faEllipsis,
   faEye,
   faEyeSlash,
+  faFilePdf,
   faGripLines,
+  faImage,
   faLock,
   faMagnifyingGlass,
   faMinus,
@@ -25,9 +29,18 @@ import {
   faRotateLeft,
   faTriangleExclamation,
   faTruck,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
+import {
+  exportBodySlices,
+  exportDateLabel,
+  exportDateRangeFromColumns,
+  exportEdgeVelocity,
+  exportPeriodLabel,
+  selectedShortageCount,
+} from "@/lib/shiftMemoExport";
 import { cn } from "@/lib/ui/utils";
 
 type MemoCourse = {
@@ -91,6 +104,16 @@ type ActivePanel =
   | { kind: "add"; routeId: string; anchor: PanelAnchor }
   | { kind: "edit"; laneId: string; anchor: PanelAnchor }
   | null;
+type ExportSelection = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  routeIds: string[];
+  laneIds: string[];
+};
+type ExportArtifacts = { png: Blob; pdf: Blob; filename: string };
+type ExportCellAnchor = { dayIndex: number; rowIndex: number };
 
 type StoredBoard = {
   version: 1;
@@ -155,6 +178,15 @@ function assignedCount(people: AssignedPerson[]): number {
 
 function shortageFor(lane: AssignmentLane, date: string, people: AssignedPerson[]): number {
   return activeOn(lane, date) ? Math.max(0, lane.requiredCount - assignedCount(people)) : 0;
+}
+
+function exportDateRange(
+  selection: ExportSelection,
+  laneWidth: number,
+  dayWidth: number,
+  dates: string[],
+): { start: string; end: string } {
+  return exportDateRangeFromColumns(selection.x, selection.width, laneWidth, dayWidth, dates);
 }
 
 function weekdaySummary(activeWeekdays: number[]): string {
@@ -240,6 +272,7 @@ function PersonSlip({
 }) {
   return (
     <button
+      data-shift-export-slip="true"
       type="button"
       draggable
       aria-pressed={selected}
@@ -264,7 +297,7 @@ function PersonSlip({
       )}
       style={{ borderLeftColor: colorForPerson(token.personKey), borderLeftWidth: 3 }}
     >
-      <span className="min-w-0 truncate px-2 py-1">{token.name}</span>
+      <span data-shift-export-slip-text="true" className="min-w-0 truncate px-2 py-1">{token.name}</span>
       {code && !token.sourceKey && <span className="shrink-0 border-l border-slate-100 px-1.5 py-1 font-mono text-[8px] text-slate-400">{code}</span>}
     </button>
   );
@@ -315,6 +348,18 @@ export default function PersonalShiftMemoBoard({
     targetKey: string;
     existingNames: string[];
   } | null>(null);
+  const boardScrollerRef = useRef<HTMLElement | null>(null);
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const exportOverlayRef = useRef<HTMLDivElement | null>(null);
+  const exportSelectionStartRef = useRef<ExportCellAnchor | null>(null);
+  const exportPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const exportAutoScrollFrameRef = useRef<number | null>(null);
+  const exportArtifactsRef = useRef<ExportArtifacts | null>(null);
+  const [exportMode, setExportMode] = useState(false);
+  const [exportSelection, setExportSelection] = useState<ExportSelection | null>(null);
+  const [exportPreviewUrl, setExportPreviewUrl] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -454,6 +499,404 @@ export default function PersonalShiftMemoBoard({
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+  };
+
+  const exportRows = () => Array.from(boardRef.current?.querySelectorAll<HTMLElement>("[data-export-row]") ?? [])
+    .map((element) => ({
+      top: element.offsetTop,
+      bottom: element.offsetTop + element.offsetHeight,
+      routeId: element.dataset.exportRouteId ?? "",
+      laneId: element.dataset.exportRow ?? "",
+    }))
+    .sort((a, b) => a.top - b.top);
+
+  const cellAtExportPoint = (clientX: number, clientY: number): ExportCellAnchor | null => {
+    const rows = exportRows();
+    const overlay = exportOverlayRef.current;
+    if (rows.length === 0 || !overlay || dates.length === 0) return null;
+    const rect = overlay.getBoundingClientRect();
+    const boardX = Math.max(laneWidth, Math.min(boardWidth - 1, clientX - rect.left + laneWidth));
+    const boardY = Math.max(64, Math.min(overlay.offsetHeight + 63, clientY - rect.top + 64));
+    const dayIndex = Math.max(0, Math.min(dates.length - 1, Math.floor((boardX - laneWidth) / dayWidth)));
+    let rowIndex = rows.findIndex((row) => boardY >= row.top && boardY < row.bottom);
+    if (rowIndex < 0) {
+      rowIndex = rows.reduce((nearestIndex, row, index) => {
+        const distance = Math.min(Math.abs(boardY - row.top), Math.abs(boardY - row.bottom));
+        const nearest = rows[nearestIndex];
+        const nearestDistance = Math.min(Math.abs(boardY - nearest.top), Math.abs(boardY - nearest.bottom));
+        return distance < nearestDistance ? index : nearestIndex;
+      }, 0);
+    }
+    return { dayIndex, rowIndex };
+  };
+
+  const selectionFromCells = (start: ExportCellAnchor, end: ExportCellAnchor): ExportSelection | null => {
+    const rows = exportRows();
+    if (!rows[start.rowIndex] || !rows[end.rowIndex]) return null;
+    const firstDay = Math.min(start.dayIndex, end.dayIndex);
+    const lastDay = Math.max(start.dayIndex, end.dayIndex);
+    const firstRow = Math.min(start.rowIndex, end.rowIndex);
+    const lastRow = Math.max(start.rowIndex, end.rowIndex);
+    const selectedRows = rows.slice(firstRow, lastRow + 1);
+    return {
+      x: laneWidth + firstDay * dayWidth,
+      y: rows[firstRow].top,
+      width: (lastDay - firstDay + 1) * dayWidth,
+      height: rows[lastRow].bottom - rows[firstRow].top,
+      routeIds: Array.from(new Set(selectedRows.map((row) => row.routeId).filter(Boolean))),
+      laneIds: selectedRows.map((row) => row.laneId),
+    };
+  };
+
+  const exportSlices = (selection: ExportSelection) => {
+    const board = boardRef.current;
+    if (!board) return [];
+    const headers = Array.from(board.querySelectorAll<HTMLElement>("[data-export-route-header]")).map((element) => ({
+      routeId: element.dataset.exportRouteHeader ?? "",
+      top: element.offsetTop,
+      bottom: element.offsetTop + element.offsetHeight,
+    }));
+    return exportBodySlices(exportRows(), headers, selection.y, selection.y + selection.height);
+  };
+
+  const updateExportSelectionAt = (clientX: number, clientY: number) => {
+    const start = exportSelectionStartRef.current;
+    const cell = cellAtExportPoint(clientX, clientY);
+    if (start && cell) setExportSelection(selectionFromCells(start, cell));
+  };
+
+  const stopExportAutoScroll = () => {
+    if (exportAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(exportAutoScrollFrameRef.current);
+      exportAutoScrollFrameRef.current = null;
+    }
+    exportPointerRef.current = null;
+  };
+
+  const scrollExportAtPointer = () => {
+    const scroller = boardScrollerRef.current;
+    const pointer = exportPointerRef.current;
+    if (!scroller || !pointer || !exportSelectionStartRef.current) return false;
+    const rect = scroller.getBoundingClientRect();
+    const cellAreaLeft = Math.min(rect.right, rect.left + laneWidth);
+    const cellAreaTop = Math.min(rect.bottom, rect.top + 64);
+    const scrollX = exportEdgeVelocity(pointer.clientX, cellAreaLeft, rect.right);
+    const scrollY = exportEdgeVelocity(pointer.clientY, cellAreaTop, rect.bottom);
+    if (scrollX === 0 && scrollY === 0) return false;
+    const previousLeft = scroller.scrollLeft;
+    const previousTop = scroller.scrollTop;
+    if (scrollX !== 0) scroller.scrollLeft = previousLeft + scrollX;
+    if (scrollY !== 0) scroller.scrollTop = previousTop + scrollY;
+    const changed = scroller.scrollLeft !== previousLeft || scroller.scrollTop !== previousTop;
+    if (changed) updateExportSelectionAt(pointer.clientX, pointer.clientY);
+    return changed;
+  };
+
+  const startExportAutoScroll = () => {
+    if (exportAutoScrollFrameRef.current !== null) return;
+    const tick = () => {
+      if (!exportSelectionStartRef.current || !exportPointerRef.current) {
+        exportAutoScrollFrameRef.current = null;
+        return;
+      }
+      scrollExportAtPointer();
+      exportAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+    };
+    exportAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+  };
+
+  useEffect(() => () => {
+    if (exportAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(exportAutoScrollFrameRef.current);
+    }
+  }, []);
+
+  const buildExportCanvas = async (selection: ExportSelection) => {
+    if (!boardRef.current) throw new Error("表を読み取れませんでした");
+    const { default: html2canvas } = await import("html2canvas");
+    const selectedShortageByDate = new Map(dates.map((date) => [
+      date,
+      selectedShortageCount(selection.laneIds, (laneId) => {
+        const lane = lanes.find((candidate) => candidate.id === laneId);
+        return lane ? shortageFor(lane, date, assignments[cellKey(lane.id, date)] ?? []) : 0;
+      }),
+    ]));
+    const source = await html2canvas(boardRef.current, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      width: boardRef.current.scrollWidth,
+      height: boardRef.current.scrollHeight,
+      windowWidth: boardRef.current.scrollWidth,
+      windowHeight: boardRef.current.scrollHeight,
+      onclone: (clonedDocument) => {
+        const setExportPillLabel = (pill: HTMLElement, text: string) => {
+          const label = clonedDocument.createElement("span");
+          label.textContent = text;
+          Object.assign(label.style, {
+            display: "block",
+            position: "relative",
+            top: "-3px",
+            height: "14px",
+            lineHeight: "14px",
+            whiteSpace: "nowrap",
+            transform: "none",
+          });
+          pill.replaceChildren(label);
+        };
+        const clonedScroller = clonedDocument.querySelector<HTMLElement>("[data-shift-export-scroller='true']");
+        if (clonedScroller) {
+          clonedScroller.scrollLeft = 0;
+          clonedScroller.scrollTop = 0;
+          clonedScroller.style.overflow = "visible";
+        }
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-sticky='true']").forEach((element) => {
+          Object.assign(element.style, {
+            position: "relative",
+            left: "auto",
+            top: "auto",
+            zIndex: "auto",
+            transform: "none",
+          });
+        });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-slip='true']").forEach((slip) => {
+          Object.assign(slip.style, {
+            display: "block",
+            position: "relative",
+            height: "28px",
+            padding: "0",
+          });
+        });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-slip-text='true']").forEach((label) => {
+          Object.assign(label.style, {
+            display: "block",
+            boxSizing: "border-box",
+            position: "relative",
+            top: "-2px",
+            height: "26px",
+            lineHeight: "14px",
+            padding: "4px 8px 8px",
+            transform: "none",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          });
+        });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-pill='true']").forEach((pill) => {
+          const text = pill.textContent ?? "";
+          Object.assign(pill.style, {
+            boxSizing: "border-box",
+            display: "inline-block",
+            width: "auto",
+            height: "14px",
+            lineHeight: "normal",
+            padding: "0 5px",
+            fontSize: "8px",
+            transform: "none",
+            verticalAlign: "top",
+            overflow: "hidden",
+          });
+          setExportPillLabel(pill, text);
+        });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-meta='true']").forEach((meta) => {
+          Object.assign(meta.style, { lineHeight: "10px", paddingTop: "0" });
+        });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-day='true']").forEach((day) => {
+          Object.assign(day.style, {
+            boxSizing: "border-box",
+            display: "block",
+            height: "64px",
+            padding: "5px 2px 3px",
+            textAlign: "center",
+          });
+        });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-day-number='true']").forEach((number) => {
+          Object.assign(number.style, { display: "block", height: "17px", lineHeight: "17px" });
+        });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-day-weekday='true']").forEach((weekday) => {
+          Object.assign(weekday.style, { display: "block", height: "13px", lineHeight: "13px" });
+        });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-day-shortage]").forEach((badge) => {
+          const date = badge.dataset.shiftExportDayShortage ?? "";
+          const shortage = selectedShortageByDate.get(date) ?? 0;
+          setExportPillLabel(badge, `不足${shortage}`);
+          Object.assign(badge.style, {
+            display: shortage > 0 ? "inline-block" : "none",
+            marginTop: "3px",
+          });
+        });
+      },
+    });
+    const sourceScaleX = source.width / boardRef.current.scrollWidth;
+    const sourceScaleY = source.height / boardRef.current.scrollHeight;
+    const dateCropX = Math.max(0, Math.round(selection.x * sourceScaleX));
+    const dateCropWidth = Math.max(1, Math.min(source.width - dateCropX, Math.round(selection.width * sourceScaleX)));
+    const bodySlices = exportSlices(selection).map((slice) => {
+      const top = Math.max(0, Math.round(slice.top * sourceScaleY));
+      return {
+        top,
+        height: Math.max(1, Math.min(source.height - top, Math.round((slice.bottom - slice.top) * sourceScaleY))),
+        kind: slice.kind,
+        routeId: slice.routeId,
+      };
+    });
+    if (bodySlices.length === 0) throw new Error("選択範囲を読み取れませんでした");
+    const bodyHeight = bodySlices.reduce((total, slice) => total + slice.height, 0);
+    const labelWidth = Math.round(laneWidth * sourceScaleX);
+    const tableHeaderHeight = Math.round(64 * sourceScaleY);
+    const tableWidth = labelWidth + dateCropWidth;
+    const headerHeight = Math.round(74 * sourceScaleY);
+    const output = document.createElement("canvas");
+    output.width = Math.max(tableWidth, Math.round(300 * sourceScaleX));
+    output.height = headerHeight + tableHeaderHeight + bodyHeight;
+    const context = output.getContext("2d");
+    if (!context) throw new Error("画像を作成できませんでした");
+
+    const range = exportDateRange(selection, laneWidth, dayWidth, dates);
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, output.width, output.height);
+    context.fillStyle = "#f59e0b";
+    context.fillRect(0, 0, output.width, Math.max(6, Math.round(4 * sourceScaleY)));
+    context.fillStyle = "#0f172a";
+    context.font = `800 ${Math.round(21 * sourceScaleY)}px sans-serif`;
+    context.textBaseline = "top";
+    context.fillText(exportDateLabel(range.start, range.end), Math.round(18 * sourceScaleX), Math.round(16 * sourceScaleY));
+    context.fillStyle = "#64748b";
+    context.font = `600 ${Math.round(10 * sourceScaleY)}px sans-serif`;
+    context.fillText("シフトメモ・配置抜粋", Math.round(18 * sourceScaleX), Math.round(48 * sourceScaleY));
+    if (output.width >= Math.round(520 * sourceScaleX)) {
+      context.textAlign = "right";
+      context.fillText(exportPeriodLabel(dates), output.width - Math.round(18 * sourceScaleX), Math.round(48 * sourceScaleY));
+      context.textAlign = "left";
+    }
+    context.strokeStyle = "#e2e8f0";
+    context.lineWidth = Math.max(1, Math.round(sourceScaleY));
+    context.beginPath();
+    context.moveTo(0, headerHeight - context.lineWidth / 2);
+    context.lineTo(output.width, headerHeight - context.lineWidth / 2);
+    context.stroke();
+    context.drawImage(source, 0, 0, labelWidth, tableHeaderHeight, 0, headerHeight, labelWidth, tableHeaderHeight);
+    context.drawImage(source, dateCropX, 0, dateCropWidth, tableHeaderHeight, labelWidth, headerHeight, dateCropWidth, tableHeaderHeight);
+    let destinationY = headerHeight + tableHeaderHeight;
+    bodySlices.forEach((slice) => {
+      if (slice.kind === "route") {
+        const route = routeGroups.find((candidate) => candidate.id === slice.routeId);
+        context.fillStyle = "#f1f5f9";
+        context.fillRect(0, destinationY, tableWidth, slice.height);
+        context.strokeStyle = "#e2e8f0";
+        context.lineWidth = Math.max(1, Math.round(sourceScaleY));
+        context.beginPath();
+        context.moveTo(0, destinationY + slice.height - context.lineWidth / 2);
+        context.lineTo(tableWidth, destinationY + slice.height - context.lineWidth / 2);
+        context.stroke();
+        if (route) {
+          const textX = Math.round(12 * sourceScaleX);
+          context.textAlign = "left";
+          context.textBaseline = "top";
+          context.fillStyle = "#94a3b8";
+          context.font = `600 ${Math.round(9 * sourceScaleY)}px sans-serif`;
+          context.fillText(route.carrier, textX, destinationY + Math.round(6 * sourceScaleY), labelWidth - textX * 2);
+          context.fillStyle = "#334155";
+          context.font = `700 ${Math.round(11 * sourceScaleY)}px sans-serif`;
+          context.fillText(route.name, textX, destinationY + Math.round(20 * sourceScaleY), labelWidth - textX * 2);
+        }
+        destinationY += slice.height;
+        return;
+      }
+      context.drawImage(source, 0, slice.top, labelWidth, slice.height, 0, destinationY, labelWidth, slice.height);
+      context.drawImage(source, dateCropX, slice.top, dateCropWidth, slice.height, labelWidth, destinationY, dateCropWidth, slice.height);
+      destinationY += slice.height;
+    });
+    return output;
+  };
+
+  const refreshExportPreview = async (selection: ExportSelection) => {
+    setExportBusy(true);
+    setExportError("");
+    exportArtifactsRef.current = null;
+    try {
+      const canvas = await buildExportCanvas(selection);
+      const imageUrl = canvas.toDataURL("image/png");
+      const png = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((result) => result ? resolve(result) : reject(new Error("PNGを作成できませんでした")), "image/png");
+      });
+      const range = exportDateRange(selection, laneWidth, dayWidth, dates);
+      const filename = `シフトメモ_${range.start}${range.end === range.start ? "" : `_${range.end}`}`;
+      const { jsPDF } = await import("jspdf");
+      const pageWidth = 200;
+      const pageHeight = pageWidth * (canvas.height / canvas.width);
+      const pdfDocument = new jsPDF({
+        orientation: pageWidth >= pageHeight ? "landscape" : "portrait",
+        unit: "mm",
+        format: [pageWidth, pageHeight],
+      });
+      const pdfWidth = pdfDocument.internal.pageSize.getWidth();
+      const pdfHeight = pdfDocument.internal.pageSize.getHeight();
+      pdfDocument.addImage(imageUrl, "PNG", 0, 0, pdfWidth, pdfHeight);
+      exportArtifactsRef.current = { png, pdf: pdfDocument.output("blob"), filename };
+      setExportPreviewUrl(imageUrl);
+    } catch (error) {
+      console.error(error);
+      exportArtifactsRef.current = null;
+      setExportPreviewUrl(null);
+      setExportError("プレビューを作成できませんでした");
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const startExport = () => {
+    stopExportAutoScroll();
+    closeActivePanel(false);
+    setExportMode(true);
+    setExportSelection(null);
+    setExportPreviewUrl(null);
+    exportArtifactsRef.current = null;
+    setExportError("");
+  };
+
+  const closeExport = () => {
+    stopExportAutoScroll();
+    exportSelectionStartRef.current = null;
+    setExportMode(false);
+    setExportSelection(null);
+    setExportPreviewUrl(null);
+    exportArtifactsRef.current = null;
+    setExportError("");
+  };
+
+  const selectWholeBoard = () => {
+    const rows = exportRows();
+    if (rows.length === 0) return;
+    const selection: ExportSelection = {
+      x: laneWidth,
+      y: rows[0].top,
+      width: dayWidth * dates.length,
+      height: rows.at(-1)!.bottom - rows[0].top,
+      routeIds: Array.from(new Set(rows.map((row) => row.routeId).filter(Boolean))),
+      laneIds: rows.map((row) => row.laneId),
+    };
+    setExportSelection(selection);
+    void refreshExportPreview(selection);
+  };
+
+  const downloadExport = (format: "png" | "pdf") => {
+    const artifacts = exportArtifactsRef.current;
+    if (!artifacts) {
+      setExportError("先にプレビューを作成してください");
+      return;
+    }
+    setExportError("");
+    const objectUrl = URL.createObjectURL(artifacts[format]);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = `${artifacts.filename}.${format}`;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
   };
 
   const duplicateLaneNames = (token: PersonToken, targetKey: string): string[] => {
@@ -621,6 +1064,20 @@ export default function PersonalShiftMemoBoard({
         <span className="text-[11px] text-slate-500">
           {saveError ? <span className="text-rose-600">{saveError}</span> : savedAt ? "この端末に自動保存済み" : "この端末に保存"}
         </span>
+        <button
+          type="button"
+          onClick={exportMode ? closeExport : startExport}
+          aria-pressed={exportMode}
+          className={cn(
+            "ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[11px] font-bold transition",
+            exportMode
+              ? "border-amber-400 bg-amber-50 text-amber-800"
+              : "border-slate-200 bg-white text-slate-700 hover:border-slate-400",
+          )}
+        >
+          <FontAwesomeIcon icon={exportMode ? faXmark : faDownload} className="h-3 w-3" />
+          {exportMode ? "選択を終了" : "エクスポート"}
+        </button>
         {hiddenLanes.length > 0 && (
           <button type="button" onClick={() => setHiddenOpen((open) => !open)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-medium text-slate-600 hover:border-slate-400">
             <FontAwesomeIcon icon={faEye} className="h-3 w-3" />非表示 {hiddenLanes.length}件
@@ -647,22 +1104,22 @@ export default function PersonalShiftMemoBoard({
         className="grid min-h-[680px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:h-[calc(100dvh-250px)] lg:grid-cols-[minmax(0,1fr)_7px_var(--memo-detail-width)]"
         style={{ "--memo-detail-width": `${detailWidth}px` } as React.CSSProperties}
       >
-        <section className="min-h-[480px] min-w-0 overflow-auto bg-white lg:min-h-0">
-          <div className="relative grid min-h-full content-start" style={{ gridTemplateColumns: `${laneWidth}px repeat(${dates.length}, ${dayWidth}px)`, width: boardWidth }}>
-            <div className="sticky left-0 top-0 z-50 flex h-16 items-center border-b border-r border-slate-200 bg-slate-50 px-3">
+        <section ref={boardScrollerRef} data-shift-export-scroller="true" className="min-h-[480px] min-w-0 overflow-auto bg-white lg:min-h-0">
+          <div ref={boardRef} className="relative grid min-h-full content-start" style={{ gridTemplateColumns: `${laneWidth}px repeat(${dates.length}, ${dayWidth}px)`, width: boardWidth }}>
+            <div data-shift-export-sticky="true" className="sticky left-0 top-0 z-50 flex h-16 items-center border-b border-r border-slate-200 bg-slate-50 px-3">
               <span className="text-xs font-bold text-slate-600">町名・担当枠</span>
-              <button type="button" onPointerDown={(event) => startResize(event, laneWidth, setLaneWidth, 150, 300)} className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize hover:bg-indigo-200/70" aria-label={`担当枠列の幅を変更（現在${laneWidth}px）`} />
+              <button data-html2canvas-ignore="true" type="button" onPointerDown={(event) => startResize(event, laneWidth, setLaneWidth, 150, 300)} className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize hover:bg-indigo-200/70" aria-label={`担当枠列の幅を変更（現在${laneWidth}px）`} />
             </div>
             {dates.map((date) => {
               const info = dateInfo(date);
               const shortage = dayShortage(date);
               return (
-                <div key={date} className={cn("sticky top-0 z-40 h-16 border-b border-r border-slate-200 bg-slate-50 text-xs font-bold", selectedDate === date && "bg-indigo-50 text-indigo-700 ring-2 ring-inset ring-indigo-500", selectedDate !== date && info.weekdayNo === 6 && "text-blue-600", selectedDate !== date && info.weekdayNo === 0 && "text-rose-600")}>
-                  <button type="button" onClick={() => setSelectedDate(date)} className="flex h-full w-full flex-col items-center justify-center">
-                    <span className="text-sm">{info.day}日</span><span className="text-[10px]">（{info.weekday}）</span>
-                    {shortage > 0 && <span className="mt-0.5 rounded-full bg-amber-100 px-1.5 text-[8px] font-bold leading-4 text-amber-700">不足{shortage}</span>}
+                <div key={date} data-shift-export-sticky="true" className={cn("sticky top-0 z-40 h-16 border-b border-r border-slate-200 bg-slate-50 text-xs font-bold", selectedDate === date && "bg-indigo-50 text-indigo-700 ring-2 ring-inset ring-indigo-500", selectedDate !== date && info.weekdayNo === 6 && "text-blue-600", selectedDate !== date && info.weekdayNo === 0 && "text-rose-600")}>
+                  <button data-shift-export-day="true" type="button" onClick={() => setSelectedDate(date)} className="flex h-full w-full flex-col items-center justify-center">
+                    <span data-shift-export-day-number="true" className="text-sm">{info.day}日</span><span data-shift-export-day-weekday="true" className="text-[10px]">（{info.weekday}）</span>
+                    {shortage > 0 && <span data-shift-export-pill="true" data-shift-export-day-shortage={date} className="mt-0.5 rounded-full bg-amber-100 px-1.5 text-[8px] font-bold leading-4 text-amber-700">不足{shortage}</span>}
                   </button>
-                  <button type="button" onPointerDown={(event) => startResize(event, dayWidth, setDayWidth, 56, 140)} className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize" aria-label={`日付列の幅を変更（現在${dayWidth}px）`} />
+                  <button data-html2canvas-ignore="true" type="button" onPointerDown={(event) => startResize(event, dayWidth, setDayWidth, 56, 140)} className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize" aria-label={`日付列の幅を変更（現在${dayWidth}px）`} />
                 </div>
               );
             })}
@@ -673,26 +1130,36 @@ export default function PersonalShiftMemoBoard({
               const routeLanes = visibleLanes.filter((lane) => lane.routeId === route.id);
               return (
                 <div key={route.id} className="contents">
-                  <div className="sticky left-0 z-30 flex h-11 items-center gap-2 border-b border-r border-slate-200 bg-slate-100 px-3">
+                  <div
+                    data-export-route-header={route.id}
+                    data-shift-export-sticky="true"
+                    className={cn(
+                      "sticky left-0 z-30 flex h-11 items-center gap-2 border-b border-r border-slate-200 bg-slate-100 px-3",
+                      exportMode && exportSelection?.routeIds.includes(route.id) && "border-l-2 border-l-amber-500 bg-amber-50",
+                    )}
+                  >
                     <FontAwesomeIcon icon={faTruck} className="h-3 w-3 shrink-0 text-slate-400" />
                     <div className="min-w-0 flex-1 leading-tight"><div className="truncate text-[9px] text-slate-400">{route.carrier}</div><div className="truncate text-xs font-bold text-slate-700">{route.name}</div></div>
-                    <button type="button" data-route-add={route.id} onClick={(event) => openAddLane(route, event)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700" aria-label={`${route.name}に担当枠を追加`} aria-haspopup="dialog"><FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" /></button>
+                    <button data-html2canvas-ignore="true" type="button" data-route-add={route.id} onClick={(event) => openAddLane(route, event)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700" aria-label={`${route.name}に担当枠を追加`} aria-haspopup="dialog"><FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" /></button>
                   </div>
                   <div className="h-11 border-b border-slate-200 bg-slate-100/80" style={{ gridColumn: `span ${dates.length}` }} />
 
                   {routeLanes.map((lane) => (
                     <div key={lane.id} className="contents">
                       <div
+                        data-export-row={lane.id}
+                        data-export-route-id={lane.routeId}
+                        data-shift-export-sticky="true"
                         draggable
                         onDragStart={(event) => event.dataTransfer.setData(LANE_DRAG_TYPE, lane.id)}
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={(event) => reorderLane(event.dataTransfer.getData(LANE_DRAG_TYPE), lane.id)}
                         className="sticky left-0 z-30 flex min-h-28 items-center gap-2 border-b border-r border-slate-200 bg-white px-2.5"
                       >
-                        <FontAwesomeIcon icon={faGripLines} className="h-3 w-3 shrink-0 cursor-grab text-slate-300" />
+                        <span data-html2canvas-ignore="true" className="inline-flex"><FontAwesomeIcon icon={faGripLines} className="h-3 w-3 shrink-0 cursor-grab text-slate-300" /></span>
                         <span className="h-12 w-1 shrink-0 rounded-full" style={{ backgroundColor: lane.color }} />
                         <div className="min-w-0 flex-1"><div className="text-xs font-bold leading-snug text-slate-700">{lane.name}</div><div className="mt-1 text-[9px] text-slate-400">{weekdaySummary(lane.activeWeekdays)}・{lane.requiredCount}人</div></div>
-                        <button type="button" onClick={(event) => openLaneSettings(lane, event)} className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-white text-slate-400 shadow-sm ring-1 ring-slate-200 hover:text-slate-700" aria-label={`${lane.name}を編集`} aria-haspopup="dialog"><FontAwesomeIcon icon={faEllipsis} className="h-3 w-3" /></button>
+                        <button data-html2canvas-ignore="true" type="button" onClick={(event) => openLaneSettings(lane, event)} className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-white text-slate-400 shadow-sm ring-1 ring-slate-200 hover:text-slate-700" aria-label={`${lane.name}を編集`} aria-haspopup="dialog"><FontAwesomeIcon icon={faEllipsis} className="h-3 w-3" /></button>
                       </div>
                       {dates.map((date) => {
                         const key = cellKey(lane.id, date);
@@ -717,9 +1184,9 @@ export default function PersonalShiftMemoBoard({
                             style={!active ? { backgroundImage: "repeating-linear-gradient(135deg, transparent, transparent 8px, rgba(148,163,184,0.08) 8px, rgba(148,163,184,0.08) 10px)" } : undefined}
                           >
                             {active ? shortage > 0
-                              ? <span className="absolute right-1.5 top-1.5 rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span>
-                              : <span className="absolute right-1.5 top-1.5 text-[9px] text-slate-400">{assignedCount(people)}/{lane.requiredCount}</span>
-                              : <span className="absolute right-1.5 top-1.5 text-[9px] text-slate-400">非稼働</span>}
+                              ? <span data-shift-export-pill="true" className="absolute right-1.5 top-1.5 rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span>
+                              : <span data-shift-export-meta="true" className="absolute right-1.5 top-1.5 text-[9px] text-slate-400">{assignedCount(people)}/{lane.requiredCount}</span>
+                              : <span data-shift-export-meta="true" className="absolute right-1.5 top-1.5 text-[9px] text-slate-400">非稼働</span>}
                             {people.map((person) => {
                               const token: PersonToken = { personKey: person.personKey, driverId: person.driverId, name: person.name, sourceKey: key, placementId: person.placementId };
                               return <PersonSlip key={person.placementId} token={token} selected={selectedToken?.placementId === person.placementId} onSelect={() => selectToken(token)} onRemove={() => removePerson(key, person.placementId, person.name)} />;
@@ -733,11 +1200,193 @@ export default function PersonalShiftMemoBoard({
                 </div>
               );
             })}
+
+            {exportMode && (
+              <div
+                ref={exportOverlayRef}
+                data-html2canvas-ignore="true"
+                className="absolute bottom-0 right-0 top-16 z-[60] touch-none cursor-crosshair select-none"
+                style={{ left: laneWidth }}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  const cell = cellAtExportPoint(event.clientX, event.clientY);
+                  if (!cell) return;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  exportSelectionStartRef.current = cell;
+                  exportPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
+                  setExportSelection(selectionFromCells(cell, cell));
+                  setExportPreviewUrl(null);
+                  exportArtifactsRef.current = null;
+                  setExportError("");
+                  startExportAutoScroll();
+                }}
+                onPointerMove={(event) => {
+                  if (!exportSelectionStartRef.current || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                  exportPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
+                  updateExportSelectionAt(event.clientX, event.clientY);
+                  scrollExportAtPointer();
+                }}
+                onPointerUp={(event) => {
+                  if (!exportSelectionStartRef.current) return;
+                  exportPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
+                  const cell = cellAtExportPoint(event.clientX, event.clientY);
+                  const selection = cell ? selectionFromCells(exportSelectionStartRef.current, cell) : null;
+                  exportSelectionStartRef.current = null;
+                  stopExportAutoScroll();
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+                  if (!selection) {
+                    setExportSelection(null);
+                    setExportError("セルを選択できませんでした");
+                    return;
+                  }
+                  setExportSelection(selection);
+                  void refreshExportPreview(selection);
+                }}
+                onPointerCancel={(event) => {
+                  exportSelectionStartRef.current = null;
+                  stopExportAutoScroll();
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+                }}
+              >
+                {exportSelection ? (() => {
+                  const top = exportSelection.y - 64;
+                  const left = exportSelection.x - laneWidth;
+                  return (
+                    <>
+                      <div className="pointer-events-none absolute left-0 right-0 top-0 bg-slate-950/30" style={{ height: top }} />
+                      <div className="pointer-events-none absolute left-0 bg-slate-950/30" style={{ top, width: left, height: exportSelection.height }} />
+                      <div className="pointer-events-none absolute right-0 bg-slate-950/30" style={{ top, left: left + exportSelection.width, height: exportSelection.height }} />
+                      <div className="pointer-events-none absolute bottom-0 left-0 right-0 bg-slate-950/30" style={{ top: top + exportSelection.height }} />
+                      <div
+                        className="pointer-events-none absolute border-y-2 border-l-2 border-amber-500 bg-amber-50/15"
+                        style={{ left: -laneWidth, top, width: laneWidth, height: exportSelection.height }}
+                      />
+                      <div
+                        className="pointer-events-none absolute border-x-2 border-t-2 border-amber-500 bg-amber-50/20"
+                        style={{ left, top: -64, width: exportSelection.width, height: 64 }}
+                      />
+                      <div
+                        className="pointer-events-none absolute border-2 border-amber-500 bg-amber-50/5 shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_8px_30px_rgba(15,23,42,0.2)]"
+                        style={{ left, top, width: exportSelection.width, height: exportSelection.height }}
+                      >
+                        <span className="absolute -bottom-1 -right-1 h-3 w-3 rounded-sm border-2 border-white bg-amber-500 shadow" />
+                      </div>
+                    </>
+                  );
+                })() : (
+                  <div className="pointer-events-none absolute inset-0 bg-slate-950/10" />
+                )}
+              </div>
+            )}
           </div>
         </section>
 
         <button type="button" onPointerDown={(event) => startResize(event, detailWidth, setDetailWidth, 280, 520, -1)} className="group relative hidden cursor-col-resize bg-slate-100 hover:bg-indigo-200 lg:block" aria-label={`右パネルの幅を変更（現在${detailWidth}px）`}><span className="absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-slate-300" /></button>
 
+        {exportMode ? (
+          <aside className="min-h-0 border-t border-slate-200 bg-slate-50/70 lg:overflow-y-auto lg:border-l lg:border-t-0">
+            <div className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[9px] font-bold tracking-[0.16em] text-amber-600">EXPORT</div>
+                  <h2 className="mt-0.5 text-base font-black text-slate-900">範囲を切り取る</h2>
+                </div>
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-white">
+                  <FontAwesomeIcon icon={faCropSimple} className="h-3.5 w-3.5" />
+                </span>
+              </div>
+            </div>
+            <div className="space-y-4 p-3.5">
+              <ol className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white text-[10px] font-bold">
+                <li className={cn("flex items-center gap-2 border-r border-slate-200 px-3 py-2.5", !exportSelection ? "bg-amber-50 text-amber-800" : "text-slate-500")}>
+                  <span className={cn("inline-flex h-5 w-5 items-center justify-center rounded-full", !exportSelection ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-500")}>1</span>
+                  範囲を選択
+                </li>
+                <li className={cn("flex items-center gap-2 px-3 py-2.5", exportSelection ? "bg-amber-50 text-amber-800" : "text-slate-400")}>
+                  <span className={cn("inline-flex h-5 w-5 items-center justify-center rounded-full", exportSelection ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-400")}>2</span>
+                  形式を選んで保存
+                </li>
+              </ol>
+
+              {!exportSelection ? (
+                <section className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4 text-center">
+                  <span className="mx-auto inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-amber-600 shadow-sm ring-1 ring-amber-200">
+                    <FontAwesomeIcon icon={faCropSimple} className="h-4 w-4" />
+                  </span>
+                  <p className="mt-3 text-xs font-bold text-slate-800">必要なセルをドラッグしてください</p>
+                  <button type="button" onClick={selectWholeBoard} className="mt-3 h-8 rounded-lg border border-amber-300 bg-white px-3 text-[10px] font-bold text-amber-800 hover:border-amber-500">
+                    表全体を選択
+                  </button>
+                </section>
+              ) : (
+                <>
+                  <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                    <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+                      <div>
+                        <div className="text-[9px] font-medium text-slate-400">書き出しプレビュー</div>
+                        <div className="mt-0.5 text-[10px] font-bold text-slate-700">
+                          {(() => {
+                            const range = exportDateRange(exportSelection, laneWidth, dayWidth, dates);
+                            return exportDateLabel(range.start, range.end);
+                          })()}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExportSelection(null);
+                          setExportPreviewUrl(null);
+                          exportArtifactsRef.current = null;
+                          setExportError("");
+                        }}
+                        className="h-7 rounded-md px-2 text-[9px] font-bold text-slate-500 hover:bg-slate-100"
+                      >
+                        選び直す
+                      </button>
+                    </div>
+                    <div className="flex min-h-48 items-center justify-center bg-slate-200/60 p-3">
+                      {exportBusy ? (
+                        <div className="flex flex-col items-center gap-2 text-slate-500">
+                          <span className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" />
+                          <span className="text-[10px] font-medium">プレビュー作成中</span>
+                        </div>
+                      ) : exportPreviewUrl ? (
+                        <img src={exportPreviewUrl} alt="選択したシフトメモの書き出しプレビュー" className="max-h-[52vh] max-w-full rounded-sm bg-white shadow-lg" />
+                      ) : (
+                        <button type="button" onClick={() => void refreshExportPreview(exportSelection)} className="h-9 rounded-lg bg-slate-900 px-4 text-[10px] font-bold text-white hover:bg-slate-700">
+                          プレビューを作成
+                        </button>
+                      )}
+                    </div>
+                  </section>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={exportBusy || !exportPreviewUrl}
+                      onClick={() => downloadExport("png")}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-[11px] font-bold text-slate-700 shadow-sm hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <FontAwesomeIcon icon={faImage} className="h-3.5 w-3.5 text-sky-600" />PNG画像
+                    </button>
+                    <button
+                      type="button"
+                      disabled={exportBusy || !exportPreviewUrl}
+                      onClick={() => downloadExport("pdf")}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 text-[11px] font-bold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <FontAwesomeIcon icon={faFilePdf} className="h-3.5 w-3.5 text-rose-300" />PDF
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {exportError && (
+                <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-medium text-rose-700">{exportError}</p>
+              )}
+            </div>
+          </aside>
+        ) : (
         <aside className="min-h-0 border-t border-slate-200 bg-slate-50/70 lg:overflow-y-auto lg:border-l lg:border-t-0">
           <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
             <h2 className="text-lg font-black text-slate-900">{dateInfo(selectedDate).monthDay}（{dateInfo(selectedDate).weekday}）</h2>
@@ -781,6 +1430,7 @@ export default function PersonalShiftMemoBoard({
             <section className="rounded-xl border border-slate-200 bg-white p-3"><label className="mb-1.5 block text-xs font-bold text-slate-700">この日のメモ</label><textarea value={notes[selectedDate] ?? ""} maxLength={2000} onChange={(event) => setNotes((current) => ({ ...current, [selectedDate]: event.target.value }))} rows={4} className="w-full resize-y rounded-lg border border-slate-200 px-2.5 py-2 text-xs leading-relaxed outline-none focus:border-slate-400" /></section>
           </div>
         </aside>
+        )}
       </div>
 
       {activePanel?.kind === "add" && activeRoute && createPortal(

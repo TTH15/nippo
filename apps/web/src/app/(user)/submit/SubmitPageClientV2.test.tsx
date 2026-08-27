@@ -25,7 +25,7 @@ function mockEndpoints({ mileage = 50000, isEv = false }: { mileage?: number; is
     if (u.includes("/api/reports/vehicles")) return Promise.resolve({ vehicles: [{ id: "v1", current_mileage: mileage, is_ev: isEv, number_numeric: "1234" }] });
     if (u.includes("/api/me/report-form")) {
       return Promise.resolve({
-        shifts: [{ courseId: "c1", courseName: "コースA", color: null, carrierId: null, carrierName: "", units: [], existing: null }],
+        shifts: [{ courseId: "c1", cycleNo: 1, cycleLabel: "C1", courseName: "コースA", color: null, carrierId: null, carrierName: "", units: [], existing: null }],
         shiftVehicleId: null,
       });
     }
@@ -38,6 +38,13 @@ const wasPosted = () =>
   mockApiFetch.mock.calls.some(
     ([u, o]) => String(u).includes("/api/reports/v2") && (o as { method?: string } | undefined)?.method === "POST",
   );
+
+const postedBody = () => {
+  const call = mockApiFetch.mock.calls.find(
+    ([u, o]) => String(u).includes("/api/reports/v2") && (o as RequestInit | undefined)?.method === "POST",
+  );
+  return call ? JSON.parse(String((call[1] as RequestInit).body)) : null;
+};
 
 async function selectVehicleAndType(meterValue: string) {
   await waitFor(() => expect(screen.getByText("plate-v1")).toBeInTheDocument());
@@ -71,5 +78,6 @@ describe("SubmitPageClientV2 — 走行距離の妥当性（探索的）", () =>
     await selectVehicleAndType("50001");
     await userEvent.click(screen.getByRole("button", { name: "送信" }));
     await waitFor(() => expect(wasPosted()).toBe(true));
+    expect(postedBody().items[0]).toMatchObject({ courseId: "c1", cycleNo: 1 });
   });
 });
