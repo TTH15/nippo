@@ -17,12 +17,17 @@ type Unit = {
   code: string | null;
   billing_type: "PER_PIECE" | "FIXED";
 };
+// revenue_per_unit / payout_per_unit は「契約値」（税込契約なら税込額）を保持する。
+// revenue_exclusive / payout_exclusive は集計・税務提出用の税抜額で、
+// 税込契約でも端数を丸めた別の額を契約できるため独立して持つ（例: 税込160円／税抜145円）。
 type UnitRate = {
   cycle_no?: number;
   unit_id: string;
   revenue_per_unit: number;
   profit_per_unit: number;
   payout_per_unit: number;
+  revenue_exclusive?: number;
+  payout_exclusive?: number;
   revenue_contract_amount?: number | null;
   payout_contract_amount?: number | null;
   revenue_quantity_rule?: QuantityRule;
@@ -33,6 +38,8 @@ type Fixed = {
   fixed_revenue: number;
   fixed_profit: number;
   fixed_payout: number;
+  revenue_exclusive?: number;
+  payout_exclusive?: number;
   revenue_contract_amount?: number | null;
   payout_contract_amount?: number | null;
 };
@@ -131,7 +138,7 @@ export const CourseRateEditor = forwardRef<
   const [carrierMissing, setCarrierMissing] = useState(false);
   const [rates, setRates] = useState<Record<string, UnitRate>>({});
   const [fixedByCycle, setFixedByCycle] = useState<Record<number, Fixed>>({
-    0: { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 },
+    0: { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0, revenue_exclusive: 0, payout_exclusive: 0 },
   });
   const [fixedBundle, setFixedBundle] = useState<FixedBundle>({
     required_cycle_nos: [], revenue_contract_amount: null, payout_contract_amount: null,
@@ -170,7 +177,7 @@ export const CourseRateEditor = forwardRef<
     if (createModeNoCarrier) {
       setUnits([]);
       setRates({});
-      setFixedByCycle({ 0: { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 } });
+      setFixedByCycle({ 0: { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0, revenue_exclusive: 0, payout_exclusive: 0 } });
       setFixedBundle({ required_cycle_nos: [], revenue_contract_amount: null, payout_contract_amount: null });
       setCarrierMissing(false);
       setRevenuePieceTaxMode("excl");
@@ -217,6 +224,9 @@ export const CourseRateEditor = forwardRef<
       map[rateKey(cycle.cycleNo, u.id)] = {
         unit_id: u.id,
         cycle_no: cycle.cycleNo,
+        // 集計・税務提出に使う税抜は、契約値とは別に保存値から復元する
+        revenue_exclusive: num(found?.revenue_per_unit) ?? (revenuePieceMode === "incl" ? toExcl(revenue) : revenue),
+        payout_exclusive: num(found?.payout_per_unit) ?? (payoutPieceMode === "incl" ? toExcl(payout) : payout),
         revenue_per_unit: revenue,
         profit_per_unit: recomputeProfitWith(revenuePieceMode, payoutPieceMode, revenue, payout),
         payout_per_unit: payout,
@@ -233,6 +243,8 @@ export const CourseRateEditor = forwardRef<
       const payout = payoutFixedMode === "incl" ? num(f.payout_contract_amount) ?? toIncl(num(f.fixed_payout) ?? 0) : num(f.fixed_payout) ?? 0;
       fixedMap[cycleNo] = {
         cycle_no: cycleNo,
+        revenue_exclusive: num(f.fixed_revenue) ?? (revenueFixedMode === "incl" ? toExcl(revenue) : revenue),
+        payout_exclusive: num(f.fixed_payout) ?? (payoutFixedMode === "incl" ? toExcl(payout) : payout),
         fixed_revenue: revenue,
         fixed_profit: recomputeProfitWith(revenueFixedMode, payoutFixedMode, revenue, payout),
         fixed_payout: payout,
@@ -269,8 +281,9 @@ export const CourseRateEditor = forwardRef<
           const r = rates[rateKey(cycleNo, unit.id)] ?? {
             unit_id: unit.id, cycle_no: cycleNo, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0,
           };
-          const revenue_per_unit = toExclFor(revenuePieceTaxMode, r.revenue_per_unit);
-          const payout_per_unit = toExclFor(payoutPieceTaxMode, r.payout_per_unit);
+          // 税抜は入力された値をそのまま保存する（税込契約でも 160→145 のような別額を持てる）
+          const revenue_per_unit = r.revenue_exclusive ?? toExclFor(revenuePieceTaxMode, r.revenue_per_unit);
+          const payout_per_unit = r.payout_exclusive ?? toExclFor(payoutPieceTaxMode, r.payout_per_unit);
           return {
             unit_id: r.unit_id,
             cycle_no: cycleNo,
@@ -284,9 +297,9 @@ export const CourseRateEditor = forwardRef<
           };
         }));
         const fixedRates = activeCycleNos.map((cycleNo) => {
-          const f = fixedByCycle[cycleNo] ?? fixedByCycle[0] ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 };
-          const fixed_revenue = toExclFor(revenueFixedTaxMode, f.fixed_revenue);
-          const fixed_payout = toExclFor(payoutFixedTaxMode, f.fixed_payout);
+          const f = fixedByCycle[cycleNo] ?? fixedByCycle[0] ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0, revenue_exclusive: 0, payout_exclusive: 0 };
+          const fixed_revenue = f.revenue_exclusive ?? toExclFor(revenueFixedTaxMode, f.fixed_revenue);
+          const fixed_payout = f.payout_exclusive ?? toExclFor(payoutFixedTaxMode, f.fixed_payout);
           return {
             cycle_no: cycleNo,
             fixed_revenue,
@@ -344,12 +357,25 @@ export const CourseRateEditor = forwardRef<
 
   function setRate(cycleNo: number, unitId: string, key: "revenue_per_unit" | "payout_per_unit", value: number) {
     markDirty();
+    const side = key === "revenue_per_unit" ? "revenue" : "payout";
+    const mode = side === "revenue" ? revenuePieceTaxMode : payoutPieceTaxMode;
     setRates((prev) => {
       const mapKey = rateKey(cycleNo, unitId);
-      const cur = prev[mapKey] ?? { unit_id: unitId, cycle_no: cycleNo, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0 };
-      const next = { ...cur, [key]: value };
+      const cur = prev[mapKey] ?? { unit_id: unitId, cycle_no: cycleNo, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0, revenue_exclusive: 0, payout_exclusive: 0 };
+      // 契約値を変えたら税抜も追従する（後から税抜だけ上書きできる）
+      const next = { ...cur, [key]: value, [`${side}_exclusive`]: toExclFor(mode, value) };
       next.profit_per_unit = recomputePieceProfit(next.revenue_per_unit, next.payout_per_unit);
       return { ...prev, [mapKey]: next };
+    });
+  }
+
+  /** 集計・税務提出に使う税抜額だけを上書きする（契約値は変えない） */
+  function setRateExclusive(cycleNo: number, unitId: string, side: "revenue" | "payout", value: number) {
+    markDirty();
+    setRates((prev) => {
+      const mapKey = rateKey(cycleNo, unitId);
+      const cur = prev[mapKey] ?? { unit_id: unitId, cycle_no: cycleNo, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0, revenue_exclusive: 0, payout_exclusive: 0 };
+      return { ...prev, [mapKey]: { ...cur, [`${side}_exclusive`]: value } };
     });
   }
 
@@ -357,18 +383,30 @@ export const CourseRateEditor = forwardRef<
     markDirty();
     setRates((prev) => {
       const mapKey = rateKey(cycleNo, unitId);
-      const cur = prev[mapKey] ?? { unit_id: unitId, cycle_no: cycleNo, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0 };
+      const cur = prev[mapKey] ?? { unit_id: unitId, cycle_no: cycleNo, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0, revenue_exclusive: 0, payout_exclusive: 0 };
       return { ...prev, [mapKey]: { ...cur, [`${side}_quantity_rule`]: rule } };
     });
   }
 
   function setFixedField(cycleNo: number, key: "fixed_revenue" | "fixed_payout", value: number) {
     markDirty();
+    const side = key === "fixed_revenue" ? "revenue" : "payout";
+    const mode = side === "revenue" ? revenueFixedTaxMode : payoutFixedTaxMode;
     setFixedByCycle((prev) => {
       const f = prev[cycleNo] ?? { cycle_no: cycleNo, fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 };
-      const next = { ...f, [key]: value };
+      // 契約値を変えたら税抜も追従する（後から税抜だけ上書きできる）
+      const next = { ...f, [key]: value, [`${side}_exclusive`]: toExclFor(mode, value) };
       next.fixed_profit = recomputeFixedProfit(next.fixed_revenue, next.fixed_payout);
       return { ...prev, [cycleNo]: next };
+    });
+  }
+
+  /** 日当の税抜額だけを上書きする（契約値は変えない） */
+  function setFixedExclusive(cycleNo: number, side: "revenue" | "payout", value: number) {
+    markDirty();
+    setFixedByCycle((prev) => {
+      const f = prev[cycleNo] ?? { cycle_no: cycleNo, fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 };
+      return { ...prev, [cycleNo]: { ...f, [`${side}_exclusive`]: value } };
     });
   }
 
@@ -525,13 +563,16 @@ export const CourseRateEditor = forwardRef<
                     <div className="text-[10px] font-medium tracking-wide text-slate-400">各サイクル</div>
                   )}
                   {activeCycles.map((cycle) => {
-                    const fixed = fixedByCycle[cycle.cycleNo] ?? fixedByCycle[0] ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0 };
+                    const fixed = fixedByCycle[cycle.cycleNo] ?? fixedByCycle[0] ?? { fixed_revenue: 0, fixed_profit: 0, fixed_payout: 0, revenue_exclusive: 0, payout_exclusive: 0 };
                     const value = fixed[amountKey];
                     return (
                       <div key={cycle.cycleNo} className="rounded-xl border border-slate-200 bg-white p-3">
                         {usesCycles && <div className="mb-2 text-xs font-semibold text-slate-600">{cycle.label?.trim() || `C${cycle.cycleNo}`}</div>}
-                        <TaxAmountPair mode={fixedTaxMode} value={value} onModeChange={(next) => changeFixedTaxMode(side, next)}
-                          onChange={(next) => setFixedField(cycle.cycleNo, amountKey, next)} />
+                        <TaxAmountPair mode={fixedTaxMode} value={value}
+                          exclusiveValue={fixed[revenue ? "revenue_exclusive" : "payout_exclusive"]}
+                          onModeChange={(next) => changeFixedTaxMode(side, next)}
+                          onChange={(next) => setFixedField(cycle.cycleNo, amountKey, next)}
+                          onExclusiveChange={(next) => setFixedExclusive(cycle.cycleNo, quantitySide, next)} />
                       </div>
                     );
                   })}
@@ -550,14 +591,17 @@ export const CourseRateEditor = forwardRef<
                   <div key={cycle.cycleNo} className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
                     {usesCycles && <div className="text-xs font-semibold text-slate-600">{cycle.label?.trim() || `C${cycle.cycleNo}`}</div>}
                     {units.map((unit) => {
-                      const rate = rates[rateKey(cycle.cycleNo, unit.id)] ?? { unit_id: unit.id, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0 };
+                      const rate = rates[rateKey(cycle.cycleNo, unit.id)] ?? { unit_id: unit.id, revenue_per_unit: 0, profit_per_unit: 0, payout_per_unit: 0, revenue_exclusive: 0, payout_exclusive: 0 };
                       return (
                         <div key={unit.id} className="space-y-2 border-t border-slate-100 pt-2 first:border-t-0 first:pt-0">
                           <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
                             {unit.name}
                           </div>
-                          <TaxAmountPair mode={pieceTaxMode} value={rate[unitKey]} onModeChange={(next) => changePieceTaxMode(side, next)}
-                            onChange={(next) => setRate(cycle.cycleNo, unit.id, unitKey, next)} />
+                          <TaxAmountPair mode={pieceTaxMode} value={rate[unitKey]}
+                            exclusiveValue={rate[revenue ? "revenue_exclusive" : "payout_exclusive"]}
+                            onModeChange={(next) => changePieceTaxMode(side, next)}
+                            onChange={(next) => setRate(cycle.cycleNo, unit.id, unitKey, next)}
+                            onExclusiveChange={(next) => setRateExclusive(cycle.cycleNo, unit.id, quantitySide, next)} />
                           <QuantityRuleField label="" value={revenue ? rate.revenue_quantity_rule : rate.payout_quantity_rule}
                             onChange={(rule) => setQuantityRule(cycle.cycleNo, unit.id, quantitySide, rule)} />
                         </div>
@@ -659,14 +703,18 @@ function AnimatedSection({ visible, gapAfter = false, children }: {
   );
 }
 
-function TaxAmountPair({ mode, value, onModeChange, onChange }: {
+function TaxAmountPair({ mode, value, exclusiveValue, onModeChange, onChange, onExclusiveChange }: {
   mode: TaxMode;
   value: number;
+  /** 集計・税務提出に使う税抜額。税込契約でも別額を指定できる */
+  exclusiveValue?: number;
   onModeChange: (mode: TaxMode) => void;
   onChange: (value: number) => void;
+  onExclusiveChange?: (value: number) => void;
 }) {
   return (
-    <TaxAmountPairFrame mode={mode} value={value} onModeChange={onModeChange}
+    <TaxAmountPairFrame mode={mode} value={value} exclusiveValue={exclusiveValue} onModeChange={onModeChange}
+      onExclusiveChange={onExclusiveChange}
       input={<NumField label="" value={value} onChange={onChange} compact />} />
   );
 }
@@ -684,16 +732,21 @@ function OptionalTaxAmountPair({ mode, value, fallback, onModeChange, onChange }
   );
 }
 
-function TaxAmountPairFrame({ mode, value, onModeChange, input }: {
+function TaxAmountPairFrame({ mode, value, exclusiveValue, onModeChange, onExclusiveChange, input }: {
   mode: TaxMode;
   value: number;
+  exclusiveValue?: number;
   onModeChange: (mode: TaxMode) => void;
+  onExclusiveChange?: (value: number) => void;
   input: ReactNode;
 }) {
   // 契約単価が整数なら参考額も円単位で見せる（日当が「¥6,499.9」に見えるのを避ける）。
   // 小数を入れた単価だけ、換算後も小数第2位まで見せる。
   const roundIfWhole = (derived: number) => (Number.isInteger(value) ? Math.round(derived) : derived);
-  const exclusive = mode === "excl" ? value : roundIfWhole(toExcl(value));
+  // 税込契約のときは、集計・税務提出用の税抜額を独立して入力できる
+  // （税込160円で契約しつつ、税抜は端数を丸めた145円で請求する運用があるため）。
+  const editableExclusive = mode === "incl" && onExclusiveChange != null;
+  const exclusive = mode === "excl" ? value : exclusiveValue ?? roundIfWhole(toExcl(value));
   const inclusive = mode === "incl" ? value : roundIfWhole(toIncl(value));
   const cardClass = (active: boolean) => `rounded-lg border-2 p-2 motion-safe:transition-[border-color,background-color,box-shadow] motion-safe:duration-150 ${
     active
@@ -705,8 +758,14 @@ function TaxAmountPairFrame({ mode, value, onModeChange, input }: {
       <div role="button" tabIndex={0} onClick={() => onModeChange("excl")}
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onModeChange("excl"); } }}
         className={cardClass(mode === "excl")}>
-        <span className="mb-1 block text-[10px]">{mode === "excl" ? "契約単価・税抜" : "税抜参考"}</span>
-        {mode === "excl" ? input : <span className="block py-1.5 text-right text-base font-semibold">¥{formatPrice(exclusive)}</span>}
+        <span className="mb-1 block text-[10px]">{mode === "excl" ? "契約単価・税抜" : "集計・税務用の税抜"}</span>
+        {mode === "excl"
+          ? input
+          : editableExclusive
+            ? <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                <NumField label="" value={exclusive} onChange={(next) => onExclusiveChange?.(next)} compact />
+              </div>
+            : <span className="block py-1.5 text-right text-base font-semibold">¥{formatPrice(exclusive)}</span>}
       </div>
       <div role="button" tabIndex={0} onClick={() => onModeChange("incl")}
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onModeChange("incl"); } }}

@@ -30,9 +30,19 @@ export function resolveReportCycleChoices(
     existingByCourse.set(choice.courseId, cycles);
   }
 
+  // サイクル導入前の「全体」枠(cycle_no=0)が便別シフトと一緒に残っていると、
+  // 同じ日に3本（全体・C1・C2）提出できてしまい日当が二重計上される。
+  // 便を明示した枠がある コースでは、旧「全体」枠を候補から外す。
+  const perCycleCourses = new Set(
+    shiftChoices.filter((choice) => choice.cycleNo > 0).map((choice) => choice.courseId),
+  );
+  const activeChoices = shiftChoices.filter(
+    (choice) => !(choice.cycleNo === 0 && perCycleCourses.has(choice.courseId)),
+  );
+
   const collapsedCourses = new Set<string>();
   const result: ReportCycleChoice[] = [];
-  for (const choice of shiftChoices) {
+  for (const choice of activeChoices) {
     const existingCycles = existingByCourse.get(choice.courseId);
     const legacyOnly = existingCycles?.has(0) && ![...existingCycles].some((cycleNo) => cycleNo > 0);
     if (legacyOnly) {

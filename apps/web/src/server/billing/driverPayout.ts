@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadAggregationData } from "@/server/aggregation/load";
-import { isCountableReport } from "@/server/aggregation/compute";
-import { inclusiveOf } from "@repo/core/logic/taxBasis";
+import { dropSupersededLegacyReports, isCountableReport } from "@/server/aggregation/compute";
+import { inclusiveContractTotal, inclusiveOf } from "@repo/core/logic/taxBasis";
 import { applyQuantityRule } from "@/server/billing/quantityRule";
 
 // ============================================================
@@ -62,6 +62,22 @@ export async function computeDriverAutoPayout(
   // （会計・請求書側の集計(admin/payments等)は税抜のまま扱うためデフォルトはfalse）。
   const taxInclusive = options?.taxInclusive ?? false;
   const toDisplay = (price: number): number => (taxInclusive ? inclusiveOf(price, "exclusive") : price);
+  /**
+   * 行の支払額。税込表示では単価を1個ずつ丸めず、契約原額 × 数量から税換算する
+   * （税抜157.5円/個を税込173円へ丸めてから100個掛けると、正しい17,325円と25円ずれる）。
+   * 契約原額が無い旧データだけ、従来どおり税抜額の1.1倍で近似する。
+   */
+  const lineAmount = (
+    exclusiveUnitPrice: number,
+    quantity: number,
+    contractAmount: number | null | undefined,
+    basis: "exclusive" | "inclusive",
+  ): number => {
+    const exclusiveTotal = Math.round(quantity * exclusiveUnitPrice);
+    if (!taxInclusive) return exclusiveTotal;
+    if (contractAmount == null) return inclusiveOf(exclusiveTotal, "exclusive");
+    return inclusiveContractTotal(contractAmount, quantity, basis);
+  };
   // 本人の日報だけを読む（org 全員分をロードして本人分だけ使うのは
   // 展開ごとのN+1で全社集計が走る主因だった・2026-08 監査）。ledger は未使用のため読まない。
   const data = await loadAggregationData(supabase, orgId, startDate, endDate, {
@@ -73,15 +89,17 @@ export async function computeDriverAutoPayout(
   const fixedByCourse = new Map(data.fixedRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}`, r]));
   // 支払の計算方式(NONE/PER_PIECE/FIXED/BOTH)が正本。「自動支払なし」のコースは
   // 単価行に旧値が残っていても報酬0として扱う（売上全額が自社利益になる）。
-  const payoutModeByCourse = new Map(data.courseBillingMeta.map((m) => [m.courseId, m.payoutRateMode]));
+  const metaByCourse = new Map(data.courseBillingMeta.map((m) => [m.courseId, m]));
   const payoutUsesPiece = (courseId: string) => {
-    const mode = payoutModeByCourse.get(courseId) ?? "BOTH";
+    const mode = metaByCourse.get(courseId)?.payoutRateMode ?? "BOTH";
     return mode === "PER_PIECE" || mode === "BOTH";
   };
   const payoutUsesFixed = (courseId: string) => {
-    const mode = payoutModeByCourse.get(courseId) ?? "BOTH";
+    const mode = metaByCourse.get(courseId)?.payoutRateMode ?? "BOTH";
     return mode === "FIXED" || mode === "BOTH";
   };
+  const pieceBasis = (courseId: string) => metaByCourse.get(courseId)?.payoutPieceBasis ?? "exclusive";
+  const fixedBasis = (courseId: string) => metaByCourse.get(courseId)?.payoutFixedBasis ?? "exclusive";
 
   // 表示用ラベル: コース名 / unit名 / unit_fields(label,input_type,group_label,sort)
   const [{ data: courseRows }, { data: unitRows }, { data: fieldRows }] = await Promise.all([
@@ -127,9 +145,12 @@ export async function computeDriverAutoPayout(
   const fixedDaysByCourse = new Map<string, number>();
   const snapshotPayoutByKey = new Map<string, number>();
 
+  // 旧「全体」枠と便別が二重提出された日は、便別だけを採用する
+  const effectiveReports = dropSupersededLegacyReports(data.reports);
+
   const days: DriverDayPayout[] = [];
 
-  for (const r of data.reports) {
+  for (const r of effectiveReports) {
     if (r.driverId !== driverId) continue;
     if (!isCountableReport(r)) continue;
     const courseId = r.courseId;
@@ -165,7 +186,7 @@ export async function computeDriverAutoPayout(
       if (!rate) continue;
       const payoutQty = applyQuantityRule(qty, rate.payoutQuantityRule);
       // 単価は小数を許す（例: 157.5円/個）。円未満は行合計で一度だけ丸める。
-      dayPayout += Math.round(payoutQty * toDisplay(rate.payoutPerUnit));
+      dayPayout += lineAmount(rate.payoutPerUnit, payoutQty, rate.payoutContractAmount, pieceBasis(courseId));
       linePuQty.set(rateKey, (linePuQty.get(rateKey) ?? 0) + payoutQty);
     }
 
@@ -174,7 +195,10 @@ export async function computeDriverAutoPayout(
       for (const component of r.rateSnapshot.components) {
         const usesPayout = component.kind === "unit" ? payoutUsesPiece(courseId) : payoutUsesFixed(courseId);
         if (!usesPayout) continue;
-        const displayPayout = toDisplay(component.payout);
+        // スナップショットは契約原額と契約税基準を自前で持つ
+        const displayPayout = taxInclusive
+          ? inclusiveContractTotal(component.payoutContractAmount, component.quantity, component.payoutBasis)
+          : component.payout;
         dayPayout += displayPayout;
         const unitPrice = component.quantity ? component.payout / component.quantity : 0;
         const key = component.kind === "unit"
@@ -205,7 +229,7 @@ export async function computeDriverAutoPayout(
       : `${courseId}:0`;
     const fx = fixedByCourse.get(fixedKey);
     if (fx && payoutUsesFixed(courseId) && fx.fixedPayout !== 0) {
-      dayPayout += Math.round(toDisplay(fx.fixedPayout));
+      dayPayout += lineAmount(fx.fixedPayout, 1, fx.payoutContractAmount, fixedBasis(courseId));
       fixedDaysByCourse.set(fixedKey, (fixedDaysByCourse.get(fixedKey) ?? 0) + 1);
     }
     }

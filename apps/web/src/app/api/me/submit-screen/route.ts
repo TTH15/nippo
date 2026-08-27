@@ -7,7 +7,6 @@ import { buildContext, buildContributions } from "@/server/aggregation/compute";
 import { loadSubmitScreenConfig } from "@/server/submitScreen/config";
 import { resolveBlocks, normalizeBlocks, defaultBlocksFromConfig } from "@/server/submitScreen/blocks";
 import { loadDriverLease, loadCourseDailyLease, leaseDailyRateForCourse } from "@/server/billing/driverLease";
-import { inclusiveOf } from "@repo/core/logic/taxBasis";
 
 export const dynamic = "force-dynamic";
 
@@ -36,14 +35,15 @@ export async function GET(req: NextRequest) {
   const context = buildContext(dayData.units, dayData.unitRates, dayData.fixedRates, dayData.fixedRateBundles, dayData.courseBillingMeta);
   const todayContributions = buildContributions(previewReports, [], context)
     .filter((contribution) => contribution.driverId === driverId);
-  const todayRewardBeforeLease = todayContributions.reduce((total, contribution) => total + contribution.payout, 0);
+  // ドライバーへは税込で支払う。税抜値の1.1倍ではなく契約原額から積み直した payoutIncl を使う。
+  const todayRewardBeforeLease = todayContributions.reduce((total, contribution) => total + contribution.payoutIncl, 0);
   let leaseToday = 0; // 当日コースの最大日額（DAILY時）
   for (const r of dayData.reports) {
     if (r.driverId !== driverId || r.reportDate !== date || r.rejectedAt) continue;
     if (!r.courseId) continue;
     leaseToday = Math.max(leaseToday, leaseDailyRateForCourse(lease, r.courseId, courseDailyLease));
   }
-  const todayReward = inclusiveOf(todayRewardBeforeLease, "exclusive") - leaseToday;
+  const todayReward = todayRewardBeforeLease - leaseToday;
 
   // --- 送信後画面のブロックを解決 ---
   // blocks 未設定なら従来フラット設定から既定ブロックを導出（後方互換）。

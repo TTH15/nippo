@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { applyQuantityRule } from "@/server/billing/quantityRule";
 import { loadAggregationData } from "@/server/aggregation/load";
-import { buildContext, buildContributions, isCountableReport } from "@/server/aggregation/compute";
+import { buildContext, buildContributions, dropSupersededLegacyReports, isCountableReport } from "@/server/aggregation/compute";
 import { getDisplayName } from "@/lib/displayName";
 
 // ============================================================
@@ -101,6 +101,7 @@ export async function computeCounterpartyMonthBillingDetail(
     const mode = revenueModeByCourse.get(courseId) ?? "BOTH";
     return mode === "FIXED" || mode === "BOTH";
   };
+  const effectiveReports = dropSupersededLegacyReports(data.reports);
   const aggregationContext = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseBillingMeta);
   // 内部集計は承認時スナップショットを正本にする。これにより単価変更後も過去月が動かず、
   // admin/sales と同じ v2 集計結果になる。請求明細側は契約単価・契約税基準を別途保持する。
@@ -144,7 +145,7 @@ export async function computeCounterpartyMonthBillingDetail(
     byDriver.set(driverId, (byDriver.get(driverId) ?? 0) + 1);
   };
 
-  for (const r of data.reports) {
+  for (const r of effectiveReports) {
     if (!isCountableReport(r)) continue;
     const courseId = r.courseId;
     if (!courseId || !allowed.has(courseId)) continue;
@@ -203,8 +204,11 @@ export async function computeCounterpartyMonthBillingDetail(
         const unitName = unitNameById.get(unitId) ?? "";
         for (const driverId of [...drvMap.keys()].sort(byDriverNameAsc)) {
           const qty = drvMap.get(driverId) ?? 0;
-          const priceBasis = revenuePieceBasisByCourse.get(courseId) ?? "exclusive";
-          const contractUnitPrice = rate.revenueContractAmount ?? rate.revenuePerUnit;
+          // 契約原額が未保存の行は保存値（常に税抜）をそのまま単価にする。
+          // コースの税基準(inclusive)を当てると税抜値を税込として請求し、約10%の過少請求になる。
+          const hasContract = rate.revenueContractAmount != null;
+          const priceBasis = hasContract ? revenuePieceBasisByCourse.get(courseId) ?? "exclusive" : "exclusive";
+          const contractUnitPrice = hasContract ? rate.revenueContractAmount! : rate.revenuePerUnit;
           systemLines.push({
             kind: "course_unit",
             lineKey: `u:${courseId}:cycle:${cycleNo}:${unitId}:drv:${driverId}`,
@@ -231,8 +235,9 @@ export async function computeCounterpartyMonthBillingDetail(
       for (const driverId of [...fdMap.keys()].sort(byDriverNameAsc)) {
         const days = fdMap.get(driverId) ?? 0;
         if (!days) continue;
-        const priceBasis = revenueFixedBasisByCourse.get(courseId) ?? "exclusive";
-        const contractUnitPrice = fx.revenueContractAmount ?? fx.fixedRevenue;
+        const hasContract = fx.revenueContractAmount != null;
+        const priceBasis = hasContract ? revenueFixedBasisByCourse.get(courseId) ?? "exclusive" : "exclusive";
+        const contractUnitPrice = hasContract ? fx.revenueContractAmount! : fx.fixedRevenue;
         systemLines.push({
           kind: "course_fixed",
           lineKey: `fx:${courseId}:cycle:${cycleNo}:drv:${driverId}`,

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { exclusiveContractTotal, exclusiveUnitPriceOf, roundUnitPrice } from "@repo/core/logic/taxBasis";
+import { exclusiveUnitPriceOf, roundUnitPrice } from "@repo/core/logic/taxBasis";
 import { applyQuantityRule } from "@/server/billing/quantityRule";
 
 export type ReportRateSnapshotComponent = {
@@ -57,6 +57,13 @@ export async function captureReportRateSnapshots(
   supabase: SupabaseClient,
   orgId: string,
   reportIds: string[],
+  options?: {
+    /**
+     * 単価履歴(course_rate_versions)を使わず、現在の単価マスタだけで固定する。
+     * 履歴に誤った値が残っているコースを補修するときに使う。
+     */
+    ignoreRateVersions?: boolean;
+  },
 ): Promise<void> {
   if (reportIds.length === 0) return;
 
@@ -118,7 +125,9 @@ export async function captureReportRateSnapshots(
     const course = courseById.get(report.course_id);
     if (!course) continue;
     const cycleNo = n(report.cycle_no);
-    const version = selectEffectiveRateVersion(versions ?? [], report.course_id, String(report.report_date));
+    const version = options?.ignoreRateVersions
+      ? null
+      : selectEffectiveRateVersion(versions ?? [], report.course_id, String(report.report_date));
     const versionData = version?.rate_data && typeof version.rate_data === "object"
       ? version.rate_data as Record<string, unknown>
       : null;
@@ -146,14 +155,19 @@ export async function captureReportRateSnapshots(
       if (!rate || actualQuantity === 0) continue;
       const revenueQuantity = applyQuantityRule(actualQuantity, rate.revenue_quantity_rule);
       const payoutQuantity = applyQuantityRule(actualQuantity, rate.payout_quantity_rule);
-      const revenueContractAmount = price(rate.revenue_contract_amount ?? rate.revenue_per_unit);
-      const payoutContractAmount = price(rate.payout_contract_amount ?? rate.payout_per_unit);
-      const revenue = revenueUsesPiece
-        ? exclusiveContractTotal(revenueContractAmount, revenueQuantity, revenuePieceBasis)
-        : 0;
-      const payout = payoutUsesPiece
-        ? exclusiveContractTotal(payoutContractAmount, payoutQuantity, payoutPieceBasis)
-        : 0;
+      // 契約原額(*_contract_amount)が保存されていない古い行は、保存値そのもの（常に税抜）を
+      // 契約額として扱う。コースの税基準(inclusive)をそのまま当てると、税抜値を税込とみなして
+      // 約10%目減りする（承認した瞬間に報酬・売上が下がる・2026-08-27 実地報告）。
+      const revenueHasContract = rate.revenue_contract_amount != null;
+      const payoutHasContract = rate.payout_contract_amount != null;
+      const revenueContractAmount = price(revenueHasContract ? rate.revenue_contract_amount : rate.revenue_per_unit);
+      const payoutContractAmount = price(payoutHasContract ? rate.payout_contract_amount : rate.payout_per_unit);
+      const revenueLineBasis = revenueHasContract ? revenuePieceBasis : "exclusive";
+      const payoutLineBasis = payoutHasContract ? payoutPieceBasis : "exclusive";
+      // 税抜は保存値(*_per_unit)を正本にする。税込契約でも「税込160円／税務用は税抜145円」の
+      // ように別額を契約することがあり、契約額から割り戻すと運用と合わないため。
+      const revenue = revenueUsesPiece ? Math.round(revenueQuantity * price(rate.revenue_per_unit)) : 0;
+      const payout = payoutUsesPiece ? Math.round(payoutQuantity * price(rate.payout_per_unit)) : 0;
       if (revenue === 0 && payout === 0) continue;
       components.push({
         kind: "unit",
@@ -162,9 +176,9 @@ export async function captureReportRateSnapshots(
         quantity: revenueQuantity,
         actualQuantity,
         revenueContractAmount,
-        revenueBasis: revenuePieceBasis,
+        revenueBasis: revenueLineBasis,
         payoutContractAmount,
-        payoutBasis: payoutPieceBasis,
+        payoutBasis: payoutLineBasis,
         revenue,
         payout,
         profit: revenue - payout,
@@ -177,29 +191,35 @@ export async function captureReportRateSnapshots(
       (r.course_id == null || r.course_id === report.course_id) && n(r.cycle_no) === 0,
     );
     if (fixed && (price(fixed.fixed_revenue) !== 0 || price(fixed.fixed_payout) !== 0)) {
-      const revenueContractAmount = price(fixed.revenue_contract_amount ?? fixed.fixed_revenue);
-      const payoutContractAmount = price(fixed.payout_contract_amount ?? fixed.fixed_payout);
-      const revenue = revenueUsesFixed
-        ? exclusiveContractTotal(revenueContractAmount, 1, revenueFixedBasis)
-        : 0;
-      const payout = payoutUsesFixed
-        ? exclusiveContractTotal(payoutContractAmount, 1, payoutFixedBasis)
-        : 0;
+      const revenueHasContract = fixed.revenue_contract_amount != null;
+      const payoutHasContract = fixed.payout_contract_amount != null;
+      const revenueContractAmount = price(revenueHasContract ? fixed.revenue_contract_amount : fixed.fixed_revenue);
+      const payoutContractAmount = price(payoutHasContract ? fixed.payout_contract_amount : fixed.fixed_payout);
+      const revenueLineBasis = revenueHasContract ? revenueFixedBasis : "exclusive";
+      const payoutLineBasis = payoutHasContract ? payoutFixedBasis : "exclusive";
+      const revenue = revenueUsesFixed ? Math.round(price(fixed.fixed_revenue)) : 0;
+      const payout = payoutUsesFixed ? Math.round(price(fixed.fixed_payout)) : 0;
       if (revenue !== 0 || payout !== 0) components.push({
         kind: "fixed",
         unitId: null,
         quantity: 1,
         revenueContractAmount,
-        revenueBasis: revenueFixedBasis,
+        revenueBasis: revenueLineBasis,
         payoutContractAmount,
-        payoutBasis: payoutFixedBasis,
+        payoutBasis: payoutLineBasis,
         revenue,
         payout,
         profit: revenue - payout,
       });
     }
 
-    const versionBundle = versionData?.fixedBundle as any;
+    const rawVersionBundle = versionData?.fixedBundle as any;
+    // 契約額を持たない履歴（サイクル導入前に保存された版）は全日契約として使えない。
+    // ここで採用すると cycle_no=0 の日報が金額0で固定される（2026-08-28 事故）。
+    const versionBundle = rawVersionBundle
+      && (rawVersionBundle.revenue_contract_amount != null || rawVersionBundle.payout_contract_amount != null)
+      ? rawVersionBundle
+      : null;
     const currentBundle = (fixedBundles ?? []).find((bundle: any) => bundle.course_id === report.course_id);
     const bundle = versionBundle ? {
       requiredCycleNos: Array.isArray(versionBundle.required_cycle_nos) ? versionBundle.required_cycle_nos.map(Number) : [],

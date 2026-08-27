@@ -229,3 +229,32 @@ describe("groupFieldsByLabel", () => {
     ]);
   });
 });
+
+describe("resolveReportCycleChoices（旧「全体」枠の除外）", () => {
+  it("便別シフトがあるコースでは、残っている cycle_no=0 の枠を候補から外す", () => {
+    const shifts = [
+      { courseId: "co1", cycleNo: 0 },
+      { courseId: "co1", cycleNo: 1 },
+      { courseId: "co1", cycleNo: 2 },
+    ];
+    expect(resolveReportCycleChoices(shifts, [])).toEqual([
+      { courseId: "co1", cycleNo: 1 },
+      { courseId: "co1", cycleNo: 2 },
+    ]);
+  });
+
+  it("cycle_no=0 の枠しか無いコースはそのまま残す", () => {
+    const shifts = [{ courseId: "co1", cycleNo: 0 }];
+    expect(resolveReportCycleChoices(shifts, [])).toEqual(shifts);
+  });
+
+  it("旧cycle_no=0日報が既にある日は、便別枠を1フォームへ畳む挙動を維持する", () => {
+    const shifts = [
+      { courseId: "co1", cycleNo: 0 },
+      { courseId: "co1", cycleNo: 1 },
+      { courseId: "co1", cycleNo: 2 },
+    ];
+    expect(resolveReportCycleChoices(shifts, [{ courseId: "co1", cycleNo: 0 }]))
+      .toEqual([{ courseId: "co1", cycleNo: 0 }]);
+  });
+});

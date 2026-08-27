@@ -147,8 +147,10 @@ export function reportContributions(
       const piece = component.kind === "unit";
       const usesRevenue = piece ? allowsPiece(meta.revenueRateMode) : allowsFixed(meta.revenueRateMode);
       const usesPayout = piece ? allowsPiece(meta.payoutRateMode) : allowsFixed(meta.payoutRateMode);
-      const revenue = usesRevenue ? component.revenue : 0;
-      const payout = usesPayout ? component.payout : 0;
+      // 計上額は必ず円単位。過去に小数のまま固定されたスナップショットが残っているため、
+      // 読み出し側でも丸める（単価の小数は契約原額側で保持する）。
+      const revenue = usesRevenue ? Math.round(component.revenue) : 0;
+      const payout = usesPayout ? Math.round(component.payout) : 0;
       // スナップショットは契約原額と契約税基準を自前で持つので、税込はそこから積み直す。
       const revenueIncl = usesRevenue
         ? inclusiveContractTotal(component.revenueContractAmount, component.quantity, component.revenueBasis)
@@ -180,8 +182,9 @@ export function reportContributions(
     if ((report.cycleNo ?? 0) === 0 && !hasFixedComponent && legacyBundle &&
         (legacyBundle.fixedRevenue != null || legacyBundle.fixedPayout != null)) {
       // 補完分も日当契約なので、日当の計算方式がNONEの側は0にする。
-      const revenue = allowsFixed(meta.revenueRateMode) ? legacyBundle.fixedRevenue ?? 0 : 0;
-      const payout = allowsFixed(meta.payoutRateMode) ? legacyBundle.fixedPayout ?? 0 : 0;
+      // 全日日当は小数を持ち得る（税込17,000円→税抜15,454.55円）が、計上額は円単位。
+      const revenue = allowsFixed(meta.revenueRateMode) ? Math.round(legacyBundle.fixedRevenue ?? 0) : 0;
+      const payout = allowsFixed(meta.payoutRateMode) ? Math.round(legacyBundle.fixedPayout ?? 0) : 0;
       if (revenue !== 0 || payout !== 0) {
         snapshotContributions.push({
           date: report.reportDate,
@@ -300,15 +303,38 @@ export function ledgerContributions(ledger: LedgerEntry[]): Contribution[] {
   });
 }
 
+/**
+ * 同じドライバー・同じ日・同じコースに便別日報があるとき、
+ * サイクル導入前の `cycle_no=0` 日報を集計から外す。
+ *
+ * 提出フォームに旧「全体」枠（cycle_no=0 のシフト）が残っていると、
+ * C1・C2 と合わせて3本提出でき、日当が二重に計上される（2026-08-27 実地報告）。
+ * 便を明示した日報が事実として優先されるので、旧枠の方を落とす。
+ */
+export function dropSupersededLegacyReports(reports: DailyReport[]): DailyReport[] {
+  const supersededKeys = new Set<string>();
+  for (const report of reports) {
+    if (!report.courseId || (report.cycleNo ?? 0) === 0) continue;
+    supersededKeys.add(`${report.reportDate}:${report.courseId}:${report.driverId}`);
+  }
+  if (supersededKeys.size === 0) return reports;
+  return reports.filter((report) => !(
+    report.courseId
+    && (report.cycleNo ?? 0) === 0
+    && supersededKeys.has(`${report.reportDate}:${report.courseId}:${report.driverId}`)
+  ));
+}
+
 /** 日報群＋台帳群 → 全 Contribution（日付範囲などのフィルタは呼び出し側で） */
 export function buildContributions(
   reports: DailyReport[],
   ledger: LedgerEntry[],
   ctx: AggregationContext,
 ): Contribution[] {
+  const effective = dropSupersededLegacyReports(reports);
   const out: Contribution[] = [];
-  for (const r of reports) out.push(...reportContributions(r, ctx));
-  applyFixedBundleAdjustments(reports, out, ctx);
+  for (const r of effective) out.push(...reportContributions(r, ctx));
+  applyFixedBundleAdjustments(effective, out, ctx);
   out.push(...ledgerContributions(ledger));
   return out;
 }
