@@ -12,17 +12,19 @@
 
 import type {
   Contribution,
+  CourseBillingMeta,
   CourseFixedRate,
   CourseFixedRateBundle,
-  CourseRateModes,
   CourseUnitRate,
   DailyReport,
   LedgerEntry,
   Money,
   RateMode,
+  TaxBasis,
   UnitDef,
 } from "./types";
 import { applyQuantityRule } from "@/server/billing/quantityRule";
+import { inclusiveContractTotal, inclusiveOf } from "@repo/core/logic/taxBasis";
 
 export function zeroMoney(): Money {
   return { revenue: 0, profit: 0, payout: 0 };
@@ -50,8 +52,8 @@ export type AggregationContext = {
   /** `${courseId}:${cycleNo}` -> CourseFixedRate */
   fixedRateByCourse: Map<string, CourseFixedRate>;
   fixedBundleByCourse: Map<string, CourseFixedRateBundle>;
-  /** courseId -> 売上/支払の計算方式。未登録は BOTH（＝単価行の値をそのまま使う従来挙動） */
-  rateModeByCourse: Map<string, { revenue: RateMode; payout: RateMode }>;
+  /** courseId -> 計算方式と契約税基準。未登録は BOTH / exclusive（従来挙動） */
+  billingMetaByCourse: Map<string, CourseBillingMeta>;
 };
 
 /**
@@ -61,14 +63,30 @@ export type AggregationContext = {
  */
 const allowsPiece = (mode: RateMode) => mode === "PER_PIECE" || mode === "BOTH";
 const allowsFixed = (mode: RateMode) => mode === "FIXED" || mode === "BOTH";
-const DEFAULT_RATE_MODES = { revenue: "BOTH" as RateMode, payout: "BOTH" as RateMode };
+const DEFAULT_BILLING_META: Omit<CourseBillingMeta, "courseId"> = {
+  revenueRateMode: "BOTH",
+  payoutRateMode: "BOTH",
+  revenuePieceBasis: "exclusive",
+  payoutPieceBasis: "exclusive",
+  revenueFixedBasis: "exclusive",
+  payoutFixedBasis: "exclusive",
+};
+
+/**
+ * 税込の行合計。契約原額が分かるときはそこから積み直し、
+ * 無いときだけ税抜値から 1.1倍で近似する（旧データ向けのフォールバック）。
+ */
+function inclusiveLine(contractAmount: number | undefined | null, quantity: number, basis: TaxBasis, exclusiveTotal: number): number {
+  if (contractAmount == null) return inclusiveOf(exclusiveTotal, "exclusive");
+  return inclusiveContractTotal(contractAmount, quantity, basis);
+}
 
 export function buildContext(
   units: UnitDef[],
   unitRates: CourseUnitRate[],
   fixedRates: CourseFixedRate[],
   fixedBundles: CourseFixedRateBundle[] = [],
-  courseRateModes: CourseRateModes[] = [],
+  courseBillingMeta: CourseBillingMeta[] = [],
 ): AggregationContext {
   const unitById = new Map<string, UnitDef>();
   units.forEach((u) => unitById.set(u.id, u));
@@ -82,15 +100,13 @@ export function buildContext(
   fixedRates.forEach((r) => fixedRateByCourse.set(`${r.courseId}:${r.cycleNo ?? 0}`, r));
 
   const fixedBundleByCourse = new Map(fixedBundles.map((bundle) => [bundle.courseId, bundle]));
-  const rateModeByCourse = new Map(
-    courseRateModes.map((m) => [m.courseId, { revenue: m.revenueRateMode, payout: m.payoutRateMode }]),
-  );
-  return { unitById, unitRateByCourseUnit, fixedRateByCourse, fixedBundleByCourse, rateModeByCourse };
+  const billingMetaByCourse = new Map(courseBillingMeta.map((m) => [m.courseId, m]));
+  return { unitById, unitRateByCourseUnit, fixedRateByCourse, fixedBundleByCourse, billingMetaByCourse };
 }
 
-/** コースの計算方式を引く（未登録＝従来挙動の BOTH） */
-export function rateModesOf(ctx: AggregationContext, courseId: string) {
-  return ctx.rateModeByCourse.get(courseId) ?? DEFAULT_RATE_MODES;
+/** コースの計算方式・契約税基準を引く（未登録＝従来挙動の BOTH / 税抜） */
+export function billingMetaOf(ctx: AggregationContext, courseId: string): Omit<CourseBillingMeta, "courseId"> {
+  return ctx.billingMetaByCourse.get(courseId) ?? DEFAULT_BILLING_META;
 }
 
 /** どの field が従量課金の数量かを引く */
@@ -120,7 +136,7 @@ export function reportContributions(
   if (!courseId) return []; // コース不明は自動算出できない
   const out: Contribution[] = [];
 
-  const modes = rateModesOf(ctx, courseId);
+  const meta = billingMetaOf(ctx, courseId);
 
   // 承認時スナップショットがあれば現在の単価マスタより優先する。
   // これにより、後日の単価変更で承認済み期間の売上・報酬・粗利が動かない。
@@ -129,8 +145,17 @@ export function reportContributions(
   if (report.rateSnapshot?.version === 1) {
     const snapshotContributions: Contribution[] = report.rateSnapshot.components.map((component) => {
       const piece = component.kind === "unit";
-      const revenue = (piece ? allowsPiece(modes.revenue) : allowsFixed(modes.revenue)) ? component.revenue : 0;
-      const payout = (piece ? allowsPiece(modes.payout) : allowsFixed(modes.payout)) ? component.payout : 0;
+      const usesRevenue = piece ? allowsPiece(meta.revenueRateMode) : allowsFixed(meta.revenueRateMode);
+      const usesPayout = piece ? allowsPiece(meta.payoutRateMode) : allowsFixed(meta.payoutRateMode);
+      const revenue = usesRevenue ? component.revenue : 0;
+      const payout = usesPayout ? component.payout : 0;
+      // スナップショットは契約原額と契約税基準を自前で持つので、税込はそこから積み直す。
+      const revenueIncl = usesRevenue
+        ? inclusiveContractTotal(component.revenueContractAmount, component.quantity, component.revenueBasis)
+        : 0;
+      const payoutIncl = usesPayout
+        ? inclusiveContractTotal(component.payoutContractAmount, component.quantity, component.payoutBasis)
+        : 0;
       return {
         date: report.reportDate,
         driverId: report.driverId,
@@ -142,6 +167,9 @@ export function reportContributions(
         revenue,
         payout,
         profit: revenue - payout,
+        revenueIncl,
+        payoutIncl,
+        profitIncl: revenueIncl - payoutIncl,
       };
     });
     // サイクル対応前の提出APIは、C1/C2のあるコースもcycle_no=0の1日報へ
@@ -152,8 +180,8 @@ export function reportContributions(
     if ((report.cycleNo ?? 0) === 0 && !hasFixedComponent && legacyBundle &&
         (legacyBundle.fixedRevenue != null || legacyBundle.fixedPayout != null)) {
       // 補完分も日当契約なので、日当の計算方式がNONEの側は0にする。
-      const revenue = allowsFixed(modes.revenue) ? legacyBundle.fixedRevenue ?? 0 : 0;
-      const payout = allowsFixed(modes.payout) ? legacyBundle.fixedPayout ?? 0 : 0;
+      const revenue = allowsFixed(meta.revenueRateMode) ? legacyBundle.fixedRevenue ?? 0 : 0;
+      const payout = allowsFixed(meta.payoutRateMode) ? legacyBundle.fixedPayout ?? 0 : 0;
       if (revenue !== 0 || payout !== 0) {
         snapshotContributions.push({
           date: report.reportDate,
@@ -166,6 +194,9 @@ export function reportContributions(
           revenue,
           payout,
           profit: revenue - payout,
+          revenueIncl: inclusiveOf(revenue, "exclusive"),
+          payoutIncl: inclusiveOf(payout, "exclusive"),
+          profitIncl: inclusiveOf(revenue, "exclusive") - inclusiveOf(payout, "exclusive"),
         });
       }
     }
@@ -184,9 +215,15 @@ export function reportContributions(
     const revenueQty = applyQuantityRule(actualQty, rate.revenueQuantityRule);
     const payoutQty = applyQuantityRule(actualQty, rate.payoutQuantityRule);
     // 単価は小数を許す（例: 157.5円/個）。円未満は行合計で一度だけ丸める。
-    const revenue = allowsPiece(modes.revenue) ? Math.round(revenueQty * rate.revenuePerUnit) : 0;
-    const payout = allowsPiece(modes.payout) ? Math.round(payoutQty * rate.payoutPerUnit) : 0;
+    const usesRevenue = allowsPiece(meta.revenueRateMode);
+    const usesPayout = allowsPiece(meta.payoutRateMode);
+    const revenue = usesRevenue ? Math.round(revenueQty * rate.revenuePerUnit) : 0;
+    const payout = usesPayout ? Math.round(payoutQty * rate.payoutPerUnit) : 0;
     if (revenue === 0 && payout === 0) continue;
+    const revenueIncl = usesRevenue
+      ? inclusiveLine(rate.revenueContractAmount, revenueQty, meta.revenuePieceBasis, revenue) : 0;
+    const payoutIncl = usesPayout
+      ? inclusiveLine(rate.payoutContractAmount, payoutQty, meta.payoutPieceBasis, payout) : 0;
     out.push({
       date: report.reportDate,
       driverId: report.driverId,
@@ -198,6 +235,9 @@ export function reportContributions(
       revenue,
       profit: revenue - payout,
       payout,
+      revenueIncl,
+      payoutIncl,
+      profitIncl: revenueIncl - payoutIncl,
     });
   }
 
@@ -207,9 +247,15 @@ export function reportContributions(
     ctx.fixedRateByCourse.get(`${courseId}:0`);
   if (fx) {
     // 保存済みの fixed_profit ではなく売上−支払で導出する。方式がNONEの側は0。
-    const revenue = allowsFixed(modes.revenue) ? Math.round(fx.fixedRevenue) : 0;
-    const payout = allowsFixed(modes.payout) ? Math.round(fx.fixedPayout) : 0;
+    const usesRevenue = allowsFixed(meta.revenueRateMode);
+    const usesPayout = allowsFixed(meta.payoutRateMode);
+    const revenue = usesRevenue ? Math.round(fx.fixedRevenue) : 0;
+    const payout = usesPayout ? Math.round(fx.fixedPayout) : 0;
     if (revenue !== 0 || payout !== 0) {
+      const revenueIncl = usesRevenue
+        ? inclusiveLine(fx.revenueContractAmount, 1, meta.revenueFixedBasis, revenue) : 0;
+      const payoutIncl = usesPayout
+        ? inclusiveLine(fx.payoutContractAmount, 1, meta.payoutFixedBasis, payout) : 0;
       out.push({
         date: report.reportDate,
         driverId: report.driverId,
@@ -221,6 +267,9 @@ export function reportContributions(
         revenue,
         payout,
         profit: revenue - payout,
+        revenueIncl,
+        payoutIncl,
+        profitIncl: revenueIncl - payoutIncl,
       });
     }
   }
@@ -228,20 +277,27 @@ export function reportContributions(
   return out;
 }
 
-/** 台帳エントリを Contribution に変換 */
+/** 台帳エントリを Contribution に変換（台帳は税抜で記帳。税込は1.1倍で導出する） */
 export function ledgerContributions(ledger: LedgerEntry[]): Contribution[] {
-  return ledger.map((l) => ({
-    date: l.entryDate,
-    driverId: l.targetDriverId,
-    courseId: l.courseId,
-    carrierId: null,
-    unitId: null,
-    counterpartyId: l.counterpartyInvoiceAddressId,
-    source: "ledger" as const,
-    revenue: l.revenueDelta,
-    profit: l.profitDelta,
-    payout: l.payoutDelta,
-  }));
+  return ledger.map((l) => {
+    const revenueIncl = inclusiveOf(l.revenueDelta, "exclusive");
+    const payoutIncl = inclusiveOf(l.payoutDelta, "exclusive");
+    return {
+      date: l.entryDate,
+      driverId: l.targetDriverId,
+      courseId: l.courseId,
+      carrierId: null,
+      unitId: null,
+      counterpartyId: l.counterpartyInvoiceAddressId,
+      source: "ledger" as const,
+      revenue: l.revenueDelta,
+      profit: l.profitDelta,
+      payout: l.payoutDelta,
+      revenueIncl,
+      payoutIncl,
+      profitIncl: revenueIncl - payoutIncl,
+    };
+  });
 }
 
 /** 日報群＋台帳群 → 全 Contribution（日付範囲などのフィルタは呼び出し側で） */
@@ -257,14 +313,30 @@ export function buildContributions(
   return out;
 }
 
-function hasAllCycles(reports: DailyReport[], required: number[]): boolean {
-  const actual = new Set(reports.filter(isCountableReport).map((report) => report.cycleNo ?? 0));
-  // cycle_no=0はサイクル導入前に「コース全体＝全日」として保存された日報。
-  // 新規提出はC1/C2を明示するため、0だけ後方互換として全便成立と扱う。
-  return required.length > 1 && (actual.has(0) || required.every((cycleNo) => actual.has(cycleNo)));
+/**
+ * その日に「全便が埋まった」回数を数える。
+ *
+ * 全日単価は1日1回とは限らない。同じコースを2人がそれぞれフル稼働した日は
+ * 全日成立が2回で、売上も支払も2回分になる。逆にC1をAさん・C2をBさんが
+ * 分担した日は、2人合わせて全日成立1回。
+ *
+ * cycle_no=0はサイクル導入前に「コース全体＝全日」として保存された日報のため、
+ * 1本＝全日成立1回として数える（新規提出はC1/C2を明示する）。
+ */
+function fullDayUnits(reports: DailyReport[], required: number[]): number {
+  if (required.length <= 1) return 0;
+  const countable = reports.filter(isCountableReport);
+  const legacyFullDays = countable.filter((report) => (report.cycleNo ?? 0) === 0).length;
+  const completeSets = Math.min(
+    ...required.map((cycleNo) => countable.filter((report) => (report.cycleNo ?? 0) === cycleNo).length),
+  );
+  return legacyFullDays + completeSets;
 }
 
-/** 全日単価は便別固定額の「追加」ではなく置換。売上はコース/日、支払はドライバー/コース/日で判定する。 */
+/**
+ * 全日単価は便別固定額の「追加」ではなく置換。
+ * 売上はコース/日、支払はドライバー/コース/日で判定し、どちらも全日成立の回数分を適用する。
+ */
 function applyFixedBundleAdjustments(reports: DailyReport[], out: Contribution[], ctx: AggregationContext): void {
   const courseDays = new Map<string, DailyReport[]>();
   for (const report of reports) {
@@ -277,31 +349,45 @@ function applyFixedBundleAdjustments(reports: DailyReport[], out: Contribution[]
     const courseId = dayReports[0].courseId!;
     const snapshotBundle = dayReports.find((report) => report.rateSnapshot?.fixedBundle)?.rateSnapshot?.fixedBundle;
     const bundle = snapshotBundle ? { courseId, ...snapshotBundle } : ctx.fixedBundleByCourse.get(courseId);
-    if (!bundle || !hasAllCycles(dayReports, bundle.requiredCycleNos)) continue;
+    if (!bundle) continue;
+    const courseUnits = fullDayUnits(dayReports, bundle.requiredCycleNos);
+    if (courseUnits === 0) continue;
     const [date] = key.split(":");
-    const modes = rateModesOf(ctx, courseId);
+    const meta = billingMetaOf(ctx, courseId);
 
-    if (bundle.fixedRevenue != null && allowsFixed(modes.revenue)) {
-      const baseRevenue = out.filter((item) => item.date === date && item.courseId === courseId && item.source === "auto_fixed")
-        .reduce((sum, item) => sum + item.revenue, 0);
-      const revenueDelta = bundle.fixedRevenue - baseRevenue;
-      if (revenueDelta !== 0) out.push({
+    if (bundle.fixedRevenue != null && allowsFixed(meta.revenueRateMode)) {
+      const dayFixed = out.filter((item) => item.date === date && item.courseId === courseId && item.source === "auto_fixed");
+      const baseRevenue = dayFixed.reduce((sum, item) => sum + item.revenue, 0);
+      const baseRevenueIncl = dayFixed.reduce((sum, item) => sum + item.revenueIncl, 0);
+      // 単価は小数を持ち得るが、計上額は円単位。差分を出す前に丸める。
+      const revenueDelta = Math.round(bundle.fixedRevenue * courseUnits) - baseRevenue;
+      const revenueDeltaIncl =
+        inclusiveLine(bundle.revenueContractAmount, courseUnits, meta.revenueFixedBasis,
+          Math.round(bundle.fixedRevenue * courseUnits)) - baseRevenueIncl;
+      if (revenueDelta !== 0 || revenueDeltaIncl !== 0) out.push({
         date, courseId, driverId: null, carrierId: dayReports[0].carrierId, unitId: null, counterpartyId: null,
         source: "auto_fixed", revenue: revenueDelta, payout: 0, profit: revenueDelta,
+        revenueIncl: revenueDeltaIncl, payoutIncl: 0, profitIncl: revenueDeltaIncl,
       });
     }
 
-    if (bundle.fixedPayout != null && allowsFixed(modes.payout)) {
+    if (bundle.fixedPayout != null && allowsFixed(meta.payoutRateMode)) {
       const byDriver = new Map<string, DailyReport[]>();
       dayReports.forEach((report) => byDriver.set(report.driverId, [...(byDriver.get(report.driverId) ?? []), report]));
       for (const [driverId, driverReports] of byDriver) {
-        if (!hasAllCycles(driverReports, bundle.requiredCycleNos)) continue;
-        const basePayout = out.filter((item) => item.date === date && item.courseId === courseId && item.driverId === driverId && item.source === "auto_fixed")
-          .reduce((sum, item) => sum + item.payout, 0);
-        const payoutDelta = bundle.fixedPayout - basePayout;
-        if (payoutDelta !== 0) out.push({
+        const driverUnits = fullDayUnits(driverReports, bundle.requiredCycleNos);
+        if (driverUnits === 0) continue;
+        const driverFixed = out.filter((item) => item.date === date && item.courseId === courseId && item.driverId === driverId && item.source === "auto_fixed");
+        const basePayout = driverFixed.reduce((sum, item) => sum + item.payout, 0);
+        const basePayoutIncl = driverFixed.reduce((sum, item) => sum + item.payoutIncl, 0);
+        const payoutDelta = Math.round(bundle.fixedPayout * driverUnits) - basePayout;
+        const payoutDeltaIncl =
+          inclusiveLine(bundle.payoutContractAmount, driverUnits, meta.payoutFixedBasis,
+            Math.round(bundle.fixedPayout * driverUnits)) - basePayoutIncl;
+        if (payoutDelta !== 0 || payoutDeltaIncl !== 0) out.push({
           date, courseId, driverId, carrierId: driverReports[0].carrierId, unitId: null, counterpartyId: null,
           source: "auto_fixed", revenue: 0, payout: payoutDelta, profit: -payoutDelta,
+          revenueIncl: 0, payoutIncl: payoutDeltaIncl, profitIncl: -payoutDeltaIncl,
         });
       }
     }

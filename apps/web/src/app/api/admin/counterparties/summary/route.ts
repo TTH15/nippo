@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
   const systemRevenueByAddr = new Map<string, number>();
   if (courseById.size > 0) {
     const aggData = await loadAggregationData(supabase, orgId, range.startDate, range.endDate);
-    const aggCtx = buildContext(aggData.units, aggData.unitRates, aggData.fixedRates, aggData.fixedRateBundles, aggData.courseRateModes);
+    const aggCtx = buildContext(aggData.units, aggData.unitRates, aggData.fixedRates, aggData.fixedRateBundles, aggData.courseBillingMeta);
     const contribs = buildContributions(aggData.reports, [], aggCtx); // ledger 抜き = system auto のみ
     for (const c of contribs) {
       const course = c.courseId ? courseById.get(c.courseId) : null;

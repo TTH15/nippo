@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const previewReports = dayData.reports
     .filter((report) => report.rejectedAt == null)
     .map((report) => ({ ...report, approvedAt: report.approvedAt ?? "preview" }));
-  const context = buildContext(dayData.units, dayData.unitRates, dayData.fixedRates, dayData.fixedRateBundles, dayData.courseRateModes);
+  const context = buildContext(dayData.units, dayData.unitRates, dayData.fixedRates, dayData.fixedRateBundles, dayData.courseBillingMeta);
   const todayContributions = buildContributions(previewReports, [], context)
     .filter((contribution) => contribution.driverId === driverId);
   const todayRewardBeforeLease = todayContributions.reduce((total, contribution) => total + contribution.payout, 0);

@@ -92,7 +92,7 @@ export async function computeCounterpartyMonthBillingDetail(
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}:${r.unitId}`, r]));
   const fixedByCourse = new Map(data.fixedRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}`, r]));
   // 売上の計算方式(NONE/PER_PIECE/FIXED/BOTH)が正本。方式外の単価行は請求明細にも載せない。
-  const revenueModeByCourse = new Map(data.courseRateModes.map((m) => [m.courseId, m.revenueRateMode]));
+  const revenueModeByCourse = new Map(data.courseBillingMeta.map((m) => [m.courseId, m.revenueRateMode]));
   const revenueUsesPiece = (courseId: string) => {
     const mode = revenueModeByCourse.get(courseId) ?? "BOTH";
     return mode === "PER_PIECE" || mode === "BOTH";
@@ -101,7 +101,7 @@ export async function computeCounterpartyMonthBillingDetail(
     const mode = revenueModeByCourse.get(courseId) ?? "BOTH";
     return mode === "FIXED" || mode === "BOTH";
   };
-  const aggregationContext = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseRateModes);
+  const aggregationContext = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseBillingMeta);
   // 内部集計は承認時スナップショットを正本にする。これにより単価変更後も過去月が動かず、
   // admin/sales と同じ v2 集計結果になる。請求明細側は契約単価・契約税基準を別途保持する。
   const systemTotal = buildContributions(data.reports, [], aggregationContext)
@@ -300,7 +300,7 @@ export async function computeSectionMonthRevenue(
   }
 
   const data = await loadAggregationData(supabase, orgId, startDate, endDate);
-  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseRateModes);
+  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseBillingMeta);
   const contribs = buildContributions(data.reports, [], ctx); // ledger 無し = auto のみ
 
   const carrierCodeByCourse = await loadCarrierCodeByCourse(supabase, orgId);

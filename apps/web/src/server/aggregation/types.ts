@@ -53,10 +53,21 @@ export type CourseFixedRate = {
  */
 export type RateMode = "NONE" | "PER_PIECE" | "FIXED" | "BOTH";
 
-export type CourseRateModes = {
+export type TaxBasis = "exclusive" | "inclusive";
+
+/**
+ * 集計に必要なコース側のメタ情報。
+ * 計算方式に加えて「契約が税抜／税込どちらで決まっているか」も持つ。
+ * 税込表示は保存値(税抜)の1.1倍ではなく契約原額から積み直すため、この基準が要る。
+ */
+export type CourseBillingMeta = {
   courseId: string;
   revenueRateMode: RateMode;
   payoutRateMode: RateMode;
+  revenuePieceBasis: TaxBasis;
+  payoutPieceBasis: TaxBasis;
+  revenueFixedBasis: TaxBasis;
+  payoutFixedBasis: TaxBasis;
 };
 
 export type CourseFixedRateBundle = {
@@ -64,6 +75,9 @@ export type CourseFixedRateBundle = {
   requiredCycleNos: number[];
   fixedRevenue: number | null;
   fixedPayout: number | null;
+  /** 契約原額（税込契約なら税込額そのもの）。税込表示の積み直しに使う */
+  revenueContractAmount?: number | null;
+  payoutContractAmount?: number | null;
 };
 
 export type ReportEntry = {
@@ -115,7 +129,12 @@ export type Contribution = {
   unitId: string | null; // 従量(per-piece)のみ。固定/台帳は null
   counterpartyId: string | null;
   source: ContributionSource;
+  /** 税抜（会計上の売上高。集計・請求の正本） */
   revenue: number;
   profit: number;
   payout: number;
+  /** 税込（契約原額から積み直した表示用の値。税抜×1.1 とは1円単位で一致しない） */
+  revenueIncl: number;
+  profitIncl: number;
+  payoutIncl: number;
 };

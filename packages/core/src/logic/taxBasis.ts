@@ -53,6 +53,22 @@ export function inclusiveUnitPriceOf(raw: number, basis: TaxBasis, ratePercent =
 }
 
 /**
+ * 契約単価と数量から税込の行合計を導出する。
+ * 税抜の保存値を1.1倍しても契約額（税込17,000円など）には戻らないため、
+ * 税込表示は必ず契約原額から積み直す。
+ */
+export function inclusiveContractTotal(
+  contractUnitAmount: number,
+  quantity: number,
+  basis: TaxBasis,
+  ratePercent = DEFAULT_RATE_PERCENT,
+): number {
+  const total = contractUnitAmount * quantity;
+  if (basis === "inclusive") return Math.round(total);
+  return Math.round(total * (1 + ratePercent / 100));
+}
+
+/**
  * 契約単価と数量から税抜の行合計を導出する。
  * 税込単価を1個ずつ税抜へ丸めると数量分の誤差が増幅するため、乗算後に一度だけ丸める。
  * 単価が小数（157.5円/個 など）でも、行合計は円単位の整数へ揃える。

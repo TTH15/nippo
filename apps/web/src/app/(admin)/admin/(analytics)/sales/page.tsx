@@ -900,6 +900,20 @@ function LogEntriesByDate({
 
 export default function SalesPage() {
   const [tab, setTab] = useState<Tab>("analytics");
+  // 売上の表示基準。会計上の売上高は税抜が原則なので既定は税抜。
+  // 税込は「実際に入金される額」を見るための表示で、税抜値の1.1倍ではなく契約原額から積み直す。
+  const [taxBasis, setTaxBasis] = useState<"exclusive" | "inclusive">("exclusive");
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("sales_tax_basis") === "inclusive") setTaxBasis("inclusive");
+    } catch { /* プライベートモード等では既定のまま */ }
+  }, []);
+  const changeTaxBasis = (next: "exclusive" | "inclusive") => {
+    setTaxBasis(next);
+    try { localStorage.setItem("sales_tax_basis", next); } catch { /* 保存できなくても表示は切り替わる */ }
+  };
+  const taxLabel = taxBasis === "inclusive" ? "税込" : "税抜";
+
   // 期間の単位: 日別=基準月の日別 / 前後半=直近12期（6ヶ月） / 月別=直近12ヶ月 / 期間指定=任意範囲の日別
   const [unit, setUnit] = useState<"day" | "half" | "month" | "custom">("day");
   const [baseMonth, setBaseMonth] = useState(() => {
@@ -1018,6 +1032,7 @@ export default function SalesPage() {
   const chartEndIso = endIso;
   const bucketQuery =
     chartUnit === "half" ? "&bucket=half" : chartUnit === "month" ? "&bucket=month" : "";
+  const basisQuery = taxBasis === "inclusive" ? "&basis=inclusive" : "";
 
   const prevRange = useMemo(() => {
     if (!chartStartIso || !chartEndIso) return null;
@@ -1034,11 +1049,11 @@ export default function SalesPage() {
 
   const salesKey =
     chartStartIso && chartEndIso
-      ? `/api/admin/sales?start=${chartStartIso}&end=${chartEndIso}${salesFilterQuery}${bucketQuery}`
+      ? `/api/admin/sales?start=${chartStartIso}&end=${chartEndIso}${salesFilterQuery}${bucketQuery}${basisQuery}`
       : null;
   const prevSalesKey =
     prevRange != null
-      ? `/api/admin/sales?start=${prevRange.prevStartIso}&end=${prevRange.prevEndIso}${salesFilterQuery}${bucketQuery}`
+      ? `/api/admin/sales?start=${prevRange.prevStartIso}&end=${prevRange.prevEndIso}${salesFilterQuery}${bucketQuery}${basisQuery}`
       : null;
 
   const { data: salesDataRes, isLoading: salesLoading } = useSWR<{ data: DataPoint[]; carriers?: CarrierMeta[] }>(
@@ -1423,6 +1438,25 @@ export default function SalesPage() {
 
         {/* ツールバー: 単位・期間・絞り込みを同じ様式で1行に（折返し可） */}
         <div className="mb-6 flex flex-wrap items-center gap-2">
+          <div className="inline-flex gap-1 rounded-lg bg-slate-100 p-1">
+            {(
+              [
+                { key: "exclusive", label: "税抜" },
+                { key: "inclusive", label: "税込" },
+              ] as const
+            ).map((o) => (
+              <button
+                key={o.key}
+                type="button"
+                onClick={() => changeTaxBasis(o.key)}
+                className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm transition-colors ${
+                  taxBasis === o.key ? "bg-white font-medium text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
           {tab === "analytics" && (
             <div className="grid w-full grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 sm:inline-flex sm:w-auto">
               {(
@@ -1527,7 +1561,7 @@ export default function SalesPage() {
                     {/* KPI スタット行: 売上 / 粗利 / 平均 / 稼働率（旧右サイドバーの畳み込み） */}
                     <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-px rounded-lg border border-slate-200 bg-slate-200 overflow-hidden">
                       <div className="bg-white p-4">
-                        <div className="text-xs font-semibold text-slate-500">売上</div>
+                        <div className="text-xs font-semibold text-slate-500">売上（{taxLabel}）</div>
                         <div className="mt-0.5 text-xl font-bold text-slate-900 tracking-tight tabular-nums">
                           {fmt(displayTotals.total)}
                         </div>
@@ -1550,7 +1584,7 @@ export default function SalesPage() {
                         </div>
                       </div>
                       <div className="bg-white p-4">
-                        <div className="text-xs font-semibold text-slate-500">粗利</div>
+                        <div className="text-xs font-semibold text-slate-500">粗利（{taxLabel}）</div>
                         <div className="mt-0.5 text-xl font-bold text-slate-900 tracking-tight tabular-nums">
                           {fmt(displayTotals.profit)}
                           {margin != null && (

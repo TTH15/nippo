@@ -7,11 +7,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadOrgCarrierIds } from "@/server/carriers/orgCarriers";
 import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "./pagination";
 import type {
+  CourseBillingMeta,
   CourseFixedRate,
   CourseFixedRateBundle,
-  CourseRateModes,
   CourseUnitRate,
   RateMode,
+  TaxBasis,
   DailyReport,
   LedgerEntry,
   ReportEntry,
@@ -24,11 +25,13 @@ const RATE_MODES: RateMode[] = ["NONE", "PER_PIECE", "FIXED", "BOTH"];
 /** 列が未適用/NULL のときは従来挙動（単価行の値をそのまま使う）へフォールバックする。 */
 const rateMode = (value: unknown): RateMode =>
   RATE_MODES.includes(value as RateMode) ? (value as RateMode) : "BOTH";
+const taxBasis = (value: unknown, fallback: TaxBasis = "exclusive"): TaxBasis =>
+  value === "inclusive" ? "inclusive" : value === "exclusive" ? "exclusive" : fallback;
 
 export type AggregationData = {
   carriers: CarrierInfo[];
   units: UnitDef[];
-  courseRateModes: CourseRateModes[];
+  courseBillingMeta: CourseBillingMeta[];
   unitRates: CourseUnitRate[];
   fixedRates: CourseFixedRate[];
   fixedRateBundles: CourseFixedRateBundle[];
@@ -90,7 +93,7 @@ export async function loadAggregationData(
         // コースの計算方式(NONE/PER_PIECE/FIXED/BOTH)は単価行より上位の正本。
         // 「自動支払なし」のコースへ古い支払単価が残っていても集計に載せない。
         .from("courses")
-        .select("id, revenue_rate_mode, payout_rate_mode")
+        .select("id, revenue_rate_mode, payout_rate_mode, revenue_tax_basis, payout_tax_basis, revenue_piece_tax_basis, payout_piece_tax_basis, revenue_fixed_tax_basis, payout_fixed_tax_basis")
         .eq("org_id", orgId)
         .order("id", { ascending: true })
         .range(from, to),
@@ -106,7 +109,7 @@ export async function loadAggregationData(
     fetchAllRows((from, to) =>
       supabase
         .from("course_fixed_rate_bundles")
-        .select("course_id, required_cycle_nos, fixed_revenue, fixed_payout")
+        .select("course_id, required_cycle_nos, fixed_revenue, fixed_payout, revenue_contract_amount, payout_contract_amount")
         .order("course_id", { ascending: true })
         .range(from, to),
     ),
@@ -225,11 +228,21 @@ export async function loadAggregationData(
   return {
     carriers: (carriers ?? []).map((c: any) => ({ id: c.id, code: c.code ?? null })),
     units: unitDefs,
-    courseRateModes: (courseModeRows ?? []).map((c: any) => ({
-      courseId: c.id,
-      revenueRateMode: rateMode(c.revenue_rate_mode),
-      payoutRateMode: rateMode(c.payout_rate_mode),
-    })),
+    courseBillingMeta: (courseModeRows ?? []).map((c: any) => {
+      // 旧 revenue_tax_basis / payout_tax_basis は日当・歩合を分ける前の代表値。
+      // 4区分の列（migration 146）が未設定なら旧列へフォールバックする。
+      const legacyRevenue = taxBasis(c.revenue_tax_basis);
+      const legacyPayout = taxBasis(c.payout_tax_basis);
+      return {
+        courseId: c.id,
+        revenueRateMode: rateMode(c.revenue_rate_mode),
+        payoutRateMode: rateMode(c.payout_rate_mode),
+        revenuePieceBasis: taxBasis(c.revenue_piece_tax_basis, legacyRevenue),
+        payoutPieceBasis: taxBasis(c.payout_piece_tax_basis, legacyPayout),
+        revenueFixedBasis: taxBasis(c.revenue_fixed_tax_basis, legacyRevenue),
+        payoutFixedBasis: taxBasis(c.payout_fixed_tax_basis, legacyPayout),
+      };
+    }),
     unitRates: (unitRates ?? []).map((r: any) => ({
       courseId: r.course_id,
       cycleNo: Number(r.cycle_no) || 0,
@@ -256,6 +269,8 @@ export async function loadAggregationData(
       requiredCycleNos: Array.isArray(r.required_cycle_nos) ? r.required_cycle_nos.map(Number) : [],
       fixedRevenue: r.fixed_revenue == null ? null : Number(r.fixed_revenue),
       fixedPayout: r.fixed_payout == null ? null : Number(r.fixed_payout),
+      revenueContractAmount: r.revenue_contract_amount == null ? null : Number(r.revenue_contract_amount),
+      payoutContractAmount: r.payout_contract_amount == null ? null : Number(r.payout_contract_amount),
     })),
     reports,
     ledger: (ledgerRows ?? []).map((l: any) => ({

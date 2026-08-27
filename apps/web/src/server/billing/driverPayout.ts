@@ -73,7 +73,7 @@ export async function computeDriverAutoPayout(
   const fixedByCourse = new Map(data.fixedRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}`, r]));
   // 支払の計算方式(NONE/PER_PIECE/FIXED/BOTH)が正本。「自動支払なし」のコースは
   // 単価行に旧値が残っていても報酬0として扱う（売上全額が自社利益になる）。
-  const payoutModeByCourse = new Map(data.courseRateModes.map((m) => [m.courseId, m.payoutRateMode]));
+  const payoutModeByCourse = new Map(data.courseBillingMeta.map((m) => [m.courseId, m.payoutRateMode]));
   const payoutUsesPiece = (courseId: string) => {
     const mode = payoutModeByCourse.get(courseId) ?? "BOTH";
     return mode === "PER_PIECE" || mode === "BOTH";

@@ -4,6 +4,7 @@ import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { buildContext, buildContributions, isCountableReport } from "@/server/aggregation/compute";
+import { exclusiveOf } from "@repo/core/logic/taxBasis";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,10 @@ export const dynamic = "force-dynamic";
 //   yamato = 自動算出(YAMATO+その他キャリア), amazon = 自動算出(AMAZON),
 //   other  = 台帳(ledger)の売上, profit = 全利益(自動+台帳),
 //   yamato_profit/amazon_profit = 自動算出のキャリア別利益。
+//
+// basis=exclusive（既定）は会計上の売上高＝税抜。basis=inclusive は入金ベースの税込で、
+// 税抜値の1.1倍ではなく契約原額から積み直した値を使う（税抜×1.1 では契約額に戻らない）。
+// 手動売上ログ(sales_log_entries)の金額は税込で入力されている前提。
 // ============================================================
 
 export async function GET(req: NextRequest) {
@@ -26,6 +31,8 @@ export async function GET(req: NextRequest) {
   const endParam = url.searchParams.get("end");
   // 集計バケット: day=日別（既定）/ half=前後半（1-15・16-末）/ month=月別。
   // 長期間はバケットで畳んで返し、点数を抑える（月別12ヶ月=12点）
+  const basis = url.searchParams.get("basis") === "inclusive" ? "inclusive" : "exclusive";
+  const inclusive = basis === "inclusive";
   const bucketParam = url.searchParams.get("bucket");
   const bucket: "day" | "half" | "month" =
     bucketParam === "half" || bucketParam === "month" ? bucketParam : "day";
@@ -56,7 +63,7 @@ export async function GET(req: NextRequest) {
   // 自動算出は新モデル(v2)、手動調整(売上ログ)は既存 sales_log_entries を直接読む（ハイブリッド）
   const data = await loadAggregationData(supabase, orgId, startDate, endDate);
   const codeByCarrier = new Map(data.carriers.map((c) => [c.id, c.code]));
-  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseRateModes);
+  const ctx = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseBillingMeta);
   const contribs = buildContributions(data.reports, [], ctx); // ledgerは使わず手動分は下で別途
 
   // キャリア名（グラフの動的系列・凡例用）
@@ -108,19 +115,21 @@ export async function GET(req: NextRequest) {
     if (courseIds.size > 0 && (!c.courseId || !courseIds.has(c.courseId))) continue;
     if (driverId && c.driverId !== driverId) continue;
     const e = ensure(c.date);
+    const revenue = inclusive ? c.revenueIncl : c.revenue;
+    const profit = inclusive ? c.profitIncl : c.profit;
     const code = codeByCarrier.get(c.carrierId ?? "");
     if (code === "AMAZON") {
-      e.amazon += c.revenue;
-      e.amazon_profit += c.profit;
+      e.amazon += revenue;
+      e.amazon_profit += profit;
     } else {
-      e.yamato += c.revenue;
-      e.yamato_profit += c.profit;
+      e.yamato += revenue;
+      e.yamato_profit += profit;
     }
-    e.profit += c.profit;
+    e.profit += profit;
     const cid = c.carrierId ?? "unknown";
-    e.byCarrier[cid] = (e.byCarrier[cid] ?? 0) + c.revenue;
-    e.byCarrierProfit[cid] = (e.byCarrierProfit[cid] ?? 0) + c.profit;
-    if (c.revenue !== 0 || c.profit !== 0) seenCarriers.add(cid);
+    e.byCarrier[cid] = (e.byCarrier[cid] ?? 0) + revenue;
+    e.byCarrierProfit[cid] = (e.byCarrierProfit[cid] ?? 0) + profit;
+    if (revenue !== 0 || profit !== 0) seenCarriers.add(cid);
   }
 
   // リネージ用: その日の「承認済（集計対象）」「未承認（除外）」日報の件数を数える。
@@ -147,9 +156,11 @@ export async function GET(req: NextRequest) {
     if (!date || date < startDate || date > endDate) return;
     const e = ensure(date);
     e.logCount += 1;
-    const revenue = Number(row.revenue) || 0;
+    // 売上ログは税込で入力されている。税抜表示のときだけ内税で戻す。
+    const toBasis = (value: number) => (inclusive ? value : exclusiveOf(value, "inclusive"));
+    const revenue = toBasis(Number(row.revenue) || 0);
     if (revenue > 0) e.other += revenue;
-    e.profit += Number(row.profit) || 0;
+    e.profit += toBasis(Number(row.profit) || 0);
   });
 
   // 範囲内の空き日を 0 で埋める
@@ -248,7 +259,7 @@ export async function GET(req: NextRequest) {
     return row;
   });
 
-  const response = NextResponse.json({ startDate, endDate, data: out, carriers: carriersMeta });
+  const response = NextResponse.json({ startDate, endDate, basis, data: out, carriers: carriersMeta });
   response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=600");
   return response;
 }
