@@ -30,6 +30,9 @@ export type LegacyDailyRow = {
   report_date: string;
   course_id: string | null;
   course_name: string | null; // コースの実表示名（同一キャリアで複数コースのとき行を見分けるため）
+  // 便（サイクル）。同じコースのC1/C2が2行並ぶため、どちらの便かを行で見分けられるようにする
+  cycle_no: number;
+  cycle_label: string | null;
   carrier: string; // 'YAMATO' | 'AMAZON'（旧コード。新キャリアでcode未設定だと 'YAMATO' に既定化される点に注意）
   carrier_id: string | null;
   carrier_name: string | null; // キャリアの実表示名（動的キャリア対応の表示用）
@@ -128,7 +131,7 @@ export async function loadLegacyDailyRows(
     let q = supabase
       .from("daily_reports_v2")
       .select(
-        "id, legacy_report_id, driver_id, identity_id, report_date, course_id, carrier_id, vehicle_id, meter_value, submitted_at, approved_at, approved_by, rejected_at, rejected_by",
+        "id, legacy_report_id, driver_id, identity_id, report_date, course_id, cycle_no, carrier_id, vehicle_id, meter_value, submitted_at, approved_at, approved_by, rejected_at, rejected_by",
       )
       // 日付だけの絞り込みでは他社の日報まで混ざるため org で必ず絞る
       .eq("org_id", orgId);
@@ -154,12 +157,13 @@ export async function loadLegacyDailyRows(
       buildQuery(0, options.limit - 1).then((res) => res.data ?? [])
     : fetchAllRows(buildQuery);
 
-  const [reportRows, { data: carrierRows }, { data: unitRows }, { data: courseRows }] = await Promise.all([
+  const [reportRows, { data: carrierRows }, { data: unitRows }, { data: courseRows }, { data: cycleRows }] = await Promise.all([
     fetchReports,
     supabase.from("carriers").select("id, code, name"),
     supabase.from("units").select("id, code"),
     // コースはテナント固有マスタ。名前解決のためだけでも他社行は読まない
     supabase.from("courses").select("id, name").eq("org_id", orgId),
+    supabase.from("course_cycles").select("course_id, cycle_no, label"),
   ]);
   if (!reportRows?.length) return [];
 
@@ -173,6 +177,10 @@ export async function loadLegacyDailyRows(
   (courseRows ?? []).forEach((c: { id: string; name: string | null }) =>
     courseNameById.set(c.id, c.name ?? ""),
   );
+  const cycleLabelByKey = new Map<string, string>();
+  (cycleRows ?? []).forEach((c: { course_id: string; cycle_no: number; label: string | null }) => {
+    if (c.label?.trim()) cycleLabelByKey.set(`${c.course_id}:${Number(c.cycle_no)}`, c.label.trim());
+  });
   const unitCodeById = new Map<string, string>();
   (unitRows ?? []).forEach((u: { id: string; code: string | null }) =>
     unitCodeById.set(u.id, u.code ?? ""),
@@ -238,6 +246,7 @@ export async function loadLegacyDailyRows(
       identity_id: string | null;
       report_date: string;
       course_id: string | null;
+      cycle_no: number | null;
       carrier_id: string | null;
       vehicle_id: string | null;
       meter_value: number | null;
@@ -264,6 +273,10 @@ export async function loadLegacyDailyRows(
         report_date: r.report_date,
         course_id: r.course_id,
         course_name: (r.course_id && courseNameById.get(r.course_id)) || null,
+        cycle_no: Number(r.cycle_no) || 0,
+        cycle_label: Number(r.cycle_no) > 0
+          ? cycleLabelByKey.get(`${r.course_id}:${Number(r.cycle_no)}`) ?? `C${Number(r.cycle_no)}`
+          : null,
         carrier: (r.carrier_id && carrierCodeById.get(r.carrier_id)) || "YAMATO",
         carrier_id: r.carrier_id,
         carrier_name: (r.carrier_id && carrierNameById.get(r.carrier_id)) || null,

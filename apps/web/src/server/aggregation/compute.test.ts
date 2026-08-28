@@ -397,3 +397,46 @@ describe("税込表示（契約原額から積み直す）", () => {
     expect(contribution.revenueIncl).toBe(15_000);
   });
 });
+
+describe("旧cycle_no=0と全日日当の対応", () => {
+  // 2026-08-28: 旧 cycle_no=0 の日当行を削除したところ、集計は全日日当が補完して±0だったが
+  // 請求明細には全日日当の処理が無く、上鳥羽・豊中の86万円が明細から丸ごと消えた。
+  // 集計側は「便別行が無くても全日日当で計上する」ことをここで固定する。
+  const ctx = () => buildContext([], [], [], [
+    { courseId: "c1", requiredCycleNos: [1, 2], fixedRevenue: 15_454, fixedPayout: 11_818,
+      revenueContractAmount: 17_000, payoutContractAmount: 11_818 },
+  ], [{ courseId: "c1", revenueRateMode: "FIXED", payoutRateMode: "FIXED",
+    revenuePieceBasis: "exclusive", payoutPieceBasis: "exclusive",
+    revenueFixedBasis: "inclusive", payoutFixedBasis: "exclusive" }]);
+
+  it("便別の日当行が無くても、cycle_no=0の日報は全日日当で計上する", () => {
+    const contributions = buildContributions([report(0)], [], ctx());
+    const revenue = contributions.reduce((s, x) => s + x.revenue, 0);
+    const payout = contributions.reduce((s, x) => s + x.payout, 0);
+    expect(revenue).toBe(15_454);
+    expect(payout).toBe(11_818);
+  });
+
+  it("cycle_no=0が2人分あれば全日日当も2回分になる", () => {
+    const a = { ...report(0), id: "r-a", driverId: "d1" };
+    const b = { ...report(0), id: "r-b", driverId: "d2" };
+    const contributions = buildContributions([a, b], [], ctx());
+    expect(contributions.reduce((s, x) => s + x.revenue, 0)).toBe(30_908);
+    expect(contributions.reduce((s, x) => s + x.payout, 0)).toBe(23_636);
+  });
+
+  it("計上額は必ず円単位（全日日当が小数でも小数円を出さない）", () => {
+    const decimalCtx = buildContext([], [], [], [
+      { courseId: "c1", requiredCycleNos: [1, 2], fixedRevenue: 15_454.55, fixedPayout: 11_818,
+        revenueContractAmount: 17_000, payoutContractAmount: 11_818 },
+    ], [{ courseId: "c1", revenueRateMode: "FIXED", payoutRateMode: "FIXED",
+      revenuePieceBasis: "exclusive", payoutPieceBasis: "exclusive",
+      revenueFixedBasis: "inclusive", payoutFixedBasis: "exclusive" }]);
+    const contributions = buildContributions([report(0)], [], decimalCtx);
+    contributions.forEach((x) => {
+      expect(Number.isInteger(x.revenue)).toBe(true);
+      expect(Number.isInteger(x.payout)).toBe(true);
+      expect(Number.isInteger(x.revenueIncl)).toBe(true);
+    });
+  });
+});

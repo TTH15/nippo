@@ -28,6 +28,7 @@ type ReportLike = {
   carrier?: string | null;
   carrier_name?: string | null;
   course_name?: string | null;
+  cycle_label?: string | null;
   content?: ReportContentUnit[];
   takuhaibin_completed?: number;
   nekopos_completed?: number;
@@ -41,6 +42,16 @@ type ReportLike = {
 
 const fmtTime = (s?: string) =>
   s ? new Date(s).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "—";
+
+/** 便（C1/C2）バッジ。同じコースの日報が複数行並ぶとき、どの便かを見分けるために出す。 */
+export function CycleBadge({ label }: { label?: string | null }) {
+  if (!label) return null;
+  return (
+    <span className="inline-flex shrink-0 items-center rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+      {label}
+    </span>
+  );
+}
 
 export function CarrierBadge({
   carrier,
@@ -149,6 +160,7 @@ export function PendingDriverCard({
                 <div className="flex items-center gap-2 min-w-0">
                   <CarrierBadge carrier={r.carrier} carrierName={r.carrier_name} muted={muted} />
                   {r.course_name && <span className="truncate text-xs text-slate-500">{r.course_name}</span>}
+                  <CycleBadge label={r.cycle_label} />
                 </div>
                 <span className="text-[11px] text-slate-400 tabular-nums shrink-0">{fmtTime(r.submitted_at)} 送信</span>
               </div>
@@ -233,6 +245,7 @@ export function AllReportCard({
         <span className="font-semibold text-slate-900">{getDisplayName(driver)}</span>
         <div className="flex items-center gap-2 min-w-0">
           {report.course_name && <span className="truncate text-xs text-slate-500">{report.course_name}</span>}
+          <CycleBadge label={report.cycle_label} />
           <CarrierBadge carrier={report.carrier} carrierName={report.carrier_name} />
         </div>
       </div>

@@ -21,7 +21,7 @@ import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { reportDateDefaultJST } from "@/lib/date";
 import type { SelectOption } from "@/lib/components/CustomSelect";
 import { OtherReportsContent } from "../misc-reports/others/OtherReportsContent";
-import { PendingDriverCard, AllReportCard } from "./ReportCards";
+import { PendingDriverCard, AllReportCard, CycleBadge } from "./ReportCards";
 import type { EditEntryValue } from "./EditReportModal";
 
 const EditReportModal = dynamic(() => import("./EditReportModal"), {
@@ -45,6 +45,7 @@ type ReportData = {
   carrier?: "YAMATO" | "AMAZON";
   carrier_name?: string | null;
   course_name?: string | null;
+  cycle_label?: string | null;
   content?: ReportContentUnit[];
   approved_at?: string | null;
   rejected_at?: string | null;
@@ -84,6 +85,7 @@ type DaySummaryReport = {
   report_date: string;
   course_id?: string | null;
   course_name?: string | null;
+  cycle_label?: string | null;
   content?: ReportContentUnit[];
   takuhaibin_completed: number;
   takuhaibin_returned: number;
@@ -710,7 +712,12 @@ export default function AdminDailyPage() {
                                     >
                                       {carrierBadgeLabel(r.carrier, r.carrier_name)}
                                     </span>
-                                    {r.course_name && <span className="block w-full truncate text-[10px] text-slate-500" title={r.course_name}>{r.course_name}</span>}
+                                    {r.course_name && (
+                                      <span className="flex w-full items-center gap-1 text-[10px] text-slate-500" title={r.course_name}>
+                                        <span className="truncate">{r.course_name}</span>
+                                        <CycleBadge label={r.cycle_label} />
+                                      </span>
+                                    )}
                                   </span>
                                 );
                                 const reportContent = (r: DaySummaryReport) => (
@@ -970,7 +977,12 @@ export default function AdminDailyPage() {
                                     >
                                       {carrierBadgeLabel(carrier, r.carrier_name)}
                                     </span>
-                                    {r.course_name && <span className="block w-full truncate text-[10px] text-slate-500" title={r.course_name}>{r.course_name}</span>}
+                                    {r.course_name && (
+                                      <span className="flex w-full items-center gap-1 text-[10px] text-slate-500" title={r.course_name}>
+                                        <span className="truncate">{r.course_name}</span>
+                                        <CycleBadge label={r.cycle_label} />
+                                      </span>
+                                    )}
                                   </div>
                                 </td>
                                 <td className="py-3 px-3 text-left align-middle">

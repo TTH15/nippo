@@ -102,6 +102,7 @@ export async function computeCounterpartyMonthBillingDetail(
     return mode === "FIXED" || mode === "BOTH";
   };
   const effectiveReports = dropSupersededLegacyReports(data.reports);
+  const bundleByCourse = new Map(data.fixedRateBundles.map((b) => [b.courseId, b]));
   const aggregationContext = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseBillingMeta);
   // 内部集計は承認時スナップショットを正本にする。これにより単価変更後も過去月が動かず、
   // admin/sales と同じ v2 集計結果になる。請求明細側は契約単価・契約税基準を別途保持する。
@@ -175,6 +176,14 @@ export async function computeCounterpartyMonthBillingDetail(
     const fx = fixedByCourse.get(fixedKey);
     if (fx && revenueUsesFixed(courseId) && fx.fixedRevenue !== 0) {
       addFixed(fixedKey, driverId);
+    } else if (revenueUsesFixed(courseId) && (r.cycleNo ?? 0) === 0) {
+      // サイクル導入前の cycle_no=0 日報は「その日フル稼働」の意味で、
+      // 便別の日当行では拾えない。全日日当（bundle）を1日分として計上する。
+      // これを落とすと請求明細から丸ごと消える（2026-08-28 実地確認）。
+      const bundle = bundleByCourse.get(courseId);
+      if (bundle && (bundle.revenueContractAmount != null || bundle.fixedRevenue != null)) {
+        addFixed(`${courseId}:bundle`, driverId);
+      }
     }
   }
 
@@ -230,20 +239,28 @@ export async function computeCounterpartyMonthBillingDetail(
     for (const [fixedKey, fdMap] of fixedDays) {
       const [fixedCourseId, cycleNo] = fixedKey.split(":");
       if (fixedCourseId !== courseId) continue;
-      const fx = fixedByCourse.get(fixedKey);
-      if (!fx) continue;
+      // cycle_no=0 の旧日報は全日日当（bundle）を1日分として計上する
+      const bundle = cycleNo === "bundle" ? bundleByCourse.get(courseId) : null;
+      const fx = bundle ? null : fixedByCourse.get(fixedKey);
+      if (!fx && !bundle) continue;
+      const hasContract = bundle
+        ? bundle.revenueContractAmount != null
+        : fx!.revenueContractAmount != null;
+      const priceBasis = hasContract ? revenueFixedBasisByCourse.get(courseId) ?? "exclusive" : "exclusive";
+      const contractUnitPrice = bundle
+        ? (bundle.revenueContractAmount ?? bundle.fixedRevenue ?? 0)
+        : (hasContract ? fx!.revenueContractAmount! : fx!.fixedRevenue);
+      if (!contractUnitPrice) continue;
       for (const driverId of [...fdMap.keys()].sort(byDriverNameAsc)) {
         const days = fdMap.get(driverId) ?? 0;
         if (!days) continue;
-        const hasContract = fx.revenueContractAmount != null;
-        const priceBasis = hasContract ? revenueFixedBasisByCourse.get(courseId) ?? "exclusive" : "exclusive";
-        const contractUnitPrice = hasContract ? fx.revenueContractAmount! : fx.fixedRevenue;
+        const suffix = bundle ? "・全日" : cycleNo !== "0" ? `・${cycleNo}便` : "";
         systemLines.push({
           kind: "course_fixed",
           lineKey: `fx:${courseId}:cycle:${cycleNo}:drv:${driverId}`,
           courseId,
           courseName,
-          label: `${courseName}（固定売上${cycleNo !== "0" ? `・${cycleNo}便` : ""}・稼働日・${driverNameById.get(driverId) ?? "担当者"}）`,
+          label: `${courseName}（固定売上${suffix}・稼働日・${driverNameById.get(driverId) ?? "担当者"}）`,
           quantity: days,
           unitPrice: contractUnitPrice,
           amount: Math.round(days * contractUnitPrice),
