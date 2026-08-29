@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { resolveReportCycleChoices } from "@repo/core/logic/dailyReport";
+import { loadCourseReportFields } from "@/server/reports/courseReportFields";
 
 export const dynamic = "force-dynamic";
 
@@ -99,12 +100,20 @@ export async function GET(req: NextRequest) {
     });
     fieldsByUnit.set(f.unit_id, arr);
   });
-  const unitsByCarrier = new Map<string, any[]>();
-  (units ?? []).forEach((u: any) => {
-    const arr = unitsByCarrier.get(u.carrier_id) ?? [];
-    arr.push({ id: u.id, name: u.name, code: u.code, billingType: u.billing_type, fields: fieldsByUnit.get(u.id) ?? [] });
-    unitsByCarrier.set(u.carrier_id, arr);
-  });
+  // コース（＋便）ごとに使う項目だけを出す。設定が無いコースは全項目のまま。
+  const reportFieldFilter = await loadCourseReportFields(supabase, courseIds);
+  const unitsFor = (carrierId: string | null, courseId: string, cycleNo: number) =>
+    (units ?? [])
+      .filter((u: any) => u.carrier_id === carrierId)
+      .map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        code: u.code,
+        billingType: u.billing_type,
+        fields: (fieldsByUnit.get(u.id) ?? []).filter((f: any) =>
+          reportFieldFilter.allows(courseId, cycleNo, u.id, f.fieldKey)),
+      }))
+      .filter((u: any) => u.fields.length > 0);
 
   const reportByCourseCycle = new Map<string, any>(
     (existingReports ?? []).map((r: any) => [`${r.course_id}:${Number(r.cycle_no) || 0}`, r]),
@@ -138,7 +147,7 @@ export async function GET(req: NextRequest) {
       color: c?.color ?? null,
       carrierId: c?.carrier_id ?? null,
       carrierName: c?.carrier_id ? carrierName.get(c.carrier_id) ?? "" : "",
-      units: c?.carrier_id ? unitsByCarrier.get(c.carrier_id) ?? [] : [],
+      units: c?.carrier_id ? unitsFor(c.carrier_id, courseId, cycleNo) : [],
       existing: existing
         ? {
             reportId: existing.id,

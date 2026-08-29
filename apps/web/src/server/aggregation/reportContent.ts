@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "./pagination";
+import { loadCourseReportFields } from "@/server/reports/courseReportFields";
 
 // ============================================================
 // 日報の「内容」を送信画面と同じ動的構造(unit → fields → value)で取得するローダー。
@@ -58,6 +59,22 @@ export async function loadReportContents(
   const entries: EntryRow[] = pages.flat();
   if (!entries.length) return result;
 
+  // 日報がどのコース・便のものかを引き、コース設定で使わない項目は一覧にも出さない
+  // （設定が無いコースは全項目のまま）。
+  const reportMeta = new Map<string, { courseId: string | null; cycleNo: number }>();
+  for (let i = 0; i < reportIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const { data: rows } = await supabase
+      .from("daily_reports_v2").select("id, course_id, cycle_no")
+      .in("id", reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE));
+    for (const r of rows ?? []) {
+      reportMeta.set(r.id, { courseId: r.course_id ?? null, cycleNo: Number(r.cycle_no) || 0 });
+    }
+  }
+  const fieldFilter = await loadCourseReportFields(
+    supabase,
+    Array.from(new Set([...reportMeta.values()].map((m) => m.courseId).filter(Boolean) as string[])),
+  );
+
   const unitIds = Array.from(new Set(entries.map((e) => e.unit_id).filter(Boolean)));
   const [{ data: units }, { data: fields }] = await Promise.all([
     supabase.from("units").select("id, name, sort_order").in("id", unitIds),
@@ -95,6 +112,8 @@ export async function loadReportContents(
   // report -> unit -> fields
   const byReport = new Map<string, Map<string, ReportContentField[]>>();
   for (const e of entries) {
+    const m = reportMeta.get(e.report_id);
+    if (!fieldFilter.allows(m?.courseId ?? null, m?.cycleNo ?? 0, e.unit_id, e.field_key)) continue;
     if (!byReport.has(e.report_id)) byReport.set(e.report_id, new Map());
     const um = byReport.get(e.report_id)!;
     if (!um.has(e.unit_id)) um.set(e.unit_id, []);

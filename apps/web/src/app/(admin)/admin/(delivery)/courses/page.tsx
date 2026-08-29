@@ -12,6 +12,7 @@ import {
   faTruck,
   faCheck,
   faCoins,
+  faListCheck,
   faGear,
   faPalette,
   faCircleExclamation,
@@ -24,6 +25,7 @@ import { CustomSelect } from "@/lib/components/CustomSelect";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
+import { CourseReportFieldsEditor } from "@/lib/components/CourseReportFieldsEditor";
 import { CourseRateEditor, type CourseRateEditorHandle } from "@/lib/components/CourseRateEditor";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -187,7 +189,7 @@ export default function CoursesPage() {
   const [editUsesCycles, setEditUsesCycles] = useState(false);
   const [editCycles, setEditCycles] = useState<CycleDraft[]>([]);
   const [editBillingRevision, setEditBillingRevision] = useState(0);
-  const [editModalTab, setEditModalTab] = useState<"settings" | "pricing">("settings");
+  const [editModalTab, setEditModalTab] = useState<"settings" | "pricing" | "reportFields">("settings");
   const [editColorOpen, setEditColorOpen] = useState(false);
   const [editValidationVisible, setEditValidationVisible] = useState(false);
   const basicSectionRef = useRef<HTMLElement>(null);
@@ -1217,6 +1219,7 @@ export default function CoursesPage() {
               {([
                 ["settings", "コース設定", faGear],
                 ["pricing", "単価設定", faCoins],
+                ["reportFields", "日報項目", faListCheck],
               ] as const).map(([key, label, icon]) => (
                 <button key={key} type="button" onClick={() => setEditModalTab(key)}
                   className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${editModalTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
@@ -1402,6 +1405,14 @@ export default function CoursesPage() {
                   />
                 </div>
               </div>}
+
+              {/* 日報で使う入力項目（コース／便ごと） */}
+              {editModalTab === "reportFields" && (
+                <CourseReportFieldsEditor
+                  courseId={editingCourse.id}
+                  onError={(msg) => setErrorState({ title: "日報項目", message: msg })}
+                />
+              )}
             </div>
             </div>
 
