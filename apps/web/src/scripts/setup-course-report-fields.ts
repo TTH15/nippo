@@ -1,5 +1,15 @@
-// 上鳥羽・豊中の「便 → 使う項目」を設定（dry-run 既定）
-//   反映: npx tsx src/scripts/tmp-setup-fields.ts --apply --confirm=setup-report-fields
+// ============================================================
+// コース（＋便）ごとに日報で使う入力項目を設定する（dry-run 既定）。
+//
+// 通常はコース編集モーダルの「日報項目」タブから設定する。
+// このスクリプトは初期設定や一括設定用。migration 152 の適用が前提。
+//
+//   確認: npx tsx src/scripts/setup-course-report-fields.ts
+//   反映: npx tsx src/scripts/setup-course-report-fields.ts --apply --confirm=setup-report-fields
+//
+// CYCLE_PLAN に「コース名 → 便番号 → 使う項目グループ」を書く。
+// 便を使わないコースは便番号 0 を指定する（例: ミッドナイトは { 0: ["4便"] }）。
+// ============================================================
 import { createClient } from "@supabase/supabase-js";
 import * as dotenv from "dotenv";
 import path from "path";

@@ -462,7 +462,7 @@ export default function ShiftMemoPreviewPage() {
           ...course,
           name,
           activeWeekdays: [...settingsWeekdays].sort((a, b) => a - b),
-          requiredCount: Math.max(1, Math.min(10, settingsRequiredCount)),
+          requiredCount: Math.max(0, Math.min(10, settingsRequiredCount)),
         }
       : course));
     closeActivePanel(true);
@@ -1470,9 +1470,9 @@ export default function ShiftMemoPreviewPage() {
               <div>
                 <div className="mb-1 text-center text-[9px] font-medium text-slate-500">必要人数</div>
                 <div className="flex h-7 items-center overflow-hidden rounded-md border border-slate-200 bg-slate-50">
-                  <button type="button" onClick={() => setSettingsRequiredCount((count) => Math.max(1, count - 1))} className="h-full w-7 text-sm text-slate-500 hover:bg-slate-100" aria-label="必要人数を減らす">−</button>
-                  <span className="w-7 text-center text-xs font-bold tabular-nums text-slate-800">{settingsRequiredCount}</span>
-                  <button type="button" onClick={() => setSettingsRequiredCount((count) => Math.min(10, count + 1))} className="h-full w-7 text-sm text-slate-500 hover:bg-slate-100" aria-label="必要人数を増やす">＋</button>
+                  <button type="button" onClick={() => setSettingsRequiredCount((count) => Math.max(0, count - 1))} className="flex h-full w-7 items-center justify-center text-sm leading-none text-slate-500 hover:bg-slate-100" aria-label="必要人数を減らす">−</button>
+                  <span className="w-7 text-center text-xs font-bold leading-none tabular-nums text-slate-800">{settingsRequiredCount}</span>
+                  <button type="button" onClick={() => setSettingsRequiredCount((count) => Math.min(10, count + 1))} className="flex h-full w-7 items-center justify-center text-sm leading-none text-slate-500 hover:bg-slate-100" aria-label="必要人数を増やす">＋</button>
                 </div>
               </div>
             </div>
