@@ -6,6 +6,8 @@
 // ============================================================
 
 export const CAPABILITIES = [
+  "can_access_records",
+  "can_manage_record_forms",
   "can_view_reports", // 全員の日報を閲覧
   "can_edit_reports", // 代理入力・修正
   "can_view_shifts", // シフト表の閲覧
@@ -42,7 +44,9 @@ export type Capability = (typeof CAPABILITIES)[number];
 // 解決時に resolveAuthz が展開するので、各ガードは領域別 capability だけを見ればよい。
 // ============================================================
 export const CAPABILITY_IMPLIES: Partial<Record<Capability, Capability[]>> = {
+  can_manage_record_forms: ["can_access_records"],
   can_manage_org_settings: [
+    "can_manage_record_forms",
     "can_view_org_settings",
     "can_manage_courses",
     "can_manage_carriers",
@@ -103,6 +107,8 @@ export const CAPABILITY_GROUP_ORDER = [
 ] as const;
 
 export const CAPABILITY_META: Record<Capability, { label: string; group: (typeof CAPABILITY_GROUP_ORDER)[number] }> = {
+  can_access_records: { label: "記録・報告の画面", group: "設定" },
+  can_manage_record_forms: { label: "フォーム管理", group: "設定" },
   can_view_reports: { label: "日報の閲覧", group: "日報" },
   can_edit_reports: { label: "日報の代理入力・修正", group: "日報" },
   can_view_shifts: { label: "シフトの閲覧", group: "シフト" },
@@ -155,6 +161,8 @@ export type PermissionRow =
     };
 
 export const PERMISSION_ROWS: PermissionRow[] = [
+  { kind: "binary", key: "records", label: "記録・報告", description: "画面へのアクセス。利用できるフォームはフォーム管理で設定します。", capability: "can_access_records", onLabel: "アクセス可能" },
+  { kind: "binary", key: "record_forms", label: "フォーム管理", description: "記録フォームの項目・公開範囲を設定し、全フォームの記録を管理できます。", capability: "can_manage_record_forms", onLabel: "管理可能" },
   {
     kind: "leveled",
     key: "reports",

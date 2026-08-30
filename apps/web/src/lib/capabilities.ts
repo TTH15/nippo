@@ -12,7 +12,9 @@ import { getStoredDriver } from "@/lib/api";
 // ログイン済みセッションの capabilities は発行時点の束なので、領域別 capability の追加前に
 // ログインした人でも「設定の編集」を持っていれば領域別の編集 UI が出る（再ログイン不要）。
 const IMPLIES: Record<string, string[]> = {
+  can_manage_record_forms: ["can_access_records"],
   can_manage_org_settings: [
+    "can_manage_record_forms",
     "can_view_org_settings",
     "can_manage_courses",
     "can_manage_carriers",

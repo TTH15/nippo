@@ -14,6 +14,9 @@ export type DatePickerValue = Date | undefined;
 
 export interface DatePickerProps {
   value?: DatePickerValue;
+  id?: string;
+  ariaLabel?: string;
+  displayFormat?: string;
   onChange?: (date: DatePickerValue) => void;
   placeholder?: string;
   /** ボタン幅。デフォルトは w-full（親幅に合わせる） */
@@ -28,6 +31,9 @@ export interface DatePickerProps {
 
 export function DatePicker({
   value,
+  id,
+  ariaLabel,
+  displayFormat = "yyyy年MM月dd日",
   onChange,
   placeholder = "日付を選択",
   className,
@@ -42,18 +48,22 @@ export function DatePicker({
     <Popover open={open && !disabled} onOpenChange={(o) => !disabled && setOpen(o)}>
       <PopoverTrigger asChild>
         <Button
+          type="button"
+          id={id}
+          aria-label={ariaLabel}
           variant="outline"
           disabled={disabled}
           className={cn("justify-start text-left font-normal", className ?? "w-full")}
         >
           <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
-          {value ? format(value, "yyyy年MM月dd日", { locale: ja }) : placeholder}
+          {value ? format(value, displayFormat, { locale: ja }) : placeholder}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
         <Calendar
           mode="single"
           selected={value}
+          defaultMonth={value}
           onSelect={(date) => {
             onChange?.(date);
             setOpen(false);

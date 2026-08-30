@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 const ICONS = ["pin", "warehouse", "parking", "client", "fuel"] as const;
 
 /** 半径（m）。10m 未満は「点」扱い、5km を上限にする（それ以上は運用上エリアと言えない）。 */
-export function normalizeRadius(v: unknown): number | null {
+function normalizeRadius(v: unknown): number | null {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 10) return null;
   return Math.min(Math.round(n), 5000);

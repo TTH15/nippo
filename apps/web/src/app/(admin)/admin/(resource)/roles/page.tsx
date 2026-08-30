@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
-import { AnimatePresence, motion } from "motion/react";
+import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
@@ -396,10 +396,10 @@ export default function RolesPage() {
                         <FontAwesomeIcon icon={faGripVertical} />
                       </span>
                     )}
-                    <button onClick={() => toggleExpand(r.id)} className="flex flex-1 items-center gap-2 text-left">
+                    <button type="button" id={`role-toggle-${r.id}`} aria-expanded={open} aria-controls={`role-panel-${r.id}`} onClick={() => toggleExpand(r.id)} className="flex flex-1 items-center gap-2 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
                       <FontAwesomeIcon
                         icon={faChevronRight}
-                        className={`text-slate-400 transition-transform duration-200 ${open ? "rotate-90" : ""}`}
+                        className={`text-slate-400 transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
                       />
                       <span className="font-semibold text-slate-900">{r.label}</span>
                       {isAdmin && (
@@ -427,15 +427,7 @@ export default function RolesPage() {
                   </div>
 
                   {/* 展開エリア（高さアニメーションで滑らかに開閉） */}
-                  <AnimatePresence initial={false}>
-                    {open && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-                        className="overflow-hidden"
-                      >
+                  <SmoothCollapse open={open} id={`role-panel-${r.id}`} labelledBy={`role-toggle-${r.id}`}>
                     <div className="border-t border-slate-100 p-4">
                       {/* 権限（Discord 風: 機能ごとに 許可なし/閲覧のみ/編集可能 を選択） */}
                       <div className="mb-2 text-sm font-semibold text-slate-700">権限</div>
@@ -575,9 +567,7 @@ export default function RolesPage() {
                         </div>
                       )}
                     </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  </SmoothCollapse>
                 </div>
               );
             })}

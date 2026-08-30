@@ -24,6 +24,12 @@ react / react-native / expo を直接依存で足さないこと**（混在の�
 - 読むときは全文を読まない。`grep -n '^## ' docs/worklog/YYYY-MM.md` で見出しと行番号を
   一覧してから、必要な節だけ `offset` / `limit` で読む
 
+## UIの共通ルール
+
+- 新規・改修するUIは `design.md` と `docs/hakotora-design-system.md` の「Web共通の操作ルール」を参照する。
+- 開閉は `SmoothCollapse`、縦リストの並べ替えは `SortableList`、チェック項目は `CheckboxField` を再利用する。アニメーション値は `apps/web/src/lib/ui/motion.ts` に集約し、画面ごとの同等実装を増やさない。
+- 既存画面も同じ操作を改修する際に移行する。見た目の共通化に業務上の順序・保存・認可の変更を混ぜない。
+
 ## サブエージェント
 
 `.claude/agents/` に explorer / architect / reviewer / ui-auditor / security / tester。全て読み取り専用で、

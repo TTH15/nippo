@@ -14,6 +14,11 @@ export interface SelectOption {
 
 interface CustomSelectProps {
   options: SelectOption[];
+  id?: string;
+  ariaLabel?: string;
+  triggerClassName?: string;
+  showSelectedDescription?: boolean;
+  showOptionDescriptions?: boolean;
   value?: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -26,6 +31,11 @@ interface CustomSelectProps {
 
 export function CustomSelect({
   options,
+  id,
+  ariaLabel,
+  triggerClassName,
+  showSelectedDescription = true,
+  showOptionDescriptions = false,
   value,
   onChange,
   placeholder = "選択してください",
@@ -147,6 +157,9 @@ export function CustomSelect({
     <div ref={containerRef} className={`relative w-full ${className ?? ""}`} onKeyDown={handleKeyDown}>
       <button
         type="button"
+        id={id}
+        aria-label={ariaLabel}
+        aria-expanded={isOpen}
         onClick={toggleOpen}
         disabled={disabled}
         className={`
@@ -154,6 +167,7 @@ export function CustomSelect({
           bg-white border-2 border-slate-200 ${isXs ? "rounded-lg" : "rounded-xl"}
           transition-all duration-200
           ${disabled ? "opacity-50 cursor-not-allowed" : "hover:border-slate-300 focus:border-slate-500 focus:outline-none " + (isXs ? "focus:ring-2 focus:ring-slate-200" : "focus:ring-4 focus:ring-slate-100")}
+          ${triggerClassName ?? ""}
           ${isOpen ? (isXs ? "border-slate-500 ring-2 ring-slate-200" : "border-slate-500 ring-4 ring-slate-100") : ""}
         `}
       >
@@ -169,7 +183,7 @@ export function CustomSelect({
                 >
                   {selectedOption.label}
                 </div>
-                {selectedOption.description && !isSm && !isXs && (
+                {showSelectedDescription && selectedOption.description && !isSm && !isXs && (
                   <div className="text-sm text-slate-500 truncate">{selectedOption.description}</div>
                 )}
               </>
@@ -252,8 +266,8 @@ export function CustomSelect({
                           >
                             {option.label}
                           </div>
-                          {option.description && !isSm && !isMd && !isXs && (
-                            <div className="text-sm text-slate-500 truncate">{option.description}</div>
+                          {option.description && (showOptionDescriptions || (!isSm && !isMd && !isXs)) && (
+                            <div className={`text-slate-500 ${showOptionDescriptions ? "text-xs leading-5" : "text-sm truncate"}`}>{option.description}</div>
                           )}
                         </div>
                         {isSelected && (

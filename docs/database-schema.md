@@ -676,6 +676,26 @@ WebAuthn 資格情報（088・Phase 6 で使用、現状は空）。
 
 ---
 
+### org_record_forms / org_records（migration 154・開発DB適用済み、本番未適用）
+
+org別の汎用フォームと記録。日払いもテンプレートの1つで、売上・報酬・口座・実際の送金には連動しない。
+
+| テーブル | 主要カラム・制約 |
+|---|---|
+| org_record_forms | PK `(org_id, id)`、現行 `definition` jsonb、`version`、作成者・更新者・日時 |
+| org_record_form_versions | PK `(org_id, form_id, version)`、変更不能な登録時定義、設定変更者・日時 |
+| org_records | PK `(org_id, form_id, id)`、登録時 `form_version` への複合FK、回答、対応状況、記入者・報告者・対象者、氏名スナップショット、検索用日付・本文、編集版 |
+| org_record_events | PK `(org_id, form_id, record_id, version)`、編集時回答スナップショット、追記、運営専用フラグ、記入者・氏名・日時 |
+
+`save_org_record_form` と `save_org_record` が版の照合・所属と現在権限の再確認・履歴の保存を同一トランザクションで実施する。
+新規記録には現在のフォーム版、既存記録の編集には登録時の版を使用する。公開設定は現在の定義を使用する。
+RLS不使用。テーブルとRPCはservice_role専用。APIでは現在のactiveな所属を確認し、全問い合わせをorgで限定する。
+本人向けAPIは自分が記入者／対象者の許可された記録に限定し、運営専用追記と編集スナップショットを返さない。
+固定版153は未適用のまま `docs/design/archive/153_response_records.sql` へ移し、自動マイグレーション対象から除外した。
+詳細は [記録・報告フォーム](design/org-record-forms.md) と [リリース手順](deployment/record-forms.md) を参照。
+
+---
+
 ### sales_log_entries
 売上ログ（レガシー収支記録）。
 

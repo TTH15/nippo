@@ -51,6 +51,7 @@ type NavItem =
 const navItems: NavItem[] = [
   { href: "/admin", label: "ダッシュボード", icon: faChartLine, cap: "can_view_reports" },
   { href: "/admin/daily", label: "報告", icon: faFileLines, cap: "can_view_reports" },
+  { href: "/admin/records", label: "記録・報告", icon: faFileLines, cap: "can_access_records" },
   { href: "/admin/delivery", label: "配達実績", icon: faBoxesStacked, cap: "can_view_reports" },
   { href: "/admin/attendance", label: "勤怠", icon: faClock, cap: "can_view_vehicles", beta: true },
   { href: "/admin/shifts", label: "シフト", icon: faCalendar, cap: "can_view_shifts" },
@@ -87,6 +88,7 @@ const navItems: NavItem[] = [
       { href: "/admin/roles", label: "ロール・権限", icon: faUserShield, cap: "can_view_members" },
       { href: "/admin/carriers", label: "キャリア／フォーム設計", icon: faTruck, cap: "can_view_org_settings" },
       { href: "/admin/courses", label: "コース／単価表", icon: faRoute, cap: "can_view_org_settings" },
+      { href: "/admin/record-forms", label: "フォーム管理", icon: faFileLines, cap: "can_manage_record_forms" },
       { href: "/admin/report-kinds", label: "報告種別", icon: faFileLines, cap: "can_view_org_settings" },
       { href: "/admin/submit-screen", label: "送信後画面", icon: faMobileScreenButton, cap: "can_view_org_settings" },
     ],

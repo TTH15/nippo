@@ -549,6 +549,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     <div className="max-w-2xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-bold text-slate-900">マイページ</h1>
+        <Link href="/me/records" className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">記録・報告</Link>
       </div>
 
       {needsRegistration && (
