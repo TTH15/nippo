@@ -31,7 +31,8 @@ if (mapboxEnabled) {
   if (!/^pk\.[A-Za-z0-9._-]+$/.test(publicMapboxToken)) throw new Error("Mapbox mode requires NEXT_PUBLIC_MAPBOX_TOKEN (public pk. token only)");
 }
 const source = path.join(root, "apps/web/src");
-const entry = path.join(source, "app/preview", feature, "page.tsx");
+// 本番シフトのページ本体を検証する専用entry。Nextの公開ルートには置かない。
+const entry = feature === "shifts" ? path.join(root, "scripts/previews/shifts.tsx") : path.join(source, "app/preview", feature, "page.tsx");
 await access(entry);
 const output = await mkdtemp(path.join(os.tmpdir(), `hakotora-preview-${feature}-`));
 const result = await build({
@@ -43,9 +44,17 @@ const result = await build({
   jsx: "automatic", alias: { "@": source, "@repo/core": path.join(root, "packages/core/src") },
   define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_MAPBOX_TOKEN": JSON.stringify(publicMapboxToken), "process.env.NEXT_PUBLIC_PREVIEW_MAPBOX_ENABLED": JSON.stringify(String(mapboxEnabled)) }, minify: true, metafile: true,
   plugins: [{ name: "mock-only", setup(builder) {
+    if (feature === "shifts") {
+      const replaced = new Set(["@/lib/api", "@/lib/useApi", "@/lib/capabilities", "@/lib/realtime/cellCursors", "@/lib/swr", "swr", "@/lib/components/AdminLayout", "@/server/shiftRequests/diff"]);
+      builder.onResolve({ filter: /.*/ }, args => replaced.has(args.path) ? { path: path.join(root, "scripts/previews/shifts-services.tsx") } : undefined);
+    }
     builder.onResolve({ filter: /^(?:@\/server(?:\/|$)|@\/lib\/api|@supabase\/|server-only$|@\/lib\/auth|@repo\/core\/(?:api|auth))/ }, args => ({ errors: [{ text: `Preview must not import live services: ${args.path}` }] }));
   } }],
 });
+if (feature === "shifts") {
+  const liveImports = Object.keys(result.metafile.inputs).filter(input => /apps\/web\/src\/(?:server\/|lib\/(?:api\.|auth\/|swr\.|useApi\.|realtime\/))/.test(input));
+  if (liveImports.length) throw new Error(`Live service was bundled into the shift preview: ${liveImports.join(", ")}`);
+}
 const config = loadConfig(path.join(root, "apps/web/tailwind.config.ts"));
 const css = await postcss([tailwind({ ...config, content: [path.join(source, "**/*.{ts,tsx}")] })])
   .process(await readFile(path.join(source, "app/globals.css"), "utf8"), { from: undefined });
@@ -55,6 +64,7 @@ await writeFile(path.join(output, "index.html"), `<!doctype html><html lang="ja"
 // public全体やリポジトリを配信せず、シンボリックリンクも辿らない。
 const publicRoot = path.join(root, "apps/web/public");
 const assets = ["logo/hakotora-logo_primary_logo.svg", "logo/hakotora-logo_secondary_logo.svg", "fonts/TrmFontJB.ttf"];
+if (feature === "shifts") assets.push("fonts/SawarabiGothic-Regular.ttf");
 for (const category of ["kanji", "hiragana", "classification_numbers", "serial_numbers"]) {
   const folder = `number_plate/${category}`;
   for (const entry of await readdir(path.join(publicRoot, folder), { withFileTypes: true })) {
@@ -78,7 +88,7 @@ if (!args.includes("--build")) {
       res.writeHead(200, {
         "Content-Type": target.endsWith(".js") ? "text/javascript; charset=utf-8" : target.endsWith(".css") ? "text/css; charset=utf-8" : target.endsWith(".svg") ? "image/svg+xml" : target.endsWith(".ttf") ? "font/ttf" : "text/html; charset=utf-8",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : "'none'"}; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:${mapboxEnabled ? " blob:" : ""}; ${mapboxEnabled ? "worker-src blob:; " : ""}font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : feature === "shifts" ? `http://127.0.0.1:${port}/fonts/SawarabiGothic-Regular.ttf` : "'none'"}; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:${mapboxEnabled ? " blob:" : ""}; ${mapboxEnabled ? "worker-src blob:; " : ""}font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       });
       res.end(req.method === "HEAD" ? undefined : body);
     } catch { res.writeHead(404); res.end("Not found"); }

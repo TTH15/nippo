@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronLeft, faChevronRight, faFileImport } from "@fortawesome/free-solid-svg-icons";
+import { faChevronLeft, faChevronRight, faFileImport, faDownload, faChevronDown, faRotateRight, faGear } from "@fortawesome/free-solid-svg-icons";
 import { isJapanPublicHolidayYmd } from "@/lib/japanHolidays";
 import { todayJST } from "@/lib/date";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -29,7 +29,13 @@ import {
 import { summarizeHistory, type ShiftLog } from "@/server/shiftRequests/diff";
 import { cn } from "@/lib/ui/utils";
 import { TimePicker } from "@/lib/ui/time-picker";
-import { Check, ChevronDown, Download, RefreshCw, Settings } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
+import { DatePicker } from "@/lib/components/DatePicker";
+import { ShiftDisplayPanel } from "@/lib/components/ShiftDisplayPanel";
+import { ShiftDisplayOptions } from "@/lib/components/ShiftDisplayOptions";
+import { DEFAULT_SHIFT_DISPLAY, SHIFT_DISPLAY_KEY, readShiftDisplay, type ShiftDisplay } from "@/lib/shiftDisplay";
+import { ImageExportDialog } from "@/lib/components/ImageExportDialog";
+import { captureDispatchImage, DISPATCH_IMAGE_PAGE_SIZE } from "@/lib/captureDispatchImage";
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
 import PendingChangesBar, { PENDING_CHANGES_KEY } from "./PendingChangesBar";
 import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./ShiftImportModal";
@@ -113,18 +119,6 @@ function formatPlateOneLine(v: VehiclePlateData): string {
   return parts.join(" ").trim() || "—";
 }
 
-/** html2canvas向けの簡易ナンバープレート配色。CSS maskを使わず共有画像へ描く。 */
-function mobileExportPlateScheme(color: VehiclePlateData["plate_color"]): {
-  bg: string;
-  frame: string;
-  text: string;
-} {
-  if (color === "yellow") return { bg: "#f2c50f", frame: "#a8880a", text: "#151515" };
-  if (color === "white") return { bg: "#f4f5f1", frame: "#9aa0a6", text: "#17603e" };
-  if (color === "green") return { bg: "#0a5a40", frame: "#d5d9de", text: "#ffffff" };
-  return { bg: "#000000", frame: "#b8a038", text: "#e8d44d" };
-}
-
 function courseAbbrevTooltip(course: Course): string {
   const abbr = courseShiftLabel(course);
   const base = abbr !== course.name ? `${abbr}（${course.name}）` : abbr;
@@ -155,30 +149,6 @@ function courseCellSurface(hex: string): Pick<CSSProperties, "background" | "box
     boxShadow: `inset 0 0 0 2px ${hexToRgba(hex, 0.72)}`,
   };
 }
-
-/**
- * エクスポート（html2canvas）用のコース色面。
- * html2canvas は inset box-shadow を正しく描けず縞・重なり模様になるため、
- * box-shadow を使わず通常の border で枠を表現する。
- */
-function courseCellSurfaceExport(hex: string): CSSProperties {
-  return {
-    background: hexToRgba(hex, 0.44),
-    border: `2px solid ${hexToRgba(hex, 0.72)}`,
-  };
-}
-
-/**
- * エクスポートのセル内寸法（px）。
- * 車両割り当ての有無に関わらず全セルの高さを揃えるため、
- * コース欄＋車両欄の高さを固定し、空セル・希望休も同じ高さにする。
- * html2canvas は flex の中央寄せを正しく描けないため、
- * 縦中央は lineHeight（行高＝ボックス高）で表現する。
- */
-const EX_COURSE_H = 36;
-const EX_PLATE_H = 20;
-const EX_CELL_GAP = 4;
-const EX_CELL_CONTENT_H = EX_COURSE_H + EX_CELL_GAP + EX_PLATE_H;
 
 /** 祝日・日曜＝赤系、土曜＝青系（祝日は土曜より優先） */
 function shiftDayTone(dateStr: string, todayStr?: string): { header: string; body: string } {
@@ -694,7 +664,6 @@ export default function ShiftsPage() {
   } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const exportRef = useRef<HTMLDivElement | null>(null);
   // 編集中のセル（date×driverId）。null＝全セル閲覧モード。
   // クリックで開いた1セルだけが編集UI（ポップオーバー）を表示する。
   const [editingCell, setEditingCell] = useState<{ date: string; driverId: string } | null>(null);
@@ -702,24 +671,18 @@ export default function ShiftsPage() {
   const [unassignedOpenDate, setUnassignedOpenDate] = useState<string | null>(null);
   // 表示軸（A3）: driver=行がドライバー（既定）/ course=行がコースで埋まり具合を俯瞰。
   const [viewAxis, setViewAxis] = useState<"driver" | "course">("driver");
-  // 表示密度（A3）: compact=コースのみ / standard=＋車両 / detail=＋集合時刻。localStorage に記憶。
-  const [density, setDensity] = useState<"compact" | "standard" | "detail">("standard");
-  useEffect(() => {
-    const v = localStorage.getItem("shifts_view_density");
-    if (v === "compact" || v === "standard" || v === "detail") setDensity(v);
-  }, []);
-  const changeDensity = (d: "compact" | "standard" | "detail") => {
-    setDensity(d);
-    localStorage.setItem("shifts_view_density", d);
+  const [display, setDisplay] = useState<ShiftDisplay>(DEFAULT_SHIFT_DISPLAY);
+  useEffect(() => { try { setDisplay(readShiftDisplay(localStorage)); } catch { /* 端末がストレージを禁止している場合は既定表示。 */ } }, []);
+  const changeDisplay = (value: ShiftDisplay) => {
+    setDisplay(value);
+    try { localStorage.setItem(SHIFT_DISPLAY_KEY, JSON.stringify(value)); } catch { /* 保存不可でも画面操作は継続する。 */ }
   };
   // 手動リフレッシュ（A3）: 他の管理者の変更を取り込む。自動再検証は楽観更新と衝突するため手動のみ。
   const [refreshing, setRefreshing] = useState(false);
   // スマホの日別ビュー（B）: 表示中の1日。null=期間内の今日 or 先頭日にフォールバック。
   const [mobileDate, setMobileDate] = useState<string | null>(null);
-  // スマホ日別ビューの画像保存対象。固定の日付ナビと中央の日別リストを
-  // 一時的な画面外DOMへ複製し、スクロール位置に関係なく末尾まで書き出す。
-  const mobileDateHeaderRef = useRef<HTMLDivElement | null>(null);
-  const mobileDayListRef = useRef<HTMLDivElement | null>(null);
+  const [imageExportOpen, setImageExportOpen] = useState(false);
+  const imageExportListRef = useRef<HTMLDivElement>(null);
   // 日別ビューの左右スワイプ（ページめくり）。指の動きに追従させるため、
   // 再描画を挟まず track の transform を直接書き換える。
   const swipeRef = useRef<{ x: number; y: number; axis: "?" | "x" | "y"; dx: number } | null>(null);
@@ -1864,6 +1827,21 @@ export default function ShiftsPage() {
         ? today
         : displayDates[0] ?? "";
 
+  const selectMobileDate = (value: Date | undefined) => {
+    if (!value) return;
+    setYearMonth({ year: value.getFullYear(), month: value.getMonth() + 1 });
+    setPeriod(value.getDate() <= 15 ? "first" : "second");
+    setMobileDate(`${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`);
+  };
+
+  const placementMeetingTimes = (date: string, placements: { courseId: string; cycleNo: number; slot: number }[]) =>
+    placements.map(p => {
+      const course = courses.find(c => c.id === p.courseId);
+      const shift = shifts.find(s => s.shift_date === date && s.course_id === p.courseId && (s.cycle_no ?? 0) === p.cycleNo && s.slot === p.slot);
+      const cycle = course?.course_cycles?.find(c => c.cycle_no === p.cycleNo);
+      return toTimeInputValue(shift?.meeting_time ?? cycle?.meeting_time ?? course?.meeting_time);
+    }).filter(Boolean);
+
   /** 日別ビュー用: その日の全ドライバーの状態（割当・希望休・車両）を表示名順で返す */
   const getDayRows = (date: string) =>
     driversWithCourses
@@ -1901,7 +1879,7 @@ export default function ShiftsPage() {
     // 並べ替えはしない（driversWithCourses = API の list_no 昇順をそのまま使う）
 
   /** 日別ビューの1日分リスト（スワイプのプレビューで前後日も同じ関数で描く） */
-  const renderDayList = (date: string, isCurrentPanel = false) => {
+  const renderDayList = (date: string) => {
     const allRows = getDayRows(date);
     const rows =
       mobileFilter === "working"
@@ -1911,16 +1889,16 @@ export default function ShiftsPage() {
           : allRows;
     const dayJobs = spotJobsByDate.get(date) ?? [];
     return (
-      <div ref={isCurrentPanel ? mobileDayListRef : undefined} className="space-y-3">
+      <div className="space-y-3">
       {/* 単発案件（その日の全件。ゲスト・名前だけの参加者もここで見える） */}
       {dayJobs.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div data-export-section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-sky-600">
             単発案件
           </div>
           <div className="divide-y divide-slate-100">
             {dayJobs.map((job) => (
-              <a key={job.id} href="/admin/spot-jobs" className="flex items-center gap-3 px-3 py-2.5 active:bg-slate-100">
+              <a data-export-row key={job.id} href="/admin/spot-jobs" className="flex items-center gap-3 px-3 py-2.5 active:bg-slate-100">
                 <span className="min-w-0 flex-1 truncate rounded bg-sky-100 px-2 py-0.5 text-[12px] font-semibold text-sky-800">
                   {job.title}
                 </span>
@@ -1944,13 +1922,15 @@ export default function ShiftsPage() {
             return (
               <button
                 key={driver.id}
+                data-export-row
                 type="button"
                 disabled={!canOpen}
                 onClick={() =>
                   offOnly ? openOffModal(driver.id, date) : setEditingCell({ date, driverId: driver.id })
                 }
                 className={cn(
-                  "flex w-full items-center gap-3 px-3 py-2.5 text-left",
+                  "flex min-h-11 w-full items-center gap-3 px-3 text-left",
+                  display.vehicle ? "py-2.5" : "py-1",
                   offOnly && "bg-amber-50/60",
                   off && hasAny && "bg-red-50/60",
                   canOpen ? "active:bg-slate-100" : "cursor-default",
@@ -1972,7 +1952,7 @@ export default function ShiftsPage() {
                           希望休と重複
                         </span>
                       )}
-                      {Array.from(
+                      {display.shift && Array.from(
                         assignedCourses.reduce((groups, item) => {
                           const current = groups.get(item.course.id);
                           if (current) current.placements.push(item.placement);
@@ -2001,22 +1981,25 @@ export default function ShiftsPage() {
                           </span>
                         );
                       })}
+                      {display.meetingTime && placementMeetingTimes(date, placements).length > 0 && <span className="w-full text-[11px] text-slate-500">集合 {placementMeetingTimes(date, placements).join(" / ")}</span>}
+                      {!display.shift && !display.vehicle && (!display.meetingTime || placementMeetingTimes(date, placements).length === 0) && <span className="text-[12px] text-slate-500">稼働</span>}
                     </>
                   ) : (
                     <span className="text-[12px] text-slate-400">
-                      未割当{canWrite ? "（タップで割当）" : ""}
+                      未割当{canWrite && <span data-export-omit>（タップで割当）</span>}
                     </span>
                   )}
                 </span>
-                {hasAny && (
+                {hasAny && display.vehicle && (
                   <span
                     className="flex w-[5.5rem] shrink-0 justify-end"
                     data-mobile-export-plate={plate ? "true" : undefined}
+                    data-mobile-export-plate-id={plate?.id}
                     data-mobile-export-plate-color={plate?.plate_color ?? "black"}
                     data-mobile-export-plate-region={plate?.number_prefix ?? "京都"}
                     data-mobile-export-plate-class={plate?.number_class ?? "400"}
                     data-mobile-export-plate-kana={plate?.number_hiragana ?? "わ"}
-                    data-mobile-export-plate-number={plate?.number_numeric ? formatPlateNumeric(plate.number_numeric) : ""}
+                    data-mobile-export-plate-number={plate?.number_numeric ?? ""}
                   >
                     {plate ? (
                       // w-full が無いと flex アイテムとして幅が決まらず（内部が w-full のため）
@@ -2123,132 +2106,30 @@ export default function ShiftsPage() {
     }
   };
 
-  /** スマホで表示中の日付ナビ・絞り込み・日別配車を縦長の1枚へ保存する。 */
-  const handleMobileDayExport = async () => {
-    if (exporting || !activeMobileDate) return;
-    const header = mobileDateHeaderRef.current;
-    const list = mobileDayListRef.current;
-    if (!header || !list) return;
-
-    let stage: HTMLDivElement | null = null;
-    let objectUrl: string | null = null;
-    try {
-      setExporting(true);
-      setExportMenuOpen(false);
-      await document.fonts.ready;
-
-      const captureWidth = Math.ceil(header.getBoundingClientRect().width);
-      stage = document.createElement("div");
-      stage.setAttribute("aria-hidden", "true");
-      Object.assign(stage.style, {
-        position: "fixed",
-        left: "-10000px",
-        top: "0",
-        width: `${captureWidth}px`,
-        boxSizing: "border-box",
-        background: "#f8fafc",
-        zIndex: "-1",
-      });
-
-      const headerClone = header.cloneNode(true) as HTMLDivElement;
-      Object.assign(headerClone.style, {
-        position: "static",
-        top: "auto",
-        width: "100%",
-        marginLeft: "0",
-        marginRight: "0",
-        boxSizing: "border-box",
-      });
-
-      const listWrap = document.createElement("div");
-      Object.assign(listWrap.style, {
-        width: "100%",
-        padding: "0 12px 12px",
-        boxSizing: "border-box",
-      });
-      const listClone = list.cloneNode(true) as HTMLDivElement;
-      Object.assign(listClone.style, {
-        width: "100%",
-        boxSizing: "border-box",
-      });
-      // html2canvas が inset shadow と CSS mask を描けないため、共有画像のコース札と
-      // ナンバープレートだけ同じ情報を持つ単純なborder／テキスト表現へ置き換える。
-      listClone.querySelectorAll<HTMLElement>("[data-mobile-export-course-color]").forEach((chip) => {
-        const color = chip.dataset.mobileExportCourseColor ?? "#94a3b8";
-        Object.assign(chip.style, courseCellSurfaceExport(color), { boxShadow: "none" });
-      });
-      listClone.querySelectorAll<HTMLElement>("[data-mobile-export-plate='true']").forEach((slot) => {
-        const color = (slot.dataset.mobileExportPlateColor || "black") as VehiclePlateData["plate_color"];
-        const scheme = mobileExportPlateScheme(color);
-        const plate = document.createElement("div");
-        Object.assign(plate.style, {
-          width: "88px",
-          height: "44px",
-          boxSizing: "border-box",
-          overflow: "hidden",
-          borderRadius: "8px",
-          border: `2px solid ${scheme.frame}`,
-          background: scheme.bg,
-          color: scheme.text,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-          textAlign: "center",
-          fontFamily: "sans-serif",
-          fontWeight: "700",
-        });
-        const top = document.createElement("div");
-        top.textContent = `${slot.dataset.mobileExportPlateRegion ?? "京都"} ${slot.dataset.mobileExportPlateClass ?? "400"}`;
-        Object.assign(top.style, { height: "16px", fontSize: "10px", lineHeight: "16px", whiteSpace: "nowrap" });
-        const bottom = document.createElement("div");
-        bottom.textContent = `${slot.dataset.mobileExportPlateKana ?? "わ"} ${slot.dataset.mobileExportPlateNumber ?? ""}`;
-        Object.assign(bottom.style, { height: "24px", fontSize: "17px", lineHeight: "22px", letterSpacing: "1px", whiteSpace: "nowrap" });
-        plate.append(top, bottom);
-        slot.replaceChildren(plate);
-      });
-      listWrap.appendChild(listClone);
-      stage.append(headerClone, listWrap);
-      document.body.appendChild(stage);
-
-      const { default: html2canvas } = await import("html2canvas");
-      const canvas = await html2canvas(stage, {
-        backgroundColor: "#f8fafc",
-        scale: Math.min(3, Math.max(2, window.devicePixelRatio || 1)),
-        useCORS: true,
-        logging: false,
-        width: captureWidth,
-        height: stage.scrollHeight,
-        windowWidth: captureWidth,
-        windowHeight: stage.scrollHeight,
-        scrollX: 0,
-        scrollY: 0,
-      });
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-      if (!blob) throw new Error("PNG blob could not be created");
-
-      objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      const filterLabel = mobileFilter === "working" ? "working" : mobileFilter === "unassigned" ? "unassigned" : "all";
-      link.href = objectUrl;
-      link.download = `dispatch_${activeMobileDate}_${filterLabel}.png`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (e) {
-      console.error(e);
-      setErrorState({
-        title: "画像の保存に失敗しました",
-        message: "表示中の日別配車を画像にできませんでした。もう一度お試しください。",
-      });
-    } finally {
-      stage?.remove();
-      // Safari では click 直後に URL を破棄すると保存が始まる前に無効になることがある。
-      const urlToRevoke = objectUrl;
-      if (urlToRevoke) window.setTimeout(() => URL.revokeObjectURL(urlToRevoke), 1000);
-      setExporting(false);
-    }
-  };
+  const exportRows = getDayRows(activeMobileDate).filter(row => mobileFilter === "all" || (row.placements.length > 0) === (mobileFilter === "working"));
+  const exportPageCount = Math.max(1, Math.ceil((exportRows.length + (spotJobsByDate.get(activeMobileDate)?.length ?? 0)) / DISPATCH_IMAGE_PAGE_SIZE));
+  const generateDayImage = useCallback(async (page: number) => {
+    if (!imageExportListRef.current || loading) throw new Error("シフトの読み込み完了後に再度お試しください。");
+    return captureDispatchImage(imageExportListRef.current, {
+      title: `${activeMobileDate} 日別配車`,
+      subtitle: `${mobileFilter === "all" ? "全員" : mobileFilter === "working" ? "稼働" : "未割当"} ${exportRows.length}人`,
+      page, pageCount: exportPageCount,
+    });
+  }, [activeMobileDate, mobileFilter, exportRows.length, exportPageCount, loading, display, shifts, localShifts, localVehicleByDriverDay, localExternalByDriverDay, spotJobsByDate]);
+  const handleMobileDayExport = () => { setExportMenuOpen(false); setImageExportOpen(true); };
 
   return (
     <AdminLayout>
+      {imageExportOpen && <>
+        <div aria-hidden="true" inert className="pointer-events-none fixed -left-[10000px] top-0 w-[384px]" ref={imageExportListRef}>{renderDayList(activeMobileDate)}</div>
+        <ImageExportDialog title="日別配車を画像にする" filename={`dispatch_${activeMobileDate}_${mobileFilter}`} pageCount={exportPageCount} generate={generateDayImage} onClose={() => setImageExportOpen(false)}>
+          <DatePicker ariaLabel="画像にする日付" value={new Date(activeMobileDate + "T12:00:00")} onChange={selectMobileDate} displayFormat="yyyy/M/d（E）" />
+          <div role="group" aria-label="画像の対象" className="mt-3 flex overflow-hidden rounded-lg border border-slate-300">
+            {([["all", "全員"], ["working", "稼働"], ["unassigned", "未割当"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={mobileFilter === key} onClick={() => setMobileFilter(key)} className={cn("flex-1 py-2 text-xs", mobileFilter === key ? "bg-slate-800 text-white" : "bg-white text-slate-600")}>{label}</button>)}
+          </div>
+          <p className="mt-2 text-xs text-slate-500">現在の表示項目を反映します。画像は端末内で作成します。</p>
+        </ImageExportDialog>
+      </>}
       <div className="max-w-full">
         {/* ツールバーは PC のみ固定。スマホで固定するのは日付ナビ＋タブだけにして、
             固定領域が画面を占有して一覧が隠れるのを防ぐ */}
@@ -2256,7 +2137,7 @@ export default function ShiftsPage() {
           className="md:sticky z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-2 -mt-1 md:border-b md:border-slate-200/80"
           style={{ top: "var(--admin-header-h, 0px)" }}
         >
-        {/* 1行目: 見出し＋年月。2行目: 期間タブ＋操作ボタン（高さを抑えて表を広く見せる） */}
+        {/* 年月と前後半は同じ操作群に置き、表示項目・軸は共通の開閉パネルへ。 */}
         <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:flex">
           <h1 className="order-1 shrink-0 text-lg font-bold text-slate-900 md:order-none md:text-xl">シフト管理</h1>
           <div className="order-3 col-span-2 flex w-full overflow-hidden rounded-lg border border-slate-300 bg-white md:order-none md:col-span-1 md:w-auto">
@@ -2283,31 +2164,27 @@ export default function ShiftsPage() {
               シフトメモ
             </button>
           </div>
-          <div className="order-2 shrink-0 [&_button]:w-[140px] md:order-none md:ml-auto md:[&_button]:w-[180px]">
-            <MonthYearPicker
-              value={yearMonth}
-              onChange={handleYearMonthChange}
-              placeholder="年月を選択"
-            />
-          </div>
         </div>
-        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+        <ShiftDisplayPanel toolbar={trigger => <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div role="group" aria-label="表示する年月と期間" className={cn("items-center gap-2 flex-wrap", workspaceView === "shift" ? "hidden md:flex" : "flex")}>
             {/* PC: 半月単位のステッパー（月またぎも1クリック。8月前半→7月後半 等） */}
             <button
               type="button"
               onClick={() => stepPeriod(-1)}
-              title={`${prevHalfLabel}を表示`}
+              title={`${prevHalfLabel}を表示`} aria-label={`${prevHalfLabel}を表示`}
               className="hidden md:flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
             >
               <FontAwesomeIcon icon={faChevronLeft} className="h-3 w-3" />
-              {prevHalfLabel}
             </button>
+            <div className="shrink-0 [&_button]:h-9 [&_button]:w-[154px] [&_button]:px-3 [&_button]:text-xs [&_button]:font-semibold">
+              <MonthYearPicker value={yearMonth} onChange={handleYearMonthChange} placeholder="年月を選択" />
+            </div>
             {/* 期間タブ（スマホは短いラベルで幅を節約） */}
             <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
               <button
                 type="button"
                 onClick={() => switchPeriod("first")}
+                aria-pressed={period === "first"}
                 className={`px-3 md:px-4 py-1.5 md:py-2 text-sm font-medium transition-colors ${
                   period === "first"
                     ? "bg-slate-800 text-white"
@@ -2319,6 +2196,7 @@ export default function ShiftsPage() {
               <button
                 type="button"
                 onClick={() => switchPeriod("second")}
+                aria-pressed={period === "second"}
                 className={`px-3 md:px-4 py-1.5 md:py-2 text-sm font-medium transition-colors border-l border-slate-300 ${
                   period === "second"
                     ? "bg-slate-800 text-white"
@@ -2331,56 +2209,13 @@ export default function ShiftsPage() {
             <button
               type="button"
               onClick={() => stepPeriod(1)}
-              title={`${nextHalfLabel}を表示`}
+              title={`${nextHalfLabel}を表示`} aria-label={`${nextHalfLabel}を表示`}
               className="hidden md:flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
             >
-              {nextHalfLabel}
               <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3" />
             </button>
-            {/* 表示軸・密度は正式シフト表だけの操作。メモには管理表の設定を持ち込まない。 */}
-            {workspaceView === "shift" && <div className="hidden md:flex rounded-lg border border-slate-300 overflow-hidden bg-white">
-              <button
-                type="button"
-                onClick={() => setViewAxis("driver")}
-                className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium transition-colors ${
-                  viewAxis === "driver" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                ドライバー軸
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewAxis("course")}
-                className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium transition-colors border-l border-slate-300 ${
-                  viewAxis === "course" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                コース軸
-              </button>
-            </div>}
-            {/* 表示密度（A3）: 簡易=コースのみ / 標準=＋車両 / 詳細=＋集合時刻。スマホは日別ビューのため非表示 */}
-            {workspaceView === "shift" && <div className="hidden md:flex rounded-lg border border-slate-300 overflow-hidden bg-white">
-              {(
-                [
-                  ["compact", "簡易", "コースだけを表示（1画面の情報量を最小に）"],
-                  ["standard", "標準", "コース＋車両を表示"],
-                  ["detail", "詳細", "コース＋車両＋集合時刻を表示"],
-                ] as const
-              ).map(([key, label, title], i) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => changeDensity(key)}
-                  title={title}
-                  className={`flex-1 sm:flex-none px-3 py-2 text-sm font-medium transition-colors ${
-                    i > 0 ? "border-l border-slate-300" : ""
-                  } ${density === key ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>}
           </div>
+          {workspaceView === "shift" && trigger}
           {/* 操作ボタン群（エクスポート／更新／設定）は右寄せで1行にまとめる。
               シフト表の AI 取り込みはボタンではなく、画面へのファイルドロップが入口。 */}
           {workspaceView === "shift" && <div className="flex items-center gap-2 shrink-0">
@@ -2400,28 +2235,29 @@ export default function ShiftsPage() {
                 aria-label="シフトを画像保存・エクスポート"
                 className="h-9 w-9 md:w-auto md:px-3 md:py-1.5 text-xs font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1"
               >
-                <Download className={cn("w-4 h-4 md:hidden", exporting && "animate-pulse")} />
+                <FontAwesomeIcon icon={faDownload} className={cn("w-4 h-4", exporting && "animate-pulse")} />
                 <span className="hidden md:inline">{exporting ? "エクスポート中..." : "エクスポート"}</span>
-                {!exporting && <ChevronDown className="hidden md:block w-3.5 h-3.5" />}
+                {!exporting && <FontAwesomeIcon icon={faChevronDown} className="hidden md:block w-3.5 h-3.5" />}
               </button>
               {exportMenuOpen && !exporting && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setExportMenuOpen(false)} />
                   <div className="absolute right-0 z-20 mt-1 w-40 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-                    <p className="px-3 pb-1 pt-0.5 text-[10px] font-medium text-slate-400">ダウンロード形式</p>
+                    <p className="px-3 pb-1 pt-0.5 text-[10px] font-medium text-slate-400">保存する内容</p>
+                    <button type="button" onClick={handleMobileDayExport} className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50">日別配車の画像</button>
                     <button
                       type="button"
                       onClick={() => { setExportMenuOpen(false); void handleExport("png"); }}
                       className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
                     >
-                      画像（PNG）
+                      半月の一覧（PNG）
                     </button>
                     <button
                       type="button"
                       onClick={() => { setExportMenuOpen(false); void handleExport("pdf"); }}
                       className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
                     >
-                      PDF
+                      半月の一覧（PDF）
                     </button>
                   </div>
                 </>
@@ -2441,7 +2277,7 @@ export default function ShiftsPage() {
               title="最新の状態に更新（他の管理者の変更を反映）"
               className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
             >
-              <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
+              <FontAwesomeIcon icon={faRotateRight} className={cn("w-4 h-4", refreshing && "animate-spin")} />
             </button>
             <button
               type="button"
@@ -2449,10 +2285,12 @@ export default function ShiftsPage() {
               title="シフト提出の設定（締切・便）"
               className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
             >
-              <Settings className="w-4 h-4" />
+              <FontAwesomeIcon icon={faGear} className="w-4 h-4" />
             </button>
           </div>}
-        </div>
+        </div>}>
+          {workspaceView === "shift" && <ShiftDisplayOptions value={display} onChange={changeDisplay} axis={viewAxis} onAxisChange={setViewAxis} />}
+        </ShiftDisplayPanel>
 
         {workspaceView === "shift" && (canWrite || canLoan) && (
           <div className="mb-2 flex items-center gap-2 text-[11px] md:text-xs text-slate-500">
@@ -2490,7 +2328,6 @@ export default function ShiftsPage() {
           const isToday = date === today;
           return (
             <div
-              ref={mobileDateHeaderRef}
               className="md:hidden sticky z-30 -mx-3 px-3 bg-slate-50 pt-1 pb-2 space-y-2 border-b border-slate-200/80"
               style={{ top: "var(--admin-header-h, 0px)" }}
             >
@@ -2506,10 +2343,7 @@ export default function ShiftsPage() {
                   <FontAwesomeIcon icon={faChevronLeft} className="h-4 w-4" />
                 </button>
                 <div className="min-w-0 text-center">
-                  <p className={cn("text-sm font-bold", isToday ? "text-amber-600" : "text-slate-900")}>
-                    {formatDate(date)}
-                    {isToday && <span className="ml-1 text-[10px]">今日</span>}
-                  </p>
+                  <DatePicker ariaLabel="表示する日付" value={new Date(date + "T12:00:00")} onChange={selectMobileDate} displayFormat="yyyy/M/d（E）" className={cn("h-8 justify-center border-0 bg-transparent px-1 text-xs font-bold shadow-none", isToday && "text-amber-600")} />
                   <p className="text-[11px] text-slate-500">稼働 {count}人</p>
                 </div>
                 <button
@@ -2679,7 +2513,7 @@ export default function ShiftsPage() {
                   const panel = (d: string | null, key: string, dir?: 1 | -1) => (
                     <div key={key} className="w-full shrink-0 px-0.5">
                       {d ? (
-                        renderDayList(d, key === "cur")
+                        renderDayList(d)
                       ) : (
                         <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-slate-200 text-xs text-slate-400">
                           {dir === 1 ? `${nextHalfLabel}へ…` : `${prevHalfLabel}へ…`}
@@ -2706,7 +2540,7 @@ export default function ShiftsPage() {
                 ref={gridScrollRef}
                 className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-auto max-h-[calc(100vh-260px)] table-scroll"
               >
-                <table onMouseLeave={() => cursors.reportCell(null)} className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
+                <table aria-label="コース別シフト表" onMouseLeave={() => cursors.reportCell(null)} className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
                   <thead>
                     <tr className="bg-slate-50/95">
                       <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
@@ -2762,7 +2596,7 @@ export default function ShiftsPage() {
                               {courseShiftLabel(course)}
                             </span>
                             <span className="mt-0.5 block text-[10px] text-slate-400">
-                              {slotLabelById(course.slot_id) ? `${slotLabelById(course.slot_id)}・` : ""}
+                              {display.shift && slotLabelById(course.slot_id) ? `${slotLabelById(course.slot_id)}・` : ""}
                               いつも{usualSlots}人
                             </span>
                           </td>
@@ -2794,15 +2628,16 @@ export default function ShiftsPage() {
                                   className="flex min-h-[3.25rem] w-full flex-col gap-1 rounded-lg px-1.5 py-1.5 text-left transition-colors cursor-pointer hover:bg-white/70"
                                 >
                                   {assigned.map((a) => {
-                                    const d = drivers.find((x) => x.id === a.driverId);
-                                    return (
-                                      <span
-                                        key={a.slot}
-                                        className="flex h-6 w-full min-w-0 items-center truncate rounded-[6px] bg-slate-100 px-1.5 text-[11px] font-semibold text-slate-800"
-                                      >
-                                        {d ? getDisplayName(d) : "（不明）"}
-                                      </span>
-                                    );
+                                    const driver = drivers.find(d => d.id === a.driverId);
+                                    const vehicleId = getCurrentVehicleForDriverOnDate(date, a.driverId);
+                                    const embedded = shifts.find(s => s.shift_date === date && s.driver_id === a.driverId && s.vehicle_id === vehicleId);
+                                    const plate = vehicleId ? fleetById.get(vehicleId) ?? (embedded ? normalizeShiftVehiclesEmbed(embedded).vehicles : null) ?? { id: vehicleId } : null;
+                                    const times = placementMeetingTimes(date, [{ courseId: course.id, cycleNo: 0, slot: a.slot }]);
+                                    return <span key={a.slot} className="flex w-full min-w-0 flex-col gap-1 rounded-md bg-slate-50 p-1">
+                                      <span className="w-full truncate text-[11px] font-semibold text-slate-800">{driver ? getDisplayName(driver) : "（不明）"}</span>
+                                      {display.meetingTime && times.length > 0 && <span className="text-[10px] text-slate-500">集合 {times.join(" / ")}</span>}
+                                      {display.vehicle && (plate ? <VehiclePlate vehicle={plate} compact className="!max-w-none w-full pointer-events-none" /> : <span className="text-[10px] text-slate-500">{getCurrentExternalForDriverOnDate(date, a.driverId) ? "他社車両" : "車両なし"}</span>)}
+                                    </span>;
                                   })}
                                   {open > 0 && (
                                     <span className="flex flex-1 items-center justify-center text-[10px] font-medium text-slate-300">
@@ -2824,7 +2659,7 @@ export default function ShiftsPage() {
               ref={gridScrollRef}
               className="bg-white rounded-lg border border-slate-200/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-auto max-h-[calc(100vh-260px)] table-scroll"
             >
-              <table onMouseLeave={() => cursors.reportCell(null)} className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
+              <table aria-label="ドライバー別シフト表" onMouseLeave={() => cursors.reportCell(null)} className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
                 <thead>
                   <tr className="bg-slate-50/95">
                     <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
@@ -2976,7 +2811,8 @@ export default function ShiftsPage() {
                                   onClick={() => openOffModal(driver.id, date)}
                                   title={canWrite ? "クリックして希望休を確認・解除" : undefined}
                                   className={cn(
-                                    "flex min-h-[3.25rem] w-full items-center justify-center rounded-lg transition-colors",
+                                    "flex w-full items-center justify-center rounded-lg transition-colors",
+                                    display.vehicle ? "min-h-[3.25rem]" : "min-h-9",
                                     canWrite ? "cursor-pointer hover:bg-amber-100" : "cursor-default",
                                   )}
                                 >
@@ -3011,7 +2847,8 @@ export default function ShiftsPage() {
                                           : vehicleTitle
                                       }
                                       className={cn(
-                                        "group flex min-h-[3.25rem] w-full flex-col gap-1 rounded-lg px-1.5 py-1.5 text-left transition-colors",
+                                        "group flex w-full flex-col gap-1 rounded-lg px-1.5 text-left transition-colors",
+                                        display.vehicle ? "min-h-[3.25rem] py-1.5" : "min-h-9 justify-center py-1",
                                         canOpenCell && !isEditing && "hover:bg-white/70",
                                         canOpenCell ? "cursor-pointer" : "cursor-default",
                                         isEditing && "bg-white ring-2 ring-slate-400",
@@ -3067,7 +2904,7 @@ export default function ShiftsPage() {
                                       ))}
                                       {hasAny ? (
                                         <>
-                                          {assignedCourses.map(({ course, placements: coursePlacements }) => {
+                                          {display.shift && assignedCourses.map(({ course, placements: coursePlacements }) => {
                                             const selectedCycleNos = [...new Set(coursePlacements.map((item) => item.cycleNo))];
                                             const showCycleBadges = shouldShowCycleBadgesForSelection(
                                               selectedCycleNos,
@@ -3098,31 +2935,9 @@ export default function ShiftsPage() {
                                               </span>
                                             );
                                           })}
-                                          {density === "detail" &&
-                                            (() => {
-                                              // 実効集合時刻（シフト上書き ?? コース標準）をコース順に併記
-                                              const times = placements
-                                                .map((p) => {
-                                                  const c = courses.find((cc) => cc.id === p.courseId);
-                                                  if (!c) return null;
-                                                  const r = shifts.find(
-                                                    (s) =>
-                                                      s.shift_date === date &&
-                                                      s.course_id === p.courseId &&
-                                                      (s.cycle_no ?? 0) === p.cycleNo &&
-                                                      s.slot === p.slot,
-                                                  );
-                                                  return toTimeInputValue(r?.meeting_time ?? c.meeting_time) || null;
-                                                })
-                                                .filter((t): t is string => Boolean(t));
-                                              if (times.length === 0) return null;
-                                              return (
-                                                <span className="w-full text-center text-[9px] font-medium leading-none text-slate-500">
-                                                  集合 {times.join(" / ")}
-                                                </span>
-                                              );
-                                            })()}
-                                          {density !== "compact" && (
+                                          {display.meetingTime && placementMeetingTimes(date, placements).length > 0 && <span className="w-full text-center text-[10px] text-slate-500">集合 {placementMeetingTimes(date, placements).join(" / ")}</span>}
+                                          {!display.shift && !display.vehicle && (!display.meetingTime || placementMeetingTimes(date, placements).length === 0) && <span className="text-center text-[11px] text-slate-500">稼働</span>}
+                                          {display.vehicle && (
                                             <span className="mt-0.5 flex w-full min-w-0 items-center justify-center">
                                               {currentVid && hoverVehiclePlate ? (
                                                 <VehiclePlate
@@ -3356,7 +3171,7 @@ export default function ShiftsPage() {
                     割当済みセルはドラッグでコピーできます（同じ行＝離した日まで連日コピー／別ドライバーの行＝その日へコピー。
                     希望休・担当外・定員満の日は自動でスキップ。車両はコピーされません）。
                     「コース軸」に切り替えると、行=コースで埋まり具合を確認できます。
-                    スマホでは1日ずつの日別ビューになります（ドラッグや軸・密度の切替はPC向けの機能です）。
+                    スマホでは1日ずつの日別ビューになります（ドラッグや軸の切替はPC向けの機能です）。
                   </span>
                 </div>
               </div>
@@ -3364,283 +3179,6 @@ export default function ShiftsPage() {
           </div>
         )}
 
-        <div className="fixed -left-[99999px] top-0 pointer-events-none">
-          <div
-            ref={exportRef}
-            style={{
-              width: "2200px",
-              background: "#ffffff",
-              color: "#111827",
-              padding: "24px",
-              fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-            }}
-          >
-            <h2 style={{ fontSize: "24px", fontWeight: 700, margin: "0 0 16px" }}>
-              シフト表（{yearMonth.year}年{yearMonth.month}月 {period === "first" ? "前半" : "後半"}）
-            </h2>
-            <table
-              style={{
-                width: "100%",
-                tableLayout: "fixed",
-                borderCollapse: "separate",
-                borderSpacing: "0",
-                fontSize: "12px",
-              }}
-            >
-              <colgroup>
-                <col style={{ width: "160px" }} />
-                {displayDates.map((date) => (
-                  <col key={`ex-col-${date}`} style={{ width: "128px" }} />
-                ))}
-              </colgroup>
-              <thead>
-                <tr>
-                  <th
-                    style={{
-                      width: "160px",
-                      textAlign: "left",
-                      padding: "6px 8px",
-                      fontSize: "13px",
-                      color: "#6b7280",
-                      background: "#f9fafb",
-                      borderBottom: "2px solid #94a3b8",
-                      borderRight: "1px solid #cbd5e1",
-                    }}
-                  >
-                    ドライバー
-                  </th>
-                  {displayDates.map((date) => {
-                    const ch = exportDayChrome(date);
-                    return (
-                      <th
-                        key={`ex-h-${date}`}
-                        style={{
-                          textAlign: "center",
-                          padding: "6px 4px",
-                          background: ch.headBg,
-                          color: ch.headColor,
-                          fontWeight: 600,
-                          fontSize: "13px",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          borderBottom: "2px solid #94a3b8",
-                          borderRight: "1px solid #e5e7eb",
-                        }}
-                      >
-                        {formatDate(date)}
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {driversWithCourses.map((driver) => (
-                  <tr key={`ex-row-${driver.id}`}>
-                    <td
-                      style={{
-                        padding: "6px 8px",
-                        fontWeight: 600,
-                        fontSize: "13px",
-                        color: "#111827",
-                        verticalAlign: "middle",
-                        borderBottom: "1px solid #cbd5e1",
-                        borderRight: "1px solid #cbd5e1",
-                      }}
-                    >
-                      {getDisplayName(driver)}
-                    </td>
-                    {displayDates.map((date) => {
-                      const ch = exportDayChrome(date);
-                      const exPlacements = findDriverPlacementsOnDate(localShifts, date, driver.id);
-                      const exCourses = exPlacements
-                        .map((p) => courses.find((c) => c.id === p.courseId))
-                        .filter((c): c is Course => Boolean(c))
-                        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-                      const placement = exPlacements[0] ?? null;
-                      if (isDriverOffDay(driver.id, date)) {
-                        return (
-                          <td
-                            key={`ex-${driver.id}-${date}`}
-                            style={{
-                              padding: "5px 6px",
-                              textAlign: "center",
-                              verticalAlign: "middle",
-                              background: "#fffbeb",
-                              borderBottom: "1px solid #cbd5e1",
-                              borderRight: "1px solid #e5e7eb",
-                            }}
-                          >
-                            <div
-                              style={{
-                                height: `${EX_CELL_CONTENT_H}px`,
-                                lineHeight: `${EX_CELL_CONTENT_H}px`,
-                                textAlign: "center",
-                                fontSize: "13px",
-                                fontWeight: 700,
-                                color: "#92400e",
-                              }}
-                            >
-                              希望休
-                            </div>
-                          </td>
-                        );
-                      }
-                      if (exCourses.length === 0) {
-                        return (
-                          <td
-                            key={`ex-${driver.id}-${date}`}
-                            style={{
-                              padding: "5px 6px",
-                              verticalAlign: "middle",
-                              background: ch.cellBg ?? "#ffffff",
-                              borderBottom: "1px solid #cbd5e1",
-                              borderRight: "1px solid #e5e7eb",
-                            }}
-                          >
-                            <div
-                              style={{
-                                height: `${EX_CELL_CONTENT_H}px`,
-                                lineHeight: `${EX_CELL_CONTENT_H}px`,
-                                textAlign: "center",
-                                fontSize: "13px",
-                                fontWeight: 600,
-                                color: "#94a3b8",
-                              }}
-                            >
-                              指定休
-                            </div>
-                          </td>
-                        );
-                      }
-
-                      const exVid = getCurrentVehicleForDriverOnDate(date, driver.id);
-                      const prowEx =
-                        placement
-                          ? shifts.find(
-                              (s) =>
-                                s.shift_date === date &&
-                                s.course_id === placement.courseId &&
-                                (s.cycle_no ?? 0) === placement.cycleNo &&
-                                s.slot === placement.slot,
-                            )
-                          : null;
-                      const exPlate: VehiclePlateData | null = (() => {
-                        if (!exVid) return null;
-                        const f = fleetById.get(exVid);
-                        if (f) return f;
-                        const emb =
-                          prowEx?.vehicle_id === exVid ? normalizeShiftVehiclesEmbed(prowEx).vehicles : null;
-                        return emb ?? null;
-                      })();
-                      const plateLine = exPlate ? formatPlateOneLine(exPlate) : "";
-
-                      return (
-                        <td
-                          key={`ex-${driver.id}-${date}`}
-                          style={{
-                            padding: "5px 6px",
-                            verticalAlign: "middle",
-                            background: ch.cellBg ?? "#ffffff",
-                            borderBottom: "1px solid #cbd5e1",
-                            borderRight: "1px solid #e5e7eb",
-                          }}
-                        >
-                          <div style={{ minHeight: `${EX_CELL_CONTENT_H}px` }}>
-                            {exCourses.map((course, ci) => (
-                              <div
-                                key={course.id}
-                                style={{
-                                  boxSizing: "border-box",
-                                  borderRadius: "6px",
-                                  // html2canvas は大きい line-height だと文字を下寄りに描くため、
-                                  // line-height は小さくし、上下 padding で中央に寄せる（padding は正しく描ける）。
-                                  padding: "7px 6px",
-                                  marginTop: ci === 0 ? 0 : `${EX_CELL_GAP}px`,
-                                  height: `${EX_COURSE_H}px`,
-                                  lineHeight: "18px",
-                                  fontSize: "13px",
-                                  fontWeight: 700,
-                                  color: "#0f172a",
-                                  textAlign: "center",
-                                  overflow: "hidden",
-                                  whiteSpace: "nowrap",
-                                  textOverflow: "ellipsis",
-                                  ...courseCellSurfaceExport(course.color),
-                                }}
-                                title={`${courseShiftLabel(course)}｜${course.name}`}
-                              >
-                                {courseShiftLabel(course)}
-                              </div>
-                            ))}
-                            <div
-                              style={{
-                                boxSizing: "border-box",
-                                marginTop: `${EX_CELL_GAP}px`,
-                                height: `${EX_PLATE_H}px`,
-                                // 上記と同じ理由（html2canvas の縦位置対策）。
-                                padding: "4px 0",
-                                lineHeight: "12px",
-                                fontSize: "11px",
-                                fontWeight: 600,
-                                color: "#475569",
-                                textAlign: "center",
-                                overflow: "hidden",
-                                whiteSpace: "nowrap",
-                                textOverflow: "ellipsis",
-                              }}
-                              title={plateLine || undefined}
-                            >
-                              {plateLine}
-                            </div>
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-                <tr>
-                  <td
-                    style={{
-                      padding: "6px 8px",
-                      fontWeight: 700,
-                      fontSize: "13px",
-                      color: "#4b5563",
-                      background: "#f9fafb",
-                      verticalAlign: "top",
-                      borderTop: "2px solid #94a3b8",
-                      borderRight: "1px solid #cbd5e1",
-                    }}
-                  >
-                    未割当
-                  </td>
-                  {displayDates.map((date) => {
-                    const names = getOffDriverNamesOnDate(date);
-                    const ch = exportDayChrome(date);
-                    return (
-                      <td
-                        key={`ex-off-${date}`}
-                        style={{
-                          padding: "5px 4px",
-                          fontSize: "12px",
-                          lineHeight: 1.5,
-                          color: "#64748b",
-                          verticalAlign: "top",
-                          wordBreak: "break-word",
-                          background: ch.cellBg ?? "#fafafa",
-                          borderTop: "2px solid #94a3b8",
-                          borderRight: "1px solid #e5e7eb",
-                        }}
-                      >
-                        {names.length ? names.join("・") : "—"}
-                      </td>
-                    );
-                  })}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
         </>
         )}
       </div>
