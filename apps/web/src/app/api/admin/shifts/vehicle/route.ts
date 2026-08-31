@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { adminMutationError, belongsToOrg, isDateOnly, isUuid } from "@/server/db/adminResourceScope";
 import { logShiftChange } from "@/server/shiftLog";
 
 export const dynamic = "force-dynamic";
@@ -26,10 +27,13 @@ export async function POST(req: NextRequest) {
       usesExternalVehicle?: boolean;
     };
 
-    if (!shiftDate || !courseId) {
+    if (!isDateOnly(shiftDate) || !isUuid(courseId) || (vehicleId != null && !isUuid(vehicleId))) {
       return NextResponse.json({ error: "shiftDate and courseId are required" }, { status: 400 });
     }
 
+    if (!await belongsToOrg("courses", courseId, user.orgId)) {
+      return NextResponse.json({ error: "対象のコースが見つかりません。" }, { status: 404 });
+    }
     const slotNumber = Number.isFinite(slot) && Number(slot) >= 1 ? Math.floor(Number(slot)) : 1;
     const cycleNumber = Number.isInteger(cycleNo) && Number(cycleNo) >= 0 ? Number(cycleNo) : 0;
 
@@ -63,12 +67,13 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const { data: loan } = await supabase
+      const { data: loan, error: loanError } = await supabase
         .from("vehicle_loans")
         .select("id")
         .eq("vehicle_id", resolvedVehicleId)
         .eq("loan_date", shiftDate)
         .maybeSingle();
+      if (loanError) throw loanError;
       if (loan) {
         return NextResponse.json(
           { error: "この車両は同日が貸出中のため、シフトに紐付けできません。" },
@@ -78,15 +83,19 @@ export async function POST(req: NextRequest) {
     }
 
     // 変更ログ用に変更前の配車を読む（ログはベストエフォート）。
-    const { data: prevRow } = await supabase
+    const { data: prevRow, error: previousError } = await supabase
       .from("shifts")
-      .select("vehicle_id, uses_external_vehicle")
+      .select("driver_id, vehicle_id, uses_external_vehicle")
       .eq("shift_date", shiftDate)
       .eq("course_id", courseId)
       .eq("cycle_no", cycleNumber)
       .eq("slot", slotNumber)
       .maybeSingle();
 
+    if (previousError) throw previousError;
+    if (prevRow?.driver_id && !await belongsToOrg("drivers", prevRow.driver_id, user.orgId)) {
+      return NextResponse.json({ error: "対象の配車が見つかりません。" }, { status: 404 });
+    }
     const { data, error } = await supabase
       .from("shifts")
       .update({
@@ -130,7 +139,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ shift: data });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return adminMutationError(err);
   }
 }

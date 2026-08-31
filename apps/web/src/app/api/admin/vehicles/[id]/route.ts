@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { adminMutationError, belongsToOrg, isUuid } from "@/server/db/adminResourceScope";
 import { storeVehicleImage } from "@/server/vehicles/imageStorage";
 
 export const dynamic = "force-dynamic";
@@ -42,12 +43,25 @@ export async function PUT(
   const orgId = await resolveOrgId(user.driverId);
 
   const { id: vehicleId } = await params;
-  if (!vehicleId) {
+  if (!isUuid(vehicleId)) {
     return NextResponse.json({ error: "Invalid vehicle id" }, { status: 400 });
   }
 
   try {
+    if (!await belongsToOrg("vehicles", vehicleId, orgId)) {
+      return NextResponse.json({ error: "車両が見つかりません。" }, { status: 404 });
+    }
     const body = await req.json();
+    if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    if (body.driverIds !== undefined) {
+      if (!Array.isArray(body.driverIds) || !body.driverIds.every(isUuid)) return NextResponse.json({ error: "ドライバーの指定が不正です。" }, { status: 400 });
+      if (!Array.isArray(body.expectedDriverIds) || !body.expectedDriverIds.every(isUuid)) return NextResponse.json({ error: "車両の最新の紐付けを読み込んでから保存してください。" }, { status: 428 });
+      if (body.driverIds.length) {
+        const { data, error } = await supabase.from("drivers").select("id").eq("org_id", orgId).in("id", body.driverIds);
+        if (error) throw error;
+        if (new Set(data?.map(d => d.id)).size !== new Set(body.driverIds).size) return NextResponse.json({ error: "ドライバーが見つかりません。" }, { status: 404 });
+      }
+    }
     const {
       isDisposed,
       isUnavailable,
@@ -162,33 +176,19 @@ export async function PUT(
           : null;
     }
 
-    const { error } = await supabase
-      .from("vehicles")
-      .update(updates)
-      .eq("id", vehicleId)
-      .eq("owner_org_id", orgId);
-
-    if (error) throw error;
-
-    // ドライバーリレーションを更新
-    if (Array.isArray(driverIds)) {
-      // 既存のリレーションを削除
-      await supabase.from("vehicle_drivers").delete().eq("vehicle_id", vehicleId);
-
-      // 新しいリレーションを追加
-      if (driverIds.length > 0) {
-        const vehicleDrivers = driverIds.map((driverId: string) => ({
-          vehicle_id: vehicleId,
-          driver_id: driverId,
-        }));
-        await supabase.from("vehicle_drivers").insert(vehicleDrivers);
-      }
-    }
+    // 本体と紐付けを同じトランザクションで確定。失敗時の逐次保存へのフォールバックはしない。
+    const { error } = await supabase.rpc("save_vehicle_with_drivers", {
+      p_org_id: orgId,
+      p_vehicle_id: vehicleId,
+      p_patch: updates,
+      p_driver_ids: driverIds ?? null,
+      p_expected_driver_ids: body.expectedDriverIds ?? null,
+    });
+    if (error) return adminMutationError(error);
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return adminMutationError(err);
   }
 }
 
@@ -202,7 +202,7 @@ export async function DELETE(
   const orgId = await resolveOrgId(user.driverId);
 
   const { id: vehicleId } = await params;
-  if (!vehicleId) {
+  if (!isUuid(vehicleId)) {
     return NextResponse.json({ error: "Invalid vehicle id" }, { status: 400 });
   }
 

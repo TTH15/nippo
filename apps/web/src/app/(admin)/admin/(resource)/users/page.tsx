@@ -20,6 +20,9 @@ import { Button } from "@/lib/ui/button";
 import { faTrash, faUser, faPhone, faCircleCheck, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
+import { SaveFailureNotice } from "@/lib/components/SaveFailureNotice";
+import { saveDriverSections, type DriverSaveTask } from "@/lib/drivers/saveSections";
+import type { LeaseSettingsState } from "@/lib/drivers/leaseSettings";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
@@ -145,8 +148,7 @@ function sortDrivers(list: Driver[]): Driver[] {
 }
 
 function currentMonthStartStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  return `${new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7)}-01`;
 }
 
 type LeaseForm = { enabled: boolean; mode: "MONTHLY" | "DAILY"; amount: string; validFrom: string };
@@ -154,6 +156,11 @@ const EMPTY_LEASE: LeaseForm = { enabled: false, mode: "MONTHLY", amount: "", va
 
 export default function UsersPage() {
   const [canWrite, setCanWrite] = useState(false);
+  const [canReadLease, setCanReadLease] = useState(false);
+  const [canManageLease, setCanManageLease] = useState(false);
+  const leaseRevisionRef = useRef<string | null>(null);
+  const [upcomingLeases, setUpcomingLeases] = useState<LeaseSettingsState["upcoming"]>([]);
+  const [saveFailure, setSaveFailure] = useState("");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [openingEditId, setOpeningEditId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -161,7 +168,7 @@ export default function UsersPage() {
   const [modalTab, setModalTab] = useState<"basic" | "work" | "contract">("basic");
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   // 詳細モーダルのキャッシュ（同じドライバーを再度開く時はDBを叩かない）
-  const detailCache = useRef<Map<string, { driver: Driver; lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null }>>(new Map());
+  const detailCache = useRef<Map<string, { driver: Driver; lease: LeaseSettingsState | null }>>(new Map());
   // 自動保存（編集モード）。populate 直後の1回はスキップ。
   // 担当可能コース: 未選択はアコーディオンに隠す（選択中のみ常時表示）
   const [courseOpen1, setCourseOpen1] = useState(false);
@@ -203,6 +210,7 @@ export default function UsersPage() {
   const [companyCode, setCompanyCode] = useState<string>(COMPANY_CODE);
   const [confirmState, setConfirmState] = useState<{
     message: string;
+    confirmLabel?: string;
     onConfirm: () => void;
   } | null>(null);
   const [errorState, setErrorState] = useState<{
@@ -279,6 +287,8 @@ export default function UsersPage() {
   useEffect(() => {
     const stored = getStoredDriver();
     setCanWrite(hasCapability("can_manage_members"));
+    setCanReadLease(hasCapability("can_view_rewards") || hasCapability("can_manage_rewards"));
+    setCanManageLease(hasCapability("can_manage_rewards"));
     if (stored?.companyCode) {
       setCompanyCode(stored.companyCode);
     }
@@ -320,6 +330,9 @@ export default function UsersPage() {
   const openNew = () => {
     if (!canWrite) return;
     setEditingDriver(null);
+    leaseRevisionRef.current = null;
+    setUpcomingLeases([]);
+    setSaveFailure("");
     setForm({
       name: "",
       displayName: "",
@@ -352,8 +365,12 @@ export default function UsersPage() {
   // 取得済みドライバー詳細＋リースから編集フォームを埋める（fetch/キャッシュ共通）
   const populateForm = (
     full: Driver,
-    lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null,
+    state: LeaseSettingsState | null,
   ) => {
+    const lease = state?.lease;
+    leaseRevisionRef.current = state?.revision ?? null;
+    setUpcomingLeases(state?.upcoming ?? []);
+    setSaveFailure("");
     const nextLease: LeaseForm = lease
       ? {
           enabled: true,
@@ -428,12 +445,10 @@ export default function UsersPage() {
     try {
       const [res, leaseRes] = await Promise.all([
         apiFetch<{ driver: Driver }>(`/api/admin/users/${d.id}`),
-        apiFetch<{ lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null }>(
-          `/api/admin/driver-lease?driver_id=${encodeURIComponent(d.id)}`,
-        ).catch(() => ({ lease: null })),
+        canReadLease ? apiFetch<LeaseSettingsState>(`/api/admin/driver-lease?driver_id=${encodeURIComponent(d.id)}`) : Promise.resolve(null),
       ]);
       const full = res.driver;
-      const lease = leaseRes.lease;
+      const lease = leaseRes;
       detailCache.current.set(d.id, { driver: full, lease });
       populateForm(full, lease);
     } catch (e) {
@@ -461,12 +476,10 @@ export default function UsersPage() {
     prefetchInflightRef.current.add(d.id);
     void Promise.all([
       apiFetch<{ driver: Driver }>(`/api/admin/users/${d.id}`),
-      apiFetch<{ lease: { mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string } | null }>(
-        `/api/admin/driver-lease?driver_id=${encodeURIComponent(d.id)}`,
-      ).catch(() => ({ lease: null })),
+      canReadLease ? apiFetch<LeaseSettingsState>(`/api/admin/driver-lease?driver_id=${encodeURIComponent(d.id)}`) : Promise.resolve(null),
     ])
       .then(([res, leaseRes]) => {
-        detailCache.current.set(d.id, { driver: res.driver, lease: leaseRes.lease });
+        detailCache.current.set(d.id, { driver: res.driver, lease: leaseRes });
       })
       .catch(() => {
         // 先読みの失敗は無視（クリック時に openEdit が正規ルートで取得し直す）
@@ -554,6 +567,12 @@ export default function UsersPage() {
   const save = async (opts?: { silent?: boolean }) => {
     if (!canWrite) return;
     const silent = opts?.silent === true;
+    if (!isFormValid || (canManageLease && leaseForm.enabled && leaseForm.mode === "MONTHLY" && (!/^\d+$/.test(leaseForm.amount) || Number(leaseForm.amount) <= 0 || Number(leaseForm.amount) > 2147483647))) {
+      const error = new Error("必須項目と月額料金を確認してください。入力内容は残っています。");
+      setSaveFailure(error.message);
+      if (silent) throw error;
+      return;
+    }
     saveInflightRef.current += 1;
     setSaving(true);
     try {
@@ -618,7 +637,7 @@ export default function UsersPage() {
         form.driverNumber2 !== bf.driverNumber2 ||
         !eqArr(form.courseIds2, bf.courseIds2);
       // 本体・リースの各リクエストは集めておき、最後に並列で待つ（直列にしない）
-      const jobs: Promise<unknown>[] = [];
+      const jobs: DriverSaveTask[] = [];
       if (editingDriver) {
         // 基準点（開いた時点/前回保存時点）との差分だけを送る。
         // サーバーは undefined の項目を変更しないため、そのまま部分更新になる。
@@ -666,17 +685,15 @@ export default function UsersPage() {
           ];
         }
         if (Object.keys(putBody).length > 0) {
-          jobs.push(
-            apiFetch(`/api/admin/users/${editingDriver.id}`, {
-              method: "PUT",
-              body: JSON.stringify(putBody),
-            }),
-          );
+          jobs.push({ section: "profile", save: () => apiFetch(`/api/admin/users/${editingDriver.id}`, {
+            method: "PUT", body: JSON.stringify(putBody),
+          }), onSaved: () => {
+            if (baselineRef.current) baselineRef.current = { ...baselineRef.current, form: { ...form, courseIds: [...form.courseIds], courseIds2: [...form.courseIds2] } };
+            setDrivers(prev => sortDrivers(prev.map(d => d.id === editingDriver.id ? applyFormToDriver(d) : d)));
+            if (identityChanged) void invalidateApi("/api/admin/courses");
+          }});
         }
-        // 一覧は即時反映（サーバー完了を待たない）
-        setDrivers((prev) =>
-          sortDrivers(prev.map((d) => (d.id === editingDriver.id ? applyFormToDriver(d) : d))),
-        );
+
       } else {
         const created = await apiFetch<{ driver: Driver }>("/api/admin/users", {
           method: "POST",
@@ -718,58 +735,43 @@ export default function UsersPage() {
         };
         setDrivers((prev) => sortDrivers([...prev, newDriver]));
         savedDriverId = created.driver.id;
+        // 契約だけ失敗した場合も、再試行でドライバーを二重作成しない。
+        setEditingDriver(newDriver);
+        baselineRef.current = { form: { ...form }, lease: { ...EMPTY_LEASE, validFrom: currentMonthStartStr() } };
       }
 
       // リース設定（専用概念）。enabled=false / 金額0 で解除。変更があった時だけ送る
       const leaseChanged = !base || JSON.stringify(leaseForm) !== JSON.stringify(base.lease);
-      if (savedDriverId && leaseChanged) {
-        jobs.push(
-          apiFetch("/api/admin/driver-lease", {
+      if (savedDriverId && canManageLease && leaseChanged && (editingDriver || leaseForm.enabled)) {
+        let savedState: LeaseSettingsState;
+        jobs.push({ section: "lease", save: async () => {
+          if (!leaseRevisionRef.current) {
+            const state = await apiFetch<LeaseSettingsState>(`/api/admin/driver-lease?driver_id=${encodeURIComponent(savedDriverId)}`);
+            leaseRevisionRef.current = state.revision;
+          }
+          savedState = await apiFetch<LeaseSettingsState>("/api/admin/driver-lease", {
             method: "PUT",
-            body: JSON.stringify({
-              driver_id: savedDriverId,
-              enabled: leaseForm.enabled,
-              mode: leaseForm.mode,
-              amount: leaseForm.enabled ? parseInt(leaseForm.amount, 10) || 0 : 0,
-              valid_from: leaseForm.validFrom || currentMonthStartStr(),
-            }),
-          }).catch((leaseErr) => {
-            // リースだけの失敗で本体の保存をエラー扱いにしない（従来挙動の踏襲）
-            console.error("[users] lease save error", leaseErr);
-          }),
-        );
+            body: JSON.stringify({ driver_id: savedDriverId, enabled: leaseForm.enabled,
+              mode: leaseForm.mode, amount: leaseForm.enabled ? Number(leaseForm.amount) || 0 : 0,
+              valid_from: leaseForm.validFrom || currentMonthStartStr(), expected_revision: leaseRevisionRef.current }),
+          });
+        }, onSaved: () => {
+          leaseRevisionRef.current = savedState.revision;
+          setUpcomingLeases(savedState.upcoming);
+          if (baselineRef.current) baselineRef.current = { ...baselineRef.current, lease: { ...leaseForm } };
+        }});
       }
-
-      // 集めたリクエストを並列で待つ（従来は本体→リースの直列で「保存中…」が長かった）
-      await Promise.all(jobs);
-
-      // 次回の差分計算の基準を「今保存した状態」に進める
-      baselineRef.current = {
-        form: { ...form, courseIds: [...form.courseIds], courseIds2: [...form.courseIds2] },
-        lease: { ...leaseForm },
-      };
-
-      // 詳細キャッシュには保存内容を直接反映する（再オープン時も即表示を保つ）。
-      // キャッシュが無ければ次回オープン時に取得される
-      const cachedDetail = savedDriverId ? detailCache.current.get(savedDriverId) : undefined;
-      if (savedDriverId && cachedDetail) {
-        detailCache.current.set(savedDriverId, {
-          driver: applyFormToDriver(cachedDetail.driver),
-          lease: leaseForm.enabled
-            ? {
-                mode: leaseForm.mode,
-                amount: parseInt(leaseForm.amount, 10) || 0,
-                valid_from: leaseForm.validFrom || currentMonthStartStr(),
-              }
-            : null,
-        });
-      }
+      // 並列保存の成否を全件待ち、成功した部分だけ基準を進める。
+      // 詳細キャッシュを無効化し、閉じた後に部分保存を成功として再表示しない。
+      if (savedDriverId) detailCache.current.delete(savedDriverId);
+      try { await saveDriverSections(jobs); }
+      finally { scheduleUsersRefetch(); }
+      setSaveFailure("");
       if (silent) {
       } else {
         setShowModal(false);
       }
-      // コース画面の「担当ドライバー」はコース割り当てが変わった時だけ最新化する
-      if (identityChanged) void invalidateApi("/api/admin/courses");
+
       // 一覧の SWR キャッシュも最新化する（dedupingInterval があるため、
       // これを怠ると再訪時に古い一覧で上書きされ「保存されていない」ように見える）。
       // 自動保存の連続中に即時再取得すると「保存前のサーバー状態」で巻き戻って
@@ -778,7 +780,9 @@ export default function UsersPage() {
     } catch (e) {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
+      setSaveFailure(reason || "保存に失敗しました。入力内容は残っています。");
       if (silent) {
+        throw e;
       } else {
         setErrorState({
           title: "ドライバー情報の保存に失敗しました",
@@ -929,7 +933,7 @@ export default function UsersPage() {
   // 自動保存は共通フック（useAutoSave）に集約した。
   // 「保留中の保存をクリーンアップで取り消さない／離脱時は flush する」という肝は
   // フック側にあり、回帰テスト（src/lib/useAutoSave.test.tsx）で守っている。
-  const { status: autoSave, flush: flushAutoSave } = useAutoSave({
+  const { status: autoSave, flush: flushAutoSave, retry: retryAutoSave } = useAutoSave({
     value: { form, leaseForm },
     enabled: showModal && !modalLoading && !!editingDriver && canWrite && isFormValid,
     // 別のドライバーを開いたときに、その読み込みを「変更」と誤認しない
@@ -938,6 +942,27 @@ export default function UsersPage() {
       await saveRef.current?.({ silent: true });
     },
   });
+
+
+  const closeEditor = async () => {
+    if (saving) return;
+    if (editingDriver && !modalLoading) {
+      if (!isFormValid) { setSaveFailure("必須項目を確認してください。入力内容は残っています。"); return; }
+      if (!await (saveFailure ? retryAutoSave() : flushAutoSave())) return;
+    }
+    setShowModal(false);
+  };
+  const reviewLatestLease = async () => {
+    if (!editingDriver || !canManageLease) return;
+    try {
+      const latest = await apiFetch<LeaseSettingsState>(`/api/admin/driver-lease?driver_id=${encodeURIComponent(editingDriver.id)}&date=${leaseForm.validFrom}`);
+      const label = latest.lease ? `${latest.lease.mode === "MONTHLY" ? `月額 ${latest.lease.amount.toLocaleString()}円` : "日毎"}（${latest.lease.valid_from}〜）` : "リースなし";
+      setConfirmState({ message: `保存されている契約：${label}\n画面に残っている入力内容で保存し直しますか？将来の別の開始日の契約は維持します。`, confirmLabel: "入力内容で保存する", onConfirm: () => {
+        leaseRevisionRef.current = latest.revision;
+        void retryAutoSave();
+      }});
+    } catch (error) { setSaveFailure(error instanceof Error ? error.message : "最新の契約を取得できませんでした。"); }
+  };
 
   // 絞り込み（テキスト検索 + 属性チップ）。名前・表示名・ドライバー番号・コース名・権限で部分一致
   const searchNorm = searchQuery.trim().toLowerCase();
@@ -1336,7 +1361,7 @@ export default function UsersPage() {
 
       {/* Modal */}
       {showModal && canWrite && (
-        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => void closeEditor()}>
           <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl h-[85vh] flex flex-col p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
               {editingDriver
@@ -1695,8 +1720,8 @@ export default function UsersPage() {
                 </p>
                 {leaseLoading ? (
                   <p className="text-xs text-slate-400">読み込み中…</p>
-                ) : (
-                  <div className="space-y-3">
+                ) : !canReadLease ? <p className="text-xs text-slate-500">リース契約の閲覧権限がありません。</p> : (
+                  <fieldset disabled={!canManageLease} className="space-y-3 disabled:opacity-70">
                     <div className="flex gap-2">
                       {([
                         { key: "NONE", label: "リースなし" },
@@ -1767,7 +1792,8 @@ export default function UsersPage() {
                         </div>
                       </div>
                     )}
-                  </div>
+                    {upcomingLeases.length > 0 && <p className="text-xs text-slate-500">今後の契約：{upcomingLeases.map(lease => `${lease.valid_from}〜 ${lease.mode === "MONTHLY" ? `月額${lease.amount.toLocaleString()}円` : "日毎"}`).join("、")}</p>}
+                  </fieldset>
                 )}
               </div>
               </>
@@ -1969,6 +1995,7 @@ export default function UsersPage() {
             )}
             </div>
 
+            <SaveFailureNotice message={saveFailure} busy={saving} onRetry={() => { if (editingDriver) void retryAutoSave(); else void save(); }} onReview={canManageLease && editingDriver ? () => void reviewLatestLease() : undefined}/>
             <div className="flex items-center justify-between gap-2 mt-4 pt-4 border-t border-slate-100 shrink-0">
               <div>
                 {editingDriver && !modalLoading && (
@@ -1994,10 +2021,8 @@ export default function UsersPage() {
                             : "変更は自動保存されます"}
                     </span>
                     <button
-                      onClick={() => {
-                        flushAutoSave(); // 閉じる前に保留中の変更を確定させる
-                        setShowModal(false);
-                      }}
+                      onClick={() => void closeEditor()}
+                      disabled={saving}
                       className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
                     >
                       閉じる
@@ -2031,7 +2056,7 @@ export default function UsersPage() {
         message={confirmState?.message ?? ""}
         onConfirm={confirmState?.onConfirm ?? (() => { })}
         onClose={() => setConfirmState(null)}
-        confirmLabel="削除"
+        confirmLabel={confirmState?.confirmLabel ?? "削除する"}
       />
       <ErrorDialog
         open={!!errorState}

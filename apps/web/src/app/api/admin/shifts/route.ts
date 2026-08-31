@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { adminMutationError, belongsToOrg, isDateOnly, isUuid } from "@/server/db/adminResourceScope";
 import { logShiftChange } from "@/server/shiftLog";
 
 export const dynamic = "force-dynamic";
@@ -10,143 +11,74 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_shifts");
   if (isAuthError(user)) return user;
-  const orgId = await resolveOrgId(user.driverId);
-
-  const startDate = req.nextUrl.searchParams.get("start");
-  const endDate = req.nextUrl.searchParams.get("end");
-
-  if (!startDate || !endDate) {
-    return NextResponse.json({ error: "start and end are required" }, { status: 400 });
-  }
-
-  // countDrivers=1: ダッシュボード「本日の稼働数」用の軽量モード。
-  // 全体GET（コース/車両/名簿/希望休まで同梱）を件数のためだけに転送しない（2026-08 監査）。
-  if (req.nextUrl.searchParams.get("countDrivers") === "1") {
-    const [{ data: shiftRows, error: sErr }, { data: orgDrivers, error: dErr }] = await Promise.all([
-      supabase
-        .from("shifts")
-        .select("driver_id")
-        .gte("shift_date", startDate)
-        .lte("shift_date", endDate)
-        .not("driver_id", "is", null),
-      // shifts は org 列を持たないため、org のドライバー集合で絞る
-      supabase.from("drivers").select("id").eq("org_id", orgId).eq("works_as_driver", true),
-    ]);
-    if (sErr || dErr) {
-      console.error(sErr || dErr);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
+  try {
+    const orgId = user.orgId ?? await resolveOrgId(user.driverId);
+    const startDate = req.nextUrl.searchParams.get("start");
+    const endDate = req.nextUrl.searchParams.get("end");
+    if (!isDateOnly(startDate) || !isDateOnly(endDate) || startDate > endDate) {
+      return NextResponse.json({ error: "有効な開始日・終了日を指定してください。" }, { status: 400 });
     }
-    const orgIds = new Set((orgDrivers ?? []).map((d: { id: string }) => d.id));
-    const unique = new Set(
-      (shiftRows ?? [])
-        .map((s: { driver_id: string | null }) => s.driver_id)
-        .filter((id): id is string => !!id && orgIds.has(id)),
-    );
-    return NextResponse.json({ count: unique.size });
+    // ダッシュボードの件数取得は名簿詳細や車両を取得しない。
+    if (req.nextUrl.searchParams.get("countDrivers") === "1") {
+      const [courses, drivers] = await Promise.all([
+        supabase.from("courses").select("id").eq("org_id", orgId),
+        supabase.from("drivers").select("id").eq("org_id", orgId).eq("works_as_driver", true),
+      ]);
+      if (courses.error || drivers.error) throw courses.error ?? drivers.error;
+      const courseIds = (courses.data ?? []).map(c => c.id), driverIds = (drivers.data ?? []).map(d => d.id);
+      if (!courseIds.length || !driverIds.length) return NextResponse.json({ count: 0 });
+      const { data, error } = await supabase.from("shifts").select("driver_id")
+        .in("course_id", courseIds).in("driver_id", driverIds).gte("shift_date", startDate).lte("shift_date", endDate);
+      if (error) throw error;
+      return NextResponse.json({ count: new Set((data ?? []).map(s => s.driver_id)).size });
+    }
+    // 関連表を読む前に自社の集合を確定する。空集合を「条件なし」にしない。
+    const [courseResult, driverResult, fleetResult] = await Promise.all([
+      supabase.from("courses").select("*, course_cycles(id, cycle_no, label, meeting_place, meeting_time, arrival_time, end_time, max_drivers, sort_order, active)").eq("org_id", orgId).order("sort_order"),
+      supabase.from("drivers").select("id, name, display_name, role, list_no, driver_code, status, works_as_driver, driver_identities(driver_courses(course_id))").eq("org_id", orgId).order("list_no", { ascending: true, nullsFirst: false }).order("name"),
+      supabase.from("vehicles").select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, is_ev, is_disposed, is_unavailable, unavailable_reason, last_oil_change_mileage, oil_change_interval").eq("owner_org_id", orgId).order("manufacturer").order("brand"),
+    ]);
+    for (const result of [courseResult, driverResult, fleetResult]) if (result.error) throw result.error;
+    const courses = courseResult.data ?? [];
+    const members = driverResult.data ?? [];
+    const vehicles = fleetResult.data ?? [];
+    const courseIds = courses.map(c => c.id), driverIds = members.map(d => d.id), vehicleIds = vehicles.map(v => v.id);
+    const driverById = new Map(members.map(d => [d.id, d]));
+    const fleetById = new Map(vehicles.map(v => [v.id, v]));
+    const shiftsResult = courseIds.length ? await supabase.from("shifts")
+      .select("id, shift_date, course_id, cycle_no, slot, driver_id, vehicle_id, uses_external_vehicle, meeting_place, meeting_time, arrival_time, end_time")
+      .in("course_id", courseIds).gte("shift_date", startDate).lte("shift_date", endDate) : { data: [], error: null };
+    if (shiftsResult.error) throw shiftsResult.error;
+    // 既存の不正な横断参照もレスポンスへ流さない。
+    const shifts = (shiftsResult.data ?? []).filter(s => !s.driver_id || driverById.has(s.driver_id)).map(s => {
+      const driver = driverById.get(s.driver_id);
+      const vehicle = fleetById.get(s.vehicle_id);
+      return { ...s, vehicle_id: vehicle?.id ?? null, vehicles: vehicle && !vehicle.is_disposed ? vehicle : null,
+        drivers: driver ? { id: driver.id, name: driver.name, display_name: driver.display_name } : null };
+    });
+    const recent = new Date(`${startDate}T00:00:00Z`);
+    recent.setUTCDate(recent.getUTCDate() - 35);
+    const empty = { data: [], error: null };
+    const results = await Promise.all([
+      driverIds.length && vehicleIds.length ? supabase.from("vehicle_drivers").select("driver_id, vehicle_id").in("driver_id", driverIds).in("vehicle_id", vehicleIds) : empty,
+      vehicleIds.length ? supabase.from("vehicle_loans").select("vehicle_id, loan_date, note").in("vehicle_id", vehicleIds).gte("loan_date", startDate).lte("loan_date", endDate) : empty,
+      driverIds.length ? supabase.from("shift_requests").select("*").in("driver_id", driverIds).gte("request_date", startDate).lte("request_date", endDate) : empty,
+      // 便はcarrierに属す共有マスター（会社固有の個人データではない）。
+      supabase.from("shift_request_slots").select("id, name, start_time, end_time").eq("active", true).order("sort_order"),
+      courseIds.length && driverIds.length ? supabase.from("shifts").select("driver_id, course_id, shift_date").in("course_id", courseIds).in("driver_id", driverIds).gte("shift_date", recent.toISOString().slice(0, 10)).lt("shift_date", startDate) : empty,
+    ]);
+    for (const result of results) if (result.error) throw result.error;
+    const [links, loans, requests, slots, assignments] = results;
+    const courseSet = new Set(courseIds);
+    const drivers = members.filter(d => d.works_as_driver && d.status === "active").map(d => ({ ...d,
+      driver_identities: (d.driver_identities ?? []).map(identity => ({ ...identity, driver_courses: (identity.driver_courses ?? []).filter(c => courseSet.has(c.course_id)) })),
+    }));
+    return NextResponse.json({ courses: courses.filter(c => !c.archived_at), shifts, drivers,
+      requests: requests.data, slots: slots.data, vehicles: vehicles.filter(v => !v.is_disposed),
+      vehicle_driver_links: links.data, vehicle_loans: loans.data, recent_assignments: assignments.data });
+  } catch (error) {
+    return adminMutationError(error);
   }
-
-  // Get courses
-  const { data: courses } = await supabase
-    .from("courses")
-    .select("*, course_cycles(id, cycle_no, label, meeting_place, meeting_time, arrival_time, end_time, max_drivers, sort_order, active)")
-    .eq("org_id", orgId)
-    .is("archived_at", null)
-    .order("sort_order");
-
-  const { data: fleet } = await supabase
-    .from("vehicles")
-    .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, is_ev, is_unavailable, unavailable_reason, last_oil_change_mileage, oil_change_interval")
-    .eq("owner_org_id", orgId)
-    .eq("is_disposed", false)
-    .order("manufacturer")
-    .order("brand");
-
-  const fleetById = new Map((fleet ?? []).map((v) => [v.id, v]));
-
-  // Get shifts（vehicle_id は fleet と結合して返す／ネスト名の都合を避ける）
-  const { data: shiftsRaw } = await supabase
-    .from("shifts")
-    .select(
-      `
-      id, shift_date, course_id, cycle_no, slot, driver_id, vehicle_id, uses_external_vehicle,
-      meeting_place, meeting_time, arrival_time, end_time,
-      drivers (id, name, display_name)
-    `,
-    )
-    .gte("shift_date", startDate)
-    .lte("shift_date", endDate);
-
-  const shifts =
-    shiftsRaw?.map((s) => ({
-      ...s,
-      vehicles:
-        "vehicle_id" in s && s.vehicle_id ? (fleetById.get(s.vehicle_id as string) ?? null) : null,
-    })) ?? [];
-
-  const { data: vehicleLinks } = await supabase.from("vehicle_drivers").select("driver_id, vehicle_id");
-
-  // 期間内の車両貸出中（その日付は紐付け不可）
-  const { data: vehicleLoans } = await supabase
-    .from("vehicle_loans")
-    .select("vehicle_id, loan_date, note")
-    .gte("loan_date", startDate)
-    .lte("loan_date", endDate);
-
-  // Get drivers with their course assignments
-  // 並びはドライバー名簿と同じ list_no（No.）順に揃える。未設定は末尾、同値は名前順。
-  const { data: drivers } = await supabase
-    .from("drivers")
-    .select(`
-      id, name, display_name, role, list_no, driver_code,
-      driver_identities (
-        driver_courses (course_id)
-      )
-    `)
-    .eq("org_id", orgId)
-    .eq("works_as_driver", true)
-    .eq("status", "active")
-    .order("list_no", { ascending: true, nullsFirst: false })
-    .order("name");
-
-  // Get shift requests (希望休)。slot_id（便。NULL=全休）も含む。
-  const { data: requests } = await supabase
-    .from("shift_requests")
-    .select("*")
-    .gte("request_date", startDate)
-    .lte("request_date", endDate);
-
-  // 便（時間帯）マスタ（active のみ）。希望休の便名表示用。
-  const { data: slots } = await supabase
-    .from("shift_request_slots")
-    .select("id, name, start_time, end_time")
-    .eq("active", true)
-    .order("sort_order");
-
-  // 「＋コース」チップの並び順用: 表示期間より前35日の割当実績（ドライバー×コースの頻度・最終日を
-  // クライアントで集計し、「よく入るコース」を先頭に出す）。期間内の実績は shifts から取れる。
-  const recentStart = (() => {
-    const d = new Date(`${startDate}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - 35);
-    return d.toISOString().slice(0, 10);
-  })();
-  const { data: recentAssignments } = await supabase
-    .from("shifts")
-    .select("driver_id, course_id, shift_date")
-    .gte("shift_date", recentStart)
-    .lt("shift_date", startDate)
-    .not("driver_id", "is", null);
-
-  return NextResponse.json({
-    courses: courses ?? [],
-    shifts: shifts ?? [],
-    drivers: drivers ?? [],
-    requests: requests ?? [],
-    slots: slots ?? [],
-    vehicles: fleet ?? [],
-    vehicle_driver_links: vehicleLinks ?? [],
-    vehicle_loans: vehicleLoans ?? [],
-    recent_assignments: recentAssignments ?? [],
-  });
 }
 
 // POST: シフト登録/更新
@@ -166,15 +98,19 @@ export async function POST(req: NextRequest) {
       cycleNo?: number;
     };
 
-    if (!shiftDate || !courseId) {
+    if (!isDateOnly(shiftDate) || !isUuid(courseId) || (driverId != null && !isUuid(driverId))) {
       return NextResponse.json({ error: "shiftDate and courseId are required" }, { status: 400 });
+    }
+
+    if (!await belongsToOrg("courses", courseId, user.orgId) || (driverId && !await belongsToOrg("drivers", driverId, user.orgId))) {
+      return NextResponse.json({ error: "対象のコースまたはドライバーが見つかりません。" }, { status: 404 });
     }
 
     const slotNumber = Number.isFinite(slot) && Number(slot) >= 1 ? Math.floor(Number(slot)) : 1;
     const cycleNumber = Number.isInteger(cycleNo) && Number(cycleNo) >= 0 ? Number(cycleNo) : 0;
 
     // 変更ログ用に変更前の割当を読む（軽い1読取。ログ自体はベストエフォート）。
-    const { data: prevRow } = await supabase
+    const { data: prevRow, error: previousError } = await supabase
       .from("shifts")
       .select("driver_id")
       .eq("shift_date", shiftDate)
@@ -182,6 +118,8 @@ export async function POST(req: NextRequest) {
       .eq("cycle_no", cycleNumber)
       .eq("slot", slotNumber)
       .maybeSingle();
+
+    if (previousError) throw previousError;
 
     const upsertRow: Record<string, unknown> = {
       shift_date: shiftDate,
@@ -222,7 +160,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ shift: data });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return adminMutationError(err);
   }
 }

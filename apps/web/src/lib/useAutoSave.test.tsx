@@ -271,3 +271,14 @@ describe("useAutoSave / resetKey（編集対象の切り替え）", () => {
     expect(onSave).toHaveBeenCalledWith({ name: "Aさん編集中" });
   });
 });
+
+it("明示的な再試行は初期表示扱いの入力も保存し、失敗なら閉じる判定をfalseにする", async () => {
+  const onSave = vi.fn().mockRejectedValueOnce(new Error("lease failed")).mockResolvedValue(undefined);
+  const { result } = renderHook(() => useAutoSave({ value: { amount: 38000 }, onSave }));
+  let succeeded = true;
+  await act(async () => { succeeded = await result.current.retry(); });
+  expect(succeeded).toBe(false); expect(result.current.status).toBe("error");
+  await act(async () => { succeeded = await result.current.flush(); });
+  expect(succeeded).toBe(true); expect(result.current.status).toBe("saved");
+  expect(onSave).toHaveBeenCalledTimes(2);
+});

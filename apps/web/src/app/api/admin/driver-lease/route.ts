@@ -1,155 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requirePermission, requireAnyPermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { adminMutationError, isDateOnly, isUuid } from "@/server/db/adminResourceScope";
 
 export const dynamic = "force-dynamic";
+const todayJst = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-// ============================================================
-// ドライバーごとのリース設定（driver_leases）。専用概念。
-//   GET ?driver_id=  → 現在有効なリース（無ければ null）
-//   PUT              → 現在のリースを upsert（enabled=false で解除）
-// driver_fixed_expenses route のパターン踏襲。
-// ============================================================
-
-type LeaseDto = {
-  id: string;
-  driver_id: string;
-  mode: "MONTHLY" | "DAILY";
-  amount: number;
-  valid_from: string;
-  valid_to: string | null;
-};
-
-/** "YYYY-MM-01" の前日（前月末日）を "YYYY-MM-DD" で返す */
-function dayBefore(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
-
-function currentMonthStart(): string {
-  const now = new Date();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-  return `${now.getUTCFullYear()}-${mm}-01`;
-}
-
-// GET: 現在有効なリース（valid_to が NULL または未来）。複数あれば valid_from 最新。
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, "can_view_rewards");
+  const user = await requireAnyPermission(req, ["can_view_rewards", "can_manage_rewards"]);
   if (isAuthError(user)) return user;
-
   const driverId = req.nextUrl.searchParams.get("driver_id");
-  if (!driverId) {
-    return NextResponse.json({ error: "driver_id is required" }, { status: 400 });
-  }
-
-  const { data, error } = await supabase
-    .from("driver_leases")
-    .select("id, driver_id, mode, amount, valid_from, valid_to")
-    .eq("driver_id", driverId)
-    .is("valid_to", null)
-    .order("valid_from", { ascending: false })
-    .limit(1);
-
-  if (error) {
-    console.error("[/api/admin/driver-lease] GET error", error);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
-  }
-
-  const row = (data ?? [])[0];
-  const lease: LeaseDto | null = row
-    ? {
-        id: String(row.id ?? ""),
-        driver_id: String(row.driver_id ?? ""),
-        mode: row.mode === "DAILY" ? "DAILY" : "MONTHLY",
-        amount: Number(row.amount) || 0,
-        valid_from: String(row.valid_from ?? ""),
-        valid_to: row.valid_to ? String(row.valid_to) : null,
-      }
-    : null;
-
-  return NextResponse.json({ lease });
+  const date = req.nextUrl.searchParams.get("date") ?? todayJst();
+  if (!isUuid(driverId) || !isDateOnly(date)) return NextResponse.json({ error: "driver_id / date が不正です。" }, { status: 400 });
+  const { data, error } = await supabase.rpc("driver_lease_state", { p_org_id: user.orgId, p_driver_id: driverId, p_date: date });
+  return error ? adminMutationError(error) : NextResponse.json(data);
 }
 
-// PUT: リースの設定/更新/解除
 export async function PUT(req: NextRequest) {
   const user = await requirePermission(req, "can_manage_rewards");
   if (isAuthError(user)) return user;
-
-  type Body = {
-    driver_id?: string;
-    enabled?: boolean;
-    mode?: "MONTHLY" | "DAILY";
-    amount?: number;
-    valid_from?: string;
-  };
-
-  let body: Body;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  const body = await req.json().catch(() => null);
+  if (!body || !isUuid(body.driver_id) || typeof body.enabled !== "boolean" || !["MONTHLY", "DAILY"].includes(body.mode)
+    || !Number.isInteger(body.amount) || body.amount < 0 || body.amount > 2147483647
+    || !isDateOnly(body.valid_from) || !body.valid_from.endsWith("-01")) {
+    return NextResponse.json({ error: "契約・金額・適用開始月を確認してください。" }, { status: 400 });
   }
-
-  const { driver_id } = body;
-  if (!driver_id || typeof driver_id !== "string") {
-    return NextResponse.json({ error: "driver_id is required" }, { status: 400 });
+  if (typeof body.expected_revision !== "string" || !/^[a-f0-9]{32}$/.test(body.expected_revision)) {
+    return NextResponse.json({ error: "最新の契約を読み込んでから保存してください。" }, { status: 428 });
   }
-
-  const validFrom =
-    body.valid_from && /^\d{4}-\d{2}-\d{2}$/.test(body.valid_from) ? body.valid_from : currentMonthStart();
-
-  // 既存の有効期間（valid_to が NULL）を当該開始の前日で閉じる
-  const { error: closeErr } = await supabase
-    .from("driver_leases")
-    .update({ valid_to: dayBefore(validFrom), updated_at: new Date().toISOString() })
-    .eq("driver_id", driver_id)
-    .is("valid_to", null)
-    .lt("valid_from", validFrom);
-  if (closeErr) {
-    console.error("[/api/admin/driver-lease] close error", closeErr);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
-  }
-
-  // 同月（同 valid_from）の既存行は置き換えのため削除
-  const { error: delErr } = await supabase
-    .from("driver_leases")
-    .delete()
-    .eq("driver_id", driver_id)
-    .eq("valid_from", validFrom);
-  if (delErr) {
-    console.error("[/api/admin/driver-lease] replace-delete error", delErr);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
-  }
-
-  const mode: "MONTHLY" | "DAILY" = body.mode === "DAILY" ? "DAILY" : "MONTHLY";
-  const amount = Math.max(0, Math.trunc(Number(body.amount) || 0));
-
-  // 解除（enabled=false）/ 月額で金額0 の場合はここで終了＝リース無し。
-  // 日額は金額をコース(daily_lease)が持つため amount=0 でも有効。
-  if (body.enabled === false || (mode === "MONTHLY" && amount <= 0)) {
-    return NextResponse.json({ lease: null });
-  }
-
-  const { data, error } = await supabase
-    .from("driver_leases")
-    .insert({ driver_id, mode, amount, valid_from: validFrom })
-    .select("id, driver_id, mode, amount, valid_from, valid_to")
-    .single();
-
-  if (error) {
-    console.error("[/api/admin/driver-lease] insert error", error);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
-  }
-
-  const lease: LeaseDto = {
-    id: String(data.id ?? ""),
-    driver_id: String(data.driver_id ?? ""),
-    mode: data.mode === "DAILY" ? "DAILY" : "MONTHLY",
-    amount: Number(data.amount) || 0,
-    valid_from: String(data.valid_from ?? ""),
-    valid_to: data.valid_to ? String(data.valid_to) : null,
-  };
-
-  return NextResponse.json({ lease });
+  const { data, error } = await supabase.rpc("save_driver_lease", {
+    p_org_id: user.orgId, p_driver_id: body.driver_id, p_enabled: body.enabled, p_mode: body.mode,
+    p_amount: body.amount, p_valid_from: body.valid_from, p_expected_revision: body.expected_revision,
+  });
+  return error ? adminMutationError(error) : NextResponse.json(data);
 }

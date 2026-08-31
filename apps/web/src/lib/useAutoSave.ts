@@ -45,6 +45,8 @@ export type UseAutoSave = {
   error: Error | null;
   /** 保留中の保存を今すぐ実行する（モーダルを閉じるとき等）。何も無ければ何もしない */
   flush: () => Promise<boolean>;
+  /** 明示的な再試行。失敗直後の新規→編集切替でも保存を実行する */
+  retry: () => Promise<boolean>;
   /** 保留中の保存があるか（「保存中…」表示や離脱確認に使う） */
   hasPending: boolean;
 };
@@ -125,6 +127,11 @@ export function useAutoSave<T>({
     return Promise.resolve(true);
   }, [run]);
 
+  const retry = useCallback(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    return run();
+  }, [run]);
+
   // 編集対象の切り替え。**値の effect より前に宣言する**こと（宣言順に実行されるため、
   // ここではまだ latest.current が前のレコードの値＝保留中の入力を正しく保存できる）。
   useEffect(() => {
@@ -178,5 +185,5 @@ export function useAutoSave<T>({
     };
   }, [flush]);
 
-  return { status, error, flush, hasPending };
+  return { status, error, flush, retry, hasPending };
 }

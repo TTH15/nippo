@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { adminMutationError, isUuid } from "@/server/db/adminResourceScope";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { hasCapabilityCached } from "@/server/auth/permissions";
@@ -70,7 +72,7 @@ export async function GET(req: NextRequest) {
       next_shaken_date, jibaiseki_renewal_month, created_at,
       vehicle_drivers (
         driver_id,
-        drivers (id, name, display_name, works_as_driver, status)
+        drivers (id, name, display_name, works_as_driver, status, org_id)
       )
     `;
     let query = supabase
@@ -105,12 +107,12 @@ export async function GET(req: NextRequest) {
   // 利用ドライバーは「稼働中」だけを返す（詳細は server/vehicles/activeDrivers.ts）。
   const rawVehicles: Array<{ id: string; [key: string]: unknown }> = (
     (vehicles ?? []) as unknown as Array<{ id: string; [key: string]: unknown }>
-  ).map((v) => ({
-    ...v,
-    is_unavailable: v.is_unavailable ?? false,
-    unavailable_reason: v.unavailable_reason ?? null,
-    vehicle_drivers: filterActiveVehicleDrivers(v.vehicle_drivers as VehicleDriverRow[] | null),
-  }));
+  ).map((v) => {
+    const links = ((v.vehicle_drivers ?? []) as (VehicleDriverRow & { drivers?: { org_id?: string; works_as_driver?: boolean | null; status?: string | null } | null })[]).filter(link => link.drivers?.org_id === orgId);
+    return { ...v, is_unavailable: v.is_unavailable ?? false, unavailable_reason: v.unavailable_reason ?? null,
+      // 編集画面では非表示の稼働終了者も比較対象に含め、誤った競合を避ける。
+      driver_link_ids: links.map(link => link.driver_id), vehicle_drivers: filterActiveVehicleDrivers(links) };
+  });
 
   // 画像は Storage のパスを署名URLに変換して返す（既存の data URL はそのまま通る）
   const signedUrls = await resolveStoredUrls(
@@ -174,6 +176,12 @@ export async function POST(req: NextRequest) {
       driverIds = [],
     } = body;
 
+    if (!Array.isArray(driverIds) || !driverIds.every(isUuid)) return NextResponse.json({ error: "ドライバーの指定が不正です。" }, { status: 400 });
+    if (driverIds.length) {
+      const { data, error } = await supabase.from("drivers").select("id").eq("org_id", orgId).in("id", driverIds);
+      if (error) throw error;
+      if (new Set(data?.map(d => d.id)).size !== new Set(driverIds).size) return NextResponse.json({ error: "ドライバーが見つかりません。" }, { status: 404 });
+    }
     const hasIdentity = (manufacturer?.trim() || brand?.trim());
     if (!hasIdentity) {
       return NextResponse.json({ error: "メーカー名またはブランド名が必須です" }, { status: 400 });
@@ -191,10 +199,7 @@ export async function POST(req: NextRequest) {
     if (!storedImage.ok) return NextResponse.json({ error: storedImage.message }, { status: 400 });
     const storedImagePath = storedImage.path;
 
-    const { data: vehicle, error } = await supabase
-      .from("vehicles")
-      .insert({
-        owner_org_id: orgId,
+    const patch = {
         manufacturer: manufacturer?.trim() || null,
         brand: brand?.trim() || null,
         // 地図の3Dモデルと車体色（migration 123）。車種名から解決した値が渡ってくる
@@ -241,40 +246,14 @@ export async function POST(req: NextRequest) {
           jibaisekiRenewalMonth && /^\d{4}-\d{2}$/.test(String(jibaisekiRenewalMonth))
             ? String(jibaisekiRenewalMonth)
             : null,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error(error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    // ドライバーリレーションを追加
-    if (Array.isArray(driverIds) && driverIds.length > 0) {
-      const vehicleDrivers = driverIds.map((driverId: string) => ({
-        vehicle_id: vehicle.id,
-        driver_id: driverId,
-      }));
-      await supabase.from("vehicle_drivers").insert(vehicleDrivers);
-    }
-
-    // リレーション込みで再取得
-    const { data: vehicleWithDrivers } = await supabase
-      .from("vehicles")
-      .select(`
-        *,
-        vehicle_drivers (
-          driver_id,
-          drivers (id, name, display_name)
-        )
-      `)
-      .eq("id", vehicle.id)
-      .single();
-
-    return NextResponse.json({ vehicle: vehicleWithDrivers });
+      };
+    const { data: vehicle, error } = await supabase.rpc("save_vehicle_with_drivers", {
+      p_org_id: orgId, p_vehicle_id: randomUUID(), p_patch: patch,
+      p_driver_ids: driverIds, p_expected_driver_ids: [], p_create: true,
+    });
+    if (error) return adminMutationError(error);
+    return NextResponse.json({ vehicle });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return adminMutationError(err);
   }
 }

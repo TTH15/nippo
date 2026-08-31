@@ -5,6 +5,7 @@
 // ============================================================
 
 const ITEMS: { href: string; title: string; desc: string }[] = [
+  { href: "/preview/driver-leases", title: "シフト・リース・ラベル管理", desc: "複数ラベル、契約区分でのシフト表示、月額契約車の一時貸出（架空データ・外部送信なし）" },
   { href: "/preview/records", title: "記録・報告／フォーム設定", desc: "org別の項目・公開権限・テンプレートを編集し、役割別に記録する（架空データ・DB接続なし）" },
   { href: "/preview/shift-memo", title: "シフトメモ・半月グリッド", desc: "個人用のコース×日付グリッド、可変列幅、名前札D&D（モック・保存なし）" },
   { href: "/preview/course-settings", title: "コース設定・統合案1", desc: "基本情報と運行設定を左右に統合した2タブ構成（モック・保存なし）" },

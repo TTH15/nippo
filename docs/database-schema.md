@@ -2,6 +2,8 @@
 
 migrations 001〜098 を適用した後の最終状態。
 
+> **保存の安全性修繕（155、2026-08-31・適用未実施）**: `driver_lease_state` / `save_driver_lease` / `save_vehicle_with_drivers` を追加。会社境界・契約revision／車両紐付けの比較・一括保存をDB関数で処理し、実行権限をservice_roleに限定する。新テーブル・既存データの一括変更はない。以降のスキーマ変更も含めた実環境の適用状況は、この文書から推測しない。[対象SQL](../supabase/migrations/155_atomic_lease_vehicle_updates.sql)・[適用手順と検証範囲](development/lease-vehicle-repair-rollout.md)を参照。
+
 > **マルチテナント移行 Phase 0/1/3（082, 083, 086）**: `companies` を `organizations` へ昇格（`join_code`/`status` 追加、`id`=org_id）。多数のテーブルに `org_id`（車両は `owner_org_id`）を追加し既存全行を ACE テナントへバックフィル → 086 で NOT NULL＋FK 化。スコープ強制は API 層（`server/db/tenant.ts`）。詳細は `platform-design.md` §6,§7。
 
 > **Phase 4（087）**: `company_carriers(org_id, carrier_id)` 追加＝キャリアは共有マスタ＋会社別有効化。

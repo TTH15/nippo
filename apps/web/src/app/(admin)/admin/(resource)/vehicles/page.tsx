@@ -96,6 +96,7 @@ type Vehicle = {
   jibaiseki_renewal_month?: string | null; // YYYY-MM
   created_at: string;
   vehicle_drivers?: VehicleDriver[];
+  driver_link_ids?: string[];
   /** 回収済みマーク: month -> collected_at (ISO日付文字列)。旧モデル（未使用・温存） */
   recovery_collected?: Record<number, string>;
   recovery_start_month?: string | null; // YYYY-MM-01
@@ -541,6 +542,7 @@ export default function VehiclesPage() {
         nextShakenDate: form.nextShakenDate.trim() || null,
         jibaisekiRenewalMonth: form.jibaisekiRenewalMonth.trim() || null,
         driverIds: form.driverIds,
+        ...(editingVehicle ? { expectedDriverIds: editingVehicle.driver_link_ids ?? (editingVehicle.vehicle_drivers ?? []).map(link => link.driver_id) } : {}),
       };
       // 廃車でもナンバーは保持する（一覧では斜線表示で廃車を示す）。
       if (editingVehicle) {
@@ -579,8 +581,10 @@ export default function VehiclesPage() {
           next_shaken_date: payload.nextShakenDate,
           jibaiseki_renewal_month: payload.jibaisekiRenewalMonth,
           vehicle_drivers: toVehicleDrivers(payload.driverIds ?? []),
+          driver_link_ids: [...payload.driverIds],
         };
         setVehicles((prev) => sortVehicles(prev.map((v) => (v.id === editingVehicle.id ? updatedVehicle : v))));
+        setEditingVehicle(updatedVehicle);
       } else {
         const res = await apiFetch<{ vehicle: Vehicle }>("/api/admin/vehicles", {
           method: "POST",
@@ -608,6 +612,7 @@ export default function VehiclesPage() {
             "同じエラーが続く場合は、システム管理者に連絡してください。",
         detail: reason || undefined,
       });
+      throw e;
     } finally {
       setSaving(false);
     }
@@ -1478,7 +1483,7 @@ export default function VehiclesPage() {
 
       {/* 車両編集モーダル */}
       {showModal && canWrite && (
-        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => { flushAutoSave(); setShowModal(false); }}>
+        <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={async () => { if (!saving && await flushAutoSave()) setShowModal(false); }}>
           <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
               <div className="flex items-start justify-between mb-4">
@@ -2370,10 +2375,10 @@ export default function VehiclesPage() {
                               : "変更は自動保存されます"}
                       </span>
                       <button
-                        onClick={() => {
-                          flushAutoSave(); // 保留中の変更を確定させてから閉じる
-                          setShowModal(false);
+                        onClick={async () => {
+                          if (!saving && await flushAutoSave()) setShowModal(false);
                         }}
+                        disabled={saving}
                         className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 transition-colors"
                       >
                         閉じる
@@ -2388,7 +2393,7 @@ export default function VehiclesPage() {
                         キャンセル
                       </button>
                       <button
-                        onClick={save}
+                        onClick={() => void save().catch(() => {})}
                         disabled={saving || !(form.manufacturer || form.brand)}
                         className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
                       >

@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "npm -w @repo/web run dev",
+    "preview:admin": "node scripts/serve-admin-preview.mjs",
     "build": "npm -w @repo/web run build",
     "start": "npm -w @repo/web run start",
     "test": "npm -w @repo/web run test",

@@ -1,0 +1,82 @@
+// 本番接続・環境ファイル不要。PGliteのメモリ内PostgreSQLでmigration 155を検証。
+import { readFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const { PGlite } = await import(process.env.LEASE_PGLITE_MODULE || '@electric-sql/pglite');
+const db = new PGlite();
+const org = '11111111-1111-4111-8111-111111111111', other = '11111111-1111-4111-8111-111111111112';
+const driver = '22222222-2222-4222-8222-222222222221', second = '22222222-2222-4222-8222-222222222222', foreign = '22222222-2222-4222-8222-222222222223';
+const vehicle = '33333333-3333-4333-8333-333333333331';
+let checks = 0;
+const query = (sql, args = []) => db.query(sql,args);
+const ok = (actual, expected) => { assert.deepEqual(actual,expected); checks++; };
+const reject = async (fn, code) => { await assert.rejects(fn, e => e.code === code); checks++; };
+const state = async (date='2026-09-01') => (await query('select driver_lease_state($1,$2,$3) s',[org,driver,date])).rows[0].s;
+const save = async (revision, date='2026-09-01', enabled=true, amount=35000) => (await query('select save_driver_lease($1,$2,$3,$4,$5,$6,$7) s',[org,driver,enabled,'MONTHLY',amount,date,revision])).rows[0].s;
+const links = () => query('select driver_id from vehicle_drivers where vehicle_id=$1 order by driver_id',[vehicle]);
+const saveVehicle = (ids, expected, patch={manufacturer:'new'}) => query('select save_vehicle_with_drivers($1,$2,$3,$4,$5)',[org,vehicle,patch,ids,expected]);
+try {
+  await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+    CREATE TABLE drivers(id uuid PRIMARY KEY,org_id uuid,name text,display_name text);
+    CREATE TABLE vehicles(id uuid PRIMARY KEY,owner_org_id uuid,manufacturer text NOT NULL,updated_at timestamptz DEFAULT now());
+    CREATE TABLE vehicle_drivers(vehicle_id uuid REFERENCES vehicles,driver_id uuid REFERENCES drivers,UNIQUE(vehicle_id,driver_id));
+    GRANT SELECT,UPDATE,INSERT,DELETE ON drivers,vehicles,vehicle_drivers TO service_role;`);
+  await db.exec(await readFile(new URL('../../../../../supabase/migrations/062_driver_leases.sql',import.meta.url),'utf8'));
+  await db.exec('GRANT SELECT,UPDATE,INSERT,DELETE ON driver_leases TO service_role');
+  const sql=await readFile(new URL('../../../../../supabase/migrations/155_atomic_lease_vehicle_updates.sql',import.meta.url),'utf8');
+  await db.exec(sql); await db.exec(sql); checks++;
+  await query('insert into drivers(id,org_id) values($1,$2),($3,$2),($4,$5)',[driver,org,second,foreign,other]);
+  await query("insert into vehicles(id,owner_org_id,manufacturer) values($1,$2,'old')",[vehicle,org]);
+  const first=await state(); ok(first.lease,null);
+  const sept=await save(first.revision); ok(sept.lease.amount,35000);
+  await reject(()=>save(first.revision,'2026-09-01',true,99999),'40001');
+  ok((await state()).lease.amount,35000);
+  await reject(()=>save(sept.revision,'2026-09-15'),'22023');
+  await reject(()=>query('select driver_lease_state($1,$2,$3)',[other,driver,'2026-09-01']),'P0002');
+  await reject(()=>query('select save_driver_lease($1,$2,true,\'MONTHLY\',35000,\'2026-09-01\',$3)',[other,driver,sept.revision]),'P0002');
+  const future=await save(sept.revision,'2026-11-01',true,42000);
+  ok((await state()).lease.amount,35000); ok((await state()).upcoming.length,1);
+  const oct=await save(future.revision,'2026-10-01',true,38000);
+  ok(oct.lease.valid_to,'2026-10-31'); ok((await state('2026-11-01')).lease.amount,42000);
+  const disabled=await save(oct.revision,'2026-10-01',false);
+  ok(disabled.lease,null); ok((await state('2026-09-30')).lease.amount,35000); ok((await state('2026-11-01')).lease.amount,42000);
+  // 削除後のINSERT失敗でも、直前の期間・金額・revisionが丸ごと残る。
+  await db.exec(`CREATE FUNCTION fail_lease() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'insert failed'; END $$;
+    CREATE TRIGGER fail_lease BEFORE INSERT ON driver_leases FOR EACH ROW EXECUTE FUNCTION fail_lease();`);
+  const before=await state();
+  await reject(()=>save(before.revision,'2026-09-01',true,39000),'P0001');
+  ok(await state(),before);
+  await db.exec('DROP TRIGGER fail_lease ON driver_leases');
+  await saveVehicle([driver],[]); ok((await links()).rows,[{driver_id:driver}]);
+  await reject(()=>saveVehicle([second],[]),'40001');
+  await reject(()=>saveVehicle([foreign],[driver]),'P0002');
+  await reject(()=>saveVehicle([driver],null),'22023');
+  await reject(()=>saveVehicle([driver],[driver],{owner_org_id:other}),'22023');
+  await reject(()=>query('select save_vehicle_with_drivers($1,$2,$3,$4,$5)',[other,vehicle,{manufacturer:'bad'},[],[]]),'P0002');
+  // 本体UPDATE + 旧紐付けDELETEの後にINSERTを失敗させ、両方のrollbackを確認。
+  await db.exec(`CREATE FUNCTION fail_link() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'link failed'; END $$;
+    CREATE TRIGGER fail_link BEFORE INSERT ON vehicle_drivers FOR EACH ROW EXECUTE FUNCTION fail_link();`);
+  await reject(()=>saveVehicle([second],[driver],{manufacturer:'broken'}),'P0001');
+  ok((await links()).rows,[{driver_id:driver}]);
+  ok((await query('select manufacturer from vehicles where id=$1',[vehicle])).rows[0].manufacturer,'new');
+  const createdId = '33333333-3333-4333-8333-333333333339';
+  await reject(()=>query('select save_vehicle_with_drivers($1,$2,$3,$4,$5,true)',[org,createdId,{manufacturer:'new-create'},[driver],[]]),'P0001');
+  ok((await query('select id from vehicles where id=$1',[createdId])).rows,[]);
+  await db.exec('DROP TRIGGER fail_link ON vehicle_drivers');
+  const created = await query('select save_vehicle_with_drivers($1,$2,$3,$4,$5,true) v',[org,createdId,{manufacturer:'new-create'},[driver],[]]);
+  ok(created.rows[0].v.driver_link_ids,[driver]);
+
+  await saveVehicle([], [driver]); ok((await links()).rows,[]);
+  await saveVehicle(null,null,{manufacturer:'mobile'}); ok((await links()).rows,[]);
+  await db.exec('SET ROLE anon');
+  await reject(()=>state(),'42501'); await reject(()=>save(first.revision),'42501'); await reject(()=>saveVehicle([],[]),'42501');
+  await db.exec('RESET ROLE; SET ROLE service_role');
+  ok((await state('2026-11-01')).lease.amount,42000);
+  await saveVehicle([driver,second],[]); ok((await links()).rows.length,2);
+  // 過去の越境紐付けが存在しても他社IDを返さず、編集で黙って削除しない。
+  await query('insert into vehicle_drivers(vehicle_id,driver_id) values($1,$2)',[vehicle,foreign]);
+  const scopedVehicle = (await query('select save_vehicle_with_drivers($1,$2,$3) v',[org,vehicle,{manufacturer:'scoped'}])).rows[0].v;
+  ok(scopedVehicle.driver_link_ids,[driver,second]);
+  ok(scopedVehicle.vehicle_drivers.some(link=>link.driver_id===foreign),false);
+  await reject(()=>saveVehicle([driver,second],[driver,second]),'40001');
+  console.log(`migration 155: ${checks} SQL checks passed (isolated PGlite; no external DB)`);
+} finally { await db.close(); }
