@@ -1,4 +1,4 @@
-export type ShiftDisplay = { shift: boolean; vehicle: boolean; meetingTime: boolean };
+export type ShiftDisplay = { shift: boolean; vehicle: boolean; meetingTime: boolean; contract?: boolean };
 export const SHIFT_DISPLAY_KEY = "shifts_display_items";
 export const DEFAULT_SHIFT_DISPLAY: ShiftDisplay = { shift: true, vehicle: true, meetingTime: false };
 
@@ -8,7 +8,8 @@ export function readShiftDisplay(storage: Pick<Storage, "getItem">): ShiftDispla
     const saved: unknown = JSON.parse(storage.getItem(SHIFT_DISPLAY_KEY) ?? "null");
     if (saved && typeof saved === "object" && "shift" in saved && "vehicle" in saved && "meetingTime" in saved &&
       typeof saved.shift === "boolean" && typeof saved.vehicle === "boolean" && typeof saved.meetingTime === "boolean") {
-      return { shift: saved.shift, vehicle: saved.vehicle, meetingTime: saved.meetingTime };
+      return { shift: saved.shift, vehicle: saved.vehicle, meetingTime: saved.meetingTime,
+        ...("contract" in saved && typeof saved.contract === "boolean" ? { contract: saved.contract } : {}) };
     }
   } catch { /* 壊れた設定は旧設定または既定値へ戻す。 */ }
   try {
@@ -18,5 +19,5 @@ export function readShiftDisplay(storage: Pick<Storage, "getItem">): ShiftDispla
 }
 
 export function toggleShiftDisplay(value: ShiftDisplay, item: keyof ShiftDisplay): ShiftDisplay {
-  return { ...value, [item]: !value[item] };
+  return { ...value, [item]: !(item === "contract" ? value.contract ?? value.vehicle : value[item]) };
 }

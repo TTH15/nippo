@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 vi.mock("@/lib/api", () => import("../../../../../../../../scripts/previews/shifts-services"));
@@ -14,10 +14,55 @@ vi.mock("@/lib/components/VehiclePlate", () => ({
   VehiclePlate: ({ vehicle }: { vehicle: { id: string } }) => <span data-testid="vehicle-plate">{vehicle.id}</span>,
 }));
 import ShiftsPage from "./page";
+import { resetPreviewShifts, setPreviewLeaseScenario } from "../../../../../../../../scripts/previews/shifts-services";
 
-afterEach(cleanup);
-beforeEach(() => { localStorage.clear(); Element.prototype.scrollIntoView = vi.fn(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
+beforeEach(() => { localStorage.clear(); resetPreviewShifts(); vi.setSystemTime(new Date("2026-08-31T12:00:00+09:00")); Element.prototype.scrollIntoView = vi.fn(); });
 describe("本番シフトページの表示操作", () => {
+  it("契約区分を表示し、月替わり・絞り込み・段分け解除が予定を書き換えず反映される", async () => {
+    render(<ShiftsPage />);
+    const table = await screen.findByRole("table", { name: "ドライバー別シフト表" });
+    expect(within(table).getByRole("columnheader", { name: "月額リース 3人" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "日額リース 5人" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "9月前半を表示" }));
+    await waitFor(() => expect(within(table).getByRole("columnheader", { name: "月額リース 4人" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "リース区分で絞り込み" }));
+    fireEvent.click(screen.getByRole("button", { name: "月額リース" }));
+    expect(within(table).queryByText("田中")).not.toBeInTheDocument();
+    expect(within(table).getAllByText("佐藤").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /^全員\s*4$/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "契約区分でまとめる" }));
+    expect(within(table).queryByRole("columnheader", { name: "月額リース 4人" })).not.toBeInTheDocument();
+    expect(within(table).getAllByText("月額リース")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "表示" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "表示する項目" })).getByRole("button", { name: "契約区分" }));
+    expect(within(table).queryByText("月額リース")).not.toBeInTheDocument();
+    expect(within(table).getAllByTestId("vehicle-plate").length).toBeGreaterThan(0);
+  });
+  it("取得失敗でリースなしに分類せず、再読込で区分表示へ戻る", async () => {
+    setPreviewLeaseScenario("error");
+    render(<ShiftsPage />);
+    const table = await screen.findByRole("table", { name: "ドライバー別シフト表" });
+    expect(screen.getByRole("alert")).toHaveTextContent("契約区分を取得できませんでした");
+    expect(within(table).queryByText("リースなし")).not.toBeInTheDocument();
+    expect(within(table).getAllByText("佐藤").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "リース区分で絞り込み" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(within(table).getByRole("columnheader", { name: "月額リース 3人" })).toBeInTheDocument();
+  });
+  it("未設定はリースなし、月額フィルターが0件でも条件を戻せる", async () => {
+    render(<ShiftsPage />);
+    const table = await screen.findByRole("table", { name: "ドライバー別シフト表" });
+    act(() => setPreviewLeaseScenario("empty"));
+    expect(within(table).getByRole("columnheader", { name: "リースなし 12人" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "リース区分で絞り込み" }));
+    fireEvent.click(screen.getByRole("button", { name: "月額リース" }));
+    expect(within(table).getByText(/該当するドライバーはいません/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "リース区分で絞り込み" }));
+    fireEvent.click(screen.getByRole("button", { name: "すべての契約" }));
+    expect(within(table).getAllByText("佐藤").length).toBeGreaterThan(0);
+  });
   it("旧密度設定を引き継ぎ、表示パネルで車両・時刻を切り替える", async () => {
     localStorage.setItem("shifts_view_density", "compact");
     render(<ShiftsPage />);

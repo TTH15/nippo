@@ -12,6 +12,7 @@ export function ShiftDisplayOptions({ value, onChange, axis, onAxisChange }: {
       <span className="mr-1 text-xs text-slate-500">表示項目</span>
       {([["shift", "シフト"], ["vehicle", "車両"], ["meetingTime", "集合時刻"]] as const).map(([key, label]) =>
         <SelectionToggle key={key} selected={value[key]} onClick={() => onChange(toggleShiftDisplay(value, key))}>{label}</SelectionToggle>)}
+      <SelectionToggle selected={value.contract ?? value.vehicle} onClick={() => onChange(toggleShiftDisplay(value, "contract"))}>契約区分</SelectionToggle>
     </div>
     <div className="hidden items-center gap-2 md:flex">
       <span className="text-xs text-slate-500">並び</span>

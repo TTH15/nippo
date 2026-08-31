@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { readShiftDisplay, toggleShiftDisplay, SHIFT_DISPLAY_KEY } from "./shiftDisplay";
 const storage = (data: Record<string, string>) => ({ getItem: (key: string) => data[key] ?? null });
 describe("本番シフトの表示設定", () => {
+  it("契約区分は初期状態で車両表示と連動し、手動選択後は設定を保持する", () => {
+    const value = toggleShiftDisplay({ shift: true, vehicle: true, meetingTime: false }, "contract");
+    expect(value.contract).toBe(false);
+    expect(toggleShiftDisplay(value, "vehicle").contract).toBe(false);
+    expect(readShiftDisplay(storage({ [SHIFT_DISPLAY_KEY]: JSON.stringify(value) }))).toEqual(value);
+    expect(toggleShiftDisplay({ shift: true, vehicle: false, meetingTime: false }, "contract").contract).toBe(true);
+  });
   it.each([
     ["compact", { shift: true, vehicle: false, meetingTime: false }],
     ["standard", { shift: true, vehicle: true, meetingTime: false }],

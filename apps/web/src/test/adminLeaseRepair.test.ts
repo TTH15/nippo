@@ -36,6 +36,11 @@ class Query {
   gte(k: string, v: string) { this.filters.push(r => r[k] >= v); return this; }
   lte(k: string, v: string) { this.filters.push(r => r[k] <= v); return this; }
   lt(k: string, v: string) { this.filters.push(r => r[k] < v); return this; }
+  or(condition: string) {
+    const match = /^valid_to\.is\.null,valid_to\.gte\.(\d{4}-\d{2}-\d{2})$/.exec(condition);
+    if (!match) throw new Error(`Unsupported fixture condition: ${condition}`);
+    this.filters.push(r => r.valid_to === null || r.valid_to >= match[1]); return this;
+  }
   order() { return this; }
   limit() { return this; }
   range() { return this; }
@@ -100,6 +105,28 @@ describe("契約API", () => {
 });
 
 describe("シフトと配車の会社境界", () => {
+  it("シフトの閲覧権限がなければ契約区分も読まない", async () => {
+    mock.auth.mockResolvedValue(NextResponse.json({ error: "Forbidden" }, { status: 403 }));
+    expect((await shiftsGet(request(undefined, "?start=2026-09-01&end=2026-09-15"))).status).toBe(403);
+    expect(mock.from).not.toHaveBeenCalled();
+  });
+  it("自社かつ表示期間に重なる契約区分だけを返し、金額は含めない", async () => {
+    const current = { id: id(20), driver_id: driver, mode: "DAILY", valid_from: "2026-09-01", valid_to: null, amount: 0, updated_at: "private" };
+    tables.driver_leases = [current, { ...current, id: id(21), driver_id: otherDriver },
+      { ...current, id: id(22), valid_from: "2026-08-01", valid_to: "2026-08-31" },
+      { ...current, id: id(23), valid_from: "2026-09-16" }];
+    const data = await (await shiftsGet(request(undefined, "?start=2026-09-01&end=2026-09-15"))).json();
+    expect(data.driver_leases).toEqual([{ id: id(20), driver_id: driver, mode: "DAILY", valid_from: "2026-09-01", valid_to: null }]);
+    expect(writes).toEqual([]);
+    expect(mock.auth).toHaveBeenCalledWith(expect.anything(), "can_view_shifts");
+  });
+  it("契約区分だけの取得失敗はnullで明示しシフトを維持する", async () => {
+    failedTable = "driver_leases";
+    const response = await shiftsGet(request(undefined, "?start=2026-09-01&end=2026-09-15"));
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.driver_leases).toBeNull(); expect(data.shifts).toHaveLength(1);
+  });
   it("関連する予定・希望休・車両紐付けを自社だけ返す", async () => {
     const data = await (await shiftsGet(request(undefined,"?start=2026-09-01&end=2026-09-15"))).json();
     expect(data.shifts).toHaveLength(1); expect(data.shifts[0].drivers.name).toBe("自社");
@@ -109,11 +136,13 @@ describe("シフトと配車の会社境界", () => {
   it("稼働人数の軽量取得にも自社条件を適用する",async () => {
     const response=await shiftsGet(request(undefined,"?start=2026-09-01&end=2026-09-15&countDrivers=1"));
     expect(await response.json()).toEqual({count:1}); expect(mock.from).not.toHaveBeenCalledWith("vehicles");
+    expect(mock.from).not.toHaveBeenCalledWith("driver_leases");
   });
   it("自社の集合が空なら他社データを返さない", async () => {
     mock.auth.mockResolvedValue({orgId:"empty",driverId:driver});
     const data=await (await shiftsGet(request(undefined,"?start=2026-09-01&end=2026-09-15"))).json();
     expect(data.shifts).toEqual([]); expect(data.requests).toEqual([]); expect(data.vehicle_driver_links).toEqual([]);
+    expect(data.driver_leases).toEqual([]); expect(mock.from).not.toHaveBeenCalledWith("driver_leases");
   });
   it("既存の不正な会社横断参照を返さない", async () => {
     tables.shifts.push({...tables.shifts[0],driver_id:otherDriver});

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { AdminPreviewLayout } from "../../apps/web/src/app/preview/driver-leases/AdminPreviewLayout";
+import type { ShiftLease } from "../../apps/web/src/lib/shiftLease";
 
 // All records below are fictional. This module has no network, database or authentication access.
 const names = ["佐藤 翔太", "田中 美咲", "鈴木 大輔", "高橋 健太", "伊藤 彩", "渡辺 直樹", "山本 葵", "中村 拓海", "小林 悠斗", "加藤 真央", "吉田 亮", "山田 智子"];
@@ -16,6 +17,16 @@ const cache = new Map<string, unknown>();
 const subscribers = new Set<() => void>();
 let revision = 0;
 let failNext = false;
+let leaseScenario: "normal" | "empty" | "error" = "normal";
+let firstDriverDaily = false;
+const leases: ShiftLease[] = drivers.flatMap((driver, i) => i % 3 === 2 ? [] : [{
+  id: `lease-${i}`, driver_id: driver.id, mode: i % 3 === 0 ? "MONTHLY" : "DAILY", valid_from: "2020-01-01", valid_to: null,
+}]);
+// 8月から9月の契約変更を試す。過去の契約を現在の設定で上書きしない。
+leases[0].valid_from = "2026-09-01";
+leases.push({ id: "lease-past", driver_id: drivers[0].id, mode: "DAILY", valid_from: "2020-01-01", valid_to: "2026-08-31" });
+export function setPreviewLeaseScenario(value: typeof leaseScenario) { leaseScenario = value; notify(); }
+export function resetPreviewShifts() { periodData.clear(); leaseScenario = "normal"; firstDriverDaily = false; failNext = false; notify(); }
 function notify() { revision++; cache.clear(); subscribers.forEach(fn => fn()); }
 function dataFor(key: string) {
   if (cache.has(key)) return cache.get(key);
@@ -34,7 +45,7 @@ function dataFor(key: string) {
       }
       periodData.set(key, { courses, drivers, vehicles, shifts, requests: [], slots: [{ id: "slot-1", name: "終日", start_time: null, end_time: null }], vehicle_driver_links: drivers.map((d, i) => ({ driver_id: d.id, vehicle_id: vehicles[i].id })) });
     }
-    data = { ...periodData.get(key)! };
+    data = { ...periodData.get(key)!, driver_leases: leaseScenario === "error" ? null : leaseScenario === "empty" ? [] : leases.map(lease => firstDriverDaily && lease.driver_id === drivers[0].id ? { ...lease, mode: "DAILY" } : lease) };
   } else if (key.startsWith("/api/admin/spot-jobs?")) data = { jobs: [] };
   else if (key.endsWith("pending-changes")) data = { enabled: false, changes: [], canSend: false };
   else data = undefined;
@@ -44,7 +55,7 @@ function dataFor(key: string) {
 export function useApi<T>(key: string | null) {
   const rev = useSyncExternalStore(useCallback(fn => { subscribers.add(fn); return () => subscribers.delete(fn); }, []), () => revision);
   const data = useMemo(() => key ? dataFor(key) as T : undefined, [key, rev]);
-  const refresh = useCallback(async () => { await new Promise(resolve => setTimeout(resolve, 0)); notify(); return key ? dataFor(key) as T : undefined; }, [key]);
+  const refresh = useCallback(async () => { await new Promise(resolve => setTimeout(resolve, 0)); leaseScenario = leaseScenario === "error" ? "normal" : leaseScenario; notify(); return key ? dataFor(key) as T : undefined; }, [key]);
   return { data, isInitialLoading: false, isLoading: false, error: undefined, mutate: refresh, refresh };
 }
 export async function apiFetch<T>(key: string, init?: RequestInit): Promise<T> {
@@ -81,10 +92,14 @@ export const mutate = async () => undefined;
 export const swrFetcher = async () => undefined;
 export const summarizeHistory = () => [];
 export function AdminLayout({ children }: { children: ReactNode }) {
-  return <AdminPreviewLayout pathname="/admin/shifts" onReset={() => { periodData.clear(); notify(); }}>
+  return <AdminPreviewLayout pathname="/admin/shifts" onReset={resetPreviewShifts}>
     <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2 text-[11px] text-slate-500">
       <span>本番シフト画面のコードを使用 · 架空データ · DB・API・通知への接続なし</span>
       <button type="button" className="ml-auto rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { failNext = true; }}>次の保存を失敗させる</button>
+      <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => setPreviewLeaseScenario("empty")}>契約が全員未設定</button>
+      <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => setPreviewLeaseScenario("error")}>契約の取得失敗</button>
+      <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { firstDriverDaily = true; leaseScenario = "normal"; notify(); }}>佐藤の契約を日額へ変更</button>
+      <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={resetPreviewShifts}>サンプルを初期化</button>
     </div>
     {children}
   </AdminPreviewLayout>;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from "react";
+import { Fragment, useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight, faFileImport, faDownload, faChevronDown, faRotateRight, faGear } from "@fortawesome/free-solid-svg-icons";
@@ -33,6 +33,8 @@ import { Check, ChevronDown } from "lucide-react";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { ShiftDisplayPanel } from "@/lib/components/ShiftDisplayPanel";
 import { ShiftDisplayOptions } from "@/lib/components/ShiftDisplayOptions";
+import { ShiftLeaseFilters, ShiftLeaseBadge } from "@/lib/components/ShiftLeaseFilters";
+import { indexShiftLeases, shiftLeaseMode, shiftLeaseGroups, SHIFT_LEASE_NAMES, type ShiftLease, type ShiftLeaseFilter } from "@/lib/shiftLease";
 import { DEFAULT_SHIFT_DISPLAY, SHIFT_DISPLAY_KEY, readShiftDisplay, type ShiftDisplay } from "@/lib/shiftDisplay";
 import { ImageExportDialog } from "@/lib/components/ImageExportDialog";
 import { captureDispatchImage, DISPATCH_IMAGE_PAGE_SIZE } from "@/lib/captureDispatchImage";
@@ -406,7 +408,7 @@ type Driver = {
   id: string;
   name: string;
   display_name?: string | null;
-  /** ドライバー名簿と同じ No.。API が list_no 昇順で返すため、画面側では並べ替えない */
+  /** ドライバー名簿と同じ No.。APIのlist_no順を契約区分内でも保つ */
   list_no?: number | null;
   driver_code?: string | null;
   driver_identities?: { driver_courses: { course_id: string }[] }[];
@@ -672,6 +674,9 @@ export default function ShiftsPage() {
   // 表示軸（A3）: driver=行がドライバー（既定）/ course=行がコースで埋まり具合を俯瞰。
   const [viewAxis, setViewAxis] = useState<"driver" | "course">("driver");
   const [display, setDisplay] = useState<ShiftDisplay>(DEFAULT_SHIFT_DISPLAY);
+  const [leaseFilter, setLeaseFilter] = useState<ShiftLeaseFilter>("all");
+  const [groupByLease, setGroupByLease] = useState(true);
+  const showContract = display.contract ?? display.vehicle;
   useEffect(() => { try { setDisplay(readShiftDisplay(localStorage)); } catch { /* 端末がストレージを禁止している場合は既定表示。 */ } }, []);
   const changeDisplay = (value: ShiftDisplay) => {
     setDisplay(value);
@@ -750,6 +755,7 @@ export default function ShiftsPage() {
     vehicle_driver_links?: { driver_id: string; vehicle_id: string }[];
     vehicle_loans?: { vehicle_id: string; loan_date: string }[];
     recent_assignments?: { driver_id: string; course_id: string; shift_date: string }[];
+    driver_leases?: ShiftLease[] | null;
   }>(shiftsKey, {
     // 日付グリッドで前期間のデータが新しい列に重なって見えるのを防ぐため、
     // この画面では keepPreviousData を無効化（未訪問の期間切替時のみスケルトン）。
@@ -760,6 +766,7 @@ export default function ShiftsPage() {
 
   // 初回（キャッシュ未取得）のみスケルトン。再訪・キャッシュ済み期間切替では点滅しない。
   const loading = isInitialLoading;
+  const leaseIndex = useMemo(() => indexShiftLeases(shiftsData?.driver_leases), [shiftsData?.driver_leases]);
 
   // 単発案件（同じ期間）。継続（コース）と同格の「仕事」としてグリッド・日別ビューに出す
   // （work-model §4,§8）。migration 129 未適用などで取得に失敗しても、この画面は通常どおり動く。
@@ -1834,6 +1841,11 @@ export default function ShiftsPage() {
     setMobileDate(`${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`);
   };
 
+  // 半月表の区分は期間初日、日別一覧は表示日で判定する。元の名簿・配車候補は保持。
+  const gridLeaseGroups = shiftLeaseGroups(driversWithCourses, leaseIndex, displayDates[0] ?? "", leaseFilter, groupByLease);
+  const gridDriverRows = gridLeaseGroups.flatMap(group => group.drivers.map((driver, index) => ({ driver, mode: group.mode, groupStart: index === 0, groupSize: group.drivers.length })));
+  const gridDriverIds = new Set(gridDriverRows.map(row => row.driver.id));
+
   const placementMeetingTimes = (date: string, placements: { courseId: string; cycleNo: number; slot: number }[]) =>
     placements.map(p => {
       const course = courses.find(c => c.id === p.courseId);
@@ -1842,9 +1854,9 @@ export default function ShiftsPage() {
       return toTimeInputValue(shift?.meeting_time ?? cycle?.meeting_time ?? course?.meeting_time);
     }).filter(Boolean);
 
-  /** 日別ビュー用: その日の全ドライバーの状態（割当・希望休・車両）を表示名順で返す */
+  /** 日別ビュー用: 契約の絞り込み後の状態（割当・希望休・車両）を名簿順で返す */
   const getDayRows = (date: string) =>
-    driversWithCourses
+    shiftLeaseGroups(driversWithCourses, leaseIndex, date, leaseFilter, false)[0].drivers
       .map((driver) => {
         const placements = findDriverPlacementsOnDate(localShifts, date, driver.id);
         const assignedCourses = placements
@@ -1868,6 +1880,7 @@ export default function ShiftsPage() {
           return embedded ?? { id: vehicleId };
         })();
         return {
+          id: driver.id,
           driver,
           placements,
           assignedCourses,
@@ -1888,6 +1901,7 @@ export default function ShiftsPage() {
           ? allRows.filter((r) => r.placements.length === 0)
           : allRows;
     const dayJobs = spotJobsByDate.get(date) ?? [];
+    const dayGroups = shiftLeaseGroups(rows, leaseIndex, date, "all", groupByLease);
     return (
       <div className="space-y-3">
       {/* 単発案件（その日の全件。ゲスト・名前だけの参加者もここで見える） */}
@@ -1915,7 +1929,9 @@ export default function ShiftsPage() {
         {rows.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-slate-400">該当するドライバーはいません。</p>
         ) : (
-          rows.map(({ driver, placements, assignedCourses, plate, isExternal, off }) => {
+          dayGroups.map(group => <section key={group.mode ?? "all"} data-export-section className="divide-y divide-slate-100">
+          {group.mode && <h2 className="bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">{SHIFT_LEASE_NAMES[group.mode]}<span data-export-omit className="ml-2 font-normal">{group.drivers.length}人</span></h2>}
+          {group.drivers.map(({ driver, placements, assignedCourses, plate, isExternal, off }) => {
             const hasAny = placements.length > 0;
             const offOnly = off && !hasAny; // 割当があるのに希望休表示で隠さない（競合を見せる）
             const canOpen = offOnly ? canWrite : canWrite || (canDispatch && hasAny);
@@ -1936,9 +1952,10 @@ export default function ShiftsPage() {
                   canOpen ? "active:bg-slate-100" : "cursor-default",
                 )}
               >
-                <span className="w-16 shrink-0 truncate text-sm font-semibold text-slate-900">
-                  {getDisplayName(driver)}
-                </span>
+                {showContract && !group.mode ? <span className="w-20 shrink-0 text-sm font-semibold text-slate-900">
+                  <span className="block truncate">{getDisplayName(driver)}</span>
+                  <ShiftLeaseBadge mode={shiftLeaseMode(leaseIndex, driver.id, date)} />
+                </span> : <span className="w-16 shrink-0 truncate text-sm font-semibold text-slate-900">{getDisplayName(driver)}</span>}
                 {/* 名前・コース・車両を1行に収め、行の高さを揃える */}
                 <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                   {off && !hasAny ? (
@@ -2018,7 +2035,7 @@ export default function ShiftsPage() {
                 )}
               </button>
             );
-          })
+          })}</section>)
         )}
       </div>
       </div>
@@ -2112,10 +2129,10 @@ export default function ShiftsPage() {
     if (!imageExportListRef.current || loading) throw new Error("シフトの読み込み完了後に再度お試しください。");
     return captureDispatchImage(imageExportListRef.current, {
       title: `${activeMobileDate} 日別配車`,
-      subtitle: `${mobileFilter === "all" ? "全員" : mobileFilter === "working" ? "稼働" : "未割当"} ${exportRows.length}人`,
+      subtitle: `${mobileFilter === "all" ? "全員" : mobileFilter === "working" ? "稼働" : "未割当"} ${exportRows.length}人 · ${leaseIndex ? leaseFilter === "all" ? "すべての契約" : SHIFT_LEASE_NAMES[leaseFilter] : "契約区分未取得"}`,
       page, pageCount: exportPageCount,
     });
-  }, [activeMobileDate, mobileFilter, exportRows.length, exportPageCount, loading, display, shifts, localShifts, localVehicleByDriverDay, localExternalByDriverDay, spotJobsByDate]);
+  }, [activeMobileDate, mobileFilter, exportRows.length, exportPageCount, loading, display, shifts, localShifts, localVehicleByDriverDay, localExternalByDriverDay, spotJobsByDate, leaseIndex, leaseFilter, groupByLease]);
   const handleMobileDayExport = () => { setExportMenuOpen(false); setImageExportOpen(true); };
 
   return (
@@ -2292,6 +2309,10 @@ export default function ShiftsPage() {
           {workspaceView === "shift" && <ShiftDisplayOptions value={display} onChange={changeDisplay} axis={viewAxis} onAxisChange={setViewAxis} />}
         </ShiftDisplayPanel>
 
+        {workspaceView === "shift" && <ShiftLeaseFilters value={leaseFilter} onChange={setLeaseFilter} grouped={groupByLease} onGroupedChange={setGroupByLease}
+          ready={leaseIndex !== null} loading={loading} retrying={refreshing} axis={viewAxis} startDate={displayDates[0] ?? ""} dailyDate={activeMobileDate}
+          onRetry={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />}
+
         {workspaceView === "shift" && (canWrite || canLoan) && (
           <div className="mb-2 flex items-center gap-2 text-[11px] md:text-xs text-slate-500">
             <span
@@ -2344,7 +2365,7 @@ export default function ShiftsPage() {
                 </button>
                 <div className="min-w-0 text-center">
                   <DatePicker ariaLabel="表示する日付" value={new Date(date + "T12:00:00")} onChange={selectMobileDate} displayFormat="yyyy/M/d（E）" className={cn("h-8 justify-center border-0 bg-transparent px-1 text-xs font-bold shadow-none", isToday && "text-amber-600")} />
-                  <p className="text-[11px] text-slate-500">稼働 {count}人</p>
+                  <p className="text-[11px] text-slate-500">稼働 {workingCount}人{leaseFilter !== "all" && leaseIndex && ` / 全体${count}人`}</p>
                 </div>
                 <button
                   type="button"
@@ -2635,6 +2656,7 @@ export default function ShiftsPage() {
                                     const times = placementMeetingTimes(date, [{ courseId: course.id, cycleNo: 0, slot: a.slot }]);
                                     return <span key={a.slot} className="flex w-full min-w-0 flex-col gap-1 rounded-md bg-slate-50 p-1">
                                       <span className="w-full truncate text-[11px] font-semibold text-slate-800">{driver ? getDisplayName(driver) : "（不明）"}</span>
+                                      {showContract && <ShiftLeaseBadge mode={shiftLeaseMode(leaseIndex, a.driverId, date)} />}
                                       {display.meetingTime && times.length > 0 && <span className="text-[10px] text-slate-500">集合 {times.join(" / ")}</span>}
                                       {display.vehicle && (plate ? <VehiclePlate vehicle={plate} compact className="!max-w-none w-full pointer-events-none" /> : <span className="text-[10px] text-slate-500">{getCurrentExternalForDriverOnDate(date, a.driverId) ? "他社車両" : "車両なし"}</span>)}
                                     </span>;
@@ -2668,7 +2690,7 @@ export default function ShiftsPage() {
                     </th>
                     {displayDates.map((date) => {
                       const tone = shiftDayTone(date, today);
-                      const count = workingCountByDate.get(date) ?? 0;
+                      const count = gridDriverRows.filter(({ driver }) => findDriverPlacementsOnDate(localShifts, date, driver.id).length > 0).length;
                       const isToday = date.trim() === today;
                       return (
                         <th
@@ -2694,10 +2716,13 @@ export default function ShiftsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {driversWithCourses.map((driver, driverIdx) => {
-                    const isLastDriver = driverIdx === driversWithCourses.length - 1;
+                  {gridDriverRows.length === 0 && <tr><td colSpan={displayDates.length + 1} className="p-5 text-sm text-slate-500">該当するドライバーはいません。契約区分の条件を変更してください。</td></tr>}
+                  {gridDriverRows.map(({ driver, mode, groupStart, groupSize }, driverIdx) => {
+                    const isLastDriver = driverIdx === gridDriverRows.length - 1;
                     return (
-                      <tr key={driver.id}>
+                      <Fragment key={driver.id}>
+                      {mode && groupStart && <tr><th colSpan={displayDates.length + 1} className="border-b border-slate-200 bg-slate-100 py-1.5 text-left text-xs font-semibold text-slate-600"><span className="sticky left-3">{SHIFT_LEASE_NAMES[mode]}<span className="ml-2 font-normal text-slate-400">{groupSize}人</span></span></th></tr>}
+                      <tr>
                         <td
                           className={cn(
                             // 横スクロール時もオイル警告(z-20)をドライバー名の下へ通す。
@@ -2706,6 +2731,7 @@ export default function ShiftsPage() {
                           )}
                         >
                           <span className="font-medium text-slate-800">{getDisplayName(driver)}</span>
+                          {showContract && !mode && <div className="mt-1"><ShiftLeaseBadge mode={shiftLeaseMode(leaseIndex, driver.id, displayDates[0] ?? "")} /></div>}
                         </td>
                         {displayDates.map((date) => {
                           const tone = shiftDayTone(date, today);
@@ -2964,6 +2990,7 @@ export default function ShiftsPage() {
                           );
                         })}
                       </tr>
+                      </Fragment>
                     );
                   })}
                   <tr className="bg-slate-50/93">
@@ -2972,7 +2999,7 @@ export default function ShiftsPage() {
                       未割当
                     </td>
                     {displayDates.map((date) => {
-                      const unassigned = getUnassignedDriversOnDate(date);
+                      const unassigned = getUnassignedDriversOnDate(date).filter(driver => gridDriverIds.has(driver.id));
                       const tone = shiftDayTone(date, today);
                       const isOpen = unassignedOpenDate === date;
                       const isToday = date.trim() === today;
@@ -3464,7 +3491,7 @@ export default function ShiftsPage() {
       {/* 未割当ドライバーモーダル（未割当行のクリックで開く。一覧＋その場割当） */}
       {unassignedOpenDate && (() => {
         const date = unassignedOpenDate;
-        const unassigned = getUnassignedDriversOnDate(date);
+        const unassigned = getUnassignedDriversOnDate(date).filter(driver => gridDriverIds.has(driver.id));
         return (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"

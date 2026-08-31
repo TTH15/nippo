@@ -66,16 +66,21 @@ export async function GET(req: NextRequest) {
       // 便はcarrierに属す共有マスター（会社固有の個人データではない）。
       supabase.from("shift_request_slots").select("id, name, start_time, end_time").eq("active", true).order("sort_order"),
       courseIds.length && driverIds.length ? supabase.from("shifts").select("driver_id, course_id, shift_date").in("course_id", courseIds).in("driver_id", driverIds).gte("shift_date", recent.toISOString().slice(0, 10)).lt("shift_date", startDate) : empty,
+      // 区分の表示用。自社のdriver集合で絞り、報酬権限のない閲覧者へ金額を返さない。
+      driverIds.length ? supabase.from("driver_leases").select("id, driver_id, mode, valid_from, valid_to")
+        .in("driver_id", driverIds).lte("valid_from", endDate).or(`valid_to.is.null,valid_to.gte.${startDate}`) : empty,
     ]);
-    for (const result of results) if (result.error) throw result.error;
-    const [links, loans, requests, slots, assignments] = results;
+    const [links, loans, requests, slots, assignments, leases] = results;
+    for (const result of [links, loans, requests, slots, assignments]) if (result.error) throw result.error;
     const courseSet = new Set(courseIds);
     const drivers = members.filter(d => d.works_as_driver && d.status === "active").map(d => ({ ...d,
       driver_identities: (d.driver_identities ?? []).map(identity => ({ ...identity, driver_courses: (identity.driver_courses ?? []).filter(c => courseSet.has(c.course_id)) })),
     }));
     return NextResponse.json({ courses: courses.filter(c => !c.archived_at), shifts, drivers,
       requests: requests.data, slots: slots.data, vehicles: vehicles.filter(v => !v.is_disposed),
-      vehicle_driver_links: links.data, vehicle_loans: loans.data, recent_assignments: assignments.data });
+      vehicle_driver_links: links.data, vehicle_loans: loans.data, recent_assignments: assignments.data,
+      // nullは取得失敗。空配列（契約なし）へ置換せず、画面で再試行を案内する。
+      driver_leases: leases.error ? null : (leases.data ?? []).map(({ id, driver_id, mode, valid_from, valid_to }) => ({ id, driver_id, mode, valid_from, valid_to })) });
   } catch (error) {
     return adminMutationError(error);
   }
