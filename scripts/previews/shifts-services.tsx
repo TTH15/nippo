@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { Fragment, useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AdminPreviewLayout } from "../../apps/web/src/app/preview/driver-leases/AdminPreviewLayout";
 import type { ShiftLease } from "../../apps/web/src/lib/shiftLease";
 
@@ -91,7 +91,32 @@ export const preload = async () => undefined;
 export const mutate = async () => undefined;
 export const swrFetcher = async () => undefined;
 export const summarizeHistory = () => [];
+// 本番PersonalShiftMemoBoardの読込形式を使う。プレビュー専用ユーザーの架空データだけを保存する。
+function seedPreviewMemo(rowCount: number) {
+  const lanes = Array.from({ length: rowCount }, (_, i) => {
+    const course = courses[i % courses.length];
+    return { id: i < courses.length ? `base-${course.id}` : `preview-lane-${i}`, routeId: course.id,
+      name: `${course.name} ${Math.floor(i / courses.length) + 1}エリア`, color: course.color,
+      activeWeekdays: [1, 2, 3, 4, 5, 6], requiredCount: 2, custom: i >= courses.length };
+  });
+  const assignments: Record<string, { placementId: string; personKey: string; driverId: string; name: string }[]> = {};
+  for (const month of ["2026-08", "2026-09"]) {
+    for (let day = 1; day <= (month === "2026-08" ? 31 : 30); day++) {
+      const date = `${month}-${String(day).padStart(2, "0")}`;
+      lanes.forEach((lane, i) => {
+        assignments[`${lane.id}|${date}`] = Array.from({ length: (day + i) % 4 === 0 ? 0 : (day + i) % 3 === 0 ? 1 : 2 }, (_, j) => {
+          const driver = drivers[(i * 2 + day + j) % drivers.length];
+          return { placementId: `${date}-${i}-${j}`, personKey: driver.id, driverId: driver.id, name: driver.name };
+        });
+      });
+    }
+  }
+  localStorage.setItem("hakotora_personal_shift_memo_v1:preview-admin", JSON.stringify({ version: 1, lanes,
+    laneOrder: lanes.map(lane => lane.id), hiddenLaneIds: [], assignments, extraPeople: [], notes: {},
+    widths: { day: 76, lane: 190, detail: 330 } }));
+}
 export function AdminLayout({ children }: { children: ReactNode }) {
+  const [memoRevision, setMemoRevision] = useState(0);
   return <AdminPreviewLayout pathname="/admin/shifts" onReset={resetPreviewShifts}>
     <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2 text-[11px] text-slate-500">
       <span>本番シフト画面のコードを使用 · 架空データ · DB・API・通知への接続なし</span>
@@ -100,7 +125,8 @@ export function AdminLayout({ children }: { children: ReactNode }) {
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => setPreviewLeaseScenario("error")}>契約の取得失敗</button>
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { firstDriverDaily = true; leaseScenario = "normal"; notify(); }}>佐藤の契約を日額へ変更</button>
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={resetPreviewShifts}>サンプルを初期化</button>
+      {[12, 40].map(count => <button key={count} type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { seedPreviewMemo(count); setMemoRevision(value => value + 1); }}>メモ{count}枠のサンプル</button>)}
     </div>
-    {children}
+    <Fragment key={memoRevision}>{children}</Fragment>
   </AdminPreviewLayout>;
 }

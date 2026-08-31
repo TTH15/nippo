@@ -38,4 +38,35 @@ describe("日別配車の画像化", () => {
     expect(document.body.children).toHaveLength(1);
     expect(html2canvas).not.toHaveBeenCalled();
   });
+  it.each([false, true])("画像生成中だけ非表示の文字計測画像をinlineに戻し、画面の画像は変えない（失敗: %s）", async fail => {
+    const reset = document.createElement("style");
+    reset.textContent = "img { display: block; }";
+    document.head.append(reset);
+    const source = document.createElement("div");
+    const visibleImage = document.createElement("img");
+    visibleImage.width = 1; visibleImage.height = 1;
+    source.append(visibleImage); document.body.append(source);
+    const probe = document.createElement("div");
+    probe.style.visibility = "hidden";
+    const measurementImage = document.createElement("img");
+    measurementImage.width = 1; measurementImage.height = 1;
+    probe.append(measurementImage); document.body.append(probe);
+    const originalStyles = document.head.querySelectorAll("style").length;
+    try {
+      expect(getComputedStyle(measurementImage).display).toBe("block");
+      vi.mocked(html2canvas).mockImplementation(async () => {
+        // ライブラリ同様、クローンではなく元documentで計測する。
+        expect(getComputedStyle(measurementImage).display).toBe("inline-block");
+        expect(getComputedStyle(visibleImage).display).toBe("block");
+        if (fail) throw new Error("capture failed");
+        return canvas as unknown as HTMLCanvasElement;
+      });
+      const capture = captureDispatchImage(source, { title: "配車", subtitle: "稼働", page: 0, pageCount: 1 });
+      if (fail) await expect(capture).rejects.toThrow("capture failed");
+      else await capture;
+      expect(getComputedStyle(measurementImage).display).toBe("block");
+      expect(document.head.querySelectorAll("style")).toHaveLength(originalStyles);
+      expect(document.body.children).toHaveLength(2);
+    } finally { reset.remove(); }
+  });
 });

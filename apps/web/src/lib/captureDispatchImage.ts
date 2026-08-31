@@ -11,6 +11,11 @@ export async function captureDispatchImage(source: HTMLElement, options: {
   await document.fonts.ready;
   const width = 408;
   const stage = document.createElement("div");
+  const fontMetricsStyle = document.createElement("style");
+  // html2canvas 1.4は元documentへ1px画像を置いてベースラインを測る。
+  // Tailwindのimg { display: block }が計測を崩すため、非表示の計測画像だけをinlineへ戻す。
+  // onclone内では元documentの計測を直せない。画面・プレート画像には適用しない。
+  fontMetricsStyle.textContent = 'body > div[style*="visibility: hidden"] > img[width="1"][height="1"] { display: inline-block; }';
   stage.inert = true;
   stage.setAttribute("aria-hidden", "true");
   Object.assign(stage.style, { position: "fixed", left: "-10000px", top: "0", width: `${width}px`, padding: "12px", background: "#f8fafc", boxSizing: "border-box" });
@@ -62,10 +67,11 @@ export async function captureDispatchImage(source: HTMLElement, options: {
       inner.replaceChildren(image);
     }));
     const { default: html2canvas } = await import("html2canvas");
+    document.head.append(fontMetricsStyle);
     const canvas = await html2canvas(stage, { backgroundColor: "#f8fafc", scale: 3, logging: false, width, height: stage.scrollHeight, windowWidth: width, scrollX: 0, scrollY: 0 });
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));
     if (!blob) throw new Error("画像を作成できませんでした");
     // 実体PNGのdata URL。共有シートを開いている間にURLが失効することはない。
     return { blob, url: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height };
-  } finally { stage.remove(); }
+  } finally { fontMetricsStyle.remove(); stage.remove(); }
 }

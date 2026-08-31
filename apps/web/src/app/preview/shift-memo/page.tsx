@@ -35,6 +35,7 @@ import {
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { exportBodySlices, exportEdgeVelocity, selectedShortageCount } from "@/lib/shiftMemoExport";
+import { pngToPdf } from "@/lib/pdfExport";
 import { cn } from "@/lib/ui/utils";
 import { assignedPersonCount, findDuplicateCourseIds, shortageCount } from "./previewLogic";
 
@@ -854,18 +855,8 @@ export default function ShiftMemoPreviewPage() {
       });
       const range = exportDayRange(selection, courseWidth, dayWidth);
       const filename = `シフトメモ_2026-08-${String(range.start).padStart(2, "0")}${range.end === range.start ? "" : `_${String(range.end).padStart(2, "0")}`}`;
-      const { jsPDF } = await import("jspdf");
-      const pageWidth = 200;
-      const pageHeight = pageWidth * (canvas.height / canvas.width);
-      const pdfDocument = new jsPDF({
-        orientation: pageWidth >= pageHeight ? "landscape" : "portrait",
-        unit: "mm",
-        format: [pageWidth, pageHeight],
-      });
-      const pdfWidth = pdfDocument.internal.pageSize.getWidth();
-      const pdfHeight = pdfDocument.internal.pageSize.getHeight();
-      pdfDocument.addImage(imageUrl, "PNG", 0, 0, pdfWidth, pdfHeight);
-      exportArtifactsRef.current = { png, pdf: pdfDocument.output("blob"), filename };
+      const pdf = await pngToPdf(imageUrl, canvas.width, canvas.height);
+      exportArtifactsRef.current = { png, pdf, filename };
       setExportPreviewUrl(imageUrl);
     } catch (error) {
       console.error(error);

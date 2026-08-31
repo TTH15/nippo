@@ -1,6 +1,6 @@
 // jsPDF 用の日本語フォント登録ヘルパー。
 //   public/fonts の Sawarabi Gothic (SIL OFL) を実行時に fetch → base64 → addFont。
-//   フォントは丸ごと埋め込まれる（jsPDF はサブセット非対応）ため、PDF は font 分だけ重くなる。
+//   jsPDFは使用したグリフをサブセット化する。生成側はPDF_EXPORT_OPTIONSでストリームも圧縮する。
 //   常用＋人名の多くをカバーするが、稀な人名漢字（﨑・髙 等）は字形が無い場合がある。
 import type { jsPDF } from "jspdf";
 

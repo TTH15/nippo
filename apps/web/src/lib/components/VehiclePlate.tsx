@@ -1,10 +1,11 @@
 "use client";
 
-import { useId } from "react";
+import { useCallback, useId, useState } from "react";
 import { PLATE_GLYPHS, PLATE_GLYPH_CANVAS, type PlateGlyphMeta } from "@/lib/plateGlyphs.generated";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faOilCan } from "@fortawesome/free-solid-svg-icons";
 import { computeOilStatus } from "@repo/core/logic/oilChange";
+import { Tooltip } from "./Tooltip";
 
 export function plateDigits(raw: string): [string, string, string, string] {
   const digits = raw.replace(/\D/g, "").slice(0, 4);
@@ -121,15 +122,17 @@ export function VehiclePlate({
   className?: string;
 }) {
   const warningId = useId();
+  const [warningAnchor, setWarningAnchor] = useState<HTMLSpanElement | null>(null);
+  const closeWarning = useCallback(() => setWarningAnchor(null), []);
   const hasPlate =
     vehicle.number_prefix || vehicle.number_hiragana || vehicle.number_numeric;
   const scheme = plateScheme(vehicle.plate_color);
   const oilStatus = computeOilStatus(vehicle);
   const oilWarning = oilStatus && oilStatus.level !== "safe" ? oilStatus : null;
   const warningLabel = oilWarning
-    ? oilWarning.remaining < 0
-      ? `オイル交換時期を${Math.abs(oilWarning.remaining).toLocaleString()}km超過しています`
-      : `オイル交換まで残り${oilWarning.remaining.toLocaleString()}kmです`
+    ? oilWarning.level === "critical"
+      ? "オイル交換が必要です"
+      : "もうすぐオイル交換です"
     : "";
   const unavailableLabel = vehicle.unavailable_reason?.trim()
     ? `一時使用不可：${vehicle.unavailable_reason.trim()}`
@@ -388,20 +391,21 @@ export function VehiclePlate({
       role="img"
       tabIndex={0}
       aria-label={warningLabel}
-      aria-describedby={warningId}
-      className={`group absolute right-[-4%] top-[-8%] z-20 flex items-center justify-center rounded-full border-2 border-white text-white shadow-md outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 ${
+      aria-describedby={warningAnchor ? warningId : undefined}
+      onPointerEnter={(event) => { if (event.pointerType !== "touch") setWarningAnchor(event.currentTarget); }}
+      onPointerLeave={closeWarning}
+      onFocus={(event) => setWarningAnchor(event.currentTarget)}
+      onBlur={closeWarning}
+      onClick={closeWarning}
+      className={`pointer-events-auto absolute right-[-4%] top-[-8%] z-20 flex items-center justify-center rounded-full border-2 border-white text-white shadow-md outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 ${
         oilWarning.level === "critical" ? "bg-red-600" : "bg-amber-500"
       }`}
       style={{ width: "22%", aspectRatio: "1 / 1", fontSize: scaleLenPx(compact ? 10 : 24) }}
     >
       <FontAwesomeIcon icon={faOilCan} aria-hidden />
-      <span
-        id={warningId}
-        role="tooltip"
-        className="pointer-events-none absolute right-0 top-[calc(100%+0.35rem)] z-30 w-max max-w-64 rounded bg-slate-900 px-2.5 py-1.5 text-left text-xs font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus:opacity-100"
-      >
+      <Tooltip id={warningId} anchor={warningAnchor} onClose={closeWarning}>
         {warningLabel}
-      </span>
+      </Tooltip>
     </span>
   ) : null;
 

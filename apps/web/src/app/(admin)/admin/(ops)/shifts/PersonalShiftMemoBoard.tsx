@@ -33,6 +33,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
+import { pngToPdf } from "@/lib/pdfExport";
 import {
   exportBodySlices,
   exportDateLabel,
@@ -823,18 +824,8 @@ export default function PersonalShiftMemoBoard({
       });
       const range = exportDateRange(selection, laneWidth, dayWidth, dates);
       const filename = `シフトメモ_${range.start}${range.end === range.start ? "" : `_${range.end}`}`;
-      const { jsPDF } = await import("jspdf");
-      const pageWidth = 200;
-      const pageHeight = pageWidth * (canvas.height / canvas.width);
-      const pdfDocument = new jsPDF({
-        orientation: pageWidth >= pageHeight ? "landscape" : "portrait",
-        unit: "mm",
-        format: [pageWidth, pageHeight],
-      });
-      const pdfWidth = pdfDocument.internal.pageSize.getWidth();
-      const pdfHeight = pdfDocument.internal.pageSize.getHeight();
-      pdfDocument.addImage(imageUrl, "PNG", 0, 0, pdfWidth, pdfHeight);
-      exportArtifactsRef.current = { png, pdf: pdfDocument.output("blob"), filename };
+      const pdf = await pngToPdf(imageUrl, canvas.width, canvas.height);
+      exportArtifactsRef.current = { png, pdf, filename };
       setExportPreviewUrl(imageUrl);
     } catch (error) {
       console.error(error);

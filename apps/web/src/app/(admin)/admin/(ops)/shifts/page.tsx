@@ -43,6 +43,7 @@ import PendingChangesBar, { PENDING_CHANGES_KEY } from "./PendingChangesBar";
 import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./ShiftImportModal";
 import PersonalShiftMemoBoard from "./PersonalShiftMemoBoard";
 import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
+import { PDF_EXPORT_OPTIONS } from "@/lib/pdfExport";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
 import type { SpotJob } from "../spot-jobs/types";
 import { shouldShowCycleBadgesForSelection } from "@repo/core/logic/courseCycle";
@@ -2099,7 +2100,7 @@ export default function ShiftsPage() {
       if (format === "pdf") {
         // ベクターPDF（jsPDF で表を再描画。日本語フォントを埋め込む）。
         const { jsPDF } = await import("jspdf");
-        const pdf = new jsPDF("landscape", "pt", "a4");
+        const pdf = new jsPDF({ ...PDF_EXPORT_OPTIONS, orientation: "landscape", unit: "pt", format: "a4" });
         const fontName = await registerJapaneseFont(pdf);
         drawShiftPdf(pdf, buildShiftPdfData(), fontName);
         pdf.save(`${fileBase}.pdf`);
@@ -2254,7 +2255,8 @@ export default function ShiftsPage() {
               >
                 <FontAwesomeIcon icon={faDownload} className={cn("w-4 h-4", exporting && "animate-pulse")} />
                 <span className="hidden md:inline">{exporting ? "エクスポート中..." : "エクスポート"}</span>
-                {!exporting && <FontAwesomeIcon icon={faChevronDown} className="hidden md:block w-3.5 h-3.5" />}
+                {/* Font Awesomeのdisplay指定と競合しないよう、矢印の表示制御は外側で行う。 */}
+                {!exporting && <span className="hidden md:inline-flex" aria-hidden="true"><FontAwesomeIcon icon={faChevronDown} className="w-3.5 h-3.5" /></span>}
               </button>
               {exportMenuOpen && !exporting && (
                 <>
