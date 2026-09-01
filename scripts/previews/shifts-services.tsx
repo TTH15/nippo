@@ -1,6 +1,8 @@
 import { Fragment, useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AdminPreviewLayout } from "../../apps/web/src/app/preview/driver-leases/AdminPreviewLayout";
 import type { ShiftLease } from "../../apps/web/src/lib/shiftLease";
+import { VehicleHandoffsPreview } from "../../apps/web/src/app/preview/vehicle-handoffs/VehicleHandoffsPreview";
+import { sampleUses } from "../../apps/web/src/app/preview/vehicle-handoffs/model";
 
 // All records below are fictional. This module has no network, database or authentication access.
 const names = ["佐藤 翔太", "田中 美咲", "鈴木 大輔", "高橋 健太", "伊藤 彩", "渡辺 直樹", "山本 葵", "中村 拓海", "小林 悠斗", "加藤 真央", "吉田 亮", "山田 智子"];
@@ -19,6 +21,7 @@ let revision = 0;
 let failNext = false;
 let leaseScenario: "normal" | "empty" | "error" = "normal";
 let firstDriverDaily = false;
+let handoffScenario = false;
 const leases: ShiftLease[] = drivers.flatMap((driver, i) => i % 3 === 2 ? [] : [{
   id: `lease-${i}`, driver_id: driver.id, mode: i % 3 === 0 ? "MONTHLY" : "DAILY", valid_from: "2020-01-01", valid_to: null,
 }]);
@@ -26,7 +29,26 @@ const leases: ShiftLease[] = drivers.flatMap((driver, i) => i % 3 === 2 ? [] : [
 leases[0].valid_from = "2026-09-01";
 leases.push({ id: "lease-past", driver_id: drivers[0].id, mode: "DAILY", valid_from: "2020-01-01", valid_to: "2026-08-31" });
 export function setPreviewLeaseScenario(value: typeof leaseScenario) { leaseScenario = value; notify(); }
-export function resetPreviewShifts() { periodData.clear(); leaseScenario = "normal"; firstDriverDaily = false; failNext = false; notify(); }
+export function resetPreviewShifts() { periodData.clear(); leaseScenario = "normal"; firstDriverDaily = false; handoffScenario = false; failNext = false; notify(); }
+function applyHandoffScenario(data: { shifts: MockShift[] }, start: string, end: string) {
+  for (const use of sampleUses.filter(use => use.date >= start && use.date <= end)) {
+    data.shifts = data.shifts.filter(shift => !(shift.shift_date === use.date && shift.driver_id === use.driverId));
+    // 9/4は佐藤が別車両、田中が1201を使う架空の予定。通常車両の紐付けは変えない。
+    data.shifts = data.shifts.map(shift => shift.shift_date === use.date && shift.vehicle_id === vehicles[0].id
+      ? { ...shift, vehicle_id: vehicles[1].id, vehicles: vehicles[1] } : shift);
+    data.shifts.push({ id: `handoff-${use.date}`, shift_date: use.date, course_id: use.courseId, cycle_no: use.cycleNo, slot: use.slot,
+      driver_id: use.driverId, vehicle_id: vehicles[0].id, vehicles: vehicles[0], meeting_time: use.start });
+  }
+}
+function seedHandoffScenario() {
+  if (handoffScenario) return;
+  handoffScenario = true;
+  for (const [key, data] of periodData) {
+    const params = new URLSearchParams(key.split("?")[1]);
+    applyHandoffScenario(data, params.get("start")!, params.get("end")!);
+  }
+  notify();
+}
 function notify() { revision++; cache.clear(); subscribers.forEach(fn => fn()); }
 function dataFor(key: string) {
   if (cache.has(key)) return cache.get(key);
@@ -44,8 +66,9 @@ function dataFor(key: string) {
         });
       }
       periodData.set(key, { courses, drivers, vehicles, shifts, requests: [], slots: [{ id: "slot-1", name: "終日", start_time: null, end_time: null }], vehicle_driver_links: drivers.map((d, i) => ({ driver_id: d.id, vehicle_id: vehicles[i].id })) });
+      if (handoffScenario) applyHandoffScenario(periodData.get(key)!, start, end);
     }
-    data = { ...periodData.get(key)!, driver_leases: leaseScenario === "error" ? null : leaseScenario === "empty" ? [] : leases.map(lease => firstDriverDaily && lease.driver_id === drivers[0].id ? { ...lease, mode: "DAILY" } : lease) };
+    data = { ...periodData.get(key)!, courses: handoffScenario ? courses.map(course => course.id === "course-3" ? { ...course, name: "京都上鳥羽", summary_title: "京都上鳥羽" } : course) : courses, driver_leases: leaseScenario === "error" ? null : leaseScenario === "empty" ? [] : leases.map(lease => firstDriverDaily && lease.driver_id === drivers[0].id ? { ...lease, mode: "DAILY" } : lease) };
   } else if (key.startsWith("/api/admin/spot-jobs?")) data = { jobs: [] };
   else if (key.endsWith("pending-changes")) data = { enabled: false, changes: [], canSend: false };
   else data = undefined;
@@ -117,16 +140,21 @@ function seedPreviewMemo(rowCount: number) {
 }
 export function AdminLayout({ children }: { children: ReactNode }) {
   const [memoRevision, setMemoRevision] = useState(0);
-  return <AdminPreviewLayout pathname="/admin/shifts" onReset={resetPreviewShifts}>
+  const [handoffsOpen, setHandoffsOpen] = useState(false);
+  const [handoffRevision, setHandoffRevision] = useState(0);
+  const reset = () => { resetPreviewShifts(); setHandoffsOpen(false); setHandoffRevision(value => value + 1); };
+  return <AdminPreviewLayout pathname="/admin/shifts" onReset={reset}>
     <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2 text-[11px] text-slate-500">
       <span>本番シフト画面のコードを使用 · 架空データ · DB・API・通知への接続なし</span>
+      <button type="button" className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-amber-950" onClick={() => { seedHandoffScenario(); setHandoffsOpen(true); }}>車両移動を試す</button>
       <button type="button" className="ml-auto rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { failNext = true; }}>次の保存を失敗させる</button>
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => setPreviewLeaseScenario("empty")}>契約が全員未設定</button>
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => setPreviewLeaseScenario("error")}>契約の取得失敗</button>
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { firstDriverDaily = true; leaseScenario = "normal"; notify(); }}>佐藤の契約を日額へ変更</button>
-      <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={resetPreviewShifts}>サンプルを初期化</button>
+      <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={reset}>サンプルを初期化</button>
       {[12, 40].map(count => <button key={count} type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { seedPreviewMemo(count); setMemoRevision(value => value + 1); }}>メモ{count}枠のサンプル</button>)}
     </div>
     <Fragment key={memoRevision}>{children}</Fragment>
+    <VehicleHandoffsPreview key={handoffRevision} open={handoffsOpen} onClose={() => setHandoffsOpen(false)}/>
   </AdminPreviewLayout>;
 }

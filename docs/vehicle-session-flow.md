@@ -217,7 +217,7 @@ CREATE TABLE vehicle_inspection_photos (
 );
 CREATE INDEX ON vehicle_inspections (vehicle_id, created_at DESC);
 ```
-駐車位置は `vehicle_parking_locations`（`parking-location-flow.md`）。セッションの end_location と対応。
+駐車位置の旧案は `vehicle_parking_locations` だったが未作成。2026-09-01の [共通基盤計画](design/daily-report-parking-foundation.md) では既存 `vehicle_positions` を拡張し、日報を最初の入力窓口にする。QR・セッションの終了地点も同じ記録と関連付け、日報の再送で駐車を重複登録しない。観測した位置と駐車申告は区別する。
 
 ---
 

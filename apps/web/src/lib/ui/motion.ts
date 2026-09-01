@@ -4,6 +4,12 @@ export const disclosureTransition = {
   ease: [0.22, 1, 0.36, 1] as const,
 };
 
+/** ツールバー直下など、内容をすぐ確認したい短い開閉に使う。 */
+export const quickDisclosureTransition = {
+  duration: 0.14,
+  ease: [0.22, 1, 0.36, 1] as const,
+};
+
 export const reorderTransition = {
   type: "spring" as const,
   stiffness: 420,

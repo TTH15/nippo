@@ -259,7 +259,7 @@ Motion
 
 | 操作 | 共通部品 | 表示・挙動 |
 | --- | --- | --- |
-| カードの詳細開閉 | `src/lib/components/SmoothCollapse.tsx` | 高さ0↔autoと透明度を250ms、ease `[0.22, 1, 0.36, 1]` で変化。初期描画では展開アニメーションをしない |
+| カードの詳細開閉 | `src/lib/components/SmoothCollapse.tsx` | 高さ0↔autoと透明度を250ms、ease `[0.22, 1, 0.36, 1]` で変化。初期描画では展開アニメーションをしない。ツールバー直下の短い設定パネルは `speed="quick"` の140msを使える |
 | 縦リストの並べ替え | `src/lib/components/SortableList.tsx` | Font Awesomeの`faGripVertical`をハンドルに使う。カード全体がポインタに追従し、他のカードはspringで移動する |
 | チェック項目 | `src/lib/components/CheckboxField.tsx` | 標準inputの操作を維持。チャコールの面＋アンバーのチェック印、選択行は淡いアンバー。ラベル全体を押せる |
 | ラジオ・選択肢の回答 | `RadioField.tsx` / `ChoiceInput.tsx` | 単一選択は標準radio、複数選択はCheckboxField。同じ44px操作領域とチャコール＋アンバーの配色 |

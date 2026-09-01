@@ -2308,12 +2308,12 @@ export default function ShiftsPage() {
             </button>
           </div>}
         </div>}>
-          {workspaceView === "shift" && <ShiftDisplayOptions value={display} onChange={changeDisplay} axis={viewAxis} onAxisChange={setViewAxis} />}
+          {workspaceView === "shift" && <ShiftDisplayOptions value={display} onChange={changeDisplay} axis={viewAxis} onAxisChange={setViewAxis}>
+            <ShiftLeaseFilters value={leaseFilter} onChange={setLeaseFilter} grouped={groupByLease} onGroupedChange={setGroupByLease}
+              ready={leaseIndex !== null} loading={loading} retrying={refreshing} axis={viewAxis} startDate={displayDates[0] ?? ""} dailyDate={activeMobileDate}
+              onRetry={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />
+          </ShiftDisplayOptions>}
         </ShiftDisplayPanel>
-
-        {workspaceView === "shift" && <ShiftLeaseFilters value={leaseFilter} onChange={setLeaseFilter} grouped={groupByLease} onGroupedChange={setGroupByLease}
-          ready={leaseIndex !== null} loading={loading} retrying={refreshing} axis={viewAxis} startDate={displayDates[0] ?? ""} dailyDate={activeMobileDate}
-          onRetry={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />}
 
         {workspaceView === "shift" && (canWrite || canLoan) && (
           <div className="mb-2 flex items-center gap-2 text-[11px] md:text-xs text-slate-500">

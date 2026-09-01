@@ -3,6 +3,7 @@
 import { CustomSelect } from "./CustomSelect";
 import { CheckboxField } from "./CheckboxField";
 import { SHIFT_LEASE_NAMES, type ShiftLeaseFilter, type ShiftLeaseMode } from "@/lib/shiftLease";
+import { cn } from "@/lib/ui/utils";
 
 // リースプレビューのShiftFiltersの契約欄を再利用。ラベル管理とは独立させる。
 export function ShiftLeaseFilters({ value, onChange, grouped, onGroupedChange, ready, loading, onRetry, retrying, startDate, dailyDate, axis }: {
@@ -11,13 +12,13 @@ export function ShiftLeaseFilters({ value, onChange, grouped, onGroupedChange, r
   ready: boolean; loading: boolean; onRetry: () => void; retrying: boolean;
   startDate: string; dailyDate: string; axis: "driver" | "course";
 }) {
-  return <section aria-label="契約区分" className={`mb-3 rounded-lg border border-slate-200 bg-white px-3 py-2 ${axis === "course" ? "md:hidden" : ""}`}>
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+  return <section aria-label="契約区分" className={cn("w-full border-t border-slate-100 pt-2", axis === "course" && "md:hidden")}>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
       <span className="text-xs font-medium text-slate-500">契約区分</span>
       <div className="min-w-[9rem] flex-1 sm:w-40 sm:flex-none">
-        <CustomSelect ariaLabel="リース区分で絞り込み" value={value} onChange={value => onChange(value as ShiftLeaseFilter)} disabled={!ready} clearable={false} size="sm" triggerClassName="!h-11 !min-h-11 !rounded-lg !border !border-slate-200 !text-xs" options={[{ value: "all", label: "すべての契約" }, ...Object.entries(SHIFT_LEASE_NAMES).map(([value, label]) => ({ value, label }))]} />
+        <CustomSelect ariaLabel="リース区分で絞り込み" value={value} onChange={value => onChange(value as ShiftLeaseFilter)} disabled={!ready} clearable={false} size="sm" triggerClassName="!h-11 !min-h-11 !rounded-lg !border !border-slate-200 !text-xs md:!h-9 md:!min-h-9" options={[{ value: "all", label: "すべての契約" }, ...Object.entries(SHIFT_LEASE_NAMES).map(([value, label]) => ({ value, label }))]} />
       </div>
-      <CheckboxField label="契約区分でまとめる" checked={grouped} onCheckedChange={onGroupedChange} disabled={!ready} className="shrink-0 whitespace-nowrap [&>span]:h-11 [&>span]:gap-2 [&>span]:px-2.5 [&>span]:py-0 [&>span]:text-xs" />
+      <CheckboxField label="契約区分でまとめる" checked={grouped} onCheckedChange={onGroupedChange} disabled={!ready} className="shrink-0 whitespace-nowrap [&>span]:h-11 [&>span]:gap-2 [&>span]:px-2.5 [&>span]:py-0 [&>span]:text-xs md:[&>span]:h-9 md:[&>span]:min-h-9" />
       <span className="text-[11px] text-slate-500"><span className="hidden md:inline">{startDate} 時点</span><span className="md:hidden">{dailyDate} 時点</span></span>
     </div>
     {!ready && <p role={loading ? "status" : "alert"} className="mt-1 text-xs text-amber-800">
