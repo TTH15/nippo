@@ -51,6 +51,12 @@ import { ImageFocusPicker } from "./ImageFocusPicker";
 import { ImageLightbox } from "@/lib/components/ImageLightbox";
 import { VehicleQrModal } from "./VehicleQrModal";
 import { VehicleQrBulkModal } from "./VehicleQrBulkModal";
+import {
+  normalizeVehicleInteger,
+  sortVehiclesByRegistration,
+  validateVehicleForm,
+  type VehicleFormField,
+} from "@/lib/vehicleAdmin";
 
 const DEFAULT_LEASE_COST = 35000; // 月々リース代（デフォルト）
 
@@ -177,6 +183,7 @@ export default function VehiclesPage() {
     jibaisekiRenewalMonth: "",
     driverIds: [] as string[],
   });
+  const [validationAttempted, setValidationAttempted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -226,15 +233,6 @@ export default function VehiclesPage() {
     }
     setPendingScrollId(null);
   }, [pendingScrollId]);
-
-  const sortVehicles = (list: Vehicle[]) =>
-    [...list].sort((a, b) => {
-      const ma = (a.manufacturer ?? "").localeCompare(b.manufacturer ?? "", "ja");
-      if (ma !== 0) return ma;
-      const ba = (a.brand ?? "").localeCompare(b.brand ?? "", "ja");
-      if (ba !== 0) return ba;
-      return (a.id ?? "").localeCompare(b.id ?? "");
-    });
 
   const toVehicleDrivers = (ids: string[]): VehicleDriver[] =>
     ids
@@ -295,9 +293,8 @@ export default function VehiclesPage() {
 
   useEffect(() => {
     if (!vehiclePages) return;
-    // 表示順は従来と同じ sortVehicles（メーカー→ブランド→id）。サーバーも同順で
-    // ページを切るため、追い読みは末尾に足されていく
-    setVehicles(sortVehicles(vehiclePages.flatMap((pg) => pg.vehicles ?? [])));
+    // API と同じ登録日時順。ページを追い読みしても No. と表示位置が変わらない。
+    setVehicles(sortVehiclesByRegistration(vehiclePages.flatMap((pg) => pg.vehicles ?? [])));
   }, [vehiclePages]);
   useEffect(() => {
     if (rosterData?.drivers) setDrivers(rosterData.drivers);
@@ -408,6 +405,8 @@ export default function VehiclesPage() {
       jibaisekiRenewalMonth: "",
       driverIds: [],
     });
+    setOtherVehicle(false);
+    setValidationAttempted(false);
     setVehTab("basic");
     setDriverOpen(false);
     setShowModal(true);
@@ -465,6 +464,8 @@ export default function VehiclesPage() {
           : "",
       driverIds: v.vehicle_drivers?.map((vd) => vd.driver_id) || [],
     });
+    setOtherVehicle(false);
+    setValidationAttempted(false);
     setVehTab("basic");
     setDriverOpen(false);
     setShowModal(true);
@@ -485,9 +486,16 @@ export default function VehiclesPage() {
    */
   const save = async () => {
     if (!canWrite) return;
+    const issues = validateVehicleForm(form);
+    if (issues.length > 0) {
+      setValidationAttempted(true);
+      setVehTab(issues[0].tab);
+      window.setTimeout(() => document.getElementById(`vehicle-field-${issues[0].field}`)?.focus(), 0);
+      throw new Error("入力内容を確認してください。");
+    }
+    setValidationAttempted(false);
     setSaving(true);
     try {
-      const toIntOrNull = (v: string) => (v !== "" ? Number(v) : null);
       const normalizedItems: Array<{ sign: "+" | "-"; label: string; amount: number }> = form.purchaseCostItems
         .map((it) => ({
           sign: (it.sign === "-" ? "-" : "+") as "+" | "-",
@@ -526,15 +534,15 @@ export default function VehiclesPage() {
         numberClass: form.numberClass || null,
         numberHiragana: form.numberHiragana || null,
         numberNumeric: form.numberNumeric || null,
-        currentMileage: toIntOrNull(form.currentMileage),
-        lastOilChangeMileage: toIntOrNull(form.lastOilChangeMileage),
-        oilChangeInterval: toIntOrNull(form.oilChangeInterval),
+        currentMileage: normalizeVehicleInteger(form.currentMileage, 0),
+        lastOilChangeMileage: normalizeVehicleInteger(form.lastOilChangeMileage, 0),
+        oilChangeInterval: normalizeVehicleInteger(form.oilChangeInterval, 3000),
         purchaseCost: computedPurchaseCost,
         purchaseCostItems: normalizedItems,
-        leaseCost: toIntOrNull(form.leaseCost) ?? DEFAULT_LEASE_COST,
-        monthlyInsurance: toIntOrNull(form.monthlyInsurance),
+        leaseCost: normalizeVehicleInteger(form.leaseCost, DEFAULT_LEASE_COST),
+        monthlyInsurance: normalizeVehicleInteger(form.monthlyInsurance, 0),
         recoveryStartMonth: form.recoveryStartMonth.trim() || null,
-        recoveryCarryover: toIntOrNull(form.recoveryCarryover) ?? 0,
+        recoveryCarryover: normalizeVehicleInteger(form.recoveryCarryover, 0),
         ...(imageUnchanged ? {} : { imageUrl: form.imageDataUrl.trim() || null }),
         // 表示位置は軽い数値なので常に送る（画像を差し替えなくても調整できる）
         imageFocusX: form.imageFocusX,
@@ -583,14 +591,16 @@ export default function VehiclesPage() {
           vehicle_drivers: toVehicleDrivers(payload.driverIds ?? []),
           driver_link_ids: [...payload.driverIds],
         };
-        setVehicles((prev) => sortVehicles(prev.map((v) => (v.id === editingVehicle.id ? updatedVehicle : v))));
+        setVehicles((prev) =>
+          sortVehiclesByRegistration(prev.map((v) => (v.id === editingVehicle.id ? updatedVehicle : v))),
+        );
         setEditingVehicle(updatedVehicle);
       } else {
         const res = await apiFetch<{ vehicle: Vehicle }>("/api/admin/vehicles", {
           method: "POST",
           body: JSON.stringify(payload),
         });
-        setVehicles((prev) => sortVehicles([...prev, res.vehicle]));
+        setVehicles((prev) => sortVehiclesByRegistration([...prev, res.vehicle]));
       }
       if (!editingVehicle) setShowModal(false); // 新規追加は保存で閉じる（編集は自動保存＋閉じるボタン）
       // ここまでで保存は確定（成否はレスポンスで判明済み）。
@@ -603,14 +613,14 @@ export default function VehiclesPage() {
       console.error(e);
       const reason = e instanceof Error ? e.message : "";
       const tooLarge = /(?:HTTP\s*)?413|payload too large|request entity too large/i.test(reason);
+      const serverFailure = /保存・取得に失敗|DB error|(?:HTTP\s*)?5\d\d/i.test(reason);
       setErrorState({
         title: "車両の保存に失敗しました",
         message: tooLarge
-          ? "車両画像のデータが大きすぎるため保存できませんでした。\n\n画像を選び直すと自動的に保存用サイズへ縮小されます。選び直した後、もう一度保存してください。"
-          : "サーバーでエラーが発生したため、車両情報を保存できませんでした。\n\n" +
-            "入力内容（メーカー名・ブランド名・メーター値など）に不足や不正な値がないか確認し、もう一度保存してください。\n" +
-            "同じエラーが続く場合は、システム管理者に連絡してください。",
-        detail: reason || undefined,
+          ? "車両画像が大きすぎます。画像を選び直して、もう一度保存してください。"
+          : serverFailure
+            ? "保存できませんでした。入力は残っています。もう一度保存してください。続く場合は管理者に連絡してください。"
+            : reason || "保存できませんでした。入力は残っています。もう一度保存してください。",
       });
       throw e;
     } finally {
@@ -861,6 +871,9 @@ export default function VehiclesPage() {
     setPendingScrollId(v.id);
   };
 
+  const validationIssues = validationAttempted ? validateVehicleForm(form) : [];
+  const issueFor = (field: VehicleFormField) => validationIssues.find((issue) => issue.field === field);
+
   return (
     <AdminLayout>
       <div className="w-full">
@@ -994,6 +1007,9 @@ export default function VehiclesPage() {
                 </button>
               ))}
             </div>
+            <span className="ml-auto text-[11px] text-slate-500">
+              表示順：稼働中 → 使用不可 → 廃車（各登録順）
+            </span>
           </div>
         )}
         </div>
@@ -1487,9 +1503,12 @@ export default function VehiclesPage() {
           <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
               <div className="flex items-start justify-between mb-4">
-                <h2 className="text-lg font-semibold text-slate-900">
-                  {editingVehicle ? "車両情報編集" : "新規車両追加"}
-                </h2>
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    {editingVehicle ? "車両情報編集" : "新規車両追加"}
+                  </h2>
+                  {!editingVehicle && <p className="mt-0.5 text-xs text-slate-500">必須は車種のみ</p>}
+                </div>
                 {editingVehicle && (
                   <div className="flex items-center gap-1">
                     <button type="button" title="走行距離" onClick={() => { setShowModal(false); setOpenDetail({ type: "meter", vehicle: editingVehicle }); }}
@@ -1528,6 +1547,21 @@ export default function VehiclesPage() {
                 ))}
               </div>
 
+              {validationIssues.length > 0 && (
+                <div
+                  role="alert"
+                  className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"
+                >
+                  <FontAwesomeIcon icon={faCircleExclamation} className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    <p className="font-semibold">入力を確認してください</p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs">
+                      {validationIssues.map((issue) => <li key={issue.field}>{issue.message}</li>)}
+                    </ul>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
                 {vehTab === "basic" && (
                 <>
@@ -1535,7 +1569,12 @@ export default function VehiclesPage() {
                     カタログに無い車は「その他」で自由入力できる。実車のメーカー・車種は変わらないので
                     登録後は表示のみにする（2026-08-10 ユーザー） */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-500 mb-1">車種</label>
+                  <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1">
+                    車種
+                    {!editingVehicle && (
+                      <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">必須</span>
+                    )}
+                  </label>
                   {editingVehicle ? (
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                       {[form.manufacturer, form.brand].filter(Boolean).join(" ") || "未設定"}
@@ -1549,6 +1588,7 @@ export default function VehiclesPage() {
                       {/* チップを縦に並べると場所を取るので、メーカー→車種の2段セレクトにする（2026-08-11） */}
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <select
+                          id={otherVehicle ? undefined : "vehicle-field-identity"}
                           value={otherVehicle ? "__other__" : form.manufacturer}
                           onChange={(e) => {
                             const v = e.target.value;
@@ -1567,7 +1607,13 @@ export default function VehiclesPage() {
                               modelCode: "",
                             }));
                           }}
-                          className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
+                          aria-invalid={!!issueFor("identity")}
+                          aria-describedby={issueFor("identity") ? "vehicle-identity-error" : undefined}
+                          className={`w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                            issueFor("identity")
+                              ? "border-red-400 focus:border-red-500 focus:ring-red-200"
+                              : "border-slate-200 focus:ring-slate-400"
+                          }`}
                         >
                           <option value="">メーカーを選ぶ</option>
                           {Object.keys(KEI_VANS_BY_MANUFACTURER).map((maker) => (
@@ -1599,11 +1645,18 @@ export default function VehiclesPage() {
                       {otherVehicle && (
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <input
+                            id="vehicle-field-identity"
                             type="text"
                             value={form.manufacturer}
                             onChange={(e) => setForm((f) => ({ ...f, manufacturer: e.target.value }))}
                             placeholder="メーカー名（例: いすゞ）"
-                            className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
+                            aria-invalid={!!issueFor("identity")}
+                            aria-describedby={issueFor("identity") ? "vehicle-identity-error" : undefined}
+                            className={`w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                              issueFor("identity")
+                                ? "border-red-400 focus:border-red-500 focus:ring-red-200"
+                                : "border-slate-200 focus:ring-slate-400"
+                            }`}
                           />
                           <input
                             type="text"
@@ -1613,6 +1666,12 @@ export default function VehiclesPage() {
                             className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
                           />
                         </div>
+                      )}
+
+                      {issueFor("identity") && (
+                        <p id="vehicle-identity-error" className="text-xs font-medium text-red-700">
+                          {issueFor("identity")?.message}
+                        </p>
                       )}
 
                       {/* 型式（世代）。同じ車種でも年代で形が違う。車検証の「型式」欄をそのまま */}
@@ -2074,32 +2133,53 @@ export default function VehiclesPage() {
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">現在メーター (km)</label>
                     <input
+                      id="vehicle-field-currentMileage"
                       type="number"
+                      min={0}
+                      step={1}
                       value={form.currentMileage}
                       onChange={(e) => setForm((f) => ({ ...f, currentMileage: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      aria-invalid={!!issueFor("currentMileage")}
+                      className={`w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                        issueFor("currentMileage") ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-slate-400"
+                      }`}
                     />
+                    {issueFor("currentMileage") && <p className="mt-1 text-xs font-medium text-red-700">{issueFor("currentMileage")?.message}</p>}
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">前回オイル交換時 (km)</label>
                     <input
+                      id="vehicle-field-lastOilChangeMileage"
                       type="number"
+                      min={0}
+                      step={1}
                       value={form.lastOilChangeMileage}
                       onChange={(e) => setForm((f) => ({ ...f, lastOilChangeMileage: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      aria-invalid={!!issueFor("lastOilChangeMileage")}
+                      className={`w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                        issueFor("lastOilChangeMileage") ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-slate-400"
+                      }`}
                     />
+                    {issueFor("lastOilChangeMileage") && <p className="mt-1 text-xs font-medium text-red-700">{issueFor("lastOilChangeMileage")?.message}</p>}
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-500 mb-1">交換間隔 (km)</label>
                   <input
+                    id="vehicle-field-oilChangeInterval"
                     type="number"
+                    min={0}
+                    step={1}
                     value={form.oilChangeInterval}
                     onChange={(e) => setForm((f) => ({ ...f, oilChangeInterval: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    aria-invalid={!!issueFor("oilChangeInterval")}
+                    className={`w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                      issueFor("oilChangeInterval") ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-slate-400"
+                    }`}
                   />
+                  {issueFor("oilChangeInterval") && <p className="mt-1 text-xs font-medium text-red-700">{issueFor("oilChangeInterval")?.message}</p>}
                   <p className="text-xs text-slate-500 mt-1">デフォルト: 3,000km</p>
                 </div>
 
@@ -2231,21 +2311,35 @@ export default function VehiclesPage() {
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">月々保険料 (円)</label>
                     <input
+                      id="vehicle-field-monthlyInsurance"
                       type="number"
+                      min={0}
+                      step={1}
                       value={form.monthlyInsurance}
                       onChange={(e) => setForm((f) => ({ ...f, monthlyInsurance: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      aria-invalid={!!issueFor("monthlyInsurance")}
+                      className={`w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                        issueFor("monthlyInsurance") ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-slate-400"
+                      }`}
                     />
+                    {issueFor("monthlyInsurance") && <p className="mt-1 text-xs font-medium text-red-700">{issueFor("monthlyInsurance")?.message}</p>}
                     <p className="text-xs text-slate-500 mt-1">リース代から差し引きます</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">月々リース代 (円)</label>
                     <input
+                      id="vehicle-field-leaseCost"
                       type="number"
+                      min={0}
+                      step={1}
                       value={form.leaseCost}
                       onChange={(e) => setForm((f) => ({ ...f, leaseCost: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      aria-invalid={!!issueFor("leaseCost")}
+                      className={`w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                        issueFor("leaseCost") ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-slate-400"
+                      }`}
                     />
+                    {issueFor("leaseCost") && <p className="mt-1 text-xs font-medium text-red-700">{issueFor("leaseCost")?.message}</p>}
                     <p className="text-xs text-slate-500 mt-1">デフォルト: {fmt(DEFAULT_LEASE_COST)}円</p>
                   </div>
                 </div>
@@ -2268,11 +2362,18 @@ export default function VehiclesPage() {
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">繰越（移行済み回収）(円)</label>
                     <input
+                      id="vehicle-field-recoveryCarryover"
                       type="number"
+                      min={0}
+                      step={1}
                       value={form.recoveryCarryover}
                       onChange={(e) => setForm((f) => ({ ...f, recoveryCarryover: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      aria-invalid={!!issueFor("recoveryCarryover")}
+                      className={`w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                        issueFor("recoveryCarryover") ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-slate-400"
+                      }`}
                     />
+                    {issueFor("recoveryCarryover") && <p className="mt-1 text-xs font-medium text-red-700">{issueFor("recoveryCarryover")?.message}</p>}
                     <p className="text-xs text-slate-500 mt-1">過去に回収済みの累計（旧データから移行）</p>
                   </div>
                 </div>
@@ -2394,7 +2495,7 @@ export default function VehiclesPage() {
                       </button>
                       <button
                         onClick={() => void save().catch(() => {})}
-                        disabled={saving || !(form.manufacturer || form.brand)}
+                        disabled={saving || imageProcessing}
                         className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
                       >
                         {saving ? "保存中..." : "保存"}

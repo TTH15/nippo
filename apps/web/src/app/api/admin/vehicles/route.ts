@@ -10,6 +10,7 @@ import { filterActiveVehicleDrivers, type VehicleDriverRow } from "@/server/vehi
 import { storeVehicleImage, VEHICLE_IMAGE_BUCKET } from "@/server/vehicles/imageStorage";
 import { resolveStoredUrls } from "@/server/storage/dataUrl";
 import { isMissingVehicleAvailabilityColumns } from "@/server/vehicles/availabilitySchema";
+import { normalizeVehicleInteger, validateVehicleForm } from "@/lib/vehicleAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -79,8 +80,8 @@ export async function GET(req: NextRequest) {
       .from("vehicles")
       .select(selectColumns)
       .eq("owner_org_id", orgId)
-      .order("manufacturer")
-      .order("brand")
+      // 一覧の No. と表示位置を登録後も安定させる。UUID 順は利用者から見るとランダムになる。
+      .order("created_at", { ascending: true })
       // ページ間で行の重複・欠落を起こさないよう一意なタイブレークを付ける
       .order("id");
     // limit+1 行取って hasMore を判定する
@@ -144,6 +145,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json({ error: "入力内容を確認してください。" }, { status: 400 });
+    }
     const {
       isDisposed = false,
       isUnavailable,
@@ -182,10 +186,8 @@ export async function POST(req: NextRequest) {
       if (error) throw error;
       if (new Set(data?.map(d => d.id)).size !== new Set(driverIds).size) return NextResponse.json({ error: "ドライバーが見つかりません。" }, { status: 404 });
     }
-    const hasIdentity = (manufacturer?.trim() || brand?.trim());
-    if (!hasIdentity) {
-      return NextResponse.json({ error: "メーカー名またはブランド名が必須です" }, { status: 400 });
-    }
+    const validationIssue = validateVehicleForm(body)[0];
+    if (validationIssue) return NextResponse.json({ error: validationIssue.message }, { status: 400 });
 
     const normalizedItems = normalizePurchaseCostItems(purchaseCostItems);
     const computedPurchaseCost = normalizedItems.length > 0 ? totalFromItems(normalizedItems) : Number(purchaseCost) || 0;
@@ -200,8 +202,8 @@ export async function POST(req: NextRequest) {
     const storedImagePath = storedImage.path;
 
     const patch = {
-        manufacturer: manufacturer?.trim() || null,
-        brand: brand?.trim() || null,
+        manufacturer: typeof manufacturer === "string" ? manufacturer.trim() || null : null,
+        brand: typeof brand === "string" ? brand.trim() || null : null,
         // 地図の3Dモデルと車体色（migration 123）。車種名から解決した値が渡ってくる
         model_key: typeof modelKey === "string" && modelKey ? modelKey : null,
         // 型式（世代）。3Dモデルの出し分けと車両の記録の両方に使う
@@ -226,13 +228,13 @@ export async function POST(req: NextRequest) {
         number_class: numberClass || null,
         number_hiragana: numberHiragana || null,
         number_numeric: numberNumeric || null, // 廃車でもナンバーは保持（赤斜線表示で示す）
-        current_mileage: currentMileage,
-        last_oil_change_mileage: lastOilChangeMileage,
-        oil_change_interval: oilChangeInterval,
+        current_mileage: normalizeVehicleInteger(currentMileage, 0),
+        last_oil_change_mileage: normalizeVehicleInteger(lastOilChangeMileage, 0),
+        oil_change_interval: normalizeVehicleInteger(oilChangeInterval, 3000),
         purchase_cost: computedPurchaseCost,
         purchase_cost_items: normalizedItems.length > 0 ? normalizedItems : null,
-        lease_cost: leaseCost,
-        monthly_insurance: monthlyInsurance,
+        lease_cost: normalizeVehicleInteger(leaseCost, 35000),
+        monthly_insurance: normalizeVehicleInteger(monthlyInsurance, 0),
         recovery_start_month:
           recoveryStartMonth && /^\d{4}-\d{2}/.test(String(recoveryStartMonth))
             ? `${String(recoveryStartMonth).slice(0, 7)}-01`

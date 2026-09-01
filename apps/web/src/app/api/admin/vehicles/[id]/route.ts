@@ -4,6 +4,7 @@ import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { adminMutationError, belongsToOrg, isUuid } from "@/server/db/adminResourceScope";
 import { storeVehicleImage } from "@/server/vehicles/imageStorage";
+import { normalizeVehicleInteger, validateVehicleForm } from "@/lib/vehicleAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,8 @@ export async function PUT(
     }
     const body = await req.json();
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    const validationIssue = validateVehicleForm(body, { requireIdentity: false })[0];
+    if (validationIssue) return NextResponse.json({ error: validationIssue.message }, { status: 400 });
     if (body.driverIds !== undefined) {
       if (!Array.isArray(body.driverIds) || !body.driverIds.every(isUuid)) return NextResponse.json({ error: "ドライバーの指定が不正です。" }, { status: 400 });
       if (!Array.isArray(body.expectedDriverIds) || !body.expectedDriverIds.every(isUuid)) return NextResponse.json({ error: "車両の最新の紐付けを読み込んでから保存してください。" }, { status: 428 });
@@ -98,7 +101,9 @@ export async function PUT(
     const clampFocus = (v: unknown) => Math.min(100, Math.max(0, Math.round(Number(v) || 0)));
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (manufacturer !== undefined) updates.manufacturer = manufacturer?.trim() || null;
+    if (manufacturer !== undefined) {
+      updates.manufacturer = typeof manufacturer === "string" ? manufacturer.trim() || null : null;
+    }
     // 地図の3Dモデル・車体色（migration 123）
     if (modelKey !== undefined) updates.model_key = typeof modelKey === "string" && modelKey ? modelKey : null;
     if (modelCode !== undefined) {
@@ -109,7 +114,7 @@ export async function PUT(
       updates.body_color =
         typeof bodyColor === "string" && /^#[0-9a-fA-F]{6}$/.test(bodyColor) ? bodyColor : null;
     }
-    if (brand !== undefined) updates.brand = brand?.trim() || null;
+    if (brand !== undefined) updates.brand = typeof brand === "string" ? brand.trim() || null : null;
     if (isDisposed !== undefined) updates.is_disposed = !!isDisposed;
     if (isUnavailable !== undefined) {
       updates.is_unavailable = !!isUnavailable;
@@ -138,9 +143,11 @@ export async function PUT(
     if (numberNumeric !== undefined) updates.number_numeric = numberNumeric || null;
     // 廃車でもナンバーはリセットしない（廃車時のナンバーのまま一覧で赤斜線表示する。
     // 旧仕様の「null + 0000 に置換」は 2026-08-14 に廃止）
-    if (currentMileage !== undefined) updates.current_mileage = currentMileage;
-    if (lastOilChangeMileage !== undefined) updates.last_oil_change_mileage = lastOilChangeMileage;
-    if (oilChangeInterval !== undefined) updates.oil_change_interval = oilChangeInterval;
+    if (currentMileage !== undefined) updates.current_mileage = normalizeVehicleInteger(currentMileage, 0);
+    if (lastOilChangeMileage !== undefined) {
+      updates.last_oil_change_mileage = normalizeVehicleInteger(lastOilChangeMileage, 0);
+    }
+    if (oilChangeInterval !== undefined) updates.oil_change_interval = normalizeVehicleInteger(oilChangeInterval, 3000);
     if (purchaseCostItems !== undefined) {
       const normalizedItems = normalizePurchaseCostItems(purchaseCostItems);
       updates.purchase_cost_items = normalizedItems.length > 0 ? normalizedItems : null;
@@ -148,8 +155,8 @@ export async function PUT(
     } else if (purchaseCost !== undefined) {
       updates.purchase_cost = purchaseCost;
     }
-    if (leaseCost !== undefined) updates.lease_cost = leaseCost;
-    if (monthlyInsurance !== undefined) updates.monthly_insurance = monthlyInsurance;
+    if (leaseCost !== undefined) updates.lease_cost = normalizeVehicleInteger(leaseCost, 35000);
+    if (monthlyInsurance !== undefined) updates.monthly_insurance = normalizeVehicleInteger(monthlyInsurance, 0);
     if (recoveryStartMonth !== undefined) {
       updates.recovery_start_month =
         recoveryStartMonth && /^\d{4}-\d{2}/.test(String(recoveryStartMonth))

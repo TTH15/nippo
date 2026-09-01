@@ -218,6 +218,32 @@ describe("車両の一括保存", () => {
     expect((await vehicleCreate(request({manufacturer:"試験",driverIds:[driver]}))).status).toBe(200);
     expect(mock.rpc).toHaveBeenCalledWith("save_vehicle_with_drivers",expect.objectContaining({p_create:true,p_driver_ids:[driver],p_expected_driver_ids:[]})); expect(writes).toEqual([]);
   });
+  it("新規車両の空欄メーターはDB既定値へ揃えて保存する",async () => {
+    expect((await vehicleCreate(request({
+      manufacturer:"試験",
+      currentMileage:null,
+      lastOilChangeMileage:null,
+      oilChangeInterval:null,
+      driverIds:[],
+    }))).status).toBe(200);
+    expect(mock.rpc).toHaveBeenCalledWith("save_vehicle_with_drivers",expect.objectContaining({
+      p_patch:expect.objectContaining({
+        current_mileage:0,
+        last_oil_change_mileage:0,
+        oil_change_interval:3000,
+      }),
+    }));
+  });
+  it("不足した車種と不正なメーター値は項目名つきで保存前に拒否する",async () => {
+    const missing=await vehicleCreate(request({manufacturer:"",brand:"",driverIds:[]}));
+    expect(missing.status).toBe(400);
+    expect((await missing.json()).error).toContain("車種を選択してください");
+
+    const invalid=await vehicleCreate(request({manufacturer:"試験",currentMileage:-1,driverIds:[]}));
+    expect(invalid.status).toBe(400);
+    expect((await invalid.json()).error).toBe("現在メーターは0以上の整数で入力してください。");
+    expect(mock.rpc).not.toHaveBeenCalled();
+  });
   it("新規作成でも他社ドライバーを画像保存前に拒否する",async () => {
     expect((await vehicleCreate(request({manufacturer:"試験",driverIds:[otherDriver]}))).status).toBe(404);
     expect(mock.rpc).not.toHaveBeenCalled(); expect(mock.image).not.toHaveBeenCalled();

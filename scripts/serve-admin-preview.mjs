@@ -31,8 +31,12 @@ if (mapboxEnabled) {
   if (!/^pk\.[A-Za-z0-9._-]+$/.test(publicMapboxToken)) throw new Error("Mapbox mode requires NEXT_PUBLIC_MAPBOX_TOKEN (public pk. token only)");
 }
 const source = path.join(root, "apps/web/src");
-// 本番シフトのページ本体を検証する専用entry。Nextの公開ルートには置かない。
-const entry = feature === "shifts" ? path.join(root, "scripts/previews/shifts.tsx") : path.join(source, "app/preview", feature, "page.tsx");
+// 本番ページ本体を検証する専用entry。Nextの公開ルートには置かない。
+const productionPageEntries = new Map([
+  ["shifts", path.join(root, "scripts/previews/shifts.tsx")],
+  ["vehicles", path.join(root, "scripts/previews/vehicles.tsx")],
+]);
+const entry = productionPageEntries.get(feature) ?? path.join(source, "app/preview", feature, "page.tsx");
 await access(entry);
 const output = await mkdtemp(path.join(os.tmpdir(), `hakotora-preview-${feature}-`));
 const result = await build({
@@ -48,12 +52,16 @@ const result = await build({
       const replaced = new Set(["@/lib/api", "@/lib/useApi", "@/lib/capabilities", "@/lib/realtime/cellCursors", "@/lib/swr", "swr", "@/lib/components/AdminLayout", "@/server/shiftRequests/diff"]);
       builder.onResolve({ filter: /.*/ }, args => replaced.has(args.path) ? { path: path.join(root, "scripts/previews/shifts-services.tsx") } : undefined);
     }
+    if (feature === "vehicles") {
+      const replaced = new Set(["@/lib/api", "@/lib/useApi", "@/lib/capabilities", "@/lib/swr", "swr/infinite", "@/lib/components/AdminLayout", "@/lib/components/VehicleModelPreview"]);
+      builder.onResolve({ filter: /.*/ }, args => replaced.has(args.path) ? { path: path.join(root, "scripts/previews/vehicles-services.tsx") } : undefined);
+    }
     builder.onResolve({ filter: /^(?:@\/server(?:\/|$)|@\/lib\/api|@supabase\/|server-only$|@\/lib\/auth|@repo\/core\/(?:api|auth))/ }, args => ({ errors: [{ text: `Preview must not import live services: ${args.path}` }] }));
   } }],
 });
-if (feature === "shifts") {
+if (productionPageEntries.has(feature)) {
   const liveImports = Object.keys(result.metafile.inputs).filter(input => /apps\/web\/src\/(?:server\/|lib\/(?:api\.|auth\/|swr\.|useApi\.|realtime\/))/.test(input));
-  if (liveImports.length) throw new Error(`Live service was bundled into the shift preview: ${liveImports.join(", ")}`);
+  if (liveImports.length) throw new Error(`Live service was bundled into the ${feature} preview: ${liveImports.join(", ")}`);
 }
 const config = loadConfig(path.join(root, "apps/web/tailwind.config.ts"));
 const css = await postcss([tailwind({ ...config, content: [path.join(source, "**/*.{ts,tsx}")] })])
