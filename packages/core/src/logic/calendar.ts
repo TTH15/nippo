@@ -82,6 +82,16 @@ export function formatMonthDayWeekdayJP(dateStr: string): string {
 }
 
 /**
+ * 内部の日付文字列 "YYYY-MM-DD" を、年月日を省略しない画面表示へ変換する。
+ * 利用者向けにISO形式をそのまま見せず、曜日も一目で確認できる形にする。
+ */
+export function formatDateSlashWeekdayJP(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const weekday = WEEKDAY_JP[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${String(y).padStart(4, "0")}/${String(m).padStart(2, "0")}/${String(d).padStart(2, "0")}（${weekday}）`;
+}
+
+/**
  * 日報用のデフォルト日付（日本時間 午前3:00 で日付が切り替わる）。
  * 3:00 より前は「前日」、3:00 以降は「当日」を返す。
  * Returns YYYY-MM-DD（JST）

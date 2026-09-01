@@ -2,12 +2,16 @@ import { activeLoan, courseIdsFor, filterDrivers, loanOwner, MODE_NAMES, shiftFo
 import { DAY_FILTER_LABELS, filterDayDrivers, hasDayAssignment, type DayFilter } from "./dayFilter";
 import { driverDetailsVisible, type ShiftView } from "./navigation";
 import { renderPlateImage } from "./plateImage";
+import { formatDateSlashWeekdayJP } from "@repo/core/logic/calendar";
+import { planDispatchImagePages } from "@/lib/dispatchImagePages";
 
 export type ImageRow = { id: string; name: string; labels: string[]; group: string; status: string; courses: { name: string; color: string }[]; meetingTime: boolean; vehicle?: Vehicle; vehicleText?: string; loanText?: string };
 export type DayImageData = { date: string; filters: string; rows: ImageRow[]; grouped: boolean; working: number; showDriverDetails: boolean; compact: boolean };
 export type ImageArtifact = { blob: Blob; url: string; width: number; height: number };
 const colors: Record<string, string> = { a: "#fbbf24", b: "#38bdf8", c: "#34d399" };
-export const IMAGE_PAGE_SIZE = 10;
+export const imagePagePlan = (data: DayImageData) => planDispatchImagePages(
+  data.rows.map(row => data.grouped ? `lease:${row.group}` : `course:${row.courses[0]?.name ?? row.status}`),
+);
 
 export function buildDayImageData(demo: Demo, view: ShiftView, date: string, dayFilter: DayFilter = view.dayFilter): DayImageData {
   let drivers = filterDayDrivers(demo, filterDrivers(demo, view.labelIds, view.mode, view.query), date, dayFilter);
@@ -36,7 +40,9 @@ export function buildDayImageData(demo: Demo, view: ShiftView, date: string, day
 
 /** スマホの日別配車リストを基に描画。SVG素材の解像度を保ち、CSS maskへの依存を避ける。 */
 export async function renderDayImage(data: DayImageData, page: number): Promise<ImageArtifact> {
-  const rows = data.rows.slice(page * IMAGE_PAGE_SIZE, (page + 1) * IMAGE_PAGE_SIZE);
+  const pages = imagePagePlan(data);
+  const range = pages[page] ?? pages[pages.length - 1];
+  const rows = data.rows.slice(range.start, range.end);
   if (!rows.length) throw new Error("画像にするドライバーがいません");
   await document.fonts.ready;
   const plates = new Map(await Promise.all(rows.filter(row => row.vehicle).map(async row => [row.id, await renderPlateImage(row.vehicle!)] as const)));
@@ -66,19 +72,19 @@ export async function renderDayImage(data: DayImageData, page: number): Promise<
   });
   const groupCount = data.grouped ? rows.filter((row, index) => index === 0 || row.group !== rows[index - 1].group).length : 0;
   const height = 88 + filterLines.length * 15 + layout.reduce((sum, item) => sum + item.height, 0) + groupCount * 30 + 40;
-  // 10人ずつ分割し、さらに総画素数を抑えてスマホのCanvasメモリ消費を制限する。
+  // 最大12人と自然な区切りで分割し、総画素数も抑えてスマホのCanvasメモリ消費を制限する。
   const scale = Math.min(3, Math.sqrt(4_000_000 / (390 * height)));
   canvas.width = Math.ceil(390 * scale); canvas.height = Math.ceil(height * scale);
   ctx.scale(scale, scale);
-  const text = (value: string, x: number, y: number, size: number, color = "#334155", bold = false, maxWidth?: number) => {
-    font(size, bold); ctx.fillStyle = color;
+  const text = (value: string, x: number, y: number, size: number, color = "#334155", bold = false, maxWidth?: number, align: CanvasTextAlign = "start") => {
+    font(size, bold); ctx.fillStyle = color; ctx.textAlign = align;
     if (maxWidth === undefined) ctx.fillText(value, x, y);
     else ctx.fillText(value, x, y, maxWidth);
+    ctx.textAlign = "start";
   };
   ctx.fillStyle = "#f8fafc"; ctx.fillRect(0, 0, 390, height);
-  const day = new Date(data.date + "T12:00:00");
-  text(`${day.getFullYear()}/${day.getMonth() + 1}/${day.getDate()}（${"日月火水木金土"[day.getDay()]}）`, 16, 18, 20, "#0f172a", true);
-  text(`日別配車 · ${data.rows.length}人（稼働 ${data.working}人）`, 16, 48, 12);
+  text(formatDateSlashWeekdayJP(data.date), 195, 18, 20, "#0f172a", true, undefined, "center");
+  text(`${data.rows.length}人（稼働 ${data.working}人）`, 16, 48, 12);
   filterLines.forEach((line, index) => text(line, 16, 69 + index * 15, 10, "#64748b"));
   let y = 88 + filterLines.length * 15;
   let previousGroup = "";
@@ -114,8 +120,7 @@ export async function renderDayImage(data: DayImageData, page: number): Promise<
     loanLines.forEach((line, index) => text(line, 250, rightY + index * 13, 9, "#92400e"));
     y += rowHeight;
   }
-  const pages = Math.ceil(data.rows.length / IMAGE_PAGE_SIZE);
-  text(`管理プレビュー・架空データ${pages > 1 ? `  ${page + 1} / ${pages}枚` : ""}`, 16, y + 14, 10, "#64748b");
+  text(`管理プレビュー・架空データ${pages.length > 1 ? `  ${page + 1} / ${pages.length}枚` : ""}`, 16, y + 14, 10, "#64748b");
   const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error("PNG画像を生成できませんでした")), "image/png"));
   return { blob, url: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height };
 }

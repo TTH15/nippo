@@ -91,6 +91,15 @@ export async function apiFetch<T>(key: string, init?: RequestInit): Promise<T> {
   }
   if (failNext) { failNext = false; throw new Error("プレビューの保存失敗サンプル（外部送信なし）"); }
   const body = JSON.parse(String(init.body ?? "{}"));
+  if (key === "/api/admin/shifts/driver-order") {
+    const requestedOrder: string[] = Array.isArray(body.order) ? body.order.filter((id: unknown): id is string => typeof id === "string") : [];
+    const rank = new Map<string, number>(requestedOrder.map((id, index) => [id, index]));
+    drivers.sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+    drivers.forEach((driver, index) => { driver.list_no = index + 1; });
+    for (const data of periodData.values()) data.drivers = drivers;
+    notify();
+    return { ok: true } as T;
+  }
   if (!["/api/admin/shifts", "/api/admin/shifts/vehicle", "/api/admin/shifts/times"].includes(key)) throw new Error("この操作はプレビューでは保存しません。外部通信は行っていません。");
   let changed: MockShift | undefined;
   for (const data of periodData.values()) {

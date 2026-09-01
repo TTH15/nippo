@@ -48,7 +48,6 @@ export function ImageExportDialog({ title, filename, pageCount, generate, onClos
       {image && <a className={buttonClass} href={image.url} download={name}><FontAwesomeIcon icon={faDownload} />画像をダウンロード</a>}
       <button type="button" className={buttonClass} onClick={onClose}>閉じる</button>
     </div>
-    <p className="mt-2 text-[11px] leading-5 text-slate-500">{canShare ? "共有メニューに「画像を保存」がある場合は、そこから写真に保存できます。" : "画像を長押しして保存するか、ダウンロードしてください。"}写真への自動保存はできません。</p>
     {message && <p role="status" className="mt-2 text-xs text-slate-600">{message}</p>}
   </>}>
     <fieldset disabled={sharing}>{children}</fieldset>

@@ -11,6 +11,7 @@ vi.mock("@/server/storage/dataUrl", () => ({ resolveStoredUrls: async (_db: unkn
 vi.mock("@/server/auth/permissions", () => ({ hasCapabilityCached: async () => true }));
 import { GET as leaseGet, PUT as leasePut } from "@/app/api/admin/driver-lease/route";
 import { GET as shiftsGet, POST as shiftPost } from "@/app/api/admin/shifts/route";
+import { PATCH as shiftDriverOrderPatch } from "@/app/api/admin/shifts/driver-order/route";
 import { POST as vehiclePost } from "@/app/api/admin/shifts/vehicle/route";
 import { POST as loanPost } from "@/app/api/admin/shifts/vehicle-loans/route";
 import { GET as vehiclesGet, POST as vehicleCreate } from "@/app/api/admin/vehicles/route";
@@ -171,6 +172,33 @@ describe("シフトと配車の会社境界", () => {
   });
   it.each([true,false])("他社車両の社外貸出を設定・解除できない: %s",async loaned => {
     expect((await loanPost(request({vehicleId:otherVehicle,date:"2026-09-01",loaned}))).status).toBe(404); expect(writes).toEqual([]);
+  });
+});
+
+describe("シフト表の行順", () => {
+  const orderRequest = (order: string[]) => new NextRequest("http://localhost/api/admin/shifts/driver-order", {
+    method: "PATCH",
+    body: JSON.stringify({ order }),
+  });
+
+  it("認証した会社と検証済みの順番だけをRPCへ渡す", async () => {
+    const response = await shiftDriverOrderPatch(orderRequest([driver]));
+    expect(response.status).toBe(200);
+    expect(mock.rpc).toHaveBeenCalledWith("reorder_shift_drivers", {
+      p_org_id: "org-a",
+      p_driver_ids: [driver],
+    });
+  });
+
+  it("重複やUUIDでない値はDB更新前に拒否する", async () => {
+    expect((await shiftDriverOrderPatch(orderRequest([driver, driver]))).status).toBe(400);
+    expect((await shiftDriverOrderPatch(orderRequest(["driver-a"]))).status).toBe(400);
+    expect(mock.rpc).not.toHaveBeenCalled();
+  });
+
+  it("他社または非稼働のドライバーを含む順番は保存しない", async () => {
+    expect((await shiftDriverOrderPatch(orderRequest([otherDriver]))).status).toBe(404);
+    expect(mock.rpc).not.toHaveBeenCalled();
   });
 });
 

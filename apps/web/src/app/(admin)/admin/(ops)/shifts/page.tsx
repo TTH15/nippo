@@ -37,7 +37,9 @@ import { ShiftLeaseFilters, ShiftLeaseBadge } from "@/lib/components/ShiftLeaseF
 import { indexShiftLeases, shiftLeaseMode, shiftLeaseGroups, SHIFT_LEASE_NAMES, type ShiftLease, type ShiftLeaseFilter } from "@/lib/shiftLease";
 import { DEFAULT_SHIFT_DISPLAY, SHIFT_DISPLAY_KEY, readShiftDisplay, type ShiftDisplay } from "@/lib/shiftDisplay";
 import { ImageExportDialog } from "@/lib/components/ImageExportDialog";
-import { captureDispatchImage, DISPATCH_IMAGE_PAGE_SIZE } from "@/lib/captureDispatchImage";
+import { ShiftDriverOrderDialog, type ShiftDriverOrderItem } from "@/lib/components/ShiftDriverOrderDialog";
+import { captureDispatchImage } from "@/lib/captureDispatchImage";
+import { planDispatchImagePages } from "@/lib/dispatchImagePages";
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
 import PendingChangesBar, { PENDING_CHANGES_KEY } from "./PendingChangesBar";
 import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./ShiftImportModal";
@@ -47,6 +49,7 @@ import { PDF_EXPORT_OPTIONS } from "@/lib/pdfExport";
 import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
 import type { SpotJob } from "../spot-jobs/types";
 import { shouldShowCycleBadgesForSelection } from "@repo/core/logic/courseCycle";
+import { formatDateSlashWeekdayJP } from "@repo/core/logic/calendar";
 
 type Course = {
   id: string;
@@ -409,8 +412,10 @@ type Driver = {
   id: string;
   name: string;
   display_name?: string | null;
-  /** ドライバー名簿と同じ No.。APIのlist_no順を契約区分内でも保つ */
+  /** 名簿用のNo.。シフト表の表示順はshift_sort_orderを優先する */
   list_no?: number | null;
+  /** シフト表専用の手動順。未設定時は名簿No.へフォールバックする */
+  shift_sort_order?: number | null;
   driver_code?: string | null;
   driver_identities?: { driver_courses: { course_id: string }[] }[];
   driver_courses?: { course_id: string }[];
@@ -688,6 +693,7 @@ export default function ShiftsPage() {
   // スマホの日別ビュー（B）: 表示中の1日。null=期間内の今日 or 先頭日にフォールバック。
   const [mobileDate, setMobileDate] = useState<string | null>(null);
   const [imageExportOpen, setImageExportOpen] = useState(false);
+  const [driverOrderOpen, setDriverOrderOpen] = useState(false);
   const imageExportListRef = useRef<HTMLDivElement>(null);
   // 日別ビューの左右スワイプ（ページめくり）。指の動きに追従させるため、
   // 再描画を挟まず track の transform を直接書き換える。
@@ -1855,9 +1861,9 @@ export default function ShiftsPage() {
       return toTimeInputValue(shift?.meeting_time ?? cycle?.meeting_time ?? course?.meeting_time);
     }).filter(Boolean);
 
-  /** 日別ビュー用: 契約の絞り込み後の状態（割当・希望休・車両）を名簿順で返す */
-  const getDayRows = (date: string) =>
-    shiftLeaseGroups(driversWithCourses, leaseIndex, date, leaseFilter, false)[0].drivers
+  /** 日別ビュー用: 契約の絞り込み後の状態（割当・希望休・車両）を保存済みの行順で返す */
+  const getDayRows = (date: string, filter: ShiftLeaseFilter = leaseFilter) =>
+    shiftLeaseGroups(driversWithCourses, leaseIndex, date, filter, false)[0].drivers
       .map((driver) => {
         const placements = findDriverPlacementsOnDate(localShifts, date, driver.id);
         const assignedCourses = placements
@@ -1890,7 +1896,7 @@ export default function ShiftsPage() {
           off: isDriverOffDay(driver.id, date),
         };
       });
-    // 並べ替えはしない（driversWithCourses = API の list_no 昇順をそのまま使う）
+    // 並べ替えはしない（driversWithCourses = API のシフト専用順をそのまま使う）
 
   /** 日別ビューの1日分リスト（スワイプのプレビューで前後日も同じ関数で描く） */
   const renderDayList = (date: string) => {
@@ -1913,7 +1919,7 @@ export default function ShiftsPage() {
           </div>
           <div className="divide-y divide-slate-100">
             {dayJobs.map((job) => (
-              <a data-export-row key={job.id} href="/admin/spot-jobs" className="flex items-center gap-3 px-3 py-2.5 active:bg-slate-100">
+              <a data-export-row data-export-group="spot-jobs" key={job.id} href="/admin/spot-jobs" className="flex items-center gap-3 px-3 py-2.5 active:bg-slate-100">
                 <span className="min-w-0 flex-1 truncate rounded bg-sky-100 px-2 py-0.5 text-[12px] font-semibold text-sky-800">
                   {job.title}
                 </span>
@@ -1940,6 +1946,7 @@ export default function ShiftsPage() {
               <button
                 key={driver.id}
                 data-export-row
+                data-export-group={group.mode ? `lease:${group.mode}` : `course:${assignedCourses[0]?.course.id ?? "unassigned"}`}
                 type="button"
                 disabled={!canOpen}
                 onClick={() =>
@@ -2125,11 +2132,38 @@ export default function ShiftsPage() {
   };
 
   const exportRows = getDayRows(activeMobileDate).filter(row => mobileFilter === "all" || (row.placements.length > 0) === (mobileFilter === "working"));
-  const exportPageCount = Math.max(1, Math.ceil((exportRows.length + (spotJobsByDate.get(activeMobileDate)?.length ?? 0)) / DISPATCH_IMAGE_PAGE_SIZE));
+  const exportDayGroups = shiftLeaseGroups(exportRows, leaseIndex, activeMobileDate, "all", groupByLease);
+  const exportGroupKeys = [
+    ...(spotJobsByDate.get(activeMobileDate) ?? []).map(() => "spot-jobs"),
+    ...exportDayGroups.flatMap(group => group.drivers.map(row => group.mode
+      ? `lease:${group.mode}`
+      : `course:${row.assignedCourses[0]?.course.id ?? "unassigned"}`)),
+  ];
+  const exportPageCount = planDispatchImagePages(exportGroupKeys).length;
+  const driverOrderItems: ShiftDriverOrderItem[] = getDayRows(activeMobileDate, "all").map(row => ({
+    id: row.driver.id,
+    name: getDisplayName(row.driver),
+    leaseMode: shiftLeaseMode(leaseIndex, row.driver.id, activeMobileDate),
+    courseName: row.assignedCourses[0]?.course.summary_title ?? row.assignedCourses[0]?.course.name ?? null,
+    courseColor: row.assignedCourses[0]?.course.color ?? null,
+    courseOrder: row.assignedCourses[0]?.course.sort_order ?? null,
+  }));
+  const saveDriverOrder = async (order: string[]) => {
+    await apiFetch("/api/admin/shifts/driver-order", { method: "PATCH", body: JSON.stringify({ order }) });
+    const rank = new Map(order.map((id, index) => [id, index]));
+    setDrivers(current => [...current].sort((a, b) => {
+      const aRank = rank.get(a.id); const bRank = rank.get(b.id);
+      if (aRank !== undefined && bRank !== undefined) return aRank - bRank;
+      if (aRank !== undefined) return -1;
+      if (bRank !== undefined) return 1;
+      return 0;
+    }));
+    void mutateShifts();
+  };
   const generateDayImage = useCallback(async (page: number) => {
     if (!imageExportListRef.current || loading) throw new Error("シフトの読み込み完了後に再度お試しください。");
     return captureDispatchImage(imageExportListRef.current, {
-      title: `${activeMobileDate} 日別配車`,
+      title: formatDateSlashWeekdayJP(activeMobileDate),
       subtitle: `${mobileFilter === "all" ? "全員" : mobileFilter === "working" ? "稼働" : "未割当"} ${exportRows.length}人 · ${leaseIndex ? leaseFilter === "all" ? "すべての契約" : SHIFT_LEASE_NAMES[leaseFilter] : "契約区分未取得"}`,
       page, pageCount: exportPageCount,
     });
@@ -2138,6 +2172,12 @@ export default function ShiftsPage() {
 
   return (
     <AdminLayout>
+      {driverOrderOpen && <ShiftDriverOrderDialog
+        items={driverOrderItems}
+        dateLabel={formatDateSlashWeekdayJP(activeMobileDate)}
+        onSave={saveDriverOrder}
+        onClose={() => setDriverOrderOpen(false)}
+      />}
       {imageExportOpen && <>
         <div aria-hidden="true" inert className="pointer-events-none fixed -left-[10000px] top-0 w-[384px]" ref={imageExportListRef}>{renderDayList(activeMobileDate)}</div>
         <ImageExportDialog title="日別配車を画像にする" filename={`dispatch_${activeMobileDate}_${mobileFilter}`} pageCount={exportPageCount} generate={generateDayImage} onClose={() => setImageExportOpen(false)}>
@@ -2145,7 +2185,6 @@ export default function ShiftsPage() {
           <div role="group" aria-label="画像の対象" className="mt-3 flex overflow-hidden rounded-lg border border-slate-300">
             {([["all", "全員"], ["working", "稼働"], ["unassigned", "未割当"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={mobileFilter === key} onClick={() => setMobileFilter(key)} className={cn("flex-1 py-2 text-xs", mobileFilter === key ? "bg-slate-800 text-white" : "bg-white text-slate-600")}>{label}</button>)}
           </div>
-          <p className="mt-2 text-xs text-slate-500">現在の表示項目を反映します。画像は端末内で作成します。</p>
         </ImageExportDialog>
       </>}
       <div className="max-w-full">
@@ -2312,6 +2351,11 @@ export default function ShiftsPage() {
             <ShiftLeaseFilters value={leaseFilter} onChange={setLeaseFilter} grouped={groupByLease} onGroupedChange={setGroupByLease}
               ready={leaseIndex !== null} loading={loading} retrying={refreshing} axis={viewAxis} startDate={displayDates[0] ?? ""} dailyDate={activeMobileDate}
               onRetry={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />
+            {viewAxis === "driver" && canWrite && <div className="w-full border-t border-slate-100 pt-2">
+              <button type="button" onClick={() => setDriverOrderOpen(true)} className="h-11 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 md:h-9">
+                行の並び順
+              </button>
+            </div>}
           </ShiftDisplayOptions>}
         </ShiftDisplayPanel>
 

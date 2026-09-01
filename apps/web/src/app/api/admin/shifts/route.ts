@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     // 関連表を読む前に自社の集合を確定する。空集合を「条件なし」にしない。
     const [courseResult, driverResult, fleetResult] = await Promise.all([
       supabase.from("courses").select("*, course_cycles(id, cycle_no, label, meeting_place, meeting_time, arrival_time, end_time, max_drivers, sort_order, active)").eq("org_id", orgId).order("sort_order"),
-      supabase.from("drivers").select("id, name, display_name, role, list_no, driver_code, status, works_as_driver, driver_identities(driver_courses(course_id))").eq("org_id", orgId).order("list_no", { ascending: true, nullsFirst: false }).order("name"),
+      supabase.from("drivers").select("id, name, display_name, role, list_no, shift_sort_order, driver_code, status, works_as_driver, driver_identities(driver_courses(course_id))").eq("org_id", orgId).order("shift_sort_order", { ascending: true, nullsFirst: false }).order("list_no", { ascending: true, nullsFirst: false }).order("name"),
       supabase.from("vehicles").select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, is_ev, is_disposed, is_unavailable, unavailable_reason, last_oil_change_mileage, oil_change_interval").eq("owner_org_id", orgId).order("manufacturer").order("brand"),
     ]);
     for (const result of [courseResult, driverResult, fleetResult]) if (result.error) throw result.error;

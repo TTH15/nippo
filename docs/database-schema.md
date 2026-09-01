@@ -410,6 +410,7 @@ migrations 001〜098 を適用した後の最終状態。
 | bank_no | text | nullable |
 | bank_holder | text | nullable |
 | list_no | integer | nullable |
+| shift_sort_order | integer | nullable（156。シフト表専用の手動順。名簿No.とは分離） |
 | license_expiry_date | date | nullable |
 | last_bonus_seen_at | timestamptz | nullable |
 | org_id | uuid | NOT NULL, FK → organizations(id)（083/086） |
@@ -420,7 +421,7 @@ migrations 001〜098 を適用した後の最終状態。
 
 **ドライバーの状態（2段階承認）:** `status='pending'`=仮登録申請中 / `status='active' かつ kyc_verified_at IS NULL`=仮承認済・本登録/本人確認待ち / `status='active' かつ kyc_verified_at IS NOT NULL`=本承認済（稼働可）/ `status='rejected'`=却下。**住所/銀行（postal_code/address/bank_*）は membership（drivers）側、氏名/免許/顔写真は identity 側**（本名 vs 表示名 display_name）。
 
-**Index:** `idx_drivers_company_list_no_driver (company_code, list_no) WHERE role = 'DRIVER' AND list_no IS NOT NULL`、`idx_drivers_identity_id`
+**Index:** `idx_drivers_company_list_no_driver (company_code, list_no) WHERE role = 'DRIVER' AND list_no IS NOT NULL`、`idx_drivers_identity_id`、`idx_drivers_org_shift_sort_order (org_id, shift_sort_order) WHERE works_as_driver AND shift_sort_order IS NOT NULL`
 
 ---
 

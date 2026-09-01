@@ -26,7 +26,7 @@
 ## フォーム入力
 
 - **テキスト入力**: `px-3 py-2 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400`。
-- **日付**: ネイティブの `type="date"` ではなく、共通コンポーネント `@/lib/components/DatePicker` を使う。値は `Date | undefined`、表示は `yyyy年MM月dd日`（コンポーネント内で `date-fns` + `ja` ロケール）。
+- **日付**: ネイティブの `type="date"` ではなく、共通コンポーネント `@/lib/components/DatePicker` を使う。利用者向けに `YYYY-MM-DD` をそのまま表示しない。年月日を省略しない場面は `YYYY/MM/DD（曜）`、短い通知等は `M月D日（曜）` など文脈に合わせる。内部のDB・API・URL・ファイル名はISO日付を維持してよい。
 - **車両選択**: 番号の文字列だけを並べるセレクトではなく、既存 `VehiclePlate` のナンバープレートUIから選ぶ。選択中もプレートを表示する。折りたたむ選択欄は `VehiclePlatePicker`、配車画面など既存のプレート一覧はその形式を維持。選択は背景・枠で示し、チェックアイコン用の空きを作らない。
 - **フォーム状態の保存**: API や DB が `YYYY-MM-DD` 文字列の場合は、`Date` と相互変換する際はタイムゾーンずれを避けるため、必要に応じて `T12:00:00` を付与してパースする。
 

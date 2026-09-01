@@ -26,13 +26,13 @@ describe("画像の共有と保存", () => {
     await screen.findByText("共有をキャンセルしました。画像はこのまま保存できます。");
     expect(screen.getByRole("link", { name: "画像をダウンロード" })).toBeTruthy();
   });
-  it("共有非対応なら長押し保存とダウンロードを案内する", async () => {
+  it("共有非対応なら冗長な説明を出さずダウンロードを残す", async () => {
     vi.stubGlobal("navigator", {});
     open();
     const link = await screen.findByRole("link", { name: "画像をダウンロード" });
     expect(link.getAttribute("download")).toBe("dispatch_2026-09-01_all.png");
     expect(screen.queryByRole("button", { name: "共有・写真に保存" })).toBeNull();
-    expect(screen.getByText(/共有メニュー非対応/)).toBeTruthy();
+    expect(screen.queryByText(/共有メニュー非対応|画像を長押しして保存/)).toBeNull();
   });
   it("共有拒否では自動送信や再試行せず、保存手段を残す", async () => {
     const share = vi.fn().mockRejectedValue(new DOMException("denied", "NotAllowedError"));
@@ -64,9 +64,9 @@ describe("画像の共有と保存", () => {
     expect(screen.getByText(/画像にするドライバーがいません/)).toBeTruthy();
     expect(renderDayImage).not.toHaveBeenCalled();
   });
-  it("10人を超えたら画像を分け、選択中の画像番号を保存名へ反映する", async () => {
+  it("12人を超えたら画像を分け、選択中の画像番号を保存名へ反映する", async () => {
     const demo = initialDemo();
-    demo.drivers.push(...demo.drivers.slice(0, 2).map(driver => ({ ...driver, id: "extra-" + driver.id })));
+    demo.drivers.push(...demo.drivers.slice(0, 4).map(driver => ({ ...driver, id: "extra-" + driver.id })));
     render(<ShiftExportDialog demo={demo} view={{ ...initialShiftView(), dayFilter: "all" }} date="2026-09-01" onClose={() => {}}/>);
     await screen.findByRole("img");
     fireEvent.click(screen.getByRole("button", { name: "次の画像" }));

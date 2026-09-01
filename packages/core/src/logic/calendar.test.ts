@@ -7,6 +7,7 @@ import {
   formatYearMonth,
   formatMonthDayJP,
   formatMonthDayWeekdayJP,
+  formatDateSlashWeekdayJP,
   reportDateDefaultJST,
 } from "./calendar";
 
@@ -71,6 +72,13 @@ describe("formatMonthDayWeekdayJP", () => {
   it("月初・年またぎでも曜日がずれない", () => {
     expect(formatMonthDayWeekdayJP("2026-01-01")).toBe("1月1日(木)");
     expect(formatMonthDayWeekdayJP("2026-12-31")).toBe("12月31日(木)");
+  });
+});
+
+describe("formatDateSlashWeekdayJP", () => {
+  it("年月日をゼロ埋めし、曜日付きのスラッシュ表記にする", () => {
+    expect(formatDateSlashWeekdayJP("2026-09-01")).toBe("2026/09/01（火）");
+    expect(formatDateSlashWeekdayJP("2026-01-05")).toBe("2026/01/05（月）");
   });
 });
 

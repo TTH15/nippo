@@ -34,7 +34,7 @@ describe("本番の画像共有", () => {
     expect(screen.queryByRole("link", { name: "画像をダウンロード" })).toBeNull();
     expect(screen.queryByRole("img")).toBeNull();
   });
-  it("生成失敗から再試行でき、共有非対応でもPNGを保存できる", async () => {
+  it("生成失敗から再試行でき、共有非対応でも説明を増やさずPNGを保存できる", async () => {
     vi.stubGlobal("navigator", {});
     const generate = vi.fn().mockRejectedValueOnce(new Error("SVG failed")).mockResolvedValue(artifact);
     render(<ImageExportDialog {...props} generate={generate} />);
@@ -42,6 +42,6 @@ describe("本番の画像共有", () => {
     fireEvent.click(screen.getByRole("button", { name: "もう一度作成する" }));
     await screen.findByRole("link", { name: "画像をダウンロード" });
     expect(screen.queryByRole("button", { name: "共有・写真に保存" })).toBeNull();
-    expect(screen.getByText(/画像を長押しして保存/)).toBeInTheDocument();
+    expect(screen.queryByText(/画像を長押しして保存/)).toBeNull();
   });
 });
