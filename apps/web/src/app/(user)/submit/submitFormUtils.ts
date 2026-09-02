@@ -5,11 +5,11 @@ export type MeterVehicle = { is_ev?: boolean; current_mileage?: number | null } 
 export type MeterState = {
   /** メーター入力が必要（車両あり & 非EV）か */
   required: boolean;
-  /** 前回登録メーター（未登録は0） */
+  /** 車両に登録されている現在の走行距離（未登録は0） */
   prevKm: number;
   /** 必須なのに未入力か */
   missing: boolean;
-  /** 入力済みだが前回値以下（オドメーターは単調増加すべき）か */
+  /** 入力済みだが登録値以下（オドメーターは単調増加すべき）か */
   belowPrev: boolean;
   /** メーター観点で送信してよいか */
   canSubmit: boolean;
@@ -25,7 +25,7 @@ export function evaluateMeter(meter: string, vehicle: MeterVehicle): MeterState 
   const prevKm = vehicle?.current_mileage ?? 0;
   const trimmed = meter.trim();
   const missing = required && trimmed === "";
-  // 前回未登録(prevKm=0)の車両は単調増加チェックを行わない（初回入力のため）。
+  // 走行距離が未登録(prevKm=0)の車両は単調増加チェックを行わない（初回入力のため）。
   const belowPrev = required && trimmed !== "" && prevKm > 0 && Number(trimmed) <= prevKm;
   return { required, prevKm, missing, belowPrev, canSubmit: !missing && !belowPrev };
 }

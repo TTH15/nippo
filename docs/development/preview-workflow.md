@@ -25,6 +25,27 @@
 - 通知: 文面の表示だけ。DB更新・請求確定・通知送信は行わない。Mapboxモードでは地図と住所検索のみ外部通信する。
 - 既存メニューは全体配置の確認用に残す。操作対象外の画面・シフトメモ・設定・新規ドライバー追加は案内を表示し、本番へ遷移しない。出力は下記の日別PNGのみを実装し、半月表/PDFは対象外。
 
+### 車両地図・移動作戦盤（2026-09-02）
+
+- 入口: `/preview/map-operations`。`npm run preview:admin -- map-operations --port 3196 --mapbox` で起動する。Mapbox地図と自己ホストのHH5モデルだけを取得し、本番認証・API・DB・通知には接続しない。
+- 再利用元: 本番 `/admin/map` のMapbox Standard、3Dモデル、ナンバー札、現在／履歴の考え方と、`AdminPreviewLayout`、`VehiclePlate`、`CustomSelect`、`EditorModal`、`SmoothCollapse`、`CheckboxField`、`TimePicker`。右の車両詳細と空中の移動アーチを今回の検討として追加した。
+- 画面内の「この画面で確かめる設計」に、シフトを予定の正本、移動手配を橋渡し、日報・将来QRを駐車実績の入口とする流れを表示する。地図はそれらを見比べて判断する作戦盤とし、独立した正本にはしない。
+- 架空の4台で、通常／移動担当未設定／駐車場所未記録、要確認絞り込み、番号・車種検索、いま／履歴、2D／3D、選択車両への近接表示、駐車記録、移動手配の画面内保存を試せる。再読み込みまたはプレビュー初期化で戻る。
+- 3Dは添付のアクティHH5 Blockout 70を使用。元ファイルは8,602三角形・149メッシュ・33材質で、Mapbox用に幾何を変えず頂点配置を分離し、同材質の描画単位を統合した。さらに車体93KB、固定色部品274KB、車両別プレート36〜38KBへ分けて重ねる。車体色だけを強く出し、プレートは既存SVG字形から生成した画像を前後の実材質面へ直接貼る。車両長は地図幅の9%を保ち、実寸倍率に達した後は等倍、最大ズーム24とする。足元の細いリングで地図との境界を補う。
+- 地図上の車両札も実画面の `VehiclePlate` を直接使い、同じSVG字形・配色・縦横比とする。車体前端に画面向きのプレートを浮かせる試作は不採用。
+- 選択車両の移動予定は地表の破線を使わず、Mapboxの始点・終点を画面へ投影した白縁付きの太い空中アーチで表示する。モデルより前、ナンバー札より後ろに置く。行き先が画面外なら線だけを地図外へ抜き、実座標が表示されたときだけ矢尻を出す。車両倍率・札・アーチをMapboxの `move` ごとに更新し、ズーム・移動・回転・2D／3D切替へ追従。履歴では非表示。
+- 共通プレートの比率は添付実車写真と `/preview/plate` を比較し、以前の大きな文字比率を維持する。3D生成は `vehiclePlateLayout.json` の同じ上段・かな・一連・字間を使い、SVG内のハイフンを数字と同じカテゴリ倍率で描く。生成後のPNGをGLBから抽出して地図札と見比べる。
+- 検証画像: [京都が画面外のPC近接](../design/assets/map-operations-preview/aerial-movement-desktop.png)、[京都の実座標が見える広域](../design/assets/map-operations-preview/aerial-movement-destination-visible.png)、[京都が画面外のスマホ近接](../design/assets/map-operations-preview/aerial-movement-mobile.png)、[補正後の3Dプレート面](../design/assets/map-operations-preview/desktop-plate-proportions-corrected.png)、[共通プレート標準／compact](../design/assets/map-operations-preview/plate-proportions.png)、[GLBから抽出した一致テクスチャ](../design/assets/map-operations-preview/plate-texture-matched.png)、[スマホ記録モーダル](../design/assets/map-operations-preview/mobile-modal.png)。
+- 制限: 駐車・移動・履歴は固定の架空データとローカル状態のみ。GPS、日報、QR、シフト保存、通知予約、権限、同時編集、本番の地図設定には未接続。エブリィ等の制作中モデルはモデル登録口を共通化した後に追加する。
+
+### 日報の走行距離チェック（2026-09-02）
+
+- 入口: `/preview/submit-meter`。Next の dev サーバー（`npm run dev` → http://localhost:3001）で開く。静的ランナー `preview:admin` は対象外（実画面が SWR / apiFetch を使うため）。
+- 再利用元: 本番の実画面 `src/app/(user)/submit/SubmitPageClientV2.tsx` を複製せずそのまま描画し、`(user)/layout.tsx` と同じ `Nav variant="user"` + `main` の枠に載せる。プレビュー側は `window.fetch` の `/api/` 宛リクエストだけを架空データへ差し替える（本番の認証・DB・API・通知には接続しない。それ以外のリクエストは本来の fetch に委ねる）。
+- 架空データ: 走行距離 50,000 km 登録済み（1201）／走行距離が未登録の車両（2752）／EV でメーター欄が出ない車両（4303）の3台と、コース1件・個数2項目のシフト。
+- 確認できること: 登録値以下（同値含む）の赤字表示と送信ブロック、未登録車両の初回入力、EV の入力欄非表示、送信後画面への遷移。上部バーに送信試行の回数と「最初から」を置く。
+- 制限: 送信しても保存されない（POST はモックが成功を返すだけ）。送信後画面・報酬・通知は最小限の架空データ。
+
 ### UIの再利用・複製元
 
 - 外枠: `src/lib/components/AdminLayout.tsx` → `AdminPreviewLayout.tsx`。JSX・クラス・全メニュー・フライアウト・モバイルナビを複製。認証・API・Next Routerを読み込まず、架空の管理者とプレビュー専用遷移に置換。独立したラベル管理・一時貸出のメニューは設けない。

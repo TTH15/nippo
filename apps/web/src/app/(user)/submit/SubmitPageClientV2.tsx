@@ -172,19 +172,9 @@ export default function SubmitPageClientV2() {
     [selectedVehicle, meter],
   );
 
-  // 走行距離の「前回値」は日付に応じて都度取得する。vehicles.current_mileage は
-  // 承認済みの最新値を指す単一キャッシュのため、後からシフトを追加して過去日を
-  // 遡って提出する場合はそれより後の日付の値と誤って比較されてしまう。
-  const meterBaselineKey =
-    vehicleId && reportFormDateStr
-      ? `/api/reports/meter-baseline?vehicleId=${vehicleId}&date=${reportFormDateStr}`
-      : null;
-  const { data: meterBaselineData } = useApi<{ prevKm: number }>(meterBaselineKey);
-  const meterVehicle = useMemo(() => {
-    if (!selectedVehicle) return selectedVehicle;
-    if (meterBaselineData?.prevKm == null) return selectedVehicle;
-    return { ...selectedVehicle, current_mileage: meterBaselineData.prevKm };
-  }, [selectedVehicle, meterBaselineData]);
+  // 走行距離の基準は車両に登録されている現在値（vehicles.current_mileage）のみ。
+  // 日付ごとの「前回値」は使わない（2026-09-02 ユーザー指定）。
+  const meterVehicle = selectedVehicle;
 
   // 確認は「車両×日付」単位で1度だけ強制（同セッション内）。
   const oilAckKey = useMemo(
@@ -225,7 +215,7 @@ export default function SubmitPageClientV2() {
   }
 
   async function submit() {
-    // 走行距離の妥当性（未入力・前回値以下）を判定。表示と同一ロジックで送信もブロックする。
+    // 走行距離の妥当性（未入力・登録値以下）を判定。表示と同一ロジックで送信もブロックする。
     const meterState = evaluateMeter(meter, meterVehicle);
     if (!meterState.canSubmit) {
       setMeterRequiredError(true);
@@ -233,7 +223,7 @@ export default function SubmitPageClientV2() {
         kind: "err",
         text: meterState.missing
           ? "走行距離を入力してください"
-          : `走行距離は前回（${meterState.prevKm.toLocaleString("ja-JP")} km）より大きい値を入力してください`,
+          : `走行距離は現在の登録（${meterState.prevKm.toLocaleString("ja-JP")} km）より大きい値を入力してください`,
       });
       return;
     }
@@ -408,7 +398,7 @@ export default function SubmitPageClientV2() {
           if (!sel || sel.is_ev) return null;
           const meterState = evaluateMeter(meter, sel);
           const prevKm = meterState.prevKm;
-          const placeholder = prevKm > 0 ? `前回: ${prevKm.toLocaleString("ja-JP")} km` : "例: 14567";
+          const placeholder = prevKm > 0 ? `現在: ${prevKm.toLocaleString("ja-JP")} km` : "例: 14567";
           const invalid = meterState.belowPrev;
           const missing = meterRequiredError && meterState.missing;
           const showOilReminder = oilStatus != null && oilStatus.level !== "safe";
@@ -461,7 +451,7 @@ export default function SubmitPageClientV2() {
                 <p className="mt-1 text-xs text-red-500">！走行距離を入力してください</p>
               ) : invalid ? (
                 <p className="mt-1 text-xs text-red-500">
-                  前回（{prevKm.toLocaleString("ja-JP")} km）より大きい値を入力してください
+                  現在の登録（{prevKm.toLocaleString("ja-JP")} km）より大きい値を入力してください
                 </p>
               ) : null}
             </div>

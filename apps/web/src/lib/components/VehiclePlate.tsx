@@ -2,6 +2,7 @@
 
 import { useCallback, useId, useState } from "react";
 import { PLATE_GLYPHS, PLATE_GLYPH_CANVAS, type PlateGlyphMeta } from "@/lib/plateGlyphs.generated";
+import plateLayout from "@/lib/vehiclePlateLayout.json";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faOilCan } from "@fortawesome/free-solid-svg-icons";
 import { computeOilStatus } from "@repo/core/logic/oilChange";
@@ -145,7 +146,7 @@ export function VehiclePlate({
   const scaleExpr = `(100cqw / ${refW}px)`;
   const scaleLenPx = (v: number) => `calc(${v}px * ${scaleExpr})`;
   // グリフ寸法は幅240pxのプレートを基準に決め、compact は同比率で縮める
-  const k = refW / 240;
+  const k = refW / plateLayout.referenceWidth;
 
   const boltOuterPx = compact ? 5 : 12;
   const boltInnerPx = compact ? 3 : 10;
@@ -162,9 +163,9 @@ export function VehiclePlate({
   // 一連=高さの約48%・かな=約32%・上段=約24%、余白は上下左右 5〜9%。
   // 「端まで文字が入っている」感じが実物らしさの要）。240px 幅 = 120px 高基準。
   // 写真の実測比率: 上余白9% / 上段24% / 行間9% / 一連48% / 下余白9%（120px 高でほぼ等式）
-  const topH = 29 * k;
-  const kanaH = 27 * k; // かなは一連の半分弱・数字の高さの中央に置く（実物準拠）
-  const serialH = 58 * k;
+  const topH = plateLayout.top.glyphHeight * k;
+  const kanaH = plateLayout.bottom.kanaHeight * k; // かなは一連の半分弱・数字の高さの中央に置く（実物準拠）
+  const serialH = plateLayout.bottom.serialHeight * k;
 
   const regionText = vehicle.number_prefix || "京都";
   const classText = vehicle.number_class || "400";
@@ -259,12 +260,12 @@ export function VehiclePlate({
           className="flex items-center shrink-0"
           style={{
             color: scheme.text,
-            gap: scaleLenPx(7 * k),
+            gap: scaleLenPx(plateLayout.top.groupGap * k),
             paddingTop: scaleLenPx(compact ? 3.5 : 8),
           }}
         >
           {regionGlyphs ? (
-            <span className="flex items-center" style={{ gap: scaleLenPx(2.5 * k) }}>
+            <span className="flex items-center" style={{ gap: scaleLenPx(plateLayout.top.regionGap * k) }}>
               {regionGlyphs.map((meta, i) => (
                 <PlateGlyph
                   key={`r${i}`}
@@ -284,7 +285,7 @@ export function VehiclePlate({
             </span>
           )}
           {classGlyphs ? (
-            <span className="flex items-center" style={{ gap: scaleLenPx(1 * k) }}>
+            <span className="flex items-center" style={{ gap: scaleLenPx(plateLayout.top.classificationGap * k) }}>
               {classGlyphs.map((meta, i) => (
                 <span
                   key={`c${i}`}
@@ -309,7 +310,7 @@ export function VehiclePlate({
           className="flex items-end justify-center min-w-0 w-full px-0.5"
           style={{
             color: scheme.text,
-            gap: scaleLenPx(10 * k),
+            gap: scaleLenPx(plateLayout.bottom.kanaGap * k),
             paddingBottom: scaleLenPx(compact ? 3.5 : 8),
           }}
         >
@@ -329,7 +330,7 @@ export function VehiclePlate({
             <span
               className="flex items-start shrink-0"
               style={{
-                gap: scaleLenPx(7.5 * k),
+                gap: scaleLenPx(plateLayout.bottom.serialGap * k),
                 height: scaleLenPx(serialH),
                 filter: glow && scheme.glow ? `drop-shadow(0 0 6px ${scheme.glow})` : "none",
               }}

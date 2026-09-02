@@ -21,26 +21,26 @@ describe("evaluateMeter", () => {
     expect(s.canSubmit).toBe(false);
   });
 
-  it("前回値より小さい入力は belowPrev・送信不可", () => {
+  it("登録値より小さい入力は belowPrev・送信不可", () => {
     const s = evaluateMeter("49000", { is_ev: false, current_mileage: 50000 });
     expect(s.belowPrev).toBe(true);
     expect(s.canSubmit).toBe(false);
   });
 
-  it("前回値と同値は belowPrev・送信不可（単調増加が必要）", () => {
+  it("登録値と同値は belowPrev・送信不可（単調増加が必要）", () => {
     const s = evaluateMeter("50000", { is_ev: false, current_mileage: 50000 });
     expect(s.belowPrev).toBe(true);
     expect(s.canSubmit).toBe(false);
   });
 
-  it("前回値より大きい入力は送信可", () => {
+  it("登録値より大きい入力は送信可", () => {
     const s = evaluateMeter("50001", { is_ev: false, current_mileage: 50000 });
     expect(s.belowPrev).toBe(false);
     expect(s.missing).toBe(false);
     expect(s.canSubmit).toBe(true);
   });
 
-  it("前回未登録(0)の車両は初回入力として任意の正値で送信可", () => {
+  it("走行距離が未登録(0)の車両は初回入力として任意の正値で送信可", () => {
     const s = evaluateMeter("100", { is_ev: false, current_mileage: 0 });
     expect(s.belowPrev).toBe(false);
     expect(s.canSubmit).toBe(true);

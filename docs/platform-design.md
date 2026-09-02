@@ -436,8 +436,9 @@ RBAC（ロール＝capability の束）では「シフト希望は更新でき�
 **未対応（設計判断が必要）**
 - `orgCarriers.ts` の `orgOwnsCarrier` は `company_carriers` に行が無い org を「全許可」でフォールバックする
   （087 未適用対策）。未設定の org が共有マスタ `carriers` を編集できる。共有マスタの認可設計の問題。
-- `reports/meter-baseline` の fallback（`vehicles.current_mileage` を id 直指定）は貸与車対応のため
-  org を絞れない。UUID 直打ちで他社車両の走行距離が読める余地が残る。
+- ~~`reports/meter-baseline` の fallback（`vehicles.current_mileage` を id 直指定）は貸与車対応のため
+  org を絞れない。UUID 直打ちで他社車両の走行距離が読める余地が残る。~~
+  → 2026-09-02 にこの API を廃止（メーターの基準を車両の登録走行距離へ一本化）したため解消。
 
 **越境の統合テストは未整備（2026-07-22 時点）**
 `vitest.itest.config.mts` と `src/test/itest/tenantIsolation.itest.ts` は存在するが、

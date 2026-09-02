@@ -1,5 +1,5 @@
 // 日報提出フォーム（現役 v2）の探索的テスト。
-//   特に「走行距離（オドメーター）が前回値より小さい/同じ」という
+//   特に「走行距離（オドメーター）が車両の登録値より小さい/同じ」という
 //   あり得ない入力で送信がブロックされるかを検証する。
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -49,30 +49,30 @@ const postedBody = () => {
 async function selectVehicleAndType(meterValue: string) {
   await waitFor(() => expect(screen.getByText("plate-v1")).toBeInTheDocument());
   await userEvent.click(screen.getByText("plate-v1").closest("button")!);
-  const meterInput = await screen.findByPlaceholderText(/前回:/);
+  const meterInput = await screen.findByPlaceholderText(/現在:/);
   await userEvent.type(meterInput, meterValue);
 }
 
 describe("SubmitPageClientV2 — 走行距離の妥当性（探索的）", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("前回値より小さい走行距離では送信がブロックされる", async () => {
+  it("車両の登録値より小さい走行距離では送信がブロックされる", async () => {
     mockEndpoints({ mileage: 50000 });
     render(<SubmitPageClientV2 />);
-    await selectVehicleAndType("49000"); // 前回 50000 より小さい
+    await selectVehicleAndType("49000"); // 登録値 50000 より小さい
     await userEvent.click(screen.getByRole("button", { name: "送信" }));
     expect(wasPosted()).toBe(false);
   });
 
-  it("前回値と同じ走行距離でも送信がブロックされる", async () => {
+  it("車両の登録値と同じ走行距離でも送信がブロックされる", async () => {
     mockEndpoints({ mileage: 50000 });
     render(<SubmitPageClientV2 />);
-    await selectVehicleAndType("50000"); // 同値（前回より大きくない）
+    await selectVehicleAndType("50000"); // 同値（登録値より大きくない）
     await userEvent.click(screen.getByRole("button", { name: "送信" }));
     expect(wasPosted()).toBe(false);
   });
 
-  it("前回値より大きい走行距離なら送信できる", async () => {
+  it("車両の登録値より大きい走行距離なら送信できる", async () => {
     mockEndpoints({ mileage: 50000 });
     render(<SubmitPageClientV2 />);
     await selectVehicleAndType("50001");

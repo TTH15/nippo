@@ -11,6 +11,7 @@ const ITEMS: { href: string; title: string; desc: string }[] = [
   { href: "/preview/course-settings", title: "コース設定・統合案1", desc: "基本情報と運行設定を左右に統合した2タブ構成（モック・保存なし）" },
   { href: "/preview/course-rate", title: "コース単価設定", desc: "売上・支払カード、税抜・税込換算、日当・歩合（モック・保存なし）" },
   { href: "/preview/onboarding", title: "初期登録ウィザード", desc: "招待リンク→氏名→SMS→Face ID→免許→顔→住所→申請完了（モック・SMS/DBなしで通し確認）" },
+  { href: "/preview/submit-meter", title: "日報送信・走行距離チェック", desc: "実画面 /submit をそのまま表示。車両の登録走行距離以下はエラー（架空データ・保存なし）" },
   { href: "/preview/post-submit", title: "送信後画面", desc: "個数の報告後に見える画面（報酬・チーム累計ポイント・ランキング）" },
   { href: "/preview/animations", title: "アニメーション", desc: "カウントアップ・膨張演出・ボーナス付与オーバーレイ" },
   { href: "/preview/loader", title: "ピクセル箱ローダー", desc: "シフトAI取り込み・請求書作成などの待ち時間に出す「箱が組み上がる」演出" },
