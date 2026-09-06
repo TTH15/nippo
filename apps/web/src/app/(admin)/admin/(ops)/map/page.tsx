@@ -775,6 +775,8 @@ function VehicleLabel({
               {status}
             </span>
           )}
+          {/* 台数バッジ（束の代表だけ。中身は declutter が入れる。空なら非表示） */}
+          <span className="vl-count absolute -left-2 -top-2.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-amber-950 shadow ring-1 ring-white empty:hidden" />
         </MapPlateLabel>
         <span aria-hidden className="mt-0.5 block h-2 w-px bg-white shadow" />
       </div>
@@ -975,6 +977,12 @@ export default function MapPage() {
   const [pitch, setPitch] = useState(0);
   const is3D = pitch > 5;
   const vehicleLabelMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  /** 札 Marker と車両の対応（まとめ表示の判定用） */
+  const vehicleMarkerEntriesRef = useRef<{ marker: mapboxgl.Marker; vehicle: MapVehicle }[]>([]);
+  /** まとめ表示で車体を描かない車両 id。declutter が更新し、モデルのソースへ反映する */
+  const clusteredVehicleIdsRef = useRef<Set<string>>(new Set());
+  /** 束の代表 id → 束に含まれる車の座標（台数バッジのクリックで寄るため）。束でなければ null */
+  const clusterBoundsRef = useRef<Map<string, mapboxgl.LngLat[] | null>>(new Map());
   const vehicleLabelRootsRef = useRef<Root[]>([]);
   /** 車両の見かけサイズ（倍率・リング半径・札のオフセット）。zoom/resize/moveend で更新 */
   const presentationRef = useRef<VehicleMapPresentation | null>(null);
@@ -1338,11 +1346,16 @@ export default function MapPage() {
     const updatePresentation = () => {
       presentationFrame = null;
       if (!map.getLayer("vehicles-3d-tinted")) return;
+      const container = map.getContainer();
       const next = vehicleMapPresentation({
-        mapWidthPixels: map.getContainer().clientWidth,
+        mapWidthPixels: container.clientWidth,
+        mapHeightPixels: container.clientHeight,
+        pitch: map.getPitch(),
         zoom: map.getZoom(),
         latitude: map.getCenter().lat,
       });
+      // 検証用（アプリ内ブラウザから見かけサイズを読める）
+      container.dataset.vehicleLengthPx = next.renderedLengthPixels.toFixed(1);
       const changed = presentationChanged(forcePresentationUpdate ? null : presentationRef.current, next);
       forcePresentationUpdate = false;
       if (changed.scale) {
@@ -1363,6 +1376,7 @@ export default function MapPage() {
     };
     map.on("style.load", addVehicleLayers);
     map.on("zoom", () => schedulePresentation());
+    map.on("pitch", () => schedulePresentation());
     map.on("resize", () => schedulePresentation(true));
     map.on("moveend", () => schedulePresentation());
 
@@ -1471,26 +1485,62 @@ export default function MapPage() {
     // （ズーム18まで一定、以降は実寸固定で画面上大きくなるのに追従）。
     const plateBaseOffset = () =>
       presentationRef.current?.markerOffsetPixels
-      ?? vehicleMapPresentation({ mapWidthPixels: map.getContainer().clientWidth, zoom: map.getZoom(), latitude: map.getCenter().lat }).markerOffsetPixels;
+      ?? vehicleMapPresentation({ mapWidthPixels: map.getContainer().clientWidth, mapHeightPixels: map.getContainer().clientHeight, pitch: map.getPitch(), zoom: map.getZoom(), latitude: map.getCenter().lat }).markerOffsetPixels;
 
     // プレート吹き出しの重なり回避: 位置は動かさず（その場表示）、被ったら
     // 画面の下側＝体感的に手前の車両だけ吹き出しを出し、負けた側は
     // 状態色ドットに縮退する（存在は常に示す。消すと台数を誤認するため）。
     const declutterPlates = () => {
       const base = plateBaseOffset();
-      const items = vehicleLabelMarkersRef.current.map((m) => ({
-        m,
-        pos: map.project(m.getLngLat()),
+      // 車体が画面上で重なる距離（見かけの車両長の0.9倍）。この距離の車は1つの束にまとめる
+      const clusterDistance = (presentationRef.current?.renderedLengthPixels ?? 60) * 0.9;
+      const items = vehicleMarkerEntriesRef.current.map(({ marker, vehicle }) => ({
+        m: marker,
+        vehicle,
+        pos: map.project(marker.getLngLat()),
       }));
       items.sort((a, b) => b.pos.y - a.pos.y); // 下（手前）を優先
+      // 束: 手前の車を代表にし、代表から clusterDistance 以内の車を吸収する（代表だけ車体を描く）
+      const clusters: { anchor: (typeof items)[number]; members: (typeof items)[number][] }[] = [];
+      for (const item of items) {
+        const cluster = clusters.find(
+          (c) => Math.hypot(c.anchor.pos.x - item.pos.x, c.anchor.pos.y - item.pos.y) < clusterDistance,
+        );
+        if (cluster) cluster.members.push(item);
+        else clusters.push({ anchor: item, members: [item] });
+      }
+      const hidden = new Set<string>();
+      for (const cluster of clusters) {
+        for (const member of cluster.members) if (member !== cluster.anchor) hidden.add(member.vehicle.id);
+      }
+      const hiddenChanged = hidden.size !== clusteredVehicleIdsRef.current.size
+        || [...hidden].some((id) => !clusteredVehicleIdsRef.current.has(id));
+      clusteredVehicleIdsRef.current = hidden;
+      if (hiddenChanged) applyVehicleModelDataRef.current();
+
       const kept: { x: number; y: number }[] = [];
-      for (const { m, pos } of items) {
-        const collide = kept.some(
+      for (const { m, pos, vehicle } of items) {
+        const cluster = clusters.find((c) => c.anchor.vehicle.id === vehicle.id);
+        // 束の代表は札を優先して残し、吸収された車は状態色ドットに縮退する（存在は常に示す）
+        const absorbed = !cluster;
+        const collide = absorbed || kept.some(
           (p) => Math.abs(p.x - pos.x) < 104 && Math.abs(p.y - pos.y) < 92,
         );
         m.setOffset([0, collide ? -6 : -base]);
         m.getPopup()?.setOffset(popupOffsetFor(collide ? 6 : base));
-        m.getElement().classList.toggle("vl-collapsed", collide);
+        const node = m.getElement();
+        node.classList.toggle("vl-collapsed", collide);
+        // 台数バッジ: 束に2台以上あるとき代表の札に出す。クリックで束が離れて見えるまで寄る
+        const count = cluster ? cluster.members.length : 1;
+        const badge = node.querySelector<HTMLElement>(".vl-count");
+        if (badge) {
+          badge.textContent = count > 1 ? `${count}台` : "";
+          badge.title = count > 1 ? "重なっている車を離して見る" : "";
+        }
+        node.dataset.clusterCount = String(count);
+        clusterBoundsRef.current.set(vehicle.id, cluster && count > 1
+          ? cluster.members.map((member) => member.m.getLngLat())
+          : null);
         if (!collide) kept.push({ x: pos.x, y: pos.y });
       }
     };
@@ -2017,7 +2067,8 @@ export default function MapPage() {
       const src = mapRef.current?.getSource("vehicles-src") as mapboxgl.GeoJSONSource | undefined;
       src?.setData({
         type: "FeatureCollection",
-        features: displayedVehicles.map((v) => {
+        // まとめ表示で吸収された車は車体を描かない（代表の1台だけ）。札のドットで存在は示す
+        features: displayedVehicles.filter((v) => !clusteredVehicleIdsRef.current.has(v.id)).map((v) => {
           // 車種（vehicles.model_key）。未設定・未登録は既定モデル（型式は当面扱わない）
           const model = vehicleMapModelFor(v.model_key);
           return {
@@ -2042,6 +2093,8 @@ export default function MapPage() {
     // 吹き出しを貼り直す
     vehicleLabelMarkersRef.current.forEach((m) => m.remove());
     vehicleLabelMarkersRef.current = [];
+    vehicleMarkerEntriesRef.current = [];
+    clusterBoundsRef.current.clear();
     const staleRoots = vehicleLabelRootsRef.current;
     vehicleLabelRootsRef.current = [];
     setTimeout(() => staleRoots.forEach((r) => r.unmount()), 0);
@@ -2058,7 +2111,18 @@ export default function MapPage() {
       node.className = "vehicle-label"; // globals.css で吹き出し⇔ドットを切替
       node.style.zIndex = "5"; // 拠点ピンより前面
       node.style.cursor = "pointer";
-      node.addEventListener("click", () => setSelectedVehicleId(v.id));
+      node.addEventListener("click", (event) => {
+        // 台数バッジ: 束の車が離れて見えるまで寄る（位置は動かさない）
+        const bounds = clusterBoundsRef.current.get(v.id);
+        if ((event.target as HTMLElement).closest(".vl-count") && bounds && bounds.length > 1) {
+          event.stopPropagation();
+          const box = new mapboxgl.LngLatBounds(bounds[0], bounds[0]);
+          bounds.forEach((point) => box.extend(point));
+          map.fitBounds(box, { padding: 120, maxZoom: 19, duration: 900 });
+          return;
+        }
+        setSelectedVehicleId(v.id);
+      });
       const root = createRoot(node);
       root.render(
         <VehicleLabel
@@ -2082,20 +2146,20 @@ export default function MapPage() {
         popupNode,
       );
 
-      vehicleLabelMarkersRef.current.push(
-        new mapboxgl.Marker({
-          element: node,
-          anchor: "bottom",
-          offset: [0, -(presentationRef.current?.markerOffsetPixels ?? 30)],
-          // 3D建物に隠れても消さず、画面向きで車両座標へ追随させる
-          occludedOpacity: 1,
-          pitchAlignment: "viewport",
-          rotationAlignment: "viewport",
-        })
-          .setLngLat([p.lng, p.lat])
-          .setPopup(popup)
-          .addTo(map),
-      );
+      const marker = new mapboxgl.Marker({
+        element: node,
+        anchor: "bottom",
+        offset: [0, -(presentationRef.current?.markerOffsetPixels ?? 30)],
+        // 3D建物に隠れても消さず、画面向きで車両座標へ追随させる
+        occludedOpacity: 1,
+        pitchAlignment: "viewport",
+        rotationAlignment: "viewport",
+      })
+        .setLngLat([p.lng, p.lat])
+        .setPopup(popup)
+        .addTo(map);
+      vehicleLabelMarkersRef.current.push(marker);
+      vehicleMarkerEntriesRef.current.push({ marker, vehicle: v });
     }
     declutterPlatesRef.current();
   }, [displayedVehicles, statusOf, canDispatch, placing, historyDate, slotBearingAt, mapMode, selectedMovement]);

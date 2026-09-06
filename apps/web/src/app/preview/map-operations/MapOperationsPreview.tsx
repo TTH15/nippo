@@ -477,6 +477,8 @@ export function MapOperationsPreview() {
       if (!map.getLayer(TINTED_MODEL_LAYER_ID) || !map.getLayer(FIXED_MODEL_LAYER_ID) || !map.getLayer(PLATE_MODEL_LAYER_ID)) return;
       const presentation = vehicleMapPresentation({
         mapWidthPixels: map.getContainer().clientWidth,
+        mapHeightPixels: map.getContainer().clientHeight,
+        pitch: map.getPitch(),
         zoom: map.getZoom(),
         latitude: map.getCenter().lat,
       });
@@ -590,11 +592,13 @@ export function MapOperationsPreview() {
     };
     map.on("style.load", addLayers);
     map.on("zoom", handleZoom);
+    map.on("pitch", handleZoom);
     map.on("resize", handleResize);
     map.on("moveend", handleMoveEnd);
     return () => {
       map.off("style.load", addLayers);
       map.off("zoom", handleZoom);
+      map.off("pitch", handleZoom);
       map.off("resize", handleResize);
       map.off("moveend", handleMoveEnd);
       if (presentationFrame !== null) window.cancelAnimationFrame(presentationFrame);
@@ -659,6 +663,8 @@ export function MapOperationsPreview() {
       element.addEventListener("click", () => setSelectedId(vehicle.id));
       const presentation = vehicleMapPresentation({
         mapWidthPixels: map.getContainer().clientWidth,
+        mapHeightPixels: map.getContainer().clientHeight,
+        pitch: map.getPitch(),
         zoom: map.getZoom(),
         latitude: map.getCenter().lat,
       });

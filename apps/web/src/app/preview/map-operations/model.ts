@@ -7,7 +7,8 @@ export const PREVIEW_HISTORY_DEFAULT_AT = "2026-09-01T18:00:00+09:00";
 
 export {
   ACTY_HH5_LENGTH_METERS,
-  VEHICLE_TARGET_MAP_WIDTH_RATIO,
+  VEHICLE_TARGET_SHORT_SIDE_RATIO,
+  targetVehicleLengthPixels,
   vehicleMapPresentation,
   type VehicleMapPresentation,
 } from "@/lib/map/vehiclePresentation";

@@ -7,6 +7,7 @@ import {
   positionRecordAt,
   vehicleMapPresentation,
   vehiclesForScenario,
+  targetVehicleLengthPixels,
 } from "./model";
 
 describe("map operations preview model", () => {
@@ -39,14 +40,26 @@ describe("map operations preview model", () => {
     expect(needsAttention(vehicle)).toBe(true);
   });
 
-  it("keeps the vehicle at nine percent of the map width before reaching actual size", () => {
+  it("keeps the vehicle proportional to the shorter side of the map before reaching actual size", () => {
     const desktop = vehicleMapPresentation({ mapWidthPixels: 800, zoom: 12, latitude: 34.83 });
-    const mobile = vehicleMapPresentation({ mapWidthPixels: 360, zoom: 17, latitude: 34.83 });
+    const mobile = vehicleMapPresentation({ mapWidthPixels: 360, mapHeightPixels: 520, zoom: 17, latitude: 34.83 });
+    const wide = vehicleMapPresentation({ mapWidthPixels: 2000, mapHeightPixels: 700, zoom: 12, latitude: 34.83 });
 
-    expect(desktop.renderedLengthPixels).toBeCloseTo(72);
+    expect(desktop.renderedLengthPixels).toBeCloseTo(112);
     expect(desktop.modelScale).toBeGreaterThan(1);
-    expect(mobile.renderedLengthPixels).toBeCloseTo(32.4);
+    expect(mobile.renderedLengthPixels).toBeCloseTo(50.4);
     expect(mobile.modelScale).toBeGreaterThan(1);
+    // 横長でも高さ基準になり、幅の9%（180px）のように巨大化しない
+    expect(wide.renderedLengthPixels).toBeCloseTo(98);
+  });
+
+  it("shrinks the target when the map is pitched and clamps extreme screens", () => {
+    const flat = targetVehicleLengthPixels({ mapWidthPixels: 2000, mapHeightPixels: 700, pitch: 0 });
+    const pitched = targetVehicleLengthPixels({ mapWidthPixels: 2000, mapHeightPixels: 700, pitch: 60 });
+    expect(pitched).toBeLessThan(flat);
+    expect(pitched).toBeCloseTo(flat * (1 - 0.3 * Math.sin(Math.PI / 3)));
+    expect(targetVehicleLengthPixels({ mapWidthPixels: 4000, mapHeightPixels: 3000 })).toBe(120);
+    expect(targetVehicleLengthPixels({ mapWidthPixels: 200, mapHeightPixels: 200 })).toBe(40);
   });
 
   it("stops enlarging the model after its projected size reaches actual scale", () => {
