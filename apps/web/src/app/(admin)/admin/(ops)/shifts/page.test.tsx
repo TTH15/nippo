@@ -14,7 +14,7 @@ vi.mock("@/lib/components/VehiclePlate", () => ({
   VehiclePlate: ({ vehicle }: { vehicle: { id: string } }) => <span data-testid="vehicle-plate">{vehicle.id}</span>,
 }));
 import ShiftsPage from "./page";
-import { resetPreviewShifts, setPreviewLeaseScenario } from "../../../../../../../../scripts/previews/shifts-services";
+import { resetPreviewShifts, setPreviewDuplicateVehicleScenario, setPreviewLeaseScenario } from "../../../../../../../../scripts/previews/shifts-services";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 beforeEach(() => { localStorage.clear(); resetPreviewShifts(); vi.setSystemTime(new Date("2026-08-31T12:00:00+09:00")); Element.prototype.scrollIntoView = vi.fn(); });
@@ -68,6 +68,25 @@ describe("本番シフトページの表示操作", () => {
     fireEvent.click(screen.getByRole("button", { name: "すべての契約" }));
     expect(within(table).getAllByText("佐藤").length).toBeGreaterThan(0);
   });
+  it("稼働人数の下に車両の過不足を出し、同じ車両の重複割り当てを赤枠で示す", async () => {
+    setPreviewDuplicateVehicleScenario(true);
+    render(<ShiftsPage />);
+    const table = await screen.findByRole("table", { name: "ドライバー別シフト表" });
+    // 架空データ: 車両12台・毎日1人休み・佐藤と田中が同じ車 → 稼働11人でも必要は10台、2台余る（+2・hover と読み上げは全文）
+    const balances = table.querySelectorAll('[data-vehicle-balance="2"]');
+    expect(balances.length).toBeGreaterThan(0);
+    expect(balances[0]).toHaveTextContent("+2");
+    expect(balances[0]).toHaveAttribute("title", "車 余り2台");
+    const frames = table.querySelectorAll("[data-duplicate-vehicle]");
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames[0]).toHaveAttribute("title", "同じ車両を2人以上に割り当てています");
+    expect(within(table).getAllByTestId("vehicle-plate").length).toBeGreaterThan(frames.length);
+    // 重複を解消すると枠が消え、必要台数が1台増えて余りは1台になる
+    setPreviewDuplicateVehicleScenario(false);
+    await waitFor(() => expect(table.querySelectorAll("[data-duplicate-vehicle]")).toHaveLength(0));
+    expect(table.querySelectorAll('[data-vehicle-balance="1"]').length).toBeGreaterThan(0);
+  });
+
   it("旧密度設定を引き継ぎ、表示パネルで車両・時刻を切り替える", async () => {
     localStorage.setItem("shifts_view_density", "compact");
     render(<ShiftsPage />);

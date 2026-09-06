@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronLeft, faChevronRight, faFileImport, faDownload, faChevronDown, faRotateRight, faGear } from "@fortawesome/free-solid-svg-icons";
+import { faChevronLeft, faChevronRight, faFileImport, faDownload, faChevronDown, faRotateRight, faGear, faUser, faCar } from "@fortawesome/free-solid-svg-icons";
 import { isJapanPublicHolidayYmd } from "@/lib/japanHolidays";
 import { todayJST } from "@/lib/date";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -26,6 +26,7 @@ import {
   VehiclePlate,
   type VehiclePlateData,
 } from "@/lib/components/VehiclePlate";
+import { computeVehicleBalance, duplicateVehicleIds, formatVehicleBalance } from "@/lib/shiftVehicleBalance";
 import { summarizeHistory, type ShiftLog } from "@/server/shiftRequests/diff";
 import { cn } from "@/lib/ui/utils";
 import { TimePicker } from "@/lib/ui/time-picker";
@@ -115,6 +116,41 @@ function driverDayVehicleKey(date: string, driverId: string): string {
 }
 
 /** 一覧・セル用のコンパクトなナンバー表記（プレート縮約） */
+/** 日ヘッダーの「人 N ／ 車 ±N」。人はアイコン＋人数、車は余りを +N（緑）・不足を −N（赤）・ちょうどを 0（灰）で示す。
+ *  色だけに頼らず符号も付け、読み上げ・hover には全文を渡す。 */
+function DayHeadcount({ count, balance, size = "sm" }: { count: number; balance?: { surplus: number }; size?: "sm" | "md" }) {
+  const surplus = balance?.surplus ?? 0;
+  const balanceLabel = balance ? formatVehicleBalance(balance) : "";
+  // 日付が主役。人・車は日付と同じ太さ（medium）・一回り小さい文字で、色は不足の赤だけを強く出す
+  const tone = surplus < 0 ? "text-red-600" : surplus > 0 ? "text-emerald-600" : "text-slate-400";
+  const text = size === "md" ? "text-[12px]" : "text-[10.5px]";
+  const icon = size === "md" ? "h-3 w-3 opacity-70" : "h-2.5 w-2.5 opacity-70";
+  return (
+    <span className={`flex items-center justify-center gap-2.5 leading-none mt-1.5 ${text} font-medium tabular-nums`} aria-label={`稼働 ${count} 人${balance ? `、${balanceLabel}` : ""}`}>
+      <span className={`inline-flex items-center gap-1 ${count > 0 ? "text-slate-500" : "text-slate-300"}`} title={`稼働 ${count} 人`}>
+        <FontAwesomeIcon icon={faUser} className={icon} aria-hidden />
+        {count}
+      </span>
+      {balance && (
+        <span className={`inline-flex items-center gap-1 ${tone}`} title={balanceLabel} data-vehicle-balance={surplus}>
+          <FontAwesomeIcon icon={faCar} className={icon} aria-hidden />
+          {surplus > 0 ? `+${surplus}` : surplus < 0 ? `−${-surplus}` : "0"}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** 同一車両を2人以上に割り当てたナンバーを赤枠で囲う */
+function DuplicateVehicleFrame({ active, title, children }: { active: boolean; title: string; children: React.ReactNode }) {
+  if (!active) return <>{children}</>;
+  return (
+    <span className="block w-full min-w-0 rounded-md ring-2 ring-red-500 ring-offset-1 ring-offset-white" title={title} data-duplicate-vehicle="true">
+      {children}
+    </span>
+  );
+}
+
 function formatPlateOneLine(v: VehiclePlateData): string {
   const parts = [
     v.number_prefix ?? "",
@@ -1033,9 +1069,9 @@ export default function ShiftsPage() {
       .filter((r) => r.driver_id === driverId && r.request_date === date && r.slot_id != null)
       .map((r) => slotName(r.slot_id));
 
-  // その日の稼働人数（いずれかのコースに割り当てられた重複排除ドライバー数）。
-  const workingCountByDate = useMemo(() => {
-    const m = new Map<string, number>();
+  // その日の稼働ドライバー（いずれかのコースに割り当てられた重複排除の id）。人数と車両過不足の元になる。
+  const workingDriverIdsByDate = useMemo(() => {
+    const m = new Map<string, Set<string>>();
     for (const date of displayDates) {
       const set = new Set<string>();
       for (const course of courses) {
@@ -1047,11 +1083,15 @@ export default function ShiftsPage() {
           }
         }
       }
-      m.set(date, set.size);
+      m.set(date, set);
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayDates, courses, localShifts, shifts]);
+  const workingCountByDate = useMemo(
+    () => new Map([...workingDriverIdsByDate].map(([date, ids]) => [date, ids.size])),
+    [workingDriverIdsByDate],
+  );
 
   /** バッチ更新用: Map を重ねて効いている driverId を返す */
   const getEffectiveIdFromMap = (
@@ -1153,6 +1193,32 @@ export default function ShiftsPage() {
     return byDate;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayDates, driversWithCourses, localShifts, localVehicleByDriverDay, shifts]);
+
+  // その日の車両の余り・不足（稼働人数の下に出す）。
+  // 必要台数は「割り当て済みの車の台数（同じ車を時間帯違いで2人が使う分は1台）＋車未割当で他社車両でもない人数」。
+  const vehicleBalanceByDate = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof computeVehicleBalance>>();
+    for (const date of displayDates) {
+      m.set(date, computeVehicleBalance({
+        fleet: fleetVehicles,
+        loanedIds: loanedByDate.get(date),
+        workingDriverIds: workingDriverIdsByDate.get(date) ?? [],
+        vehicleOf: (driverId) => getCurrentVehicleForDriverOnDate(date, driverId),
+        isExternal: (driverId) => getCurrentExternalForDriverOnDate(date, driverId),
+      }));
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayDates, fleetVehicles, loanedByDate, workingDriverIdsByDate, localVehicleByDriverDay, localExternalByDriverDay, localShifts, shifts]);
+
+  /** その日に2人以上へ割り当てられている車両 id（シフト表のナンバーを赤枠にする） */
+  const duplicateVehicleIdsByDate = useMemo(
+    () => new Map([...vehicleHoldersByDate].map(([date, holders]) => [date, duplicateVehicleIds(holders)])),
+    [vehicleHoldersByDate],
+  );
+  const isDuplicateVehicle = (date: string, vehicleId: string | null | undefined) =>
+    !!vehicleId && (duplicateVehicleIdsByDate.get(date)?.has(vehicleId) ?? false);
+  const DUPLICATE_VEHICLE_TITLE = "同じ車両を2人以上に割り当てています";
 
   /** その日その車両を使っている「他の」ドライバー名（重複割り当て検知用） */
   const getOtherVehicleHolderName = (
@@ -2029,11 +2095,13 @@ export default function ShiftsPage() {
                     {plate ? (
                       // w-full が無いと flex アイテムとして幅が決まらず（内部が w-full のため）
                       // プレートが潰れて見えなくなる
-                      <VehiclePlate
-                        vehicle={plate}
-                        compact
-                        className="w-full !max-w-none min-w-0 pointer-events-none"
-                      />
+                      <DuplicateVehicleFrame active={isDuplicateVehicle(date, plate.id)} title={DUPLICATE_VEHICLE_TITLE}>
+                        <VehiclePlate
+                          vehicle={plate}
+                          compact
+                          className="w-full !max-w-none min-w-0 pointer-events-none"
+                        />
+                      </DuplicateVehicleFrame>
                     ) : isExternal ? (
                       <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
                     ) : (
@@ -2411,7 +2479,8 @@ export default function ShiftsPage() {
                 </button>
                 <div className="min-w-0 text-center">
                   <DatePicker ariaLabel="表示する日付" value={new Date(date + "T12:00:00")} onChange={selectMobileDate} displayFormat="yyyy/M/d（E）" className={cn("h-8 justify-center border-0 bg-transparent px-1 text-xs font-bold shadow-none", isToday && "text-amber-600")} />
-                  <p className="text-[11px] text-slate-500">稼働 {workingCount}人{leaseFilter !== "all" && leaseIndex && ` / 全体${count}人`}</p>
+                  <DayHeadcount count={workingCount} balance={vehicleBalanceByDate.get(date)} size="md" />
+                  {leaseFilter !== "all" && leaseIndex && <p className="text-[11px] text-slate-500">全体 {count}人</p>}
                 </div>
                 <button
                   type="button"
@@ -2611,7 +2680,6 @@ export default function ShiftsPage() {
                   <thead>
                     <tr className="bg-slate-50/95">
                       <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
-                        <span className="block text-[10px] font-normal text-slate-400 leading-none">上段＝稼働人数</span>
                         コース
                       </th>
                       {displayDates.map((date) => {
@@ -2627,15 +2695,10 @@ export default function ShiftsPage() {
                               isToday && TODAY_RULE_TOP,
                             )}
                           >
-                            <span
-                              className={`block leading-none mb-1 text-[11px] font-bold tabular-nums ${count > 0 ? "text-slate-700" : "text-slate-300"}`}
-                              title={`稼働 ${count} 人`}
-                            >
-                              稼働 {count}
-                            </span>
                             <span className="line-clamp-2 leading-tight break-words" title={formatDate(date)}>
                               {formatDate(date)}
                             </span>
+                            <DayHeadcount count={count} balance={vehicleBalanceByDate.get(date)} />
                           </th>
                         );
                       })}
@@ -2704,7 +2767,7 @@ export default function ShiftsPage() {
                                       <span className="w-full truncate text-[11px] font-semibold text-slate-800">{driver ? getDisplayName(driver) : "（不明）"}</span>
                                       {showContract && <ShiftLeaseBadge mode={shiftLeaseMode(leaseIndex, a.driverId, date)} />}
                                       {display.meetingTime && times.length > 0 && <span className="text-[10px] text-slate-500">集合 {times.join(" / ")}</span>}
-                                      {display.vehicle && (plate ? <VehiclePlate vehicle={plate} compact className="!max-w-none w-full pointer-events-none" /> : <span className="text-[10px] text-slate-500">{getCurrentExternalForDriverOnDate(date, a.driverId) ? "他社車両" : "車両なし"}</span>)}
+                                      {display.vehicle && (plate ? <DuplicateVehicleFrame active={isDuplicateVehicle(date, vehicleId)} title={DUPLICATE_VEHICLE_TITLE}><VehiclePlate vehicle={plate} compact className="!max-w-none w-full pointer-events-none" /></DuplicateVehicleFrame> : <span className="text-[10px] text-slate-500">{getCurrentExternalForDriverOnDate(date, a.driverId) ? "他社車両" : "車両なし"}</span>)}
                                     </span>;
                                   })}
                                   {open > 0 && (
@@ -2731,7 +2794,6 @@ export default function ShiftsPage() {
                 <thead>
                   <tr className="bg-slate-50/95">
                     <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
-                      <span className="block text-[10px] font-normal text-slate-400 leading-none">上段＝稼働人数</span>
                       ドライバー
                     </th>
                     {displayDates.map((date) => {
@@ -2747,15 +2809,10 @@ export default function ShiftsPage() {
                             isToday && TODAY_RULE_TOP,
                           )}
                         >
-                          <span
-                            className={`block leading-none mb-1 text-[11px] font-bold tabular-nums ${count > 0 ? "text-slate-700" : "text-slate-300"}`}
-                            title={`稼働 ${count} 人`}
-                          >
-                            稼働 {count}
-                          </span>
                           <span className="line-clamp-2 leading-tight break-words" title={formatDate(date)}>
                             {formatDate(date)}
                           </span>
+                          <DayHeadcount count={count} balance={vehicleBalanceByDate.get(date)} />
                         </th>
                       );
                     })}
@@ -3012,11 +3069,13 @@ export default function ShiftsPage() {
                                           {display.vehicle && (
                                             <span className="mt-0.5 flex w-full min-w-0 items-center justify-center">
                                               {currentVid && hoverVehiclePlate ? (
-                                                <VehiclePlate
-                                                  vehicle={hoverVehiclePlate}
-                                                  compact
-                                                  className="!max-w-none w-full min-w-0 pointer-events-none"
-                                                />
+                                                <DuplicateVehicleFrame active={isDuplicateVehicle(date, currentVid)} title={DUPLICATE_VEHICLE_TITLE}>
+                                                  <VehiclePlate
+                                                    vehicle={hoverVehiclePlate}
+                                                    compact
+                                                    className="!max-w-none w-full min-w-0 pointer-events-none"
+                                                  />
+                                                </DuplicateVehicleFrame>
                                               ) : currentExternal ? (
                                                 <span className="py-0.5 text-[10px] font-semibold text-amber-600">他社車両</span>
                                               ) : (

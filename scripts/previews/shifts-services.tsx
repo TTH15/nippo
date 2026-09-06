@@ -22,6 +22,7 @@ let failNext = false;
 let leaseScenario: "normal" | "empty" | "error" = "normal";
 let firstDriverDaily = false;
 let handoffScenario = false;
+let duplicateVehicleScenario = false;
 const leases: ShiftLease[] = drivers.flatMap((driver, i) => i % 3 === 2 ? [] : [{
   id: `lease-${i}`, driver_id: driver.id, mode: i % 3 === 0 ? "MONTHLY" : "DAILY", valid_from: "2020-01-01", valid_to: null,
 }]);
@@ -29,7 +30,9 @@ const leases: ShiftLease[] = drivers.flatMap((driver, i) => i % 3 === 2 ? [] : [
 leases[0].valid_from = "2026-09-01";
 leases.push({ id: "lease-past", driver_id: drivers[0].id, mode: "DAILY", valid_from: "2020-01-01", valid_to: "2026-08-31" });
 export function setPreviewLeaseScenario(value: typeof leaseScenario) { leaseScenario = value; notify(); }
-export function resetPreviewShifts() { periodData.clear(); leaseScenario = "normal"; firstDriverDaily = false; handoffScenario = false; failNext = false; notify(); }
+export function resetPreviewShifts() { periodData.clear(); leaseScenario = "normal"; firstDriverDaily = false; handoffScenario = false; duplicateVehicleScenario = false; failNext = false; notify(); }
+/** 2人目のドライバーに1人目と同じ車両を割り当てる（重複割り当ての赤枠と車両過不足の確認用） */
+export function setPreviewDuplicateVehicleScenario(value: boolean) { duplicateVehicleScenario = value; periodData.clear(); notify(); }
 function applyHandoffScenario(data: { shifts: MockShift[] }, start: string, end: string) {
   for (const use of sampleUses.filter(use => use.date >= start && use.date <= end)) {
     data.shifts = data.shifts.filter(shift => !(shift.shift_date === use.date && shift.driver_id === use.driverId));
@@ -62,7 +65,8 @@ function dataFor(key: string) {
         const date = `${start.slice(0, 8)}${String(day).padStart(2, "0")}`;
         drivers.forEach((driver, i) => {
           if ((day + i) % 7 === 0) return;
-          shifts.push({ id: `${date}-${i}`, shift_date: date, course_id: courses[i % 3].id, cycle_no: 0, slot: Math.floor(i / 3) + 1, driver_id: driver.id, vehicle_id: vehicles[i].id, vehicles: vehicles[i] });
+          const vehicle = duplicateVehicleScenario && i === 1 ? vehicles[0] : vehicles[i];
+          shifts.push({ id: `${date}-${i}`, shift_date: date, course_id: courses[i % 3].id, cycle_no: 0, slot: Math.floor(i / 3) + 1, driver_id: driver.id, vehicle_id: vehicle.id, vehicles: vehicle });
         });
       }
       periodData.set(key, { courses, drivers, vehicles, shifts, requests: [], slots: [{ id: "slot-1", name: "終日", start_time: null, end_time: null }], vehicle_driver_links: drivers.map((d, i) => ({ driver_id: d.id, vehicle_id: vehicles[i].id })) });
@@ -160,6 +164,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => setPreviewLeaseScenario("empty")}>契約が全員未設定</button>
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => setPreviewLeaseScenario("error")}>契約の取得失敗</button>
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { firstDriverDaily = true; leaseScenario = "normal"; notify(); }}>佐藤の契約を日額へ変更</button>
+      <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => setPreviewDuplicateVehicleScenario(!duplicateVehicleScenario)}>田中に佐藤と同じ車両を割り当て</button>
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={reset}>サンプルを初期化</button>
       {[12, 40].map(count => <button key={count} type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { seedPreviewMemo(count); setMemoRevision(value => value + 1); }}>メモ{count}枠のサンプル</button>)}
     </div>
