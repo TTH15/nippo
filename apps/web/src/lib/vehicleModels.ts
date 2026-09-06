@@ -88,11 +88,11 @@ export const KEI_VANS: KeiVan[] = [
   { manufacturer: "スバル", brand: "サンバー", modelKey: "sambar", aliases: ["サンバーバン", "sambar"] },
 ];
 
-/** 実際に用意できている 3D モデル。 */
+/** 車両編集の3Dプレビュー用の1ファイルモデル（地図の3分割と同じ keivan-3d 版。旧 Meshy 版は廃止 2026-09-07）。 */
 export const VEHICLE_MODEL_URLS: Record<string, string> = {
-  every: "/models/every.glb",
-  clipper: "/models/clipper.glb",
-  acty: "/models/acty.glb",
+  hijet: "/models/hijet-s300-blockout-19.glb",
+  every: "/models/every-da64v-blockout-88.glb",
+  acty: "/models/acty-hh5-blockout-75.glb",
 };
 
 /** 未知の車・モデル未用意のときに使うモデル。軽バンは形が似ているので違和感は小さい。 */
@@ -219,7 +219,8 @@ export function generationsOf(manufacturer: string, brand: string): KeiVanGenera
 
 /** モデルの URL を引く（未知・未用意は既定モデル）。 */
 export function modelUrlFor(modelKey: string | null | undefined): string {
-  return VEHICLE_MODEL_URLS[modelKey ?? ""] ?? VEHICLE_MODEL_URLS[DEFAULT_VEHICLE_MODEL_KEY];
+  const key = modelKey ? VEHICLE_MAP_MODEL_ALIASES[modelKey] ?? modelKey : "";
+  return VEHICLE_MODEL_URLS[key] ?? VEHICLE_MODEL_URLS[DEFAULT_VEHICLE_MODEL_KEY];
 }
 
 /** メーカーごとにまとめた選択肢（カード表示用）。 */

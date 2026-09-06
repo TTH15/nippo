@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { presentationChanged, vehicleMapPresentation } from "./vehiclePresentation";
-import { DEFAULT_VEHICLE_MAP_MODEL_KEY, VEHICLE_MAP_MODELS, mapModelKeyForVehicle, vehicleMapModelFor } from "@/lib/vehicleModels";
+import { DEFAULT_VEHICLE_MAP_MODEL_KEY, VEHICLE_MAP_MODELS, mapModelKeyForVehicle, modelUrlFor, vehicleMapModelFor } from "@/lib/vehicleModels";
 
 describe("presentationChanged", () => {
   it("初回はすべて更新対象", () => {
@@ -31,6 +31,12 @@ describe("vehicleMapModelFor", () => {
     expect(mapModelKeyForVehicle({ model_key: null, manufacturer: "ダイハツ", brand: "ハイゼット" })).toBe("hijet");
     expect(mapModelKeyForVehicle({ model_key: null, manufacturer: "スズキ", brand: "エブリイ" })).toBe("every");
     expect(mapModelKeyForVehicle({ model_key: null, manufacturer: null, brand: null })).toBeNull();
+  });
+  it("車両編集の3Dプレビューも同じ車種のモデルを使い、OEM・未登録は地図と同じ規則で倒す", () => {
+    expect(modelUrlFor("hijet")).toBe("/models/hijet-s300-blockout-19.glb");
+    expect(modelUrlFor("sambar")).toBe("/models/hijet-s300-blockout-19.glb");
+    expect(modelUrlFor("clipper")).toBe("/models/every-da64v-blockout-88.glb");
+    expect(modelUrlFor(null)).toBe("/models/every-da64v-blockout-88.glb");
   });
   it("全モデルが車体・固定色・灯火の3ファイルと全長を持つ", () => {
     for (const model of Object.values(VEHICLE_MAP_MODELS)) {

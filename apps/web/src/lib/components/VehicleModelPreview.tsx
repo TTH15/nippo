@@ -9,9 +9,15 @@ import { createGltfLoader } from "@/lib/three/gltf-loader";
 // 車両3Dモデルのプレビュー（2026-08-10）。
 // 車両編集画面で「その車がどう見えるか」をその場で確認するための小さなビューア。
 //
-// 地図と同じ glb をそのまま読む（実寸・原点=底面中心・フラット・プレートは別マテリアル）。
-// 車体色は `plate` 以外のマテリアルにだけ効かせる — プレートは黒ナンバーのままにしたいため。
+// 地図と同じ keivan-3d 版の glb を読む（実寸・+X が前・Y-up）。
+// 車体色は塗装の材質（Body White / Paint Hood / Paint Front・Rear Bumper / Body Crease）にだけ効かせ、
+// 窓・タイヤ・灯火・プレートは元の色を保つ（2026-09-07）。旧 Meshy 版（材質名 plate 以外を全部塗る）も読める。
 // ============================================================
+
+/** 地図の分割スクリプト（scripts/split-vehicle-map-model.mjs）と同じ塗装材質名 */
+const PAINT_MATERIALS = new Set(["Body White", "Paint Hood", "Paint Front Bumper", "Paint Rear Bumper", "Body Crease"]);
+const HEADLIGHT_MATERIALS = new Set(["Headlight Lens"]);
+const TAILLIGHT_MATERIALS = new Set(["Rear Red Lens", "Light Brake High"]);
 
 /** 夜（JST）かどうか。地図のライティング切替と同じ考え方で、時間帯に合わせる。 */
 function isNightJST(): boolean {
@@ -55,6 +61,7 @@ export function VehicleModelPreview({
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const bodyMaterialsRef = useRef<THREE.MeshStandardMaterial[]>([]);
+  const lampMaterialsRef = useRef<{ material: THREE.MeshStandardMaterial; color: number }[]>([]);
   const lampsRef = useRef<THREE.Sprite[]>([]);
   const nightRef = useRef<boolean>(night ?? isNightJST());
   nightRef.current = night ?? isNightJST();
@@ -108,18 +115,22 @@ export function VehicleModelPreview({
       (gltf) => {
         if (disposed) return;
         model = gltf.scene;
-        // 車体マテリアルだけ集める（プレートは黒のまま保つ）
+        // 車体マテリアルだけ集める。keivan-3d 版は塗装材質だけ、旧版は plate 以外の全部
         bodyMaterialsRef.current = [];
+        lampMaterialsRef.current = [];
+        const standard: THREE.MeshStandardMaterial[] = [];
         model.traverse((obj) => {
           const mesh = obj as THREE.Mesh;
           if (!mesh.isMesh) return;
           const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          for (const m of mats) {
-            if (m instanceof THREE.MeshStandardMaterial && m.name !== "plate") {
-              bodyMaterialsRef.current.push(m);
-            }
-          }
+          for (const m of mats) if (m instanceof THREE.MeshStandardMaterial) standard.push(m);
         });
+        const keivan = standard.some((m) => PAINT_MATERIALS.has(m.name));
+        for (const m of standard) {
+          if (keivan ? PAINT_MATERIALS.has(m.name) : m.name !== "plate") bodyMaterialsRef.current.push(m);
+          if (HEADLIGHT_MATERIALS.has(m.name)) lampMaterialsRef.current.push({ material: m, color: 0xfff1c2 });
+          if (TAILLIGHT_MATERIALS.has(m.name)) lampMaterialsRef.current.push({ material: m, color: 0xff2a1a });
+        }
         applyColor();
         scene.add(model);
 
@@ -150,9 +161,8 @@ export function VehicleModelPreview({
         shadow.scale.setScalar(Math.max(size.x, size.z) * 0.42);
         shadow.position.y = -size.y / 2 + 0.01;
 
-        // 夜はライトを灯す。**モデルには手を入れず**、車体の前後端に発光スプライトを置く。
-        // どちらが前かは生成モデルからは判定できないので、両端とも電球色にする
-        //（赤を前に付けてしまう方が事故なので、確実な側に倒す）。
+        // 夜はライトを灯す。車体の前後端に発光スプライトを置き、keivan-3d 版は灯火材質も発光させる。
+        // keivan-3d 版は +X が前なので前を電球色・後ろを赤にする。旧生成モデルは前後が判定できないので両端とも電球色。
         const glow = makeGlowTexture();
         const halfLen = size.x / 2;
         const lampY = -size.y / 2 + size.y * 0.28;
@@ -161,7 +171,7 @@ export function VehicleModelPreview({
             const sprite = new THREE.Sprite(
               new THREE.SpriteMaterial({
                 map: glow,
-                color: 0xffd9a0,
+                color: keivan && sx < 0 ? 0xff4a3a : 0xffd9a0,
                 transparent: true,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false,
@@ -181,6 +191,10 @@ export function VehicleModelPreview({
 
     const applyNight = () => {
       for (const lamp of lampsRef.current) lamp.visible = nightRef.current;
+      for (const { material, color } of lampMaterialsRef.current) {
+        material.emissive.set(nightRef.current ? color : 0x000000);
+        material.emissiveIntensity = nightRef.current ? 2.5 : 0;
+      }
       // 夜は環境光を落として、灯りが際立つようにする
       key.intensity = nightRef.current ? 0.45 : 1.1;
       renderer.toneMappingExposure = nightRef.current ? 0.85 : 1.15;

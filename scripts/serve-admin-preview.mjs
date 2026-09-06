@@ -52,7 +52,6 @@ const adminReplacements = new Map([
   ["next/image", "kernel/next-image.tsx"],
   ["next/dynamic", "kernel/next-dynamic.tsx"],
   ["@/lib/components/AdminLayout", "kernel/AdminLayout.tsx"],
-  ["@/lib/components/VehicleModelPreview", "kernel/VehicleModelPreview.tsx"],
   ["@/lib/map/sharedView", "kernel/sharedView.tsx"],
 ].map(([from, to]) => [from, path.join(root, "scripts/previews", to)]));
 const entry = productionPageEntries.get(feature) ?? path.join(source, "app/preview", feature, "page.tsx");
@@ -103,7 +102,7 @@ if (feature === "map-operations" || isAdminRunner) {
     "models/acty-hh5-blockout-70-tinted.glb",
     "models/acty-hh5-blockout-70-fixed.glb",
     ...["hijet-s300-blockout-19", "every-da64v-blockout-88", "acty-hh5-blockout-75"].flatMap((id) => [
-      `models/${id}-tinted.glb`, `models/${id}-fixed.glb`, `models/${id}-lamps.glb`,
+      `models/${id}.glb`, `models/${id}-tinted.glb`, `models/${id}-fixed.glb`, `models/${id}-lamps.glb`,
     ]),
     "models/acty-hh5-plate-acty-1201.glb",
     "models/acty-hh5-plate-acty-2752.glb",
@@ -136,7 +135,7 @@ if (!args.includes("--build")) {
       res.writeHead(200, {
         "Content-Type": target.endsWith(".js") ? "text/javascript; charset=utf-8" : target.endsWith(".css") ? "text/css; charset=utf-8" : target.endsWith(".svg") ? "image/svg+xml" : target.endsWith(".ttf") ? "font/ttf" : target.endsWith(".glb") ? "model/gltf-binary" : "text/html; charset=utf-8",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "'self' https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/3dtiles/v1/ https://api.mapbox.com/models/v1/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : feature === "shifts" ? `http://127.0.0.1:${port}/fonts/SawarabiGothic-Regular.ttf` : "'none'"}; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:${mapboxEnabled ? " blob:" : ""}; ${mapboxEnabled ? "worker-src blob:; " : ""}font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "'self' https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/3dtiles/v1/ https://a.tiles.mapbox.com/3dtiles/v1/ https://b.tiles.mapbox.com/3dtiles/v1/ https://api.mapbox.com/models/v1/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : feature === "shifts" ? `http://127.0.0.1:${port}/fonts/SawarabiGothic-Regular.ttf` : "'none'"}; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:${mapboxEnabled ? " blob:" : ""}; ${mapboxEnabled ? "worker-src blob:; " : ""}font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       });
       res.end(req.method === "HEAD" ? undefined : body);
     } catch { res.writeHead(404); res.end("Not found"); }
