@@ -30,7 +30,8 @@ export async function GET(req: NextRequest) {
   const asOf = atParam && !Number.isNaN(Date.parse(atParam)) ? new Date(atParam).toISOString() : null;
 
   // migration 123（model_key / body_color）が未適用の環境でも動くよう、失敗したら旧 select で取り直す。
-  const VEHICLE_COLS = "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand";
+  // 地図の詳細（クリック時）に車種・オイル交換までの残り・車検を出す（2026-09-06）
+  const VEHICLE_COLS = "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, last_oil_change_mileage, oil_change_interval, is_ev, next_shaken_date";
   let vehicles: Record<string, unknown>[] | null = null;
   {
     const withAppearance = await supabase

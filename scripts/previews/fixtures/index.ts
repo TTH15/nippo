@@ -5,9 +5,11 @@ import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 import DashboardPage from "@/app/(admin)/admin/page";
 import VehiclesPage from "@/app/(admin)/admin/(resource)/vehicles/page";
 import UsersPage from "@/app/(admin)/admin/(resource)/users/page";
+import MapPage from "@/app/(admin)/admin/(ops)/map/page";
 import { dashboardFixture } from "./dashboard";
 import { vehiclesFixture } from "./vehicles";
 import { usersFixture } from "./users";
+import { mapFixture } from "./map";
 
 export type PreviewPageEntry = {
   /** URLの末尾（/preview/admin/<slug>） */
@@ -23,6 +25,8 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("dashboard", dashboardFixture, DashboardPage),
   entry("vehicles", vehiclesFixture, VehiclesPage),
   entry("users", usersFixture, UsersPage),
+  // 地図は Mapbox の公開キーが要る: npm run preview:admin -- admin --mapbox
+  entry("map", mapFixture, MapPage),
 ];
 
 export function findPageBySlug(slug: string) {

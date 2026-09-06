@@ -23,6 +23,7 @@
 - 権限: `?role=admin|accounting|viewer`（本番のプリセット ADMIN / ACCOUNTING / ADMIN_VIEWER の capability 束を写す。メニューのロック・書込ボタン・コスト表示が本番と同じ判定で変わる）
 - 例: `http://127.0.0.1:3197/preview/admin/vehicles?scenario=long-name&role=viewer`
 - 画面上部のバーでシナリオ・役割の切替、「次の保存を失敗させる」、「初期化」ができる。サイドバー・クイックリンクは pushState で遷移し、scenario/role を引き継ぐ。未登録ページへのリンクは一覧へ戻して案内を出す
+- 地図（`/preview/admin/map`）は Mapbox の公開キーが要るので `npm run preview:admin -- admin --port 3199 --mapbox` で起動する（`.env.local` の `NEXT_PUBLIC_MAPBOX_TOKEN` だけを読む）。シナリオは通常／位置なし／大量（40台密集）。共有ビューは Supabase Realtime を使うため常にオフのスタブ
 - 旧コマンド `npm run preview:admin -- vehicles` は同じ bundle の `/preview/admin/vehicles` を開くエイリアス（`scripts/previews/vehicles-services.tsx` は fixture へ統合して削除）
 
 ### 仕組みと追加方法

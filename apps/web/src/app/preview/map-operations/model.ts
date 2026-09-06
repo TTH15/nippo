@@ -5,52 +5,12 @@ export type PreviewScenario = "normal" | "attention" | "unrecorded";
 export type MapMode = "current" | "movements" | "history";
 export const PREVIEW_HISTORY_DEFAULT_AT = "2026-09-01T18:00:00+09:00";
 
-const EARTH_CIRCUMFERENCE_METERS = 40_075_016.686;
-const MAPBOX_TILE_SIZE = 512;
-
-export const VEHICLE_TARGET_MAP_WIDTH_RATIO = 0.09;
-export const ACTY_HH5_LENGTH_METERS = 3.392;
-
-export type VehicleMapPresentation = {
-  modelScale: number;
-  targetLengthPixels: number;
-  renderedLengthPixels: number;
-  contrastRadiusPixels: number;
-  markerOffsetPixels: number;
-};
-
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
-export function vehicleMapPresentation({
-  mapWidthPixels,
-  zoom,
-  latitude,
-  vehicleLengthMeters = ACTY_HH5_LENGTH_METERS,
-}: {
-  mapWidthPixels: number;
-  zoom: number;
-  latitude: number;
-  vehicleLengthMeters?: number;
-}): VehicleMapPresentation {
-  const width = Math.max(1, mapWidthPixels);
-  const length = Math.max(0.1, vehicleLengthMeters);
-  const safeLatitude = Math.min(85, Math.max(-85, latitude));
-  const metersPerPixel = (
-    Math.cos((safeLatitude * Math.PI) / 180) * EARTH_CIRCUMFERENCE_METERS
-  ) / (MAPBOX_TILE_SIZE * Math.pow(2, zoom));
-  const targetLengthPixels = width * VEHICLE_TARGET_MAP_WIDTH_RATIO;
-  const actualLengthPixels = length / metersPerPixel;
-  const modelScale = Math.max(1, targetLengthPixels / actualLengthPixels);
-  const renderedLengthPixels = actualLengthPixels * modelScale;
-
-  return {
-    modelScale,
-    targetLengthPixels,
-    renderedLengthPixels,
-    contrastRadiusPixels: Math.max(10, renderedLengthPixels * 0.46),
-    markerOffsetPixels: Math.max(28, renderedLengthPixels * 0.62),
-  };
-}
+export {
+  ACTY_HH5_LENGTH_METERS,
+  VEHICLE_TARGET_MAP_WIDTH_RATIO,
+  vehicleMapPresentation,
+  type VehicleMapPresentation,
+} from "@/lib/map/vehiclePresentation";
 
 export type PreviewPlace = {
   id: string;

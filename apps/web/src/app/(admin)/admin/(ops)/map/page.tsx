@@ -35,6 +35,12 @@ import {
   faUsers,
   faWarehouse,
   faXmark,
+  faOilCan,
+  faGaugeHigh,
+  faCalendarCheck,
+  faClock,
+  faHand,
+  faUser,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { AerialMovementArrow } from "@/lib/components/AerialMovementArrow";
@@ -52,10 +58,10 @@ import {
   needsVehicleRelocation,
   type VehicleMovement,
 } from "@/lib/map/vehicleMovements";
-import {
-  VEHICLE_MODEL_URLS,
-  DEFAULT_VEHICLE_MODEL_KEY,
-} from "@/lib/vehicleModels";
+import { VEHICLE_MAP_MODELS, vehicleMapModelFor } from "@/lib/vehicleModels";
+import { presentationChanged, vehicleMapPresentation, type VehicleMapPresentation } from "@/lib/map/vehiclePresentation";
+import { MapPlateLabel } from "@/lib/components/MapPlateLabel";
+import { MAP_PLATE_HEIGHT, MAP_PLATE_WIDTH } from "@/lib/map/mapPlateImage";
 import {
   VehiclePlate,
   formatPlateNumeric,
@@ -367,6 +373,10 @@ type MapVehicle = VehiclePlateData & {
   model_key?: string | null;
   /** 車体色 #RRGGBB（未設定はモデル本来の色）。migration 123 */
   body_color?: string | null;
+  /** 詳細に出すメンテ情報（vehicles の登録値）。未取得の旧キャッシュでは省略される */
+  last_oil_change_mileage?: number | null;
+  oil_change_interval?: number | null;
+  next_shaken_date?: string | null;
   position: {
     lat: number;
     lng: number;
@@ -626,24 +636,99 @@ function formatAt(at: string | null): string {
 }
 
 // 吹き出しの中身: ナンバープレート＋状態（稼働中/最終確認）。
+/** クリック時の詳細。文字は最小限にし、車種・稼働・オイル交換の残量バー・走行距離・車検・最後の記録をアイコンで示す */
 function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
   const p = vehicle.position!;
   const working = p.sessionStatus === "open";
+  const model = [vehicle.manufacturer, vehicle.brand].filter(Boolean).join(" ");
+  const interval = vehicle.oil_change_interval ?? 0;
+  const oilTracked = !vehicle.is_ev && interval > 0 && typeof vehicle.current_mileage === "number";
+  const oilRemaining = oilTracked ? (vehicle.last_oil_change_mileage ?? 0) + interval - (vehicle.current_mileage ?? 0) : null;
+  // 残量バー: 交換直後=満タン → 0 で空。超過は空のまま赤
+  const oilRatio = oilRemaining === null ? 0 : Math.max(0, Math.min(1, oilRemaining / interval));
+  const oilTone = oilRemaining === null ? "" : oilRemaining < 100 ? "text-red-600" : oilRemaining <= 300 ? "text-amber-600" : "text-slate-900";
+  const oilBar = oilRemaining === null ? "" : oilRemaining < 100 ? "bg-red-500" : oilRemaining <= 300 ? "bg-amber-400" : "bg-emerald-500";
+  const recordIcon = p.source === "manual" ? faHand : faClock;
+  const recordTitle = p.source === "manual"
+    ? `手動で配置${p.placedBy ? `（${p.placedBy}）` : ""}`
+    : `${p.kind === "checkout" ? "退勤" : "出勤"}打刻の位置`;
+  const row = "flex items-center gap-2 text-[12px] tabular-nums";
+  const icon = "h-3.5 w-3.5 shrink-0 text-slate-400";
+  // 札のオイル警告バッジ（吹き出し付き）は下のバーと二重になり本文に被るので、札には走行距離を渡さない
+  const plateOnly: VehiclePlateData = { ...vehicle, current_mileage: undefined, last_oil_change_mileage: undefined, oil_change_interval: undefined };
   return (
-    <div className="w-[200px] space-y-1.5 p-1">
-      <VehiclePlate vehicle={vehicle} glow={false} className="!max-w-[200px]" />
-      <div className="flex items-center gap-1.5 text-[11px] text-slate-600">
-        <span
-          className={`inline-block h-2 w-2 rounded-full ${working ? "bg-emerald-500" : "bg-slate-400"}`}
-        />
-        {p.source === "manual"
-          ? `${formatAt(p.at)} に手動で配置${p.placedBy ? `（${p.placedBy}）` : ""}`
-          : working
-            ? `稼働中${p.driverName ? `（${p.driverName} さん）` : ""}・${formatAt(p.at)} 出勤打刻`
-            : `${formatAt(p.at)} ${p.kind === "checkout" ? "退勤" : "出勤"}打刻の位置`}
+    <div className="w-[216px] space-y-2 p-1 text-slate-900">
+      <div className="flex items-center gap-2">
+        <VehiclePlate vehicle={plateOnly} compact glow={false} className="w-[72px] shrink-0" />
+        <div className="min-w-0">
+          <div className="truncate text-[13px] font-bold">{model || "車種 未登録"}</div>
+          <div className="flex items-center gap-1 text-[11px] text-slate-600" title={working ? "稼働中" : "稼働外"}>
+            <span className={`inline-block h-2 w-2 rounded-full ${working ? "bg-emerald-500" : "bg-slate-400"}`} />
+            {working && p.driverName ? (
+              <span className="inline-flex items-center gap-1 truncate"><FontAwesomeIcon icon={faUser} className="h-2.5 w-2.5" />{p.driverName}</span>
+            ) : (
+              <span>{working ? "稼働中" : "稼働外"}</span>
+            )}
+          </div>
+        </div>
+      </div>
+      {oilRemaining !== null && (
+        <div className="space-y-1" title="オイル交換までの残り">
+          <div className={row}>
+            <FontAwesomeIcon icon={faOilCan} className={icon} />
+            <span className={`font-bold ${oilTone}`}>
+              {oilRemaining < 0 ? `−${Math.abs(oilRemaining).toLocaleString("ja-JP")}` : oilRemaining.toLocaleString("ja-JP")} km
+            </span>
+          </div>
+          <div className="ml-[22px] h-1.5 overflow-hidden rounded-full bg-slate-200">
+            <div className={`h-full rounded-full ${oilBar}`} style={{ width: `${Math.round(oilRatio * 100)}%` }} />
+          </div>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+        {typeof vehicle.current_mileage === "number" && (
+          <div className={row} title="走行距離">
+            <FontAwesomeIcon icon={faGaugeHigh} className={icon} />
+            <span>{vehicle.current_mileage.toLocaleString("ja-JP")} km</span>
+          </div>
+        )}
+        {vehicle.next_shaken_date && (
+          <div className={row} title="次回車検">
+            <FontAwesomeIcon icon={faCalendarCheck} className={icon} />
+            <span>{formatShakenMonth(vehicle.next_shaken_date)}</span>
+          </div>
+        )}
+      </div>
+      <div className={`${row} text-slate-600`} title={recordTitle}>
+        <FontAwesomeIcon icon={recordIcon} className={icon} />
+        <span>{formatAt(p.at)}</span>
+        {p.note && <span className="truncate text-[11px] text-slate-500">{p.note}</span>}
       </div>
     </div>
   );
+}
+
+/** 車検日は年月で足りる（YYYY-MM-DD → YYYY年M月） */
+function formatShakenMonth(iso: string): string {
+  const [y, m] = iso.split("-").map(Number);
+  return y && m ? `${y}年${m}月` : iso;
+}
+
+/** ポップアップは札の上へ逃がし、札と被らないようにする。anchor ごとの offset（Mapbox が収まる向きを選ぶ） */
+function popupOffsetFor(markerOffsetPixels: number): NonNullable<mapboxgl.PopupOptions["offset"]> {
+  const above = markerOffsetPixels + MAP_PLATE_HEIGHT + 22;
+  const side = MAP_PLATE_WIDTH / 2 + 12;
+  return {
+    top: [0, 10],
+    "top-left": [0, 10],
+    "top-right": [0, 10],
+    bottom: [0, -above],
+    "bottom-left": [0, -above],
+    "bottom-right": [0, -above],
+    left: [side, -above / 2],
+    right: [-side, -above / 2],
+    center: [0, 0],
+  };
 }
 
 // 車両の状態と表示色。稼働セッション＋拠点との距離から導出する。
@@ -666,9 +751,7 @@ function distanceM(aLat: number, aLng: number, bLat: number, bLng: number): numb
   return Math.sqrt(dLat * dLat + dLng * dLng);
 }
 
-// 車両の頭上ラベル: 吹き出し用に最適化した簡易プレート。黒ナンバー（事業用軽貨物）
-// らしく黒地に黄文字。実車プレートの再現は popup 側の VehiclePlate に任せる。
-// TODO: 数字・かなは将来 SVG グリフ化する（docs/roadmap-2026-07.md 参照）。
+// 車両の頭上ラベル: 共通 VehiclePlate（SVG字形）を画像化した札。状態は右上の色ドットと短い文字で示す。
 function VehicleLabel({
   vehicle,
   status,
@@ -680,38 +763,20 @@ function VehicleLabel({
 }) {
   return (
     <>
-      {/* 通常表示（吹き出し）。重なって負けたら .vl-collapsed でドットに縮退する */}
+      {/* 通常表示（札）。重なって負けたら .vl-collapsed でドットに縮退する */}
       <div className="vl-full flex flex-col items-center">
-        <div
-          className={`relative min-w-[72px] rounded-lg bg-slate-950/95 px-2 py-1 text-center shadow-md ring-2 ${
-            selected ? "ring-amber-400" : "ring-white/10"
-          }`}
-        >
-          <div
-            className="text-[8px] font-semibold leading-none tracking-[0.14em]"
-            style={{ color: "#e8d44d" }}
-          >
-            {vehicle.number_prefix || ""} {vehicle.number_class || ""}
-          </div>
-          <div
-            className="mt-0.5 flex items-baseline justify-center gap-0.5 leading-none"
-            style={{ color: "#e8d44d" }}
-          >
-            <span className="text-[10px] font-bold">{vehicle.number_hiragana || ""}</span>
-            <span className="text-[15px] font-black tracking-wide">
-              {formatPlateNumeric(vehicle.number_numeric || "")}
-            </span>
-          </div>
-          {/* 状態は色で示す（全車が同じ文字を並べても情報量が無いため）。
-              稼働外は既定なので文字を出さない。 */}
+        <MapPlateLabel vehicle={vehicle} selected={selected}>
+          {/* 状態は色で示す（全車が同じ文字を並べても情報量が無いため）。稼働外は既定なので文字を出さない */}
           <span
-            className={`absolute -right-1 -top-1 block h-2.5 w-2.5 rounded-full border border-slate-950 ${VEHICLE_STATUS_DOT[status]}`}
+            className={`absolute -right-1.5 -top-1.5 block h-3 w-3 rounded-full border-2 border-white shadow ${VEHICLE_STATUS_DOT[status]}`}
           />
           {status !== "稼働外" && (
-            <div className="mt-0.5 text-[8px] font-bold leading-none text-slate-300">{status}</div>
+            <span className="absolute left-1/2 top-full mt-0.5 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-950/90 px-1.5 py-0.5 text-[8px] font-bold leading-none text-slate-100 shadow-sm">
+              {status}
+            </span>
           )}
-        </div>
-        <div className="h-0 w-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-slate-950" />
+        </MapPlateLabel>
+        <span aria-hidden className="mt-0.5 block h-2 w-px bg-white shadow" />
       </div>
       {/* 縮退表示: 状態色ドット（存在と状態だけは常に示す） */}
       <div className="vl-dot flex flex-col items-center">
@@ -911,6 +976,8 @@ export default function MapPage() {
   const is3D = pitch > 5;
   const vehicleLabelMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const vehicleLabelRootsRef = useRef<Root[]>([]);
+  /** 車両の見かけサイズ（倍率・リング半径・札のオフセット）。zoom/resize/moveend で更新 */
+  const presentationRef = useRef<VehicleMapPresentation | null>(null);
   /** 吹き出しの重なり回避。データ更新後にも呼べるよう ref で保持する */
   const declutterPlatesRef = useRef<() => void>(() => {});
   /** 3Dモデルのソースへ最新の車両位置を流し込む（スタイル再読込時にも呼ぶ） */
@@ -1209,52 +1276,95 @@ export default function MapPage() {
     map.on("style.load", () => applyViewPrefsRef.current());
 
     // 車両の3Dモデル。**中身は実データ**（位置が記録された車両）で、下の effect から流し込む。
-    // モデルは Kenney Car Kit の delivery van（CC0）。実寸 3.25×1.5×1.65m で
-    // 軽バンとほぼ同寸・原点は底面中心（テクスチャ埋め込み済み）。
-    const addTruckModel = () => {
-      if (map.getLayer("truck-3d")) return;
-      // 車種は vehicles.model_key で選ぶ（migration 123）。未設定は既定モデル。
-      // 実車ベースのモデルは Meshy 生成 → scripts/prepare-vehicle-glb.mjs で整形したもの。
-      for (const [id, url] of Object.entries(VEHICLE_MODEL_URLS)) map.addModel(id, url);
-      map.addModel("truck", "/models/truck.glb"); // 旧・汎用（既存データの後方互換）
-      map.addSource("truck-src", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
+    // 1車種＝「着色する車体」＋「固定色の部品（窓・タイヤ・灯火）」の2層（vehicleModels.VEHICLE_MAP_MODELS）。
+    // 足元には白地＋濃色線のコントラストリングを敷き、地図と重なっても形が読めるようにする（2026-09-02 プレビューで確定）。
+    const addVehicleLayers = () => {
+      if (map.getLayer("vehicles-3d-tinted")) return;
+      for (const model of Object.values(VEHICLE_MAP_MODELS)) {
+        if (!map.hasModel(`${model.id}-tinted`)) map.addModel(`${model.id}-tinted`, model.tintedUrl);
+        if (!map.hasModel(`${model.id}-fixed`)) map.addModel(`${model.id}-fixed`, model.fixedUrl);
+      }
+      if (!map.getSource("vehicles-src")) {
+        map.addSource("vehicles-src", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      }
       map.addLayer({
-        id: "truck-3d",
-        type: "model",
-        source: "truck-src",
-        // 車種の出し分け。未知のキーは既定モデルに落とす
-        layout: { "model-id": ["coalesce", ["get", "model"], DEFAULT_VEHICLE_MODEL_KEY] },
+        id: "vehicle-contrast",
+        type: "circle",
+        source: "vehicles-src",
         paint: {
-          "model-rotation": ["get", "rotation"], // 駐車の向き（feature ごと）
-          // 車体色は車両ごとの属性（vehicles.body_color）。白＝着色なし
-          "model-color": ["get", "color"],
-          // モデルは「塗り分けマスク」付き（窓・タイヤが暗い）。強く混ぜると窓まで塗り潰すので抑える
-          "model-color-mix-intensity": 0.45,
-          // 夜のライティングでも沈まないよう自己発光させる（マーカーと同じ扱い）。
-          "model-emissive-strength": 1,
+          "circle-radius": presentationRef.current?.contrastRadiusPixels ?? 24,
+          "circle-color": "#ffffff",
+          "circle-opacity": 0.62,
+          "circle-stroke-color": "#334155",
+          "circle-stroke-opacity": 0.72,
+          "circle-stroke-width": 1.5,
+          "circle-pitch-alignment": "map",
+          "circle-pitch-scale": "viewport",
         },
       });
-      updateTruckScale();
+      map.addLayer({
+        id: "vehicles-3d-tinted",
+        type: "model",
+        source: "vehicles-src",
+        layout: { "model-id": ["get", "tintedModel"] },
+        paint: {
+          "model-rotation": ["get", "rotation"], // 駐車の向き（feature ごと）
+          // 車体色は車両ごとの属性（vehicles.body_color）。車体だけのファイルなので強く混ぜてよい
+          "model-color": ["get", "color"],
+          "model-color-mix-intensity": 0.86,
+          // 夜のライティングでも沈まないよう自己発光させる
+          "model-emissive-strength": 0.45,
+        },
+      });
+      map.addLayer({
+        id: "vehicles-3d-fixed",
+        type: "model",
+        source: "vehicles-src",
+        layout: { "model-id": ["get", "fixedModel"] },
+        paint: {
+          "model-rotation": ["get", "rotation"],
+          "model-emissive-strength": 0.45,
+        },
+      });
+      presentationRef.current = null;
+      schedulePresentation(true);
       // スタイル再読込のたびにソースは空で作り直されるので、その場で最新データを流し込む
       applyVehicleModelDataRef.current();
     };
-    // 見かけサイズ: ズーム9〜18では画面上ほぼ一定（基準=実寸の1.6倍）。
-    // さらに寄ると等倍まで縮み、以降は実寸に固定（駐車区画に正しく収まって見える）。
-    // 9より引いたら拡大を打ち切る（巨大化防止）。
-    const truckScaleAt = (zoom: number) => {
-      const z = Math.min(Math.max(zoom, 9), 20);
-      return Math.max(1, 1.6 * Math.pow(2, 18 - z));
+    // 見かけサイズ: 車両長を地図幅の約9%に保ち、寄って実寸に達したら等倍で止める。
+    // 倍率・リング半径・札のオフセットをまとめて rAF で更新し、差が出たものだけ反映する。
+    let presentationFrame: number | null = null;
+    let forcePresentationUpdate = false;
+    const updatePresentation = () => {
+      presentationFrame = null;
+      if (!map.getLayer("vehicles-3d-tinted")) return;
+      const next = vehicleMapPresentation({
+        mapWidthPixels: map.getContainer().clientWidth,
+        zoom: map.getZoom(),
+        latitude: map.getCenter().lat,
+      });
+      const changed = presentationChanged(forcePresentationUpdate ? null : presentationRef.current, next);
+      forcePresentationUpdate = false;
+      if (changed.scale) {
+        const scale = [next.modelScale, next.modelScale, next.modelScale];
+        map.setPaintProperty("vehicles-3d-tinted", "model-scale", scale);
+        map.setPaintProperty("vehicles-3d-fixed", "model-scale", scale);
+      }
+      if (changed.contrast && map.getLayer("vehicle-contrast")) {
+        map.setPaintProperty("vehicle-contrast", "circle-radius", next.contrastRadiusPixels);
+      }
+      presentationRef.current = next;
+      if (changed.offset) declutterPlatesRef.current();
     };
-    const updateTruckScale = () => {
-      if (!map.getLayer("truck-3d")) return;
-      const s = truckScaleAt(map.getZoom());
-      map.setPaintProperty("truck-3d", "model-scale", [s, s, s]);
+    const schedulePresentation = (force = false) => {
+      forcePresentationUpdate ||= force;
+      if (presentationFrame !== null) return;
+      presentationFrame = window.requestAnimationFrame(updatePresentation);
     };
-    map.on("style.load", addTruckModel);
-    map.on("zoom", updateTruckScale);
+    map.on("style.load", addVehicleLayers);
+    map.on("zoom", () => schedulePresentation());
+    map.on("resize", () => schedulePresentation(true));
+    map.on("moveend", () => schedulePresentation());
 
     // 面のレイヤー（駐車区画・配達エリア・拠点の円）はここで**空のまま**作っておく。
     // データ側の effect で addSource すると、航空写真への切替（setStyle）でソースごと消え、
@@ -1359,10 +1469,9 @@ export default function MapPage() {
     // プレート吹き出しは実データから作る（下の「車両ラベル反映」effect）。
     // 吹き出しの基本オフセット: 車両の画面上の高さに比例させる
     // （ズーム18まで一定、以降は実寸固定で画面上大きくなるのに追従）。
-    const plateBaseOffset = () => {
-      const z = Math.min(map.getZoom(), 22);
-      return (30 * (truckScaleAt(z) * Math.pow(2, z - 18))) / 1.6;
-    };
+    const plateBaseOffset = () =>
+      presentationRef.current?.markerOffsetPixels
+      ?? vehicleMapPresentation({ mapWidthPixels: map.getContainer().clientWidth, zoom: map.getZoom(), latitude: map.getCenter().lat }).markerOffsetPixels;
 
     // プレート吹き出しの重なり回避: 位置は動かさず（その場表示）、被ったら
     // 画面の下側＝体感的に手前の車両だけ吹き出しを出し、負けた側は
@@ -1380,6 +1489,7 @@ export default function MapPage() {
           (p) => Math.abs(p.x - pos.x) < 104 && Math.abs(p.y - pos.y) < 92,
         );
         m.setOffset([0, collide ? -6 : -base]);
+        m.getPopup()?.setOffset(popupOffsetFor(collide ? 6 : base));
         m.getElement().classList.toggle("vl-collapsed", collide);
         if (!collide) kept.push({ x: pos.x, y: pos.y });
       }
@@ -1404,6 +1514,7 @@ export default function MapPage() {
     mapRef.current = map;
     return () => {
       clearInterval(lightTimer);
+      if (presentationFrame !== null) window.cancelAnimationFrame(presentationFrame);
       container.removeEventListener("wheel", onWheel, { capture: true });
       vehicleLabelMarkersRef.current.forEach((m) => m.remove());
       vehicleLabelMarkersRef.current = [];
@@ -1903,23 +2014,26 @@ export default function MapPage() {
 
     // 3Dモデルのソースを実データで差し替える
     const applyModelData = () => {
-      const src = mapRef.current?.getSource("truck-src") as mapboxgl.GeoJSONSource | undefined;
+      const src = mapRef.current?.getSource("vehicles-src") as mapboxgl.GeoJSONSource | undefined;
       src?.setData({
         type: "FeatureCollection",
-        features: displayedVehicles.map((v) => ({
-          type: "Feature" as const,
-          geometry: { type: "Point" as const, coordinates: [v.position!.lng, v.position!.lat] },
-          properties: {
-            // 区画の中にいるならその区画の軸に合わせる。区画に対して斜めに刺さっていると
-            // 一気に嘘くさくなるため（2026-08-10）。区画外は正面固定（GPS の heading が入ったらそれを使う）
-            rotation: [0, 0, slotBearingAt(v.position!.lng, v.position!.lat)],
-            // 車体色（未設定は白＝モデル本来の色を保つ）
-            color: v.body_color || "#ffffff",
-            // 車種（vehicles.model_key）。未設定・未知は既定モデル
-            model:
-              v.model_key && v.model_key in VEHICLE_MODEL_URLS ? v.model_key : DEFAULT_VEHICLE_MODEL_KEY,
-          },
-        })),
+        features: displayedVehicles.map((v) => {
+          // 車種（vehicles.model_key）。未設定・未登録は既定モデル（型式は当面扱わない）
+          const model = vehicleMapModelFor(v.model_key);
+          return {
+            type: "Feature" as const,
+            geometry: { type: "Point" as const, coordinates: [v.position!.lng, v.position!.lat] },
+            properties: {
+              // 区画の中にいるならその区画の軸に合わせる。区画に対して斜めに刺さっていると
+              // 一気に嘘くさくなるため（2026-08-10）。区画外は正面固定（GPS の heading が入ったらそれを使う）
+              rotation: [0, 0, slotBearingAt(v.position!.lng, v.position!.lat)],
+              // 車体色（未設定は白）
+              color: v.body_color || "#ffffff",
+              tintedModel: `${model.id}-tinted`,
+              fixedModel: `${model.id}-fixed`,
+            },
+          };
+        }),
       });
     };
     applyVehicleModelDataRef.current = applyModelData;
@@ -1960,12 +2074,24 @@ export default function MapPage() {
       const popupRoot = createRoot(popupNode);
       popupRoot.render(<VehiclePopup vehicle={v} />);
       vehicleLabelRootsRef.current.push(popupRoot);
-      const popup = new mapboxgl.Popup({ offset: 16, maxWidth: "240px", closeButton: false }).setDOMContent(
+      const popup = new mapboxgl.Popup({
+        offset: popupOffsetFor(presentationRef.current?.markerOffsetPixels ?? 30),
+        maxWidth: "260px",
+        closeButton: false,
+      }).setDOMContent(
         popupNode,
       );
 
       vehicleLabelMarkersRef.current.push(
-        new mapboxgl.Marker({ element: node, anchor: "bottom", offset: [0, -30] })
+        new mapboxgl.Marker({
+          element: node,
+          anchor: "bottom",
+          offset: [0, -(presentationRef.current?.markerOffsetPixels ?? 30)],
+          // 3D建物に隠れても消さず、画面向きで車両座標へ追随させる
+          occludedOpacity: 1,
+          pitchAlignment: "viewport",
+          rotationAlignment: "viewport",
+        })
           .setLngLat([p.lng, p.lat])
           .setPopup(popup)
           .addTo(map),

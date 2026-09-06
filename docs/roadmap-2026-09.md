@@ -16,6 +16,7 @@ ChatGPT 案の `PREVIEW_AUTH_BYPASS=true` は採用しない。hakotora は dev 
 | A-2 | 日付依存ページの固定 | `todayJST` を読むページ（ダッシュボード・日報）が日によって見た目が変わる。`?date=` で「今日」を固定できるよう `@/lib/date` を runner で差し替える | 小 |
 | A-3 | 全シナリオ巡回の手順化 | 一覧の全リンク（ページ×シナリオ×役割）をアプリ内ブラウザで順に開き、崩れ・console エラーを拾う手順を `preview-workflow.md` に固定。ui-auditor サブエージェントの入力にする | 小 |
 | A-4 ✅ 2026-09-06 | 本番側の崩れ修正（プレビューで発見） | 車両カードの長い車種名がカード右端を突き抜ける（`/preview/admin/vehicles?scenario=long-name`）。ui-ux-pro-max の指針（省略せず折り返す）で修正済み | 小 |
+| A-7 | 地図の3車種取り込みと夜のヘッドライト | keivan-3d のハイゼット19／エブリイ88／アクティ75 を `finish-glb-for-mapbox` → 3分割（車体・固定色・灯火）で `VEHICLE_MAP_MODELS` に登録し、`model_key` を車種単位で接続（型式は扱わない）。灯火層は夜（17〜5時）だけ発光させ、稼働中の車のヘッドライト・テールランプを地図上で点ける（2026-09-06 ユーザー要望）。材質名が HH5 規約と一致するかを先に確認 | 中 |
 | A-5 | Next の `/preview/*` 一覧との統合 | `apps/web/src/app/preview/page.tsx` から runner の起動方法と URL 規約へ誘導する（ポートが違うため直リンクは不可） | 小 |
 | A-6 | fixture の再利用 | `fixtures/users.ts` の架空ドライバー・コースを他ページの fixture からも使い、画面間で同じ人物・車両が出るようにする | 小 |
 

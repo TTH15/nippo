@@ -19,7 +19,7 @@ const portIndex = args.indexOf("--port");
 const port = portIndex === -1 ? 3191 : Number(args[portIndex + 1]);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Invalid port");
 const mapboxEnabled = args.includes("--mapbox");
-const mapboxFeatures = new Set(["driver-leases", "map-operations"]);
+const mapboxFeatures = new Set(["driver-leases", "map-operations", "admin", "vehicles"]);
 if (mapboxEnabled && !mapboxFeatures.has(feature)) throw new Error("Mapbox mode is not available for this preview");
 let publicMapboxToken = "";
 if (mapboxEnabled) {
@@ -53,6 +53,7 @@ const adminReplacements = new Map([
   ["next/dynamic", "kernel/next-dynamic.tsx"],
   ["@/lib/components/AdminLayout", "kernel/AdminLayout.tsx"],
   ["@/lib/components/VehicleModelPreview", "kernel/VehicleModelPreview.tsx"],
+  ["@/lib/map/sharedView", "kernel/sharedView.tsx"],
 ].map(([from, to]) => [from, path.join(root, "scripts/previews", to)]));
 const entry = productionPageEntries.get(feature) ?? path.join(source, "app/preview", feature, "page.tsx");
 await access(entry);
@@ -97,7 +98,7 @@ await writeFile(path.join(output, "index.html"), `<!doctype html><html lang="ja"
 const publicRoot = path.join(root, "apps/web/public");
 const assets = ["logo/hakotora-logo_primary_logo.svg", "logo/hakotora-logo_secondary_logo.svg", "fonts/TrmFontJB.ttf"];
 if (feature === "shifts") assets.push("fonts/SawarabiGothic-Regular.ttf");
-if (feature === "map-operations") {
+if (feature === "map-operations" || isAdminRunner) {
   assets.push(
     "models/acty-hh5-blockout-70-tinted.glb",
     "models/acty-hh5-blockout-70-fixed.glb",
@@ -132,7 +133,7 @@ if (!args.includes("--build")) {
       res.writeHead(200, {
         "Content-Type": target.endsWith(".js") ? "text/javascript; charset=utf-8" : target.endsWith(".css") ? "text/css; charset=utf-8" : target.endsWith(".svg") ? "image/svg+xml" : target.endsWith(".ttf") ? "font/ttf" : target.endsWith(".glb") ? "model/gltf-binary" : "text/html; charset=utf-8",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "'self' https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : feature === "shifts" ? `http://127.0.0.1:${port}/fonts/SawarabiGothic-Regular.ttf` : "'none'"}; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:${mapboxEnabled ? " blob:" : ""}; ${mapboxEnabled ? "worker-src blob:; " : ""}font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "'self' https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/3dtiles/v1/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : feature === "shifts" ? `http://127.0.0.1:${port}/fonts/SawarabiGothic-Regular.ttf` : "'none'"}; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:${mapboxEnabled ? " blob:" : ""}; ${mapboxEnabled ? "worker-src blob:; " : ""}font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       });
       res.end(req.method === "HEAD" ? undefined : body);
     } catch { res.writeHead(404); res.end("Not found"); }

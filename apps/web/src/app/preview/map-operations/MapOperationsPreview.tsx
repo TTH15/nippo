@@ -32,7 +32,7 @@ import { DatePicker } from "@/lib/components/DatePicker";
 import { EditorModal } from "@/lib/components/EditorModal";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 import { VehiclePlate, formatPlateNumeric } from "@/lib/components/VehiclePlate";
-import { renderPlateImage } from "@/lib/plateImage";
+import { MapPlateLabel } from "@/lib/components/MapPlateLabel";
 import { TimePicker } from "@/lib/ui/time-picker";
 import {
   PREVIEW_PLACES,
@@ -89,37 +89,6 @@ const dateString = (value: Date) => [
 const plateLabel = (vehicle: PreviewMapVehicle) =>
   `${vehicle.number_prefix ?? ""} ${vehicle.number_class ?? ""} ${vehicle.number_hiragana ?? ""} ${formatPlateNumeric(vehicle.number_numeric ?? "")}`.trim();
 
-type MapPlateImage = {
-  src: string;
-  width: number;
-  height: number;
-  padding: number;
-};
-
-const mapPlateImageCache = new Map<string, Promise<MapPlateImage>>();
-const mapPlateImageKey = (vehicle: PreviewMapVehicle) => [
-  vehicle.number_prefix,
-  vehicle.number_class,
-  vehicle.number_hiragana,
-  vehicle.number_numeric,
-  vehicle.plate_color,
-].join("|");
-
-function loadMapPlateImage(vehicle: PreviewMapVehicle) {
-  const key = mapPlateImageKey(vehicle);
-  const cached = mapPlateImageCache.get(key);
-  if (cached) return cached;
-  const promise = renderPlateImage(vehicle, 82).then(({ canvas, width, height, padding }) => ({
-    src: canvas.toDataURL("image/png"),
-    width: width + padding * 2,
-    height: height + padding * 2,
-    padding,
-  }));
-  mapPlateImageCache.set(key, promise);
-  promise.catch(() => mapPlateImageCache.delete(key));
-  return promise;
-}
-
 function VehicleMapMarker({
   vehicle,
   selected,
@@ -129,53 +98,20 @@ function VehicleMapMarker({
   selected: boolean;
   attention: boolean;
 }) {
-  const imageKey = mapPlateImageKey(vehicle);
-  const [plateImage, setPlateImage] = useState<MapPlateImage | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    loadMapPlateImage(vehicle).then((image) => {
-      if (active) setPlateImage(image);
-    }).catch((error) => {
-      // 画像化できない場合も、既存のSVGプレートを表示して操作は維持する。
-      console.warn("地図用ナンバー札を画像化できませんでした", error);
-    });
-    return () => {
-      active = false;
-    };
-  }, [imageKey, vehicle]);
-
   return (
     <button
       type="button"
       aria-label={`${plateLabel(vehicle)}を選択`}
-      className={`relative isolate block h-[41px] w-[82px] rounded-lg outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${selected ? "ring-2 ring-amber-400 ring-offset-2 ring-offset-white/90" : "hover:ring-2 hover:ring-white/90"}`}
-      style={{ transform: "translateZ(0)", backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" }}
+      className="relative block rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
     >
-      {plateImage ? (
-        <img
-          aria-hidden
-          alt=""
-          draggable={false}
-          src={plateImage.src}
-          data-map-plate-rendering="bitmap"
-          className="pointer-events-none absolute max-w-none select-none"
-          style={{
-            left: -plateImage.padding,
-            top: -plateImage.padding,
-            width: plateImage.width,
-            height: plateImage.height,
-          }}
-        />
-      ) : (
-        <VehiclePlate vehicle={vehicle} compact glow={false} className="!max-w-none w-full pointer-events-none" />
-      )}
-      <span aria-hidden className="absolute left-1/2 top-full h-2 w-px -translate-x-1/2 bg-white shadow" />
-      {attention && (
-        <span className="absolute left-1/2 top-[-20px] -translate-x-1/2 whitespace-nowrap rounded-full bg-amber-500 px-1.5 py-0.5 text-[8px] font-bold text-amber-950 shadow-sm ring-1 ring-white">
-          要確認
-        </span>
-      )}
+      <MapPlateLabel vehicle={vehicle} selected={selected}>
+        <span aria-hidden className="absolute left-1/2 top-full h-2 w-px -translate-x-1/2 bg-white shadow" />
+        {attention && (
+          <span className="absolute left-1/2 top-[-20px] -translate-x-1/2 whitespace-nowrap rounded-full bg-amber-500 px-1.5 py-0.5 text-[8px] font-bold text-amber-950 shadow-sm ring-1 ring-white">
+            要確認
+          </span>
+        )}
+      </MapPlateLabel>
     </button>
   );
 }

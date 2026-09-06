@@ -97,6 +97,37 @@ export const VEHICLE_MODEL_URLS: Record<string, string> = {
 /** 未知の車・モデル未用意のときに使うモデル。軽バンは形が似ているので違和感は小さい。 */
 export const DEFAULT_VEHICLE_MODEL_KEY = "every";
 
+// ============================================================
+// 地図（/admin/map）用の低ポリモデル。1車種 = 「着色する車体」と「固定色の部品（窓・タイヤ・灯火）」の
+// 2ファイルに分割し（scripts/split-vehicle-map-model.mjs）、Mapbox の model レイヤーへ2層で重ねる。
+// 型式は当面扱わず車種単位で選ぶ（2026-09-06 ユーザー指定）。未登録の車種は既定モデルへ倒す。
+// ============================================================
+export type VehicleMapModel = {
+  /** Mapbox addModel の識別子の接頭辞（tinted / fixed を付けて使う） */
+  id: string;
+  tintedUrl: string;
+  fixedUrl: string;
+  /** 全長（m）。見かけサイズの計算に使う */
+  lengthMeters: number;
+};
+
+export const VEHICLE_MAP_MODELS: Record<string, VehicleMapModel> = {
+  acty: {
+    id: "acty-hh5-blockout-70",
+    tintedUrl: "/models/acty-hh5-blockout-70-tinted.glb",
+    fixedUrl: "/models/acty-hh5-blockout-70-fixed.glb",
+    lengthMeters: 3.392,
+  },
+};
+
+/** 地図用の既定モデル（完成している車種のうち最も検証済みのもの） */
+export const DEFAULT_VEHICLE_MAP_MODEL_KEY = "acty";
+
+/** 車種キーから地図用モデルを選ぶ。未設定・未登録は既定へ */
+export function vehicleMapModelFor(modelKey: string | null | undefined): VehicleMapModel {
+  return (modelKey && VEHICLE_MAP_MODELS[modelKey]) || VEHICLE_MAP_MODELS[DEFAULT_VEHICLE_MAP_MODEL_KEY];
+}
+
 const normalize = (v: string) => v.trim().toLowerCase().replace(/\s+/g, "");
 
 /** カタログから車種を引く（表記ゆれ・派生名を吸収）。 */
