@@ -117,13 +117,26 @@ function LockedNavRow({ label, icon }: { label: string; icon?: IconDefinition })
 
 // AdminLayout.tsx の表示用JSXを複製（2026-08-31）。レイアウト・ナビの規格を変更しない。
 // 認証・API・Routerの代わりにプレビュー専用の架空データと遷移を注入する。
-export function AdminPreviewLayout({ children, pathname, onReset }: { children: React.ReactNode; pathname: string; onReset: () => void }) {
+export type AdminPreviewLayoutProps = {
+  children: React.ReactNode;
+  pathname: string;
+  onReset: () => void;
+  /** 役割切替のあるプレビュー（scripts/previews/kernel）だけが渡す。省略時は従来どおり全権限の管理者 */
+  viewer?: { name: string; role: string; capabilities: string[] };
+  companyName?: string;
+  /** 「プレビュー · 架空データ」行の代わりに出す説明。省略時は従来の文言 */
+  noticeLabel?: string;
+};
+
+export function AdminPreviewLayout({ children, pathname, onReset, viewer, companyName, noticeLabel }: AdminPreviewLayoutProps) {
   const mainRef = useRef<HTMLElement | null>(null);
-  const driver = { name: "サンプル管理者" };
-  const company = { name: "サンプル運送（架空）" };
-  const canWrite = true;
-  const isViewer = false;
-  const isLocked = (_cap?: string) => false;
+  const driver = { name: viewer?.name ?? "サンプル管理者" };
+  const company = { name: companyName ?? "サンプル運送（架空）" };
+  // 本番 AdminLayout と同じ判定: ADMIN 系だけ書き込み可、ADMIN_VIEWER は「（閲覧）」表示、
+  // capability を持たないメニューはロック表示にする。
+  const canWrite = viewer ? viewer.role === "ADMIN" : true;
+  const isViewer = viewer?.role === "ADMIN_VIEWER";
+  const isLocked = (cap?: string) => !!viewer && !!cap && !viewer.capabilities.includes(cap);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -454,7 +467,7 @@ export function AdminPreviewLayout({ children, pathname, onReset }: { children: 
 
           {/* User section */}
           <div className="p-4 border-t border-slate-200">
-            <p className="mb-2 text-[10px] font-medium text-amber-800">プレビュー · 架空データ・{previewConnectionLabel}</p>
+            <p className="mb-2 text-[10px] font-medium text-amber-800">{noticeLabel ?? `プレビュー · 架空データ・${previewConnectionLabel}`}</p>
             <div className="flex items-center justify-between">
               <Link href="/admin/account" className="min-w-0 hover:opacity-70 transition-opacity">
                 <p className="text-sm font-bold text-slate-900 truncate">{driver?.name}</p>

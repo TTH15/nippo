@@ -45,6 +45,7 @@ react / react-native / expo を直接依存で足さないこと**（混在の�
 - プレビューは本番の認証・DB・API・通知送信から隔離する。実在の個人情報や秘密情報をコピーしない。本番認証を弱めてログイン不要にしてはならない。
 - 見た目だけでなく、画面遷移・編集・保存・絞り込み・未設定・エラーなど変更箇所の操作を試せるようにする。既存の共通UIを再利用し、既存プレビューがあれば更新する。
 - 起動方法をリポジトリに残し、**アプリ内ブラウザで実際に開いて操作・PC/スマホ幅を検証**する。操作だけでなく実画面との見た目・構造の一致も確認する。完了時はプレビューを開いた状態にし、URL・確認内容・モックの制限を伝える。
+- **管理画面の本番ページ本体は `npm run preview:admin -- admin --port 3197` で `/preview/admin/<slug>?scenario=<状態>&role=<権限>` として開ける**（2026-09-06）。既存ページの改修は、まず `scripts/previews/fixtures/` に fixture があるか確認し、無ければ追加してから着手する。シナリオは normal / empty / long-name / large / loading / error、役割は admin / accounting / viewer。
 - 詳細は `docs/development/preview-workflow.md`。プレビューの作成・確認は本番適用や公開の許可を意味しない。
 
 ## サブエージェント

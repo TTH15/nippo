@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -10,6 +10,8 @@ import {
   faCarSide,
   faCheck,
   faChevronDown,
+  faChevronLeft,
+  faChevronRight,
   faClockRotateLeft,
   faCrosshairs,
   faCube,
@@ -24,7 +26,9 @@ import {
 import { AdminPreviewLayout } from "@/app/preview/driver-leases/AdminPreviewLayout";
 import { PREVIEW_MAPBOX_ENABLED, PREVIEW_MAPBOX_TOKEN } from "@/app/preview/driver-leases/mapbox-config";
 import { CheckboxField } from "@/lib/components/CheckboxField";
+import { AerialMovementArrow } from "@/lib/components/AerialMovementArrow";
 import { CustomSelect } from "@/lib/components/CustomSelect";
+import { DatePicker } from "@/lib/components/DatePicker";
 import { EditorModal } from "@/lib/components/EditorModal";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 import { VehiclePlate, formatPlateNumeric } from "@/lib/components/VehiclePlate";
@@ -32,16 +36,19 @@ import { renderPlateImage } from "@/lib/plateImage";
 import { TimePicker } from "@/lib/ui/time-picker";
 import {
   PREVIEW_PLACES,
-  aerialMovementArrowGeometry,
+  PREVIEW_HISTORY_DEFAULT_AT,
   vehicleMapPresentation,
   needsAttention,
+  needsVehicleRelocation,
   placeById,
   positionForMode,
+  positionRecordAt,
   vehiclesForScenario,
   type MapMode,
   type PreviewMapVehicle,
   type PreviewScenario,
   type VehicleMovement,
+  type VehiclePositionRecord,
 } from "./model";
 
 const TINTED_MODEL_URL = "/models/acty-hh5-blockout-70-tinted.glb";
@@ -56,92 +63,6 @@ const PLATE_MODEL_VEHICLE_IDS = ["acty-1201", "acty-2752", "acty-4303", "acty-58
 const plateModelId = (vehicleId: string) => `acty-hh5-plate-${vehicleId}`;
 const plateModelUrl = (vehicleId: string) => `/models/${plateModelId(vehicleId)}.glb`;
 
-function AerialMovementArrow({
-  map,
-  from,
-  to,
-  visible,
-}: {
-  map: mapboxgl.Map | null;
-  from: [number, number] | null;
-  to: [number, number] | null;
-  visible: boolean;
-}) {
-  const markerId = `movement-arrow-${useId().replaceAll(":", "")}`;
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const outlineRef = useRef<SVGPathElement | null>(null);
-  const arrowRef = useRef<SVGPathElement | null>(null);
-  const sourceRef = useRef<SVGCircleElement | null>(null);
-
-  useEffect(() => {
-    const svg = svgRef.current;
-    const outline = outlineRef.current;
-    const arrow = arrowRef.current;
-    const source = sourceRef.current;
-    if (!svg || !outline || !arrow || !source) return;
-    if (!map || !visible || !from || !to) {
-      svg.style.display = "none";
-      return;
-    }
-
-    let animationFrame: number | null = null;
-    const draw = () => {
-      animationFrame = null;
-      const container = map.getContainer();
-      const projectedFrom = map.project(from);
-      const projectedTo = map.project(to);
-      const geometry = aerialMovementArrowGeometry({
-        from: { x: projectedFrom.x, y: projectedFrom.y },
-        to: { x: projectedTo.x, y: projectedTo.y },
-        mapWidth: container.clientWidth,
-        mapHeight: container.clientHeight,
-      });
-      if (!geometry) {
-        svg.style.display = "none";
-        return;
-      }
-
-      const path = `M ${geometry.start.x} ${geometry.start.y} C ${geometry.control1.x} ${geometry.control1.y}, ${geometry.control2.x} ${geometry.control2.y}, ${geometry.end.x} ${geometry.end.y}`;
-      outline.setAttribute("d", path);
-      arrow.setAttribute("d", path);
-      if (geometry.destinationVisible) arrow.setAttribute("marker-end", `url(#${markerId})`);
-      else arrow.removeAttribute("marker-end");
-      source.setAttribute("cx", String(geometry.start.x));
-      source.setAttribute("cy", String(geometry.start.y));
-      source.style.display = geometry.sourceVisible ? "" : "none";
-      svg.style.display = "";
-    };
-    const scheduleDraw = () => {
-      if (animationFrame !== null) return;
-      animationFrame = window.requestAnimationFrame(draw);
-    };
-
-    draw();
-    map.on("move", scheduleDraw);
-    map.on("resize", scheduleDraw);
-    return () => {
-      map.off("move", scheduleDraw);
-      map.off("resize", scheduleDraw);
-      if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
-    };
-  }, [from, map, markerId, to, visible]);
-
-  return (
-    <svg ref={svgRef} aria-hidden style={{ display: "none" }} className="pointer-events-none absolute inset-0 z-[4] size-full overflow-hidden">
-      <defs>
-        <marker id={markerId} viewBox="0 0 24 24" refX="21" refY="12" markerWidth="30" markerHeight="30" markerUnits="userSpaceOnUse" orient="auto">
-          <path d="M 2 2 L 22 12 L 2 22 Z" fill="#d97706" stroke="#ffffff" strokeWidth="2" strokeLinejoin="round" />
-        </marker>
-      </defs>
-      <g style={{ filter: "drop-shadow(0 7px 5px rgba(15, 23, 42, 0.26))" }}>
-        <path ref={outlineRef} fill="none" stroke="rgba(255,255,255,0.94)" strokeWidth="15" strokeLinecap="round" />
-        <path ref={arrowRef} fill="none" stroke="#d97706" strokeWidth="8" strokeLinecap="round" />
-        <circle ref={sourceRef} r="7" fill="#ffffff" stroke="#d97706" strokeWidth="4" />
-      </g>
-    </svg>
-  );
-}
-
 const formatDateTime = (value: string) =>
   new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
@@ -151,6 +72,19 @@ const formatDateTime = (value: string) =>
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+
+const historySourceLabel: Record<VehiclePositionRecord["source"], string> = {
+  daily_report: "日報の駐車記録",
+  manual: "管理者の手動記録",
+  punch: "打刻時の位置",
+};
+
+const dateValue = (value: string) => new Date(`${value}T12:00:00`);
+const dateString = (value: Date) => [
+  value.getFullYear(),
+  String(value.getMonth() + 1).padStart(2, "0"),
+  String(value.getDate()).padStart(2, "0"),
+].join("-");
 
 const plateLabel = (vehicle: PreviewMapVehicle) =>
   `${vehicle.number_prefix ?? ""} ${vehicle.number_class ?? ""} ${vehicle.number_hiragana ?? ""} ${formatPlateNumeric(vehicle.number_numeric ?? "")}`.trim();
@@ -319,15 +253,23 @@ function DesignSummary({ open, onToggle }: { open: boolean; onToggle: () => void
 function DetailPanel({
   vehicle,
   movement,
+  mode,
+  historyAt,
+  historyRecord,
   onEditMovement,
   onRecordParking,
 }: {
   vehicle: PreviewMapVehicle;
   movement: VehicleMovement | null;
+  mode: MapMode;
+  historyAt: string;
+  historyRecord: VehiclePositionRecord | null;
   onEditMovement: () => void;
   onRecordParking: () => void;
 }) {
+  const isHistory = mode === "history";
   const lastPlace = placeById(vehicle.lastParked?.placeId);
+  const historyPlace = placeById(historyRecord?.placeId);
   const nextPlace = placeById(vehicle.nextUse?.placeId);
   const fromPlace = placeById(movement?.fromPlaceId);
   const toPlace = placeById(movement?.toPlaceId);
@@ -341,81 +283,119 @@ function DetailPanel({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-slate-900">{vehicle.brand} {vehicle.modelCode}</p>
             <p className="mt-1 text-xs text-slate-500">暫定完成版 3Dモデル</p>
-            <span className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ${attention ? "bg-amber-100 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
-              <FontAwesomeIcon icon={attention ? faTriangleExclamation : faCheck} className="size-3" />
-              {attention ? "確認が必要" : "次の利用に向けて手配済み"}
+            <span className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ${isHistory ? "bg-slate-100 text-slate-700" : attention ? "bg-amber-100 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
+              <FontAwesomeIcon icon={isHistory ? faClockRotateLeft : attention ? faTriangleExclamation : faCheck} className="size-3" />
+              {isHistory ? `${formatDateTime(historyAt)}時点` : attention ? "確認が必要" : "次の利用に向けて手配済み"}
             </span>
           </div>
         </div>
       </div>
 
       <div className="min-h-0 flex-1 space-y-0 overflow-y-auto">
-        <section className="border-b border-slate-200 px-4 py-4">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-            <FontAwesomeIcon icon={faLocationDot} className="size-3 text-emerald-600" />
-            最後の駐車
-          </div>
-          {vehicle.lastParked && lastPlace ? (
-            <>
-              <p className="mt-2 text-xl font-semibold text-slate-900">{lastPlace.name}</p>
-              <p className="mt-1 text-xs text-slate-500">
-                {formatDateTime(vehicle.lastParked.at)}　{vehicle.lastParked.recordedBy}が記録
+        {isHistory ? (
+          <>
+            <section className="border-b border-slate-200 px-4 py-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                <FontAwesomeIcon icon={faLocationDot} className="size-3 text-emerald-600" />
+                その時点の位置
+              </div>
+              {historyRecord ? (
+                <>
+                  <p className="mt-2 text-xl font-semibold text-slate-900">{historyPlace?.name ?? "記録された位置"}</p>
+                  <p className="mt-1 text-xs text-slate-500">{formatDateTime(historyRecord.at)}　{historyRecord.recordedBy}が記録</p>
+                  <p className="mt-2 inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+                    {historySourceLabel[historyRecord.source]}
+                  </p>
+                </>
+              ) : (
+                <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-sm font-semibold text-slate-800">この時刻以前の記録はありません</p>
+                  <p className="mt-1 text-xs text-slate-600">次の記録へ進むと位置を確認できます。</p>
+                </div>
+              )}
+            </section>
+            <section className="px-4 py-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                <FontAwesomeIcon icon={faClockRotateLeft} className="size-3" />
+                履歴の見方
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-600">
+                指定日時より前の、最後の記録を表示しています。記録と記録の間の動きは推測していません。
               </p>
-            </>
-          ) : (
-            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-              <p className="text-sm font-semibold text-amber-900">駐車場所が未記録です</p>
-              <p className="mt-1 text-xs text-amber-800">実際に停めた場所を確認してください。</p>
-            </div>
-          )}
-        </section>
+            </section>
+          </>
+        ) : (
+          <>
+            <section className="border-b border-slate-200 px-4 py-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                <FontAwesomeIcon icon={faLocationDot} className="size-3 text-emerald-600" />
+                最後の駐車
+              </div>
+              {vehicle.lastParked && lastPlace ? (
+                <>
+                  <p className="mt-2 text-xl font-semibold text-slate-900">{lastPlace.name}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {formatDateTime(vehicle.lastParked.at)}　{vehicle.lastParked.recordedBy}が記録
+                  </p>
+                </>
+              ) : (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-sm font-semibold text-amber-900">駐車場所が未記録です</p>
+                  <p className="mt-1 text-xs text-amber-800">実際に停めた場所を確認してください。</p>
+                </div>
+              )}
+            </section>
 
-        <section className="border-b border-slate-200 px-4 py-4">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-            <FontAwesomeIcon icon={faCarSide} className="size-3" />
-            次の利用
-          </div>
-          {vehicle.nextUse && nextPlace ? (
-            <>
-              <p className="mt-2 text-base font-semibold text-slate-900">{nextPlace.name}で受取</p>
-              <p className="mt-1 text-sm text-slate-700">{formatDateTime(vehicle.nextUse.at)}　{vehicle.nextUse.driver}</p>
-              <p className="mt-1 text-xs text-slate-500">{vehicle.nextUse.course}</p>
-            </>
-          ) : (
-            <p className="mt-2 text-sm text-slate-500">次の利用予定はありません</p>
-          )}
-        </section>
+            <section className="border-b border-slate-200 px-4 py-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                <FontAwesomeIcon icon={faCarSide} className="size-3" />
+                次の利用
+              </div>
+              {vehicle.nextUse && nextPlace ? (
+                <>
+                  <p className="mt-2 text-base font-semibold text-slate-900">{nextPlace.name}で受取</p>
+                  <p className="mt-1 text-sm text-slate-700">{formatDateTime(vehicle.nextUse.at)}　{vehicle.nextUse.driver}</p>
+                  <p className="mt-1 text-xs text-slate-500">{vehicle.nextUse.course}</p>
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-slate-500">次の利用予定はありません</p>
+              )}
+            </section>
 
-        <section className="px-4 py-4">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-            <FontAwesomeIcon icon={faRoute} className="size-3 text-amber-600" />
-            移動の手配
-          </div>
-          {movement && fromPlace && toPlace ? (
-            <div className="mt-2">
-              <p className="text-base font-semibold text-slate-900">{fromPlace.name} → {toPlace.name}</p>
-              <p className="mt-1 text-sm text-slate-700">{formatDateTime(movement.dueAt)}まで</p>
-              <dl className="mt-3 grid grid-cols-[76px_1fr] gap-y-2 text-xs">
-                <dt className="text-slate-500">運ぶ人</dt>
-                <dd className={movement.assignee ? "text-slate-800" : "font-semibold text-amber-700"}>{movement.assignee ?? "未設定"}</dd>
-                <dt className="text-slate-500">状態</dt>
-                <dd className="text-slate-800">{movement.status === "arrived" ? "到着済み" : movement.status === "planned" ? "手配済み" : "手配が必要"}</dd>
-              </dl>
-            </div>
-          ) : (
-            <p className="mt-2 text-sm text-slate-500">移動の手配はありません</p>
-          )}
-        </section>
+            <section className="px-4 py-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                <FontAwesomeIcon icon={faRoute} className="size-3 text-amber-600" />
+                移動の手配
+              </div>
+              {movement && fromPlace && toPlace ? (
+                <div className="mt-2">
+                  <p className="text-base font-semibold text-slate-900">{fromPlace.name} → {toPlace.name}</p>
+                  <p className="mt-1 text-sm text-slate-700">{formatDateTime(movement.dueAt)}まで</p>
+                  <dl className="mt-3 grid grid-cols-[76px_1fr] gap-y-2 text-xs">
+                    <dt className="text-slate-500">運ぶ人</dt>
+                    <dd className={movement.assignee ? "text-slate-800" : "font-semibold text-amber-700"}>{movement.assignee ?? "未設定"}</dd>
+                    <dt className="text-slate-500">状態</dt>
+                    <dd className="text-slate-800">{movement.status === "arrived" ? "到着済み" : movement.status === "planned" ? "手配済み" : "手配が必要"}</dd>
+                  </dl>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-slate-500">移動の手配はありません</p>
+              )}
+            </section>
+          </>
+        )}
       </div>
 
-      <div className="grid shrink-0 gap-2 border-t border-slate-200 bg-white p-3">
-        <button type="button" onClick={onRecordParking} className="min-h-11 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2">
-          停めた場所を記録
-        </button>
-        <button type="button" onClick={onEditMovement} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2">
-          手配を変更
-        </button>
-      </div>
+      {!isHistory && (
+        <div className="grid shrink-0 gap-2 border-t border-slate-200 bg-white p-3">
+          <button type="button" onClick={onRecordParking} className="min-h-11 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2">
+            停めた場所を記録
+          </button>
+          <button type="button" onClick={onEditMovement} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2">
+            手配を変更
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
@@ -432,6 +412,8 @@ export function MapOperationsPreview() {
   const [query, setQuery] = useState("");
   const [designOpen, setDesignOpen] = useState(false);
   const [is3d, setIs3d] = useState(true);
+  const [historyDate, setHistoryDate] = useState(PREVIEW_HISTORY_DEFAULT_AT.slice(0, 10));
+  const [historyTime, setHistoryTime] = useState(PREVIEW_HISTORY_DEFAULT_AT.slice(11, 16));
   const [editor, setEditor] = useState<"movement" | "parking" | null>(null);
   const [movementOverrides, setMovementOverrides] = useState<Record<string, VehicleMovement | null>>({});
   const [parkingOverrides, setParkingOverrides] = useState<Record<string, { placeId: string; at: string; recordedBy: string }>>({});
@@ -448,6 +430,16 @@ export function MapOperationsPreview() {
       ? {
           ...vehicle,
           position: placeById(parkingOverrides[vehicle.id].placeId)?.coordinates ?? vehicle.position,
+          positionHistory: [
+            ...vehicle.positionHistory,
+            {
+              at: parkingOverrides[vehicle.id].at,
+              coordinates: placeById(parkingOverrides[vehicle.id].placeId)?.coordinates ?? vehicle.position!,
+              placeId: parkingOverrides[vehicle.id].placeId,
+              recordedBy: parkingOverrides[vehicle.id].recordedBy,
+              source: "manual" as const,
+            },
+          ],
           lastParked: parkingOverrides[vehicle.id],
         }
       : vehicle),
@@ -463,13 +455,41 @@ export function MapOperationsPreview() {
       ? movementOverrides[vehicle.id]
       : vehicle.movement;
     const withMovement = { ...vehicle, movement };
+    const matchesMode = mode !== "movements" || needsVehicleRelocation(movement);
     const matchesAttention = !attentionOnly || needsAttention(withMovement);
     const matchesQuery = !normalizedQuery || plateLabel(vehicle).replaceAll("-", "").includes(normalizedQuery)
       || vehicle.brand.includes(normalizedQuery);
-    return matchesAttention && matchesQuery;
-  }), [attentionOnly, movementOverrides, normalizedQuery, vehicles]);
-  const movementFrom = placeById(selectedMovement?.fromPlaceId)?.coordinates ?? null;
+    return matchesMode && matchesAttention && matchesQuery;
+  }), [attentionOnly, mode, movementOverrides, normalizedQuery, vehicles]);
+  const selectedIsVisible = filteredVehicles.some((vehicle) => vehicle.id === selected.id);
+  const historyAt = `${historyDate}T${historyTime}:00+09:00`;
+  const selectedHistoryRecord = positionRecordAt(selected, historyAt);
+  const historyMoments = useMemo(() => [...new Set(
+    vehicles.flatMap((vehicle) => vehicle.positionHistory.map((record) => record.at)),
+  )].sort(), [vehicles]);
+  const previousHistoryAt = [...historyMoments].reverse().find((at) => at < historyAt) ?? null;
+  const nextHistoryAt = historyMoments.find((at) => at > historyAt) ?? null;
+  const historyVehicleCount = filteredVehicles.filter((vehicle) => positionRecordAt(vehicle, historyAt)).length;
+  const movementFrom = selected.position;
   const movementTo = placeById(selectedMovement?.toPlaceId)?.coordinates ?? null;
+
+  const selectMode = (nextMode: MapMode) => {
+    setMode(nextMode);
+    if (nextMode === "history") setAttentionOnly(false);
+    if (nextMode !== "movements" || needsVehicleRelocation(selectedMovement)) return;
+    const firstMovingVehicle = vehicles.find((vehicle) => {
+      const movement = Object.prototype.hasOwnProperty.call(movementOverrides, vehicle.id)
+        ? movementOverrides[vehicle.id]
+        : vehicle.movement;
+      return needsVehicleRelocation(movement);
+    });
+    if (firstMovingVehicle) setSelectedId(firstMovingVehicle.id);
+  };
+
+  const selectHistoryMoment = (at: string) => {
+    setHistoryDate(at.slice(0, 10));
+    setHistoryTime(at.slice(11, 16));
+  };
 
   const resetPreview = useCallback(() => {
     setMode("current");
@@ -481,6 +501,8 @@ export function MapOperationsPreview() {
     setParkingOverrides({});
     setDesignOpen(false);
     setIs3d(true);
+    setHistoryDate(PREVIEW_HISTORY_DEFAULT_AT.slice(0, 10));
+    setHistoryTime(PREVIEW_HISTORY_DEFAULT_AT.slice(11, 16));
     setEditor(null);
     setToast(null);
     mapRef.current?.flyTo({ center: [135.56, 34.83], zoom: 10.8, pitch: 56, bearing: -14, duration: 700 });
@@ -654,7 +676,7 @@ export function MapOperationsPreview() {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     const located = filteredVehicles.flatMap((vehicle) => {
-      const position = positionForMode(vehicle, mode);
+      const position = positionForMode(vehicle, mode, historyAt);
       return position ? [{ vehicle, position }] : [];
     });
     const source = map.getSource("preview-vehicles") as mapboxgl.GeoJSONSource | undefined;
@@ -686,7 +708,7 @@ export function MapOperationsPreview() {
         ? movementOverrides[vehicle.id]
         : vehicle.movement;
       const selectedMarker = vehicle.id === selectedId;
-      const attention = needsAttention({ ...vehicle, movement });
+      const attention = mode !== "history" && needsAttention({ ...vehicle, movement });
       const existing = vehicleMarkersRef.current.get(vehicle.id);
       if (existing) {
         existing.root.render(<VehicleMapMarker vehicle={vehicle} selected={selectedMarker} attention={attention} />);
@@ -722,7 +744,12 @@ export function MapOperationsPreview() {
       });
     });
 
-  }, [filteredVehicles, mapReady, mode, movementOverrides, selectedId]);
+  }, [filteredVehicles, historyAt, mapReady, mode, movementOverrides, selectedId]);
+
+  useEffect(() => {
+    if (mode !== "movements" || selectedIsVisible || filteredVehicles.length === 0) return;
+    setSelectedId(filteredVehicles[0].id);
+  }, [filteredVehicles, mode, selectedIsVisible]);
 
   useEffect(() => {
     if (!toast) return;
@@ -744,7 +771,7 @@ export function MapOperationsPreview() {
   };
 
   const focusSelectedVehicle = () => {
-    const position = positionForMode(selected, mode);
+    const position = positionForMode(selected, mode, historyAt);
     if (!position) {
       setToast("この車両は駐車場所が未記録です");
       return;
@@ -781,15 +808,15 @@ export function MapOperationsPreview() {
         <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex rounded-lg bg-slate-100 p-1">
-              {(["current", "history"] as const).map((value) => (
+              {(["current", "movements", "history"] as const).map((value) => (
                 <button
                   key={value}
                   type="button"
-                  onClick={() => setMode(value)}
+                  onClick={() => selectMode(value)}
                   className={`min-h-9 rounded-md px-3 text-xs font-semibold ${mode === value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
                 >
-                  <FontAwesomeIcon icon={value === "current" ? faLocationDot : faClockRotateLeft} className="mr-1.5 size-3" />
-                  {value === "current" ? "いま" : "履歴"}
+                  <FontAwesomeIcon icon={value === "current" ? faLocationDot : value === "movements" ? faRoute : faClockRotateLeft} className="mr-1.5 size-3" />
+                  {value === "current" ? "いま" : value === "movements" ? "車両移動" : "履歴"}
                 </button>
               ))}
             </div>
@@ -797,15 +824,17 @@ export function MapOperationsPreview() {
               <FontAwesomeIcon icon={faMagnifyingGlass} className="size-3 text-slate-400" />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="車両番号・車種で探す" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400" />
             </label>
-            <button
-              type="button"
-              onClick={() => setAttentionOnly((value) => !value)}
-              aria-pressed={attentionOnly}
-              className={`min-h-10 rounded-lg border px-3 text-xs font-semibold ${attentionOnly ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
-            >
-              <FontAwesomeIcon icon={faFilter} className="mr-1.5 size-3" />
-              要確認だけ
-            </button>
+            {mode !== "history" && (
+              <button
+                type="button"
+                onClick={() => setAttentionOnly((value) => !value)}
+                aria-pressed={attentionOnly}
+                className={`min-h-10 rounded-lg border px-3 text-xs font-semibold ${attentionOnly ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
+              >
+                <FontAwesomeIcon icon={faFilter} className="mr-1.5 size-3" />
+                要確認だけ
+              </button>
+            )}
             <CustomSelect
               value={scenario}
               onChange={(value) => setScenario(value as PreviewScenario)}
@@ -821,10 +850,48 @@ export function MapOperationsPreview() {
             />
           </div>
           {mode === "history" && (
-            <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
-              <span className="text-xs font-semibold text-slate-700">9月1日（火）18:00</span>
-              <input type="range" min="0" max="24" value="18" readOnly aria-label="履歴時刻" className="h-1.5 min-w-[180px] flex-1 accent-slate-900" />
-              <span className="text-[11px] text-slate-500">その時点で最後に記録された位置</span>
+            <div className="mt-3 border-t border-slate-100 pt-3">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="w-full sm:w-auto">
+                  <p className="mb-1 text-[11px] font-semibold text-slate-600">表示する日時</p>
+                  <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-2 sm:flex">
+                    <DatePicker
+                      ariaLabel="履歴の日付"
+                      value={dateValue(historyDate)}
+                      displayFormat="yyyy/M/d（E）"
+                      fromDate={historyMoments[0] ? dateValue(historyMoments[0].slice(0, 10)) : undefined}
+                      toDate={historyMoments.at(-1) ? dateValue(historyMoments.at(-1)!.slice(0, 10)) : undefined}
+                      onChange={(value) => value && setHistoryDate(dateString(value))}
+                      className="min-h-11 w-full sm:w-[164px]"
+                    />
+                    <div aria-label="履歴の時刻" className="sm:w-28">
+                      <TimePicker value={historyTime} onChange={(value) => value && setHistoryTime(value)} minuteStep={5} clearable={false} buttonClassName="min-h-11" />
+                    </div>
+                  </div>
+                </div>
+                <div className="grid w-full grid-cols-2 gap-2 sm:w-auto">
+                  <button
+                    type="button"
+                    disabled={!previousHistoryAt}
+                    onClick={() => previousHistoryAt && selectHistoryMoment(previousHistoryAt)}
+                    className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                  >
+                    <FontAwesomeIcon icon={faChevronLeft} className="mr-1.5 size-3" />前の記録
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!nextHistoryAt}
+                    onClick={() => nextHistoryAt && selectHistoryMoment(nextHistoryAt)}
+                    className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                  >
+                    次の記録<FontAwesomeIcon icon={faChevronRight} className="ml-1.5 size-3" />
+                  </button>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                <span className="font-semibold text-slate-700">{formatDateTime(historyAt)}時点・{historyVehicleCount}台を表示。</span>
+                各車両は、その時刻以前の最後の記録位置です。
+              </p>
             </div>
           )}
         </section>
@@ -847,7 +914,7 @@ export function MapOperationsPreview() {
                 map={mapReady ? mapRef.current : null}
                 from={movementFrom}
                 to={movementTo}
-                visible={mode === "current"}
+                visible={mode === "movements" && selectedIsVisible && needsVehicleRelocation(selectedMovement)}
               />
               <div className="absolute left-3 top-3 z-10 flex flex-wrap gap-2">
                 <div className="flex rounded-lg bg-white/95 p-1 shadow backdrop-blur">
@@ -873,11 +940,21 @@ export function MapOperationsPreview() {
                 </button>
               </div>
               <div className="absolute bottom-3 left-3 z-10 max-w-[calc(100%-1.5rem)] rounded-lg bg-white/95 px-3 py-2 text-[11px] text-slate-600 shadow backdrop-blur">
-                <span className="mr-3 inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-emerald-500" />最後の記録</span>
-                <span className="inline-flex items-center gap-1.5"><FontAwesomeIcon icon={faArrowRight} className="w-5 text-amber-600" />移動予定</span>
+                <span className="mr-3 inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-emerald-500" />{mode === "history" ? "指定時点の記録" : "最後の記録"}</span>
+                {mode === "movements" && (
+                  <span className="inline-flex items-center gap-1.5"><FontAwesomeIcon icon={faArrowRight} className="w-5 text-amber-600" />移動予定</span>
+                )}
               </div>
             </div>
-            <DetailPanel vehicle={selected} movement={selectedMovement} onEditMovement={openMovementEditor} onRecordParking={openParkingEditor} />
+            <DetailPanel
+              vehicle={selected}
+              movement={selectedMovement}
+              mode={mode}
+              historyAt={historyAt}
+              historyRecord={selectedHistoryRecord}
+              onEditMovement={openMovementEditor}
+              onRecordParking={openParkingEditor}
+            />
           </div>
         </section>
 

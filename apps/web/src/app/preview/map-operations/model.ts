@@ -1,7 +1,9 @@
 import type { VehiclePlateData } from "@repo/core/types";
+export { aerialMovementArrowGeometry } from "@/lib/map/aerialMovementArrow";
 
 export type PreviewScenario = "normal" | "attention" | "unrecorded";
-export type MapMode = "current" | "history";
+export type MapMode = "current" | "movements" | "history";
+export const PREVIEW_HISTORY_DEFAULT_AT = "2026-09-01T18:00:00+09:00";
 
 const EARTH_CIRCUMFERENCE_METERS = 40_075_016.686;
 const MAPBOX_TILE_SIZE = 512;
@@ -17,91 +19,7 @@ export type VehicleMapPresentation = {
   markerOffsetPixels: number;
 };
 
-export type MapScreenPoint = { x: number; y: number };
-
-export type AerialMovementArrowGeometry = {
-  start: MapScreenPoint;
-  control1: MapScreenPoint;
-  control2: MapScreenPoint;
-  end: MapScreenPoint;
-  sourceVisible: boolean;
-  destinationVisible: boolean;
-};
-
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
-/**
- * 地表の直線ではなく、画面上で上空へ持ち上がるアーチを作る。
- * 画面外の行き先を地図端の到着点に見せない。線だけを画面外へ抜き、
- * 矢尻は本当の行き先が表示範囲にあるときだけ出す。
- */
-export function aerialMovementArrowGeometry({
-  from,
-  to,
-  mapWidth,
-  mapHeight,
-  edgePadding = 28,
-}: {
-  from: MapScreenPoint;
-  to: MapScreenPoint;
-  mapWidth: number;
-  mapHeight: number;
-  edgePadding?: number;
-}): AerialMovementArrowGeometry | null {
-  const minX = edgePadding;
-  const maxX = Math.max(minX, mapWidth - edgePadding);
-  const minY = edgePadding;
-  const maxY = Math.max(minY, mapHeight - edgePadding);
-  const sourceVisible = from.x >= minX && from.x <= maxX && from.y >= minY && from.y <= maxY;
-  const destinationVisible = to.x >= minX && to.x <= maxX && to.y >= minY && to.y <= maxY;
-  const rawDx = to.x - from.x;
-  const rawDy = to.y - from.y;
-  const rawDistance = Math.hypot(rawDx, rawDy);
-  if (rawDistance < 48) return null;
-
-  const unitX = rawDx / rawDistance;
-  const unitY = rawDy / rawDistance;
-  const startInset = Math.min(38, rawDistance * 0.1);
-  const start = {
-    x: clamp(from.x + unitX * startInset, minX, maxX),
-    y: clamp(from.y + unitY * startInset - Math.min(24, rawDistance * 0.06), minY, maxY),
-  };
-
-  let end = { x: to.x, y: to.y };
-  let visibleEnd = end;
-  if (!destinationVisible) {
-    const dx = to.x - start.x;
-    const dy = to.y - start.y;
-    let t = 1;
-    if (dx > 0) t = Math.min(t, (maxX - start.x) / dx);
-    if (dx < 0) t = Math.min(t, (minX - start.x) / dx);
-    if (dy > 0) t = Math.min(t, (maxY - start.y) / dy);
-    if (dy < 0) t = Math.min(t, (minY - start.y) / dy);
-    visibleEnd = { x: start.x + dx * Math.max(0, t), y: start.y + dy * Math.max(0, t) };
-    const exitDx = visibleEnd.x - start.x;
-    const exitDy = visibleEnd.y - start.y;
-    const exitDistance = Math.max(1, Math.hypot(exitDx, exitDy));
-    const overshoot = 96;
-    end = {
-      x: visibleEnd.x + (exitDx / exitDistance) * overshoot,
-      y: visibleEnd.y + (exitDy / exitDistance) * overshoot,
-    };
-  }
-
-  const visibleDistance = Math.hypot(visibleEnd.x - start.x, visibleEnd.y - start.y);
-  if (visibleDistance < 44) return null;
-
-  const lift = clamp(visibleDistance * 0.22, 64, 120);
-  const skyY = Math.max(minY + 20, Math.min(start.y, visibleEnd.y) - lift);
-  return {
-    start,
-    control1: { x: start.x + (visibleEnd.x - start.x) * 0.28, y: skyY },
-    control2: { x: start.x + (visibleEnd.x - start.x) * 0.82, y: skyY },
-    end,
-    sourceVisible,
-    destinationVisible,
-  };
-}
 
 export function vehicleMapPresentation({
   mapWidthPixels,
@@ -148,6 +66,14 @@ export type VehicleMovement = {
   status: "needed" | "planned" | "arrived";
 };
 
+export type VehiclePositionRecord = {
+  at: string;
+  coordinates: [number, number];
+  placeId: string | null;
+  recordedBy: string;
+  source: "daily_report" | "manual" | "punch";
+};
+
 export type PreviewMapVehicle = VehiclePlateData & {
   id: string;
   manufacturer: string;
@@ -155,7 +81,7 @@ export type PreviewMapVehicle = VehiclePlateData & {
   modelCode: string;
   bodyColor: string;
   position: [number, number] | null;
-  historyPosition: [number, number] | null;
+  positionHistory: VehiclePositionRecord[];
   lastParked: {
     placeId: string;
     at: string;
@@ -189,7 +115,10 @@ const baseVehicles: PreviewMapVehicle[] = [
     number_numeric: "1201",
     plate_color: "black",
     position: [135.4687, 34.7818],
-    historyPosition: [135.4707, 34.7777],
+    positionHistory: [
+      { at: "2026-09-01T07:40:00+09:00", coordinates: [135.4707, 34.7777], placeId: "toyonaka", recordedBy: "佐藤", source: "punch" },
+      { at: "2026-09-01T20:10:00+09:00", coordinates: [135.4687, 34.7818], placeId: "toyonaka", recordedBy: "佐藤", source: "daily_report" },
+    ],
     lastParked: { placeId: "toyonaka", at: "2026-09-01T20:10:00+09:00", recordedBy: "佐藤" },
     nextUse: {
       at: "2026-09-03T07:00:00+09:00",
@@ -217,7 +146,10 @@ const baseVehicles: PreviewMapVehicle[] = [
     number_numeric: "2752",
     plate_color: "black",
     position: [135.5165, 34.7636],
-    historyPosition: [135.5082, 34.7703],
+    positionHistory: [
+      { at: "2026-09-01T09:10:00+09:00", coordinates: [135.5082, 34.7703], placeId: "suita", recordedBy: "高橋", source: "manual" },
+      { at: "2026-09-01T21:45:00+09:00", coordinates: [135.5165, 34.7636], placeId: "suita", recordedBy: "高橋", source: "daily_report" },
+    ],
     lastParked: { placeId: "suita", at: "2026-09-01T21:45:00+09:00", recordedBy: "高橋" },
     nextUse: {
       at: "2026-09-03T07:30:00+09:00",
@@ -239,7 +171,10 @@ const baseVehicles: PreviewMapVehicle[] = [
     number_numeric: "4303",
     plate_color: "black",
     position: [135.4892, 34.7964],
-    historyPosition: [135.494, 34.788],
+    positionHistory: [
+      { at: "2026-08-31T08:15:00+09:00", coordinates: [135.494, 34.788], placeId: "toyonaka", recordedBy: "山本", source: "punch" },
+      { at: "2026-08-31T19:30:00+09:00", coordinates: [135.4892, 34.7964], placeId: "toyonaka", recordedBy: "山本", source: "daily_report" },
+    ],
     lastParked: { placeId: "toyonaka", at: "2026-08-31T19:30:00+09:00", recordedBy: "山本" },
     nextUse: {
       at: "2026-09-03T08:00:00+09:00",
@@ -267,7 +202,10 @@ const baseVehicles: PreviewMapVehicle[] = [
     number_numeric: "5854",
     plate_color: "black",
     position: [135.4793, 34.7686],
-    historyPosition: [135.4793, 34.7686],
+    positionHistory: [
+      { at: "2026-09-01T08:05:00+09:00", coordinates: [135.4793, 34.7686], placeId: "toyonaka", recordedBy: "加藤", source: "punch" },
+      { at: "2026-09-01T19:30:00+09:00", coordinates: [135.4793, 34.7686], placeId: "toyonaka", recordedBy: "加藤", source: "daily_report" },
+    ],
     lastParked: { placeId: "toyonaka", at: "2026-09-01T19:30:00+09:00", recordedBy: "加藤" },
     nextUse: null,
     movement: null,
@@ -287,6 +225,10 @@ export function vehiclesForScenario(scenario: PreviewScenario): PreviewMapVehicl
     }
     return {
       ...vehicle,
+      positionHistory: vehicle.positionHistory.map((record) => ({
+        ...record,
+        coordinates: [...record.coordinates] as [number, number],
+      })),
       lastParked: vehicle.lastParked ? { ...vehicle.lastParked } : null,
       nextUse: vehicle.nextUse ? { ...vehicle.nextUse } : null,
       movement: vehicle.movement ? { ...vehicle.movement } : null,
@@ -294,8 +236,27 @@ export function vehiclesForScenario(scenario: PreviewScenario): PreviewMapVehicl
   });
 }
 
-export function positionForMode(vehicle: PreviewMapVehicle, mode: MapMode): [number, number] | null {
-  return mode === "history" ? vehicle.historyPosition : vehicle.position;
+export function positionRecordAt(vehicle: PreviewMapVehicle, at: string): VehiclePositionRecord | null {
+  const targetTime = Date.parse(at);
+  return vehicle.positionHistory.reduce<VehiclePositionRecord | null>((latest, record) => {
+    const recordTime = Date.parse(record.at);
+    if (recordTime > targetTime || (latest && Date.parse(latest.at) >= recordTime)) return latest;
+    return record;
+  }, null);
+}
+
+export function positionForMode(
+  vehicle: PreviewMapVehicle,
+  mode: MapMode,
+  historyAt = PREVIEW_HISTORY_DEFAULT_AT,
+): [number, number] | null {
+  return mode === "history" ? positionRecordAt(vehicle, historyAt)?.coordinates ?? null : vehicle.position;
+}
+
+export function needsVehicleRelocation(movement: VehicleMovement | null): boolean {
+  return movement != null
+    && movement.status !== "arrived"
+    && movement.fromPlaceId !== movement.toPlaceId;
 }
 
 export function needsAttention(vehicle: PreviewMapVehicle): boolean {

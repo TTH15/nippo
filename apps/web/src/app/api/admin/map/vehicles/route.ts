@@ -77,6 +77,7 @@ export async function GET(req: NextRequest) {
     end_lat: number | null;
     end_lng: number | null;
   };
+  type HistoryNeighbors = { previousAt: string | null; nextAt: string | null };
 
   const loadPositions = async (): Promise<{ rows: PositionRow[]; unavailable: boolean }> => {
     try {
@@ -126,10 +127,40 @@ export async function GET(req: NextRequest) {
     return (data ?? []) as SessionRow[];
   };
 
+  const loadHistoryNeighbors = async (): Promise<HistoryNeighbors | null> => {
+    if (!asOf) return null;
+    const now = new Date().toISOString();
+    const [previous, next] = await Promise.all([
+      supabase
+        .from("vehicle_positions")
+        .select("at")
+        .eq("org_id", orgId)
+        .lt("at", asOf)
+        .order("at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("vehicle_positions")
+        .select("at")
+        .eq("org_id", orgId)
+        .gt("at", asOf)
+        .lte("at", now)
+        .order("at", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (previous.error || next.error) return null;
+    return {
+      previousAt: previous.data?.at ?? null,
+      nextAt: next.data?.at ?? null,
+    };
+  };
+
   // 位置とセッションは独立に取れるため並列で
-  const [{ rows: positions, unavailable: positionsUnavailable }, sessions] = await Promise.all([
+  const [{ rows: positions, unavailable: positionsUnavailable }, sessions, historyNeighbors] = await Promise.all([
     loadPositions(),
     loadSessions(),
+    loadHistoryNeighbors(),
   ]);
 
   // 新しい順に並んでいるので、車両ごとに最初に出てきた行が as-of の位置になる
@@ -219,5 +250,5 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ vehicles: items, asOf });
+  return NextResponse.json({ vehicles: items, asOf, historyNeighbors });
 }

@@ -53,3 +53,6 @@ supabase/.temp/
 # 実行時に使うのは整形後の apps/web/public/models/*.glb だけ。
 # 生ファイルは1本100MB近くあり、git に入れるとクローンが数分単位で遅くなる（2026-08-11 に実害）。
 apps/web/public/glb/
+
+# サードパーティ配布のスキル（uipro init で展開。ハコ虎固有の定義は .claude/agents と .codex/skills に置く）
+.claude/skills/

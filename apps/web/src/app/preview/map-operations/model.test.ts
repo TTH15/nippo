@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   aerialMovementArrowGeometry,
   needsAttention,
+  needsVehicleRelocation,
   positionForMode,
+  positionRecordAt,
   vehicleMapPresentation,
   vehiclesForScenario,
 } from "./model";
@@ -10,8 +12,18 @@ import {
 describe("map operations preview model", () => {
   it("shows the historical position without overwriting the current record", () => {
     const vehicle = vehiclesForScenario("normal")[0];
-    expect(positionForMode(vehicle, "history")).toEqual(vehicle.historyPosition);
+    expect(positionForMode(vehicle, "history")).toEqual(vehicle.positionHistory[0].coordinates);
     expect(positionForMode(vehicle, "current")).toEqual(vehicle.position);
+    expect(positionForMode(vehicle, "movements")).toEqual(vehicle.position);
+  });
+
+  it("reconstructs the last recorded position at the selected time without interpolation", () => {
+    const vehicle = vehiclesForScenario("normal")[0];
+
+    expect(positionRecordAt(vehicle, "2026-09-01T06:00:00+09:00")).toBeNull();
+    expect(positionRecordAt(vehicle, "2026-09-01T18:00:00+09:00")).toEqual(vehicle.positionHistory[0]);
+    expect(positionRecordAt(vehicle, "2026-09-01T22:00:00+09:00")).toEqual(vehicle.positionHistory[1]);
+    expect(positionForMode(vehicle, "history", "2026-09-01T22:00:00+09:00")).toEqual(vehicle.position);
   });
 
   it("marks an unassigned movement as needing attention", () => {
@@ -71,6 +83,30 @@ describe("map operations preview model", () => {
     expect(arrow).not.toBeNull();
     expect(arrow!.destinationVisible).toBe(false);
     expect(arrow!.end.x).toBeGreaterThan(760);
+  });
+
+  it("lets a route enter from outside the map without inventing a starting point at the edge", () => {
+    const arrow = aerialMovementArrowGeometry({
+      from: { x: -440, y: 420 },
+      to: { x: 620, y: 180 },
+      mapWidth: 760,
+      mapHeight: 640,
+      edgePadding: 28,
+    });
+
+    expect(arrow).not.toBeNull();
+    expect(arrow!.sourceVisible).toBe(false);
+    expect(arrow!.start.x).toBeLessThan(0);
+    expect(arrow!.end).toEqual({ x: 620, y: 180 });
+  });
+
+  it("shows only unfinished moves between different places in movement mode", () => {
+    const movement = vehiclesForScenario("normal")[0].movement;
+
+    expect(needsVehicleRelocation(movement)).toBe(true);
+    expect(needsVehicleRelocation(movement ? { ...movement, status: "arrived" } : null)).toBe(false);
+    expect(needsVehicleRelocation(movement ? { ...movement, toPlaceId: movement.fromPlaceId } : null)).toBe(false);
+    expect(needsVehicleRelocation(null)).toBe(false);
   });
 
 });

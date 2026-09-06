@@ -1,0 +1,12 @@
+{
+  "extends": "../../apps/web/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../../apps/web",
+    "paths": { "@/*": ["./src/*"], "@repo/core/*": ["../../packages/core/src/*"], "@repo/core": ["../../packages/core/src/index.ts"] },
+    "plugins": [],
+    "incremental": false,
+    "types": ["react", "react-dom", "node"]
+  },
+  "include": ["./**/*.ts", "./**/*.tsx", "../../apps/web/src/**/*.d.ts"],
+  "exclude": ["../../node_modules"]
+}

@@ -1169,13 +1169,11 @@ export default function VehiclesPage() {
                         オイル接近（残り{fmt(oilRemaining)}km）
                       </span>
                     )}
+                    {/* 長いメーカー名・車種名はカード幅で折り返す（省略しない。shrink-0 だと右端を突き抜ける） */}
                     {(v.manufacturer || v.brand) && (
-                      <span className="text-xs md:text-sm shrink-0 flex gap-1 items-center md:pl-3">
+                      <span className="text-xs md:text-sm min-w-0 max-w-full flex flex-wrap gap-x-1 items-baseline md:pl-3 [overflow-wrap:anywhere]">
                         {v.manufacturer && (
                           <span className="text-slate-500">{v.manufacturer}</span>
-                        )}
-                        {v.manufacturer && v.brand && (
-                          <span className="text-slate-500 mx-0.1"> </span>
                         )}
                         {v.brand && (
                           <span className="text-sm md:text-lg text-slate-900 font-semibold">{v.brand}</span>

@@ -16,7 +16,11 @@ import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import { createRoot, type Root } from "react-dom/client";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
+  faArrowRight,
   faBuilding,
+  faCheck,
+  faChevronLeft,
+  faChevronRight,
   faDrawPolygon,
   faGasPump,
   faGear,
@@ -24,21 +28,30 @@ import {
   faMagnifyingGlass,
   faPlus,
   faRotateRight,
+  faRoute,
   faSquareParking,
   faTrashCan,
+  faTriangleExclamation,
   faUsers,
   faWarehouse,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
+import { AerialMovementArrow } from "@/lib/components/AerialMovementArrow";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { DatePicker } from "@/lib/components/DatePicker";
 import { Skeleton } from "@/lib/components/Skeleton";
+import { TimePicker } from "@/lib/ui/time-picker";
 import { useApi } from "@/lib/useApi";
-import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { hasCapability } from "@/lib/capabilities";
-import { todayJST } from "@/lib/date";
+import { dateToReportDateStr, reportDateStrToDate, todayJST } from "@/lib/date";
 import { useSharedMapView } from "@/lib/map/sharedView";
+import {
+  movementNeedsAttention,
+  needsVehicleRelocation,
+  type VehicleMovement,
+} from "@/lib/map/vehicleMovements";
 import {
   VEHICLE_MODEL_URLS,
   DEFAULT_VEHICLE_MODEL_KEY,
@@ -367,6 +380,227 @@ type MapVehicle = VehiclePlateData & {
   } | null;
 };
 
+type MapOperationsData = {
+  movements: VehicleMovement[];
+  places: { id: string; name: string; lat: number; lng: number }[];
+  drivers: { id: string; name: string }[];
+  upcomingUses: {
+    id: string;
+    vehicleId: string;
+    shiftDate: string;
+    meetingTime: string | null;
+    driver: { id: string; name: string } | null;
+    course: { id: string; name: string } | null;
+    cycleNo: number;
+    slot: number;
+  }[];
+};
+
+type MapMode = "current" | "movements" | "history";
+
+type MovementFormState = {
+  id: string | null;
+  expectedVersion: number | null;
+  vehicleId: string;
+  fromPlaceId: string;
+  toPlaceId: string;
+  assigneeDriverId: string;
+  dueDate: string;
+  dueTime: string;
+  note: string;
+};
+
+function dateTimeInJst(value: string): { date: string; time: string } {
+  const [date, time] = new Date(value)
+    .toLocaleString("sv-SE", { timeZone: "Asia/Tokyo", hour12: false })
+    .split(" ");
+  return { date, time: time.slice(0, 5) };
+}
+
+function movementStatusLabel(movement: VehicleMovement): string {
+  if (movement.actualPlaceId && movement.actualPlaceId !== movement.toPlaceId) return "到着場所を確認";
+  if (movement.status === "needed") return "手配が必要";
+  if (movement.status === "planned" && Date.parse(movement.dueAt) < Date.now()) return "期限を確認";
+  return "手配済み";
+}
+
+function formatMovementAt(value: string): string {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatShiftDay(value: string): string {
+  const date = reportDateStrToDate(value);
+  return new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric", weekday: "short" }).format(date);
+}
+
+function MovementDetailCard({
+  movement,
+  vehicle,
+  upcomingUse,
+  places,
+  canDispatch,
+  completing,
+  completionPlaceId,
+  saving,
+  error,
+  onEdit,
+  onStartComplete,
+  onCompletionPlaceChange,
+  onComplete,
+  onCancelComplete,
+  onCancel,
+}: {
+  movement: VehicleMovement | null;
+  vehicle: MapVehicle | null;
+  upcomingUse: MapOperationsData["upcomingUses"][number] | null;
+  places: MapOperationsData["places"];
+  canDispatch: boolean;
+  completing: boolean;
+  completionPlaceId: string;
+  saving: boolean;
+  error: string;
+  onEdit: () => void;
+  onStartComplete: () => void;
+  onCompletionPlaceChange: (value: string) => void;
+  onComplete: () => void;
+  onCancelComplete: () => void;
+  onCancel: () => void;
+}) {
+  if (!movement || !vehicle) {
+    return <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">車両を選んでください</div>;
+  }
+  const attention = movementNeedsAttention(movement);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
+      <div className="flex items-start gap-3">
+        <VehiclePlate vehicle={vehicle} compact className="w-28 shrink-0" />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-slate-900">{vehicle.brand || "車両"}</p>
+          <span
+            className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
+              attention ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"
+            }`}
+          >
+            {attention && <FontAwesomeIcon icon={faTriangleExclamation} className="h-3 w-3" />}
+            {movementStatusLabel(movement)}
+          </span>
+        </div>
+      </div>
+
+      <dl className="mt-4 space-y-3 text-xs">
+        <div>
+          <dt className="font-semibold text-slate-400">移動</dt>
+          <dd className="mt-0.5 flex items-center gap-1.5 font-bold text-slate-800">
+            <span>{movement.fromPlace?.name ?? "出発地不明"}</span>
+            <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3 text-amber-600" />
+            <span>{movement.toPlace?.name ?? "届け先不明"}</span>
+          </dd>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <dt className="font-semibold text-slate-400">届ける期限</dt>
+            <dd className="mt-0.5 font-semibold text-slate-800">{formatMovementAt(movement.dueAt)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-slate-400">運ぶ人</dt>
+            <dd className={`mt-0.5 font-semibold ${movement.assignee ? "text-slate-800" : "text-amber-700"}`}>
+              {movement.assignee?.name ?? "未設定"}
+            </dd>
+          </div>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-400">次の利用</dt>
+          <dd className="mt-0.5 leading-5 text-slate-700">
+            {upcomingUse ? (
+              <>
+                {formatShiftDay(upcomingUse.shiftDate)} {upcomingUse.meetingTime?.slice(0, 5) || "時刻未設定"}
+                <br />
+                {[upcomingUse.driver?.name, upcomingUse.course?.name].filter(Boolean).join("・") || "利用者未設定"}
+              </>
+            ) : (
+              "直近14日にはありません"
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-400">最後の位置記録</dt>
+          <dd className="mt-0.5 text-slate-700">
+            {vehicle.position
+              ? `${formatAt(vehicle.position.at)}${vehicle.position.driverName ? `・${vehicle.position.driverName}` : ""}`
+              : "未記録"}
+          </dd>
+        </div>
+      </dl>
+
+      {movement.note && <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{movement.note}</p>}
+      {error && <p className="mt-3 text-xs font-semibold text-red-600">{error}</p>}
+
+      {canDispatch && !completing && (
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="min-h-11 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            手配を変更
+          </button>
+          <button
+            type="button"
+            onClick={onStartComplete}
+            className="min-h-11 rounded-lg bg-slate-900 text-xs font-semibold text-white hover:bg-slate-800"
+          >
+            <FontAwesomeIcon icon={faCheck} className="mr-1.5 h-3 w-3" />
+            完了を記録
+          </button>
+          <button type="button" onClick={onCancel} className="col-span-2 text-xs text-red-600 underline underline-offset-2">
+            この手配を取り消す
+          </button>
+        </div>
+      )}
+
+      {canDispatch && completing && (
+        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+          <label className="block text-xs font-bold text-emerald-900" htmlFor="movement-arrival-place">
+            実際に停めた場所
+          </label>
+          <select
+            id="movement-arrival-place"
+            value={completionPlaceId}
+            onChange={(event) => onCompletionPlaceChange(event.target.value)}
+            className="mt-1 min-h-11 w-full rounded-lg border border-emerald-300 bg-white px-3 text-sm"
+          >
+            <option value="">選んでください</option>
+            {places.map((place) => <option key={place.id} value={place.id}>{place.name}</option>)}
+          </select>
+          <p className="mt-1 text-[11px] leading-5 text-emerald-800">
+            予定と違う場所も記録できます。その場合、手配は完了にせず確認を残します。
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button type="button" onClick={onCancelComplete} className="min-h-11 rounded-lg text-xs font-semibold text-slate-600">
+              戻る
+            </button>
+            <button
+              type="button"
+              disabled={!completionPlaceId || saving}
+              onClick={onComplete}
+              className="min-h-11 rounded-lg bg-emerald-700 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "記録中..." : "この場所で記録"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** つまみに出す短い番号（一連指定番号だけ）。 */
 function plateShort(v: MapVehicle): string {
   return formatPlateNumeric(v.number_numeric || "") || v.brand?.slice(0, 4) || "車";
@@ -435,12 +669,24 @@ function distanceM(aLat: number, aLng: number, bLat: number, bLng: number): numb
 // 車両の頭上ラベル: 吹き出し用に最適化した簡易プレート。黒ナンバー（事業用軽貨物）
 // らしく黒地に黄文字。実車プレートの再現は popup 側の VehiclePlate に任せる。
 // TODO: 数字・かなは将来 SVG グリフ化する（docs/roadmap-2026-07.md 参照）。
-function VehicleLabel({ vehicle, status }: { vehicle: VehiclePlateData; status: VehicleStatus }) {
+function VehicleLabel({
+  vehicle,
+  status,
+  selected = false,
+}: {
+  vehicle: VehiclePlateData;
+  status: VehicleStatus;
+  selected?: boolean;
+}) {
   return (
     <>
       {/* 通常表示（吹き出し）。重なって負けたら .vl-collapsed でドットに縮退する */}
       <div className="vl-full flex flex-col items-center">
-        <div className="relative min-w-[72px] rounded-lg bg-slate-950/95 px-2 py-1 text-center shadow-md ring-1 ring-white/10">
+        <div
+          className={`relative min-w-[72px] rounded-lg bg-slate-950/95 px-2 py-1 text-center shadow-md ring-2 ${
+            selected ? "ring-amber-400" : "ring-white/10"
+          }`}
+        >
           <div
             className="text-[8px] font-semibold leading-none tracking-[0.14em]"
             style={{ color: "#e8d44d" }}
@@ -522,27 +768,36 @@ function SwitchRow({
 export default function MapPage() {
   /** 配置モード。ON の間だけピンを掴める（地図のパンを止めるので誤操作しない） */
   const [placing, setPlacing] = useState(false);
+  /** 現在・移動予定・過去の事実を同じ地図に混ぜないための表示モード。 */
+  const [mapMode, setMapMode] = useState<MapMode>("current");
   /** 履歴モード（Stage 0.6）。null = ライブ（現在） */
   const [historyDate, setHistoryDate] = useState<string | null>(null);
-  /** 履歴モードの時刻（0:00 からの分） */
-  const [historyMinute, setHistoryMinute] = useState(12 * 60);
+  /** 履歴モードの時刻。存在しない中間位置を連続表示しないため明示入力にする。 */
+  const [historyTime, setHistoryTime] = useState("12:00");
 
   // 履歴モードでは as-of（その時刻の位置）を取りに行く。ライブは従来どおり最新。
-  // スライダーはドラッグ中に段ごとの値が連続で入るため、落ち着いてからAPIを叩く
-  // （デバウンス無しだと1ドラッグで最大96リクエスト・2026-08 監査）。
-  const debouncedHistoryMinute = useDebouncedValue(historyMinute, 350);
   const asOfIso = useMemo(() => {
     if (!historyDate) return null;
-    const h = String(Math.floor(debouncedHistoryMinute / 60)).padStart(2, "0");
-    const m = String(debouncedHistoryMinute % 60).padStart(2, "0");
-    return new Date(`${historyDate}T${h}:${m}:00+09:00`).toISOString();
-  }, [historyDate, debouncedHistoryMinute]);
+    return new Date(`${historyDate}T${historyTime}:00+09:00`).toISOString();
+  }, [historyDate, historyTime]);
 
-  const { data, isLoading, mutate } = useApi<{ vehicles: MapVehicle[] }>(
+  const { data, isLoading, mutate } = useApi<{
+    vehicles: MapVehicle[];
+    asOf: string | null;
+    historyNeighbors: { previousAt: string | null; nextAt: string | null } | null;
+  }>(
     asOfIso ? `/api/admin/map/vehicles?at=${encodeURIComponent(asOfIso)}` : "/api/admin/map/vehicles",
     // 履歴は勝手に更新されない方が読みやすい（ライブだけ自動更新）
     { refreshInterval: asOfIso ? 0 : 60000, keepPreviousData: true },
   );
+  const historyNeighbors = data?.asOf === asOfIso ? data.historyNeighbors : null;
+  const selectHistoryAt = (at: string) => {
+    const [date, time] = new Date(at)
+      .toLocaleString("sv-SE", { timeZone: "Asia/Tokyo", hour12: false })
+      .split(" ");
+    setHistoryDate(date);
+    setHistoryTime(time.slice(0, 5));
+  };
   const { data: placesData, refresh: refreshPlaces } = useApi<{ places: MapPlace[] }>(
     "/api/admin/map/places",
   );
@@ -589,14 +844,62 @@ export default function MapPage() {
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   // 位置のドラッグ配置は配車権限を持つ人だけ（設計: docs/design/map-board.md）
   const [canDispatch, setCanDispatch] = useState(false);
+  const [canViewShifts, setCanViewShifts] = useState(false);
   /** 拠点ピンの追加権限（API 側は can_manage_org_settings） */
   const [canWritePlaces, setCanWritePlaces] = useState(false);
   useEffect(() => {
     setCanDispatch(hasCapability("can_dispatch"));
+    setCanViewShifts(hasCapability("can_view_shifts"));
     const writePlaces = hasCapability("can_manage_org_settings");
     setCanWritePlaces(writePlaces);
     canWritePlacesRef.current = writePlaces;
   }, []);
+  const {
+    data: operationsData,
+    error: operationsError,
+    isLoading: operationsLoading,
+    mutate: mutateOperations,
+  } = useApi<MapOperationsData>(
+    canViewShifts ? "/api/admin/map/movements" : null,
+    { refreshInterval: mapMode === "movements" ? 60000 : 0 },
+  );
+  const activeMovements = useMemo(
+    () => (operationsData?.movements ?? []).filter(needsVehicleRelocation),
+    [operationsData],
+  );
+  const movementVehicleIds = useMemo(
+    () => new Set(activeMovements.map((movement) => movement.vehicleId)),
+    [activeMovements],
+  );
+  const displayedVehicles = useMemo(
+    () => (mapMode === "movements" ? located.filter((vehicle) => movementVehicleIds.has(vehicle.id)) : located),
+    [located, mapMode, movementVehicleIds],
+  );
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const selectedMovement = useMemo(
+    () =>
+      activeMovements.find((movement) => movement.vehicleId === selectedVehicleId) ??
+      activeMovements[0] ??
+      null,
+    [activeMovements, selectedVehicleId],
+  );
+  const selectedVehicle = useMemo(
+    () => (data?.vehicles ?? []).find((vehicle) => vehicle.id === (selectedMovement?.vehicleId ?? selectedVehicleId)) ?? null,
+    [data, selectedMovement, selectedVehicleId],
+  );
+  const selectedUpcomingUse = useMemo(
+    () =>
+      (operationsData?.upcomingUses ?? []).find(
+        (use) => use.vehicleId === (selectedMovement?.vehicleId ?? selectedVehicleId),
+      ) ?? null,
+    [operationsData, selectedMovement, selectedVehicleId],
+  );
+  const [movementForm, setMovementForm] = useState<MovementFormState | null>(null);
+  const [movementSaving, setMovementSaving] = useState(false);
+  const [movementError, setMovementError] = useState("");
+  const [completionPlaceId, setCompletionPlaceId] = useState("");
+  const [completingMovement, setCompletingMovement] = useState(false);
+  const [cancelMovement, setCancelMovement] = useState<VehicleMovement | null>(null);
   const [placingMessage, setPlacingMessage] = useState<string | null>(null);
   const popupRootsRef = useRef<Root[]>([]);
   const placeMarkersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
@@ -1215,6 +1518,7 @@ export default function MapPage() {
           (prev) => {
             if (!prev) return prev;
             return {
+              ...prev,
               vehicles: prev.vehicles.map((v) =>
                 v.id === vehicle.id
                   ? {
@@ -1602,7 +1906,7 @@ export default function MapPage() {
       const src = mapRef.current?.getSource("truck-src") as mapboxgl.GeoJSONSource | undefined;
       src?.setData({
         type: "FeatureCollection",
-        features: located.map((v) => ({
+        features: displayedVehicles.map((v) => ({
           type: "Feature" as const,
           geometry: { type: "Point" as const, coordinates: [v.position!.lng, v.position!.lat] },
           properties: {
@@ -1634,14 +1938,21 @@ export default function MapPage() {
       return;
     }
 
-    for (const v of located) {
+    for (const v of displayedVehicles) {
       const p = v.position!;
       const node = document.createElement("div");
       node.className = "vehicle-label"; // globals.css で吹き出し⇔ドットを切替
       node.style.zIndex = "5"; // 拠点ピンより前面
       node.style.cursor = "pointer";
+      node.addEventListener("click", () => setSelectedVehicleId(v.id));
       const root = createRoot(node);
-      root.render(<VehicleLabel vehicle={v} status={statusOf(v)} />);
+      root.render(
+        <VehicleLabel
+          vehicle={v}
+          status={statusOf(v)}
+          selected={mapMode === "movements" && selectedMovement?.vehicleId === v.id}
+        />,
+      );
       vehicleLabelRootsRef.current.push(root);
 
       // クリック対象はこの吹き出し（通常時はピンを出さないため）
@@ -1661,7 +1972,7 @@ export default function MapPage() {
       );
     }
     declutterPlatesRef.current();
-  }, [located, statusOf, canDispatch, placing, historyDate, slotBearingAt]);
+  }, [displayedVehicles, statusOf, canDispatch, placing, historyDate, slotBearingAt, mapMode, selectedMovement]);
 
   // 2D/3D トグル: ピッチだけ変える（方位はユーザー操作を尊重してそのまま）。
   const setView = (mode: "2d" | "3d") => {
@@ -1715,6 +2026,149 @@ export default function MapPage() {
     }
   };
 
+  const selectMapMode = (mode: MapMode) => {
+    setMapMode(mode);
+    setPlacing(false);
+    if (mode === "history") {
+      setHistoryDate((date) => date ?? todayJST());
+    } else {
+      setHistoryDate(null);
+    }
+    if (mode === "movements") setShowPlaces(true);
+  };
+
+  const fitMovements = () => {
+    const map = mapRef.current;
+    if (!map || activeMovements.length === 0) return;
+    const bounds = new mapboxgl.LngLatBounds();
+    for (const movement of activeMovements) {
+      const vehicle = (data?.vehicles ?? []).find((item) => item.id === movement.vehicleId);
+      if (vehicle?.position) bounds.extend([vehicle.position.lng, vehicle.position.lat]);
+      else if (movement.fromPlace) bounds.extend([movement.fromPlace.lng, movement.fromPlace.lat]);
+      if (movement.toPlace) bounds.extend([movement.toPlace.lng, movement.toPlace.lat]);
+    }
+    if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 90, maxZoom: 13.5, duration: 700 });
+  };
+
+  const openMovementForm = (movement?: VehicleMovement) => {
+    const vehicle = movement
+      ? (data?.vehicles ?? []).find((item) => item.id === movement.vehicleId) ?? null
+      : selectedVehicle ?? located[0] ?? null;
+    const nearestPlace = vehicle?.position
+      ? [...(operationsData?.places ?? [])].sort(
+          (a, b) =>
+            distanceM(vehicle.position!.lat, vehicle.position!.lng, a.lat, a.lng) -
+            distanceM(vehicle.position!.lat, vehicle.position!.lng, b.lat, b.lng),
+        )[0]
+      : operationsData?.places[0];
+    const due = movement
+      ? dateTimeInJst(movement.dueAt)
+      : { date: todayJST(), time: "18:00" };
+    setMovementError("");
+    setMovementForm({
+      id: movement?.id ?? null,
+      expectedVersion: movement?.version ?? null,
+      vehicleId: movement?.vehicleId ?? vehicle?.id ?? "",
+      fromPlaceId: movement?.fromPlaceId ?? nearestPlace?.id ?? "",
+      toPlaceId:
+        movement?.toPlaceId ??
+        (operationsData?.places ?? []).find((place) => place.id !== nearestPlace?.id)?.id ??
+        "",
+      assigneeDriverId: movement?.assigneeDriverId ?? "",
+      dueDate: due.date,
+      dueTime: due.time,
+      note: movement?.note ?? "",
+    });
+  };
+
+  const saveMovement = async () => {
+    if (!movementForm || movementSaving) return;
+    if (
+      !movementForm.vehicleId ||
+      !movementForm.fromPlaceId ||
+      !movementForm.toPlaceId ||
+      !movementForm.dueDate ||
+      !movementForm.dueTime
+    ) {
+      setMovementError("車両・出発地・届け先・期限を入力してください");
+      return;
+    }
+    if (movementForm.fromPlaceId === movementForm.toPlaceId) {
+      setMovementError("車両移動では、出発地と異なる届け先を選んでください");
+      return;
+    }
+    setMovementSaving(true);
+    setMovementError("");
+    try {
+      const draft = {
+        vehicleId: movementForm.vehicleId,
+        fromPlaceId: movementForm.fromPlaceId,
+        toPlaceId: movementForm.toPlaceId,
+        assigneeDriverId: movementForm.assigneeDriverId || null,
+        dueAt: new Date(`${movementForm.dueDate}T${movementForm.dueTime}:00+09:00`).toISOString(),
+        note: movementForm.note,
+      };
+      await apiFetch("/api/admin/map/movements", {
+        method: movementForm.id ? "PATCH" : "POST",
+        body: JSON.stringify(
+          movementForm.id
+            ? {
+                ...draft,
+                id: movementForm.id,
+                expectedVersion: movementForm.expectedVersion,
+                action: "save",
+              }
+            : draft,
+        ),
+      });
+      setMovementForm(null);
+      await mutateOperations();
+    } catch (error) {
+      setMovementError(error instanceof Error ? error.message : "保存できませんでした");
+    } finally {
+      setMovementSaving(false);
+    }
+  };
+
+  const finishMovement = async () => {
+    if (!selectedMovement || !completionPlaceId || movementSaving) return;
+    setMovementSaving(true);
+    setMovementError("");
+    try {
+      await apiFetch("/api/admin/map/movements", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id: selectedMovement.id,
+          expectedVersion: selectedMovement.version,
+          action: "complete",
+          actualPlaceId: completionPlaceId,
+          arrivedAt: new Date().toISOString(),
+        }),
+      });
+      setCompletingMovement(false);
+      setCompletionPlaceId("");
+      await Promise.all([mutateOperations(), mutate()]);
+    } catch (error) {
+      setMovementError(error instanceof Error ? error.message : "完了を記録できませんでした");
+    } finally {
+      setMovementSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mapMode !== "movements" || !selectedMovement) return;
+    if (selectedVehicleId !== selectedMovement.vehicleId) setSelectedVehicleId(selectedMovement.vehicleId);
+  }, [mapMode, selectedMovement, selectedVehicleId]);
+
+  const selectedArrowFrom: [number, number] | null = selectedVehicle?.position
+    ? [selectedVehicle.position.lng, selectedVehicle.position.lat]
+    : selectedMovement?.fromPlace
+      ? [selectedMovement.fromPlace.lng, selectedMovement.fromPlace.lat]
+      : null;
+  const selectedArrowTo: [number, number] | null = selectedMovement?.toPlace
+    ? [selectedMovement.toPlace.lng, selectedMovement.toPlace.lat]
+    : null;
+
   return (
     <AdminLayout>
       <div className="space-y-3">
@@ -1724,25 +2178,34 @@ export default function MapPage() {
             ベータ
           </span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {/* ライブ / 履歴（Stage 0.6）。履歴は「何月何日◯時にどこにいたか」を as-of で引く */}
+            {/* 事実・予定・過去を混ぜず、見る目的を先に選ぶ。 */}
             <div className="flex rounded-lg bg-slate-100 p-0.5">
               <button
                 type="button"
-                onClick={() => setHistoryDate(null)}
+                onClick={() => selectMapMode("current")}
                 className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
-                  historyDate === null ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                  mapMode === "current" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
                 }`}
               >
-                ライブ
+                いま
               </button>
+              {canViewShifts && (
+                <button
+                  type="button"
+                  onClick={() => selectMapMode("movements")}
+                  className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
+                    mapMode === "movements" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faRoute} className="mr-1.5 h-3 w-3" />
+                  車両移動
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => {
-                  setPlacing(false); // 過去に置くことはできない
-                  setHistoryDate((d) => d ?? todayJST());
-                }}
+                onClick={() => selectMapMode("history")}
                 className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
-                  historyDate !== null ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                  mapMode === "history" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
                 }`}
               >
                 履歴
@@ -1750,7 +2213,7 @@ export default function MapPage() {
             </div>
 
             {/* 位置を置く（配置モード）。ドラッグと地図移動の取り合いをなくすため明示的なモードにする */}
-            {canDispatch && historyDate === null && (
+            {canDispatch && mapMode === "current" && (
               <button
                 type="button"
                 onClick={() => setPlacing((v) => !v)}
@@ -1762,6 +2225,18 @@ export default function MapPage() {
               >
                 <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3" />
                 {placing ? "位置の修正を終える" : "車の位置を直す"}
+              </button>
+            )}
+
+            {canDispatch && canViewShifts && mapMode !== "history" && (
+              <button
+                type="button"
+                onClick={() => openMovementForm()}
+                disabled={(operationsData?.places.length ?? 0) < 2 || located.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
+                移動を登録
               </button>
             )}
 
@@ -1777,7 +2252,18 @@ export default function MapPage() {
         </div>
 
         {/* 状況に応じた案内。何ができる状態なのかを常に1行で示す */}
-        {placingMessage ? (
+        {mapMode === "movements" ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <FontAwesomeIcon icon={faRoute} className="h-3 w-3 shrink-0" />
+            未完了で、出発地と届け先が異なる車両だけを表示しています。
+            <span className="font-semibold">{activeMovements.length} 台</span>
+            {activeMovements.length > 0 && (
+              <button type="button" onClick={fitMovements} className="ml-auto font-semibold underline underline-offset-2">
+                全体を見る
+              </button>
+            )}
+          </div>
+        ) : placingMessage ? (
           <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
             <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
             {placingMessage}
@@ -1803,7 +2289,7 @@ export default function MapPage() {
         ) : null}
 
         {/* まだ位置が無い車両は掴むピンが無い。一覧から選んで地図をクリックして置く（鶏卵の解消） */}
-        {canDispatch && !historyDate && unlocated.length > 0 && (
+        {canDispatch && mapMode === "current" && unlocated.length > 0 && (
           <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
             <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500">
               <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3" />
@@ -1839,7 +2325,7 @@ export default function MapPage() {
         )}
 
         {/* 位置が1件も無いときは、その事実をはっきり出す（マーカーが無いのか、掴めないのか区別できるように） */}
-        {!isLoading && located.length === 0 && (
+        {!isLoading && mapMode !== "movements" && located.length === 0 && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
             位置が記録された車両がまだありません（打刻GPSも手動配置も0件）。
@@ -1851,34 +2337,58 @@ export default function MapPage() {
           </div>
         )}
 
-        {/* 履歴のタイムライン */}
-        {historyDate && (
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
-            <input
-              type="date"
-              value={historyDate}
-              max={todayJST()}
-              onChange={(e) => setHistoryDate(e.target.value || todayJST())}
-              className="rounded border border-slate-300 px-2 py-1 text-xs"
-            />
-            <span className="w-14 text-center text-sm font-bold tabular-nums text-slate-900">
-              {String(Math.floor(historyMinute / 60)).padStart(2, "0")}:
-              {String(historyMinute % 60).padStart(2, "0")}
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={1439}
-              step={15}
-              value={historyMinute}
-              onChange={(e) => setHistoryMinute(Number(e.target.value))}
-              className="h-1.5 min-w-[200px] flex-1 cursor-pointer appearance-none rounded-full bg-slate-200 accent-slate-900"
-            />
-            <span className="text-[11px] text-slate-400">15分刻み</span>
+        {/* 履歴の日時指定。疎な記録を連続観測に見せないためスライダーは使わない。 */}
+        {mapMode === "history" && historyDate && (
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+            <p className="mb-1.5 text-[11px] font-semibold text-slate-600">表示する日時</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="grid w-full grid-cols-[minmax(0,1fr)_7rem] gap-2 sm:flex sm:w-auto">
+                <DatePicker
+                  ariaLabel="履歴の日付"
+                  value={reportDateStrToDate(historyDate)}
+                  displayFormat="yyyy/M/d（E）"
+                  toDate={reportDateStrToDate(todayJST())}
+                  onChange={(value) => value && setHistoryDate(dateToReportDateStr(value))}
+                  className="min-h-11 w-full sm:w-[164px]"
+                />
+                <div aria-label="履歴の時刻" className="sm:w-28">
+                  <TimePicker
+                    value={historyTime}
+                    onChange={(value) => value && setHistoryTime(value)}
+                    minuteStep={5}
+                    clearable={false}
+                    buttonClassName="min-h-11"
+                  />
+                </div>
+              </div>
+              <div className="grid w-full grid-cols-2 gap-2 sm:w-auto">
+                <button
+                  type="button"
+                  disabled={!historyNeighbors?.previousAt}
+                  onClick={() => historyNeighbors?.previousAt && selectHistoryAt(historyNeighbors.previousAt)}
+                  className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:text-slate-300"
+                >
+                  <FontAwesomeIcon icon={faChevronLeft} className="mr-1.5 size-3" />
+                  前の記録
+                </button>
+                <button
+                  type="button"
+                  disabled={!historyNeighbors?.nextAt}
+                  onClick={() => historyNeighbors?.nextAt && selectHistoryAt(historyNeighbors.nextAt)}
+                  className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:text-slate-300"
+                >
+                  次の記録
+                  <FontAwesomeIcon icon={faChevronRight} className="ml-1.5 size-3" />
+                </button>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-slate-500">
+              各車両は、指定日時以前の最後の記録位置です。記録と記録の間は推測しません。
+            </p>
           </div>
         )}
 
-        <p className="text-xs text-slate-500">
+        {mapMode !== "movements" && <p className="text-xs text-slate-500">
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
             稼働中
@@ -1890,7 +2400,19 @@ export default function MapPage() {
           {unlocatedCount > 0 && (
             <span className="ml-2 text-slate-400">位置情報のない車両 {unlocatedCount} 台は非表示</span>
           )}
-        </p>
+        </p>}
+
+        {mapMode === "movements" && operationsError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            車両移動を読み込めませんでした。DB更新の適用後に、もう一度お試しください。
+          </div>
+        )}
+
+        {mapMode === "movements" && !operationsLoading && !operationsError && activeMovements.length === 0 && (
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-600">
+            移動が必要な車両はありません。新しく手配する場合は「移動を登録」を押してください。
+          </div>
+        )}
 
         {!MAPBOX_TOKEN ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -1901,8 +2423,15 @@ export default function MapPage() {
             を設定してください（ローカルは apps/web/.env.local、本番は Vercel の環境変数）。
           </div>
         ) : (
-          <div className="relative overflow-hidden rounded-xl border border-slate-200 shadow-sm">
-            <div ref={containerRef} className="h-[70vh] min-h-[420px] w-full" />
+          <div className="space-y-3">
+            <div className="relative overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+              <div ref={containerRef} className="h-[70vh] min-h-[420px] w-full" />
+              <AerialMovementArrow
+                map={mapRef.current}
+                from={selectedArrowFrom}
+                to={selectedArrowTo}
+                visible={mapMode === "movements" && selectedMovement != null}
+              />
 
             {/* 視点の操作パネル＋設定＋共有ビュー */}
             <div className="absolute left-3 right-3 top-3 flex flex-col items-start gap-2 md:right-auto">
@@ -1923,6 +2452,7 @@ export default function MapPage() {
                     </button>
                   ))}
                 </div>
+                {mapMode !== "movements" && <>
                 <button
                   type="button"
                   onClick={() => setSettingsOpen(true)}
@@ -1943,6 +2473,7 @@ export default function MapPage() {
                   <FontAwesomeIcon icon={faDrawPolygon} className="h-3.5 w-3.5" />
                   配達エリア
                 </button>
+                </>}
                 <button
                   type="button"
                   onClick={() => setShareOn((v) => !v)}
@@ -1956,7 +2487,7 @@ export default function MapPage() {
               </div>
 
               {/* 地点検索。住所や施設名で拠点を立てられるようにする（クリックだけだと場所を知らないと置けない） */}
-              {canWritePlaces && (
+              {canWritePlaces && mapMode !== "movements" && (
               <div className="relative w-[min(320px,calc(100vw-3rem))]">
                 <div className="flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md backdrop-blur">
                   <FontAwesomeIcon icon={faMagnifyingGlass} className="h-3.5 w-3.5 text-slate-400" />
@@ -2093,6 +2624,32 @@ export default function MapPage() {
                 >
                   中止（Esc）
                 </button>
+              </div>
+            )}
+
+            {mapMode === "movements" && (
+              <div className="absolute bottom-3 right-3 z-10 hidden w-[320px] lg:block">
+                <MovementDetailCard
+                  movement={selectedMovement}
+                  vehicle={selectedVehicle}
+                  upcomingUse={selectedUpcomingUse}
+                  places={operationsData?.places ?? []}
+                  canDispatch={canDispatch}
+                  completing={completingMovement}
+                  completionPlaceId={completionPlaceId}
+                  saving={movementSaving}
+                  error={movementError}
+                  onEdit={() => selectedMovement && openMovementForm(selectedMovement)}
+                  onStartComplete={() => {
+                    setMovementError("");
+                    setCompletionPlaceId(selectedMovement?.toPlaceId ?? "");
+                    setCompletingMovement(true);
+                  }}
+                  onCompletionPlaceChange={setCompletionPlaceId}
+                  onComplete={() => void finishMovement()}
+                  onCancelComplete={() => setCompletingMovement(false)}
+                  onCancel={() => selectedMovement && setCancelMovement(selectedMovement)}
+                />
               </div>
             )}
 
@@ -2487,6 +3044,32 @@ export default function MapPage() {
                 <Skeleton className="h-full w-full rounded-lg" />
               </div>
             )}
+            </div>
+            {mapMode === "movements" && (
+              <div className="lg:hidden">
+                <MovementDetailCard
+                  movement={selectedMovement}
+                  vehicle={selectedVehicle}
+                  upcomingUse={selectedUpcomingUse}
+                  places={operationsData?.places ?? []}
+                  canDispatch={canDispatch}
+                  completing={completingMovement}
+                  completionPlaceId={completionPlaceId}
+                  saving={movementSaving}
+                  error={movementError}
+                  onEdit={() => selectedMovement && openMovementForm(selectedMovement)}
+                  onStartComplete={() => {
+                    setMovementError("");
+                    setCompletionPlaceId(selectedMovement?.toPlaceId ?? "");
+                    setCompletingMovement(true);
+                  }}
+                  onCompletionPlaceChange={setCompletionPlaceId}
+                  onComplete={() => void finishMovement()}
+                  onCancelComplete={() => setCompletingMovement(false)}
+                  onCancel={() => selectedMovement && setCancelMovement(selectedMovement)}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -2640,6 +3223,146 @@ export default function MapPage() {
         </div>
       )}
 
+      {movementForm && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+          onClick={() => !movementSaving && setMovementForm(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="movement-form-title"
+            className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-xl sm:max-w-lg sm:rounded-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 id="movement-form-title" className="text-base font-bold text-slate-900">
+                  {movementForm.id ? "車両移動の手配を変更" : "車両移動を登録"}
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">予定を保存しても、車の現在位置は変わりません</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMovementForm(null)}
+                disabled={movementSaving}
+                className="flex min-h-11 min-w-11 items-center justify-center text-slate-400 hover:text-slate-700"
+                aria-label="閉じる"
+              >
+                <FontAwesomeIcon icon={faXmark} className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <label className="block text-xs font-bold text-slate-700">
+                車両
+                <select
+                  value={movementForm.vehicleId}
+                  disabled={movementForm.id != null}
+                  onChange={(event) => setMovementForm({ ...movementForm, vehicleId: event.target.value })}
+                  className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
+                >
+                  <option value="">選んでください</option>
+                  {(data?.vehicles ?? []).map((vehicle) => (
+                    <option key={vehicle.id} value={vehicle.id}>{plateText(vehicle)}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                <label className="block min-w-0 text-xs font-bold text-slate-700">
+                  出発地
+                  <select
+                    value={movementForm.fromPlaceId}
+                    onChange={(event) => setMovementForm({ ...movementForm, fromPlaceId: event.target.value })}
+                    className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm"
+                  >
+                    <option value="">選択</option>
+                    {(operationsData?.places ?? []).map((place) => <option key={place.id} value={place.id}>{place.name}</option>)}
+                  </select>
+                </label>
+                <FontAwesomeIcon icon={faArrowRight} className="mb-4 h-3.5 w-3.5 text-amber-600" />
+                <label className="block min-w-0 text-xs font-bold text-slate-700">
+                  届け先
+                  <select
+                    value={movementForm.toPlaceId}
+                    onChange={(event) => setMovementForm({ ...movementForm, toPlaceId: event.target.value })}
+                    className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm"
+                  >
+                    <option value="">選択</option>
+                    {(operationsData?.places ?? []).map((place) => <option key={place.id} value={place.id}>{place.name}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              <label className="block text-xs font-bold text-slate-700">
+                運ぶ人
+                <select
+                  value={movementForm.assigneeDriverId}
+                  onChange={(event) => setMovementForm({ ...movementForm, assigneeDriverId: event.target.value })}
+                  className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+                >
+                  <option value="">未設定（要確認にする）</option>
+                  {(operationsData?.drivers ?? []).map((driver) => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
+                </select>
+              </label>
+
+              <div>
+                <p className="text-xs font-bold text-slate-700">届ける期限</p>
+                <div className="mt-1 grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
+                  <DatePicker
+                    ariaLabel="届ける日"
+                    value={reportDateStrToDate(movementForm.dueDate)}
+                    displayFormat="yyyy/M/d（E）"
+                    onChange={(value) => value && setMovementForm({ ...movementForm, dueDate: dateToReportDateStr(value) })}
+                    className="min-h-11 w-full"
+                  />
+                  <div aria-label="届ける時刻">
+                    <TimePicker
+                      value={movementForm.dueTime}
+                      onChange={(value) => value && setMovementForm({ ...movementForm, dueTime: value })}
+                      minuteStep={5}
+                      clearable={false}
+                      buttonClassName="min-h-11"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <label className="block text-xs font-bold text-slate-700">
+                連絡メモ（任意）
+                <textarea
+                  value={movementForm.note}
+                  maxLength={200}
+                  rows={3}
+                  onChange={(event) => setMovementForm({ ...movementForm, note: event.target.value })}
+                  placeholder="鍵の場所など"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </label>
+              {movementError && <p className="text-xs font-semibold text-red-600">{movementError}</p>}
+            </div>
+            <div className="sticky bottom-0 flex gap-2 border-t border-slate-200 bg-white px-5 py-4">
+              <button
+                type="button"
+                disabled={movementSaving}
+                onClick={() => setMovementForm(null)}
+                className="min-h-11 flex-1 rounded-lg border border-slate-300 text-sm font-semibold text-slate-600"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={movementSaving}
+                onClick={() => void saveMovement()}
+                className="min-h-11 flex-1 rounded-lg bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {movementSaving ? "保存中..." : movementForm.assigneeDriverId ? "手配を保存" : "要確認で保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfirmDialog
         open={deleteTarget != null}
         title="拠点の削除"
@@ -2650,6 +3373,34 @@ export default function MapPage() {
           setEditingPlace(null);
         }}
         onClose={() => setDeleteTarget(null)}
+      />
+      <ConfirmDialog
+        open={cancelMovement != null}
+        title="車両移動の手配を取り消す"
+        message="この手配だけを取り消します。配車や車の現在位置は変更しません。"
+        confirmLabel="手配を取り消す"
+        onConfirm={() => {
+          const target = cancelMovement;
+          setCancelMovement(null);
+          if (!target) return;
+          void (async () => {
+            try {
+              await apiFetch("/api/admin/map/movements", {
+                method: "PATCH",
+                body: JSON.stringify({
+                  id: target.id,
+                  expectedVersion: target.version,
+                  action: "cancel",
+                }),
+              });
+              setMovementError("");
+              await mutateOperations();
+            } catch (error) {
+              setMovementError(error instanceof Error ? error.message : "取り消せませんでした");
+            }
+          })();
+        }}
+        onClose={() => setCancelMovement(null)}
       />
     </AdminLayout>
   );

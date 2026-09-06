@@ -13,6 +13,31 @@
 
 ランナーは127.0.0.1だけで待ち受け、生成したHTML/CSS/JSと許可リストにある公開アセット（公式ロゴ・ナンバープレートのSVG/フォント）だけを配信する。通常モードは環境ファイルを読み込まず、CSPの `connect-src 'none'` によりAPIへの通信も遮断する。生成物はOSの一時ディレクトリに置き、ソースと起動手順はリポジトリに残す。変更時はサーバーを再起動して再ビルドし、未保存入力を保存・破棄してからブラウザを再読み込みする。
 
+## 本番ページをシナリオURLで開く（2026-09-06）
+
+管理画面の本番 `page.tsx` を**そのまま**使い、認証・API・Next Router だけを fixture（架空データと読み書きの定義）へ差し替えて動かす runner。ページ・データ状態・閲覧者の権限を URL だけで指定できるので、AI や人が「この状態の画面を開いて直す」を1手で始められる。ChatGPT で整理した方針（別コピーを作らず同一コード・fixture・シナリオURL・役割URL）を hakotora の既存 runner に載せたもの。
+
+- 起動: `npm run preview:admin -- admin --port 3197` → `http://127.0.0.1:3197/preview/admin`（一覧）
+- ページ: `/preview/admin/<slug>`。登録済みは `dashboard`（/admin）・`vehicles`（/admin/vehicles）・`users`（/admin/users）
+- データ状態: `?scenario=normal|empty|long-name|large|loading|error`（fixture 固有＋共通の loading/error。未知の値は normal）
+- 権限: `?role=admin|accounting|viewer`（本番のプリセット ADMIN / ACCOUNTING / ADMIN_VIEWER の capability 束を写す。メニューのロック・書込ボタン・コスト表示が本番と同じ判定で変わる）
+- 例: `http://127.0.0.1:3197/preview/admin/vehicles?scenario=long-name&role=viewer`
+- 画面上部のバーでシナリオ・役割の切替、「次の保存を失敗させる」、「初期化」ができる。サイドバー・クイックリンクは pushState で遷移し、scenario/role を引き継ぐ。未登録ページへのリンクは一覧へ戻して案内を出す
+- 旧コマンド `npm run preview:admin -- vehicles` は同じ bundle の `/preview/admin/vehicles` を開くエイリアス（`scripts/previews/vehicles-services.tsx` は fixture へ統合して削除）
+
+### 仕組みと追加方法
+
+- 差し替えるのは `@/lib/api`・`swr`・`swr/infinite`・`next/link`・`next/navigation`・`next/image`・`next/dynamic`・`AdminLayout`・`VehicleModelPreview` だけ（`scripts/serve-admin-preview.mjs` の `adminReplacements`）。`@/lib/useApi`・`@/lib/swr`・`@/lib/capabilities` は本物を使うので、本番コードとの乖離は最小
+- 純粋ロジックは `apps/web/src/lib/preview/`（`scenario.ts`: URL解析・役割→capability、`fixtureStore.ts`: 読み書き・loading/error・保存失敗・リセット）。vitest で検証済み
+- runner 側は `scripts/previews/kernel/`（差し替えモジュール）・`scripts/previews/fixtures/`（ページごとの fixture）・`scripts/previews/admin.tsx`（URL→ページの振り分けと一覧）。型は `npx -w apps/web tsc -p ../../scripts/previews/tsconfig.json --noEmit`
+- ページを増やす: `scripts/previews/fixtures/<page>.ts` に `PreviewFixture`（`scenarios` / `createState` / `read` / `write`）を書き、`fixtures/index.ts` に1行足す。ページが読む API キーは `grep -n '/api/' <page>.tsx` で列挙し、`read` で返す。対象外のキーは自動で「プレビュー対象外」エラーになるので、足りない分は画面のエラー表示で分かる
+- 本番ページが `process.env.NEXT_PUBLIC_*` を読む場合は runner の `define` に空文字で足す（会社コードは DEFAULT 扱い）
+- ブラウザの CSP は `connect-src 'none'`。外部送信・本番API・通知は物理的に到達しない
+
+### 2026-09-06 の確認
+
+PC 1280 幅と 375×812 で一覧・車両（通常／長い名前×閲覧のみ／大量／取得エラー）・ドライバー一覧（通常／読み込み中）・ダッシュボード（通常）を表示。ダッシュボードのクイックリンクから車両へ pushState 遷移。警告・エラー 0 件。副産物として、車両カードで長い車種名がカード右端を突き抜ける本番側の崩れを確認した（未修正・`docs/roadmap-2026-09.md` に記載）。
+
 ## 今回のプレビュー
 
 車両移動・受け渡しと通知時刻の新しい検討用画面は、本番シフトを直接使う `/preview/shifts` の「車両移動を試す」から開く。下記の旧リースプレビューとは本番反映の状態を混同しない。詳細は末尾の「車両移動・受け渡しと時刻指定通知」を参照。
@@ -30,13 +55,15 @@
 - 入口: `/preview/map-operations`。`npm run preview:admin -- map-operations --port 3196 --mapbox` で起動する。Mapbox地図と自己ホストのHH5モデルだけを取得し、本番認証・API・DB・通知には接続しない。
 - 再利用元: 本番 `/admin/map` のMapbox Standard、3Dモデル、ナンバー札、現在／履歴の考え方と、`AdminPreviewLayout`、`VehiclePlate`、`CustomSelect`、`EditorModal`、`SmoothCollapse`、`CheckboxField`、`TimePicker`。右の車両詳細と空中の移動アーチを今回の検討として追加した。
 - 画面内の「この画面で確かめる設計」に、シフトを予定の正本、移動手配を橋渡し、日報・将来QRを駐車実績の入口とする流れを表示する。地図はそれらを見比べて判断する作戦盤とし、独立した正本にはしない。
-- 架空の4台で、通常／移動担当未設定／駐車場所未記録、要確認絞り込み、番号・車種検索、いま／履歴、2D／3D、選択車両への近接表示、駐車記録、移動手配の画面内保存を試せる。再読み込みまたはプレビュー初期化で戻る。
+- 架空の4台で、通常／移動担当未設定／駐車場所未記録、要確認絞り込み、番号・車種検索、いま／車両移動／履歴、2D／3D、選択車両への近接表示、駐車記録、移動手配の画面内保存を試せる。「車両移動」では未完了で別の場所へ運ぶ2台だけを表示する。再読み込みまたはプレビュー初期化で戻る。
+- 「履歴」は連続スライダーを使わず、日付・時刻の指定と「前の記録」「次の記録」で時点を移す。各車両は指定日時以前の最後の記録へスナップし、記録間の移動を補間しない。右欄も当時の場所・記録日時・記録者・出どころに限定し、現在の次回利用や移動手配を混ぜない。
 - 3Dは添付のアクティHH5 Blockout 70を使用。元ファイルは8,602三角形・149メッシュ・33材質で、Mapbox用に幾何を変えず頂点配置を分離し、同材質の描画単位を統合した。さらに車体93KB、固定色部品274KB、車両別プレート36〜38KBへ分けて重ねる。車体色だけを強く出し、プレートは既存SVG字形から生成した画像を前後の実材質面へ直接貼る。車両長は地図幅の9%を保ち、実寸倍率に達した後は等倍、最大ズーム24とする。足元の細いリングで地図との境界を補う。
 - 地図上の車両札も実画面の `VehiclePlate` を直接使い、同じSVG字形・配色・縦横比とする。車体前端に画面向きのプレートを浮かせる試作は不採用。
-- 選択車両の移動予定は地表の破線を使わず、Mapboxの始点・終点を画面へ投影した白縁付きの太い空中アーチで表示する。モデルより前、ナンバー札より後ろに置く。行き先が画面外なら線だけを地図外へ抜き、実座標が表示されたときだけ矢尻を出す。車両倍率・札・アーチをMapboxの `move` ごとに更新し、ズーム・移動・回転・2D／3D切替へ追従。履歴では非表示。
+- 選択車両の移動予定は地表の破線を使わず、表示中の車両位置から届け先を画面へ投影した白縁付きの太い空中アーチで表示する。モデルより前、ナンバー札より後ろに置く。始点・行き先が画面外なら線だけをそれぞれ地図外へ抜き、実座標が表示されたときだけ始点の丸・矢尻を出す。車両倍率・札・アーチをMapboxの `move` ごとに更新し、ズーム・移動・回転・2D／3D切替へ追従。「いま」と履歴では非表示。
 - 共通プレートの比率は添付実車写真と `/preview/plate` を比較し、以前の大きな文字比率を維持する。3D生成は `vehiclePlateLayout.json` の同じ上段・かな・一連・字間を使い、SVG内のハイフンを数字と同じカテゴリ倍率で描く。生成後のPNGをGLBから抽出して地図札と見比べる。
 - 検証画像: [京都が画面外のPC近接](../design/assets/map-operations-preview/aerial-movement-desktop.png)、[京都の実座標が見える広域](../design/assets/map-operations-preview/aerial-movement-destination-visible.png)、[京都が画面外のスマホ近接](../design/assets/map-operations-preview/aerial-movement-mobile.png)、[補正後の3Dプレート面](../design/assets/map-operations-preview/desktop-plate-proportions-corrected.png)、[共通プレート標準／compact](../design/assets/map-operations-preview/plate-proportions.png)、[GLBから抽出した一致テクスチャ](../design/assets/map-operations-preview/plate-texture-matched.png)、[スマホ記録モーダル](../design/assets/map-operations-preview/mobile-modal.png)。
-- 制限: 駐車・移動・履歴は固定の架空データとローカル状態のみ。GPS、日報、QR、シフト保存、通知予約、権限、同時編集、本番の地図設定には未接続。エブリィ等の制作中モデルはモデル登録口を共通化した後に追加する。
+- 制限: 駐車・移動・履歴は固定の架空データとローカル状態のみ。GPS、日報、QR、シフト保存、通知予約、権限、同時編集、本番の地図設定には未接続。履歴の再生・軌跡・推定区間も未実装。エブリィ等の制作中モデルはモデル登録口を共通化した後に追加する。
+- 2026-09-03本番接続: 本番地図側には履歴日時指定と車両移動の登録・変更・取消・完了記録を実装した。空中アーチの描画部品は本番とプレビューで共用する。プレビュー自体は従来どおり固定データであり、migration 157の適用や本番APIの検証には使わない。
 
 ### 日報の走行距離チェック（2026-09-02）
 
@@ -270,7 +297,7 @@
 
 ### 車両一覧の登録順と新規追加エラー（2026-09-01 17:55）
 
-- 起動: `npm run preview:admin -- vehicles --port 3195` → `http://127.0.0.1:3195/preview/vehicles`。本番の `admin/(resource)/vehicles/page.tsx` を直接使い、認証・API・DB・3Dモデルだけを架空データへ差し替える。通常のNext公開ルートは追加しない。
+- 起動: `npm run preview:admin -- vehicles --port 3195` → `http://127.0.0.1:3195/preview/admin/vehicles`（2026-09-06 にシナリオ runner へ統合。旧 `/preview/vehicles` は一覧に戻る）。本番の `admin/(resource)/vehicles/page.tsx` を直接使い、認証・API・DB・3Dモデルだけを架空データへ差し替える。通常のNext公開ルートは追加しない。
 - IDの大小と登録日時を逆転させた同一車種を用意し、「稼働中 → 使用不可 → 廃車」の各状態内で登録日時の古い順になることを確認する。画面にも表示順を明記する。
 - 「新規追加」を空欄で保存すると、車種の必須表示・入力一覧・赤枠・フォーカスが同じモーダル内に出る。メーター欄は任意で、空欄のまま保存すると0km・交換間隔3,000kmになる。
 - 「次の保存を失敗させる」でサーバー失敗を模し、短い案内だけが表示されること、選択した車種と他の入力が残ることを確認する。「サンプルを初期化」で架空データを戻せる。

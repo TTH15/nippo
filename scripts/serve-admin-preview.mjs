@@ -35,8 +35,25 @@ const source = path.join(root, "apps/web/src");
 // 本番ページ本体を検証する専用entry。Nextの公開ルートには置かない。
 const productionPageEntries = new Map([
   ["shifts", path.join(root, "scripts/previews/shifts.tsx")],
-  ["vehicles", path.join(root, "scripts/previews/vehicles.tsx")],
+  // admin: 複数の本番ページを fixture で開く runner（/preview/admin/<slug>?scenario=&role=）。
+  // vehicles は旧コマンド互換のエイリアスで、同じ bundle を /preview/admin/vehicles で開く。
+  ["admin", path.join(root, "scripts/previews/admin.tsx")],
+  ["vehicles", path.join(root, "scripts/previews/admin.tsx")],
 ]);
+const isAdminRunner = feature === "admin" || feature === "vehicles";
+// admin runner が差し替えるモジュール。@/lib/useApi・@/lib/swr・@/lib/capabilities は本物を使い、
+// その内側の "swr" と "@/lib/api" だけを fixture ストアへ向ける（本番コードとの乖離を最小にする）。
+const adminReplacements = new Map([
+  ["@/lib/api", "kernel/services.tsx"],
+  ["swr", "kernel/swr.tsx"],
+  ["swr/infinite", "kernel/swr-infinite.tsx"],
+  ["next/link", "kernel/next-link.tsx"],
+  ["next/navigation", "kernel/next-navigation.tsx"],
+  ["next/image", "kernel/next-image.tsx"],
+  ["next/dynamic", "kernel/next-dynamic.tsx"],
+  ["@/lib/components/AdminLayout", "kernel/AdminLayout.tsx"],
+  ["@/lib/components/VehicleModelPreview", "kernel/VehicleModelPreview.tsx"],
+].map(([from, to]) => [from, path.join(root, "scripts/previews", to)]));
 const entry = productionPageEntries.get(feature) ?? path.join(source, "app/preview", feature, "page.tsx");
 await access(entry);
 const output = await mkdtemp(path.join(os.tmpdir(), `hakotora-preview-${feature}-`));
@@ -47,21 +64,27 @@ const result = await build({
   },
   bundle: true, outfile: path.join(output, "app.js"), platform: "browser", format: "esm",
   jsx: "automatic", alias: { "@": source, "@repo/core": path.join(root, "packages/core/src") },
-  define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_MAPBOX_TOKEN": JSON.stringify(publicMapboxToken), "process.env.NEXT_PUBLIC_PREVIEW_MAPBOX_ENABLED": JSON.stringify(String(mapboxEnabled)) }, minify: true, metafile: true,
+  // 本番ページが読む公開設定は空文字で固定する（会社設定は DEFAULT 扱い）。環境ファイルは読まない。
+  define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_MAPBOX_TOKEN": JSON.stringify(publicMapboxToken), "process.env.NEXT_PUBLIC_PREVIEW_MAPBOX_ENABLED": JSON.stringify(String(mapboxEnabled)), "process.env.NEXT_PUBLIC_COMPANY_CODE": '""' }, minify: true, metafile: true,
+  // 未定義の process.env.* が残っても ReferenceError で真っ白にならないよう、空の process を置く
+  banner: { js: "var process = globalThis.process ?? { env: {} };" },
   plugins: [{ name: "mock-only", setup(builder) {
     if (feature === "shifts") {
       const replaced = new Set(["@/lib/api", "@/lib/useApi", "@/lib/capabilities", "@/lib/realtime/cellCursors", "@/lib/swr", "swr", "@/lib/components/AdminLayout", "@/server/shiftRequests/diff"]);
       builder.onResolve({ filter: /.*/ }, args => replaced.has(args.path) ? { path: path.join(root, "scripts/previews/shifts-services.tsx") } : undefined);
     }
-    if (feature === "vehicles") {
-      const replaced = new Set(["@/lib/api", "@/lib/useApi", "@/lib/capabilities", "@/lib/swr", "swr/infinite", "@/lib/components/AdminLayout", "@/lib/components/VehicleModelPreview"]);
-      builder.onResolve({ filter: /.*/ }, args => replaced.has(args.path) ? { path: path.join(root, "scripts/previews/vehicles-services.tsx") } : undefined);
+    if (isAdminRunner) {
+      builder.onResolve({ filter: /.*/ }, args => adminReplacements.get(args.path) ? { path: adminReplacements.get(args.path) } : undefined);
     }
     builder.onResolve({ filter: /^(?:@\/server(?:\/|$)|@\/lib\/api|@supabase\/|server-only$|@\/lib\/auth|@repo\/core\/(?:api|auth))/ }, args => ({ errors: [{ text: `Preview must not import live services: ${args.path}` }] }));
   } }],
 });
 if (productionPageEntries.has(feature)) {
-  const liveImports = Object.keys(result.metafile.inputs).filter(input => /apps\/web\/src\/(?:server\/|lib\/(?:api\.|auth\/|swr\.|useApi\.|realtime\/))/.test(input));
+  // admin runner は本物の @/lib/swr・@/lib/useApi を通す（内側の swr / @/lib/api が差し替え済み）。
+  const livePattern = isAdminRunner
+    ? /apps\/web\/src\/(?:server\/|lib\/(?:api\.|auth\/|realtime\/))|node_modules\/(?:swr|next)\/(?!dist\/compiled\/)/
+    : /apps\/web\/src\/(?:server\/|lib\/(?:api\.|auth\/|swr\.|useApi\.|realtime\/))/;
+  const liveImports = Object.keys(result.metafile.inputs).filter(input => livePattern.test(input));
   if (liveImports.length) throw new Error(`Live service was bundled into the ${feature} preview: ${liveImports.join(", ")}`);
 }
 const config = loadConfig(path.join(root, "apps/web/tailwind.config.ts"));
@@ -100,7 +123,9 @@ if (!args.includes("--build")) {
   const allowed = new Map([["/", "index.html"], [`/preview/${feature}`, "index.html"], ["/app.js", "app.js"], ["/app.css", "app.css"], ["/style.css", "style.css"]]);
   for (const asset of assets) allowed.set("/" + asset.split("/").map(encodeURIComponent).join("/"), asset);
   const server = createServer(async (req, res) => {
-    const target = allowed.get(new URL(req.url ?? "/", "http://127.0.0.1").pathname);
+    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    // admin runner はページごとのURL（/preview/admin/<slug>）を同じHTMLで受ける。クエリは無視する
+    const target = allowed.get(pathname) ?? (isAdminRunner && /^\/preview\/admin(?:\/[a-z0-9-]+)?$/.test(pathname) ? "index.html" : undefined);
     if (!target || !["GET", "HEAD"].includes(req.method ?? "")) { res.writeHead(404); res.end("Not found"); return; }
     try {
       const body = await readFile(path.join(output, target));
@@ -113,5 +138,6 @@ if (!args.includes("--build")) {
     } catch { res.writeHead(404); res.end("Not found"); }
   });
   server.on("error", error => { console.error(error.message); process.exitCode = 1; });
-  server.listen(port, "127.0.0.1", () => console.log(`Preview: http://127.0.0.1:${port}/preview/${feature}`));
+  const entryPath = feature === "vehicles" ? "/preview/admin/vehicles" : feature === "admin" ? "/preview/admin" : `/preview/${feature}`;
+  server.listen(port, "127.0.0.1", () => console.log(`Preview: http://127.0.0.1:${port}${entryPath}`));
 }
