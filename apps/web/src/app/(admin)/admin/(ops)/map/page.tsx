@@ -58,7 +58,7 @@ import {
   needsVehicleRelocation,
   type VehicleMovement,
 } from "@/lib/map/vehicleMovements";
-import { VEHICLE_MAP_MODELS, vehicleMapModelFor } from "@/lib/vehicleModels";
+import { VEHICLE_MAP_MODELS, mapModelKeyForVehicle, vehicleMapModelFor } from "@/lib/vehicleModels";
 import { presentationChanged, vehicleMapPresentation, type VehicleMapPresentation } from "@/lib/map/vehiclePresentation";
 import { MapPlateLabel } from "@/lib/components/MapPlateLabel";
 import { MAP_PLATE_HEIGHT, MAP_PLATE_WIDTH } from "@/lib/map/mapPlateImage";
@@ -74,6 +74,16 @@ const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
 // Mapbox Standard の時間帯ライティング。現在時刻から自動で選ぶ。
 type LightPreset = "dawn" | "day" | "dusk" | "night";
+
+/** 日本時間で夜（17〜5時）か。車両のライトと足元の光はこの判定で灯す */
+function isNightJst(now = new Date()): boolean {
+  const hour = Number(
+    new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false })
+      .formatToParts(now)
+      .find((p) => p.type === "hour")?.value ?? "12",
+  );
+  return hour >= 17 || hour < 5;
+}
 
 function presetForHour(hour: number): LightPreset {
   if (hour >= 5 && hour < 8) return "dawn";
@@ -1291,6 +1301,7 @@ export default function MapPage() {
       for (const model of Object.values(VEHICLE_MAP_MODELS)) {
         if (!map.hasModel(`${model.id}-tinted`)) map.addModel(`${model.id}-tinted`, model.tintedUrl);
         if (!map.hasModel(`${model.id}-fixed`)) map.addModel(`${model.id}-fixed`, model.fixedUrl);
+        if (!map.hasModel(`${model.id}-lamps`)) map.addModel(`${model.id}-lamps`, model.lampsUrl);
       }
       if (!map.getSource("vehicles-src")) {
         map.addSource("vehicles-src", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -1334,6 +1345,17 @@ export default function MapPage() {
           "model-emissive-strength": 0.45,
         },
       });
+      // 灯火（ヘッドライト・テールランプ）だけの層。夜の稼働中の車は強く発光させて「まだ走っている車」を見せる
+      map.addLayer({
+        id: "vehicles-3d-lamps",
+        type: "model",
+        source: "vehicles-src",
+        layout: { "model-id": ["get", "lampsModel"] },
+        paint: {
+          "model-rotation": ["get", "rotation"],
+          "model-emissive-strength": ["case", ["boolean", ["get", "lampsOn"], false], 4, 0.45],
+        },
+      });
       presentationRef.current = null;
       schedulePresentation(true);
       // スタイル再読込のたびにソースは空で作り直されるので、その場で最新データを流し込む
@@ -1362,6 +1384,7 @@ export default function MapPage() {
         const scale = [next.modelScale, next.modelScale, next.modelScale];
         map.setPaintProperty("vehicles-3d-tinted", "model-scale", scale);
         map.setPaintProperty("vehicles-3d-fixed", "model-scale", scale);
+        if (map.getLayer("vehicles-3d-lamps")) map.setPaintProperty("vehicles-3d-lamps", "model-scale", scale);
       }
       if (changed.contrast && map.getLayer("vehicle-contrast")) {
         map.setPaintProperty("vehicle-contrast", "circle-radius", next.contrastRadiusPixels);
@@ -1980,12 +2003,7 @@ export default function MapPage() {
       } as never);
 
       // 夜（dusk/night）のときだけ、稼働中の車両にライトを灯す
-      const hour = Number(
-        new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false })
-          .formatToParts(new Date())
-          .find((p) => p.type === "hour")?.value ?? "12",
-      );
-      const isNight = hour >= 17 || hour < 5;
+      const isNight = isNightJst();
       const lightSrc = map.getSource("vehicle-lights") as mapboxgl.GeoJSONSource | undefined;
       lightSrc?.setData({
         type: "FeatureCollection",
@@ -2069,8 +2087,8 @@ export default function MapPage() {
         type: "FeatureCollection",
         // まとめ表示で吸収された車は車体を描かない（代表の1台だけ）。札のドットで存在は示す
         features: displayedVehicles.filter((v) => !clusteredVehicleIdsRef.current.has(v.id)).map((v) => {
-          // 車種（vehicles.model_key）。未設定・未登録は既定モデル（型式は当面扱わない）
-          const model = vehicleMapModelFor(v.model_key);
+          // 車種（model_key、無ければメーカー＋車種名）。未登録は既定モデル（型式は当面扱わない）
+          const model = vehicleMapModelFor(mapModelKeyForVehicle(v));
           return {
             type: "Feature" as const,
             geometry: { type: "Point" as const, coordinates: [v.position!.lng, v.position!.lat] },
@@ -2082,6 +2100,9 @@ export default function MapPage() {
               color: v.body_color || "#ffffff",
               tintedModel: `${model.id}-tinted`,
               fixedModel: `${model.id}-fixed`,
+              lampsModel: `${model.id}-lamps`,
+              // 夜の稼働中だけライトを点ける（履歴表示では点けない）
+              lampsOn: isNightJst() && !historyDate && v.position!.sessionStatus === "open",
             },
           };
         }),

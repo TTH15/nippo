@@ -49,7 +49,7 @@ export const KEI_VANS: KeiVan[] = [
     aliases: ["エブリィ", "エブリー", "every"],
     generations: [
       { code: "DA17V", label: "DA17V（2015年〜・現行）", modelKey: "every" },
-      { code: "DA64V", label: "DA64V（2005〜2015年）", modelKey: null },
+      { code: "DA64V", label: "DA64V（2005〜2015年）", modelKey: "every" },
     ],
   },
   {
@@ -59,32 +59,33 @@ export const KEI_VANS: KeiVan[] = [
     aliases: ["NV100", "NV100クリッパー", "clipper"],
     generations: [
       { code: "DR17V", label: "DR17V（2015年〜・現行）", modelKey: "clipper" },
-      { code: "DR64V", label: "DR64V（2013〜2015年）", modelKey: null },
+      { code: "DR64V", label: "DR64V（2013〜2015年）", modelKey: "clipper" },
     ],
   },
   {
     manufacturer: "ダイハツ",
     brand: "ハイゼットカーゴ",
-    modelKey: null,
+    // 型式は当面区別しない（S300前期顔のローポリを全世代に使う。2026-09-06 ユーザー指定）
+    modelKey: "hijet",
     aliases: ["ハイゼット", "hijet"],
     generations: [
-      { code: "S700V", label: "S700V（2021年〜・現行）", modelKey: null },
-      { code: "S321V", label: "S321V（2004〜2021年）", modelKey: null },
+      { code: "S700V", label: "S700V（2021年〜・現行）", modelKey: "hijet" },
+      { code: "S321V", label: "S321V（2004〜2021年）", modelKey: "hijet" },
     ],
   },
-  { manufacturer: "ダイハツ", brand: "アトレー", modelKey: null, aliases: ["アトレーワゴン", "atrai"] },
+  { manufacturer: "ダイハツ", brand: "アトレー", modelKey: "atrai", aliases: ["アトレーワゴン", "atrai"] },
   {
     manufacturer: "三菱",
     brand: "ミニキャブ",
-    modelKey: null,
+    modelKey: "minicab",
     aliases: ["ミニキャブバン", "minicab"],
-    generations: [{ code: "DS17V", label: "DS17V（2014年〜・現行）", modelKey: null }],
+    generations: [{ code: "DS17V", label: "DS17V（2014年〜・現行）", modelKey: "minicab" }],
   },
   { manufacturer: "ホンダ", brand: "N-VAN", modelKey: null, aliases: ["エヌバン", "nvan", "N VAN"] },
   { manufacturer: "ホンダ", brand: "アクティバン", modelKey: "acty", aliases: ["アクティ", "acty"] },
-  { manufacturer: "トヨタ", brand: "ピクシスバン", modelKey: null, aliases: ["ピクシス", "pixis"] },
-  { manufacturer: "マツダ", brand: "スクラム", modelKey: null, aliases: ["スクラムバン", "scrum"] },
-  { manufacturer: "スバル", brand: "サンバー", modelKey: null, aliases: ["サンバーバン", "sambar"] },
+  { manufacturer: "トヨタ", brand: "ピクシスバン", modelKey: "pixis", aliases: ["ピクシス", "pixis"] },
+  { manufacturer: "マツダ", brand: "スクラム", modelKey: "scrum", aliases: ["スクラムバン", "scrum"] },
+  { manufacturer: "スバル", brand: "サンバー", modelKey: "sambar", aliases: ["サンバーバン", "sambar"] },
 ];
 
 /** 実際に用意できている 3D モデル。 */
@@ -103,29 +104,72 @@ export const DEFAULT_VEHICLE_MODEL_KEY = "every";
 // 型式は当面扱わず車種単位で選ぶ（2026-09-06 ユーザー指定）。未登録の車種は既定モデルへ倒す。
 // ============================================================
 export type VehicleMapModel = {
-  /** Mapbox addModel の識別子の接頭辞（tinted / fixed を付けて使う） */
+  /** Mapbox addModel の識別子の接頭辞（tinted / fixed / lamps を付けて使う） */
   id: string;
   tintedUrl: string;
   fixedUrl: string;
+  /** ヘッドライト・テールランプだけのファイル。夜に発光させる */
+  lampsUrl: string;
   /** 全長（m）。見かけサイズの計算に使う */
   lengthMeters: number;
 };
 
+// 3車種とも ~/Developer/assets/keivan-3d の比率修正版（2026-09-06）を finish-glb-for-mapbox → split で3分割したもの
 export const VEHICLE_MAP_MODELS: Record<string, VehicleMapModel> = {
+  hijet: {
+    id: "hijet-s300-blockout-19",
+    tintedUrl: "/models/hijet-s300-blockout-19-tinted.glb",
+    fixedUrl: "/models/hijet-s300-blockout-19-fixed.glb",
+    lampsUrl: "/models/hijet-s300-blockout-19-lamps.glb",
+    lengthMeters: 3.395,
+  },
+  every: {
+    id: "every-da64v-blockout-88",
+    tintedUrl: "/models/every-da64v-blockout-88-tinted.glb",
+    fixedUrl: "/models/every-da64v-blockout-88-fixed.glb",
+    lampsUrl: "/models/every-da64v-blockout-88-lamps.glb",
+    lengthMeters: 3.395,
+  },
   acty: {
-    id: "acty-hh5-blockout-70",
-    tintedUrl: "/models/acty-hh5-blockout-70-tinted.glb",
-    fixedUrl: "/models/acty-hh5-blockout-70-fixed.glb",
+    id: "acty-hh5-blockout-75",
+    tintedUrl: "/models/acty-hh5-blockout-75-tinted.glb",
+    fixedUrl: "/models/acty-hh5-blockout-75-fixed.glb",
+    lampsUrl: "/models/acty-hh5-blockout-75-lamps.glb",
     lengthMeters: 3.392,
   },
 };
 
-/** 地図用の既定モデル（完成している車種のうち最も検証済みのもの） */
-export const DEFAULT_VEHICLE_MAP_MODEL_KEY = "acty";
+/** OEM・同型車は元車種の地図モデルを使う（外観がほぼ同じ） */
+export const VEHICLE_MAP_MODEL_ALIASES: Record<string, string> = {
+  clipper: "every", // 日産クリッパー = エブリイ
+  scrum: "every", // マツダスクラム = エブリイ
+  minicab: "every", // 三菱ミニキャブ（2014〜） = エブリイ
+  pixis: "hijet", // トヨタピクシスバン = ハイゼット
+  sambar: "hijet", // スバルサンバー（2012〜） = ハイゼット
+  atrai: "hijet", // ダイハツアトレー = ハイゼット系
+};
 
-/** 車種キーから地図用モデルを選ぶ。未設定・未登録は既定へ */
+/** 地図用の既定モデル（未登録の車種・車種未登録の車） */
+export const DEFAULT_VEHICLE_MAP_MODEL_KEY = "every";
+
+/** 車種キーから地図用モデルを選ぶ。OEM は元車種へ、未設定・未登録は既定へ */
 export function vehicleMapModelFor(modelKey: string | null | undefined): VehicleMapModel {
-  return (modelKey && VEHICLE_MAP_MODELS[modelKey]) || VEHICLE_MAP_MODELS[DEFAULT_VEHICLE_MAP_MODEL_KEY];
+  const key = modelKey ? VEHICLE_MAP_MODEL_ALIASES[modelKey] ?? modelKey : null;
+  return (key && VEHICLE_MAP_MODELS[key]) || VEHICLE_MAP_MODELS[DEFAULT_VEHICLE_MAP_MODEL_KEY];
+}
+
+/**
+ * 車両行から地図用の車種キーを決める。保存済みの model_key を優先し、無ければメーカー＋車種名から引く
+ * （車種キーを持つ前に登録した車も、登録し直さずに車種のモデルで出す。2026-09-07）
+ */
+export function mapModelKeyForVehicle(vehicle: {
+  model_key?: string | null;
+  manufacturer?: string | null;
+  brand?: string | null;
+}): string | null {
+  if (vehicle.model_key) return vehicle.model_key;
+  if (vehicle.manufacturer && vehicle.brand) return resolveModelKey(vehicle.manufacturer, vehicle.brand);
+  return null;
 }
 
 const normalize = (v: string) => v.trim().toLowerCase().replace(/\s+/g, "");

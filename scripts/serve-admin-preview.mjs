@@ -102,6 +102,9 @@ if (feature === "map-operations" || isAdminRunner) {
   assets.push(
     "models/acty-hh5-blockout-70-tinted.glb",
     "models/acty-hh5-blockout-70-fixed.glb",
+    ...["hijet-s300-blockout-19", "every-da64v-blockout-88", "acty-hh5-blockout-75"].flatMap((id) => [
+      `models/${id}-tinted.glb`, `models/${id}-fixed.glb`, `models/${id}-lamps.glb`,
+    ]),
     "models/acty-hh5-plate-acty-1201.glb",
     "models/acty-hh5-plate-acty-2752.glb",
     "models/acty-hh5-plate-acty-4303.glb",

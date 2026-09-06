@@ -11,9 +11,11 @@ import { readFileSync } from "node:fs";
 import { NodeIO, PropertyType, VertexLayout } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 
-const [input, tintedOutput, fixedOutput] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const dropPlates = args.includes("--drop-plates");
+const [input, tintedOutput, fixedOutput, lampsOutput] = args.filter((arg) => !arg.startsWith("--"));
 if (!input || !tintedOutput || !fixedOutput) {
-  console.error("使い方: node scripts/split-vehicle-map-model.mjs <入力.glb> <車体.glb> <固定色.glb>");
+  console.error("使い方: node scripts/split-vehicle-map-model.mjs <入力.glb> <車体.glb> <固定色.glb> [灯火.glb] [--drop-plates]");
   process.exit(1);
 }
 
@@ -24,7 +26,9 @@ const TINTED_MATERIALS = new Set([
   "Paint Rear Bumper",
   "Body Crease",
 ]);
-const PLATE_MATERIALS = new Set(["License Plate Front"]);
+// 3車種（ハイゼット19／エブリイ88／アクティ75）で共通の灯火材質（keivan-3d の規約）
+const LAMP_MATERIALS = new Set(["Headlight Lens", "Rear Red Lens", "Light Brake High"]);
+const PLATE_MATERIALS = new Set(dropPlates ? ["License Plate Front"] : []);
 
 const io = new NodeIO()
   .registerExtensions(ALL_EXTENSIONS)
@@ -37,9 +41,12 @@ async function writePart(output, part) {
   for (const mesh of root.listMeshes()) {
     for (const primitive of [...mesh.listPrimitives()]) {
       const materialName = primitive.getMaterial()?.getName() ?? "";
+      const isLamp = LAMP_MATERIALS.has(materialName);
       const keep = part === "tinted"
         ? TINTED_MATERIALS.has(materialName)
-        : !TINTED_MATERIALS.has(materialName) && !PLATE_MATERIALS.has(materialName);
+        : part === "lamps"
+          ? isLamp
+          : !TINTED_MATERIALS.has(materialName) && !PLATE_MATERIALS.has(materialName) && !(lampsOutput && isLamp);
       if (!keep) primitive.dispose();
     }
     if (mesh.listPrimitives().length === 0) {
@@ -71,10 +78,11 @@ async function writePart(output, part) {
     }
   }
   console.log(
-    `${part === "tinted" ? "車体" : "固定色"}: ${output} ` +
+    `${part === "tinted" ? "車体" : part === "lamps" ? "灯火" : "固定色"}: ${output} ` +
       `(${(readFileSync(output).length / 1024).toFixed(0)} KB / ${triangles.toLocaleString()} 三角形 / ${primitives} primitive)`,
   );
 }
 
 await writePart(tintedOutput, "tinted");
 await writePart(fixedOutput, "fixed");
+if (lampsOutput) await writePart(lampsOutput, "lamps");
