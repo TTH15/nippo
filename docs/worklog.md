@@ -17,9 +17,13 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 
 - [2026年7月](worklog/2026-07.md) — 46件
 - [2026年8月](worklog/2026-08.md) — 310件
-- [2026年9月](worklog/2026-09.md) — 26件
+- [2026年9月](worklog/2026-09.md) — 28件
 
 ## 直近のエントリ（2026-09）
+
+- 2026-09-08 05:10 残タスク作戦盤（S/A/M/P/K/X の6トラック・アーティファクト公開）と地図の使い勝手 再設計 `docs/design/map-board-usability-2026-09.md`（実ブラウザ監査に基づく段階1〜4）
+
+- 2026-09-08 03:40 モバイルの駐車位置 自動特定の設計書を起草（`docs/design/mobile-parking-auto-detect.md`・業務終了時の1回測位を確定点・サーバーでスナップ）
 
 - 2026-09-08 02:50 拠点を日報の置き場所の候補から外す設定を地図の編集パネルに追加（`allow_parking` の API/UI・fixture の PATCH 修正・モバイルは位置情報＋motion で自動特定の方針）
 

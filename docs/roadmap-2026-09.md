@@ -41,6 +41,18 @@ ChatGPT 案の `PREVIEW_AUTH_BYPASS=true` は採用しない。hakotora は dev 
 - 地図の車両移動・空中アーチ（未コミット差分あり）。`git status` の `map/` 系はこの作業のもの
 - 認可の own 化（本人系ルート約 33〜41 本が `requireAuth` のみ）。B-2 と同時に進めると効率がよい
 
+## D. 残タスク全体像（2026-09-08 整理）
+
+Passkey・モバイルログイン・セキュリティ・モバイル画面・駐車位置・地図作戦盤の残タスクを 6 トラック（S セキュリティ／A 認証／M モバイル／P 駐車／K 地図／X 基盤）に束ね、着手順と判断待ちを1枚にまとめた。閲覧用: [ハコ虎 残タスク作戦盤](https://claude.ai/code/artifact/4f5d995c-87e6-4fd2-8652-44e27d5b34c2)（Claude アーティファクト・要ログイン）。設計の正本は次の文書。
+
+- 地図の監査結果と段階: [design/map-board-usability-2026-09.md](design/map-board-usability-2026-09.md)
+- モバイルの駐車自動特定: [design/mobile-parking-auto-detect.md](design/mobile-parking-auto-detect.md)
+- 認証: [platform-design.md §2-1a](platform-design.md)、モバイル: [mobile-migration-roadmap-2026.md](mobile-migration-roadmap-2026.md)
+
+着手順の提案: 1) B-1 の棚卸し → 2) 地図 段階1「見える」 → 3) B-7 Passkey 応答の一回性（challenge token が 5 分の JWT で消費されないことをコードで確定） → 4) B-2 失効 → 5) モバイル足回り（eas init・env・ATS） → 6) 駐車自動特定 M1 → 7) 地図 段階2「探せる」 → 8) PIN 撤廃とネイティブ Passkey（Apple 待ち）。
+
+2026-09-08 の棚卸しで判明した事実: `feat/mobile-capture-flow`（VisionCamera 版の撮影フロー・4 コミット）が未マージ・未 push。main は expo-camera の静止画版。取り込み方は判断待ち（J-3）。
+
 ## 進め方の提案
 
 1. **今週**: B-1 の棚卸し（読むだけ・書き込みなし）と精査レポートの保存。A-4 は 30 分で終わるので同日に
