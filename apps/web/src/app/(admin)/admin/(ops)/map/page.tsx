@@ -654,10 +654,11 @@ function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
   const interval = vehicle.oil_change_interval ?? 0;
   const oilTracked = !vehicle.is_ev && interval > 0 && typeof vehicle.current_mileage === "number";
   const oilRemaining = oilTracked ? (vehicle.last_oil_change_mileage ?? 0) + interval - (vehicle.current_mileage ?? 0) : null;
-  // 残量バー: 交換直後=満タン → 0 で空。超過は空のまま赤
-  const oilRatio = oilRemaining === null ? 0 : Math.max(0, Math.min(1, oilRemaining / interval));
-  const oilTone = oilRemaining === null ? "" : oilRemaining < 100 ? "text-red-600" : oilRemaining <= 300 ? "text-amber-600" : "text-slate-900";
-  const oilBar = oilRemaining === null ? "" : oilRemaining < 100 ? "bg-red-500" : oilRemaining <= 300 ? "bg-amber-400" : "bg-emerald-500";
+  // バーは車両一覧と同じ「前回交換からどれだけ進んだか」（右端＝次回交換）。色も一覧と同じ閾値
+  const oilRatio = oilRemaining === null ? 0
+    : Math.max(0, Math.min(1, ((vehicle.current_mileage ?? 0) - (vehicle.last_oil_change_mileage ?? 0)) / interval));
+  const oilTone = oilRemaining === null ? "" : oilRemaining < 100 ? "text-red-600" : oilRemaining <= 300 ? "text-yellow-500" : "text-slate-900";
+  const oilBar = oilRemaining === null ? "" : oilRemaining < 100 ? "bg-red-500" : oilRemaining <= 300 ? "bg-yellow-400" : "bg-green-500";
   const recordIcon = p.source === "manual" ? faHand : faClock;
   const recordTitle = p.source === "manual"
     ? `手動で配置${p.placedBy ? `（${p.placedBy}）` : ""}`
@@ -713,6 +714,23 @@ function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
         <FontAwesomeIcon icon={recordIcon} className={icon} />
         <span>{formatAt(p.at)}</span>
         {p.note && <span className="truncate text-[11px] text-slate-500">{p.note}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** 束（画面上で重なった車）は代表の詳細に全員分を並べる。1台なら従来どおり */
+function VehiclePopupGroup({ vehicles }: { vehicles: MapVehicle[] }) {
+  if (vehicles.length <= 1) return <VehiclePopup vehicle={vehicles[0]} />;
+  return (
+    <div className="max-h-[60vh] w-[216px] overflow-y-auto">
+      <div className="mb-1 px-1 text-[11px] font-bold text-slate-500">{vehicles.length}台</div>
+      <div className="divide-y divide-slate-200">
+        {vehicles.map((vehicle) => (
+          <div key={vehicle.id} className="py-1.5 first:pt-0 last:pb-0">
+            <VehiclePopup vehicle={vehicle} />
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -993,6 +1011,8 @@ export default function MapPage() {
   const clusteredVehicleIdsRef = useRef<Set<string>>(new Set());
   /** 束の代表 id → 束に含まれる車の座標（台数バッジのクリックで寄るため）。束でなければ null */
   const clusterBoundsRef = useRef<Map<string, mapboxgl.LngLat[] | null>>(new Map());
+  /** 束の代表 id → 束の車両（詳細に全員分を出すため） */
+  const clusterMembersRef = useRef<Map<string, MapVehicle[]>>(new Map());
   const vehicleLabelRootsRef = useRef<Root[]>([]);
   /** 車両の見かけサイズ（倍率・リング半径・札のオフセット）。zoom/resize/moveend で更新 */
   const presentationRef = useRef<VehicleMapPresentation | null>(null);
@@ -1564,6 +1584,7 @@ export default function MapPage() {
         clusterBoundsRef.current.set(vehicle.id, cluster && count > 1
           ? cluster.members.map((member) => member.m.getLngLat())
           : null);
+        clusterMembersRef.current.set(vehicle.id, cluster ? cluster.members.map((member) => member.vehicle) : [vehicle]);
         if (!collide) kept.push({ x: pos.x, y: pos.y });
       }
     };
@@ -2116,6 +2137,7 @@ export default function MapPage() {
     vehicleLabelMarkersRef.current = [];
     vehicleMarkerEntriesRef.current = [];
     clusterBoundsRef.current.clear();
+    clusterMembersRef.current.clear();
     const staleRoots = vehicleLabelRootsRef.current;
     vehicleLabelRootsRef.current = [];
     setTimeout(() => staleRoots.forEach((r) => r.unmount()), 0);
@@ -2163,9 +2185,16 @@ export default function MapPage() {
         offset: popupOffsetFor(presentationRef.current?.markerOffsetPixels ?? 30),
         maxWidth: "260px",
         closeButton: false,
+        // 他の札より前に出す（globals.css の .vehicle-popup）
+        className: "vehicle-popup",
       }).setDOMContent(
         popupNode,
       );
+      // 開くたびに、束なら全員分の詳細に差し替える（束は zoom で変わるため開く時点で決める）
+      popup.on("open", () => {
+        const members = clusterMembersRef.current.get(v.id) ?? [v];
+        popupRoot.render(<VehiclePopupGroup vehicles={members} />);
+      });
 
       const marker = new mapboxgl.Marker({
         element: node,

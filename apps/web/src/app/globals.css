@@ -286,6 +286,10 @@ input[type="number"] {
 }
 
 /* 地図の車両ラベル: 通常は吹き出し、重なりで負けたら状態色ドットに縮退 */
+/* 車両の詳細ポップアップは札（z-index 5）より前に出す（2026-09-07 指摘: 他の札が詳細に被っていた） */
+.mapboxgl-popup.vehicle-popup {
+  z-index: 30;
+}
 .vehicle-label .vl-dot {
   display: none;
 }
