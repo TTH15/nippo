@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("map_places")
-    .select("id, name, lat, lng, icon, shape, radius_m")
+    .select("id, name, lat, lng, icon, shape, radius_m, allow_parking")
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
 
@@ -33,13 +33,13 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ places: data ?? [] });
 }
 
-// POST: 拠点ピンを追加 { name, lat, lng, icon }
+// POST: 拠点ピンを追加 { name, lat, lng, icon, radiusM?, allowParking? }
 export async function POST(req: NextRequest) {
   const user = await requirePermission(req, "can_manage_org_settings");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
-  let body: { name?: string; lat?: number; lng?: number; icon?: string; shape?: string; radiusM?: number };
+  let body: { name?: string; lat?: number; lng?: number; icon?: string; shape?: string; radiusM?: number; allowParking?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -65,11 +65,13 @@ export async function POST(req: NextRequest) {
   // 範囲（円）で登録する場合は半径を持つ。0/未指定なら従来どおりの「点」。
   const radiusM = normalizeRadius(body.radiusM);
   const shape = radiusM ? "circle" : "point";
+  // 日報の「車の置き場所」の候補に出すか（migration 158）。未指定は出す
+  const allowParking = body.allowParking !== false;
 
   const { data, error } = await supabase
     .from("map_places")
-    .insert({ org_id: orgId, name, lat, lng, icon, shape, radius_m: radiusM })
-    .select("id, name, lat, lng, icon, shape, radius_m")
+    .insert({ org_id: orgId, name, lat, lng, icon, shape, radius_m: radiusM, allow_parking: allowParking })
+    .select("id, name, lat, lng, icon, shape, radius_m, allow_parking")
     .single();
 
   if (error) {

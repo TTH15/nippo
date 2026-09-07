@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 const ICONS = ["pin", "warehouse", "parking", "client", "fuel"] as const;
 
-// PATCH: 拠点の編集（名称・種別・位置・範囲）。
+// PATCH: 拠点の編集（名称・種別・位置・範囲・日報の置き場所の候補に出すか）。
 // 一度置いたら直せないのは実用に耐えないため（2026-08-10 要望）。
 export async function PATCH(
   req: NextRequest,
@@ -18,7 +18,7 @@ export async function PATCH(
   const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
 
-  let body: { name?: string; lat?: number; lng?: number; icon?: string; radiusM?: number | null };
+  let body: { name?: string; lat?: number; lng?: number; icon?: string; radiusM?: number | null; allowParking?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -57,6 +57,9 @@ export async function PATCH(
     updates.radius_m = radius;
     updates.shape = radius ? "circle" : "point";
   }
+  if (typeof body.allowParking === "boolean") {
+    updates.allow_parking = body.allowParking;
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "変更内容がありません" }, { status: 400 });
@@ -67,7 +70,7 @@ export async function PATCH(
     .update(updates)
     .eq("id", id)
     .eq("org_id", orgId)
-    .select("id, name, lat, lng, icon, shape, radius_m")
+    .select("id, name, lat, lng, icon, shape, radius_m, allow_parking")
     .maybeSingle();
 
   if (error) {

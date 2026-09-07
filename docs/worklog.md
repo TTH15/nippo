@@ -17,9 +17,11 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 
 - [2026年7月](worklog/2026-07.md) — 46件
 - [2026年8月](worklog/2026-08.md) — 310件
-- [2026年9月](worklog/2026-09.md) — 25件
+- [2026年9月](worklog/2026-09.md) — 26件
 
 ## 直近のエントリ（2026-09）
+
+- 2026-09-08 02:50 拠点を日報の置き場所の候補から外す設定を地図の編集パネルに追加（`allow_parking` の API/UI・fixture の PATCH 修正・モバイルは位置情報＋motion で自動特定の方針）
 
 - 2026-09-07 10:05 駐車申告 Phase 1（c1671ba）を本番へデプロイ（158 適用確認後・nippo-ace Ready）
 

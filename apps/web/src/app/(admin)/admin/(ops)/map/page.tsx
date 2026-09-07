@@ -44,6 +44,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { AerialMovementArrow } from "@/lib/components/AerialMovementArrow";
+import { CheckboxField } from "@/lib/components/CheckboxField";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -245,6 +246,8 @@ type MapPlace = {
   /** point=1点 / circle=中心+半径（migration 124） */
   shape?: "point" | "circle" | "polygon";
   radius_m?: number | null;
+  /** 日報の「車の置き場所」の候補に出すか（migration 158）。未取得は出す扱い */
+  allow_parking?: boolean;
 };
 
 type ParkingSlot = {
@@ -1253,6 +1256,7 @@ export default function MapPage() {
           lat: editingPlace.lat,
           lng: editingPlace.lng,
           radiusM: editingPlace.radius_m ?? 0,
+          allowParking: editingPlace.allow_parking !== false,
         }),
       });
       setEditingPlace(null);
@@ -3177,6 +3181,15 @@ export default function MapPage() {
                   </p>
                 </div>
 
+                {/* 日報の「車の置き場所」の候補に出すか。客先・給油所などを候補から外すのに使う */}
+                <CheckboxField
+                  className="mt-3"
+                  variant="row"
+                  label="日報の置き場所の候補に出す"
+                  checked={editingPlace.allow_parking !== false}
+                  onCheckedChange={(checked) => setEditingPlace({ ...editingPlace, allow_parking: checked })}
+                />
+
                 {/* 駐車区画。ここが「出発地（稼働開始を押す場所）」の正体になる */}
                 <button
                   type="button"
@@ -3456,6 +3469,11 @@ export default function MapPage() {
                           >
                             {place.name}
                           </button>
+                          {place.allow_parking === false && (
+                            <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                              日報の候補外
+                            </span>
+                          )}
                           <button
                             type="button"
                             onClick={() => setDeleteTarget(place)}

@@ -13,7 +13,7 @@ type MockVehicle = {
   current_mileage?: number; last_oil_change_mileage?: number; oil_change_interval?: number; is_ev?: boolean; next_shaken_date?: string | null;
   is_unavailable?: boolean; position: Position | null;
 };
-type Place = { id: string; name: string; lat: number; lng: number; icon: string; shape: "point" | "circle"; radius_m: number | null };
+type Place = { id: string; name: string; lat: number; lng: number; icon: string; shape: "point" | "circle"; radius_m: number | null; allow_parking: boolean };
 type Slot = { id: string; place_id: string; label: string; geometry: { type: "Polygon"; coordinates: [number, number][][] }; bearing: number; lat: number; lng: number; vehicle_id: string | null };
 type Movement = {
   id: string; vehicleId: string; fromPlaceId: string; toPlaceId: string; assigneeDriverId: string | null; dueAt: string;
@@ -25,9 +25,9 @@ const KYOTO = { lat: 35.0116, lng: 135.7681 };
 const SUITA = { lat: 34.7645, lng: 135.5158 };
 
 const places: Place[] = [
-  { id: "place-toyonaka", name: "豊中センター", ...TOYONAKA, icon: "warehouse", shape: "circle", radius_m: 150 },
-  { id: "place-kyoto", name: "京都車庫", ...KYOTO, icon: "warehouse", shape: "point", radius_m: null },
-  { id: "place-suita", name: "吹田 待機", ...SUITA, icon: "pin", shape: "point", radius_m: null },
+  { id: "place-toyonaka", name: "豊中センター", ...TOYONAKA, icon: "warehouse", shape: "circle", radius_m: 150, allow_parking: true },
+  { id: "place-kyoto", name: "京都車庫", ...KYOTO, icon: "warehouse", shape: "point", radius_m: null, allow_parking: true },
+  { id: "place-suita", name: "吹田 待機", ...SUITA, icon: "pin", shape: "point", radius_m: null, allow_parking: false },
 ];
 const drivers = [
   { id: "driver-1", name: "佐藤 翔太" },
@@ -152,16 +152,18 @@ export const mapFixture: PreviewFixture<State> = {
       return { movement };
     }
     if (path === "/api/admin/map/places" && method === "POST") {
-      const place: Place = { id: `place-${state.places.length + 1}`, name: String(body.name ?? "新しい拠点"), lat: Number(body.lat), lng: Number(body.lng), icon: String(body.icon ?? "pin"), shape: body.radiusM ? "circle" : "point", radius_m: body.radiusM ? Number(body.radiusM) : null };
+      const place: Place = { id: `place-${state.places.length + 1}`, name: String(body.name ?? "新しい拠点"), lat: Number(body.lat), lng: Number(body.lng), icon: String(body.icon ?? "pin"), shape: body.radiusM ? "circle" : "point", radius_m: body.radiusM ? Number(body.radiusM) : null, allow_parking: body.allowParking !== false };
       state.places.push(place);
       return { place };
     }
     const placeMatch = path.match(/^\/api\/admin\/map\/places\/([^/]+)$/);
-    if (placeMatch && method === "PUT") {
+    if (placeMatch && (method === "PATCH" || method === "PUT")) {
       const place = state.places.find((p) => p.id === placeMatch[1]); if (!place) return undefined;
       if (typeof body.name === "string") place.name = body.name; if (typeof body.icon === "string") place.icon = body.icon;
+      if (typeof body.lat === "number" && typeof body.lng === "number") { place.lat = body.lat; place.lng = body.lng; }
       if (body.radiusM !== undefined) { place.radius_m = body.radiusM ? Number(body.radiusM) : null; place.shape = body.radiusM ? "circle" : "point"; }
-      return { ok: true };
+      if (typeof body.allowParking === "boolean") place.allow_parking = body.allowParking;
+      return { place };
     }
     if (placeMatch && method === "DELETE") { state.places = state.places.filter((p) => p.id !== placeMatch[1]); return { ok: true }; }
     if (path === "/api/admin/map/parking-slots" && method === "POST") {
