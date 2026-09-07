@@ -109,4 +109,13 @@ flowchart LR
 3. **本番の読取・表示**：シフトの最後の駐車と返却予定を分離、登録地点なら地図へ反映。本人・代理・別会社、座標なし、古い提出、複数コース、同日乗換え、日報却下、同時訂正を検証する。
 4. **モバイル**：既存QR・GPS・業務終了と同じ基盤を接続。実機で権限拒否、屋内、通信失敗、日報だけの再送を検証する。QR必須化や常時位置取得は別の判断とする。
 
-実行したのはコード調査と設計の更新のみ。migration作成・適用、コード実装、新しいプレビュー、実データ取得、通知送信・デプロイは今回行っていない。
+## 実装状況（2026-09-07 Phase 1）
+
+- **保存基盤**: migration 158。`vehicle_positions` に `kind`（observation／parked）・`place_id`・`slot_id`・`place_name`・`driver_id`・`report_date`・`client_key` を追加し、`source` に `report` を許可。観測は座標必須のまま、申告は「登録車庫か場所名」が必須で座標は任意（別の場所）。`(org_id, vehicle_id, client_key)` の一意制約で再送を上書き。`map_places.allow_parking` を追加（既定 true）。`map_latest_positions` は申告の列も返す。
+- **API**: `GET /api/reports/parking-places`（自社の車庫・区画。区画の `vehicleId` で「いつもの」を出す）。`POST /api/reports/v2` に `parking`（任意）を追加。検証は `server/reports/parking.ts` の `parseParkingReport`（車両一致・場所必須・日時の範囲）で日報より先に行い、不正なら日報ごと 400。保存は日報の後に `saveParkingReport`（車両・車庫・区画の会社一致を確認し、登録車庫の座標を写して upsert）。保存失敗は「日報は保存されています。もう一度送信してください」と返し、同じ `clientKey` の再送で二重登録しない。`in_use`／`handed_over`／`later` は履歴に行を作らない（提出時の回答としては現状保存していない）。
+- **Web 日報**: 使用車両を選ぶと送信ボタンの手前に「車の置き場所」（`ParkingReportField`）。登録車庫→区画、別の場所（名前）、まだ使用中／次の人に渡した／あとで記録。未回答は送信をブロック。鍵・目印のメモは任意。
+- **地図**: 最新が申告なら詳細に場所名を出す。最新が座標なしの申告なら地図に点を出さず `parkedElsewhere` として返す（一覧側の表示は次段階）。
+- **未実装（設計どおり残す）**: 日報と駐車の同一トランザクション化、`in_use` 等の回答の永続化、シフトの「最後の駐車」表示、モバイル、QR・端末位置、会社別の必須／任意設定、管理者の代理入力・訂正。
+- **プレビュー**: `npm run preview:admin -- admin --port 3199 --mapbox` → `/preview/admin/submit`（通常／車庫なし）。送信内容はブラウザの console に `preview submit` として出る。
+
+実行したのはコード調査と設計の更新のみ（2026-09-01）。Phase 1 の実装は上記のとおりで、migration 158 の本番適用・デプロイは別工程。

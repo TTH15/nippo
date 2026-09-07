@@ -17,7 +17,8 @@ import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 import { evaluateMeter } from "./submitFormUtils";
-import type { DriverIdentity, SubmitVehicle as Vehicle, UnitDef, ShiftForm, ValueMap } from "@repo/core/types";
+import { EMPTY_PARKING_CHOICE, ParkingReportField, parkingChoiceError, type ParkingChoice } from "./ParkingReportField";
+import type { DriverIdentity, SubmitVehicle as Vehicle, UnitDef, ShiftForm, ValueMap, ParkingPlaceOption, ParkingReport } from "@repo/core/types";
 import { formatMonthDayJP } from "@repo/core/logic/calendar";
 import { computeOilStatus, type OilLevel } from "@repo/core/logic/oilChange";
 import {
@@ -78,6 +79,17 @@ export default function SubmitPageClientV2() {
   const [values, setValues] = useState<ValueMap>({});
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  // 車の置き場所（駐車申告）。使用車両を選んだときだけ回答を求める。
+  // clientKey はフォーム1回分の識別子で、保存失敗→再送のときに同じ値を送って二重登録を防ぐ
+  const [parking, setParking] = useState<ParkingChoice>(EMPTY_PARKING_CHOICE);
+  const [parkingError, setParkingError] = useState<string | null>(null);
+  const parkingKeyRef = useRef<string>(typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : String(Date.now()));
+  const { data: parkingPlacesData, isInitialLoading: parkingPlacesLoading } = useApi<{ places: ParkingPlaceOption[] }>(
+    "/api/reports/parking-places",
+    { revalidateOnFocus: false },
+  );
+  const parkingPlaces = parkingPlacesData?.places ?? [];
 
   // プロフィール（勤務区分）・車両（紐付け＋その他）
   // プロフィール/車両を SWR キャッシュ（遷移をまたいで保持＝再訪時の点滅をなくす）。
@@ -228,6 +240,26 @@ export default function SubmitPageClientV2() {
       return;
     }
 
+    // 車の置き場所（車両を選んだときだけ必須）
+    const parkingProblem = vehicleId ? parkingChoiceError(parking) : null;
+    if (parkingProblem) {
+      setParkingError(parkingProblem);
+      setMessage({ kind: "err", text: parkingProblem });
+      return;
+    }
+    setParkingError(null);
+    const parkingPayload: ParkingReport | null = vehicleId && parking.status
+      ? {
+          vehicleId,
+          status: parking.status,
+          placeId: parking.status === "parked" && !parking.other ? parking.placeId : null,
+          slotId: parking.status === "parked" && !parking.other ? parking.slotId : null,
+          placeName: parking.status === "parked" && parking.other ? parking.placeName.trim() : null,
+          note: parking.note.trim() || null,
+          clientKey: parkingKeyRef.current,
+        }
+      : null;
+
     setSubmitting(true);
     setMessage(null);
     try {
@@ -239,8 +271,11 @@ export default function SubmitPageClientV2() {
           reportDate: dateToReportDateStr(reportDate),
           driverIdentityId: selectedIdentityId,
           items,
+          parking: parkingPayload,
         }),
       });
+      // 次の送信は別の申告として扱う（同じフォームでの再送だけ同じキー）
+      parkingKeyRef.current = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : String(Date.now());
       setMessage({ kind: "ok", text: "日報を送信しました。" });
       // 送信後画面（今日の報酬見込み＋ランキング）は即表示し、データは後追いで流し込む
       setShowPostSubmit(true);
@@ -489,6 +524,21 @@ export default function SubmitPageClientV2() {
             );
           })}
         </div>
+      )}
+
+      {/* 車の置き場所（使用車両を選んだときだけ）。送信ボタンの手前に置く */}
+      {vehicleId && shifts.length > 0 && (
+        <ParkingReportField
+          places={parkingPlaces}
+          loading={parkingPlacesLoading}
+          vehicleId={vehicleId}
+          choice={parking}
+          onChange={(next) => {
+            setParking(next);
+            if (parkingError) setParkingError(null);
+          }}
+          error={parkingError}
+        />
       )}
 
       {message && (

@@ -61,11 +61,14 @@ export async function GET(req: NextRequest) {
   type PositionRow = {
     vehicle_id: string;
     at: string;
-    lat: number;
-    lng: number;
+    lat: number | null;
+    lng: number | null;
     source: string;
     recorded_by: string | null;
     note: string | null;
+    /** migration 158: parked=日報の駐車申告。列が無い旧環境では undefined */
+    kind?: string | null;
+    place_name?: string | null;
   };
   type SessionRow = {
     vehicle_id: string;
@@ -92,7 +95,7 @@ export async function GET(req: NextRequest) {
     }
     let q = supabase
       .from("vehicle_positions")
-      .select("vehicle_id, at, lat, lng, source, recorded_by, note")
+      .select("vehicle_id, at, lat, lng, source, recorded_by, note, kind, place_name")
       .eq("org_id", orgId)
       .order("at", { ascending: false })
       .limit(POSITION_SCAN_LIMIT);
@@ -170,13 +173,23 @@ export async function GET(req: NextRequest) {
     lat: number;
     lng: number;
     at: string;
-    source: "punch" | "manual" | "gps";
+    source: "punch" | "manual" | "gps" | "report";
     recordedBy: string | null;
     note: string | null;
+    /** 日報の駐車申告なら場所名（登録車庫名 or 別の場所の名前） */
+    placeName: string | null;
   };
+  /** 最新が座標なしの駐車申告（「別の場所」）の車。地図には置かず、名前と日時だけ返す */
+  type ParkedWithoutCoords = { at: string; placeName: string | null; recordedBy: string | null };
   const positionByVehicle = new Map<string, Position>();
+  const parkedWithoutCoordsByVehicle = new Map<string, ParkedWithoutCoords>();
   for (const p of positionsUnavailable ? [] : positions) {
-    if (positionByVehicle.has(p.vehicle_id)) continue;
+    if (positionByVehicle.has(p.vehicle_id) || parkedWithoutCoordsByVehicle.has(p.vehicle_id)) continue;
+    if (p.lat == null || p.lng == null) {
+      // 座標なしの申告が最新なら、以前の点を現在地として出さない（設計: 位置未確認）
+      parkedWithoutCoordsByVehicle.set(p.vehicle_id, { at: p.at, placeName: p.place_name ?? null, recordedBy: p.recorded_by ?? null });
+      continue;
+    }
     positionByVehicle.set(p.vehicle_id, {
       lat: p.lat,
       lng: p.lng,
@@ -184,6 +197,7 @@ export async function GET(req: NextRequest) {
       source: p.source as Position["source"],
       recordedBy: p.recorded_by ?? null,
       note: p.note ?? null,
+      placeName: p.kind === "parked" ? (p.place_name ?? null) : null,
     });
   }
 
@@ -211,6 +225,7 @@ export async function GET(req: NextRequest) {
         source: "punch",
         recordedBy: (s.recorded_by as string | null) ?? null,
         note: null,
+        placeName: null,
       });
     }
   }
@@ -231,6 +246,7 @@ export async function GET(req: NextRequest) {
   const items = (vehicles ?? []).map((v) => {
     const p = positionByVehicle.get(v.id as string);
     const s = sessionByVehicle.get(v.id as string);
+    const parkedElsewhere = parkedWithoutCoordsByVehicle.get(v.id as string);
     return {
       ...v,
       position: p
@@ -242,11 +258,16 @@ export async function GET(req: NextRequest) {
             // 手動配置は「誰が置いたか」が本質（責任の所在）
             placedBy: p.recordedBy ? (driverNameById.get(p.recordedBy) ?? "") : "",
             note: p.note,
+            placeName: p.placeName,
             // 互換のため従来キーも残す（FleetMapCard / FleetMapBoard が参照している）
             kind: p.source === "punch" ? "checkin" : p.source,
             sessionStatus: s?.open ? "open" : "closed",
             driverName: s?.driverId ? (driverNameById.get(s.driverId) ?? "") : "",
           }
+        : null,
+      // 最新が「別の場所」（座標なし）の申告。地図に点は出さず一覧で名前を見せる
+      parkedElsewhere: parkedElsewhere
+        ? { at: parkedElsewhere.at, placeName: parkedElsewhere.placeName, placedBy: parkedElsewhere.recordedBy ? (driverNameById.get(parkedElsewhere.recordedBy) ?? "") : "" }
         : null,
     };
   });

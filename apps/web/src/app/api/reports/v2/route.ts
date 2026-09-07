@@ -3,6 +3,7 @@ import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { syncReportEntries } from "@/server/reports/entries";
+import { parseParkingReport, saveParkingReport } from "@/server/reports/parking";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,12 @@ export async function POST(req: NextRequest) {
 
   if (!reportDate) return NextResponse.json({ error: "reportDate が必要です" }, { status: 400 });
   if (items.length === 0) return NextResponse.json({ error: "items が空です" }, { status: 400 });
+
+  // 車の置き場所（任意）。日報より先に検証し、不正なら日報ごと保存しない（入力を残して直してもらう）
+  const parking = body.parking != null
+    ? parseParkingReport(body.parking, { reportDate, itemVehicleIds: items.map((i) => i.vehicleId) })
+    : null;
+  if (parking && !parking.ok) return NextResponse.json({ error: parking.error }, { status: 400 });
 
   // 勤務区分の本人確認（指定がある場合）
   if (driverIdentityId) {
@@ -169,5 +176,21 @@ export async function POST(req: NextRequest) {
   // Phase9 カットオーバー: v2 を source of truth とし、旧 daily_reports への
   // dual-write は廃止（旧テーブルはバックアップとして凍結）。
 
-  return NextResponse.json({ ok: true, reportIds: savedReportIds });
+  // 車の置き場所。日報が保存できた後に記録する。失敗したら日報は保存済みのまま再送してもらう
+  // （client_key で二重登録しない。日報側は (driver,date,course) 単位の上書きなので再送しても増えない）。
+  let parkingSaved = false;
+  if (parking && parking.ok) {
+    try {
+      const result = await saveParkingReport(supabase, parking.value, { orgId, driverId: user.driverId, reportDate });
+      parkingSaved = result.saved;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "駐車場所の保存に失敗しました";
+      return NextResponse.json(
+        { error: `${message}。日報は保存されています。もう一度送信してください`, reportIds: savedReportIds, reportSaved: true },
+        { status: 500 },
+      );
+    }
+  }
+
+  return NextResponse.json({ ok: true, reportIds: savedReportIds, parkingSaved });
 }

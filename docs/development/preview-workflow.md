@@ -24,6 +24,7 @@
 - 例: `http://127.0.0.1:3197/preview/admin/vehicles?scenario=long-name&role=viewer`
 - 画面上部のバーでシナリオ・役割の切替、「次の保存を失敗させる」、「初期化」ができる。サイドバー・クイックリンクは pushState で遷移し、scenario/role を引き継ぐ。未登録ページへのリンクは一覧へ戻して案内を出す
 - 地図（`/preview/admin/map`）は Mapbox の公開キーが要るので `npm run preview:admin -- admin --port 3199 --mapbox` で起動する（`.env.local` の `NEXT_PUBLIC_MAPBOX_TOKEN` だけを読む）。シナリオは通常／位置なし／大量（40台密集）。共有ビューは Supabase Realtime を使うため常にオフのスタブ
+- 日報送信（`/preview/admin/submit`）はドライバー画面を同じ runner で開く。「車の置き場所」の候補・区画・別の場所・状況回答・未回答ブロック・保存失敗（上部バーの「次の保存を失敗させる」）を試せる。送信内容は console の `preview submit`
 - 旧コマンド `npm run preview:admin -- vehicles` は同じ bundle の `/preview/admin/vehicles` を開くエイリアス（`scripts/previews/vehicles-services.tsx` は fixture へ統合して削除）
 
 ### 仕組みと追加方法

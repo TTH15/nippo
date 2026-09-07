@@ -111,6 +111,12 @@ function mockResponse(url: string, method: string): unknown | undefined {
   }
   if (url.includes("/api/reports/vehicles-unlinked")) return { vehicles: [] };
   if (url.includes("/api/reports/vehicles")) return { vehicles: VEHICLES };
+  if (url.includes("/api/reports/parking-places")) {
+    return { places: [
+      { id: "place-1", name: "豊中センター", lat: 34.7855, lng: 135.4709, icon: "warehouse", slots: [{ id: "slot-1", label: "A-1", vehicleId: "veh-1" }, { id: "slot-2", label: "A-2", vehicleId: null }] },
+      { id: "place-2", name: "京都車庫", lat: 35.0116, lng: 135.7681, icon: "warehouse", slots: [] },
+    ] };
+  }
   if (url.includes("/api/me/report-form")) return { shifts: [SHIFT], shiftVehicleId: null };
   if (url.includes("/api/me/form-notice")) return { notice: null };
   if (url.includes("/api/me/shift-deadline-reminder")) return { reminder: null };

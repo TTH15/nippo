@@ -57,3 +57,38 @@ export type ReportItem = {
   meterValue: number | null;
   entries: ReportEntry[];
 };
+
+// ------------------------------------------------------------
+// 車の置き場所（日報と一緒に送る駐車申告）。設計: docs/design/daily-report-parking-foundation.md
+// ------------------------------------------------------------
+
+/** 日報の「車の置き場所」で選べる登録車庫（駐車候補） */
+export type ParkingPlaceOption = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  icon: string;
+  /** 区画（「12番」）。vehicleId はその区画を定位置にしている車 */
+  slots: { id: string; label: string; vehicleId: string | null }[];
+};
+
+/** 提出時の回答。parked だけが駐車履歴（vehicle_positions）に行を作る */
+export type ParkingReportStatus = "parked" | "in_use" | "handed_over" | "later";
+
+/** POST /api/reports/v2 の parking（任意）。使用車両を選んだときに1件だけ添える */
+export type ParkingReport = {
+  vehicleId: string;
+  status: ParkingReportStatus;
+  /** parked: 登録車庫を選んだとき */
+  placeId?: string | null;
+  slotId?: string | null;
+  /** parked: 「別の場所」の場所名（登録車庫を選ばないとき必須） */
+  placeName?: string | null;
+  /** 鍵・目印などの一言 */
+  note?: string | null;
+  /** 実際に停めた日時（ISO）。省略時はサーバーの受信時刻 */
+  at?: string | null;
+  /** 再送で二重登録しないための識別子（フォームごとに1つ） */
+  clientKey: string;
+};

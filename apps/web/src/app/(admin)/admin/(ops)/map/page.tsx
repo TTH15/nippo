@@ -391,10 +391,12 @@ type MapVehicle = VehiclePlateData & {
     lat: number;
     lng: number;
     at: string | null;
-    kind: "checkin" | "checkout" | "manual" | "gps";
-    source?: "punch" | "manual" | "gps";
+    kind: "checkin" | "checkout" | "manual" | "gps" | "report";
+    source?: "punch" | "manual" | "gps" | "report";
     placedBy?: string;
     note?: string | null;
+    /** 日報の駐車申告なら場所名（登録車庫名 or 別の場所） */
+    placeName?: string | null;
     sessionStatus: "open" | "closed";
     driverName: string;
   } | null;
@@ -659,10 +661,12 @@ function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
     : Math.max(0, Math.min(1, ((vehicle.current_mileage ?? 0) - (vehicle.last_oil_change_mileage ?? 0)) / interval));
   const oilTone = oilRemaining === null ? "" : oilRemaining < 100 ? "text-red-600" : oilRemaining <= 300 ? "text-yellow-500" : "text-slate-900";
   const oilBar = oilRemaining === null ? "" : oilRemaining < 100 ? "bg-red-500" : oilRemaining <= 300 ? "bg-yellow-400" : "bg-green-500";
-  const recordIcon = p.source === "manual" ? faHand : faClock;
-  const recordTitle = p.source === "manual"
-    ? `手動で配置${p.placedBy ? `（${p.placedBy}）` : ""}`
-    : `${p.kind === "checkout" ? "退勤" : "出勤"}打刻の位置`;
+  const recordIcon = p.source === "report" ? faSquareParking : p.source === "manual" ? faHand : faClock;
+  const recordTitle = p.source === "report"
+    ? `日報で申告した置き場所${p.placedBy ? `（${p.placedBy}）` : ""}`
+    : p.source === "manual"
+      ? `手動で配置${p.placedBy ? `（${p.placedBy}）` : ""}`
+      : `${p.kind === "checkout" ? "退勤" : "出勤"}打刻の位置`;
   const row = "flex items-center gap-2 text-[12px] tabular-nums";
   const icon = "h-3.5 w-3.5 shrink-0 text-slate-400";
   // 札のオイル警告バッジ（吹き出し付き）は下のバーと二重になり本文に被るので、札には走行距離を渡さない
@@ -713,6 +717,7 @@ function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
       <div className={`${row} text-slate-600`} title={recordTitle}>
         <FontAwesomeIcon icon={recordIcon} className={icon} />
         <span>{formatAt(p.at)}</span>
+        {p.source === "report" && p.placeName && <span className="truncate font-medium text-slate-800">{p.placeName}</span>}
         {p.note && <span className="truncate text-[11px] text-slate-500">{p.note}</span>}
       </div>
     </div>
