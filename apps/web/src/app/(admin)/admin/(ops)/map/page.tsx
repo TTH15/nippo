@@ -720,10 +720,10 @@ function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
 }
 
 /** 束（画面上で重なった車）は代表の詳細に全員分を並べる。1台なら従来どおり */
-function VehiclePopupGroup({ vehicles }: { vehicles: MapVehicle[] }) {
+function VehiclePopupGroup({ vehicles, maxHeight }: { vehicles: MapVehicle[]; maxHeight?: number }) {
   if (vehicles.length <= 1) return <VehiclePopup vehicle={vehicles[0]} />;
   return (
-    <div className="max-h-[60vh] w-[216px] overflow-y-auto">
+    <div className="w-[216px] overflow-y-auto overscroll-contain" style={{ maxHeight: maxHeight ?? 360 }}>
       <div className="mb-1 px-1 text-[11px] font-bold text-slate-500">{vehicles.length}台</div>
       <div className="divide-y divide-slate-200">
         {vehicles.map((vehicle) => (
@@ -2185,15 +2185,33 @@ export default function MapPage() {
         offset: popupOffsetFor(presentationRef.current?.markerOffsetPixels ?? 30),
         maxWidth: "260px",
         closeButton: false,
+        // 常に札の上へ開く。下へ開くと地図の下端で切れてスクロールできない（2026-09-07 指摘）。
+        // 上に入りきらない分は開いた後に地図の方を動かして収める（下の "open"）
+        anchor: "bottom",
         // 他の札より前に出す（globals.css の .vehicle-popup）
         className: "vehicle-popup",
       }).setDOMContent(
         popupNode,
       );
-      // 開くたびに、束なら全員分の詳細に差し替える（束は zoom で変わるため開く時点で決める）
+      // 開くたびに、束なら全員分の詳細に差し替える（束は zoom で変わるため開く時点で決める）。
+      // 高さは地図の高さに合わせて上限を決め、はみ出す分は地図を寄せる
       popup.on("open", () => {
         const members = clusterMembersRef.current.get(v.id) ?? [v];
-        popupRoot.render(<VehiclePopupGroup vehicles={members} />);
+        const mapHeight = map.getContainer().clientHeight;
+        const maxHeight = Math.max(160, mapHeight - 96);
+        popupRoot.render(<VehiclePopupGroup vehicles={members} maxHeight={maxHeight} />);
+        window.requestAnimationFrame(() => {
+          const element = popup.getElement();
+          if (!element) return;
+          const box = element.getBoundingClientRect();
+          const frame = map.getContainer().getBoundingClientRect();
+          const margin = 12;
+          const dy = box.top < frame.top + margin ? box.top - (frame.top + margin) : 0;
+          const dx = box.left < frame.left + margin
+            ? box.left - (frame.left + margin)
+            : box.right > frame.right - margin ? box.right - (frame.right - margin) : 0;
+          if (dx !== 0 || dy !== 0) map.panBy([dx, dy], { duration: 320 });
+        });
       });
 
       const marker = new mapboxgl.Marker({
