@@ -64,6 +64,7 @@ import { presentationChanged, vehicleMapPresentation, type VehicleMapPresentatio
 import { MapPlateLabel } from "@/lib/components/MapPlateLabel";
 import { MAP_PLATE_HEIGHT, MAP_PLATE_WIDTH } from "@/lib/map/mapPlateImage";
 import { MAP_Z } from "@/lib/map/zIndex";
+import { matchVehicles } from "@/lib/map/vehicleSearch";
 import { useModalKeys } from "@/lib/ui/dialog";
 import {
   VehiclePlate,
@@ -1123,6 +1124,8 @@ export default function MapPage() {
   const [movedSinceSearch, setMovedSinceSearch] = useState(false);
   /** 一覧でホバー中の候補。地図上のピンを強調する */
   const [hoveredHitId, setHoveredHitId] = useState<string | null>(null);
+  /** 検索窓にフォーカスがあるか。種別のショートカットはこの間だけ出す（帯を常設しない） */
+  const [searchFocused, setSearchFocused] = useState(false);
   /** 宣言順の都合で effect から呼ぶための参照 */
   const runSearchRef = useRef<(spec: { kind: "text" | "category"; value: string; icon: PlaceIcon }) => void>(
     () => {},
@@ -1240,6 +1243,47 @@ export default function MapPage() {
   };
 
   pickSearchResultRef.current = pickSearchResult;
+
+  /**
+   * 検索窓の上段: ローカルの車両・ドライバー。
+   * 運営が地図で最初にやるのは「あの車どこ？」なので、住所検索と同じ窓から引けるようにする。
+   * 位置がまだ無い車も候補に出し、選んだらそのまま「地図をクリックして置く」に入る。
+   */
+  const vehicleHits = useMemo(() => {
+    const q = searchQuery.trim();
+    if (q.length < 1) return [];
+    const targets = (data?.vehicles ?? []).map((v) => ({
+      ...v,
+      driverName: v.position?.driverName ?? null,
+      hasPosition: v.position != null,
+    }));
+    return matchVehicles(targets, q, 6);
+  }, [data, searchQuery]);
+
+  /** 検索で選んだ車へ寄って詳細を開く。位置が無い車は「置く」導線へ。 */
+  const focusVehicleHit = (v: MapVehicle) => {
+    setSearchResults([]);
+    setSearchQuery("");
+    setSearchFocused(false);
+    if (!v.position) {
+      setPendingPlaceVehicle(v);
+      return;
+    }
+    setSelectedVehicleId(v.id);
+    const map = mapRef.current;
+    if (!map) return;
+    const openPopup = () => {
+      const entry = vehicleMarkerEntriesRef.current.find((e) => e.vehicle.id === v.id);
+      const popup = entry?.marker.getPopup();
+      if (entry && popup && !popup.isOpen()) entry.marker.togglePopup();
+    };
+    map.once("moveend", openPopup);
+    map.flyTo({
+      center: [v.position.lng, v.position.lat],
+      zoom: Math.max(map.getZoom(), 16),
+      duration: 800,
+    });
+  };
 
   /** 拠点の編集を開始する（その場所へ寄せて、パネルを出す）。 */
   const openPlaceEditor = (place: MapPlace) => {
@@ -2865,7 +2909,9 @@ export default function MapPage() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="住所・施設名で探す（例: 京都市伏見区…）"
+                    onFocus={() => setSearchFocused(true)}
+                    onBlur={() => setSearchFocused(false)}
+                    placeholder="車番・ドライバー・住所で探す"
                     className="w-full bg-transparent text-xs outline-none placeholder:text-slate-400"
                   />
                   {searchQuery && (
@@ -2881,12 +2927,15 @@ export default function MapPage() {
                     </button>
                     )}
                 </div>
-                  {/* よく調べる種別のショートカット。名前を知らない場所は種別からしか探せない */}
+                  {/* よく調べる種別のショートカット。名前を知らない場所は種別からしか探せない。
+                      拠点を追加する文脈でしか使わないので、検索窓を触っている間だけ出す（監査 P2-6） */}
+                {(searchFocused || searchQuery) && (
                 <div className="mt-1 flex flex-wrap gap-1">
                   {SEARCH_SHORTCUTS.map((sc) => (
                     <button
                       key={sc.label}
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => void runShortcut(sc)}
                       className="rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-slate-900"
                     >
@@ -2894,9 +2943,36 @@ export default function MapPage() {
                     </button>
                   ))}
                 </div>
+                )}
 
-                {(searching || searchResults.length > 0) && (
+                {(searching || searchResults.length > 0 || vehicleHits.length > 0) && (
                   <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-[320px] overflow-y-auto rounded-lg bg-white shadow-lg">
+                    {vehicleHits.length > 0 && (
+                      <div className="border-b border-slate-200">
+                        <div className="px-3 py-1.5 text-[10px] font-semibold text-slate-400">車両・ドライバー</div>
+                        {vehicleHits.map((v) => (
+                          <button
+                            key={v.id}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => focusVehicleHit(v)}
+                            className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                          >
+                            <VehiclePlate vehicle={v} compact glow={false} className="w-[68px] shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-semibold text-slate-800">
+                                {[v.manufacturer, v.brand].filter(Boolean).join(" ") || plateText(v)}
+                              </span>
+                              <span className="block truncate text-[11px] text-slate-500">
+                                {v.position
+                                  ? `${statusOf(v)}${v.position.driverName ? `・${v.position.driverName}` : ""}`
+                                  : "位置なし — 選ぶと地図に置けます"}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {!searching && searchResults.length > 0 && (
                       <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5">
                         <span className="text-[10px] font-semibold text-slate-400">
@@ -2914,6 +2990,9 @@ export default function MapPage() {
                         </button>
                       </div>
                       )}
+                    {searchResults.length > 0 && !searching && (
+                      <div className="px-3 pt-1.5 text-[10px] font-semibold text-slate-400">住所・施設</div>
+                    )}
                     {searching && searchResults.length === 0 ? (
                       <div className="px-3 py-2 text-[11px] text-slate-400">検索しています…</div>
                     ) : (
@@ -2921,6 +3000,7 @@ export default function MapPage() {
                         <button
                           key={hit.id}
                           type="button"
+                          onMouseDown={(e) => e.preventDefault()}
                           onClick={() => pickSearchResult(hit)}
                           className="block w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
                         >

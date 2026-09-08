@@ -744,3 +744,7 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-09-08 21:35 地図 段階1 を本番へデプロイ
 
 - 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。`2530e07` を push し hakotora.jp へ反映。/login・/join・/admin/map とも 200。
+
+## 2026-09-08 22:45 地図 段階2「探せる」（K-7）: 検索窓で車両・ドライバーも引く
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。同じ検索窓の上段に車両・ドライバー、下段に住所・施設。選ぶと寄って詳細が開き、位置なし車はそのまま置ける。照合は `lib/map/vehicleSearch.ts` に純粋関数＋テスト9件。
