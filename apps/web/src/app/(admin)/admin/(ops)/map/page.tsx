@@ -60,6 +60,7 @@ import { MAP_PLATE_HEIGHT, MAP_PLATE_WIDTH } from "@/lib/map/mapPlateImage";
 import { MAP_Z } from "@/lib/map/zIndex";
 import { VehicleDetailCard } from "@/lib/components/VehicleDetailCard";
 import { matchVehicles } from "@/lib/map/vehicleSearch";
+import { snapDrop, type DropTarget } from "@/lib/map/dropSnap";
 import { useModalKeys } from "@/lib/ui/dialog";
 import {
   VehiclePlate,
@@ -623,10 +624,6 @@ function MovementDetailCard({
 }
 
 /** つまみに出す短い番号（一連指定番号だけ）。 */
-function plateShort(v: MapVehicle): string {
-  return formatPlateNumeric(v.number_numeric || "") || v.brand?.slice(0, 4) || "車";
-}
-
 /** 通知メッセージ用の短いプレート表記。 */
 function plateText(v: MapVehicle): string {
   return (
@@ -715,10 +712,13 @@ function VehicleLabel({
   vehicle,
   status,
   selected = false,
+  manual = false,
 }: {
   vehicle: VehiclePlateData;
   status: VehicleStatus;
   selected?: boolean;
+  /** 運営が地図で手を置いた位置。打刻やGPSと見分けが付くようにする（監査 K-9） */
+  manual?: boolean;
 }) {
   return (
     <>
@@ -732,6 +732,15 @@ function VehicleLabel({
           {status !== "稼働外" && (
             <span className="absolute left-1/2 top-full mt-0.5 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-950/90 px-1.5 py-0.5 text-[8px] font-bold leading-none text-slate-100 shadow-sm">
               {status}
+            </span>
+          )}
+          {/* 手動配置の見分け。集計には使わない位置なので、見た目で区別できるようにする */}
+          {manual && (
+            <span
+              title="運営が地図で置いた位置（打刻やGPSではありません）"
+              className="absolute -bottom-1 -right-1 rounded-full border border-dashed border-white bg-slate-700 px-1 py-px text-[8px] font-bold leading-none text-white shadow"
+            >
+              手動
             </span>
           )}
           {/* 台数バッジ（束の代表だけ。中身は declutter が入れる。空なら非表示）。
@@ -868,9 +877,24 @@ export default function MapPage() {
   /** 「地図をクリックして置く」対象に選んだ車両。位置がまだ無い車はドラッグできないため、この導線が要る */
   const [pendingPlaceVehicle, setPendingPlaceVehicle] = useState<MapVehicle | null>(null);
 
+  // --- 段階3「動かせる」: 札をそのまま掴んで動かす（監査 P3-3・J-1 で合意） ---
+  /** 掴んでいる札（1台だけ）。掴んでいる間は地図のパンを止め、他の札を薄くする */
+  const [draggingVehicleId, setDraggingVehicleId] = useState<string | null>(null);
+  /** 離した直後に出す確認。ここで「今ここにある」か「運ぶ手配」を選ぶまで保存しない */
+  const [dropConfirm, setDropConfirm] = useState<
+    { vehicle: MapVehicle; lat: number; lng: number; target: DropTarget } | null
+  >(null);
+  /** 直前の位置（「元に戻す」で書き戻す。地図は追記なので1行足して戻す） */
+  const [undoPosition, setUndoPosition] = useState<{ vehicle: MapVehicle; lat: number; lng: number } | null>(null);
+  /** ドラッグ直後の click を飲むための時刻。札のクリック（詳細）と競合させない */
+  const suppressPlateClickRef = useRef(0);
+  /** 掴む前の位置。確認をやめたら書き戻す */
+  const dragOriginRef = useRef<{ id: string; lng: number; lat: number } | null>(null);
+  /** 札マーカーの effect は places/slots を依存に持たないので、ref 経由で最新を読む */
+  const snapSourcesRef = useRef<{ places: MapPlace[]; slots: ParkingSlot[] }>({ places: [], slots: [] });
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
   // 位置のドラッグ配置は配車権限を持つ人だけ（設計: docs/design/map-board.md）
   const [canDispatch, setCanDispatch] = useState(false);
   const [canViewShifts, setCanViewShifts] = useState(false);
@@ -930,7 +954,6 @@ export default function MapPage() {
   const [completingMovement, setCompletingMovement] = useState(false);
   const [cancelMovement, setCancelMovement] = useState<VehicleMovement | null>(null);
   const [placingMessage, setPlacingMessage] = useState<string | null>(null);
-  const popupRootsRef = useRef<Root[]>([]);
   const placeMarkersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
   /** 拠点の名前ポップアップ。編集中だけ外すため保持する */
   const placePopupsRef = useRef<Map<string, mapboxgl.Popup>>(new Map());
@@ -1205,6 +1228,45 @@ export default function MapPage() {
       zoom: Math.max(map.getZoom(), 16),
       duration: 800,
     });
+  };
+
+  /** 「今ここにある」: 掴んで離した位置を、いまの位置として追記する（手動配置） */
+  const confirmDropHere = async () => {
+    const drop = dropConfirm;
+    if (!drop) return;
+    const origin = dragOriginRef.current;
+    setDropConfirm(null);
+    const ok = await savePosition(drop.vehicle, drop.lat, drop.lng);
+    if (!ok) {
+      restoreDraggedMarker();
+      return;
+    }
+    dragOriginRef.current = null;
+    // 位置は追記なので、戻すときも「元の位置」をもう1行足す
+    if (origin) setUndoPosition({ vehicle: drop.vehicle, lat: origin.lat, lng: origin.lng });
+  };
+
+  /** 「ここへ運ぶ手配にする」: 車は動かさず、届け先を決めた状態で移動フォームを開く */
+  const confirmDropAsMovement = () => {
+    const drop = dropConfirm;
+    if (!drop || drop.target.kind !== "place") return;
+    setDropConfirm(null);
+    restoreDraggedMarker();
+    openMovementForm(undefined, { vehicleId: drop.vehicle.id, toPlaceId: drop.target.placeId });
+  };
+
+  /** 確認をやめる: 札を掴む前の位置へ戻す */
+  const cancelDrop = () => {
+    setDropConfirm(null);
+    restoreDraggedMarker();
+  };
+
+  /** 「元に戻す」: 直前の位置をもう1行追記して書き戻す */
+  const undoLastPlacement = async () => {
+    const undo = undoPosition;
+    if (!undo) return;
+    setUndoPosition(null);
+    await savePosition(undo.vehicle, undo.lat, undo.lng);
   };
 
   /** 拠点の編集を開始する（その場所へ寄せて、パネルを出す）。 */
@@ -1652,12 +1714,9 @@ export default function MapPage() {
       const staleLabelRoots = vehicleLabelRootsRef.current;
       vehicleLabelRootsRef.current = [];
       setTimeout(() => staleLabelRoots.forEach((r) => r.unmount()), 0);
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current = [];
       placeMarkersRef.current.forEach((m) => m.remove());
       placeMarkersRef.current.clear();
-      const roots = [...popupRootsRef.current, ...placeRootsRef.current];
-      popupRootsRef.current = [];
+      const roots = [...placeRootsRef.current];
       placeRootsRef.current = [];
       setTimeout(() => roots.forEach((r) => r.unmount()), 0);
       map.remove();
@@ -1772,6 +1831,18 @@ export default function MapPage() {
   );
 
   /** 位置を1件記録して一覧を更新する。ドラッグ・クリック配置の共通処理。 */
+  // 札のドラッグ（段階3）は places/slots を依存に持たない effect の中で判定するため、ref で渡す
+  snapSourcesRef.current = { places, slots };
+
+  /** 掴む前の位置へ札を戻す（確認をやめたとき・保存に失敗したとき） */
+  const restoreDraggedMarker = useCallback(() => {
+    const origin = dragOriginRef.current;
+    dragOriginRef.current = null;
+    if (!origin) return;
+    const entry = vehicleMarkerEntriesRef.current.find((e) => e.vehicle.id === origin.id);
+    entry?.marker.setLngLat([origin.lng, origin.lat]);
+  }, []);
+
   const savePosition = useCallback(
     async (vehicle: MapVehicle, lat: number, lng: number) => {
       setPlacingMessage(`${plateText(vehicle)} の位置を保存しています…`);
@@ -1843,78 +1914,31 @@ export default function MapPage() {
     };
   }, [pendingPlaceVehicle, savePosition]);
 
-  // マーカー反映（データ更新のたびに貼り直す。台数は数十のため十分軽い）。
+  // 初回だけ、位置がある車が全部入るように地図を合わせる。
+  //
+  // 以前はここで「位置修正モードのつまみ」を全車ぶん作っていたが、段階3で
+  // 通常表示の札をそのまま掴んで動かす方式にしたため撤去した（監査 P3-3:
+  // 大量時につまみが格子状に重なって目的の車を選べなかった）。
+  // 位置修正モードは「位置なし車両を置く」専用に縮小している。
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || located.length === 0) return;
-
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
-    const staleRoots = popupRootsRef.current;
-    popupRootsRef.current = [];
-    // 開いている吹き出しの React root を同期で unmount すると警告になるため遅延させる。
-    setTimeout(() => staleRoots.forEach((r) => r.unmount()), 0);
-
+    if (!map || located.length === 0 || fittedRef.current) return;
     const bounds = new mapboxgl.LngLatBounds();
-    for (const v of located) {
-      const p = v.position!;
-      const node = document.createElement("div");
-      const root = createRoot(node);
-      root.render(<VehiclePopup vehicle={v} />);
-      popupRootsRef.current.push(root);
-
-      const popup = new mapboxgl.Popup({
-        offset: 28,
-        maxWidth: "240px",
-        closeButton: false,
-      }).setDOMContent(node);
-      const editable = canDispatch && placing && !historyDate;
-
-      // 修正中だけ「つまみ」を出す。通常時はピンを出さない
-      //  — 3Dモデル＋ナンバー吹き出し＋ピンの3つが重なって読めなかったため（2026-08-10 指摘）。
-      //    通常時のクリック対象はナンバー吹き出し側が持つ（下の「車両ラベル反映」effect）。
-      if (!editable) {
-        popup.remove();
-        popupRootsRef.current = popupRootsRef.current.filter((r) => r !== root);
-        setTimeout(() => root.unmount(), 0);
-        bounds.extend([p.lng, p.lat]);
-        continue;
-      }
-
-      const handle = document.createElement("div");
-      handle.className = "map-drag-handle";
-      handle.title = "つまんで動かす";
-      handle.textContent = plateShort(v);
-      const marker = new mapboxgl.Marker({ element: handle, draggable: true })
-        .setLngLat([p.lng, p.lat])
-        .setPopup(popup)
-        .addTo(map);
-      marker.getElement().style.zIndex = String(MAP_Z.handle);
-      marker.getElement().style.cursor = "grab";
-      marker.on("dragend", () => {
-        const { lng, lat } = marker.getLngLat();
-        void savePosition(v, lat, lng).then((ok: boolean) => {
-          if (!ok) marker.setLngLat([p.lng, p.lat]); // 失敗したら元の位置へ戻す
-        });
-      });
-      markersRef.current.push(marker);
-      bounds.extend([p.lng, p.lat]);
-    }
-
-    if (!fittedRef.current) {
-      fittedRef.current = true;
-      map.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 0 });
-    }
-  }, [located, canDispatch, placing, historyDate, savePosition]);
+    for (const v of located) bounds.extend([v.position!.lng, v.position!.lat]);
+    fittedRef.current = true;
+    map.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 0 });
+  }, [located]);
 
   // 配置モード中は地図のドラッグ移動を止める。
   // （ピンを掴んだつもりで地図が動いてしまう、という迷いをなくす・2026-08-06 実機フィードバック）
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    // 置く場所をクリックで指すモードなので、地図が動くと狙いが定まらない。
+    // 札のドラッグ中の停止・再開は attachPlateDrag が別に持つ。
     if (placing && canDispatch && !historyDate) map.dragPan.disable();
-    else map.dragPan.enable();
-  }, [placing, canDispatch, historyDate]);
+    else if (!draggingVehicleId) map.dragPan.enable();
+  }, [placing, canDispatch, historyDate, draggingVehicleId]);
 
   // エリア編集: mapbox-gl-draw を編集中だけ地図に載せる。
   // 常時載せるとクリックが Draw に吸われて他の操作（拠点の選択・車両の配置）が効かなくなる。
@@ -2219,6 +2243,111 @@ export default function MapPage() {
       return;
     }
 
+    /**
+     * 札を掴んで動かす。タッチは長押し（350ms）、PC はドラッグ開始で掴む。
+     * 掴んでいる間は地図のパンを止め、他の札を薄くする（.vl-dragging）。
+     * 離した位置は確認シートに渡し、そこで選ぶまで保存しない。
+     */
+    const LONG_PRESS_MS = 350;
+    const MOVE_TOLERANCE_PX = 6;
+    const attachPlateDrag = (node: HTMLElement, marker: mapboxgl.Marker, vehicle: MapVehicle) => {
+      const toLngLat = (clientX: number, clientY: number) => {
+        const rect = map.getContainer().getBoundingClientRect();
+        return map.unproject([clientX - rect.left, clientY - rect.top]);
+      };
+
+      node.addEventListener("pointerdown", (down: PointerEvent) => {
+        if (down.pointerType === "mouse" && down.button !== 0) return;
+        // 台数バッジは「束を離して見る」動作を持っているので掴まない
+        if ((down.target as HTMLElement).closest(".vl-count")) return;
+
+        const origin = marker.getLngLat();
+        let timer: number | null = null;
+        let dragging = false;
+
+        const cancelTimer = () => {
+          if (timer !== null) window.clearTimeout(timer);
+          timer = null;
+        };
+        const begin = () => {
+          cancelTimer();
+          dragging = true;
+          node.classList.add("vl-grabbed");
+          map.getContainer().classList.add("vl-dragging");
+          map.dragPan.disable();
+          navigator.vibrate?.(15);
+          setDraggingVehicleId(vehicle.id);
+        };
+        const detach = () => {
+          cancelTimer();
+          document.removeEventListener("pointermove", onMove, true);
+          document.removeEventListener("pointerup", onUp, true);
+          document.removeEventListener("pointercancel", onCancel, true);
+        };
+        const stopDragging = () => {
+          if (!dragging) return;
+          dragging = false;
+          node.classList.remove("vl-grabbed");
+          map.getContainer().classList.remove("vl-dragging");
+          map.dragPan.enable();
+          setDraggingVehicleId(null);
+        };
+
+        function onMove(e: PointerEvent) {
+          if (e.pointerId !== down.pointerId) return;
+          const moved =
+            Math.abs(e.clientX - down.clientX) > MOVE_TOLERANCE_PX ||
+            Math.abs(e.clientY - down.clientY) > MOVE_TOLERANCE_PX;
+          if (!dragging) {
+            // タッチは動いたら「地図を動かしたい」と見なして長押しを中止する
+            if (down.pointerType === "touch") {
+              if (moved) {
+                cancelTimer();
+                detach();
+              }
+              return;
+            }
+            if (!moved) return;
+            begin(); // PC はドラッグ開始で掴む
+          }
+          e.preventDefault();
+          marker.setLngLat(toLngLat(e.clientX, e.clientY));
+        }
+
+        function onUp(e: PointerEvent) {
+          if (e.pointerId !== down.pointerId) return;
+          const wasDragging = dragging;
+          const dropped = marker.getLngLat();
+          stopDragging();
+          detach();
+          if (!wasDragging) return;
+          suppressPlateClickRef.current = Date.now();
+          dragOriginRef.current = { id: vehicle.id, lng: origin.lng, lat: origin.lat };
+          const { places: snapPlaces, slots: snapSlots } = snapSourcesRef.current;
+          setDropConfirm({
+            vehicle,
+            lat: dropped.lat,
+            lng: dropped.lng,
+            target: snapDrop(dropped.lat, dropped.lng, snapPlaces, snapSlots),
+          });
+        }
+
+        function onCancel(e: PointerEvent) {
+          if (e.pointerId !== down.pointerId) return;
+          if (dragging) marker.setLngLat(origin);
+          stopDragging();
+          detach();
+        }
+
+        // 掴んだあと札の外へ出ても追えるよう、動きと離しは document で受ける
+        // （setPointerCapture は端末やイベントの出どころによって例外になるため使わない）
+        document.addEventListener("pointermove", onMove, true);
+        document.addEventListener("pointerup", onUp, true);
+        document.addEventListener("pointercancel", onCancel, true);
+        if (down.pointerType === "touch") timer = window.setTimeout(begin, LONG_PRESS_MS);
+      });
+    };
+
     for (const v of displayedVehicles) {
       const p = v.position!;
       const node = document.createElement("div");
@@ -2229,6 +2358,11 @@ export default function MapPage() {
       node.style.zIndex = String(MAP_Z.plate); // 規約: lib/map/zIndex.ts
       node.style.cursor = "pointer";
       node.addEventListener("click", (event) => {
+        // 掴んで離した直後のクリックは詳細を開かない（段階3のドラッグと競合するため）
+        if (Date.now() - suppressPlateClickRef.current < 400) {
+          event.stopPropagation();
+          return;
+        }
         // 台数バッジ: 束の車が離れて見えるまで寄る（位置は動かさない）
         const bounds = clusterBoundsRef.current.get(v.id);
         if ((event.target as HTMLElement).closest(".vl-count") && bounds && bounds.length > 1) {
@@ -2246,6 +2380,7 @@ export default function MapPage() {
           vehicle={v}
           status={statusOf(v)}
           selected={mapMode === "movements" && selectedMovement?.vehicleId === v.id}
+          manual={p.source === "manual"}
         />,
       );
       vehicleLabelRootsRef.current.push(root);
@@ -2302,6 +2437,9 @@ export default function MapPage() {
         .addTo(map);
       vehicleLabelMarkersRef.current.push(marker);
       vehicleMarkerEntriesRef.current.push({ marker, vehicle: v });
+      // 段階3: 配車できる人は札をそのまま掴んで動かせる。
+      // 履歴・位置修正モード中は掴めない（見ているものと操作が食い違うため）。
+      if (canDispatch && !historyDate && !placing) attachPlateDrag(node, marker, v);
     }
     declutterPlatesRef.current();
   }, [displayedVehicles, statusOf, canDispatch, placing, historyDate, slotBearingAt, mapMode, selectedMovement]);
@@ -2382,10 +2520,13 @@ export default function MapPage() {
     if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 90, maxZoom: 13.5, duration: 700 });
   };
 
-  const openMovementForm = (movement?: VehicleMovement) => {
+  /** preset: 札を運ぶ先へドロップしたときに、車両と届け先を決めた状態で開く（段階3） */
+  const openMovementForm = (movement?: VehicleMovement, preset?: { vehicleId?: string; toPlaceId?: string }) => {
     const vehicle = movement
       ? (data?.vehicles ?? []).find((item) => item.id === movement.vehicleId) ?? null
-      : selectedVehicle ?? located[0] ?? null;
+      : preset?.vehicleId
+        ? (data?.vehicles ?? []).find((item) => item.id === preset.vehicleId) ?? null
+        : selectedVehicle ?? located[0] ?? null;
     const nearestPlace = vehicle?.position
       ? [...(operationsData?.places ?? [])].sort(
           (a, b) =>
@@ -2404,6 +2545,7 @@ export default function MapPage() {
       fromPlaceId: movement?.fromPlaceId ?? nearestPlace?.id ?? "",
       toPlaceId:
         movement?.toPlaceId ??
+        preset?.toPlaceId ??
         (operationsData?.places ?? []).find((place) => place.id !== nearestPlace?.id)?.id ??
         "",
       assigneeDriverId: movement?.assigneeDriverId ?? "",
@@ -2603,8 +2745,8 @@ export default function MapPage() {
         ) : placing ? (
           <div className="flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-100 px-3 py-2 text-xs font-medium text-sky-900">
             <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
-            位置の修正中: 青く光っているピンをつまんで、実際にいる場所へ動かしてください。
-            地図の移動は一時的に止めています（ズームはスクロールでできます）。
+            位置なしの車を置きます: 下の一覧から車を選び、地図をクリックしてください。
+            すでに位置がある車は、ナンバー札を長押し（PCはドラッグ）でそのまま動かせます。
             終わったら「位置の修正を終える」を押してください
           </div>
         ) : historyDate ? (
@@ -2615,8 +2757,8 @@ export default function MapPage() {
         ) : canDispatch ? (
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
-            GPS がまだ無い車の居場所は、手で教えられます。「車の位置を直す」を押してください
-            （打刻GPSは上書きしません）
+            ナンバー札を長押し（PCはそのままドラッグ）で車を動かせます。GPS がまだ無い車は
+            「車の位置を直す」から置いてください（打刻GPSは上書きしません）
           </div>
         ) : null}
 
@@ -2985,6 +3127,61 @@ export default function MapPage() {
                 </button>
               )}
             </div>
+
+            {/* 段階3: 札を離したあとの確認。地図を割らずに下から重ねる */}
+            {dropConfirm && (
+              <div className={`absolute inset-x-3 bottom-3 z-[${MAP_Z.controls}] mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg`}>
+                <div className="flex items-start gap-2">
+                  <VehiclePlate vehicle={dropConfirm.vehicle} compact glow={false} className="w-[76px] shrink-0" />
+                  <p className="min-w-0 flex-1 text-sm text-slate-800">
+                    <span className="font-bold">{dropConfirm.target.label}</span>
+                    {dropConfirm.target.kind === "place" ? " に置きます" : " に置きます（拠点の外）"}
+                  </p>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void confirmDropHere()}
+                    className="flex-1 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                  >
+                    今ここにある
+                  </button>
+                  {dropConfirm.target.kind === "place" && (
+                    <button
+                      type="button"
+                      onClick={confirmDropAsMovement}
+                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      ここへ運ぶ手配にする
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={cancelDrop}
+                    className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700"
+                  >
+                    やめる
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 直前の手動配置を1手で戻す（位置は追記なので、元の位置をもう1行足す） */}
+            {!dropConfirm && undoPosition && (
+              <div className={`absolute inset-x-3 bottom-3 z-[${MAP_Z.controls}] mx-auto flex w-fit items-center gap-3 rounded-full bg-slate-900/95 px-4 py-2 text-xs font-semibold text-white shadow-lg`}>
+                {plateText(undoPosition.vehicle)} を動かしました
+                <button
+                  type="button"
+                  onClick={() => void undoLastPlacement()}
+                  className="font-bold text-amber-300 underline underline-offset-2"
+                >
+                  元に戻す
+                </button>
+                <button type="button" onClick={() => setUndoPosition(null)} aria-label="閉じる" className="text-slate-300 hover:text-white">
+                  <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                </button>
+              </div>
+            )}
 
             {/* ピン追加モードの案内バナー */}
 
