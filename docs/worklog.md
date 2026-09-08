@@ -730,3 +730,7 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-09-08 19:35 報酬計算の修正を本番へデプロイ
 
 - 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。`f899b01` を push し hakotora.jp へ反映。疎通確認済み。7 月請求書の再作成はユーザー側で実施。
+
+## 2026-09-08 20:35 作戦盤の折返し崩れを修正し、単価スナップショット後埋めを X-9 として追加
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。`.steps li` の 3 つ目の子が連番カラム(22px)へ回り込んでいた不具合を `grid-column:2` で修正。X-9 を追加。
