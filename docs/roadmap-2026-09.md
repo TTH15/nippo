@@ -49,7 +49,7 @@ Passkey・モバイルログイン・セキュリティ・モバイル画面・�
 - モバイルの駐車自動特定: [design/mobile-parking-auto-detect.md](design/mobile-parking-auto-detect.md)
 - 認証: [platform-design.md §2-1a](platform-design.md)、モバイル: [mobile-migration-roadmap-2026.md](mobile-migration-roadmap-2026.md)
 
-着手順の提案: 1) B-1 の棚卸し → 2) 地図 段階1「見える」 → 3) B-7 Passkey 応答の一回性（challenge token が 5 分の JWT で消費されないことをコードで確定） → 4) B-2 失効 → 5) モバイル足回り（eas init・env・ATS） → 6) 駐車自動特定 M1 → 7) 地図 段階2「探せる」 → 8) PIN 撤廃とネイティブ Passkey（Apple 待ち）。
+着手順の提案: 1) B-1 の棚卸し（✅ 2026-09-08 migration 159 で完了） → 2) 地図 段階1「見える」（次の一手） → 3) B-7 Passkey 応答の一回性（challenge token が 5 分の JWT で消費されないことをコードで確定） → 4) B-2 失効 → 5) モバイル足回り（eas init・env・ATS） → 6) 駐車自動特定 M1 → 7) 地図 段階2「探せる」 → 8) PIN 撤廃とネイティブ Passkey（Apple 待ち）。
 
 2026-09-08 の棚卸しで判明した事実: `feat/mobile-capture-flow`（VisionCamera 版の撮影フロー・4 コミット）が未マージ・未 push。main は expo-camera の静止画版。取り込み方は判断待ち（J-3）。
 

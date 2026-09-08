@@ -47,7 +47,7 @@
 
 ### 2-4. 保存する行
 
-`vehicle_positions` に `kind='parked'` の1行。既存列は Phase 1 のまま、次の2列を足す（migration 159・候補）。
+`vehicle_positions` に `kind='parked'` の1行。既存列は Phase 1 のまま、次の2列を足す（migration 160・候補。159 は S-1 の REVOKE で使用済み）。
 
 | 列 | 型 | 意味 |
 |---|---|---|
@@ -94,7 +94,7 @@
 
 ## 5. サーバー側の変更点
 
-- `server/reports/parking.ts` の `parseParkingReport` に `coords`（`lat` `lng` `accuracyM` `fixAt`）と `detectedBy` を追加。`placeId`／`placeName` と `coords` は排他ではなく、`coords` だけの申告を許す（`kind='parked'` は「登録車庫か場所名」必須だったので、**座標だけの申告**も有効にする。migration 159 で CHECK を「車庫・場所名・座標のいずれか」に緩める）。
+- `server/reports/parking.ts` の `parseParkingReport` に `coords`（`lat` `lng` `accuracyM` `fixAt`）と `detectedBy` を追加。`placeId`／`placeName` と `coords` は排他ではなく、`coords` だけの申告を許す（`kind='parked'` は「登録車庫か場所名」必須だったので、**座標だけの申告**も有効にする。migration 160 で CHECK を「車庫・場所名・座標のいずれか」に緩める）。
 - `saveParkingReport` にスナップ（§2-3）を追加。純粋関数 `snapToPlaces(coords, places, slots)` を `server/reports/parkingSnap.ts` に切り出してテストする（当たる／半径外／精度で区画を決めない／`allow_parking=false` は無視／複数拠点で最寄り）。
 - 応答に `parking: { placeName, slotLabel, snapped: boolean }` を返す。
 - 地図 API（`/api/admin/map/vehicles`）は既に `kind`／`place_name` を返す。`accuracy_m`・`detected_by` を追加し、運営の地図の詳細に「自動記録（精度 12 m）」と出す。
