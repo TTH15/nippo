@@ -3,6 +3,7 @@
 // /preview/admin/<slug>?scenario=<name>&role=<admin|accounting|viewer> … 本番ページ本体を fixture で表示
 import { useEffect, useMemo, useState } from "react";
 import { createFixtureStore } from "@/lib/preview/fixtureStore";
+import { VehicleDetailProvider } from "@/lib/components/VehicleDetailSheet";
 import { buildPreviewHref, parsePreviewLocation, PREVIEW_ROLES, PREVIEW_ROLE_ORDER } from "@/lib/preview/scenario";
 import { scenariosOf } from "@/lib/preview/fixtureStore";
 import { PREVIEW_PAGES, findPageBySlug } from "./fixtures";
@@ -104,7 +105,10 @@ export default function AdminPreviewApp() {
   const Page = page.Page;
   return (
     <PreviewRuntimeContext.Provider value={runtime}>
-      <Page key={`${page.slug}:${store.scenario}:${store.role}`} />
+      {/* 本番の (admin)/layout.tsx と同じく、運営の画面ではプレートの長押しで詳細が出る */}
+      <VehicleDetailProvider>
+        <Page key={`${page.slug}:${store.scenario}:${store.role}`} />
+      </VehicleDetailProvider>
     </PreviewRuntimeContext.Provider>
   );
 }

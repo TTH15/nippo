@@ -748,3 +748,7 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-09-08 22:45 地図 段階2「探せる」（K-7）: 検索窓で車両・ドライバーも引く
 
 - 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。同じ検索窓の上段に車両・ドライバー、下段に住所・施設。選ぶと寄って詳細が開き、位置なし車はそのまま置ける。照合は `lib/map/vehicleSearch.ts` に純粋関数＋テスト9件。
+
+## 2026-09-08 23:05 ナンバープレートの長押しで車両の詳細を出す（運営の全ページ）
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。地図の詳細を `VehicleDetailCard` に共通化し、運営レイアウトに `VehicleDetailProvider` を設置。タッチの長押しだけで開く。車両1台分の詳細 API を新設。

@@ -150,6 +150,27 @@ export const vehiclesFixture: PreviewFixture<State> = {
       return { canViewCost, recovery: Object.fromEntries(state.vehicles.map((v) => [v.id, { recovered: 0, remaining: v.purchase_cost }])) };
     }
     if (/^\/api\/admin\/vehicles\/[^/]+\/meter-logs$/.test(path)) return { logs: [] };
+    // プレート長押しの詳細シート。位置は架空の「稼働中・退勤打刻」を1件だけ返す
+    const detail = path.match(/^\/api\/admin\/vehicles\/([^/]+)\/detail$/);
+    if (detail) {
+      const vehicle = state.vehicles.find((v) => v.id === detail[1]);
+      if (!vehicle) return undefined;
+      return {
+        vehicle: {
+          ...vehicle,
+          position: {
+            at: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
+            source: "punch",
+            kind: "checkin",
+            placedBy: "",
+            note: null,
+            placeName: null,
+            sessionStatus: "open",
+            driverName: "佐藤 翔太",
+          },
+        },
+      };
+    }
     return undefined;
   },
   write: (state, { path, method, body }) => {

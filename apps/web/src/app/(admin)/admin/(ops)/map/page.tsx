@@ -35,12 +35,6 @@ import {
   faUsers,
   faWarehouse,
   faXmark,
-  faOilCan,
-  faGaugeHigh,
-  faCalendarCheck,
-  faClock,
-  faHand,
-  faUser,
 } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { AerialMovementArrow } from "@/lib/components/AerialMovementArrow";
@@ -64,6 +58,7 @@ import { presentationChanged, vehicleMapPresentation, type VehicleMapPresentatio
 import { MapPlateLabel } from "@/lib/components/MapPlateLabel";
 import { MAP_PLATE_HEIGHT, MAP_PLATE_WIDTH } from "@/lib/map/mapPlateImage";
 import { MAP_Z } from "@/lib/map/zIndex";
+import { VehicleDetailCard } from "@/lib/components/VehicleDetailCard";
 import { matchVehicles } from "@/lib/map/vehicleSearch";
 import { useModalKeys } from "@/lib/ui/dialog";
 import {
@@ -652,80 +647,12 @@ function formatAt(at: string | null): string {
 }
 
 // 吹き出しの中身: ナンバープレート＋状態（稼働中/最終確認）。
-/** クリック時の詳細。文字は最小限にし、車種・稼働・オイル交換の残量バー・走行距離・車検・最後の記録をアイコンで示す */
+/**
+ * クリック時の詳細。中身は共通の VehicleDetailCard（シフト表などの長押しシートと同じもの）。
+ * ここで別実装を持つと、片方だけ直して見え方がズレる。
+ */
 function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
-  const p = vehicle.position!;
-  const working = p.sessionStatus === "open";
-  const model = [vehicle.manufacturer, vehicle.brand].filter(Boolean).join(" ");
-  const interval = vehicle.oil_change_interval ?? 0;
-  const oilTracked = !vehicle.is_ev && interval > 0 && typeof vehicle.current_mileage === "number";
-  const oilRemaining = oilTracked ? (vehicle.last_oil_change_mileage ?? 0) + interval - (vehicle.current_mileage ?? 0) : null;
-  // バーは車両一覧と同じ「前回交換からどれだけ進んだか」（右端＝次回交換）。色も一覧と同じ閾値
-  const oilRatio = oilRemaining === null ? 0
-    : Math.max(0, Math.min(1, ((vehicle.current_mileage ?? 0) - (vehicle.last_oil_change_mileage ?? 0)) / interval));
-  const oilTone = oilRemaining === null ? "" : oilRemaining < 100 ? "text-red-600" : oilRemaining <= 300 ? "text-yellow-500" : "text-slate-900";
-  const oilBar = oilRemaining === null ? "" : oilRemaining < 100 ? "bg-red-500" : oilRemaining <= 300 ? "bg-yellow-400" : "bg-green-500";
-  const recordIcon = p.source === "report" ? faSquareParking : p.source === "manual" ? faHand : faClock;
-  const recordTitle = p.source === "report"
-    ? `日報で申告した置き場所${p.placedBy ? `（${p.placedBy}）` : ""}`
-    : p.source === "manual"
-      ? `手動で配置${p.placedBy ? `（${p.placedBy}）` : ""}`
-      : `${p.kind === "checkout" ? "退勤" : "出勤"}打刻の位置`;
-  const row = "flex items-center gap-2 text-[12px] tabular-nums";
-  const icon = "h-3.5 w-3.5 shrink-0 text-slate-400";
-  // 札のオイル警告バッジ（吹き出し付き）は下のバーと二重になり本文に被るので、札には走行距離を渡さない
-  const plateOnly: VehiclePlateData = { ...vehicle, current_mileage: undefined, last_oil_change_mileage: undefined, oil_change_interval: undefined };
-  return (
-    <div className="w-[216px] space-y-2 p-1 text-slate-900">
-      <div className="flex items-center gap-2">
-        <VehiclePlate vehicle={plateOnly} compact glow={false} className="w-[72px] shrink-0" />
-        <div className="min-w-0">
-          <div className="truncate text-[13px] font-bold">{model || "車種 未登録"}</div>
-          <div className="flex items-center gap-1 text-[11px] text-slate-600" title={working ? "稼働中" : "稼働外"}>
-            <span className={`inline-block h-2 w-2 rounded-full ${working ? "bg-emerald-500" : "bg-slate-400"}`} />
-            {working && p.driverName ? (
-              <span className="inline-flex items-center gap-1 truncate"><FontAwesomeIcon icon={faUser} className="h-2.5 w-2.5" />{p.driverName}</span>
-            ) : (
-              <span>{working ? "稼働中" : "稼働外"}</span>
-            )}
-          </div>
-        </div>
-      </div>
-      {oilRemaining !== null && (
-        <div className="space-y-1" title="オイル交換までの残り">
-          <div className={row}>
-            <FontAwesomeIcon icon={faOilCan} className={icon} />
-            <span className={`font-bold ${oilTone}`}>
-              {oilRemaining < 0 ? `−${Math.abs(oilRemaining).toLocaleString("ja-JP")}` : oilRemaining.toLocaleString("ja-JP")} km
-            </span>
-          </div>
-          <div className="ml-[22px] h-1.5 overflow-hidden rounded-full bg-slate-200">
-            <div className={`h-full rounded-full ${oilBar}`} style={{ width: `${Math.round(oilRatio * 100)}%` }} />
-          </div>
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-        {typeof vehicle.current_mileage === "number" && (
-          <div className={row} title="走行距離">
-            <FontAwesomeIcon icon={faGaugeHigh} className={icon} />
-            <span>{vehicle.current_mileage.toLocaleString("ja-JP")} km</span>
-          </div>
-        )}
-        {vehicle.next_shaken_date && (
-          <div className={row} title="次回車検">
-            <FontAwesomeIcon icon={faCalendarCheck} className={icon} />
-            <span>{formatShakenMonth(vehicle.next_shaken_date)}</span>
-          </div>
-        )}
-      </div>
-      <div className={`${row} text-slate-600`} title={recordTitle}>
-        <FontAwesomeIcon icon={recordIcon} className={icon} />
-        <span>{formatAt(p.at)}</span>
-        {p.source === "report" && p.placeName && <span className="truncate font-medium text-slate-800">{p.placeName}</span>}
-        {p.note && <span className="truncate text-[11px] text-slate-500">{p.note}</span>}
-      </div>
-    </div>
-  );
+  return <VehicleDetailCard vehicle={vehicle} />;
 }
 
 /** 束（画面上で重なった車）は代表の詳細に全員分を並べる。1台なら従来どおり */
@@ -746,11 +673,6 @@ function VehiclePopupGroup({ vehicles, maxHeight }: { vehicles: MapVehicle[]; ma
 }
 
 /** 車検日は年月で足りる（YYYY-MM-DD → YYYY年M月） */
-function formatShakenMonth(iso: string): string {
-  const [y, m] = iso.split("-").map(Number);
-  return y && m ? `${y}年${m}月` : iso;
-}
-
 /** ポップアップは札の上へ逃がし、札と被らないようにする。anchor ごとの offset（Mapbox が収まる向きを選ぶ） */
 function popupOffsetFor(markerOffsetPixels: number): NonNullable<mapboxgl.PopupOptions["offset"]> {
   const above = markerOffsetPixels + MAP_PLATE_HEIGHT + 22;

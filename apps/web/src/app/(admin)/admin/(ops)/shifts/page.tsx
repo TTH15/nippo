@@ -320,7 +320,8 @@ function VehicleOptionList({
           onChange(v.id);
         }}
       >
-        <div className="relative w-full">
+        {/* プレートは pointer-events-none（親がクリックを持つ）ため、長押しの対象は囲いに置く */}
+        <div className="relative w-full" data-vehicle-plate-id={v.id}>
           <VehiclePlate vehicle={v} compact className="!max-w-[12rem] w-full min-w-0 pointer-events-none mx-auto" />
           {selected && (
             // プレート上に重ねる（プレート自体が黒地で、下の余白だけでは目立たないため）
@@ -2096,11 +2097,14 @@ export default function ShiftsPage() {
                       // w-full が無いと flex アイテムとして幅が決まらず（内部が w-full のため）
                       // プレートが潰れて見えなくなる
                       <DuplicateVehicleFrame active={isDuplicateVehicle(date, plate.id)} title={DUPLICATE_VEHICLE_TITLE}>
-                        <VehiclePlate
-                          vehicle={plate}
-                          compact
-                          className="w-full !max-w-none min-w-0 pointer-events-none"
-                        />
+                        {/* 同上: 長押しの対象は pointer-events を持つ囲いに置く */}
+                        <span className="block" data-vehicle-plate-id={plate.id}>
+                          <VehiclePlate
+                            vehicle={plate}
+                            compact
+                            className="w-full !max-w-none min-w-0 pointer-events-none"
+                          />
+                        </span>
                       </DuplicateVehicleFrame>
                     ) : isExternal ? (
                       <span className="text-[11px] font-semibold text-amber-600">他社車両</span>

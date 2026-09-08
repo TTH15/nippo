@@ -7,6 +7,7 @@
 import { Providers } from "@/lib/components/Providers";
 import { AdminAccessGuard } from "@/lib/components/AdminAccessGuard";
 import { AppModeRecorder } from "@/lib/components/AppModeRecorder";
+import { VehicleDetailProvider } from "@/lib/components/VehicleDetailSheet";
 
 export default function AdminGroupLayout({
   children,
@@ -23,7 +24,10 @@ export default function AdminGroupLayout({
         className="min-h-screen bg-[var(--color-bg)] max-md:bg-[var(--mode-admin-bg)]"
       >
         {/* 運営 capability を持たないアカウントは URL 直打ちでも入れない（PC 含む） */}
-        <AdminAccessGuard>{children}</AdminAccessGuard>
+        {/* ナンバープレートの長押しで車両の詳細を出す（運営の画面だけ） */}
+        <AdminAccessGuard>
+          <VehicleDetailProvider>{children}</VehicleDetailProvider>
+        </AdminAccessGuard>
       </div>
     </Providers>
   );

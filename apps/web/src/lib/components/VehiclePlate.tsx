@@ -422,6 +422,10 @@ export function VehiclePlate({
     </span>
   ) : null;
 
+  // 運営の画面ではプレートの長押しで車両の詳細を出す（VehicleDetailProvider が
+  // この属性を辿る）。属性を置くだけなので、Provider が無い画面では何も起きない。
+  const plateId = vehicle?.id ? { "data-vehicle-plate-id": vehicle.id } : {};
+
   return interactive ? (
     <button
       type="button"
@@ -429,13 +433,14 @@ export function VehiclePlate({
       aria-pressed={!!selected}
       className={wrapperClass}
       style={wrapperStyle}
+      {...plateId}
     >
       {inner}
       {warning}
       {unavailable}
     </button>
   ) : (
-    <div className={wrapperClass} style={wrapperStyle}>
+    <div className={wrapperClass} style={wrapperStyle} {...plateId}>
       {inner}
       {warning}
       {unavailable}
