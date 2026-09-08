@@ -740,3 +740,7 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-09-08 21:20 地図 段階1「見える」（K-1〜K-6）を実装
 
 - 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。重なり順を `lib/map/zIndex.ts` に集約、z13 未満は車体を出さない、縮退ドットを束判定に含める、拠点ピン既定表示、Esc/focus trap、検索ヒットの hover 再生成廃止。プレビューで受け入れ基準4件を確認。
+
+## 2026-09-08 21:35 地図 段階1 を本番へデプロイ
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。`2530e07` を push し hakotora.jp へ反映。/login・/join・/admin/map とも 200。
