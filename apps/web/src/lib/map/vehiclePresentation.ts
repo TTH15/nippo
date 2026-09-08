@@ -1,6 +1,10 @@
 // ============================================================
 // 地図上の車両の見かけサイズ（純粋ロジック）。本番 /admin/map と検討用プレビューで共用する。
-// 車両の長さを地図幅の約9%に保ち、寄って実寸に達したら等倍で止める（2026-09-02 プレビューで確定）。
+//
+// 車両の長さは「地図の短い辺の 14%」を目標にし、寄って実寸に達したら等倍で止める。
+// ただし広域では車体を出さない。z13 未満は車が数kmの大きさになり、足元のリングが
+// 市名を覆って地図が読めなくなるため、モデルとリングを消して札＋ドットだけにする
+// （J-2 の判断・2026-09-08）。z13〜15 は 40px から目標へ線形に上げ、z15 以上で目標のまま。
 // ============================================================
 
 const EARTH_CIRCUMFERENCE_METERS = 40_075_016.686;
@@ -22,8 +26,14 @@ export const VEHICLE_TARGET_MAX_PIXELS = 120;
 export const VEHICLE_PITCH_SHRINK = 0.3;
 /** 既定の車両長（アクティHH5）。車種別モデルは vehicleModels の登録表から渡す */
 export const ACTY_HH5_LENGTH_METERS = 3.392;
+/** これ未満のズームでは車体モデル・足元リングを描かない（札とドットだけにする） */
+export const VEHICLE_MODEL_MIN_ZOOM = 13;
+/** このズーム以上で目標サイズいっぱい。MIN との間は線形に立ち上げる */
+export const VEHICLE_MODEL_FULL_ZOOM = 15;
 
 export type VehicleMapPresentation = {
+  /** 車体モデルと足元リングを描くか。false の広域では札＋ドットだけを出す */
+  modelVisible: boolean;
   modelScale: number;
   targetLengthPixels: number;
   renderedLengthPixels: number;
@@ -34,6 +44,22 @@ export type VehicleMapPresentation = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+/** z13 未満はモデルを描かない */
+export function modelVisibleAtZoom(zoom: number): boolean {
+  return zoom >= VEHICLE_MODEL_MIN_ZOOM;
+}
+
+/**
+ * ズームに応じた目標の車両長（px）。
+ * z13 で 40px、z15 で満額、その間は線形。z13 未満は 0（描かない）。
+ */
+export function targetLengthForZoom(fullTargetPixels: number, zoom: number): number {
+  if (!modelVisibleAtZoom(zoom)) return 0;
+  if (zoom >= VEHICLE_MODEL_FULL_ZOOM) return fullTargetPixels;
+  const t = (zoom - VEHICLE_MODEL_MIN_ZOOM) / (VEHICLE_MODEL_FULL_ZOOM - VEHICLE_MODEL_MIN_ZOOM);
+  return VEHICLE_TARGET_MIN_PIXELS + (fullTargetPixels - VEHICLE_TARGET_MIN_PIXELS) * t;
+}
 
 /** 画面サイズとピッチから目標の車両長（px）を決める。ズームや緯度には依存しない */
 export function targetVehicleLengthPixels({
@@ -71,17 +97,23 @@ export function vehicleMapPresentation({
   const metersPerPixel = (
     Math.cos((safeLatitude * Math.PI) / 180) * EARTH_CIRCUMFERENCE_METERS
   ) / (MAPBOX_TILE_SIZE * Math.pow(2, zoom));
-  const targetLengthPixels = targetVehicleLengthPixels({ mapWidthPixels, mapHeightPixels, pitch });
+  const fullTarget = targetVehicleLengthPixels({ mapWidthPixels, mapHeightPixels, pitch });
+  const modelVisible = modelVisibleAtZoom(zoom);
+  // 広域では描かないが、札の逃がし量などは 0 除算にならない値を返しておく
+  const targetLengthPixels = modelVisible ? targetLengthForZoom(fullTarget, zoom) : 0;
   const actualLengthPixels = length / metersPerPixel;
   const modelScale = Math.max(1, targetLengthPixels / actualLengthPixels);
-  const renderedLengthPixels = actualLengthPixels * modelScale;
+  const renderedLengthPixels = modelVisible ? actualLengthPixels * modelScale : 0;
 
   return {
+    modelVisible,
     modelScale,
     targetLengthPixels,
     renderedLengthPixels,
-    contrastRadiusPixels: Math.max(10, renderedLengthPixels * 0.46),
-    markerOffsetPixels: Math.max(28, renderedLengthPixels * 0.62),
+    contrastRadiusPixels: modelVisible ? Math.max(10, renderedLengthPixels * 0.46) : 0,
+    // 車体が無い広域でも、札を縮退ドット（アンカーの 6px 上・直径 12px）より
+    // 上へ逃がす。18px だと札の下端とドットが接して読みにくかった（2026-09-08 実画面）。
+    markerOffsetPixels: modelVisible ? Math.max(28, renderedLengthPixels * 0.62) : 32,
   };
 }
 
@@ -91,6 +123,8 @@ export function presentationChanged(
   next: VehicleMapPresentation,
 ): { scale: boolean; contrast: boolean; offset: boolean } {
   if (!previous) return { scale: true, contrast: true, offset: true };
+  // 表示・非表示の切り替わりは必ず反映する（閾値では拾えない）
+  if (previous.modelVisible !== next.modelVisible) return { scale: true, contrast: true, offset: true };
   return {
     scale: Math.abs(next.modelScale - previous.modelScale) > Math.max(0.002, next.modelScale * 0.001),
     contrast: Math.abs(next.contrastRadiusPixels - previous.contrastRadiusPixels) >= 0.1,

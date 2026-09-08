@@ -300,6 +300,21 @@ input[type="number"] {
   display: flex;
 }
 
+/* 検索ヒットのピン: hover の強調はクラスの切替だけで行う。
+   React の prop で切り替えるとマーカーごと作り直しになる（2026-09-08 監査 P3-4）。 */
+.search-hit .search-hit-badge {
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.search-hit.is-active .search-hit-badge {
+  transform: scale(1.1);
+  border-color: #0f172a;
+}
+@media (prefers-reduced-motion: reduce) {
+  .search-hit .search-hit-badge {
+    transition: none;
+  }
+}
+
 /* ============================================================
    地図の「位置の修正」つまみ（配車作戦盤 Stage 0.5）
    既定マーカーに影を足すだけでは掴める場所が分からず、地図のパンと

@@ -736,3 +736,7 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-09-08 20:35 作戦盤の折返し崩れを修正し、単価スナップショット後埋めを X-9 として追加
 
 - 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。`.steps li` の 3 つ目の子が連番カラム(22px)へ回り込んでいた不具合を `grid-column:2` で修正。X-9 を追加。
+
+## 2026-09-08 21:20 地図 段階1「見える」（K-1〜K-6）を実装
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。重なり順を `lib/map/zIndex.ts` に集約、z13 未満は車体を出さない、縮退ドットを束判定に含める、拠点ピン既定表示、Esc/focus trap、検索ヒットの hover 再生成廃止。プレビューで受け入れ基準4件を確認。

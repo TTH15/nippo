@@ -41,9 +41,12 @@ describe("map operations preview model", () => {
   });
 
   it("keeps the vehicle proportional to the shorter side of the map before reaching actual size", () => {
-    const desktop = vehicleMapPresentation({ mapWidthPixels: 800, zoom: 12, latitude: 34.83 });
+    // ズームは z15 以上（目標いっぱいになる領域）で見る。
+    // z13 未満は車体を出さない仕様になったため（J-2・2026-09-08）、
+    // 比率の確認は表示される領域で行う。
+    const desktop = vehicleMapPresentation({ mapWidthPixels: 800, zoom: 15, latitude: 34.83 });
     const mobile = vehicleMapPresentation({ mapWidthPixels: 360, mapHeightPixels: 520, zoom: 17, latitude: 34.83 });
-    const wide = vehicleMapPresentation({ mapWidthPixels: 2000, mapHeightPixels: 700, zoom: 12, latitude: 34.83 });
+    const wide = vehicleMapPresentation({ mapWidthPixels: 2000, mapHeightPixels: 700, zoom: 15, latitude: 34.83 });
 
     expect(desktop.renderedLengthPixels).toBeCloseTo(112);
     expect(desktop.modelScale).toBeGreaterThan(1);

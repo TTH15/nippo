@@ -63,6 +63,8 @@ import { VEHICLE_MAP_MODELS, mapModelKeyForVehicle, vehicleMapModelFor } from "@
 import { presentationChanged, vehicleMapPresentation, type VehicleMapPresentation } from "@/lib/map/vehiclePresentation";
 import { MapPlateLabel } from "@/lib/components/MapPlateLabel";
 import { MAP_PLATE_HEIGHT, MAP_PLATE_WIDTH } from "@/lib/map/mapPlateImage";
+import { MAP_Z } from "@/lib/map/zIndex";
+import { useModalKeys } from "@/lib/ui/dialog";
 import {
   VehiclePlate,
   formatPlateNumeric,
@@ -352,15 +354,13 @@ function circlePolygon(lat: number, lng: number, radiusM: number, steps = 64): P
 }
 
 // 検索結果のピン。拠点ピン（登録済み）と区別できるよう、白地＋番号＋種別アイコンにする。
-function SearchHitMarker({ index, icon, active }: { index: number; icon: PlaceIcon; active: boolean }) {
+// hover の強調は親マーカーの .search-hit.is-active（globals.css）で当てる。
+// プロップで切り替えるとマーカーごと作り直しになる（監査 P3-4）。
+function SearchHitMarker({ index, icon }: { index: number; icon: PlaceIcon }) {
   const meta = PLACE_ICONS[icon] ?? PLACE_ICONS.pin;
   return (
     <div className="flex flex-col items-center">
-      <div
-        className={`flex items-center gap-1 rounded-full border-2 bg-white px-2 py-1 shadow-lg transition-transform ${
-          active ? "scale-110 border-slate-900" : "border-white"
-        }`}
-      >
+      <div className="search-hit-badge flex items-center gap-1 rounded-full border-2 border-white bg-white px-2 py-1 shadow-lg transition-transform">
         <FontAwesomeIcon icon={meta.icon} className={`h-3 w-3 ${meta.bg.replace("bg-", "text-")}`} />
         <span className="text-[10px] font-bold text-slate-700">{index}</span>
       </div>
@@ -811,8 +811,11 @@ function VehicleLabel({
               {status}
             </span>
           )}
-          {/* 台数バッジ（束の代表だけ。中身は declutter が入れる。空なら非表示） */}
-          <span className="vl-count absolute -left-2 -top-2.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-amber-950 shadow ring-1 ring-white empty:hidden" />
+          {/* 台数バッジ（束の代表だけ。中身は declutter が入れる。空なら非表示）。
+              札の内側の左上に置く。外へ出すと隣の札を覆い、下に出すと縮退ドットと場所を
+              取り合う（どちらも 2026-09-08 の監査・実画面で確認）。地名の一部は隠れるが、
+              見分けに使う4桁の数字は隠さない。 */}
+          <span className="vl-count absolute left-1 top-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-amber-950 shadow ring-1 ring-white empty:hidden" />
         </MapPlateLabel>
         <span aria-hidden className="mt-0.5 block h-2 w-px bg-white shadow" />
       </div>
@@ -1006,6 +1009,8 @@ export default function MapPage() {
   const [placingMessage, setPlacingMessage] = useState<string | null>(null);
   const popupRootsRef = useRef<Root[]>([]);
   const placeMarkersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
+  /** 拠点の名前ポップアップ。編集中だけ外すため保持する */
+  const placePopupsRef = useRef<Map<string, mapboxgl.Popup>>(new Map());
   const placeRootsRef = useRef<Root[]>([]);
   const fittedRef = useRef(false);
   // 3D 状態はボタンで持たず、地図の実ピッチから導出する（コンパス等どこから
@@ -1031,10 +1036,13 @@ export default function MapPage() {
   /** 面（駐車区画・配達エリア・拠点の円）のデータを流し込む（同上） */
   const applyAreaDataRef = useRef<() => void>(() => {});
 
-  // 拠点ピンは基本非表示。設定モーダルからオンにできる。
-  const [showPlaces, setShowPlaces] = useState(false);
-  const showPlacesRef = useRef(false);
+  // 拠点ピンは既定で表示。設定モーダルから隠せる。
+  // 既定オフだと「設定の奥のトグルを知らないと拠点の編集に到達できない」状態だった（監査 P2-2）。
+  const [showPlaces, setShowPlaces] = useState(true);
+  const showPlacesRef = useRef(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsPanelRef = useRef<HTMLDivElement>(null);
+  const movementPanelRef = useRef<HTMLDivElement>(null);
 
   // 共有ビュー（配車作戦盤 Stage 1）: 参加者の在席・カーソル・視点追従を Realtime で同期。
   const [shareOn, setShareOn] = useState(false);
@@ -1269,6 +1277,35 @@ export default function MapPage() {
     }
   };
 
+  // モーダルの Esc・初期フォーカス・focus trap（監査 P3-1）。
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  useModalKeys(settingsOpen, closeSettings, settingsPanelRef);
+  const closeMovementForm = useCallback(() => {
+    if (!movementSaving) setMovementForm(null);
+  }, [movementSaving]);
+  useModalKeys(movementForm != null, closeMovementForm, movementPanelRef);
+
+  // Esc で車両の詳細（popup）を閉じる。閉じるボタンを出さない設計なので、
+  // これが無いと開いた詳細を畳めなかった（監査 P3-2）。モーダルが開いている間は
+  // そちらが先に受ける（useModalKeys が capture で止める）。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // popup は Mapbox が開閉を持つので、選択状態を消すだけでは閉じない
+      let closed = false;
+      vehicleMarkerEntriesRef.current.forEach(({ marker }) => {
+        const popup = marker.getPopup();
+        if (popup?.isOpen()) {
+          popup.remove();
+          closed = true;
+        }
+      });
+      if (closed || selectedVehicleId) setSelectedVehicleId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedVehicleId]);
+
   // Esc でピン追加を中止。
   useEffect(() => {
     if (!adding && !draft) return;
@@ -1405,8 +1442,10 @@ export default function MapPage() {
         zoom: map.getZoom(),
         latitude: map.getCenter().lat,
       });
-      // 検証用（アプリ内ブラウザから見かけサイズを読める）
+      // 検証用（アプリ内ブラウザ・プレビュー巡回から見かけサイズとズームを読める）
       container.dataset.vehicleLengthPx = next.renderedLengthPixels.toFixed(1);
+      container.dataset.mapZoom = map.getZoom().toFixed(2);
+      container.dataset.vehicleModelVisible = next.modelVisible ? "1" : "0";
       const changed = presentationChanged(forcePresentationUpdate ? null : presentationRef.current, next);
       forcePresentationUpdate = false;
       if (changed.scale) {
@@ -1416,7 +1455,15 @@ export default function MapPage() {
         if (map.getLayer("vehicles-3d-lamps")) map.setPaintProperty("vehicles-3d-lamps", "model-scale", scale);
       }
       if (changed.contrast && map.getLayer("vehicle-contrast")) {
-        map.setPaintProperty("vehicle-contrast", "circle-radius", next.contrastRadiusPixels);
+        map.setPaintProperty("vehicle-contrast", "circle-radius", Math.max(0, next.contrastRadiusPixels));
+      }
+      // 広域（z13未満）は車体とリングを消して札＋ドットだけにする。
+      // 出しっぱなしだと車が数kmの大きさになり、足元の円が市名を覆う（監査 P2-1・J-2 で確定）。
+      if (changed.scale) {
+        const visibility = next.modelVisible ? "visible" : "none";
+        for (const id of ["vehicles-3d-tinted", "vehicles-3d-fixed", "vehicles-3d-lamps", "vehicle-contrast"]) {
+          if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visibility);
+        }
       }
       presentationRef.current = next;
       if (changed.offset) declutterPlatesRef.current();
@@ -1544,8 +1591,12 @@ export default function MapPage() {
     // 状態色ドットに縮退する（存在は常に示す。消すと台数を誤認するため）。
     const declutterPlates = () => {
       const base = plateBaseOffset();
-      // 車体が画面上で重なる距離（見かけの車両長の0.9倍）。この距離の車は1つの束にまとめる
-      const clusterDistance = (presentationRef.current?.renderedLengthPixels ?? 60) * 0.9;
+      // 車体が画面上で重なる距離（見かけの車両長の0.9倍）。この距離の車は1つの束にまとめる。
+      // 広域（z13未満）は車体を描かないので長さが 0 になる。そのままだと束が作れず
+      // 「N台」バッジも束の popup も出なくなるため、札の高さ（92px）を基準に切り替える。
+      const clusterDistance = presentationRef.current?.modelVisible === false
+        ? 83
+        : (presentationRef.current?.renderedLengthPixels ?? 60) * 0.9;
       const items = vehicleMarkerEntriesRef.current.map(({ marker, vehicle }) => ({
         m: marker,
         vehicle,
@@ -1570,14 +1621,22 @@ export default function MapPage() {
       clusteredVehicleIdsRef.current = hidden;
       if (hiddenChanged) applyVehicleModelDataRef.current();
 
-      const kept: { x: number; y: number }[] = [];
+      // 置いたものの矩形（札とドットの両方）。札同士だけでなくドットとも当たり判定する。
+      // ドットを見ていなかったので、縮退ドットが隣の札の数字と「N台」バッジを覆っていた（監査 P1-2）。
+      const placed: { x: number; y: number; halfW: number; halfH: number }[] = [];
+      const PLATE_HALF_W = 52; // 従来の 104×92 と同じ間隔（52+52 / 46+46）
+      const PLATE_HALF_H = 46;
+      const DOT_HALF = 10; // 直径12px + 余白
+      const overlaps = (x: number, y: number, halfW: number, halfH: number) =>
+        placed.some((r) => Math.abs(r.x - x) < r.halfW + halfW && Math.abs(r.y - y) < r.halfH + halfH);
+
       for (const { m, pos, vehicle } of items) {
         const cluster = clusters.find((c) => c.anchor.vehicle.id === vehicle.id);
         // 束の代表は札を優先して残し、吸収された車は状態色ドットに縮退する（存在は常に示す）
         const absorbed = !cluster;
-        const collide = absorbed || kept.some(
-          (p) => Math.abs(p.x - pos.x) < 104 && Math.abs(p.y - pos.y) < 92,
-        );
+        // 札は base だけ上に浮くので、当たり判定も浮かせた後の位置で見る
+        const plateY = pos.y - base;
+        const collide = absorbed || overlaps(pos.x, plateY, PLATE_HALF_W, PLATE_HALF_H);
         m.setOffset([0, collide ? -6 : -base]);
         m.getPopup()?.setOffset(popupOffsetFor(collide ? 6 : base));
         const node = m.getElement();
@@ -1590,11 +1649,14 @@ export default function MapPage() {
           badge.title = count > 1 ? "重なっている車を離して見る" : "";
         }
         node.dataset.clusterCount = String(count);
+        // 縮退ドットは札より下の層に置く（札の数字とバッジを覆わせない）
+        node.style.zIndex = String(collide ? MAP_Z.vehicleDot : MAP_Z.plate);
         clusterBoundsRef.current.set(vehicle.id, cluster && count > 1
           ? cluster.members.map((member) => member.m.getLngLat())
           : null);
         clusterMembersRef.current.set(vehicle.id, cluster ? cluster.members.map((member) => member.vehicle) : [vehicle]);
-        if (!collide) kept.push({ x: pos.x, y: pos.y });
+        if (collide) placed.push({ x: pos.x, y: pos.y - 6, halfW: DOT_HALF, halfH: DOT_HALF });
+        else placed.push({ x: pos.x, y: plateY, halfW: PLATE_HALF_W, halfH: PLATE_HALF_H });
       }
     };
     declutterPlatesRef.current = declutterPlates;
@@ -1665,26 +1727,48 @@ export default function MapPage() {
         closeButton: false,
       }).setDOMContent(popupNode);
 
-      // 編集中の拠点はドラッグで動かせる（置いたら直せないのは実用に耐えない・2026-08-10 要望）
+      // 編集中の拠点はドラッグで動かせる（置いたら直せないのは実用に耐えない・2026-08-10 要望）。
+      // draggable の切り替えは下の effect が行う。ここで固定すると、編集を始めても
+      // マーカーが作り直されるまでドラッグできなかった（監査 P2-3）。
       const isEditing = editingPlaceRef.current?.id === place.id;
       const marker = new mapboxgl.Marker({ element: node, draggable: isEditing })
         .setLngLat([place.lng, place.lat])
         .setPopup(isEditing ? undefined : popup)
         .addTo(map);
+      placePopupsRef.current.set(place.id, popup);
+      marker.on("dragend", () => {
+        const { lng, lat } = marker.getLngLat();
+        setEditingPlace((prev) => (prev && prev.id === place.id ? { ...prev, lat, lng } : prev));
+      });
       if (isEditing) {
         node.style.cursor = "grab";
-        marker.on("dragend", () => {
-          const { lng, lat } = marker.getLngLat();
-          setEditingPlace((prev) => (prev ? { ...prev, lat, lng } : prev));
-        });
       } else if (canWritePlacesRef.current) {
         // クリックで編集パネルを開く（従来は名前が出るだけだった）
         node.addEventListener("click", () => openPlaceEditor(place));
       }
+      marker.getElement().style.zIndex = String(MAP_Z.place);
       placeMarkersRef.current.set(place.id, marker);
     }
     applyPlacesVisibilityRef.current();
   }, [places]);
+
+  // 編集対象が変わったら、そのマーカーだけ draggable と popup を切り替える。
+  // 全マーカーの作り直しはしない（監査 P2-3）。
+  useEffect(() => {
+    const editingId = editingPlace?.id ?? null;
+    placeMarkersRef.current.forEach((marker, id) => {
+      const editing = id === editingId;
+      marker.setDraggable(editing);
+      marker.getElement().style.cursor = editing ? "grab" : "";
+      if (editing) {
+        marker.getPopup()?.remove();
+        marker.setPopup(undefined);
+      } else {
+        const popup = placePopupsRef.current.get(id);
+        if (popup && !marker.getPopup()) marker.setPopup(popup);
+      }
+    });
+  }, [editingPlace?.id]);
 
   // ピン追加の位置プレビュー（名称入力中に仮ピンを立てる）。
   useEffect(() => {
@@ -1839,7 +1923,7 @@ export default function MapPage() {
         .setLngLat([p.lng, p.lat])
         .setPopup(popup)
         .addTo(map);
-      marker.getElement().style.zIndex = "6"; // 修正中は最前面に
+      marker.getElement().style.zIndex = String(MAP_Z.handle);
       marker.getElement().style.cursor = "grab";
       marker.on("dragend", () => {
         const { lng, lat } = marker.getLngLat();
@@ -2077,11 +2161,13 @@ export default function MapPage() {
 
     searchResults.forEach((hit, i) => {
       const node = document.createElement("div");
-      node.style.zIndex = "7"; // 車両ラベルより前（選ぶ対象なので）
+      node.style.zIndex = String(MAP_Z.handle); // 検索ヒットはつまみと同じ層
       node.style.cursor = "pointer";
       node.title = hit.name;
+      node.classList.add("search-hit");
+      node.dataset.hitId = hit.id;
       const root = createRoot(node);
-      root.render(<SearchHitMarker index={i + 1} icon={searchIconHint} active={hoveredHitId === hit.id} />);
+      root.render(<SearchHitMarker index={i + 1} icon={searchIconHint} />);
       hitRootsRef.current.push(root);
       const marker = new mapboxgl.Marker({ element: node, anchor: "bottom" })
         .setLngLat([hit.lng, hit.lat])
@@ -2091,7 +2177,17 @@ export default function MapPage() {
       node.addEventListener("mouseleave", () => setHoveredHitId(null));
       hitMarkersRef.current.push(marker);
     });
-  }, [searchResults, searchIconHint, hoveredHitId]);
+  }, [searchResults, searchIconHint]);
+
+  // hover の見た目は CSS クラスの切替だけで済ませる。
+  // 以前は hoveredHitId が上の effect の依存に入っていて、hover のたびに
+  // 全ヒットのマーカーと React root を作り直していた（監査 P3-4）。
+  useEffect(() => {
+    hitMarkersRef.current.forEach((m) => {
+      const el = m.getElement();
+      el.classList.toggle("is-active", el.dataset.hitId === hoveredHitId);
+    });
+  }, [hoveredHitId, searchResults]);
 
   // 検索後に地図を動かしたら「このエリアを再検索」を出す（Google マップと同じ考え方）
   useEffect(() => {
@@ -2161,7 +2257,10 @@ export default function MapPage() {
       const p = v.position!;
       const node = document.createElement("div");
       node.className = "vehicle-label"; // globals.css で吹き出し⇔ドットを切替
-      node.style.zIndex = "5"; // 拠点ピンより前面
+      node.setAttribute("role", "button");
+      node.setAttribute("tabindex", "0");
+      node.setAttribute("aria-label", `${plateText(v)} ${statusOf(v)}`);
+      node.style.zIndex = String(MAP_Z.plate); // 規約: lib/map/zIndex.ts
       node.style.cursor = "pointer";
       node.addEventListener("click", (event) => {
         // 台数バッジ: 束の車が離れて見えるまで寄る（位置は動かさない）
@@ -2701,9 +2800,13 @@ export default function MapPage() {
               />
 
             {/* 視点の操作パネル＋設定＋共有ビュー */}
-            <div className="absolute left-3 right-3 top-3 flex flex-col items-start gap-2 md:right-auto">
+            {/* 地図上の操作 UI。ラッパは pointer-events-none にして、押せる子だけ受ける。
+                以前は空白部分が地図のドラッグを奪っていた（監査 P2-5・375px では上部の帯全体） */}
+            <div
+              className={`pointer-events-none absolute left-3 right-3 top-3 z-[${MAP_Z.controls}] flex flex-col items-start gap-2 pr-9 md:pr-0 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto md:right-auto`}
+            >
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex overflow-hidden rounded-lg bg-white/95 p-1 shadow">
+                <div className="pointer-events-auto flex overflow-hidden rounded-lg bg-white/95 p-1 shadow">
                   {(["2d", "3d"] as const).map((mode) => (
                     <button
                       key={mode}
@@ -2756,7 +2859,7 @@ export default function MapPage() {
               {/* 地点検索。住所や施設名で拠点を立てられるようにする（クリックだけだと場所を知らないと置けない） */}
               {canWritePlaces && mapMode !== "movements" && (
               <div className="relative w-[min(320px,calc(100vw-3rem))]">
-                <div className="flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md backdrop-blur">
+                <div className="pointer-events-auto flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md backdrop-blur">
                   <FontAwesomeIcon icon={faMagnifyingGlass} className="h-3.5 w-3.5 text-slate-400" />
                   <input
                     type="text"
@@ -2866,20 +2969,22 @@ export default function MapPage() {
                   {share.errorMsg ?? "共有ビューに接続できませんでした"}
                 </p>
               )}
+              {/* 地図を動かしたら再検索を促す（Google マップの「このエリアを検索」と同じ）。
+                  検索窓と同じ列に置く。top-3 に重ねると 375px でツールバーの
+                  「配達エリア」を覆っていた（監査 P2-4） */}
+              {lastSearch && movedSinceSearch && (
+                <button
+                  type="button"
+                  onClick={() => void runSearch(lastSearch)}
+                  className="rounded-full bg-slate-900/95 px-4 py-2 text-xs font-bold text-white shadow-lg hover:bg-slate-800"
+                >
+                  <FontAwesomeIcon icon={faRotateRight} className="mr-1.5 h-3 w-3" />
+                  このエリアを再検索
+                </button>
+              )}
             </div>
 
             {/* ピン追加モードの案内バナー */}
-            {/* 地図を動かしたら再検索を促す（Google マップの「このエリアを検索」と同じ） */}
-            {lastSearch && movedSinceSearch && (
-              <button
-                type="button"
-                onClick={() => void runSearch(lastSearch)}
-                className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-slate-900/95 px-4 py-2 text-xs font-bold text-white shadow-lg hover:bg-slate-800"
-              >
-                <FontAwesomeIcon icon={faRotateRight} className="mr-1.5 h-3 w-3" />
-                このエリアを再検索
-              </button>
-            )}
 
             {adding && (
               <div className="absolute inset-x-0 top-3 mx-auto flex w-fit items-center gap-3 rounded-full bg-slate-900/95 px-4 py-2 text-xs font-semibold text-white shadow-lg">
@@ -2895,7 +3000,7 @@ export default function MapPage() {
             )}
 
             {mapMode === "movements" && (
-              <div className="absolute bottom-3 right-3 z-10 hidden w-[320px] lg:block">
+              <div className="absolute bottom-3 right-3 z-[40] hidden w-[320px] lg:block">
                 <MovementDetailCard
                   movement={selectedMovement}
                   vehicle={selectedVehicle}
@@ -2922,7 +3027,7 @@ export default function MapPage() {
 
             {/* 配達エリア: コースを選んで面を描く（エリアはコースの属性・2026-08-10 合意） */}
             {areaPanelOpen && !editingAreaCourse && (
-              <div className="absolute bottom-3 left-3 right-3 z-10 max-h-[55%] overflow-y-auto rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:max-h-[70%] md:w-[min(280px,calc(100vw-3rem))]">
+              <div className="absolute bottom-3 left-3 right-3 z-[40] max-h-[55%] overflow-y-auto rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:max-h-[70%] md:w-[min(280px,calc(100vw-3rem))]">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-700">配達エリア</span>
                   <button
@@ -2968,7 +3073,7 @@ export default function MapPage() {
 
             {/* エリア描画中のパネル */}
             {editingAreaCourse && (
-              <div className="absolute bottom-3 left-3 right-3 z-10 rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:w-[min(280px,calc(100vw-3rem))]">
+              <div className="absolute bottom-3 left-3 right-3 z-[40] rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:w-[min(280px,calc(100vw-3rem))]">
                 <div className="mb-1 flex items-center gap-2">
                   <span
                     className="h-3 w-3 shrink-0 rounded-sm"
@@ -3021,7 +3126,7 @@ export default function MapPage() {
 
             {/* 駐車区画の作成（航空写真に合わせて囲む → 長方形に整えて保存） */}
             {slotPlace && (
-              <div className="absolute bottom-3 left-3 right-3 z-10 rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:w-[min(300px,calc(100vw-3rem))]">
+              <div className="absolute bottom-3 left-3 right-3 z-[40] rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:w-[min(300px,calc(100vw-3rem))]">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="truncate text-xs font-bold text-slate-700">
                     {slotPlace.name} の駐車区画
@@ -3123,7 +3228,7 @@ export default function MapPage() {
 
             {/* 拠点の編集パネル（登録済みのピンをクリックで開く） */}
             {editingPlace && (
-              <div className="absolute inset-x-3 bottom-3 mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg">
+              <div className="absolute inset-x-3 bottom-3 z-[40] mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-700">拠点を編集</span>
                   <span className="text-[10px] text-slate-400">ピンをドラッグして移動できます</span>
@@ -3252,7 +3357,7 @@ export default function MapPage() {
 
             {/* ピン追加フォーム（位置決定後） */}
             {draft && (
-              <div className="absolute inset-x-3 bottom-3 mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg">
+              <div className="absolute inset-x-3 bottom-3 z-[40] mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-700">拠点を追加</span>
                   <span className="text-[10px] text-slate-400">位置はドラッグで微調整できます</span>
@@ -3316,7 +3421,7 @@ export default function MapPage() {
             )}
 
             {isLoading && !data && (
-              <div className="absolute inset-0 bg-white/60 p-4">
+              <div className="absolute inset-0 z-[40] bg-white/60 p-4">
                 <Skeleton className="h-full w-full rounded-lg" />
               </div>
             )}
@@ -3357,11 +3462,16 @@ export default function MapPage() {
           onClick={() => setSettingsOpen(false)}
         >
           <div
+            ref={settingsPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="map-settings-title"
+            tabIndex={-1}
             className="w-full max-w-md rounded-xl bg-white shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-              <h2 className="text-sm font-bold text-slate-900">地図の設定</h2>
+              <h2 id="map-settings-title" className="text-sm font-bold text-slate-900">地図の設定</h2>
               <button
                 type="button"
                 onClick={() => setSettingsOpen(false)}
@@ -3510,6 +3620,7 @@ export default function MapPage() {
           onClick={() => !movementSaving && setMovementForm(null)}
         >
           <div
+            ref={movementPanelRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="movement-form-title"

@@ -483,6 +483,7 @@ export function MapOperationsPreview() {
         latitude: map.getCenter().lat,
       });
       const scaleChanged = forcePresentationUpdate || !lastPresentation
+        || lastPresentation.modelVisible !== presentation.modelVisible
         || Math.abs(presentation.modelScale - lastPresentation.modelScale) > Math.max(0.002, presentation.modelScale * 0.001);
       const contrastChanged = forcePresentationUpdate || !lastPresentation
         || Math.abs(presentation.contrastRadiusPixels - lastPresentation.contrastRadiusPixels) >= 0.1;
@@ -495,6 +496,11 @@ export function MapOperationsPreview() {
         map.setPaintProperty(TINTED_MODEL_LAYER_ID, "model-scale", [scale, scale, scale]);
         map.setPaintProperty(FIXED_MODEL_LAYER_ID, "model-scale", [scale, scale, scale]);
         map.setPaintProperty(PLATE_MODEL_LAYER_ID, "model-scale", [scale, scale, scale]);
+        // 広域（z13未満）は車体と足元リングを消し、札＋ドットだけにする（本番と同じ規則）
+        const visibility = presentation.modelVisible ? "visible" : "none";
+        for (const id of [TINTED_MODEL_LAYER_ID, FIXED_MODEL_LAYER_ID, PLATE_MODEL_LAYER_ID, VEHICLE_CONTRAST_LAYER_ID]) {
+          if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visibility);
+        }
       }
       if (contrastChanged && map.getLayer(VEHICLE_CONTRAST_LAYER_ID)) {
         map.setPaintProperty(VEHICLE_CONTRAST_LAYER_ID, "circle-radius", presentation.contrastRadiusPixels);
