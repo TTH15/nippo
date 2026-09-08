@@ -726,3 +726,7 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-09-08 19:20 便別コース化で 0 円になっていた分割前日報の報酬を全日単価で補う
 
 - 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。`driverPayout.ts` に cycle_no=0 日報の全日単価フォールバックを追加。本番 parity は 2026-07 が 9 fail → 0 fail、他の月も全て 0 fail。未 push。
+
+## 2026-09-08 19:35 報酬計算の修正を本番へデプロイ
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。`f899b01` を push し hakotora.jp へ反映。疎通確認済み。7 月請求書の再作成はユーザー側で実施。
