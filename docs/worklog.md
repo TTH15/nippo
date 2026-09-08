@@ -714,3 +714,15 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-09-08 12:25 migration 159 を本番へ適用（S-1 完了）
 
 - 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。本番で anon の SELECT 可能テーブル 90→0、関数 6→0。REST 実測で anon は 401、service_role とアプリ動線は無影響。次は地図 段階1。
+
+## 2026-09-08 15:40 S-1 をコミットし、作戦盤ページを「次の一手」中心に作り直し
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。S-1 を main へコミット（eb41e42）。作戦盤は冒頭に「いま、次にやること」を新設し、凡例チップと設計カードの `.design` クラス衝突によるスタイル崩れを修正。
+
+## 2026-09-08 16:10 島本さん7月請求書のマイナス（−3,173円）の原因調査
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。8/22 の 1便/2便 化で `course_fixed_rates` から cycle_no=0 の行が消え、分割前（cycle_no=0）の日報の報酬が 0 になっていた。調査のみで変更なし。
+
+## 2026-09-08 19:20 便別コース化で 0 円になっていた分割前日報の報酬を全日単価で補う
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。`driverPayout.ts` に cycle_no=0 日報の全日単価フォールバックを追加。本番 parity は 2026-07 が 9 fail → 0 fail、他の月も全て 0 fail。未 push。

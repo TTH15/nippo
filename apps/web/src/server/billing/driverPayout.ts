@@ -87,6 +87,8 @@ export async function computeDriverAutoPayout(
   const unitById = new Map(data.units.map((u) => [u.id, u]));
   const rateByCourseUnit = new Map(data.unitRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}:${r.unitId}`, r]));
   const fixedByCourse = new Map(data.fixedRates.map((r) => [`${r.courseId}:${r.cycleNo ?? 0}`, r]));
+  // 全日(セット)単価。サイクル導入前の cycle_no=0 日報の受け皿になる（下の「固定」参照）。
+  const bundleByCourse = new Map(data.fixedRateBundles.map((b) => [b.courseId, b]));
   // 支払の計算方式(NONE/PER_PIECE/FIXED/BOTH)が正本。「自動支払なし」のコースは
   // 単価行に旧値が残っていても報酬0として扱う（売上全額が自社利益になる）。
   const metaByCourse = new Map(data.courseBillingMeta.map((m) => [m.courseId, m]));
@@ -143,6 +145,7 @@ export async function computeDriverAutoPayout(
   // 集計用アキュムレータ（明細行）
   const linePuQty = new Map<string, number>(); // `${courseId}:${unitId}` -> qty
   const fixedDaysByCourse = new Map<string, number>();
+  const bundleDaysByCourse = new Map<string, number>();
   const snapshotPayoutByKey = new Map<string, number>();
 
   // 旧「全体」枠と便別が二重提出された日は、便別だけを採用する
@@ -231,6 +234,17 @@ export async function computeDriverAutoPayout(
     if (fx && payoutUsesFixed(courseId) && fx.fixedPayout !== 0) {
       dayPayout += lineAmount(fx.fixedPayout, 1, fx.payoutContractAmount, fixedBasis(courseId));
       fixedDaysByCourse.set(fixedKey, (fixedDaysByCourse.get(fixedKey) ?? 0) + 1);
+    } else if ((r.cycleNo ?? 0) === 0 && payoutUsesFixed(courseId)) {
+      // サイクル導入前の日報は cycle_no=0 で「コース全体＝全日1本」を表す。
+      // 便別(1便/2便)へ組み替えたコースは cycle_no=0 の単価行が無くなるため上の突合が外れ、
+      // 2026-08-22 以降に作った過去月の請求書でその日が 0 円になっていた（島本さん7月・−3,173円）。
+      // 集計エンジン(compute.ts の fullDayUnits)は同じ日報を全日1回として数えるので、
+      // こちらも全日(セット)単価で補い、両者の金額を一致させる。
+      const bundle = bundleByCourse.get(courseId);
+      if (bundle && bundle.requiredCycleNos.length > 1 && bundle.fixedPayout) {
+        dayPayout += lineAmount(bundle.fixedPayout, 1, bundle.payoutContractAmount, fixedBasis(courseId));
+        bundleDaysByCourse.set(courseId, (bundleDaysByCourse.get(courseId) ?? 0) + 1);
+      }
     }
     }
 
@@ -277,6 +291,21 @@ export async function computeDriverAutoPayout(
       courseName,
       unitId: null,
       title: `${short}（固定${cycleNo !== "0" ? `・${cycleNo}便` : ""}）`,
+      qty: dayCount,
+      unitPrice: toDisplay(unitPrice),
+      amount: Math.round(dayCount * toDisplay(unitPrice)),
+    });
+  }
+  for (const [courseId, dayCount] of bundleDaysByCourse) {
+    const bundle = bundleByCourse.get(courseId);
+    const unitPrice = bundle?.fixedPayout ?? 0;
+    if (dayCount <= 0 || unitPrice <= 0) continue;
+    const courseName = courseNameById.get(courseId) ?? "";
+    lines.push({
+      courseId,
+      courseName,
+      unitId: null,
+      title: `${shortCourseLabel(courseName)}（固定・全日）`,
       qty: dayCount,
       unitPrice: toDisplay(unitPrice),
       amount: Math.round(dayCount * toDisplay(unitPrice)),
