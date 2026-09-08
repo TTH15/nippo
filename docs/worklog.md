@@ -698,3 +698,19 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 変更内容: 車両倍率とナンバー札の高さをMapboxの `move` ごとに更新。空中アーチは京都が画面外なら線だけを地図外へ抜いて矢尻を隠し、京都が表示範囲へ入ったときだけ実座標へ矢尻を置くよう変更した。
 - 検証結果: 対象2ファイル13テスト、TypeScript、2076モジュールのMapbox隔離ビルド、差分チェックに成功。PC・390×844の近接で画面外へ続く線、広域で京都の実座標に現れる矢尻、操作中の追従、警告・エラー0件を確認した。
 - 残課題: 本番データとは未接続。非常に速い連続操作時の実機性能と、多数の同時移動アーチは本番接続段階で実測する。commit、push、デプロイは未実施。プレビューは `http://127.0.0.1:3196/preview/map-operations`。
+
+## 2026-09-08 06:20 CLI から DB を読む・migration を適用する経路を用意（S-1 着手）
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。読み取り専用既定の `scripts/db/db.sh` と S-1 棚卸し SQL、手順書 `docs/development/db-access.md` を追加。旧 `SUPABASE_DB_URL` が別プロジェクトを指していた件と、anon key で 89 テーブルが 200（行数は 0）である実測を記録。
+
+## 2026-09-08 11:40 S-1 anon 権限の棚卸しを本番で実施し REVOKE migration 159 を起草
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。本番 public 94 テーブル中 90 で anon が全 DML を保持し、守っているのは policy 0 本の RLS（イベントトリガ `rls_auto_enable`）だけと判明。結果を `docs/security/2026-09-08-s1-anon-grants.md` に、対策を migration 159 に起草（未適用）。
+
+## 2026-09-08 12:10 migration 159（anon 権限の剥奪）を dev で適用・検証
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。dev で anon の SELECT 可能テーブル 77→0・関数 3→0 を確認し、service_role は無影響。本番適用は確認待ち。
+
+## 2026-09-08 12:25 migration 159 を本番へ適用（S-1 完了）
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。本番で anon の SELECT 可能テーブル 90→0、関数 6→0。REST 実測で anon は 401、service_role とアプリ動線は無影響。次は地図 段階1。
