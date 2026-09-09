@@ -1,4 +1,5 @@
 "use client";
+import { endOfMonthDate, looksLikeLease } from "@/lib/expenses/fixedExpensePeriod";
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -46,7 +47,11 @@ type DraftExpense = {
   amount: string;
   sign: "+" | "-";
   repeat: boolean;
+  /** 固定のとき、いつまで引くか（"YYYY-MM"）。空なら半永久に続ける */
+  endMonth: string;
 };
+
+
 
 type RewardLogDetail = {
   log_date: string;
@@ -108,9 +113,11 @@ export default function PaymentsPage() {
   const [adHocExpenses, setAdHocExpenses] = useState<AdHocExpense[]>([]);
   const [adHocLoading, setAdHocLoading] = useState(false);
   const [draftExpenses, setDraftExpenses] = useState<DraftExpense[]>([
-    { id: 1, name: "", amount: "", sign: "-", repeat: false },
+    { id: 1, name: "", amount: "", sign: "-", repeat: false, endMonth: "" },
   ]);
   const [saving, setSaving] = useState(false);
+  /** 期間を保存中の固定控除（二重に押させない） */
+  const [savingFixedEndId, setSavingFixedEndId] = useState<string | null>(null);
   const [creatingInvoiceFor, setCreatingInvoiceFor] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [rewardSummary, setRewardSummary] = useState<DriverRewardsSummary | null>(null);
@@ -230,7 +237,7 @@ export default function PaymentsPage() {
       .then((res) => setAdHocExpenses(res.expenses ?? []))
       .catch(() => setAdHocExpenses([]))
       .finally(() => setAdHocLoading(false));
-    setDraftExpenses([{ id: 1, name: "", amount: "", sign: "-", repeat: false }]);
+    setDraftExpenses([{ id: 1, name: "", amount: "", sign: "-", repeat: false, endMonth: "" }]);
     setSaveError(null);
     setRewardLoading(true);
     setRewardError(null);
@@ -323,7 +330,8 @@ export default function PaymentsPage() {
                 name: d.name.trim(),
                 amount: signedAmount,
                 valid_from: monthStartDate,
-                valid_to: null,
+                // 終了月を決めていればその末日まで。空なら従来どおり継続
+                valid_to: d.endMonth ? endOfMonthDate(d.endMonth) : null,
               }),
             });
           }
@@ -347,7 +355,7 @@ export default function PaymentsPage() {
       ]);
       setFixedExpenses(fixedRes.expenses ?? []);
       setAdHocExpenses(adHocRes.expenses ?? []);
-      setDraftExpenses([{ id: 1, name: "", amount: "", sign: "-", repeat: false }]);
+      setDraftExpenses([{ id: 1, name: "", amount: "", sign: "-", repeat: false, endMonth: "" }]);
       loadPayments();
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : "保存に失敗しました");
@@ -381,6 +389,33 @@ export default function PaymentsPage() {
       loadPayments();
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  /**
+   * 固定控除の終了月を決める・戻す。
+   * 「ずっと引く」しか作れなかったため、リース契約に切り替えた後も
+   * 古い「リース代」が引かれ続けて二重になっていた（2026-09-09 実データ）。
+   * 過去の月の金額は valid_to より前なので変わらない。
+   */
+  const handleSetFixedEnd = async (id: string, endMonth: string | null) => {
+    if (!modalDriver || !canWrite) return;
+    setSavingFixedEndId(id);
+    try {
+      await apiFetch(`/api/admin/driver-expenses/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ valid_to: endMonth ? endOfMonthDate(endMonth) : null }),
+      });
+      const res = await apiFetch<{ expenses: FixedExpense[] }>(
+        `/api/admin/driver-expenses?driver_id=${modalDriver.driverId}`,
+      );
+      setFixedExpenses(res.expenses ?? []);
+      loadPayments();
+    } catch (e) {
+      console.error(e);
+      setSaveError("期間を保存できませんでした");
+    } finally {
+      setSavingFixedEndId(null);
     }
   };
 
@@ -915,7 +950,40 @@ export default function PaymentsPage() {
                               {f.name}
                             </td>
                             <td className="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">
-                              {fromLabel}〜{toLabel}
+                              {canWrite ? (
+                                <div className="flex items-center gap-1.5">
+                                  <span>{fromLabel}〜</span>
+                                  <input
+                                    type="month"
+                                    value={f.valid_to ? String(f.valid_to).slice(0, 7) : ""}
+                                    min={String(f.valid_from ?? "").slice(0, 7) || undefined}
+                                    disabled={savingFixedEndId === f.id}
+                                    onChange={(e) => void handleSetFixedEnd(f.id, e.target.value || null)}
+                                    className="rounded border border-slate-200 bg-white px-1.5 py-1 text-xs disabled:opacity-50"
+                                    title="いつまで引くか。空にすると、ずっと引きます"
+                                  />
+                                  {f.valid_to && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleSetFixedEnd(f.id, null)}
+                                      disabled={savingFixedEndId === f.id}
+                                      className="text-[11px] text-slate-400 underline underline-offset-2 hover:text-slate-600"
+                                    >
+                                      ずっとに戻す
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <>
+                                  {fromLabel}〜{toLabel}
+                                </>
+                              )}
+                              {/* リース契約と重ねて引いていないか。名前だけでは気づけない（2026-09-09） */}
+                              {looksLikeLease(f.name) && (modalDriver?.leaseDeductions ?? 0) > 0 && !f.valid_to && (
+                                <p className="mt-1 text-[11px] font-medium text-red-700">
+                                  リース契約からも引いています。終わりの月を入れてください
+                                </p>
+                              )}
                             </td>
                             <td className="py-2 px-3 text-right">
                               <span
@@ -1048,12 +1116,53 @@ export default function PaymentsPage() {
                                     ),
                                   )
                                 }
-                                placeholder="例: リース代・特別手当"
+                                placeholder="例: 事務手数料・特別手当"
                                 className="w-full px-2 py-1.5 text-xs sm:text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-slate-400"
                               />
+                              {/* リース代はリース契約から引くので、ここに書くと二重に引かれる（2026-09-09 実データで発生） */}
+                              {looksLikeLease(d.name) && (modalDriver?.leaseDeductions ?? 0) > 0 && (
+                                <p className="mt-1 text-[11px] font-medium text-red-700">
+                                  この人はリース契約からも {formatYen(modalDriver?.leaseDeductions ?? 0)} 引かれています。
+                                  ここにも書くと二重になります
+                                </p>
+                              )}
                             </td>
                             <td className="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">
-                              {d.repeat ? "翌月以降も継続" : "当月のみ"}
+                              {d.repeat ? (
+                                <div className="flex items-center gap-1.5">
+                                  <select
+                                    value={d.endMonth ? "until" : "forever"}
+                                    onChange={(e) =>
+                                      setDraftExpenses((rows) =>
+                                        rows.map((r) =>
+                                          r.id === d.id
+                                            ? { ...r, endMonth: e.target.value === "until" ? monthStr : "" }
+                                            : r,
+                                        ),
+                                      )
+                                    }
+                                    className="rounded border border-slate-200 bg-white px-1.5 py-1 text-xs"
+                                  >
+                                    <option value="forever">ずっと</option>
+                                    <option value="until">終わりを決める</option>
+                                  </select>
+                                  {d.endMonth && (
+                                    <input
+                                      type="month"
+                                      value={d.endMonth}
+                                      min={monthStr}
+                                      onChange={(e) =>
+                                        setDraftExpenses((rows) =>
+                                          rows.map((r) => (r.id === d.id ? { ...r, endMonth: e.target.value } : r)),
+                                        )
+                                      }
+                                      className="rounded border border-slate-200 bg-white px-1.5 py-1 text-xs"
+                                    />
+                                  )}
+                                </div>
+                              ) : (
+                                "当月のみ"
+                              )}
                             </td>
                             <td className="py-2 px-3">
                               <input
@@ -1089,6 +1198,7 @@ export default function PaymentsPage() {
                                               amount: "",
                                               sign: "-",
                                               repeat: false,
+                                              endMonth: "",
                                             },
                                           ]
                                         : rows.filter((r) => r.id !== d.id),
@@ -1135,6 +1245,7 @@ export default function PaymentsPage() {
                                       amount: "",
                                       sign: "-",
                                       repeat: false,
+                                      endMonth: "",
                                     },
                                   ];
                                 })
