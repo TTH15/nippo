@@ -300,6 +300,16 @@ input[type="number"] {
   display: flex;
 }
 
+/* 長押しで車両の詳細を出す・札を掴む対象では、iOS の文字選択とコピーのメニューが
+   割り込まないようにする。押しっぱなしにすると選択ハンドルが出て操作が奪われた
+   （2026-09-10 実機で発生）。プレートの文字は SVG 字形なので、選択できなくても困らない。 */
+[data-vehicle-plate-id],
+.vehicle-label {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* 段階3: 札を掴んで動かしている間の見せ方。
    掴んだ札は前に出して少し持ち上げ、他の札は薄くして狙いを外しにくくする。 */
 .vehicle-label.vl-grabbed {

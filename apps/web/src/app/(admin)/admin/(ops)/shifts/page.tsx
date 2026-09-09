@@ -2087,6 +2087,10 @@ export default function ShiftsPage() {
                     className="flex w-[5.5rem] shrink-0 justify-end"
                     data-mobile-export-plate={plate ? "true" : undefined}
                     data-mobile-export-plate-id={plate?.id}
+                    // 長押しで車両の詳細を出す対象。プレート自体は pointer-events-none
+                    // （親がクリックを持つ）なので、既にある囲いに付ける。
+                    // ここに新しい要素を足すと幅が決まらずプレートが潰れる（2026-09-10 実機）
+                    data-vehicle-plate-id={plate?.id}
                     data-mobile-export-plate-color={plate?.plate_color ?? "black"}
                     data-mobile-export-plate-region={plate?.number_prefix ?? "京都"}
                     data-mobile-export-plate-class={plate?.number_class ?? "400"}
@@ -2097,14 +2101,11 @@ export default function ShiftsPage() {
                       // w-full が無いと flex アイテムとして幅が決まらず（内部が w-full のため）
                       // プレートが潰れて見えなくなる
                       <DuplicateVehicleFrame active={isDuplicateVehicle(date, plate.id)} title={DUPLICATE_VEHICLE_TITLE}>
-                        {/* 同上: 長押しの対象は pointer-events を持つ囲いに置く */}
-                        <span className="block" data-vehicle-plate-id={plate.id}>
-                          <VehiclePlate
-                            vehicle={plate}
-                            compact
-                            className="w-full !max-w-none min-w-0 pointer-events-none"
-                          />
-                        </span>
+                        <VehiclePlate
+                          vehicle={plate}
+                          compact
+                          className="w-full !max-w-none min-w-0 pointer-events-none"
+                        />
                       </DuplicateVehicleFrame>
                     ) : isExternal ? (
                       <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
