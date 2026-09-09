@@ -3,13 +3,19 @@
 import { useState, useEffect } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
 import { Button } from "@/lib/ui/button";
-import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarIcon, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 
 export interface MonthYearPickerProps {
   value?: { year: number; month: number };
   onChange?: (value: { year: number; month: number }) => void;
   placeholder?: string;
+  /** 渡すと「選び直さずに空にする」ボタンが出る（例: 固定控除の終わりを決めない） */
+  onClear?: () => void;
+  /** 幅を画面に合わせたいとき（既定は 180px） */
+  className?: string;
+  /** 表の中など、小さく置きたいとき */
+  size?: "default" | "sm";
 }
 
 const MONTHS = [
@@ -21,6 +27,9 @@ export function MonthYearPicker({
   value,
   onChange,
   placeholder = "年月を選択",
+  onClear,
+  className,
+  size = "default",
 }: MonthYearPickerProps) {
   const [open, setOpen] = useState(false);
   useBodyScrollLock(open);
@@ -48,10 +57,37 @@ export function MonthYearPicker({
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className="w-[180px] justify-start text-left font-normal"
+          className={`justify-start text-left font-normal ${
+            size === "sm" ? "h-8 px-2 text-xs" : ""
+          } ${className ?? "w-[180px]"}`}
         >
-          <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
-          {formatValue()}
+          <CalendarIcon className={`shrink-0 ${size === "sm" ? "mr-1.5 h-3 w-3" : "mr-2 h-4 w-4"}`} />
+          <span className="truncate">{formatValue()}</span>
+          {/* 選んだあとに「決めない」へ戻せるようにする。ボタンを別に置くより、
+              値の隣にある方が「これを消す」と分かる（2026-09-09 指摘） */}
+          {onClear && value && (
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label="選択を消す"
+              title="選択を消す"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onClear();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onClear();
+                }
+              }}
+              className="ml-auto inline-flex shrink-0 items-center rounded px-1 text-slate-400 hover:text-slate-700"
+            >
+              <X className={size === "sm" ? "h-3 w-3" : "h-3.5 w-3.5"} />
+            </span>
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[320px] p-4" align="start">

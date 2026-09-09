@@ -1,5 +1,5 @@
 "use client";
-import { endOfMonthDate, looksLikeLease } from "@/lib/expenses/fixedExpensePeriod";
+import { endOfMonthDate, looksLikeLease, monthKey, monthValue } from "@/lib/expenses/fixedExpensePeriod";
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -398,13 +398,16 @@ export default function PaymentsPage() {
    * 古い「リース代」が引かれ続けて二重になっていた（2026-09-09 実データ）。
    * 過去の月の金額は valid_to より前なので変わらない。
    */
-  const handleSetFixedEnd = async (id: string, endMonth: string | null) => {
+  const handlePatchFixed = async (
+    id: string,
+    patch: { name?: string; amount?: number; valid_from?: string; valid_to?: string | null },
+  ) => {
     if (!modalDriver || !canWrite) return;
     setSavingFixedEndId(id);
     try {
       await apiFetch(`/api/admin/driver-expenses/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ valid_to: endMonth ? endOfMonthDate(endMonth) : null }),
+        body: JSON.stringify(patch),
       });
       const res = await apiFetch<{ expenses: FixedExpense[] }>(
         `/api/admin/driver-expenses?driver_id=${modalDriver.driverId}`,
@@ -901,7 +904,8 @@ export default function PaymentsPage() {
                 </div>
               ) : (
                 <div className="bg-slate-50 border border-slate-200 rounded-lg overflow-x-auto">
-                  <table className="w-full text-xs sm:text-sm min-w-[560px] sm:min-w-0">
+                  {/* 期間を月ピッカー2つで持つので、狭い幅では潰れる。横に送って読ませる（2026-09-09） */}
+                  <table className="w-full text-xs sm:text-sm min-w-[720px]">
                     <thead className="bg-slate-100">
                       <tr className="border-b border-slate-200">
                         <th className="py-2 px-3 text-left font-medium text-slate-600">
@@ -946,32 +950,49 @@ export default function PaymentsPage() {
                                 {isDeduction ? "−" : "＋"}
                               </span>
                             </td>
-                            <td className="py-2 px-3 text-slate-800">
-                              {f.name}
+                            <td className="py-2 px-3 text-slate-800 min-w-[9rem]">
+                              {canWrite ? (
+                                <input
+                                  type="text"
+                                  defaultValue={f.name}
+                                  disabled={savingFixedEndId === f.id}
+                                  onBlur={(e) => {
+                                    const next = e.target.value.trim();
+                                    if (!next || next === f.name) {
+                                      e.target.value = f.name;
+                                      return;
+                                    }
+                                    void handlePatchFixed(f.id, { name: next });
+                                  }}
+                                  className="w-full rounded border border-transparent bg-transparent px-2 py-1 text-xs hover:border-slate-200 focus:border-slate-300 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-400 sm:text-sm"
+                                />
+                              ) : (
+                                f.name
+                              )}
                             </td>
                             <td className="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">
                               {canWrite ? (
-                                <div className="flex items-center gap-1.5">
-                                  <span>{fromLabel}〜</span>
-                                  <input
-                                    type="month"
-                                    value={f.valid_to ? String(f.valid_to).slice(0, 7) : ""}
-                                    min={String(f.valid_from ?? "").slice(0, 7) || undefined}
-                                    disabled={savingFixedEndId === f.id}
-                                    onChange={(e) => void handleSetFixedEnd(f.id, e.target.value || null)}
-                                    className="rounded border border-slate-200 bg-white px-1.5 py-1 text-xs disabled:opacity-50"
-                                    title="いつまで引くか。空にすると、ずっと引きます"
+                                <div className="flex items-center gap-1">
+                                  <MonthYearPicker
+                                    size="sm"
+                                    className="w-[122px]"
+                                    placeholder="開始月"
+                                    value={monthValue(f.valid_from)}
+                                    onChange={(v) =>
+                                      void handlePatchFixed(f.id, { valid_from: `${monthKey(v)}-01` })
+                                    }
                                   />
-                                  {f.valid_to && (
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleSetFixedEnd(f.id, null)}
-                                      disabled={savingFixedEndId === f.id}
-                                      className="text-[11px] text-slate-400 underline underline-offset-2 hover:text-slate-600"
-                                    >
-                                      ずっとに戻す
-                                    </button>
-                                  )}
+                                  <span className="text-slate-400">〜</span>
+                                  <MonthYearPicker
+                                    size="sm"
+                                    className="w-[122px]"
+                                    placeholder="ずっと"
+                                    value={monthValue(f.valid_to)}
+                                    onChange={(v) =>
+                                      void handlePatchFixed(f.id, { valid_to: endOfMonthDate(monthKey(v)) })
+                                    }
+                                    onClear={() => void handlePatchFixed(f.id, { valid_to: null })}
+                                  />
                                 </div>
                               ) : (
                                 <>
@@ -986,11 +1007,44 @@ export default function PaymentsPage() {
                               )}
                             </td>
                             <td className="py-2 px-3 text-right">
-                              <span
-                                className={`font-mono tabular-nums ${isDeduction ? "text-orange-600" : "text-emerald-600"}`}
-                              >
-                                {fmtSignedYen(f.amount)}
-                              </span>
+                              {canWrite ? (
+                                <div className="flex items-center justify-end gap-1">
+                                  <span className={isDeduction ? "text-orange-600" : "text-emerald-600"}>
+                                    {isDeduction ? "−" : "＋"}
+                                  </span>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    defaultValue={Math.abs(f.amount).toLocaleString("ja-JP")}
+                                    disabled={savingFixedEndId === f.id}
+                                    onFocus={(e) => {
+                                      // 編集中はカンマを外す（そのままだと数字として打ちにくい）
+                                      e.target.value = e.target.value.replace(/,/g, "");
+                                      e.target.select();
+                                    }}
+                                    onBlur={(e) => {
+                                      const next = Number(e.target.value.replace(/[^0-9]/g, ""));
+                                      if (!next || next === Math.abs(f.amount)) {
+                                        e.target.value = Math.abs(f.amount).toLocaleString("ja-JP");
+                                        return;
+                                      }
+                                      e.target.value = next.toLocaleString("ja-JP");
+                                      // 符号（控除か手当か）は変えずに金額だけ直す
+                                      void handlePatchFixed(f.id, { amount: isDeduction ? next : -next });
+                                    }}
+                                    className={`w-24 rounded border border-transparent bg-transparent px-2 py-1 text-right font-mono tabular-nums hover:border-slate-200 focus:border-slate-300 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-400 ${
+                                      isDeduction ? "text-orange-600" : "text-emerald-600"
+                                    }`}
+                                  />
+                                  <span className="text-slate-400">円</span>
+                                </div>
+                              ) : (
+                                <span
+                                  className={`font-mono tabular-nums ${isDeduction ? "text-orange-600" : "text-emerald-600"}`}
+                                >
+                                  {fmtSignedYen(f.amount)}
+                                </span>
+                              )}
                             </td>
                             {canWrite && (
                               <td className="py-2 px-3 text-center">
@@ -1129,36 +1183,24 @@ export default function PaymentsPage() {
                             </td>
                             <td className="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">
                               {d.repeat ? (
-                                <div className="flex items-center gap-1.5">
-                                  <select
-                                    value={d.endMonth ? "until" : "forever"}
-                                    onChange={(e) =>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-slate-500">{monthStr}〜</span>
+                                  <MonthYearPicker
+                                    size="sm"
+                                    className="w-[122px]"
+                                    placeholder="ずっと"
+                                    value={monthValue(d.endMonth ? `${d.endMonth}-01` : null)}
+                                    onChange={(v) =>
                                       setDraftExpenses((rows) =>
-                                        rows.map((r) =>
-                                          r.id === d.id
-                                            ? { ...r, endMonth: e.target.value === "until" ? monthStr : "" }
-                                            : r,
-                                        ),
+                                        rows.map((r) => (r.id === d.id ? { ...r, endMonth: monthKey(v) } : r)),
                                       )
                                     }
-                                    className="rounded border border-slate-200 bg-white px-1.5 py-1 text-xs"
-                                  >
-                                    <option value="forever">ずっと</option>
-                                    <option value="until">終わりを決める</option>
-                                  </select>
-                                  {d.endMonth && (
-                                    <input
-                                      type="month"
-                                      value={d.endMonth}
-                                      min={monthStr}
-                                      onChange={(e) =>
-                                        setDraftExpenses((rows) =>
-                                          rows.map((r) => (r.id === d.id ? { ...r, endMonth: e.target.value } : r)),
-                                        )
-                                      }
-                                      className="rounded border border-slate-200 bg-white px-1.5 py-1 text-xs"
-                                    />
-                                  )}
+                                    onClear={() =>
+                                      setDraftExpenses((rows) =>
+                                        rows.map((r) => (r.id === d.id ? { ...r, endMonth: "" } : r)),
+                                      )
+                                    }
+                                  />
                                 </div>
                               ) : (
                                 "当月のみ"

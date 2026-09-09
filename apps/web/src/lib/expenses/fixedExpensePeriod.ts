@@ -33,3 +33,15 @@ export function monthOf(date: string | null | undefined): string {
  * リース契約と重なりやすいので、その場で気づけるようにする。
  */
 export const looksLikeLease = (name: string): boolean => /リース/.test(name ?? "");
+
+/** 保存済みの日付 → MonthYearPicker の値（未設定は undefined） */
+export function monthValue(date: string | null | undefined): { year: number; month: number } | undefined {
+  const m = monthOf(date);
+  if (!m) return undefined;
+  const [year, month] = m.split("-").map(Number);
+  return { year, month };
+}
+
+/** MonthYearPicker の値 → "YYYY-MM" */
+export const monthKey = (v: { year: number; month: number }): string =>
+  `${v.year}-${String(v.month).padStart(2, "0")}`;
