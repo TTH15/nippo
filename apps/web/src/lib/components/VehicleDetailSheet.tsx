@@ -103,6 +103,9 @@ export function VehicleDetailProvider({ children }: { children: ReactNode }) {
         firedAt = Date.now();
         // 触覚があると「開いた」と分かる（対応端末のみ）
         navigator.vibrate?.(15);
+        // 長押しの指が残ったままシートが出ると、そのまま文字選択が始まって
+        // コピーのメニューが被る。出す直前に選択を解いておく（2026-09-10 実機）
+        window.getSelection?.()?.removeAllRanges();
         open(id);
       }, LONG_PRESS_MS);
     };
@@ -145,7 +148,7 @@ export function VehicleDetailProvider({ children }: { children: ReactNode }) {
       {children}
       {vehicleId && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+          className="vehicle-detail-sheet fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
           onClick={close}
         >
           <div

@@ -304,7 +304,10 @@ input[type="number"] {
    割り込まないようにする。押しっぱなしにすると選択ハンドルが出て操作が奪われた
    （2026-09-10 実機で発生）。プレートの文字は SVG 字形なので、選択できなくても困らない。 */
 [data-vehicle-plate-id],
-.vehicle-label {
+.vehicle-label,
+/* 長押しで開くシートは、指が残ったままだと中の文字が選択されてコピーのメニューが
+   被る（2026-09-10 実機）。読むだけの内容なので選択できなくてよい。 */
+.vehicle-detail-sheet {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
