@@ -21,6 +21,8 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 
 ## 直近のエントリ（2026-09）
 
+- 2026-09-10 02:30 シフト表に「この予定ならこの日にオイル交換」の見込みを破線の印で表示（`lib/oil/oilForecast.ts` ＋ `/api/admin/oil-forecast`・実データで印は1台のみと確認）
+
 - 2026-09-08 21:05 駐車自動特定の設計書の migration 番号を 160 に修正（159 は S-1 で使用済み）
 
 - 2026-09-08 05:10 残タスク作戦盤（S/A/M/P/K/X の6トラック・アーティファクト公開）と地図の使い勝手 再設計 `docs/design/map-board-usability-2026-09.md`（実ブラウザ監査に基づく段階1〜4）

@@ -2,8 +2,20 @@
 
 import { Fragment, useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { forecastOilChangesByVehicle, type OilForecast } from "@/lib/oil/oilForecast";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronLeft, faChevronRight, faFileImport, faDownload, faChevronDown, faRotateRight, faGear, faUser, faCar } from "@fortawesome/free-solid-svg-icons";
+import {
+  faCar,
+  faChevronDown,
+  faChevronLeft,
+  faChevronRight,
+  faDownload,
+  faFileImport,
+  faGear,
+  faOilCan,
+  faRotateRight,
+  faUser,
+} from "@fortawesome/free-solid-svg-icons";
 import { isJapanPublicHolidayYmd } from "@/lib/japanHolidays";
 import { todayJST } from "@/lib/date";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -683,6 +695,29 @@ export default function ShiftsPage() {
   // 車両の日毎の貸出中（{vehicle_id, loan_date}）。
   const [vehicleLoans, setVehicleLoans] = useState<{ vehicle_id: string; loan_date: string }[]>([]);
   const [fleetVehicles, setFleetVehicles] = useState<VehiclePlateData[]>([]);
+
+  // オイル交換の予測: 「この予定どおりに走ると、この日に交換の距離へ届く」。
+  // 既存のプレート右上の丸は「いま残りが少ない」という事実、こちらは見込みなので、
+  // 塗りつぶしではなく破線の印を、届く日のセルに1回だけ出す（2026-09-10 ユーザー合意）。
+  const [oilHistory, setOilHistory] = useState<{
+    courseKmPerDay: Record<string, number>;
+    vehicleKmPerDay: Record<string, number>;
+    fleetKmPerDay: number;
+  } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    apiFetch<{ courseKmPerDay: Record<string, number>; vehicleKmPerDay: Record<string, number>; fleetKmPerDay: number }>(
+      "/api/admin/oil-forecast",
+    )
+      .then((res) => {
+        if (alive) setOilHistory(res);
+      })
+      // 実績が取れなくてもシフト表は動かす（予測が出ないだけ）
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [vehicleLinks, setVehicleLinks] = useState<{ driver_id: string; vehicle_id: string }[]>([]);
 
   const fleetById = useMemo(() => {
@@ -1138,6 +1173,20 @@ export default function ShiftsPage() {
   };
 
   /** 親 shift 行の vehicle_id を解決（車両選択はドライバー×日単位だが保存はシフト行） */
+  /** 車両ごとの「この日に交換の距離へ届く」見込み。予定の範囲で届かない車は入らない */
+  const oilForecastByVehicle = useMemo(() => {
+    if (!oilHistory) return new Map<string, OilForecast>();
+    return forecastOilChangesByVehicle({
+      vehicles: fleetVehicles,
+      shifts: shifts
+        .filter((s) => s.shift_date >= today && s.vehicle_id)
+        .map((s) => ({ date: s.shift_date, courseId: s.course_id, vehicleId: s.vehicle_id ?? null })),
+      courseKmPerDay: oilHistory.courseKmPerDay,
+      vehicleKmPerDay: oilHistory.vehicleKmPerDay,
+      fleetKmPerDay: oilHistory.fleetKmPerDay,
+    });
+  }, [oilHistory, fleetVehicles, shifts, today]);
+
   const getCurrentVehicleForDriverOnDate = (date: string, driverId: string): string | null => {
     const dk = driverDayVehicleKey(date, driverId);
     if (localVehicleByDriverDay.has(dk)) return localVehicleByDriverDay.get(dk) ?? null;
@@ -2084,7 +2133,7 @@ export default function ShiftsPage() {
                 </span>
                 {hasAny && display.vehicle && (
                   <span
-                    className="flex w-[5.5rem] shrink-0 justify-end"
+                    className="flex w-[5.5rem] shrink-0 flex-col items-end justify-center gap-0.5"
                     data-mobile-export-plate={plate ? "true" : undefined}
                     data-mobile-export-plate-id={plate?.id}
                     // 長押しで車両の詳細を出す対象。プレート自体は pointer-events-none
@@ -2111,6 +2160,17 @@ export default function ShiftsPage() {
                       <span className="text-[11px] font-semibold text-amber-600">他社車両</span>
                     ) : (
                       <span className="text-[11px] text-slate-400">車両なし</span>
+                    )}
+                    {/* この予定なら、この日に交換の距離へ届く見込み。
+                        事実（残りが少ない＝塗りつぶしの丸）と混ざらないよう、破線の輪郭にする */}
+                    {plate && oilForecastByVehicle.get(plate.id)?.date === date && (
+                      <span
+                        title={`この予定どおりなら、この日にオイル交換の距離です（見込み・あと${oilForecastByVehicle.get(plate.id)!.workDays}稼働日 / 約${oilForecastByVehicle.get(plate.id)!.km}km）`}
+                        className="inline-flex items-center gap-0.5 rounded border border-dashed border-amber-500 px-1 text-[9px] font-semibold leading-tight text-amber-700"
+                      >
+                        <FontAwesomeIcon icon={faOilCan} className="h-2 w-2" aria-hidden />
+                        オイル見込み
+                      </span>
                     )}
                   </span>
                 )}
