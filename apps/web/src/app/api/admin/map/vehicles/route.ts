@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { signPlateModels } from "@/server/vehicles/plateModelStorage";
 
 export const dynamic = "force-dynamic";
 
@@ -272,5 +273,13 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ vehicles: items, asOf, historyNeighbors });
+  // 3Dの車の面に出す実ナンバー（車両ごとの小さな GLB）。非公開バケットなので署名URLで渡す。
+  // 未生成・番号未入力の車は含まれず、その場合は既定のプレートのまま描かれる。
+  const plateModelUrls = await signPlateModels(
+    supabase,
+    orgId,
+    items.map((v) => String((v as { id?: unknown }).id ?? "")).filter(Boolean),
+  );
+
+  return NextResponse.json({ vehicles: items, asOf, historyNeighbors, plateModelUrls });
 }

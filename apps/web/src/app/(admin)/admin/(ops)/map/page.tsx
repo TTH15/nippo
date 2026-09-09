@@ -824,12 +824,15 @@ export default function MapPage() {
     vehicles: MapVehicle[];
     asOf: string | null;
     historyNeighbors: { previousAt: string | null; nextAt: string | null } | null;
+    /** 車両ごとの実ナンバー GLB（非公開バケットの署名URL）。未生成の車は入らない */
+    plateModelUrls?: Record<string, string>;
   }>(
     asOfIso ? `/api/admin/map/vehicles?at=${encodeURIComponent(asOfIso)}` : "/api/admin/map/vehicles",
     // 履歴は勝手に更新されない方が読みやすい（ライブだけ自動更新）
     { refreshInterval: asOfIso ? 0 : 60000, keepPreviousData: true },
   );
   const historyNeighbors = data?.asOf === asOfIso ? data.historyNeighbors : null;
+  const plateModelUrls = useMemo(() => data?.plateModelUrls ?? {}, [data]);
   const selectHistoryAt = (at: string) => {
     const [date, time] = new Date(at)
       .toLocaleString("sv-SE", { timeZone: "Asia/Tokyo", hour12: false })
@@ -1451,6 +1454,18 @@ export default function MapPage() {
           "model-emissive-strength": ["case", ["boolean", ["get", "lampsOn"], false], 4, 0.45],
         },
       });
+      // 車両ごとの実ナンバーの面。番号は車1台につき1つの小さな GLB（非公開バケット）で、
+      // 未生成・番号未入力の車は plateModel が空になり、この層には出ない（既定のプレートのまま）
+      map.addLayer({
+        id: "vehicles-3d-plate",
+        type: "model",
+        source: "vehicles-src",
+        layout: { "model-id": ["get", "plateModel"] },
+        paint: {
+          "model-rotation": ["get", "rotation"],
+          "model-emissive-strength": 0.7,
+        },
+      });
       presentationRef.current = null;
       schedulePresentation(true);
       // スタイル再読込のたびにソースは空で作り直されるので、その場で最新データを流し込む
@@ -1481,6 +1496,7 @@ export default function MapPage() {
         const scale = [next.modelScale, next.modelScale, next.modelScale];
         map.setPaintProperty("vehicles-3d-tinted", "model-scale", scale);
         map.setPaintProperty("vehicles-3d-fixed", "model-scale", scale);
+        if (map.getLayer("vehicles-3d-plate")) map.setPaintProperty("vehicles-3d-plate", "model-scale", scale);
         if (map.getLayer("vehicles-3d-lamps")) map.setPaintProperty("vehicles-3d-lamps", "model-scale", scale);
       }
       if (changed.contrast && map.getLayer("vehicle-contrast")) {
@@ -1490,7 +1506,7 @@ export default function MapPage() {
       // 出しっぱなしだと車が数kmの大きさになり、足元の円が市名を覆う（監査 P2-1・J-2 で確定）。
       if (changed.scale) {
         const visibility = next.modelVisible ? "visible" : "none";
-        for (const id of ["vehicles-3d-tinted", "vehicles-3d-fixed", "vehicles-3d-lamps", "vehicle-contrast"]) {
+        for (const id of ["vehicles-3d-tinted", "vehicles-3d-fixed", "vehicles-3d-lamps", "vehicles-3d-plate", "vehicle-contrast"]) {
           if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visibility);
         }
       }
@@ -2212,6 +2228,12 @@ export default function MapPage() {
 
     const applyModelData = () => {
       const src = mapRef.current?.getSource("vehicles-src") as mapboxgl.GeoJSONSource | undefined;
+      // 署名URLは車ごとに違うので、その都度モデルとして登録する（同じ id は再登録しない）
+      for (const v of displayedVehicles) {
+        const url = plateModelUrls[v.id];
+        const id = `plate-${v.id}`;
+        if (url && mapRef.current && !mapRef.current.hasModel(id)) mapRef.current.addModel(id, url);
+      }
       src?.setData({
         type: "FeatureCollection",
         // まとめ表示で吸収された車は車体を描かない（代表の1台だけ）。札のドットで存在は示す
@@ -2231,6 +2253,8 @@ export default function MapPage() {
               tintedModel: `${model.id}-tinted`,
               fixedModel: `${model.id}-fixed`,
               lampsModel: `${model.id}-lamps`,
+              // 実ナンバーの GLB（無い車は空文字。model-id が空なら描かれない）
+              plateModel: plateModelUrls[v.id] ? `plate-${v.id}` : "",
               // 夜の稼働中だけライトを点ける（履歴表示では点けない）
               lampsOn: isNightJst() && !historyDate && v.position!.sessionStatus === "open",
             },
@@ -2456,7 +2480,7 @@ export default function MapPage() {
       if (canDispatch && !historyDate && !placing) attachPlateDrag(node, marker, v);
     }
     declutterPlatesRef.current();
-  }, [displayedVehicles, statusOf, canDispatch, placing, historyDate, slotBearingAt, mapMode, selectedMovement]);
+  }, [displayedVehicles, statusOf, canDispatch, placing, historyDate, slotBearingAt, mapMode, selectedMovement, plateModelUrls]);
 
   // 2D/3D トグル: ピッチだけ変える（方位はユーザー操作を尊重してそのまま）。
   const setView = (mode: "2d" | "3d") => {

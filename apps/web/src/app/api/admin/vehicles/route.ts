@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { adminMutationError, isUuid } from "@/server/db/adminResourceScope";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
+import { syncPlateModel } from "@/server/vehicles/plateModelStorage";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { hasCapabilityCached } from "@/server/auth/permissions";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -254,6 +255,22 @@ export async function POST(req: NextRequest) {
       p_driver_ids: driverIds, p_expected_driver_ids: [], p_create: true,
     });
     if (error) return adminMutationError(error);
+    // 地図の3Dに出す実ナンバーの GLB は、応答を待たせずに裏で作る（非公開バケットへ）
+    const created = vehicle as { id?: string } | null;
+    if (created?.id) {
+      after(async () => {
+        await syncPlateModel(supabase, orgId, {
+          id: created.id!,
+          number_prefix: patch.number_prefix,
+          number_class: patch.number_class,
+          number_hiragana: patch.number_hiragana,
+          number_numeric: patch.number_numeric,
+          model_key: patch.model_key,
+          manufacturer: patch.manufacturer,
+          brand: patch.brand,
+        });
+      });
+    }
     return NextResponse.json({ vehicle });
   } catch (err) {
     return adminMutationError(err);
