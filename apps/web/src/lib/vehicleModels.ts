@@ -152,6 +152,29 @@ export const VEHICLE_MAP_MODEL_ALIASES: Record<string, string> = {
 /** 地図用の既定モデル（未登録の車種・車種未登録の車） */
 export const DEFAULT_VEHICLE_MAP_MODEL_KEY = "every";
 
+/** 地図に出る3Dモデルの呼び名（登録画面で「どのモデルで描かれるか」を見せる用） */
+export const VEHICLE_MAP_MODEL_LABELS: Record<string, string> = {
+  hijet: "ハイゼット",
+  every: "エブリイ",
+  acty: "アクティ",
+};
+
+/**
+ * その車が地図でどのモデルとして描かれるかを、人が読む形で返す。
+ * OEM は元車種名を添え、当てはまるモデルが無ければ既定を使うことを明示する。
+ */
+export function mapModelLabelFor(modelKey: string | null | undefined): { label: string; isDefault: boolean } {
+  const aliased = modelKey ? VEHICLE_MAP_MODEL_ALIASES[modelKey] ?? modelKey : null;
+  if (aliased && VEHICLE_MAP_MODELS[aliased]) {
+    const base = VEHICLE_MAP_MODEL_LABELS[aliased] ?? aliased;
+    // OEM（クリッパー→エブリイ など）は「どれで描くか」が分かるよう元車種を添える
+    const via = modelKey && modelKey !== aliased ? `${VEHICLE_MAP_MODEL_LABELS[modelKey] ?? modelKey}` : null;
+    return { label: via ? `${base}（${via} と同型）` : base, isDefault: false };
+  }
+  const fallback = VEHICLE_MAP_MODEL_LABELS[DEFAULT_VEHICLE_MAP_MODEL_KEY] ?? DEFAULT_VEHICLE_MAP_MODEL_KEY;
+  return { label: fallback, isDefault: true };
+}
+
 /** 車種キーから地図用モデルを選ぶ。OEM は元車種へ、未設定・未登録は既定へ */
 export function vehicleMapModelFor(modelKey: string | null | undefined): VehicleMapModel {
   const key = modelKey ? VEHICLE_MAP_MODEL_ALIASES[modelKey] ?? modelKey : null;

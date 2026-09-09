@@ -34,6 +34,7 @@ import {
   KEI_VANS_BY_MANUFACTURER,
   BODY_COLOR_BASE,
   modelUrlFor,
+  mapModelLabelFor,
   resolveModelKey,
   generationsOf,
 } from "@/lib/vehicleModels";
@@ -464,7 +465,9 @@ export default function VehiclesPage() {
           : "",
       driverIds: v.vehicle_drivers?.map((vd) => vd.driver_id) || [],
     });
-    setOtherVehicle(false);
+    // カタログに無いメーカーで登録された車は、開いた時点で「その他（自由入力）」にしておく
+    // （選択肢に無いと空欄に見え、そのまま保存すると車種が消える）
+    setOtherVehicle(!v.manufacturer || !KEI_VANS_BY_MANUFACTURER[v.manufacturer]);
     setValidationAttempted(false);
     setVehTab("basic");
     setDriverOpen(false);
@@ -1564,8 +1567,10 @@ export default function VehiclesPage() {
                 {vehTab === "basic" && (
                 <>
                 {/* 車種の選択。メーカーごとにまとめたチップから選ぶ（datalist の見た目が悪かった）。
-                    カタログに無い車は「その他」で自由入力できる。実車のメーカー・車種は変わらないので
-                    登録後は表示のみにする（2026-08-10 ユーザー） */}
+                    カタログに無い車は「その他」で自由入力できる。
+                    2026-08-10 は「実車の車種は変わらない」ので登録後は表示のみにしていたが、
+                    登録時の入力ちがい（例: 車種名が「EV」）で地図の3Dが標準モデルのままになる車が
+                    出たため、登録後も直せるように戻した（2026-09-09 ユーザー依頼） */}
                 <div>
                   <label className="flex items-center gap-2 text-sm font-medium text-slate-500 mb-1">
                     車種
@@ -1573,15 +1578,7 @@ export default function VehiclesPage() {
                       <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">必須</span>
                     )}
                   </label>
-                  {editingVehicle ? (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      {[form.manufacturer, form.brand].filter(Boolean).join(" ") || "未設定"}
-                      {form.modelCode && (
-                        <span className="ml-1.5 text-[11px] text-slate-500">（{form.modelCode}）</span>
-                      )}
-                      <span className="ml-2 text-[11px] text-slate-400">登録後は変更できません</span>
-                    </div>
-                  ) : (
+                  {(
                     <div className="space-y-2">
                       {/* チップを縦に並べると場所を取るので、メーカー→車種の2段セレクトにする（2026-08-11） */}
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1704,11 +1701,20 @@ export default function VehiclesPage() {
                         </div>
                       )}
 
-                      <p className="text-[11px] text-slate-400">
-                        {resolveModelKey(form.manufacturer, form.brand, form.modelCode)
-                          ? `地図・アプリでは ${form.brand}${form.modelCode ? `（${form.modelCode.toUpperCase()}）` : ""} の3Dモデルで表示されます`
-                          : "この車種・世代の3Dモデルはまだ無いため、標準の軽バンで表示されます"}
-                      </p>
+                      {/* どのモデルで描かれるかを名前で示す。OEM は元車種で描くので、
+                          車種名をそのまま出すと食い違って見える（2026-09-09） */}
+                      {(() => {
+                        const resolved = mapModelLabelFor(
+                          resolveModelKey(form.manufacturer, form.brand, form.modelCode),
+                        );
+                        return (
+                          <p className={`text-[11px] ${resolved.isDefault ? "text-amber-700" : "text-slate-400"}`}>
+                            {resolved.isDefault
+                              ? "この車種・世代の3Dモデルはまだ無いため、標準の軽バン（エブリイ）で表示されます"
+                              : `地図・アプリでは ${resolved.label} の3Dモデルで表示されます`}
+                          </p>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

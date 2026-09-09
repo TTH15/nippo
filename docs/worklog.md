@@ -768,3 +768,7 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-09-09 10:15 本番の地図APIを500にして復旧（sharp のネイティブ依存）
 
 - 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。読み取り経路が生成側（sharp）を静的 import していたのが原因。動的 import と serverExternalPackages で復旧（500→401）。実物 GLB を three.js で描画し、前後とも番号が正しく読めることを確認。
+
+## 2026-09-09 10:50 車両の登録・編集で車種（3Dモデル）と色を直せるようにする
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。編集でも車種を変更できるようにし、どの3Dモデルで描かれるかを名前で表示。標準モデルに落ちる場合は注意色で知らせる。
