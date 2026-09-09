@@ -764,3 +764,7 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 ## 2026-09-09 09:50 地図 段階4（K-10）: 3Dの車の面に実ナンバー。登録時にサーバーが自動生成
 
 - 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。車両ごとのプレート GLB をサーバーで作り非公開バケットへ。作成・更新時に after() で自動生成。本番14台ぶんを backfill 済み（898KB・非公開を確認）。
+
+## 2026-09-09 10:15 本番の地図APIを500にして復旧（sharp のネイティブ依存）
+
+- 本文: [docs/worklog/2026-09.md](worklog/2026-09.md)。読み取り経路が生成側（sharp）を静的 import していたのが原因。動的 import と serverExternalPackages で復旧（500→401）。実物 GLB を three.js で描画し、前後とも番号が正しく読めることを確認。
