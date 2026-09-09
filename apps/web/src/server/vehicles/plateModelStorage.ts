@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildPlateGlb, plateTextOf } from "@/server/vehicles/plateModel";
 import { mapModelKeyForVehicle, vehicleMapModelFor } from "@/lib/vehicleModels";
 
 // ============================================================
@@ -11,6 +10,11 @@ import { mapModelKeyForVehicle, vehicleMapModelFor } from "@/lib/vehicleModels";
 // ============================================================
 
 export const PLATE_MODEL_BUCKET = "vehicle-plate-models";
+
+// 生成側（sharp と gltf-transform）は読み込むだけで重く、ネイティブ依存もある。
+// 署名URLを配るだけの経路（地図API）へ道連れにしないよう、生成のときだけ動的に読む。
+// これを静的 import にしていたため、地図APIが sharp の読み込み失敗で 500 になった（2026-09-09）。
+const loadBuilder = () => import("@/server/vehicles/plateModel");
 
 /** 保存パス。番号を変えたら中身を差し替える（1台1ファイル） */
 const plateModelPath = (orgId: string, vehicleId: string) => `${orgId}/${vehicleId}.glb`;
@@ -35,12 +39,13 @@ export async function syncPlateModel(
   orgId: string,
   vehicle: PlateVehicle,
 ): Promise<{ ok: true; path: string } | { ok: false; reason: string }> {
-  const plate = plateTextOf(vehicle);
-  if (!plate) return { ok: false, reason: "番号が揃っていない" };
   const model = vehicleMapModelFor(mapModelKeyForVehicle(vehicle));
 
   let glb: Uint8Array;
   try {
+    const { buildPlateGlb, plateTextOf } = await loadBuilder();
+    const plate = plateTextOf(vehicle);
+    if (!plate) return { ok: false, reason: "番号が揃っていない" };
     glb = await buildPlateGlb(model.id, plate);
   } catch (e) {
     console.error("[plateModel] build error", vehicle.id, e);
