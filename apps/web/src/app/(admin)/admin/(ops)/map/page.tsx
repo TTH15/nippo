@@ -61,6 +61,7 @@ import { MAP_Z } from "@/lib/map/zIndex";
 import { VehicleDetailCard } from "@/lib/components/VehicleDetailCard";
 import { matchVehicles } from "@/lib/map/vehicleSearch";
 import { snapDrop, type DropTarget } from "@/lib/map/dropSnap";
+import { spreadOverlapping } from "@/lib/map/spreadVehicles";
 import { useModalKeys } from "@/lib/ui/dialog";
 import {
   VehiclePlate,
@@ -2197,6 +2198,18 @@ export default function MapPage() {
     if (!map) return;
 
     // 3Dモデルのソースを実データで差し替える
+    // 同じ座標に重なった車は、描画だけ横へ並べる（記録は動かさない・監査 K-11）。
+    // 拠点で降ろした車は拠点の代表点がそのまま入ることが多く、寄っても1台にしか見えなかった。
+    const displayPoints = spreadOverlapping(
+      displayedVehicles.map((v) => ({
+        id: v.id,
+        lat: v.position!.lat,
+        lng: v.position!.lng,
+        bearingDeg: slotBearingAt(v.position!.lng, v.position!.lat),
+      })),
+    );
+    const displayPointOf = (v: MapVehicle) => displayPoints.get(v.id) ?? { lat: v.position!.lat, lng: v.position!.lng };
+
     const applyModelData = () => {
       const src = mapRef.current?.getSource("vehicles-src") as mapboxgl.GeoJSONSource | undefined;
       src?.setData({
@@ -2205,9 +2218,10 @@ export default function MapPage() {
         features: displayedVehicles.filter((v) => !clusteredVehicleIdsRef.current.has(v.id)).map((v) => {
           // 車種（model_key、無ければメーカー＋車種名）。未登録は既定モデル（型式は当面扱わない）
           const model = vehicleMapModelFor(mapModelKeyForVehicle(v));
+          const at = displayPointOf(v);
           return {
             type: "Feature" as const,
-            geometry: { type: "Point" as const, coordinates: [v.position!.lng, v.position!.lat] },
+            geometry: { type: "Point" as const, coordinates: [at.lng, at.lat] },
             properties: {
               // 区画の中にいるならその区画の軸に合わせる。区画に対して斜めに刺さっていると
               // 一気に嘘くさくなるため（2026-08-10）。区画外は正面固定（GPS の heading が入ったらそれを使う）
@@ -2432,7 +2446,7 @@ export default function MapPage() {
         pitchAlignment: "viewport",
         rotationAlignment: "viewport",
       })
-        .setLngLat([p.lng, p.lat])
+        .setLngLat([displayPointOf(v).lng, displayPointOf(v).lat])
         .setPopup(popup)
         .addTo(map);
       vehicleLabelMarkersRef.current.push(marker);

@@ -60,6 +60,12 @@ function seedVehicles(scenario: string): MockVehicle[] {
     { id: "vehicle-4", ...plate("大阪", "480", "わ", "5854"), manufacturer: null, brand: null, model_key: null, body_color: "#c8102e",
       position: { lat: SUITA.lat + 0.001, lng: SUITA.lng + 0.001, at: at(30), kind: "checkout", source: "punch", sessionStatus: "closed", driverName: "" } },
     { id: "vehicle-5", ...plate("京都", "481", "り", "6290"), manufacturer: "スズキ", brand: "エブリイ", model_key: "every", body_color: "#d7d9d8", position: null },
+    // 拠点で降ろした車は「拠点の代表点」がそのまま入り、完全に同じ座標で重なる。
+    // 寄っても1台にしか見えない状態を再現して、横ずらし（K-11）を確かめられるようにする。
+    { id: "vehicle-6", ...plate("大阪", "480", "り", "7788"), manufacturer: "ホンダ", brand: "アクティバン", model_key: "acty", body_color: "#f59e0b",
+      position: { lat: TOYONAKA.lat, lng: TOYONAKA.lng, at: at(6), kind: "manual", source: "manual", placedBy: "サンプル管理者", sessionStatus: "closed", driverName: "" } },
+    { id: "vehicle-7", ...plate("大阪", "480", "り", "7799"), manufacturer: "ホンダ", brand: "アクティバン", model_key: "acty", body_color: "#16a34a",
+      position: { lat: TOYONAKA.lat, lng: TOYONAKA.lng, at: at(6), kind: "manual", source: "manual", placedBy: "サンプル管理者", sessionStatus: "closed", driverName: "" } },
   ];
   if (scenario === "empty") return base.map((v) => ({ ...v, position: null }));
   if (scenario === "large") {
@@ -78,7 +84,7 @@ export const mapFixture: PreviewFixture<State> = {
   title: "地図",
   pathname: "/admin/map",
   scenarios: {
-    normal: { label: "通常", description: "5台（稼働中2・積み込み中1・稼働外・位置なし）、拠点3、区画2、移動手配1" },
+    normal: { label: "通常", description: "7台（稼働中2・積み込み中1・稼働外・位置なし・同じ拠点で重なる2台）、拠点3、区画2、移動手配1" },
     empty: { label: "位置なし", description: "位置が1台も記録されていない" },
     large: { label: "大量", description: "40台が豊中周辺に密集。札の縮退と3Dの負荷を見る" },
   },
