@@ -5,6 +5,7 @@ import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { buildContext, buildContributions, sumBy, isCountableReport } from "@/server/aggregation/compute";
 import { loadDriverLeases, loadCourseDailyLease, computeLeaseDeduction } from "@/server/billing/driverLease";
+import { isActiveInMonth } from "@/lib/drivers/activePeriod";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,8 @@ export type DriverPaymentRow = {
   adHocDeductions: number;
   leaseDeductions: number;
   net: number;
+  /** その月は稼働期間の外。金額が残っているので消さずに出している行（印を付ける） */
+  outsideActivePeriod?: boolean;
 };
 
 // ============================================================
@@ -59,10 +62,10 @@ export async function GET(req: NextRequest) {
   const monthParam = req.nextUrl.searchParams.get("month");
   const { month, startDate, endDate } = getMonthRange(monthParam);
 
-  // 名簿・シフトと並び順を揃える（list_no 昇順）。status は下の絞り込みに使う。
+  // 名簿・シフトと並び順を揃える（list_no 昇順）。稼働期間は下の絞り込みに使う。
   const { data: drivers, error: driversError } = await supabase
     .from("drivers")
-    .select("id, name, display_name, status, list_no")
+    .select("id, name, display_name, status, list_no, active_from_month, active_until_month")
     .eq("org_id", orgId)
     .eq("works_as_driver", true)
     .order("list_no", { ascending: true, nullsFirst: false })
@@ -135,11 +138,15 @@ export async function GET(req: NextRequest) {
     if (adHocByDriver[row.driver_id] !== undefined) adHocByDriver[row.driver_id] += Number(row.amount) || 0;
   });
 
-  const statusById = new Map(
-    (drivers as { id: string; status: string | null }[]).map((d) => [d.id, d.status]),
+  // その月に稼働していたか（稼働開始月〜終了月）。status は「いま」の状態しか表さないので使わない。
+  const activeInMonth = new Map(
+    (drivers as { id: string; active_from_month: string | null; active_until_month: string | null }[]).map((d) => [
+      d.id,
+      isActiveInMonth(d, month),
+    ]),
   );
 
-  const rows: DriverPaymentRow[] = drivers.map((d: { id: string; name: string; display_name: string | null }) => {
+  const rows: DriverPaymentRow[] = drivers.map((d: { id: string; name: string; display_name: string | null }): DriverPaymentRow => {
     const incomeLog = autoPayoutByDriver.get(d.id)?.payout ?? 0;
     const carrier = incomeByDriverCarrier.get(d.id) ?? { yamato: 0, amazon: 0, other: 0 };
     const fixedDeductions = fixedByDriver[d.id] ?? 0;
@@ -164,16 +171,15 @@ export async function GET(req: NextRequest) {
       net,
     };
   })
-    // 稼働終了で、その月に報酬も控除も一切無い人は出さない。
-    // 月途中の退職者でも支払い・控除が残っていれば表示される（＝支払い漏れを防ぐ）。
+    // その月に稼働していた人だけを出す（2026-09-10 ユーザー指定）。
+    // ただし稼働期間の外でも報酬・控除が残っている人は消さずに出し、印を付ける。
+    // 稼働期間の入力漏れ（実在する）で支払いを見落とさないため。
     .filter((r) => {
-      if (statusById.get(r.driverId) === "active") return true;
-      return (
-        r.incomeLog !== 0 ||
-        r.fixedDeductions !== 0 ||
-        r.adHocDeductions !== 0 ||
-        r.leaseDeductions !== 0
-      );
+      if (activeInMonth.get(r.driverId)) return true;
+      const hasMoney =
+        r.incomeLog !== 0 || r.fixedDeductions !== 0 || r.adHocDeductions !== 0 || r.leaseDeductions !== 0;
+      if (hasMoney) r.outsideActivePeriod = true;
+      return hasMoney;
     });
 
   return NextResponse.json({ month, startDate, endDate, rows });

@@ -7,7 +7,9 @@ type Fixed = { id: string; name: string; amount: number; valid_from: string; val
 type AdHoc = { id: string; name: string; amount: number };
 type Row = {
   driverId: string;
-  name: string;
+  driverName: string;
+  displayName: string | null;
+  outsideActivePeriod?: boolean;
   incomeLog: number;
   yamatoIncome: number;
   amazonIncome: number;
@@ -22,6 +24,8 @@ type State = { rows: Row[]; fixed: Record<string, Fixed[]>; adHoc: Record<string
 
 const D1 = "00000000-0000-4000-8000-000000000101";
 const D2 = "00000000-0000-4000-8000-000000000102";
+// 稼働終了済みだが固定控除が残っている人。API はこの行に outsideActivePeriod を付けて返す
+const D3 = "00000000-0000-4000-8000-000000000103";
 
 function seed(scenario: string): State {
   // 1人目はリース契約も持っている＝固定「リース代」と二重になっている状態
@@ -31,17 +35,23 @@ function seed(scenario: string): State {
       { id: "fx-2", name: "リース代", amount: 35000, valid_from: "2026-07-01", valid_to: null },
     ],
     [D2]: [{ id: "fx-3", name: "事務手数料", amount: 4000, valid_from: "2026-05-01", valid_to: "2026-08-31" }],
+    [D3]: [{ id: "fx-4", name: "事務手数料", amount: 4000, valid_from: "2025-12-01", valid_to: null }],
   };
   const rows: Row[] = [
     {
-      driverId: D1, name: "見本 太郎",
+      driverId: D1, driverName: "見本 太郎", displayName: null,
       incomeLog: 145372, yamatoIncome: 145372, amazonIncome: 0, otherIncome: 0,
       fixedDeductions: 39000, adHocDeductions: 0, leaseDeductions: 35000, net: 71372,
     },
     {
-      driverId: D2, name: "見本 花子",
+      driverId: D2, driverName: "見本 花子", displayName: null,
       incomeLog: 98000, yamatoIncome: 0, amazonIncome: 98000, otherIncome: 0,
       fixedDeductions: 4000, adHocDeductions: 2000, leaseDeductions: 0, net: 92000,
+    },
+    {
+      driverId: D3, driverName: "見本 三郎", displayName: null, outsideActivePeriod: true,
+      incomeLog: 0, yamatoIncome: 0, amazonIncome: 0, otherIncome: 0,
+      fixedDeductions: 4000, adHocDeductions: 0, leaseDeductions: 0, net: -4000,
     },
   ];
   if (scenario === "empty") return { rows: [], fixed: {}, adHoc: {} };

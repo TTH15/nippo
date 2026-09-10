@@ -25,6 +25,8 @@ type DriverPaymentRow = {
   adHocDeductions: number;
   leaseDeductions: number;
   net: number;
+  /** 稼働期間の外だが金額が残っている行。稼働期間の入力漏れに気づけるよう印を出す */
+  outsideActivePeriod?: boolean;
 };
 
 type FixedExpense = {
@@ -601,7 +603,7 @@ export default function PaymentsPage() {
             </table>
           </div>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-slate-500">ドライバーが登録されていません</p>
+          <p className="text-sm text-slate-500">この月に稼働していたドライバーはいません</p>
         ) : (
           <div className="bg-white rounded border border-slate-200 overflow-hidden">
             {/* スマホ: カード表示（8列テーブルの横スクロールを避ける） */}
@@ -627,6 +629,14 @@ export default function PaymentsPage() {
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-slate-800">
                           {getDisplayName({ name: row.driverName, display_name: row.displayName })}
+                          {row.outsideActivePeriod && (
+                            <span
+                              title="この月は稼働期間の外ですが、金額が残っているので出しています"
+                              className="ml-1.5 rounded border border-slate-300 px-1 text-[10px] font-normal text-slate-500"
+                            >
+                              稼働期間外
+                            </span>
+                          )}
                         </span>
                         <span className="mt-0.5 block text-[11px] text-slate-500">
                           報酬 {formatYen(row.incomeLog)}
@@ -715,6 +725,14 @@ export default function PaymentsPage() {
                             name: row.driverName,
                             display_name: row.displayName,
                           })}
+                          {row.outsideActivePeriod && (
+                            <span
+                              title="この月は稼働期間の外ですが、金額が残っているので出しています"
+                              className="ml-1.5 rounded border border-slate-300 px-1 text-[10px] font-normal text-slate-500"
+                            >
+                              稼働期間外
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-slate-900">
                           {formatYen(row.net)}
