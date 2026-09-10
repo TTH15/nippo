@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse, after } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { afterSafely } from "@/server/afterSafely";
 import { syncPlateModel } from "@/server/vehicles/plateModelStorage";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -196,7 +197,8 @@ export async function PUT(
 
     // 番号や車種が変わっていれば、地図の3Dに出すプレート GLB を作り直す。
     // どの項目が変わったかを追うより、保存後の行を読み直して作る方が取りこぼさない。
-    after(async () => {
+    // after() はリクエストの外（単体テスト等）では投げるので、保存の成否には影響させない
+    afterSafely(async () => {
       const { data: saved } = await supabase
         .from("vehicles")
         .select("id, number_prefix, number_class, number_hiragana, number_numeric, model_key, manufacturer, brand")

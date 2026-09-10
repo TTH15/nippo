@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { adminMutationError, isUuid } from "@/server/db/adminResourceScope";
-import { NextRequest, NextResponse, after } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { afterSafely } from "@/server/afterSafely";
 import { syncPlateModel } from "@/server/vehicles/plateModelStorage";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { hasCapabilityCached } from "@/server/auth/permissions";
@@ -258,7 +259,8 @@ export async function POST(req: NextRequest) {
     // 地図の3Dに出す実ナンバーの GLB は、応答を待たせずに裏で作る（非公開バケットへ）
     const created = vehicle as { id?: string } | null;
     if (created?.id) {
-      after(async () => {
+      // after() はリクエストの外（単体テスト等）では投げるので、作成の成否には影響させない
+      afterSafely(async () => {
         await syncPlateModel(supabase, orgId, {
           id: created.id!,
           number_prefix: patch.number_prefix,

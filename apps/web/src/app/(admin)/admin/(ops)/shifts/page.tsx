@@ -2512,6 +2512,7 @@ export default function ShiftsPage() {
             courses={courses}
             drivers={drivers}
             today={today}
+            shiftRequests={requests}
           />
         ) : (
         <>

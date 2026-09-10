@@ -42,6 +42,15 @@ import {
   exportPeriodLabel,
   selectedShortageCount,
 } from "@/lib/shiftMemoExport";
+import {
+  activityLabel,
+  cellKey,
+  fullDayOffByDate,
+  nextDayOverride,
+  resolveDayActivity,
+  type DayOverride,
+  type ShiftRequestLike,
+} from "@/lib/shiftMemo/board";
 import { cn } from "@/lib/ui/utils";
 
 type MemoCourse = {
@@ -124,6 +133,8 @@ type StoredBoard = {
   assignments: Record<string, AssignedPerson[]>;
   extraPeople: string[];
   notes: Record<string, string>;
+  /** 担当枠×日の「この日だけ休み／稼働」。曜日の設定より優先する */
+  dayOverrides?: Record<string, DayOverride>;
   widths?: { day: number; lane: number; detail: number };
 };
 
@@ -140,10 +151,6 @@ const MON_TO_SAT = [1, 2, 3, 4, 5, 6];
 const PERSON_COLORS = ["#06b6d4", "#8b5cf6", "#f97316", "#22c55e", "#3b82f6", "#ec4899"];
 const PERSON_DRAG_TYPE = "application/x-hakotora-personal-shift-memo-person";
 const LANE_DRAG_TYPE = "application/x-hakotora-personal-shift-memo-lane";
-
-function cellKey(laneId: string, date: string): string {
-  return `${laneId}|${date}`;
-}
 
 function newId(prefix: string): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -169,16 +176,8 @@ function colorForPerson(key: string): string {
   return PERSON_COLORS[sum % PERSON_COLORS.length];
 }
 
-function activeOn(lane: AssignmentLane, date: string): boolean {
-  return lane.activeWeekdays.includes(dateInfo(date).weekdayNo);
-}
-
 function assignedCount(people: AssignedPerson[]): number {
   return new Set(people.map((person) => person.personKey)).size;
-}
-
-function shortageFor(lane: AssignmentLane, date: string, people: AssignedPerson[]): number {
-  return activeOn(lane, date) ? Math.max(0, lane.requiredCount - assignedCount(people)) : 0;
 }
 
 function exportDateRange(
@@ -262,12 +261,15 @@ function PersonSlip({
   token,
   code,
   selected,
+  dayOff,
   onSelect,
   onRemove,
 }: {
   token: PersonToken;
   code?: string | null;
   selected: boolean;
+  /** その日に全休の希望を出している人。置けなくはしないが、気づけるようにする */
+  dayOff?: boolean;
   onSelect: () => void;
   onRemove?: () => void;
 }) {
@@ -277,7 +279,7 @@ function PersonSlip({
       type="button"
       draggable
       aria-pressed={selected}
-      title={code ? `${token.name}（${code}）` : token.name}
+      title={`${token.name}${code ? `（${code}）` : ""}${dayOff ? " ・この日は希望休" : ""}`}
       onClick={(event) => {
         event.stopPropagation();
         onSelect();
@@ -295,10 +297,12 @@ function PersonSlip({
       className={cn(
         "inline-flex min-h-7 max-w-full cursor-grab items-center overflow-hidden rounded-md border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.08)] outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-indigo-500",
         selected && "ring-2 ring-indigo-500",
+        dayOff && "border-rose-200 bg-rose-50 text-rose-700",
       )}
       style={{ borderLeftColor: colorForPerson(token.personKey), borderLeftWidth: 3 }}
     >
       <span data-shift-export-slip-text="true" className="min-w-0 truncate px-2 py-1">{token.name}</span>
+      {dayOff && <span data-shift-export-slip-off="true" className="shrink-0 border-l border-rose-200 px-1 py-1 text-[8px] font-bold text-rose-600">休</span>}
       {code && !token.sourceKey && <span className="shrink-0 border-l border-slate-100 px-1.5 py-1 font-mono text-[8px] text-slate-400">{code}</span>}
     </button>
   );
@@ -309,19 +313,26 @@ export default function PersonalShiftMemoBoard({
   courses,
   drivers,
   today,
+  shiftRequests = [],
+  storageNamespace,
 }: {
   dates: string[];
   courses: MemoCourse[];
   drivers: MemoDriver[];
   today: string;
+  /** 提出済みの希望休。メモ盤では全休だけを「この日は休み希望」として印に使う */
+  shiftRequests?: ShiftRequestLike[];
+  /** 保存先を分けたいとき（プレビューで本物の下書きを汚さない）に指定する */
+  storageNamespace?: string;
 }) {
-  const viewerId = getStoredDriver()?.id ?? "local";
+  const viewerId = storageNamespace ?? getStoredDriver()?.id ?? "local";
   // 担当枠設定は期間をまたいで使い回し、配置と日別メモはISO日付キーで同じ個人領域へ蓄積する。
   const storageKey = `hakotora_personal_shift_memo_v1:${viewerId}`;
   const initialLanes = useMemo(() => defaultLanes(courses), [courses]);
   const [invoiceAddressNames, setInvoiceAddressNames] = useState<Record<string, string>>({});
   const [hydrated, setHydrated] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(dates.includes(today) ? today : dates[0] ?? "");
+  // 日付の選択は外すこともできる（表の外を押すと青い枠が消える）
+  const [selectedDate, setSelectedDate] = useState<string | null>(dates.includes(today) ? today : dates[0] ?? null);
   const [dayWidth, setDayWidth] = useState(76);
   const [laneWidth, setLaneWidth] = useState(190);
   const [detailWidth, setDetailWidth] = useState(330);
@@ -331,6 +342,8 @@ export default function PersonalShiftMemoBoard({
   const [assignments, setAssignments] = useState<Record<string, AssignedPerson[]>>({});
   const [extraPeople, setExtraPeople] = useState<string[]>([]);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  // 曜日の設定に対する「この日だけ休み／稼働」。イレギュラーな休みをここで持つ
+  const [dayOverrides, setDayOverrides] = useState<Record<string, DayOverride>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [hiddenOpen, setHiddenOpen] = useState(false);
@@ -349,6 +362,7 @@ export default function PersonalShiftMemoBoard({
     targetKey: string;
     existingNames: string[];
   } | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const boardScrollerRef = useRef<HTMLElement | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const exportOverlayRef = useRef<HTMLDivElement | null>(null);
@@ -361,6 +375,31 @@ export default function PersonalShiftMemoBoard({
   const [exportPreviewUrl, setExportPreviewUrl] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
+
+  // 曜日の設定＋その日だけの例外で「動くかどうか」を決める。
+  const dayActivity = (lane: AssignmentLane, date: string) =>
+    resolveDayActivity(lane.activeWeekdays, dateInfo(date).weekdayNo, dayOverrides[cellKey(lane.id, date)]);
+  const activeOn = (lane: AssignmentLane, date: string) => dayActivity(lane, date).active;
+  const shortageFor = (lane: AssignmentLane, date: string, people: AssignedPerson[]) =>
+    activeOn(lane, date) ? Math.max(0, lane.requiredCount - assignedCount(people)) : 0;
+
+  /** その日だけ休み／稼働を切り替える。曜日の設定に戻るときは例外ごと捨てる */
+  const toggleDayActivity = (lane: AssignmentLane, date: string) => {
+    const key = cellKey(lane.id, date);
+    const next = nextDayOverride(lane.activeWeekdays, dateInfo(date).weekdayNo, dayOverrides[key]);
+    setDayOverrides((current) => {
+      const copy = { ...current };
+      if (next) copy[key] = next;
+      else delete copy[key];
+      return copy;
+    });
+    const nextActive = resolveDayActivity(lane.activeWeekdays, dateInfo(date).weekdayNo, next).active;
+    setLiveMessage(`${dateInfo(date).monthDay}の${lane.name}を${nextActive ? "稼働" : "休み"}にしました`);
+  };
+
+  // 日付 → その日に全休の希望を出している人。正式シフト表と同じく便指定は含めない
+  const dayOffByDate = useMemo(() => fullDayOffByDate(shiftRequests), [shiftRequests]);
+  const dayOffOn = (date: string | null) => (date ? dayOffByDate.get(date) : undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -399,6 +438,7 @@ export default function PersonalShiftMemoBoard({
           setAssignments(stored.assignments && typeof stored.assignments === "object" ? stored.assignments : {});
           setExtraPeople(Array.isArray(stored.extraPeople) ? stored.extraPeople : []);
           setNotes(stored.notes && typeof stored.notes === "object" ? stored.notes : {});
+          setDayOverrides(stored.dayOverrides && typeof stored.dayOverrides === "object" ? stored.dayOverrides : {});
           if (stored.widths) {
             setDayWidth(Math.max(56, Math.min(140, stored.widths.day || 76)));
             setLaneWidth(Math.max(150, Math.min(300, stored.widths.lane || 190)));
@@ -424,6 +464,7 @@ export default function PersonalShiftMemoBoard({
         assignments,
         extraPeople,
         notes,
+        dayOverrides,
         widths: { day: dayWidth, lane: laneWidth, detail: detailWidth },
       };
       try {
@@ -435,7 +476,7 @@ export default function PersonalShiftMemoBoard({
       }
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [assignments, dayWidth, detailWidth, extraPeople, hiddenLaneIds, hydrated, laneOrder, laneWidth, lanes, notes, storageKey]);
+  }, [assignments, dayOverrides, dayWidth, detailWidth, extraPeople, hiddenLaneIds, hydrated, laneOrder, laneWidth, lanes, notes, storageKey]);
 
   useEffect(() => {
     if (!activePanel) return;
@@ -460,6 +501,21 @@ export default function PersonalShiftMemoBoard({
       window.visualViewport?.removeEventListener("resize", reposition);
     };
   }, [activePanel]);
+
+  // メモ盤の外を押したら日付の選択を外す（選んだ列の青い枠を残さない）
+  useEffect(() => {
+    if (!selectedDate) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (!target) return;
+      // 盤・右パネル・浮いているパネル（body 直下に出る）の中は対象外
+      if (rootRef.current?.contains(target)) return;
+      if (target.closest?.("[role='dialog']")) return;
+      setSelectedDate(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [selectedDate]);
 
   const orderedLanes = useMemo(() => {
     const byId = new Map(lanes.map((lane) => [lane.id, lane]));
@@ -699,6 +755,10 @@ export default function PersonalShiftMemoBoard({
             overflow: "hidden",
           });
           setExportPillLabel(pill, text);
+        });
+        // 選んでいる日の青い枠は下書き用の目印。画像には残さない
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-selected='true']").forEach((element) => {
+          element.classList.remove("bg-indigo-50", "bg-indigo-50/45", "text-indigo-700", "ring-2", "ring-inset", "ring-indigo-500");
         });
         clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-meta='true']").forEach((meta) => {
           Object.assign(meta.style, { lineHeight: "10px", paddingTop: "0" });
@@ -965,6 +1025,13 @@ export default function PersonalShiftMemoBoard({
     setLiveMessage(same ? `${token.name}の選択を解除しました` : `${token.name}を選択しました`);
   };
 
+  /** 自分で作った文字札を名前札の棚から消す。置いてある札はそのまま残す */
+  const removeCustomPerson = (name: string) => {
+    setExtraPeople((current) => current.filter((value) => value !== name));
+    setSelectedToken((current) => (current?.personKey === `custom:${name}` && !current.sourceKey ? null : current));
+    setLiveMessage(`${name}の札を消しました`);
+  };
+
   const addCustomPerson = () => {
     const name = customName.trim().slice(0, 20);
     if (!name) return;
@@ -1029,13 +1096,14 @@ export default function PersonalShiftMemoBoard({
     });
   };
 
-  const selectedAssignments = visibleLanes.map((lane) => ({
-    lane,
-    people: assignments[cellKey(lane.id, selectedDate)] ?? [],
-  }));
-  const selectedShortages = selectedAssignments
-    .map((entry) => ({ ...entry, shortage: shortageFor(entry.lane, selectedDate, entry.people) }))
-    .filter((entry) => entry.shortage > 0);
+  const selectedAssignments = selectedDate
+    ? visibleLanes.map((lane) => ({ lane, people: assignments[cellKey(lane.id, selectedDate)] ?? [] }))
+    : [];
+  const selectedShortages = selectedDate
+    ? selectedAssignments
+        .map((entry) => ({ ...entry, shortage: shortageFor(entry.lane, selectedDate, entry.people) }))
+        .filter((entry) => entry.shortage > 0)
+    : [];
   const dayShortage = (date: string) => visibleLanes.reduce((sum, lane) => {
     const people = assignments[cellKey(lane.id, date)] ?? [];
     return sum + shortageFor(lane, date, people);
@@ -1046,7 +1114,7 @@ export default function PersonalShiftMemoBoard({
   }
 
   return (
-    <div className="space-y-3 pb-8 text-slate-900">
+    <div ref={rootRef} className="space-y-3 pb-8 text-slate-900">
       <p className="sr-only" aria-live="polite">{liveMessage}</p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
@@ -1105,7 +1173,7 @@ export default function PersonalShiftMemoBoard({
               const info = dateInfo(date);
               const shortage = dayShortage(date);
               return (
-                <div key={date} data-shift-export-sticky="true" className={cn("sticky top-0 z-40 h-16 border-b border-r border-slate-200 bg-slate-50 text-xs font-bold", selectedDate === date && "bg-indigo-50 text-indigo-700 ring-2 ring-inset ring-indigo-500", selectedDate !== date && info.weekdayNo === 6 && "text-blue-600", selectedDate !== date && info.weekdayNo === 0 && "text-rose-600")}>
+                <div key={date} data-shift-export-sticky="true" data-shift-export-selected={selectedDate === date ? "true" : undefined} className={cn("sticky top-0 z-40 h-16 border-b border-r border-slate-200 bg-slate-50 text-xs font-bold", selectedDate === date && "bg-indigo-50 text-indigo-700 ring-2 ring-inset ring-indigo-500", selectedDate !== date && info.weekdayNo === 6 && "text-blue-600", selectedDate !== date && info.weekdayNo === 0 && "text-rose-600")}>
                   <button data-shift-export-day="true" type="button" onClick={() => setSelectedDate(date)} className="flex h-full w-full flex-col items-center justify-center">
                     <span data-shift-export-day-number="true" className="text-sm">{info.day}日</span><span data-shift-export-day-weekday="true" className="text-[10px]">（{info.weekday}）</span>
                     {shortage > 0 && <span data-shift-export-pill="true" data-shift-export-day-shortage={date} className="mt-0.5 rounded-full bg-amber-100 px-1.5 text-[8px] font-bold leading-4 text-amber-700">不足{shortage}</span>}
@@ -1115,7 +1183,9 @@ export default function PersonalShiftMemoBoard({
               );
             })}
 
-            <div aria-hidden="true" className="pointer-events-none absolute bottom-0 top-16 z-20 border-x-2 border-indigo-500" style={{ left: laneWidth + dates.indexOf(selectedDate) * dayWidth, width: dayWidth }} />
+            {selectedDate && dates.includes(selectedDate) && (
+              <div data-html2canvas-ignore="true" aria-hidden="true" className="pointer-events-none absolute bottom-0 top-16 z-20 border-x-2 border-indigo-500" style={{ left: laneWidth + dates.indexOf(selectedDate) * dayWidth, width: dayWidth }} />
+            )}
 
             {routeGroups.map((route) => {
               const routeLanes = visibleLanes.filter((lane) => lane.routeId === route.id);
@@ -1155,12 +1225,15 @@ export default function PersonalShiftMemoBoard({
                       {dates.map((date) => {
                         const key = cellKey(lane.id, date);
                         const people = assignments[key] ?? [];
-                        const active = activeOn(lane, date);
+                        const activity = dayActivity(lane, date);
+                        const active = activity.active;
                         const shortage = shortageFor(lane, date, people);
+                        const offToday = dayOffByDate.get(date);
                         return (
                           <div
                             key={key}
                             role="group"
+                            data-shift-export-selected={selectedDate === date && active ? "true" : undefined}
                             tabIndex={active ? 0 : undefined}
                             onKeyDown={(event) => {
                               if (active && selectedToken && (event.key === "Enter" || event.key === " ")) {
@@ -1172,15 +1245,20 @@ export default function PersonalShiftMemoBoard({
                             onDrop={(event) => { if (active) dropPerson(event, key); }}
                             onClick={() => setSelectedDate(date)}
                             className={cn("relative flex min-h-28 flex-col content-start items-start gap-1.5 border-b border-r border-slate-200 p-1.5 pt-6 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", active ? "hover:bg-slate-50" : "bg-slate-100/80", selectedDate === date && active && "bg-indigo-50/45")}
-                            style={!active ? { backgroundImage: "repeating-linear-gradient(135deg, transparent, transparent 8px, rgba(148,163,184,0.08) 8px, rgba(148,163,184,0.08) 10px)" } : undefined}
+                            // その日だけの指定で動かしている枠は破線で囲む（曜日どおりの枠と見分ける）
+                            title={activity.spot ? (active ? "この日だけ稼働にしています" : "この日だけ休みにしています") : undefined}
+                            style={{
+                              ...(active ? {} : { backgroundImage: "repeating-linear-gradient(135deg, transparent, transparent 8px, rgba(148,163,184,0.08) 8px, rgba(148,163,184,0.08) 10px)" }),
+                              ...(activity.spot ? { outline: "1px dashed #64748b", outlineOffset: "-3px" } : {}),
+                            }}
                           >
                             {active ? shortage > 0
                               ? <span data-shift-export-pill="true" className="absolute right-1.5 top-1.5 rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span>
                               : <span data-shift-export-meta="true" className="absolute right-1.5 top-1.5 text-[9px] text-slate-400">{assignedCount(people)}/{lane.requiredCount}</span>
-                              : <span data-shift-export-meta="true" className="absolute right-1.5 top-1.5 text-[9px] text-slate-400">非稼働</span>}
+                              : <span data-shift-export-meta="true" className={cn("absolute right-1.5 top-1.5 text-[9px]", activity.spot ? "font-bold text-slate-600" : "text-slate-400")}>{activityLabel(activity)}</span>}
                             {people.map((person) => {
                               const token: PersonToken = { personKey: person.personKey, driverId: person.driverId, name: person.name, sourceKey: key, placementId: person.placementId };
-                              return <PersonSlip key={person.placementId} token={token} selected={selectedToken?.placementId === person.placementId} onSelect={() => selectToken(token)} onRemove={() => removePerson(key, person.placementId, person.name)} />;
+                              return <PersonSlip key={person.placementId} token={token} dayOff={!!person.driverId && offToday?.has(person.driverId)} selected={selectedToken?.placementId === person.placementId} onSelect={() => selectToken(token)} onRemove={() => removePerson(key, person.placementId, person.name)} />;
                             })}
                             {active && people.length === 0 && <span className="m-auto text-base font-light text-slate-300">＋</span>}
                           </div>
@@ -1380,10 +1458,10 @@ export default function PersonalShiftMemoBoard({
         ) : (
         <aside className="min-h-0 border-t border-slate-200 bg-slate-50/70 lg:overflow-y-auto lg:border-l lg:border-t-0">
           <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
-            <h2 className="text-lg font-black text-slate-900">{dateInfo(selectedDate).monthDay}（{dateInfo(selectedDate).weekday}）</h2>
+            <h2 className="text-lg font-black text-slate-900">{selectedDate ? `${dateInfo(selectedDate).monthDay}（${dateInfo(selectedDate).weekday}）` : "日付を選ぶ"}</h2>
           </div>
           <div className="space-y-4 p-3.5">
-            {selectedShortages.length > 0 && (
+            {selectedDate && selectedShortages.length > 0 && (
               <section className="rounded-xl border border-amber-200 bg-amber-50 p-3"><div className="flex items-center justify-between gap-3"><h3 className="text-xs font-bold text-amber-900">不足している担当枠</h3><span className="rounded-full bg-amber-200/70 px-2 py-0.5 text-[10px] font-bold text-amber-800">あと{selectedShortages.reduce((sum, entry) => sum + entry.shortage, 0)}人</span></div><div className="mt-2 flex flex-wrap gap-1.5">{selectedShortages.map(({ lane, shortage }) => <span key={lane.id} className="rounded-md border border-amber-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700">{lane.name} <span className="text-amber-700">あと{shortage}</span></span>)}</div></section>
             )}
 
@@ -1393,32 +1471,56 @@ export default function PersonalShiftMemoBoard({
               <div className="flex min-h-11 max-h-36 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-dashed border-slate-200 bg-slate-50/60 p-1.5">
                 {filteredDrivers.map((driver) => {
                   const token: PersonToken = { personKey: `driver:${driver.id}`, driverId: driver.id, name: getDisplayName(driver) };
-                  return <PersonSlip key={driver.id} token={token} code={driver.driver_code} selected={selectedToken?.personKey === token.personKey && !selectedToken.sourceKey} onSelect={() => selectToken(token)} />;
+                  return <PersonSlip key={driver.id} token={token} code={driver.driver_code} dayOff={dayOffOn(selectedDate)?.has(driver.id)} selected={selectedToken?.personKey === token.personKey && !selectedToken.sourceKey} onSelect={() => selectToken(token)} />;
                 })}
                 {extraPeople.map((name) => {
                   const token: PersonToken = { personKey: `custom:${name}`, name };
-                  return <PersonSlip key={token.personKey} token={token} selected={selectedToken?.personKey === token.personKey && !selectedToken.sourceKey} onSelect={() => selectToken(token)} />;
+                  return (
+                    <span key={token.personKey} className="inline-flex items-center">
+                      <PersonSlip token={token} selected={selectedToken?.personKey === token.personKey && !selectedToken.sourceKey} onSelect={() => selectToken(token)} />
+                      <button type="button" onClick={() => removeCustomPerson(name)} aria-label={`${name}の札を消す`} title={`${name}の札を消す`} className="-ml-px inline-flex h-7 w-5 items-center justify-center rounded-r-md border border-l-0 border-slate-200 bg-white text-slate-400 hover:bg-rose-50 hover:text-rose-600"><FontAwesomeIcon icon={faXmark} className="h-2.5 w-2.5" /></button>
+                    </span>
+                  );
                 })}
               </div>
               <div className="mt-2 flex h-8 items-center rounded-lg border border-dashed border-slate-300 pl-2.5"><input value={customName} onChange={(event) => setCustomName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) addCustomPerson(); }} placeholder="応援1名・未定など" className="min-w-0 flex-1 text-xs outline-none" /><button type="button" onClick={addCustomPerson} className="inline-flex h-full items-center gap-1 px-2 text-[10px] font-medium text-slate-600 hover:bg-slate-50"><FontAwesomeIcon icon={faPlus} className="h-2.5 w-2.5" />文字札</button></div>
             </section>
 
+            {!selectedDate ? (
+              <p className="rounded-xl border border-dashed border-slate-200 bg-white/70 p-3 text-[11px] text-slate-500">日付を選ぶと、その日の配置とメモが出ます</p>
+            ) : (
+            <>
+            {(dayOffOn(selectedDate)?.size ?? 0) > 0 && (
+              <section className="rounded-xl border border-slate-200 bg-white p-3">
+                <h3 className="mb-2 text-xs font-bold text-slate-700">この日の希望休</h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {drivers.filter((driver) => dayOffOn(selectedDate)?.has(driver.id)).map((driver) => (
+                    <span key={driver.id} className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-medium text-rose-700">{getDisplayName(driver)}</span>
+                  ))}
+                </div>
+              </section>
+            )}
+
             <section className="space-y-2">
               <div className="flex items-center justify-between"><h3 className="text-xs font-bold text-slate-600">この日の配置</h3><span className="text-[10px] text-slate-400">{selectedAssignments.reduce((sum, entry) => sum + entry.people.length, 0)}枚</span></div>
               {selectedAssignments.map(({ lane, people }) => {
                 const key = cellKey(lane.id, selectedDate);
-                const active = activeOn(lane, selectedDate);
+                const activity = dayActivity(lane, selectedDate);
+                const active = activity.active;
+                const stateLabel = activityLabel(activity);
                 const shortage = shortageFor(lane, selectedDate, people);
                 return (
                   <div key={lane.id} role="group" tabIndex={active ? 0 : undefined} onKeyDown={(event) => { if (active && selectedToken && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); requestPlacement(selectedToken, key); } }} onDragOver={(event) => { if (active) event.preventDefault(); }} onDrop={(event) => { if (active) dropPerson(event, key); }} className={cn("rounded-lg border p-2.5 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", active ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-100/80")}>
-                    <div className="mb-2 flex items-center gap-2"><span className="h-4 w-1 rounded-full" style={{ backgroundColor: lane.color }} /><div className="min-w-0 flex-1"><div className="truncate text-[9px] text-slate-400">{routeGroups.find((route) => route.id === lane.routeId)?.name}・必要{lane.requiredCount}人</div><h4 className="truncate text-[11px] font-bold text-slate-700">{lane.name}</h4></div>{!active ? <span className="text-[9px] text-slate-400">非稼働</span> : shortage > 0 ? <span className="rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span> : null}</div>
-                    <div className="flex min-h-8 flex-wrap gap-1.5 rounded-md border border-dashed border-slate-200 bg-slate-50/50 p-1.5">{people.map((person) => { const token: PersonToken = { personKey: person.personKey, driverId: person.driverId, name: person.name, sourceKey: key, placementId: person.placementId }; return <PersonSlip key={person.placementId} token={token} selected={selectedToken?.placementId === person.placementId} onSelect={() => selectToken(token)} onRemove={() => removePerson(key, person.placementId, person.name)} />; })}</div>
+                    <div className="mb-2 flex items-center gap-2"><span className="h-4 w-1 rounded-full" style={{ backgroundColor: lane.color }} /><div className="min-w-0 flex-1"><div className="truncate text-[9px] text-slate-400">{routeGroups.find((route) => route.id === lane.routeId)?.name}・必要{lane.requiredCount}人</div><h4 className="truncate text-[11px] font-bold text-slate-700">{lane.name}</h4></div>{stateLabel ? <span className={cn("shrink-0 rounded px-1 text-[9px] font-bold leading-4", activity.spot ? "border border-dashed border-slate-400 text-slate-600" : "text-slate-400")}>{stateLabel}</span> : shortage > 0 ? <span className="rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span> : null}<button type="button" onClick={() => toggleDayActivity(lane, selectedDate)} className="inline-flex h-7 shrink-0 items-center rounded-md border border-slate-200 px-2 text-[9px] font-medium text-slate-500 hover:bg-slate-50">{active ? "この日を休みに" : "この日を稼働に"}</button></div>
+                    <div className="flex min-h-8 flex-wrap gap-1.5 rounded-md border border-dashed border-slate-200 bg-slate-50/50 p-1.5">{people.map((person) => { const token: PersonToken = { personKey: person.personKey, driverId: person.driverId, name: person.name, sourceKey: key, placementId: person.placementId }; return <PersonSlip key={person.placementId} token={token} dayOff={!!person.driverId && dayOffOn(selectedDate)?.has(person.driverId)} selected={selectedToken?.placementId === person.placementId} onSelect={() => selectToken(token)} onRemove={() => removePerson(key, person.placementId, person.name)} />; })}</div>
                   </div>
                 );
               })}
             </section>
 
-            <section className="rounded-xl border border-slate-200 bg-white p-3"><label className="mb-1.5 block text-xs font-bold text-slate-700">この日のメモ</label><textarea value={notes[selectedDate] ?? ""} maxLength={2000} onChange={(event) => setNotes((current) => ({ ...current, [selectedDate]: event.target.value }))} rows={4} className="w-full resize-y rounded-lg border border-slate-200 px-2.5 py-2 text-xs leading-relaxed outline-none focus:border-slate-400" /></section>
+            <section className="rounded-xl border border-slate-200 bg-white p-3"><label className="mb-1.5 block text-xs font-bold text-slate-700">この日のメモ</label><textarea value={notes[selectedDate] ?? ""} maxLength={2000} onChange={(event) => { const date = selectedDate; setNotes((current) => ({ ...current, [date]: event.target.value })); }} rows={4} className="w-full resize-y rounded-lg border border-slate-200 px-2.5 py-2 text-xs leading-relaxed outline-none focus:border-slate-400" /></section>
+            </>
+            )}
           </div>
         </aside>
         )}

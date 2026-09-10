@@ -69,7 +69,15 @@ function dataFor(key: string) {
           shifts.push({ id: `${date}-${i}`, shift_date: date, course_id: courses[i % 3].id, cycle_no: 0, slot: Math.floor(i / 3) + 1, driver_id: driver.id, vehicle_id: vehicle.id, vehicles: vehicle });
         });
       }
-      periodData.set(key, { courses, drivers, vehicles, shifts, requests: [], slots: [{ id: "slot-1", name: "終日", start_time: null, end_time: null }], vehicle_driver_links: drivers.map((d, i) => ({ driver_id: d.id, vehicle_id: vehicles[i].id })) });
+      // 希望休（全休）を数件。シフトメモの「この日は休み希望」の印を確認するために入れる
+      const offBase = `${start.slice(0, 8)}`;
+      const requests = [
+        { id: "req-1", driver_id: drivers[0].id, request_date: `${offBase}03`, request_type: "OFF", slot_id: null },
+        { id: "req-2", driver_id: drivers[1].id, request_date: `${offBase}03`, request_type: "OFF", slot_id: null },
+        { id: "req-3", driver_id: drivers[2].id, request_date: `${offBase}05`, request_type: "OFF", slot_id: null },
+        { id: "req-4", driver_id: drivers[3].id, request_date: `${offBase}03`, request_type: "OFF", slot_id: "slot-1" },
+      ];
+      periodData.set(key, { courses, drivers, vehicles, shifts, requests, slots: [{ id: "slot-1", name: "終日", start_time: null, end_time: null }], vehicle_driver_links: drivers.map((d, i) => ({ driver_id: d.id, vehicle_id: vehicles[i].id })) });
       if (handoffScenario) applyHandoffScenario(periodData.get(key)!, start, end);
     }
     data = { ...periodData.get(key)!, courses: handoffScenario ? courses.map(course => course.id === "course-3" ? { ...course, name: "京都上鳥羽", summary_title: "京都上鳥羽" } : course) : courses, driver_leases: leaseScenario === "error" ? null : leaseScenario === "empty" ? [] : leases.map(lease => firstDriverDaily && lease.driver_id === drivers[0].id ? { ...lease, mode: "DAILY" } : lease) };
