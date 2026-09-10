@@ -13,6 +13,7 @@ import {
 import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
+  faArrowUp,
   faChevronDown,
   faCropSimple,
   faDownload,
@@ -135,6 +136,10 @@ type StoredBoard = {
   notes: Record<string, string>;
   /** 担当枠×日の「この日だけ休み／稼働」。曜日の設定より優先する */
   dayOverrides?: Record<string, DayOverride>;
+  /** コース（取引先の枠）の並び順。よく使うコースを上に置くために持つ */
+  routeOrder?: string[];
+  /** 丸ごと隠しているコース */
+  hiddenRouteIds?: string[];
   widths?: { day: number; lane: number; detail: number };
 };
 
@@ -339,6 +344,9 @@ export default function PersonalShiftMemoBoard({
   const [lanes, setLanes] = useState<AssignmentLane[]>(initialLanes);
   const [laneOrder, setLaneOrder] = useState<string[]>(initialLanes.map((lane) => lane.id));
   const [hiddenLaneIds, setHiddenLaneIds] = useState<string[]>([]);
+  // コース単位の並び替え・非表示。運用しているのは一部のコースだけなので、上に寄せて残りは畳む
+  const [routeOrder, setRouteOrder] = useState<string[]>([]);
+  const [hiddenRouteIds, setHiddenRouteIds] = useState<string[]>([]);
   const [assignments, setAssignments] = useState<Record<string, AssignedPerson[]>>({});
   const [extraPeople, setExtraPeople] = useState<string[]>([]);
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -435,6 +443,8 @@ export default function PersonalShiftMemoBoard({
             ...mergedLanes.map((lane) => lane.id).filter((id) => !(stored.laneOrder ?? []).includes(id)),
           ]);
           setHiddenLaneIds(Array.isArray(stored.hiddenLaneIds) ? stored.hiddenLaneIds : []);
+          setRouteOrder(Array.isArray(stored.routeOrder) ? stored.routeOrder : []);
+          setHiddenRouteIds(Array.isArray(stored.hiddenRouteIds) ? stored.hiddenRouteIds : []);
           setAssignments(stored.assignments && typeof stored.assignments === "object" ? stored.assignments : {});
           setExtraPeople(Array.isArray(stored.extraPeople) ? stored.extraPeople : []);
           setNotes(stored.notes && typeof stored.notes === "object" ? stored.notes : {});
@@ -461,6 +471,8 @@ export default function PersonalShiftMemoBoard({
         lanes,
         laneOrder,
         hiddenLaneIds,
+        routeOrder,
+        hiddenRouteIds,
         assignments,
         extraPeople,
         notes,
@@ -476,7 +488,7 @@ export default function PersonalShiftMemoBoard({
       }
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [assignments, dayOverrides, dayWidth, detailWidth, extraPeople, hiddenLaneIds, hydrated, laneOrder, laneWidth, lanes, notes, storageKey]);
+  }, [assignments, dayOverrides, dayWidth, detailWidth, extraPeople, hiddenLaneIds, hiddenRouteIds, hydrated, laneOrder, laneWidth, lanes, notes, routeOrder, storageKey]);
 
   useEffect(() => {
     if (!activePanel) return;
@@ -524,8 +536,23 @@ export default function PersonalShiftMemoBoard({
       .map((id) => byId.get(id))
       .filter((lane): lane is AssignmentLane => !!lane && routeIds.has(lane.routeId));
   }, [laneOrder, lanes, routeGroups]);
-  const visibleLanes = orderedLanes.filter((lane) => !hiddenLaneIds.includes(lane.id));
-  const hiddenLanes = orderedLanes.filter((lane) => hiddenLaneIds.includes(lane.id));
+  // 保存した順にコースを並べ、知らないコース（新設）は後ろへ回す
+  const orderedRoutes = useMemo(() => {
+    const byId = new Map(routeGroups.map((route) => [route.id, route]));
+    const known = routeOrder.map((id) => byId.get(id)).filter((route): route is RouteGroup => !!route);
+    const knownIds = new Set(known.map((route) => route.id));
+    return [...known, ...routeGroups.filter((route) => !knownIds.has(route.id))];
+  }, [routeGroups, routeOrder]);
+  const visibleRoutes = orderedRoutes.filter((route) => !hiddenRouteIds.includes(route.id));
+  const hiddenRoutes = orderedRoutes.filter((route) => hiddenRouteIds.includes(route.id));
+  const visibleLanes = orderedLanes.filter((lane) => !hiddenLaneIds.includes(lane.id) && !hiddenRouteIds.includes(lane.routeId));
+  const hiddenLanes = orderedLanes.filter((lane) => hiddenLaneIds.includes(lane.id) && !hiddenRouteIds.includes(lane.routeId));
+
+  /** そのコースを一番上へ。よく使う順に押していけば並べ替えられる（ドラッグは使わない） */
+  const moveRouteToTop = (routeId: string) => {
+    setRouteOrder([routeId, ...orderedRoutes.map((route) => route.id).filter((id) => id !== routeId)]);
+    setLiveMessage(`${routeGroups.find((route) => route.id === routeId)?.name ?? "コース"}を一番上にしました`);
+  };
   const filteredDrivers = drivers.filter((driver) => {
     const query = search.trim().toLocaleLowerCase("ja-JP");
     return !query || `${getDisplayName(driver)} ${driver.driver_code ?? ""}`.toLocaleLowerCase("ja-JP").includes(query);
@@ -1137,23 +1164,29 @@ export default function PersonalShiftMemoBoard({
           <FontAwesomeIcon icon={exportMode ? faXmark : faDownload} className="h-3 w-3" />
           {exportMode ? "選択を終了" : "エクスポート"}
         </button>
-        {hiddenLanes.length > 0 && (
+        {hiddenLanes.length + hiddenRoutes.length > 0 && (
           <button type="button" onClick={() => setHiddenOpen((open) => !open)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-medium text-slate-600 hover:border-slate-400">
-            <FontAwesomeIcon icon={faEye} className="h-3 w-3" />非表示 {hiddenLanes.length}件
+            <FontAwesomeIcon icon={faEye} className="h-3 w-3" />非表示 {hiddenLanes.length + hiddenRoutes.length}件
             <FontAwesomeIcon icon={faChevronDown} className={cn("h-2.5 w-2.5 transition-transform", hiddenOpen && "rotate-180")} />
           </button>
         )}
       </div>
 
-      {hiddenOpen && hiddenLanes.length > 0 && (
+      {hiddenOpen && hiddenLanes.length + hiddenRoutes.length > 0 && (
         <section className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+          {hiddenRoutes.map((route) => (
+            <button key={route.id} type="button" onClick={() => setHiddenRouteIds((ids) => ids.filter((id) => id !== route.id))} className="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2 text-[10px] font-bold text-slate-700 hover:border-amber-500" title={`${route.name}を表示に戻す`}>
+              <FontAwesomeIcon icon={faTruck} className="h-2.5 w-2.5 text-slate-400" />{route.name}
+              <FontAwesomeIcon icon={faRotateLeft} className="h-2.5 w-2.5 text-amber-600" />
+            </button>
+          ))}
           {hiddenLanes.map((lane) => (
             <button key={lane.id} type="button" onClick={() => setHiddenLaneIds((ids) => ids.filter((id) => id !== lane.id))} className="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-200 bg-white px-2 text-[10px] font-medium text-slate-700 hover:border-amber-400">
               <span className="h-3 w-1 rounded-full" style={{ backgroundColor: lane.color }} />{lane.name}
               <FontAwesomeIcon icon={faRotateLeft} className="h-2.5 w-2.5 text-amber-600" />
             </button>
           ))}
-          <button type="button" onClick={() => setHiddenLaneIds([])} className="ml-auto text-[10px] font-medium text-amber-700 hover:underline">すべて表示へ戻す</button>
+          <button type="button" onClick={() => { setHiddenLaneIds([]); setHiddenRouteIds([]); }} className="ml-auto text-[10px] font-medium text-amber-700 hover:underline">すべて表示へ戻す</button>
         </section>
       )}
 
@@ -1187,7 +1220,7 @@ export default function PersonalShiftMemoBoard({
               <div data-html2canvas-ignore="true" aria-hidden="true" className="pointer-events-none absolute bottom-0 top-16 z-20 border-x-2 border-indigo-500" style={{ left: laneWidth + dates.indexOf(selectedDate) * dayWidth, width: dayWidth }} />
             )}
 
-            {routeGroups.map((route) => {
+            {visibleRoutes.map((route) => {
               const routeLanes = visibleLanes.filter((lane) => lane.routeId === route.id);
               return (
                 <div key={route.id} className="contents">
@@ -1201,6 +1234,8 @@ export default function PersonalShiftMemoBoard({
                   >
                     <FontAwesomeIcon icon={faTruck} className="h-3 w-3 shrink-0 text-slate-400" />
                     <div className="min-w-0 flex-1 leading-tight"><div className="truncate text-[9px] text-slate-400">{route.carrier}</div><div className="truncate text-xs font-bold text-slate-700">{route.name}</div></div>
+                    <button data-html2canvas-ignore="true" type="button" onClick={() => moveRouteToTop(route.id)} disabled={visibleRoutes[0]?.id === route.id} className="inline-flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent" aria-label={`${route.name}を一番上へ`} title="一番上へ"><FontAwesomeIcon icon={faArrowUp} className="h-3 w-3" /></button>
+                    <button data-html2canvas-ignore="true" type="button" onClick={() => setHiddenRouteIds((ids) => ids.includes(route.id) ? ids : [...ids, route.id])} className="inline-flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700" aria-label={`${route.name}を非表示にする`} title="このコースを非表示"><FontAwesomeIcon icon={faEyeSlash} className="h-3 w-3" /></button>
                     <button data-html2canvas-ignore="true" type="button" data-route-add={route.id} onClick={(event) => openAddLane(route, event)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700" aria-label={`${route.name}に担当枠を追加`} aria-haspopup="dialog"><FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" /></button>
                   </div>
                   <div className="h-11 border-b border-slate-200 bg-slate-100/80" style={{ gridColumn: `span ${dates.length}` }} />
@@ -1244,7 +1279,7 @@ export default function PersonalShiftMemoBoard({
                             onDragOver={(event) => { if (active) event.preventDefault(); }}
                             onDrop={(event) => { if (active) dropPerson(event, key); }}
                             onClick={() => setSelectedDate(date)}
-                            className={cn("relative flex min-h-28 flex-col content-start items-start gap-1.5 border-b border-r border-slate-200 p-1.5 pt-6 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", active ? "hover:bg-slate-50" : "bg-slate-100/80", selectedDate === date && active && "bg-indigo-50/45")}
+                            className={cn("group relative flex min-h-28 flex-col content-start items-start gap-1.5 border-b border-r border-slate-200 p-1.5 pt-6 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", active ? "hover:bg-slate-50" : "bg-slate-100/80", selectedDate === date && active && "bg-indigo-50/45")}
                             // その日だけの指定で動かしている枠は破線で囲む（曜日どおりの枠と見分ける）
                             title={activity.spot ? (active ? "この日だけ稼働にしています" : "この日だけ休みにしています") : undefined}
                             style={{
@@ -1252,6 +1287,22 @@ export default function PersonalShiftMemoBoard({
                               ...(activity.spot ? { outline: "1px dashed #64748b", outlineOffset: "-3px" } : {}),
                             }}
                           >
+                            {/* このコースのこの日を休みにする／戻す。日付を選ばなくても押せる */}
+                            <button
+                              data-html2canvas-ignore="true"
+                              type="button"
+                              onClick={(event) => { event.stopPropagation(); toggleDayActivity(lane, date); }}
+                              title={`${dateInfo(date).monthDay}の${lane.name}を${active ? "休みにする" : "稼働にする"}`}
+                              aria-label={`${dateInfo(date).monthDay}の${lane.name}を${active ? "休みにする" : "稼働にする"}`}
+                              className={cn(
+                                "absolute left-1 top-1 z-10 inline-flex h-5 min-w-8 items-center justify-center rounded border px-1 text-[9px] font-bold leading-none transition-opacity [@media(hover:none)]:opacity-60",
+                                active
+                                  ? "border-slate-200 bg-white text-slate-400 opacity-0 hover:border-rose-200 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                                  : "border-slate-300 bg-white/90 text-slate-600 opacity-0 hover:border-slate-500 hover:text-slate-900 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100",
+                              )}
+                            >
+                              {active ? "休み" : "稼働"}
+                            </button>
                             {active ? shortage > 0
                               ? <span data-shift-export-pill="true" className="absolute right-1.5 top-1.5 rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span>
                               : <span data-shift-export-meta="true" className="absolute right-1.5 top-1.5 text-[9px] text-slate-400">{assignedCount(people)}/{lane.requiredCount}</span>
