@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, name, role, company_code, office_code, driver_code, identity_id, org_id, status")
+    .select("id, name, role, company_code, office_code, driver_code, identity_id, org_id, status, token_version")
     .eq("id", user.driverId)
     .single<ActiveDriverRow>();
 

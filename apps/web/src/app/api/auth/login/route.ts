@@ -26,8 +26,6 @@ export async function POST(req: NextRequest) {
 
       const code = driverCode.toUpperCase();
 
-      console.log("[Login] Driver code:", code);
-
       // ドライバーコードでドライバーを検索（従来: drivers.driver_code / 追加: driver_identities）
       let driver: {
         id: string;
@@ -40,11 +38,12 @@ export async function POST(req: NextRequest) {
         identity_id: string | null;
         org_id: string | null;
         status: string | null;
+        token_version: number;
       } | null = null;
 
       const { data: byDriverRow, error: err1 } = await supabase
         .from("drivers") // tenant-scope-ok: ログイン前は org 文脈が無い。driver_code から org を決める側の問い合わせ
-        .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id, status")
+        .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id, status, token_version")
         .eq("driver_code", code)
         .maybeSingle();
 
@@ -75,14 +74,12 @@ export async function POST(req: NextRequest) {
         if (idRow?.driver_id) {
           const { data: d2, error: err3 } = await supabase
             .from("drivers")
-            .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id, status")
+            .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id, status, token_version")
             .eq("id", idRow.driver_id)
             .single();
           if (!err3 && d2) driver = d2;
         }
       }
-
-      console.log("[Login] Driver query result:", { driver, code });
 
       if (!driver) {
         return NextResponse.json({
@@ -100,7 +97,6 @@ export async function POST(req: NextRequest) {
 
       // PINは、初期値としてドライバーコードの数字6桁を設定し、その後変更可能
       const match = await bcrypt.compare(pin, driver.pin_hash);
-      console.log("[Login] PIN match:", match);
       if (!match) {
         return NextResponse.json({
           error: "PINが正しくありません。"
@@ -122,6 +118,7 @@ export async function POST(req: NextRequest) {
         companyCode: driver.company_code || envCompany.code,
         identityId: driver.identity_id,
         orgId: driver.org_id,
+        tokenVersion: driver.token_version,
       });
 
       const { data: loginIdentity } = await supabase
@@ -185,7 +182,7 @@ export async function POST(req: NextRequest) {
       // これにより ACCOUNTING や org が作ったカスタムロールも（管理権限を1つでも持てば）ログインできる。
       const { data: admin, error } = await supabase
         .from("drivers") // tenant-scope-ok: ログイン前は org 文脈が無い。driver_code + company_code で本人を特定する
-        .select("id, name, role, role_id, company_code, driver_code, pin_hash, identity_id, org_id, status")
+        .select("id, name, role, role_id, company_code, driver_code, pin_hash, identity_id, org_id, status, token_version")
         .eq("driver_code", full)
         .eq("company_code", code)
         .single();
@@ -223,6 +220,7 @@ export async function POST(req: NextRequest) {
         companyCode: admin.company_code || envCompany.code,
         identityId: admin.identity_id,
         orgId: admin.org_id,
+        tokenVersion: admin.token_version,
       });
 
       return NextResponse.json({

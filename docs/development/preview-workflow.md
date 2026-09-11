@@ -25,6 +25,8 @@
 - 画面上部のバーでシナリオ・役割の切替、「次の保存を失敗させる」、「初期化」ができる。サイドバー・クイックリンクは pushState で遷移し、scenario/role を引き継ぐ。未登録ページへのリンクは一覧へ戻して案内を出す
 - 地図（`/preview/admin/map`）は Mapbox の公開キーが要るので `npm run preview:admin -- admin --port 3199 --mapbox` で起動する（`.env.local` の `NEXT_PUBLIC_MAPBOX_TOKEN` だけを読む）。シナリオは通常／位置なし／大量（40台密集）。共有ビューは Supabase Realtime を使うため常にオフのスタブ
 - 日報送信（`/preview/admin/submit`）はドライバー画面を同じ runner で開く。「車の置き場所」の候補・区画・別の場所・状況回答・未回答ブロック・保存失敗（上部バーの「次の保存を失敗させる」）を試せる。送信内容は console の `preview submit`
+- アカウント設定（`/preview/admin/account`）は本番 `/admin/account/page.tsx` を直接使う。通常／未登録／期限切れ／使用済み／認証保存失敗／利用停止／権限変更を切り替えられる。期限切れ・使用済み・保存失敗は2回目の登録操作で成功する。
+- ログイン（`/preview/admin/login`）は本番 `/login/page.tsx` に共通のシナリオバーを付ける。アカウント設定で停止／権限変更後に操作するとここへ戻る。停止は再ログイン拒否、権限変更後は新しいログインでダッシュボードへ進む。`@simplewebauthn/browser` はrunnerだけのスタブで、OSの鍵登録・生体認証・本番認証ストレージに触れない。画面移動／再読み込みで架空状態を初期化する。
 - 旧コマンド `npm run preview:admin -- vehicles` は同じ bundle の `/preview/admin/vehicles` を開くエイリアス（`scripts/previews/vehicles-services.tsx` は fixture へ統合して削除）
 
 ### 仕組みと追加方法

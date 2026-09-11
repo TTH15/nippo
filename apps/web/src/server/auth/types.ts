@@ -12,6 +12,8 @@ export type AuthUser = {
   // 旧トークン（6a 以前に発行）には無いため nullable。orgId の解決権威は当面 DB（resolveOrgId）のまま。
   identityId: string | null;
   orgId: string | null;
+  /** 所属・権限変更で増加する世代。未設定の旧JWTは0。 */
+  tokenVersion?: number;
   /**
    * requirePermission が解決した capability 集合（同一リクエスト内の再利用用）。
    * 認可の正本はあくまでサーバーの都度判定で、これは往復を減らすためのキャッシュ。

@@ -68,4 +68,18 @@ describe("signToken / verify (Phase 6a: identity_id + current_org_id)", () => {
     const user = await provider.verify(`Bearer ${token}`);
     expect(user.role).toBe("CUSTOM_AB12C");
   });
+
+  it("ログイン世代を保持し、旧トークンは0として扱う", async () => {
+    const token = await signToken({ driverId: "drv-6", role: "DRIVER", companyCode: "ACE", tokenVersion: 3 });
+    expect((await provider.verify(`Bearer ${token}`)).tokenVersion).toBe(3);
+    const legacy = await new SignJWT({ sub: "drv-6", role: "DRIVER" })
+      .setProtectedHeader({ alg: "HS256" }).setExpirationTime("30d").sign(secret());
+    expect((await provider.verify(`Bearer ${legacy}`)).tokenVersion).toBe(0);
+  });
+
+  it.each([-1, 1.5, "0"])("不正な世代を拒否する: %s", async (token_version) => {
+    const token = await new SignJWT({ sub: "drv-7", role: "DRIVER", token_version })
+      .setProtectedHeader({ alg: "HS256" }).setExpirationTime("30d").sign(secret());
+    await expect(provider.verify(`Bearer ${token}`)).rejects.toThrow("Invalid token payload");
+  });
 });

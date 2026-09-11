@@ -12,9 +12,17 @@ export type StoredDriver = {
   capabilities?: string[];
 };
 
-export async function apiFetch<T = unknown>(path: string, init?: RequestInit): Promise<T> {
-  const { store } = getPreviewRuntime();
-  return (await store.fetch(path, { method: init?.method, body: init?.body })) as T;
+export async function apiFetch<T = unknown>(path: string, init?: RequestInit, options?: { skipAuthRedirect?: boolean }): Promise<T> {
+  const { store, navigate } = getPreviewRuntime();
+  try {
+    return (await store.fetch(path, { method: init?.method, body: init?.body })) as T;
+  } catch (error) {
+    // fixtureが明示的に401を返すシナリオだけ、本番と同じログイン導線を試す。
+    if (!options?.skipAuthRedirect && error instanceof Error && "status" in error && error.status === 401) {
+      navigate("/login");
+    }
+    throw error;
+  }
 }
 
 export function getStoredDriver(): StoredDriver | null {
@@ -25,5 +33,5 @@ export function getToken(): string | null {
   return "preview-token";
 }
 
-export function setAuth(): void {}
+export function setAuth(_token?: string, _driver?: StoredDriver): void {}
 export function clearAuth(): void {}

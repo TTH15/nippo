@@ -11,7 +11,7 @@ const pill = "rounded-full border px-2 py-0.5 text-[11px] font-bold leading-4 tr
 const pillOff = `${pill} border-slate-300 bg-white text-slate-600 hover:border-slate-400`;
 const pillOn = `${pill} border-slate-900 bg-slate-900 text-white`;
 
-function ScenarioBar() {
+export function ScenarioBar() {
   const { store, search } = usePreviewRuntime();
   useStoreRevision(store);
   const currentPath = window.location.pathname;

@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DRIVER_SESSION_COLS =
-  "id, name, role, company_code, office_code, driver_code, identity_id, org_id, status";
+  "id, name, role, company_code, office_code, driver_code, identity_id, org_id, status, token_version";
 
 export async function POST(req: NextRequest) {
   try {
@@ -245,7 +245,7 @@ export async function POST(req: NextRequest) {
     }
 
     // pending のままセッション発行（本登録を同一セッションで続けるため・§2-1a）。
-    // 稼働系の解放は status/kyc_verified_at を見る各ルートが引き続きゲートする。
+    // requireAuth が本人登録以外の業務APIを拒否する。
     const session = await issueDriverSession(created as ActiveDriverRow);
     return NextResponse.json({ ok: true, organizationName: org.name, ...session });
   } catch (err) {

@@ -53,6 +53,7 @@ const adminReplacements = new Map([
   ["next/dynamic", "kernel/next-dynamic.tsx"],
   ["@/lib/components/AdminLayout", "kernel/AdminLayout.tsx"],
   ["@/lib/map/sharedView", "kernel/sharedView.tsx"],
+  ["@simplewebauthn/browser", "kernel/webauthn-browser.ts"],
 ].map(([from, to]) => [from, path.join(root, "scripts/previews", to)]));
 const entry = productionPageEntries.get(feature) ?? path.join(source, "app/preview", feature, "page.tsx");
 await access(entry);
@@ -65,7 +66,7 @@ const result = await build({
   bundle: true, outfile: path.join(output, "app.js"), platform: "browser", format: "esm",
   jsx: "automatic", alias: { "@": source, "@repo/core": path.join(root, "packages/core/src") },
   // 本番ページが読む公開設定は空文字で固定する（会社設定は DEFAULT 扱い）。環境ファイルは読まない。
-  define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_MAPBOX_TOKEN": JSON.stringify(publicMapboxToken), "process.env.NEXT_PUBLIC_PREVIEW_MAPBOX_ENABLED": JSON.stringify(String(mapboxEnabled)), "process.env.NEXT_PUBLIC_COMPANY_CODE": '""' }, minify: true, metafile: true,
+  define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_MAPBOX_TOKEN": JSON.stringify(publicMapboxToken), "process.env.NEXT_PUBLIC_PREVIEW_MAPBOX_ENABLED": JSON.stringify(String(mapboxEnabled)), "process.env.NEXT_PUBLIC_COMPANY_CODE": '""', "process.env.NEXT_PUBLIC_WEBAUTHN_RP_ID": '"127.0.0.1"' }, minify: true, metafile: true,
   // 未定義の process.env.* が残っても ReferenceError で真っ白にならないよう、空の process を置く
   banner: { js: "var process = globalThis.process ?? { env: {} };" },
   plugins: [{ name: "mock-only", setup(builder) {

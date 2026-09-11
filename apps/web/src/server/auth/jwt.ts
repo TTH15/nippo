@@ -18,6 +18,7 @@ export async function signToken(payload: {
   // Phase 6a: identity（人）と current_org_id（選択中の所属）を運ぶ。未指定（旧呼び出し）は null。
   identityId?: string | null;
   orgId?: string | null;
+  tokenVersion?: number;
 }): Promise<string> {
   return new SignJWT({
     sub: payload.driverId,
@@ -25,6 +26,7 @@ export async function signToken(payload: {
     companyCode: payload.companyCode,
     identity_id: payload.identityId ?? null,
     current_org_id: payload.orgId ?? null,
+    token_version: payload.tokenVersion ?? 0,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -42,7 +44,7 @@ export class SimpleJwtAuthProvider implements AuthProvider {
       throw new Error("Missing or invalid Authorization header");
     }
     const token = authHeader.slice(7);
-    const { payload } = await jwtVerify(token, secret());
+    const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
 
     const driverId = payload.sub;
     const role = payload.role as string;
@@ -50,10 +52,12 @@ export class SimpleJwtAuthProvider implements AuthProvider {
     // Phase 6a: 旧トークンには無いため null フォールバック（後方互換）。
     const identityId = (payload.identity_id as string | null | undefined) ?? null;
     const orgId = (payload.current_org_id as string | null | undefined) ?? null;
+    const tokenVersion = payload.token_version ?? 0;
 
     // role は表示ラベル（カスタムロールのキーも入りうる）。権限の判定は capability 側で行うため、
     // ここでは driverId と非空 role の存在のみ検証する。
-    if (!driverId || typeof role !== "string" || !role) {
+    if (!driverId || typeof role !== "string" || !role ||
+        typeof tokenVersion !== "number" || !Number.isSafeInteger(tokenVersion) || tokenVersion < 0) {
       throw new Error("Invalid token payload");
     }
     return {
@@ -62,6 +66,7 @@ export class SimpleJwtAuthProvider implements AuthProvider {
       companyCode: companyCode || "AAA", // 後方互換性
       identityId,
       orgId,
+      tokenVersion,
     };
   }
 }

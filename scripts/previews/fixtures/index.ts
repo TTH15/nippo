@@ -8,12 +8,16 @@ import UsersPage from "@/app/(admin)/admin/(resource)/users/page";
 import MapPage from "@/app/(admin)/admin/(ops)/map/page";
 import PaymentsPage from "@/app/(admin)/admin/(accounting)/payments/page";
 import SubmitPage from "@/app/(user)/submit/SubmitPageClientV2";
+import AccountPage from "@/app/(admin)/admin/account/page";
+import LoginPreview from "../login";
 import { dashboardFixture } from "./dashboard";
 import { vehiclesFixture } from "./vehicles";
 import { usersFixture } from "./users";
 import { mapFixture } from "./map";
 import { paymentsFixture } from "./payments";
 import { submitFixture } from "./submit";
+import { accountFixture } from "./account";
+import { loginFixture } from "./login";
 
 export type PreviewPageEntry = {
   /** URLの末尾（/preview/admin/<slug>） */
@@ -30,6 +34,8 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("vehicles", vehiclesFixture, VehiclesPage),
   entry("users", usersFixture, UsersPage),
   entry("payments", paymentsFixture, PaymentsPage),
+  entry("account", accountFixture, AccountPage),
+  entry("login", loginFixture, LoginPreview),
   // 地図は Mapbox の公開キーが要る: npm run preview:admin -- admin --mapbox
   entry("map", mapFixture, MapPage),
   // ドライバー画面（管理レイアウトなし）。日報の「車の置き場所」の確認用

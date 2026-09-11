@@ -3,6 +3,7 @@ import { supabase } from "@/server/db/client";
 import {
   verifyAuthenticationResponse,
   verifyChallengeToken,
+  consumeChallengeToken,
   byteaToPublicKey,
   rpConfig,
 } from "@/server/auth/webauthn";
@@ -72,13 +73,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Passkeyの検証に失敗しました" }, { status: 401 });
     }
 
-    await supabase
+    try {
+      if (!await consumeChallengeToken(challengeToken, "login")) {
+        return NextResponse.json(
+          { error: "認証をやり直してください。もう一度Passkeyでログインできます" },
+          { status: 401 },
+        );
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "認証を完了できませんでした。時間をおいてもう一度お試しください" },
+        { status: 503 },
+      );
+    }
+
+    const { data: updatedCredential, error: updateError } = await supabase
       .from("passkey_credentials")
       .update({
         counter: verification.authenticationInfo.newCounter,
         last_used_at: new Date().toISOString(),
       })
-      .eq("id", cred.id);
+      .eq("id", cred.id)
+      .eq("counter", cred.counter)
+      .select("id")
+      .maybeSingle();
+    if (updateError || !updatedCredential) {
+      return NextResponse.json(
+        { error: "認証を完了できませんでした。もう一度お試しください" },
+        { status: 503 },
+      );
+    }
 
     const resolved = await resolveActiveDriverByIdentity(cred.identity_id as string);
     if ("error" in resolved) {

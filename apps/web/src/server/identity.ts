@@ -22,6 +22,7 @@ export type ActiveDriverRow = {
   identity_id: string | null;
   org_id: string | null;
   status: string | null;
+  token_version: number;
 };
 
 /**
@@ -66,7 +67,7 @@ export async function resolveActiveDriverByIdentity(
 ): Promise<{ driver: ActiveDriverRow } | { error: "none" | "multiple" }> {
   const { data: drivers, error } = await supabase
     .from("drivers") // tenant-scope-ok: ログイン経路（Passkey/SMS）。org 文脈が確定する前に identity から membership を引く
-    .select("id, name, role, company_code, office_code, driver_code, identity_id, org_id, status")
+    .select("id, name, role, company_code, office_code, driver_code, identity_id, org_id, status, token_version")
     .eq("identity_id", identityId)
     .eq("status", "active");
 
@@ -85,6 +86,7 @@ export async function issueDriverSession(driver: ActiveDriverRow) {
     companyCode: driver.company_code || envCompany.code,
     identityId: driver.identity_id,
     orgId: driver.org_id,
+    tokenVersion: driver.token_version,
   });
 
   const capabilities = await resolveCapabilities(driver.id, driver.role);

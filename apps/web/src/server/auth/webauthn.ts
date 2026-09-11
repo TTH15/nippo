@@ -1,4 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
+import { createHash } from "node:crypto";
+import { supabase } from "@/server/db/client";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -29,8 +31,8 @@ export function rpConfig() {
 
 // -------------------------------------------------------
 // Challenge token: WebAuthn の challenge を options→verify の間だけ運ぶための
-// 短命JWT。cookieやDBテーブルを増やさず、既存の signToken と同じ jose/JWT_SECRET を
-// 再利用する（typ 相当に kind クレームを持たせ通常セッションJWTと区別）。
+// 短命JWT。既存の signToken と同じ jose/JWT_SECRET を再利用する。
+// 検証成功後、consumeChallengeToken でDBへ使用済みを原子的に記録する。
 // -------------------------------------------------------
 
 type ChallengePurpose = "register" | "login";
@@ -55,8 +57,8 @@ export async function createChallengeToken(payload: {
 export async function verifyChallengeToken(
   token: string,
   expectedPurpose: ChallengePurpose,
-): Promise<{ challenge: string; identityId: string | null }> {
-  const { payload } = await jwtVerify(token, secret());
+): Promise<{ challenge: string; identityId: string | null; expiresAt: number }> {
+  const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
   if (payload.kind !== "webauthn_challenge" || payload.purpose !== expectedPurpose) {
     throw new Error("Invalid challenge token");
   }
@@ -64,10 +66,44 @@ export async function verifyChallengeToken(
   if (typeof challenge !== "string" || !challenge) {
     throw new Error("Invalid challenge token");
   }
+  if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) {
+    throw new Error("Invalid challenge token");
+  }
+  const identityId = payload.identity_id ?? null;
+  if ((identityId !== null && typeof identityId !== "string") ||
+      (expectedPurpose === "register" && !identityId) ||
+      (expectedPurpose === "login" && identityId !== null)) {
+    throw new Error("Invalid challenge token");
+  }
   return {
     challenge,
-    identityId: (payload.identity_id as string | null | undefined) ?? null,
+    identityId,
+    expiresAt: payload.exp,
   };
+}
+
+/** WebAuthn応答の検証後、セッション発行・鍵保存の前に必ず呼ぶ。 */
+export async function consumeChallengeToken(
+  token: string,
+  purpose: ChallengePurpose,
+  identityId: string | null = null,
+): Promise<boolean> {
+  let verified: Awaited<ReturnType<typeof verifyChallengeToken>>;
+  try {
+    verified = await verifyChallengeToken(token, purpose);
+  } catch {
+    return false;
+  }
+  if (verified.identityId !== identityId) return false;
+  const challengeHash = createHash("sha256")
+    .update(`${purpose}\0${verified.challenge}`)
+    .digest("hex");
+  const { data, error } = await supabase.rpc("consume_webauthn_challenge", {
+    p_challenge_hash: challengeHash,
+    p_expires_at: new Date(verified.expiresAt * 1000).toISOString(),
+  });
+  if (error) throw new Error("Failed to consume WebAuthn challenge");
+  return data === true;
 }
 
 // -------------------------------------------------------

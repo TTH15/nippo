@@ -4,6 +4,7 @@ import { supabase } from "@/server/db/client";
 import {
   verifyRegistrationResponse,
   verifyChallengeToken,
+  consumeChallengeToken,
   publicKeyToBytea,
   rpConfig,
 } from "@/server/auth/webauthn";
@@ -61,6 +62,20 @@ export async function POST(req: NextRequest) {
   }
 
   const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
+
+  try {
+    if (!await consumeChallengeToken(challengeToken, "register", user.identityId)) {
+      return NextResponse.json(
+        { error: "認証をやり直してください。もう一度Passkeyを登録できます" },
+        { status: 401 },
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      { error: "認証を完了できませんでした。時間をおいてもう一度お試しください" },
+      { status: 503 },
+    );
+  }
 
   const { error: insertError } = await supabase.from("passkey_credentials").insert({
     identity_id: user.identityId,
