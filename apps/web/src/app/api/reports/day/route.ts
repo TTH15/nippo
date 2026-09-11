@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const driverIdentityId = req.nextUrl.searchParams.get("driverIdentityId");
   const reportDate = req.nextUrl.searchParams.get("reportDate");
@@ -71,7 +73,7 @@ export async function GET(req: NextRequest) {
   const { data: courses } = await supabase
     .from("courses")
     .select("id, name, color")
-    .in("id", shiftCourseIds)
+    .in("id", shiftCourseIds).eq("org_id", orgId)
     .order("sort_order");
 
   const shiftsToday = (courses ?? []).map((c: { id: string; name: string; color: string }) => ({

@@ -180,7 +180,7 @@ export async function GET(req: NextRequest) {
           });
           if (ir.name_kana) kanaByIdentity.set(ir.id, ir.name_kana);
           if (!ir.face_photo_path) return;
-          const signed = await signKyc(supabase, ir.face_photo_path);
+          const signed = await signKyc(supabase, ir.id, ir.face_photo_path);
           if (signed) faceByIdentity.set(ir.id, signed);
         },
       ),
@@ -372,10 +372,10 @@ export async function POST(req: NextRequest) {
     if (identErr || !identity) {
       console.error(identErr);
       // 補償: 直前に作成した drivers 行を取り消し、孤児を残さない。
-      await supabase.from("drivers").delete().eq("id", driver.id);
+      await supabase.from("drivers").delete().eq("org_id", orgId).eq("id", driver.id);
       return NextResponse.json({ error: "アイデンティティの作成に失敗しました" }, { status: 500 });
     }
-    await supabase.from("drivers").update({ identity_id: identity.id }).eq("id", driver.id);
+    await supabase.from("drivers").update({ identity_id: identity.id }).eq("org_id", orgId).eq("id", driver.id);
 
     const { data: ident1, error: iErr } = await supabase
       .from("driver_identities")
@@ -391,7 +391,7 @@ export async function POST(req: NextRequest) {
     if (iErr || !ident1) {
       console.error(iErr);
       // 補償: drivers / identities を取り消して孤児を残さない。
-      await supabase.from("drivers").delete().eq("id", driver.id);
+      await supabase.from("drivers").delete().eq("org_id", orgId).eq("id", driver.id);
       await supabase.from("identities").delete().eq("id", identity.id);
       // driver_code の一意制約(23505)＝事前検査をすり抜けた競合。明確なメッセージで返す。
       if ((iErr as { code?: string } | null)?.code === "23505") {

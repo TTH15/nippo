@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_ACCEPT_MIME, DEFAULT_MAX_FILE_BYTES, type AnswerAttachment } from "./fields";
 import { verifyFileContent } from "@/server/storage/fileSignature";
-import { resolveStoredUrls } from "@/server/storage/dataUrl";
+import { resolveStoredUrls, removeStoredPaths } from "@/server/storage/dataUrl";
 
 // ============================================================
 // 諸報告の添付ファイル（Supabase Storage・非公開バケット）入出力。
@@ -54,6 +54,7 @@ export async function uploadReportFile(
  *  signedUrlOptions でグループ分けして維持する。 */
 export async function signAttachments(
   supabase: SupabaseClient,
+  driverId: string,
   attachments: AnswerAttachment[],
   expiresInSec = 60 * 30,
 ): Promise<(AnswerAttachment & { url: string | null })[]> {
@@ -61,14 +62,13 @@ export async function signAttachments(
     supabase,
     REPORT_BUCKET,
     attachments.map((a) => a.path),
+    driverId,
     expiresInSec,
   );
   return attachments.map((a, i) => ({ ...a, url: urls[i] ?? null }));
 }
 
 /** Storage からオブジェクトを削除（報告削除時など）。 */
-export async function removeReportFiles(supabase: SupabaseClient, paths: string[]): Promise<void> {
-  if (paths.length === 0) return;
-  const { error } = await supabase.storage.from(REPORT_BUCKET).remove(paths);
-  if (error) console.error("[reportKinds/attachments] remove error", error);
+export async function removeReportFiles(supabase: SupabaseClient, driverId: string, paths: string[]): Promise<void> {
+  await removeStoredPaths(supabase, REPORT_BUCKET, paths, driverId);
 }

@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   let q = supabase
     .from("vehicle_sessions")
     .select("id, vehicle_id, status, recorded_by, start_odometer")
-    .eq("recorded_by", user.driverId)
+    .eq("recorded_by", user.driverId).eq("org_id", orgId)
     .eq("status", "open");
   if (body?.sessionId) q = q.eq("id", String(body.sessionId));
   const { data: session } = await q.maybeSingle();
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
   const { data: updated, error } = await supabase
     .from("vehicle_sessions")
     .update(updates)
-    .eq("id", session.id)
+    .eq("id", session.id).eq("org_id", orgId)
     .eq("status", "open") // 競合ガード
     .select("*")
     .single();

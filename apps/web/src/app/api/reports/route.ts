@@ -144,6 +144,7 @@ export async function POST(req: NextRequest) {
 
     // Fetch driver name for event payload
     const { data: driver } = await supabase
+      // tenant-scope-ok: requireAuth由来の本人user.driverIdの表示名だけをイベントに使用
       .from("drivers")
       .select("name")
       .eq("id", user.driverId)

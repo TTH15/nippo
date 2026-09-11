@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
   if (ctx instanceof NextResponse) return ctx;
 
   const { data, error } = await supabase
+    // tenant-scope-ok: requirePlatformAdminで認可済み。プラットフォーム宛申請の一覧
     .from("org_applications")
     .select(
       "id, company_name, corporate_number, representative, contact_name, contact_email, contact_phone, address, message, status, created_at, decided_at, decided_note, org_id",

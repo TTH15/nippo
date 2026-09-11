@@ -53,6 +53,7 @@ export async function PATCH(req: NextRequest) {
 
   // 自分宛て（identity_id 一致）に限定して更新する＝他人の通知は既読にできない
   let query = supabase
+    // tenant-scope-ok: 通知は所属横断の本人受信箱。認証済みidentityId宛てに限定
     .from("notifications")
     .update({ read_at: new Date().toISOString() })
     .eq("identity_id", identityId)

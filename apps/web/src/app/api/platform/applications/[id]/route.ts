@@ -22,6 +22,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   };
 
   const { data: app, error: appErr } = await supabase
+    // tenant-scope-ok: requirePlatformAdminで認可済み。会社作成前のプラットフォーム宛申請を審査
     .from("org_applications")
     .select("id, company_name, status")
     .eq("id", id)
@@ -32,6 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   if (body.action === "reviewing") {
+    // tenant-scope-ok: requirePlatformAdminで認可済み。会社作成前のプラットフォーム宛申請を審査
     const { error } = await supabase.from("org_applications").update({ status: "reviewing" }).eq("id", id);
     if (error) return NextResponse.json({ error: "更新に失敗しました" }, { status: 500 });
     await logPlatformAction(ctx.identityId, "application.reviewing", id);
@@ -40,6 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   if (body.action === "reject") {
     const { error } = await supabase
+      // tenant-scope-ok: requirePlatformAdminで認可済み。会社作成前のプラットフォーム宛申請を審査
       .from("org_applications")
       .update({
         status: "rejected",
@@ -62,6 +65,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     try {
       const result = await bootstrapOrganization({ name: orgName, code: orgCode, adminInviteName: "初代管理者" });
       const { error } = await supabase
+        // tenant-scope-ok: requirePlatformAdminで認可済み。会社作成前のプラットフォーム宛申請を審査
         .from("org_applications")
         .update({
           status: "approved",

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadReportKinds, normalizeCapability } from "@/server/reportKinds/config";
 import { normalizeFields, validateKindFields, type VehicleMode } from "@/server/reportKinds/fields";
@@ -10,7 +11,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_org_settings");
   if (isAuthError(user)) return user;
-  const kinds = await loadReportKinds(supabase);
+  const orgId = await resolveOrgId(user.driverId);
+  const kinds = await loadReportKinds(supabase, orgId);
   return NextResponse.json({ kinds });
 }
 
@@ -24,6 +26,7 @@ function normVehicleMode(raw: unknown): VehicleMode {
 export async function POST(req: NextRequest) {
   const user = await requirePermission(req, "can_manage_report_kinds");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const body = await req.json().catch(() => ({}));
   const key = String(body.key ?? "").trim().toLowerCase();
@@ -42,6 +45,7 @@ export async function POST(req: NextRequest) {
   if (!check.ok) return NextResponse.json({ error: check.message }, { status: 400 });
 
   const row = {
+    org_id: orgId,
     key,
     label,
     sort_order: Number.isFinite(Number(body.sortOrder)) ? Math.trunc(Number(body.sortOrder)) : 999,
@@ -53,6 +57,7 @@ export async function POST(req: NextRequest) {
     uses_vehicle: vehicleMode !== "none",
   };
 
+  // tenant-scope-ok: row.org_id は認証済み所属の orgId
   const { data, error } = await supabase.from("report_kinds").insert(row).select("*").maybeSingle();
   if (error) {
     console.error("[admin/report-kinds] insert error", error);
@@ -62,5 +67,6 @@ export async function POST(req: NextRequest) {
       { status: dup ? 400 : 500 },
     );
   }
+  if (!data) return NextResponse.json({ error: "種別が見つかりません。" }, { status: 404 });
   return NextResponse.json({ kind: data });
 }

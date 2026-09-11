@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
+import { loadReportVehicles } from "@/server/vehicles/reportScope";
 import { supabase } from "@/server/db/client";
 import { captureReportRateSnapshots } from "@/server/aggregation/rateSnapshot";
 
@@ -19,6 +20,11 @@ export async function POST(req: NextRequest) {
     if (!driverId || !date) {
       return NextResponse.json({ error: "driverId and date are required" }, { status: 400 });
     }
+
+    const { data: driver, error: driverErr } = await supabase.from("drivers")
+      .select("id").eq("id", driverId).eq("org_id", orgId).maybeSingle();
+    if (driverErr) return NextResponse.json({ error: "DB error" }, { status: 500 });
+    if (!driver) return NextResponse.json({ error: "日報が見つかりません。" }, { status: 404 });
 
     // シフト未登録の場合は承認不可（売上・報酬計算がシフト基準のため）
     const { data: shiftRow, error: shiftErr } = await supabase
@@ -55,6 +61,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    if (!reportRows?.length) return NextResponse.json({ error: "日報が見つかりません。" }, { status: 404 });
+
     // 車両ごとに、その日の最大メーター値を採用（複数コース行の last-row-wins を排除）。
     const maxMeterByVehicle = new Map<string, number>();
     for (const r of reportRows ?? []) {
@@ -68,15 +76,11 @@ export async function POST(req: NextRequest) {
     // 走行距離は前進のみ更新。現在登録より小さければ更新せず警告（巻き戻り＝誤入力の疑い）。
     // 現在値の取得を一括→前進分の更新を並列で流す（旧: 車両ごとに select→update を直列）。
     const warnings: string[] = [];
-    const vehicleIds = Array.from(maxMeterByVehicle.keys());
+    const vehicleIds = [...new Set(reportRows.map(r => r.vehicle_id).filter((id): id is string => Boolean(id)))];
     if (vehicleIds.length > 0) {
-      const { data: vehRows, error: vehReadErr } = await supabase
-        .from("vehicles")
-        .select("id, current_mileage")
-        .in("id", vehicleIds);
-      if (vehReadErr) {
-        console.error(vehReadErr);
-        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      const vehRows = await loadReportVehicles(supabase, orgId, vehicleIds, date);
+      if (vehRows?.length !== vehicleIds.length) {
+        return NextResponse.json({ error: "車両が見つかりません。" }, { status: 404 });
       }
       const currentById = new Map(
         (vehRows ?? []).map((v: { id: string; current_mileage: number | null }) => [
@@ -101,7 +105,7 @@ export async function POST(req: NextRequest) {
           supabase
             .from("vehicles")
             .update({ current_mileage: u.meter, updated_at: new Date().toISOString() })
-            .eq("id", u.vehicleId),
+            .eq("id", u.vehicleId).eq("owner_org_id", vehRows.find(v => v.id === u.vehicleId)!.owner_org_id),
         ),
       );
       const failed = results.find((r) => r.error);

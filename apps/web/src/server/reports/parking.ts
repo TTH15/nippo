@@ -154,6 +154,7 @@ export async function saveParkingReport(
   };
   // 同じ client_key の再送は上書き（二重登録しない）
   const { data, error } = await db
+    // tenant-scope-ok: row.org_idはctx.orgId。保存前に駐車対象車両の利用権限を検証
     .from("vehicle_positions")
     .upsert(row, { onConflict: "org_id,vehicle_id,client_key" })
     .select("id")

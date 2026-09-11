@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
     const { data: pagedDrivers, error: pagedDriverErr } = await supabase
       .from("drivers")
       .select("id, name, display_name")
-      .in("id", pagedDriverIds);
+      .in("id", pagedDriverIds).eq("org_id", orgId);
 
     if (pagedDriverErr) {
       console.error("[admin/misc-reports/oil-change] paged drivers error", pagedDriverErr);
@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
     await Promise.all(
       pagedRows.map(async (r: Record<string, unknown>) => {
         const atts = normalizeAttachments(r.attachments);
-        if (atts.length > 0) r.attachments = await signAttachments(supabase, atts);
+        if (atts.length > 0 && pagedDriverMap.has(String(r.driver_id))) r.attachments = await signAttachments(supabase, String(r.driver_id), atts);
       }),
     );
 

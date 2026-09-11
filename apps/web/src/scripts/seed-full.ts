@@ -156,7 +156,7 @@ async function main() {
     const bankName = d.bank_institution && d.bank_branch ? `${d.bank_institution} ${d.bank_branch}` : null;
     const bankNo = d.bank_type && d.bank_number ? `${d.bank_type} ${d.bank_number}` : null;
 
-    const { data: existing } = await supabase.from("drivers").select("id").eq("name", d.name).single();
+    const { data: existing } = await supabase.from("drivers").select("id").eq("name", d.name).eq("org_id", orgId).single();
 
     const payload = {
       org_id: orgId,
@@ -176,7 +176,7 @@ async function main() {
     };
 
     if (existing) {
-      await supabase.from("drivers").update(payload).eq("id", existing.id);
+      await supabase.from("drivers").update(payload).eq("id", existing.id).eq("org_id", orgId);
       driverIds.push(existing.id);
       console.log(`[OK] ${d.name} を更新`);
     } else {
@@ -191,7 +191,7 @@ async function main() {
           .select("id")
           .single();
         if (identity) {
-          await supabase.from("drivers").update({ identity_id: identity.id }).eq("id", inserted.id);
+          await supabase.from("drivers").update({ identity_id: identity.id }).eq("id", inserted.id).eq("org_id", orgId);
         }
         driverIds.push(inserted.id);
         console.log(`[OK] ${d.name} を登録`);
@@ -227,7 +227,7 @@ async function main() {
     const { data: existing } = await supabase
       .from("vehicles")
       .select("id")
-      .eq("number_prefix", v.number_prefix)
+      .eq("number_prefix", v.number_prefix).eq("owner_org_id", orgId)
       .eq("number_class", v.number_class)
       .eq("number_hiragana", v.number_hiragana)
       .eq("number_numeric", v.number_numeric)
@@ -245,7 +245,7 @@ async function main() {
       brand: v.brand,
     };
     if (existing) {
-      await supabase.from("vehicles").update(payload).eq("id", existing.id);
+      await supabase.from("vehicles").update(payload).eq("id", existing.id).eq("owner_org_id", orgId);
       vehicleIds.push(existing.id);
     } else {
       const { data: inserted, error } = await supabase.from("vehicles").insert(payload).select("id").single(); // tenant-scope-ok: 開発用スクリプト
@@ -253,7 +253,7 @@ async function main() {
     }
   }
   // 既存3台も取得
-  const { data: allVehicles } = await supabase.from("vehicles").select("id").order("manufacturer").order("brand"); // tenant-scope-ok: 開発用スクリプト
+  const { data: allVehicles } = await supabase.from("vehicles").select("id").eq("owner_org_id", orgId).order("manufacturer").order("brand"); // tenant-scope-ok: 開発用スクリプト
   const allVehicleIds = allVehicles?.map((v) => v.id) ?? vehicleIds;
   console.log(`[OK] 車両 ${allVehicleIds.length} 台`);
 

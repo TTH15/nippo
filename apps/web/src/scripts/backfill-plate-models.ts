@@ -49,6 +49,7 @@ async function main() {
   await ensureBucket();
 
   const { data: vehicles, error } = await supabase
+    // tenant-scope-ok: 管理用バッチの明示的な全社処理。各vehicle.owner_org_idを保存先に使用しAPIからは呼ばない
     .from("vehicles")
     .select("id, owner_org_id, number_prefix, number_class, number_hiragana, number_numeric, model_key, manufacturer, brand")
     .eq("is_disposed", false)

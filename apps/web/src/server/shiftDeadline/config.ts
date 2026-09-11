@@ -78,7 +78,7 @@ export async function saveDeadlineConfig(
     updated_at: new Date().toISOString(),
   };
   if (existing?.id) {
-    await supabase.from("shift_request_deadline_config").update(row).eq("id", existing.id);
+    await supabase.from("shift_request_deadline_config").update(row).eq("id", existing.id).eq("org_id", orgId);
   } else {
     await supabase.from("shift_request_deadline_config").insert(row); // tenant-scope-ok: row に org_id を含む
   }

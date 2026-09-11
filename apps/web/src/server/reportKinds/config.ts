@@ -3,7 +3,7 @@ import { normalizeFields, type ReportField, type VehicleMode } from "./fields";
 
 // ============================================================
 // 諸報告の「報告種別」マスタへのアクセス。
-// migration 068/072 未適用でも既定値（旧ハードコード相当）で動くよう耐性を持たせる。
+// 会社別に取得する。DBエラー時は他社の種別や既定値に代替せず失敗させる。
 // ============================================================
 
 export type ReportCapability = "none" | "oil_mileage" | "expense";
@@ -61,7 +61,7 @@ function fieldsFromFlags(k: {
   return fields;
 }
 
-/** migration 068 未適用時に使う既定種別（現行挙動と一致）。 */
+/** 新規会社の初期登録と、種別が未登録の会社に使う既定種別。 */
 export function defaultReportKinds(): ReportKind[] {
   const base = (over: Partial<ReportKind>): ReportKind => {
     const k: ReportKind = {
@@ -146,22 +146,16 @@ function fromRow(r: Row): ReportKind {
   };
 }
 
-/** 全種別を sort 順で取得（テーブル未作成なら既定値）。 */
-export async function loadReportKinds(supabase: SupabaseClient): Promise<ReportKind[]> {
-  try {
-    const { data, error } = await supabase
-      .from("report_kinds")
-      .select("*")
-      .order("sort_order", { ascending: true });
-    if (error || !data || data.length === 0) return defaultReportKinds();
-    return (data as Row[]).map(fromRow);
-  } catch {
-    return defaultReportKinds();
-  }
+/** 会社内の種別だけを取得する。DB障害時は共通設定で承認処理を続けない。 */
+export async function loadReportKinds(supabase: SupabaseClient, orgId: string): Promise<ReportKind[]> {
+  const { data, error } = await supabase.from("report_kinds")
+    .select("*").eq("org_id", orgId).order("sort_order", { ascending: true });
+  if (error) throw error;
+  return data?.length ? (data as Row[]).map(fromRow) : defaultReportKinds();
 }
 
 /** 有効な種別のみ。 */
-export async function loadActiveReportKinds(supabase: SupabaseClient): Promise<ReportKind[]> {
-  const all = await loadReportKinds(supabase);
+export async function loadActiveReportKinds(supabase: SupabaseClient, orgId: string): Promise<ReportKind[]> {
+  const all = await loadReportKinds(supabase, orgId);
   return all.filter((k) => k.isActive);
 }

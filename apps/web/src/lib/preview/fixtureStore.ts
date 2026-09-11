@@ -33,6 +33,8 @@ export type PreviewFixture<S> = {
   title: string;
   /** 本番のパス（"/admin/vehicles"）。プレビューでは "/preview/admin" を前置して開く */
   pathname: string;
+  /** 動的な本番ページの useParams に渡す架空ID。 */
+  params?: Record<string, string>;
   /** fixture固有のシナリオ。normal を必ず含める。loading / error は共通で自動追加される */
   scenarios: Record<string, ScenarioDefinition>;
   createState(context: FixtureContext): S;

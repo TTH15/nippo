@@ -80,6 +80,20 @@ function IndexPage({ missing }: { missing: string | null }) {
 
 export default function AdminPreviewApp() {
   const location = useLocation();
+  // 本番の素のa要素も隔離URLへ接続する（Next Link/Routerはkernel側で差し替え済み）。
+  useEffect(() => {
+    const click = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!(link instanceof HTMLAnchorElement) || link.target === "_blank" || link.hasAttribute("download")) return;
+      const url = new URL(link.href, window.location.href);
+      if (url.origin !== window.location.origin || !url.pathname.startsWith("/admin/")) return;
+      event.preventDefault();
+      navigate(url.pathname + url.search);
+    };
+    document.addEventListener("click", click);
+    return () => document.removeEventListener("click", click);
+  }, []);
   const slug = slugFromPreviewPath(location.pathname);
   const page = slug ? findPageBySlug(slug) : undefined;
   const { scenario, role } = parsePreviewLocation(location.search);

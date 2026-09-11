@@ -19,7 +19,7 @@ import {
   type FieldRole,
   type ReportField,
   type VehicleMode,
-} from "@/server/reportKinds/fields";
+} from "@/lib/reportKindFields";
 
 type Capability = "none" | "oil_mileage" | "expense";
 type ReportKind = {

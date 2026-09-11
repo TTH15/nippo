@@ -79,6 +79,7 @@ export async function GET(req: NextRequest) {
   const vehicleById = new Map<string, MeShiftVehicle>();
   if (vehicleIds.length > 0) {
     const { data: vehicles, error: vErr } = await supabase
+      // tenant-scope-ok: 認証済み本人のシフトに割当済みの車両集合。正式な貸与車も表示する
       .from("vehicles")
       .select(
         "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, is_unavailable, unavailable_reason, current_mileage, is_ev, last_oil_change_mileage, oil_change_interval",

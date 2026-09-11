@@ -74,6 +74,7 @@ export async function authorizeVehicleForOrg(
   onDate: string,
 ): Promise<VehicleAuthResult> {
   const { data: v } = await supabase
+    // tenant-scope-ok: 所有または当日の貸与をこの関数で検証するための車両解決。判定前の値を直接返すAPIでは使わない
     .from("vehicles")
     .select(VEHICLE_COLS)
     .eq("id", vehicleId)

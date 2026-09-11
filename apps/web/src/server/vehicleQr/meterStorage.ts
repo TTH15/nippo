@@ -1,3 +1,4 @@
+import { isStoredPathInScope } from "@/server/storage/scope";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { verifyFileContent } from "@/server/storage/fileSignature";
 import { randomBytes } from "crypto";
@@ -34,9 +35,11 @@ export async function uploadMeterPhoto(
 /** メーター写真の短時間署名URL（運営の勤怠照合用）。 */
 export async function signMeterPhoto(
   supabase: SupabaseClient,
+  owner: { orgId: string; driverId: string },
   path: string,
   expiresInSec = 60 * 10,
 ): Promise<string | null> {
+  if (!isStoredPathInScope(path, `${owner.orgId}/${owner.driverId}`)) return null;
   const { data } = await supabase.storage.from(METER_BUCKET).createSignedUrl(path, expiresInSec);
   return data?.signedUrl ?? null;
 }

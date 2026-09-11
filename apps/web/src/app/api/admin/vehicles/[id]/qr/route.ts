@@ -33,7 +33,7 @@ export async function GET(
 
   const { data: qr } = await supabase
     .from("vehicle_qr") // tenant-scope-ok: loadOwnedVehicle で owner_org_id を確認済みの vehicleId で絞る
-    .select("id, token, version, status, issued_at, attached_confirmed_at")
+    .select("id, token, version, status, issued_at, attached_confirmed_at").eq("org_id", orgId)
     .eq("vehicle_id", vehicleId)
     .neq("status", "revoked")
     .maybeSingle();
@@ -89,7 +89,7 @@ export async function POST(
   const { data: current } = await supabase
     .from("vehicle_qr")
     // tenant-scope-ok: loadOwnedVehicle で owner_org_id を確認済みの vehicleId で絞る
-    .select("id, version, status")
+    .select("id, version, status").eq("org_id", orgId)
     .eq("vehicle_id", vehicleId)
     .neq("status", "revoked")
     .maybeSingle();
@@ -108,7 +108,7 @@ export async function POST(
   if (current) {
     const { error: revErr } = await supabase
       .from("vehicle_qr")
-      .update({ status: "revoked", revoked_at: new Date().toISOString() })
+      .update({ status: "revoked", revoked_at: new Date().toISOString() }).eq("org_id", orgId)
       .eq("id", current.id);
     if (revErr) {
       console.error(revErr);

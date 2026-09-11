@@ -30,15 +30,17 @@ export async function storeVehicleImage(
 /** 表示用 URL に解決する。 */
 export function signVehicleImage(
   supabase: SupabaseClient,
+  orgId: string,
   value: string | null | undefined,
 ): Promise<string | null> {
-  return resolveStoredUrl(supabase, VEHICLE_IMAGE_BUCKET, value);
+  return resolveStoredUrl(supabase, VEHICLE_IMAGE_BUCKET, value, orgId);
 }
 
 /** 差し替え・削除時に古いオブジェクトを消す。 */
 export function removeVehicleImages(
   supabase: SupabaseClient,
+  orgId: string,
   values: (string | null | undefined)[],
 ): Promise<void> {
-  return removeStoredPaths(supabase, VEHICLE_IMAGE_BUCKET, values);
+  return removeStoredPaths(supabase, VEHICLE_IMAGE_BUCKET, values, orgId);
 }

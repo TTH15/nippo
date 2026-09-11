@@ -110,7 +110,7 @@ export async function GET(
       starred: Boolean((data as any).is_starred),
       counterpartyInvoiceAddressId: data.counterparty_invoice_address_id,
       // 詳細では添付に署名URLを付ける（一覧は実体を持たない）
-      payload: (await signInvoiceAttachments(supabase, data.payload ?? {})) ?? {},
+      payload: (await signInvoiceAttachments(supabase, orgId, data.payload ?? {})) ?? {},
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     },

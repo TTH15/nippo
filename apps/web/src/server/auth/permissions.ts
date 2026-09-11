@@ -29,6 +29,7 @@ async function resolveAuthz(
   fallbackRole?: string,
 ): Promise<{ caps: Set<Capability>; orgId: string | null }> {
   const { data: driver } = await supabase
+    // tenant-scope-ok: 所属と権限の解決そのもの。呼び出し元は認証済みのmembership ID
     .from("drivers")
     .select("role, role_id, org_id")
     .eq("id", driverId)

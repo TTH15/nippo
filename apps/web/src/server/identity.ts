@@ -8,6 +8,7 @@ import { getCompany } from "@/config/companies";
 // JWT（6a）に identity_id があればそれを使い、無ければ drivers から引く。
 export async function resolveIdentityId(user: AuthUser): Promise<string | null> {
   if (user.identityId) return user.identityId;
+  // tenant-scope-ok: JWT署名検証済み本人user.driverIdからidentityを解決
   const { data } = await supabase.from("drivers").select("identity_id").eq("id", user.driverId).single();
   return (data?.identity_id as string | null | undefined) ?? null;
 }

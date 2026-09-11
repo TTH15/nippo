@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
     let reportId: string;
     const existingId = existingByCourseCycle.get(`${item.courseId}:${cycleNo}`);
     if (existingId) {
-      const { error } = await supabase.from("daily_reports_v2").update(header).eq("id", existingId);
+      const { error } = await supabase.from("daily_reports_v2").update(header).eq("id", existingId).eq("org_id", orgId);
       if (error) {
         console.error(error);
         throw new Error("日報の更新に失敗しました");

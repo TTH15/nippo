@@ -166,7 +166,7 @@ export async function POST(req: NextRequest) {
       let { error } = await supabase.from("shifts").insert(rows);
       if (error && batchId) {
         // import_batch_id 列が未適用の環境向けフォールバック
-        await supabase.from("shift_import_batches").delete().eq("id", batchId);
+        await supabase.from("shift_import_batches").delete().eq("org_id", orgId).eq("id", batchId);
         batchId = null;
         for (const r of rows) delete r.import_batch_id;
         ({ error } = await supabase.from("shifts").insert(rows));
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (batchId) {
-      await supabase.from("shift_import_batches").update({ registered: rows.length }).eq("id", batchId);
+      await supabase.from("shift_import_batches").update({ registered: rows.length }).eq("org_id", orgId).eq("id", batchId);
     }
 
     // 確定済み対応を辞書へ保存（次回の取り込みで初期値に使う）。失敗しても本体は成功扱い。
@@ -189,6 +189,7 @@ export async function POST(req: NextRequest) {
       }))
       .filter((m) => m.raw_name !== "");
     if (nameRows.length > 0) {
+      // tenant-scope-ok: nameRows の全行に認証済み orgId を設定し、driverIds も自社で絞る
       await supabase.from("shift_import_name_maps").upsert(nameRows, { onConflict: "org_id,raw_name" });
     }
     const labelRows = labelMappings
@@ -213,6 +214,7 @@ export async function POST(req: NextRequest) {
       }))
       .filter((m) => m.raw_label !== "");
     if (labelRows.length > 0) {
+      // tenant-scope-ok: labelRows の全行に認証済み orgId を設定し、courseIds も自社で絞る
       await supabase.from("shift_import_label_maps").upsert(labelRows, { onConflict: "org_id,raw_label" });
     }
 
@@ -238,7 +240,7 @@ export async function POST(req: NextRequest) {
             use_count: Math.max(1, Number(existingProfile.use_count) || 1) + 1,
             last_used_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          })
+          }).eq("org_id", orgId)
           .eq("id", existingProfile.id);
       } else {
         await supabase.from("shift_import_format_profiles").insert({

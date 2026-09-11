@@ -122,6 +122,7 @@ export async function GET(req: NextRequest) {
     supabase,
     VEHICLE_IMAGE_BUCKET,
     rawVehicles.map((v) => v.image_url as string | null),
+    orgId,
   );
   const activeDriverVehicles = rawVehicles.map((v, i) => ({ ...v, image_url: signedUrls[i] }));
 

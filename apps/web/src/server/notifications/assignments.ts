@@ -128,6 +128,7 @@ export async function loadAssignmentsByDate(
   for (let i = 0; i < vehicleIds.length; i += IN_CLAUSE_BATCH_SIZE) {
     const batch = vehicleIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
     const { data: vehicles } = await supabase
+      // tenant-scope-ok: courses.org_idで限定したシフトの割当車両。貸与車も含むプレートだけを通知に使用
       .from("vehicles")
       .select("id, number_prefix, number_class, number_hiragana, number_numeric")
       .in("id", batch);

@@ -109,7 +109,7 @@ async function main() {
     if (identErr || !identity) {
       fail(`Failed to create identity: ${identErr?.message}`);
     }
-    await supabase.from("drivers").update({ identity_id: identity!.id }).eq("id", data.id);
+    await supabase.from("drivers").update({ identity_id: identity!.id }).eq("id", data.id).eq("org_id", orgId);
   }
 
   console.log("\n[OK] ADMIN account is ready");

@@ -148,3 +148,13 @@ describe("InvoiceSheet", () => {
     });
   });
 });
+
+describe("住所の文字列表示", () => {
+  it("宛先・請求元のタグをDOMにせず、brだけを改行へ戻す", () => {
+    const attack = '<img src=x onerror="alert(1)"><br />ビル<別館>\n3階';
+    const { container } = render(<InvoiceSheet state={{ ...sample(), toAddrHtml: attack, fromAddrHtml: '<svg onload="alert(1)"></svg><BR>本館', showStamp: false }} readOnly />);
+    expect(container.querySelector('img[src="x"], svg[onload], script')).toBeNull();
+    expect(container.textContent).toContain('<img src=x onerror="alert(1)">\nビル<別館>\n3階');
+    expect(container.textContent).toContain('<svg onload="alert(1)"></svg>\n本館');
+  });
+});

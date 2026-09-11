@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       status: (r.status === "sent" ? "pending_approval" : r.status) ?? "draft",
       invoiceNo: r.invoice_no ?? "",
       // 添付は Storage のパスのみ持つため、表示用に署名URLを付ける
-      payload: (await signInvoiceAttachments(supabase, r.payload ?? {})) ?? {},
+      payload: (await signInvoiceAttachments(supabase, orgId, r.payload ?? {})) ?? {},
       updatedAt: r.updated_at ?? null,
     })),
   );

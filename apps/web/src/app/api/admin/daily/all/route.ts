@@ -57,6 +57,7 @@ export async function GET(req: NextRequest) {
     // 内容（送信画面と同じ動的 unit/field 構造）を各行へ付与（idSource:"v2" のため id=v2id）
     const contentByReport = await loadReportContents(
       supabase,
+      orgId,
       rows.map((r: { id: string }) => r.id).filter(Boolean),
     );
     rows.forEach((r: Record<string, unknown> & { id: string }) => {

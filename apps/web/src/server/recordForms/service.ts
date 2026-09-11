@@ -116,6 +116,7 @@ export async function context(
   const auth = await requireAuth(req);
   if (isAuthError(auth)) throw new RecordError("ログインしてください", 401);
   const { data: d, error } = await supabase
+    // tenant-scope-ok: requireAuth由来の本人IDから所属を解決し、直後に会社状態を確認
     .from("drivers")
     .select("id,org_id,role_id,role,status,name,works_as_driver")
     .eq("id", auth.driverId)

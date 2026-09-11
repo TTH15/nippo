@@ -11,6 +11,7 @@ export async function POST(req: NextRequest) {
   const driverId = user.driverId as string;
 
   const { error } = await supabase
+    // tenant-scope-ok: requireAuth由来の本人driverIdのみを更新
     .from("drivers")
     .update({ last_bonus_seen_at: new Date().toISOString() })
     .eq("id", driverId);

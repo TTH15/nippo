@@ -26,9 +26,24 @@ export type ReportContentUnit = {
 /** daily_reports_v2.id の配列 → reportId ごとの内容(ユニット配列) */
 export async function loadReportContents(
   supabase: SupabaseClient,
+  orgId: string,
   reportIds: string[],
 ): Promise<Map<string, ReportContentUnit[]>> {
   const result = new Map<string, ReportContentUnit[]>();
+  if (!reportIds.length) return result;
+
+  // 日報がどのコース・便のものかを引き、コース設定で使わない項目は一覧にも出さない
+  // （設定が無いコースは全項目のまま）。
+  const reportMeta = new Map<string, { courseId: string | null; cycleNo: number }>();
+  for (let i = 0; i < reportIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const { data: rows } = await supabase
+      .from("daily_reports_v2").select("id, course_id, cycle_no")
+      .in("id", reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE)).eq("org_id", orgId);
+    for (const r of rows ?? []) {
+      reportMeta.set(r.id, { courseId: r.course_id ?? null, cycleNo: Number(r.cycle_no) || 0 });
+    }
+  }
+  reportIds = [...reportMeta.keys()];
   if (!reportIds.length) return result;
 
   type EntryRow = {
@@ -59,17 +74,6 @@ export async function loadReportContents(
   const entries: EntryRow[] = pages.flat();
   if (!entries.length) return result;
 
-  // 日報がどのコース・便のものかを引き、コース設定で使わない項目は一覧にも出さない
-  // （設定が無いコースは全項目のまま）。
-  const reportMeta = new Map<string, { courseId: string | null; cycleNo: number }>();
-  for (let i = 0; i < reportIds.length; i += IN_CLAUSE_BATCH_SIZE) {
-    const { data: rows } = await supabase
-      .from("daily_reports_v2").select("id, course_id, cycle_no")
-      .in("id", reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE));
-    for (const r of rows ?? []) {
-      reportMeta.set(r.id, { courseId: r.course_id ?? null, cycleNo: Number(r.cycle_no) || 0 });
-    }
-  }
   const fieldFilter = await loadCourseReportFields(
     supabase,
     Array.from(new Set([...reportMeta.values()].map((m) => m.courseId).filter(Boolean) as string[])),

@@ -19,7 +19,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "driverId and date are required" }, { status: 400 });
     }
 
-    const { error } = await supabase
+    const { data: driver, error: driverErr } = await supabase.from("drivers")
+      .select("id").eq("id", driverId).eq("org_id", orgId).maybeSingle();
+    if (driverErr) return NextResponse.json({ error: "DB error" }, { status: 500 });
+    if (!driver) return NextResponse.json({ error: "日報が見つかりません。" }, { status: 404 });
+
+    const { data: rejected, error } = await supabase
       .from("daily_reports_v2")
       .update({
         approved_at: null,
@@ -31,13 +36,14 @@ export async function POST(req: NextRequest) {
       .eq("driver_id", driverId)
       .eq("report_date", date)
       // 却下対象は「未却下」の日報のみ（却下済みが同日に残っていてもOK）
-      .is("rejected_at", null);
+      .is("rejected_at", null).select("id");
 
     if (error) {
       console.error(error);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    if (!rejected?.length) return NextResponse.json({ error: "日報が見つかりません。" }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error(err);

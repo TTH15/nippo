@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
   }
 
   // membership側の表示用電話番号も同期しておく（プロフィール表示に使う drivers.phone）。
+  // tenant-scope-ok: SMS OTP検証後、requireAuth由来の本人user.driverIdだけを同期
   await supabase.from("drivers").update({ phone }).eq("id", user.driverId);
 
   return NextResponse.json({ ok: true, phone });

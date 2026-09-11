@@ -240,7 +240,7 @@ export async function GET(req: NextRequest) {
     ),
   ];
   const { data: drivers } = driverIds.length
-    ? await supabase.from("drivers").select("id, name, display_name").in("id", driverIds)
+    ? await supabase.from("drivers").select("id, name, display_name").eq("org_id", orgId).in("id", driverIds)
     : { data: [] as { id: string; name: string | null; display_name: string | null }[] };
   const driverNameById = new Map((drivers ?? []).map((d) => [d.id, d.display_name || d.name || ""]));
 

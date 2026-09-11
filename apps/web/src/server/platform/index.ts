@@ -1,3 +1,4 @@
+import { defaultReportKinds } from "@/server/reportKinds/config";
 // ============================================================
 // プラットフォームコンソールのサーバ基盤（Phase 1・集計のみ / docs/platform-design.md §2-5）
 //   - requirePlatformAdmin: identity 基準の入場ガード（org membership とは別軸）
@@ -26,6 +27,7 @@ export async function requirePlatformAdmin(req: NextRequest): Promise<PlatformCo
   let identityId = user.identityId;
   if (!identityId) {
     const { data } = await supabase
+      // tenant-scope-ok: requireAuth由来の本人user.driverIdからplatform権限用identityを解決
       .from("drivers")
       .select("identity_id")
       .eq("id", user.driverId)
@@ -54,6 +56,7 @@ export async function logPlatformAction(
   target?: string,
   detail?: Record<string, unknown>,
 ): Promise<void> {
+  // tenant-scope-ok: platform認可済み操作の監査記録。特定会社に属さない
   const { error } = await supabase.from("platform_audit_logs").insert({
     actor_identity_id: actorIdentityId,
     action,
@@ -104,10 +107,21 @@ export async function bootstrapOrganization(input: BootstrapOrgInput): Promise<B
     { key: "DRIVER", label: "ドライバー", sort_order: 40 },
   ];
   const { data: roles, error: rolesErr } = await supabase
+    // tenant-scope-ok: roleDefs.map全行に作成直後のorg.idを設定
     .from("roles")
     .insert(roleDefs.map((r) => ({ ...r, org_id: org.id, is_system: true })))
     .select("id, key");
   if (rolesErr || !roles) throw new Error(`roles の作成に失敗: ${rolesErr?.message}`);
+
+  const { error: kindsError } = await supabase.from("report_kinds").insert(defaultReportKinds().map(kind => ({
+    org_id: org.id, key: kind.key, label: kind.label, sort_order: kind.sortOrder,
+    is_active: kind.isActive, capability: kind.capability, fields: kind.fields,
+    vehicle_mode: kind.vehicleMode, uses_vehicle: kind.usesVehicle,
+    uses_location: kind.usesLocation, uses_odometer: kind.usesOdometer,
+    uses_description: kind.usesDescription, uses_amount: kind.usesAmount,
+    description_required: kind.descriptionRequired, description_label: kind.descriptionLabel,
+  }))); // tenant-scope-ok: 新規作成したorg.idで全行を初期化。他社の設定はコピーしない
+  if (kindsError) throw new Error(`報告種別の作成に失敗: ${kindsError.message}`);
 
   const capRows = roles.flatMap((r) =>
     (DEFAULT_ROLE_CAPABILITIES[r.key] ?? []).map((capability) => ({ role_id: r.id, capability })),

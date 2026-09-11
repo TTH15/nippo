@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { normalizeCapability } from "@/server/reportKinds/config";
 import { normalizeFields, validateKindFields, type VehicleMode } from "@/server/reportKinds/fields";
@@ -14,6 +15,7 @@ function normVehicleMode(raw: unknown): VehicleMode {
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission(req, "can_manage_report_kinds");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
 
   const body = await req.json().catch(() => ({}));
@@ -34,7 +36,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { data: current, error: curErr } = await supabase
     .from("report_kinds")
     .select("capability, vehicle_mode, fields")
-    .eq("id", id)
+    .eq("id", id).eq("org_id", orgId)
     .maybeSingle();
   if (curErr || !current) return NextResponse.json({ error: "種別が見つかりません。" }, { status: 404 });
 
@@ -50,11 +52,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // 後方互換: uses_vehicle を vehicle_mode から同期。
   if ("vehicleMode" in body) updates.uses_vehicle = nextVeh !== "none";
 
-  const { data, error } = await supabase.from("report_kinds").update(updates).eq("id", id).select("*").maybeSingle();
+  const { data, error } = await supabase.from("report_kinds").update(updates).eq("id", id).eq("org_id", orgId).select("*").maybeSingle();
   if (error) {
     console.error("[admin/report-kinds/:id] update error", error);
     return NextResponse.json({ error: "更新に失敗しました。" }, { status: 500 });
   }
+  if (!data) return NextResponse.json({ error: "種別が見つかりません。" }, { status: 404 });
   return NextResponse.json({ kind: data });
 }
 
@@ -62,11 +65,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission(req, "can_manage_report_kinds");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
-  const { error } = await supabase.from("report_kinds").delete().eq("id", id);
+  const { data, error } = await supabase.from("report_kinds").delete().eq("id", id).eq("org_id", orgId).select("id").maybeSingle();
   if (error) {
     console.error("[admin/report-kinds/:id] delete error", error);
     return NextResponse.json({ error: "削除に失敗しました。" }, { status: 500 });
   }
+  if (!data) return NextResponse.json({ error: "種別が見つかりません。" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

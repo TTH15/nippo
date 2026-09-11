@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
     .eq("id", identityId)
     .single();
   const { data: driver } = await supabase
+    // tenant-scope-ok: requireAuth由来の本人user.driverIdだけを読み書きする
     .from("drivers")
     .select("postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, kyc_verified_at")
     .eq("id", user.driverId)
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
       }
     }
     if (Object.keys(drvUpdate).length > 0) {
+      // tenant-scope-ok: requireAuth由来の本人user.driverIdだけを読み書きする
       const { error } = await supabase.from("drivers").update(drvUpdate).eq("id", user.driverId);
       if (error) {
         console.error("[registration] driver update", error);

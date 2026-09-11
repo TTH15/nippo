@@ -6,8 +6,9 @@
 //
 // 既存データ（dataUrl のまま）も表示できるよう、読み出しは両対応。
 // ============================================================
+import { isStoredPathInScope } from "@/server/storage/scope";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { uploadDataUrl, resolveStoredUrl, isDataUrl } from "@/server/storage/dataUrl";
+import { uploadDataUrl, resolveStoredUrl, isDataUrl, safeLegacyDataUrl } from "@/server/storage/dataUrl";
 
 export const INVOICE_ATTACHMENT_BUCKET = "invoice-attachments";
 
@@ -34,17 +35,20 @@ export async function storeInvoiceAttachments(
   const attachments = (payload as { attachments?: unknown }).attachments;
   if (!Array.isArray(attachments) || attachments.length === 0) return { ok: true, payload };
 
+  // 全参照を検査してからアップロードする。他社パスや外部URLの混入を部分保存しない。
+  for (const item of attachments as InvoiceAttachment[]) {
+    if (!item || typeof item !== "object") return { ok: false, message: "添付ファイルが不正です。" };
+    if (item.path != null && !isStoredPathInScope(item.path, orgId)) return { ok: false, message: "この添付ファイルは使用できません。もう一度添付してください。" };
+    if (item.dataUrl && (!isDataUrl(item.dataUrl) || !safeLegacyDataUrl(item.dataUrl))) return { ok: false, message: "添付ファイルの形式が不正です。" };
+    if (!item.path && !item.dataUrl) return { ok: false, message: "ファイルを添付し直してください。" };
+  }
   const next: InvoiceAttachment[] = [];
   for (const item of attachments as InvoiceAttachment[]) {
-    const dataUrl = typeof item?.dataUrl === "string" ? item.dataUrl : null;
-    if (!dataUrl || !isDataUrl(dataUrl)) {
-      next.push(item);
-      continue;
-    }
+    // クライアントのurlは保持しない。閲覧URLはDBの保存参照から毎回作る。
+    const { dataUrl, url: _url, ...rest } = item;
+    if (!dataUrl) { next.push(rest); continue; }
     const uploaded = await uploadDataUrl(supabase, INVOICE_ATTACHMENT_BUCKET, orgId, dataUrl);
     if (!uploaded.ok) return { ok: false, message: uploaded.message };
-    // dataUrl は落として path のみ保持する（これがレスポンス肥大の元だった）
-    const { dataUrl: _drop, ...rest } = item;
     next.push({ ...rest, path: uploaded.path });
   }
 
@@ -54,6 +58,7 @@ export async function storeInvoiceAttachments(
 /** 閲覧用に署名URLを付与する（詳細取得時のみ呼ぶ）。 */
 export async function signInvoiceAttachments(
   supabase: SupabaseClient,
+  orgId: string,
   payload: Record<string, unknown> | undefined,
 ): Promise<Record<string, unknown> | undefined> {
   if (!payload) return payload;
@@ -62,11 +67,13 @@ export async function signInvoiceAttachments(
 
   const signed = await Promise.all(
     (attachments as InvoiceAttachment[]).map(async (a) => {
-      // 移行前データは dataUrl をそのまま返す
-      if (a?.dataUrl) return a;
-      if (!a?.path) return a;
-      const url = await resolveStoredUrl(supabase, INVOICE_ATTACHMENT_BUCKET, a.path);
-      return { ...a, url };
+      const { url: _url, dataUrl, path, ...rest } = a ?? {};
+      const validPath = isStoredPathInScope(path, orgId) ? path : null;
+      // 不正な旧参照・クライアントが持ち込んだURLは返さない。
+      const legacy = typeof dataUrl === "string" ? safeLegacyDataUrl(dataUrl) : null;
+      if (legacy && !path) return { ...rest, dataUrl: legacy };
+      const url = validPath ? await resolveStoredUrl(supabase, INVOICE_ATTACHMENT_BUCKET, validPath, orgId) : null;
+      return { ...rest, path: validPath, url };
     }),
   );
   return { ...payload, attachments: signed };

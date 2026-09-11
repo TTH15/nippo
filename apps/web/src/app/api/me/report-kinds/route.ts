@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadActiveReportKinds } from "@/server/reportKinds/config";
 
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
-  const kinds = await loadActiveReportKinds(supabase);
+  const orgId = await resolveOrgId(user.driverId);
+  const kinds = await loadActiveReportKinds(supabase, orgId);
   return NextResponse.json({ kinds });
 }

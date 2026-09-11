@@ -123,7 +123,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   );
   const invoiceIssuer = organizationData?.settings
     ? { name: organizationData.settings.name, stampPath: organizationData.settings.stampUrl ?? "" }
-    : undefined;
+    : { name: "", stampPath: "" };
   const organizationAppliedRef = useRef(false);
   useEffect(() => {
     const org = organizationData?.settings;

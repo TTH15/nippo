@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
 
   // 互いに独立な取得は並列で（旧: 5段直列。submit と /me の基幹APIのため往復を削る）
   const [{ data: driver, error }, { data: identityRows }, identityId] = await Promise.all([
+    // tenant-scope-ok: requireAuth由来の本人user.driverIdだけを参照・更新
     supabase.from("drivers").select(DRIVER_FIELDS).eq("id", user.driverId).single(),
     supabase
       .from("driver_identities")
@@ -104,6 +105,7 @@ export async function PATCH(req: NextRequest) {
 
   const pinHash = await bcrypt.hash(newPin, 10);
   const { error } = await supabase
+    // tenant-scope-ok: requireAuth由来の本人user.driverIdだけを参照・更新
     .from("drivers")
     .update({ pin_hash: pinHash })
     .eq("id", user.driverId);

@@ -1,3 +1,4 @@
+import { isStoredPathInScope } from "@/server/storage/scope";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { verifyFileContent } from "@/server/storage/fileSignature";
 
@@ -49,9 +50,11 @@ export async function uploadKycImage(
 /** KYC 画像に短時間の署名URLを付与（承認後の org 閲覧用・将来）。 */
 export async function signKyc(
   supabase: SupabaseClient,
+  identityId: string,
   path: string,
   expiresInSec = 60 * 10,
 ): Promise<string | null> {
+  if (!isStoredPathInScope(path, identityId)) return null;
   const { data } = await supabase.storage.from(KYC_BUCKET).createSignedUrl(path, expiresInSec);
   return data?.signedUrl ?? null;
 }

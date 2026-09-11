@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
     let inviteId: string | null = null;
     if (inviteToken) {
       const { data: inv, error: invErr } = await supabase
+        // tenant-scope-ok: 招待tokenで参加先を解決後、OTP検証済み本人による単回消費。対象orgは上で確定
         .from("invites")
         .select("id, used_at, revoked_at, expires_at, organizations ( id, name, status )")
         .eq("token", inviteToken)
@@ -190,6 +191,7 @@ export async function POST(req: NextRequest) {
     // 0行なら並行使用に負けた＝使用済みとして弾く。申請済み（dup）の再開は招待を消費せず上で通す。
     if (inviteId) {
       const { data: burned } = await supabase
+        // tenant-scope-ok: 招待tokenで参加先を解決後、OTP検証済み本人による単回消費。対象orgは上で確定
         .from("invites")
         .update({ used_at: verifiedNow, used_by_identity: identityId })
         .eq("id", inviteId)

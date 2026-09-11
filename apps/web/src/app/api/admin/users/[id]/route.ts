@@ -249,7 +249,7 @@ export async function PUT(
     const syncSlot1ToDriver = async (fullCode: string, office: string) => {
       const { data: d } = await supabase
         .from("drivers")
-        .select("driver_code, pin_hash")
+        .select("driver_code, pin_hash").eq("org_id", orgId)
         .eq("id", driverId)
         .single();
 
@@ -264,7 +264,7 @@ export async function PUT(
               driver_code: fullCode,
               office_code: office,
               pin_hash: await bcrypt.hash(newPinPart, 10),
-            })
+            }).eq("org_id", orgId)
             .eq("id", driverId);
           return;
         }
@@ -402,7 +402,7 @@ export async function PUT(
     if (willBeActive) {
       const { data: current } = await supabase
         .from("drivers")
-        .select("list_no, works_as_driver")
+        .select("list_no, works_as_driver").eq("org_id", orgId)
         .eq("id", driverId)
         .maybeSingle();
       const worksAsDriverAfter =
@@ -440,7 +440,7 @@ export async function PUT(
         .update({
           driver_code: slot1.driver_code,
           office_code: slot1.office_code,
-        })
+        }).eq("org_id", orgId)
         .eq("id", driverId);
     }
 
@@ -488,6 +488,7 @@ export async function DELETE(
   const identityId = target?.identity_id as string | null | undefined;
   if (identityId) {
     const [{ count: remainingMemberships }, { count: passkeyCount }, { data: identity }] = await Promise.all([
+      // tenant-scope-ok: 孤児identityの削除前に全所属の参照数を確認する。対象は自社で検証済みで件数は返さない
       supabase.from("drivers").select("id", { count: "exact", head: true }).eq("identity_id", identityId),
       supabase
         .from("passkey_credentials")

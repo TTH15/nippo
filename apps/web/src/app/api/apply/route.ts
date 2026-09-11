@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "会社名と連絡先メールアドレスは必須です" }, { status: 400 });
   }
 
+  // tenant-scope-ok: 会社作成前の利用申請。org_id未確定のプラットフォーム宛INSERTだけを許可
   const { error } = await supabase.from("org_applications").insert({
     company_name: companyName,
     corporate_number: s(body.corporateNumber),

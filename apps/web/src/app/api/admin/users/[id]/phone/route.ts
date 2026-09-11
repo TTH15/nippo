@@ -44,7 +44,7 @@ export async function DELETE(
     }
   }
 
-  await supabase.from("drivers").update({ phone: null }).eq("id", driverId);
+  await supabase.from("drivers").update({ phone: null }).eq("org_id", orgId).eq("id", driverId);
 
   return NextResponse.json({ ok: true });
 }

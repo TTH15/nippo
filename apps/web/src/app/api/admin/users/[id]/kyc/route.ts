@@ -35,8 +35,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         .maybeSingle()
     : { data: null };
 
-  const licenseUrl = identity?.license_photo_path ? await signKyc(supabase, identity.license_photo_path) : null;
-  const faceUrl = identity?.face_photo_path ? await signKyc(supabase, identity.face_photo_path) : null;
+  const licenseUrl = identity?.license_photo_path ? await signKyc(supabase, driver.identity_id!, identity.license_photo_path) : null;
+  const faceUrl = identity?.face_photo_path ? await signKyc(supabase, driver.identity_id!, identity.face_photo_path) : null;
 
   // §2-6: 口座は can_view_bank_accounts を持つ場合のみ開示（PII 閲覧者でも口座は別ゲート）。
   const showBank = await hasCapabilityCached(user, "can_view_bank_accounts");

@@ -18,31 +18,12 @@ import path from "path";
 const ROOT = path.resolve(process.cwd(), "src");
 const MIGRATIONS = path.resolve(process.cwd(), "../../supabase/migrations");
 
-/** migration から「org_id / owner_org_id を持つテーブル」を抽出する。 */
+import { scanTenantQueries, tenantTablesFromSql } from "./tenantScopeScanner";
+
 function loadTenantTables(): Map<string, string> {
-  const tables = new Map<string, string>(); // table -> column
-  for (const file of fs.readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql"))) {
-    const sql = fs.readFileSync(path.join(MIGRATIONS, file), "utf8");
-
-    // ALTER TABLE x ADD COLUMN ... org_id
-    for (const m of sql.matchAll(
-      /ALTER TABLE\s+([a-z0-9_]+)\s+ADD COLUMN(?:\s+IF NOT EXISTS)?\s+(org_id|owner_org_id)\b/gi,
-    )) {
-      tables.set(m[1], m[2]);
-    }
-
-    // CREATE TABLE x ( ... org_id ... )
-    for (const m of sql.matchAll(
-      /CREATE TABLE(?:\s+IF NOT EXISTS)?\s+([a-z0-9_]+)\s*\(([\s\S]*?)\n\);/gi,
-    )) {
-      const [, table, body] = m;
-      const col = /\b(owner_org_id)\b/.test(body)
-        ? "owner_org_id"
-        : /\b(org_id)\b/.test(body)
-          ? "org_id"
-          : null;
-      if (col) tables.set(table, col);
-    }
+  const tables = new Map<string, string>();
+  for (const file of fs.readdirSync(MIGRATIONS).filter(f => f.endsWith(".sql"))) {
+    for (const [table, column] of tenantTablesFromSql(fs.readFileSync(path.join(MIGRATIONS, file), "utf8"))) tables.set(table, column);
   }
   return tables;
 }
@@ -64,51 +45,14 @@ function scanFile(file: string, tenantTables: Map<string, string>): Violation[] 
   const rel = path.relative(process.cwd(), file);
   if (ALLOWLIST_FILES.has(rel)) return [];
 
-  const src = fs.readFileSync(file, "utf8");
-  const lines = src.split("\n");
-  const violations: Violation[] = [];
-
-  for (const m of src.matchAll(/\.from\(\s*["'`]([a-z0-9_]+)["'`]\s*\)/g)) {
-    const table = m[1];
-    const column = tenantTables.get(table);
-    if (!column) continue;
-
-    const lineNo = src.slice(0, m.index).split("\n").length;
-
-    // クエリは複数行チェーンなので、その行から続く塊（次の from か空行まで）を見る
-    const chunk = lines.slice(lineNo - 1, lineNo + 14).join("\n");
-    const chunkUntilNext = chunk.split(/\.from\(/).slice(0, 2).join("");
-
-    const hasOrgFilter =
-      new RegExp(`\\.eq\\(\\s*["'\`]${column}["'\`]`).test(chunkUntilNext) ||
-      // 入れ子 join 経由（courses!inner(org_id) 等）
-      new RegExp(`["'\`][a-z0-9_]+\\.${column}["'\`]`).test(chunkUntilNext) ||
-      // 主キー指定で1行に特定 → 呼び出し側で org 検証する前提のもの
-      /\.eq\(\s*["'`]id["'`]/.test(chunkUntilNext) ||
-      // 書き込み時に org を埋めている（insert/upsert の値に org_id: が入る）
-      new RegExp(`${column}\\s*:`).test(chunkUntilNext) ||
-      // 事前に org スコープで取得した ID 集合で絞っている（.in("id", xxxIds)）
-      /\.in\(\s*["'`]id["'`]/.test(chunkUntilNext) ||
-      // 明示的な除外コメント
-      /tenant-scope-ok/.test(chunkUntilNext);
-
-    if (!hasOrgFilter) {
-      violations.push({
-        file: rel,
-        line: lineNo,
-        table,
-        snippet: (lines[lineNo - 1] ?? "").trim(),
-      });
-    }
-  }
-  return violations;
+  return scanTenantQueries(fs.readFileSync(file, "utf8"), tenantTables).map(issue => ({ ...issue, file: rel }));
 }
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, out);
-    else if (/\.(ts|tsx)$/.test(entry.name) && !entry.name.endsWith(".test.ts")) out.push(full);
+    else if (/\.(ts|tsx)$/.test(entry.name) && ! /\.(test|spec|itest)\.tsx?$/.test(entry.name)) out.push(full);
   }
   return out;
 }

@@ -200,6 +200,7 @@ export async function loadLegacyDailyRows(
       // vIds は org 絞り済みの日報由来。他社からの貸出車(vehicle_loans)も表示する必要があるため
       // owner_org_id では絞らない（自社日報に紐づく車両だけを引く形で既にスコープ済み）。
       const { data: vRows } = await supabase
+        // tenant-scope-ok: 自社で絞った日報の車両ID集合。貸与車も含むためプレート情報のみを参照
         .from("vehicles")
         .select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand")
         .in("id", vIds);

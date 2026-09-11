@@ -62,7 +62,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const { data: session } = await supabase
     .from("vehicle_sessions")
-    .select("status, recorded_by, started_at, ended_at")
+    .select("status, recorded_by, started_at, ended_at").eq("org_id", orgId)
     .eq("vehicle_id", id)
     .order("started_at", { ascending: false })
     .limit(1)
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const driverIds = [latest?.recorded_by, session?.recorded_by].filter((v): v is string => !!v);
   const { data: drivers } = driverIds.length
-    ? await supabase.from("drivers").select("id, name, display_name").in("id", [...new Set(driverIds)])
+    ? await supabase.from("drivers").select("id, name, display_name").in("id", [...new Set(driverIds)]).eq("org_id", orgId)
     : { data: [] as { id: string; name: string | null; display_name: string | null }[] };
   const nameById = new Map((drivers ?? []).map((d) => [d.id, d.display_name || d.name || ""]));
 

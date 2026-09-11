@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
 
         if (idRow?.driver_id) {
           const { data: d2, error: err3 } = await supabase
+            // tenant-scope-ok: 認証前のコード解決。直後にPIN・所属の有効性を検証してからセッションを発行
             .from("drivers")
             .select("id, name, role, company_code, office_code, driver_code, pin_hash, identity_id, org_id, status, token_version")
             .eq("id", idRow.driver_id)

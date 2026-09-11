@@ -128,6 +128,9 @@ function resolveSummaryValue(ref: SummaryRowDef["value"], totals: InvoiceTotals,
  * 固定 rows={2} だと3行以上の住所が編集画面で切れ、そのまま印刷にも出なかった
  * （2026-08-18 指摘）。読み取り表示は div なので元から問題ない。
  */
+/** 旧保存値の改行だけを復元する。その他のタグはReactが文字として描画する。 */
+export const addressText = (value: string) => value.replace(/<br\s*\/?>/gi, "\n");
+
 function AddressArea({
   html,
   onChange,
@@ -138,7 +141,7 @@ function AddressArea({
   className?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const text = html.replace(/<br\s*\/?>/gi, "\n");
+  const text = addressText(html);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -692,7 +695,7 @@ export function InvoiceSheet({
 
           {/* 宛先 / 自社 */}
           <div className="flex justify-between gap-5" style={{ marginBottom: `${st.layout.headerGapMm}mm` }}>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="flex items-end justify-between border-b border-black pb-1">
                 <span className="text-[16px] font-bold flex-1">
                   <T readOnly={readOnly} value={st.toName} placeholder="請求先 名称" bold onChange={(v) => set({ toName: v })} />
@@ -703,7 +706,7 @@ export function InvoiceSheet({
               </div>
               <div className="mt-1 text-[12px] leading-[1.5]">
                 {readOnly ? (
-                  <div dangerouslySetInnerHTML={{ __html: st.toAddrHtml || "〒<br/>（住所）" }} />
+                  <div className="whitespace-pre-line break-words">{addressText(st.toAddrHtml || "〒\n（住所）")}</div>
                 ) : (
                   <AddressArea html={st.toAddrHtml} onChange={(v) => set({ toAddrHtml: v })} />
                 )}
@@ -735,7 +738,7 @@ export function InvoiceSheet({
               <div className="relative z-10 mt-3 text-[12px] leading-[1.6]">
                 <div className="text-[14px] font-semibold"><T readOnly={readOnly} value={st.fromName} placeholder="請求元 名称" bold onChange={(v) => set({ fromName: v })} /></div>
                 {readOnly ? (
-                  <div dangerouslySetInnerHTML={{ __html: st.fromAddrHtml || "" }} />
+                  <div className="whitespace-pre-line break-words">{addressText(st.fromAddrHtml || "")}</div>
                 ) : (
                   <AddressArea html={st.fromAddrHtml} onChange={(v) => set({ fromAddrHtml: v })} />
                 )}

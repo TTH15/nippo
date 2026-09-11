@@ -3,6 +3,7 @@ import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { todayJST } from "@/lib/date";
+import { loadReportVehicles } from "@/server/vehicles/reportScope";
 
 export const dynamic = "force-dynamic";
 
@@ -36,16 +37,11 @@ export async function GET(req: NextRequest) {
   const driverIds = [...new Set(rows.map((r) => r.recorded_by).filter(Boolean))] as string[];
   const vehicleIds = [...new Set(rows.map((r) => r.vehicle_id).filter(Boolean))] as string[];
 
-  const [{ data: drivers }, { data: vehicles }] = await Promise.all([
+  const [{ data: drivers }, vehicles] = await Promise.all([
     driverIds.length
-      ? supabase.from("drivers").select("id, name, display_name").in("id", driverIds)
+      ? supabase.from("drivers").select("id, name, display_name").eq("org_id", orgId).in("id", driverIds)
       : Promise.resolve({ data: [] as any[] }),
-    vehicleIds.length
-      ? supabase
-          .from("vehicles")
-          .select("id, number_prefix, number_class, number_hiragana, number_numeric")
-          .in("id", vehicleIds)
-      : Promise.resolve({ data: [] as any[] }),
+    loadReportVehicles(supabase, orgId, vehicleIds, date),
   ]);
 
   const driverMap = new Map((drivers ?? []).map((d: any) => [d.id, d]));

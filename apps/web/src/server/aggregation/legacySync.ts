@@ -84,13 +84,13 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
     .from("daily_reports_v2")
     // tenant-scope-ok: legacy_report_id は旧 daily_reports の主キー＝1行特定（org をまたがない）
     .select("id")
-    .eq("legacy_report_id", r.id)
+    .eq("legacy_report_id", r.id).eq("org_id", header.org_id)
     .maybeSingle();
 
   let reportId: string;
   let isExisting = false;
   if (existing?.id) {
-    await supabase.from("daily_reports_v2").update(header).eq("id", existing.id);
+    await supabase.from("daily_reports_v2").update(header).eq("id", existing.id).eq("org_id", header.org_id);
     reportId = existing.id;
     isExisting = true;
     // 注意: ここで entries を即削除しない。削除は「再挿入する行が確定」してから行う（下記）。

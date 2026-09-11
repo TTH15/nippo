@@ -94,7 +94,7 @@ async function main() {
     const { error: updErr } = await supabase
       .from("vehicles")
       .update({ image_url: objectPath })
-      .eq("id", v.id);
+      .eq("id", v.id).eq("owner_org_id", v.owner_org_id);
     if (updErr) {
       console.error(`  ✗ ${v.id}: DB更新失敗 ${updErr.message}`);
       failed++;

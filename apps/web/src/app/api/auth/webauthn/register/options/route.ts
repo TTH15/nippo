@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { data: driver } = await supabase
+    // tenant-scope-ok: requireAuthで照合済みの本人user.driverIdの名前だけを取得
     .from("drivers")
     .select("name")
     .eq("id", user.driverId)

@@ -96,6 +96,7 @@ export async function PUT(req: NextRequest) {
 
   if (keptDays.length > 0) {
     const now = new Date().toISOString();
+    // tenant-scope-ok: keptDays.map の各行に認証済み orgId を設定する
     const { error } = await supabase.from("shift_memo_days").upsert(
       keptDays.map((day) => ({
         org_id: orgId,

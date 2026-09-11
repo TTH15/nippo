@@ -22,6 +22,7 @@ export async function insertShiftRequestLogs(rows: ShiftLogRow[]): Promise<void>
 /** drivers から表示名スナップショット（display_name 優先・無ければ name）を取得。 */
 export async function fetchActorName(driverId: string): Promise<string | null> {
   const { data } = await supabase
+    // tenant-scope-ok: 2つの呼び出し元とも認証済みuser.driverId。ログ用の本人表示名だけを取得
     .from("drivers")
     .select("name, display_name")
     .eq("id", driverId)

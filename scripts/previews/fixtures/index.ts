@@ -1,3 +1,8 @@
+import InvoicePreviewPage from "@/app/(admin)/admin/(accounting)/invoices/[id]/preview/page";
+import InvoiceEditPage from "@/app/(admin)/admin/(accounting)/invoices/[id]/edit/page";
+import { invoicePreviewFixture, invoiceEditFixture } from "./invoices";
+import ReportKindsPage from "@/app/(admin)/admin/report-kinds/page";
+import { reportKindsFixture } from "./reportKinds";
 // プレビューで開ける本番ページの登録表。1ページ = 本番の page.tsx + fixture。
 // 追加するときはここに1行足し、docs/development/preview-workflow.md の一覧も更新する。
 import type { ComponentType } from "react";
@@ -30,6 +35,9 @@ export type PreviewPageEntry = {
 const entry = <S,>(slug: string, fixture: PreviewFixture<S>, Page: ComponentType): PreviewPageEntry => ({ slug, fixture: fixture as PreviewFixture<any>, Page });
 
 export const PREVIEW_PAGES: PreviewPageEntry[] = [
+  entry("report-kinds", reportKindsFixture, ReportKindsPage),
+  entry("invoice-preview", invoicePreviewFixture, InvoicePreviewPage),
+  entry("invoice-edit", invoiceEditFixture, InvoiceEditPage),
   entry("dashboard", dashboardFixture, DashboardPage),
   entry("vehicles", vehiclesFixture, VehiclesPage),
   entry("users", usersFixture, UsersPage),

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
+import { loadReportVehicles } from "@/server/vehicles/reportScope";
 import { supabase } from "@/server/db/client";
 import { loadReportKinds } from "@/server/reportKinds/config";
 import { getRoleValue, getAnswerValue } from "@/server/reportKinds/answers";
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
     const { data: report, error: reportErr } = await supabase
       .from("oil_change_reports")
       .select("driver_id, report_date, report_kind, description, expense_amount, vehicle_id, odometer_km, answers")
-      .eq("id", id)
+      .eq("id", id).eq("org_id", orgId)
       .maybeSingle();
 
     if (reportErr) {
@@ -30,7 +31,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
-    const { error } = await supabase
+    if (!report) return NextResponse.json({ error: "報告が見つかりません。" }, { status: 404 });
+    // 関連IDも検査する。過去の不整合な報告から他社の車両・経費を更新しない。
+    const { data: driver, error: driverErr } = await supabase.from("drivers")
+      .select("id").eq("id", report.driver_id).eq("org_id", orgId).maybeSingle();
+    if (driverErr) return NextResponse.json({ error: "DB error" }, { status: 500 });
+    if (!driver) return NextResponse.json({ error: "報告が見つかりません。" }, { status: 404 });
+    const [vehicle] = report.vehicle_id
+      ? await loadReportVehicles(supabase, orgId, [report.vehicle_id], report.report_date)
+      : [];
+    if (report.vehicle_id && !vehicle) return NextResponse.json({ error: "車両が見つかりません。" }, { status: 404 });
+
+    const reportKinds = await loadReportKinds(supabase, orgId);
+
+    const { data: approved, error } = await supabase
       .from("oil_change_reports")
       .update({
         approved_at: new Date().toISOString(),
@@ -38,15 +52,16 @@ export async function POST(req: NextRequest) {
         rejected_at: null,
         rejected_by: null,
       })
-      .eq("id", id).eq("org_id", orgId);
+      .eq("id", id).eq("org_id", orgId).select("id").maybeSingle();
 
     if (error) {
       console.error("[admin/misc-reports/oil-change/approve] error", error);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    if (!approved) return NextResponse.json({ error: "報告が見つかりません。" }, { status: 404 });
+
     // 種別の能力(capability)で承認時の特別処理を決める。値は role フィールド(answers)から解決。
-    const reportKinds = await loadReportKinds(supabase);
     const kind = reportKinds.find((k) => k.key === report?.report_kind) ?? null;
     const capability = kind?.capability ?? "none";
     const fields = kind?.fields ?? [];
@@ -59,12 +74,7 @@ export async function POST(req: NextRequest) {
       odometerValue != null
     ) {
       const odo = Math.trunc(odometerValue);
-      const { data: veh } = await supabase
-        .from("vehicles")
-        .select("current_mileage")
-        .eq("id", report.vehicle_id)
-        .maybeSingle();
-      const current = veh ? Number(veh.current_mileage) || 0 : 0;
+      const current = Number(vehicle?.current_mileage) || 0;
       const update: Record<string, unknown> = {
         last_oil_change_mileage: odo,
         updated_at: new Date().toISOString(),
@@ -75,7 +85,7 @@ export async function POST(req: NextRequest) {
       const { error: vehicleErr } = await supabase
         .from("vehicles")
         .update(update)
-        .eq("id", report.vehicle_id);
+        .eq("id", report.vehicle_id).eq("owner_org_id", vehicle!.owner_org_id);
       if (vehicleErr) {
         console.error("[admin/misc-reports/oil-change/approve] vehicle update error", vehicleErr);
         return NextResponse.json({ error: "DB error" }, { status: 500 });
@@ -113,14 +123,14 @@ export async function POST(req: NextRequest) {
         const { data: existingAdHoc, error: findAdHocErr } = await supabase
           .from("driver_ad_hoc_expenses")
           .select("id")
-          .eq("misc_report_id", id)
+          .eq("misc_report_id", id).eq("driver_id", report.driver_id)
           .maybeSingle();
         if (findAdHocErr) {
           console.error("[admin/misc-reports/oil-change/approve] ad hoc find error", findAdHocErr);
           return NextResponse.json({ error: "DB error" }, { status: 500 });
         }
         const { error: adHocErr } = existingAdHoc
-          ? await supabase.from("driver_ad_hoc_expenses").update(payload).eq("id", existingAdHoc.id)
+          ? await supabase.from("driver_ad_hoc_expenses").update(payload).eq("id", existingAdHoc.id).eq("driver_id", report.driver_id)
           : await supabase.from("driver_ad_hoc_expenses").insert(payload);
         if (adHocErr) {
           console.error("[admin/misc-reports/oil-change/approve] ad hoc upsert error", adHocErr);

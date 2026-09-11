@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   const { data: qr } = await supabase
     .from("vehicle_qr")
     // tenant-scope-ok: 直後に qr.org_id !== orgId を 403 で弾く（他org のQRは有効化不可）
-    .select("id, vehicle_id, org_id, status, version")
+    .select("id, vehicle_id, org_id, status, version").eq("org_id", orgId)
     .eq("token", token)
     .maybeSingle();
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   // 車両情報（確認画面表示用）
   const { data: vehicle } = await supabase
     .from("vehicles")
-    .select("id, manufacturer, brand, number_prefix, number_class, number_hiragana, number_numeric")
+    .select("id, manufacturer, brand, number_prefix, number_class, number_hiragana, number_numeric").eq("owner_org_id", orgId)
     .eq("id", qr.vehicle_id)
     .maybeSingle();
 
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
       status: "active",
       attached_confirmed_at: new Date().toISOString(),
       attached_confirmed_by: user.driverId,
-    })
+    }).eq("org_id", orgId)
     .eq("id", qr.id)
     .eq("status", "issued"); // 競合ガード
 

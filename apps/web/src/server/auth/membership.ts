@@ -17,6 +17,7 @@ export async function checkMembership(
   request: { pathname: string; method: string },
 ): Promise<MembershipResult> {
   const { data: driver, error } = await supabase
+    // tenant-scope-ok: 所属の照合そのもの。JWT署名検証済みIDで取得しorg・identity・token世代を比較
     .from("drivers")
     .select("status, role, company_code, org_id, identity_id, token_version")
     .eq("id", user.driverId)

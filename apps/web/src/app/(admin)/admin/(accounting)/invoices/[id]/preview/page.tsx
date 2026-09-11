@@ -37,6 +37,8 @@ export default function AdminInvoicePreviewPage() {
   const { data, isInitialLoading, error } = useApi<InvoiceResp>(
     id ? `/api/admin/invoices/${encodeURIComponent(id)}` : null,
   );
+  const { data: organizationData } = useApi<{ settings: { name: string; stampUrl: string | null } }>("/api/admin/organization-settings");
+  const issuer = { name: organizationData?.settings.name ?? "", stampPath: organizationData?.settings.stampUrl ?? "" };
   const { data: addrData } = useApi<AddressesResp>("/api/admin/invoice-addresses");
   const counterparty = data?.invoice?.counterpartyInvoiceAddressId
     ? addrData?.addresses?.find((a) => a.id === data.invoice.counterpartyInvoiceAddressId)
@@ -65,7 +67,7 @@ export default function AdminInvoicePreviewPage() {
         ) : error || !state ? (
           <div className="p-10 text-center text-red-600">請求書を読み込めませんでした。</div>
         ) : (
-          <PaginatedInvoiceSheet state={state} readOnly sheetRef={sheetRef} />
+          <PaginatedInvoiceSheet state={state} readOnly sheetRef={sheetRef} issuer={issuer} />
         )}
       </div>
     </AdminLayout>

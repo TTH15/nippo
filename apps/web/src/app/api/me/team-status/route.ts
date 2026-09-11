@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
         .select("team_id, driver_id, points, reason, entry_date, created_at")
         .eq("event_id", ev.id)
         .eq("source", "manual"),
+      // tenant-scope-ok: driverIdはrequireAuthのuser.driverId。本人の既読時刻だけを参照
       supabase.from("drivers").select("last_bonus_seen_at").eq("id", driverId).maybeSingle(),
     ]);
 

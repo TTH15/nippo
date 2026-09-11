@@ -19,6 +19,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   }
 
+  const { data: current, error: readErr } = await supabase.from("vehicle_sessions")
+    .select("id").eq("id", id).eq("org_id", orgId).maybeSingle();
+  if (readErr) return NextResponse.json({ error: "DB error" }, { status: 500 });
+  if (!current) return NextResponse.json({ error: "記録が見つかりません。" }, { status: 404 });
+
   const { data, error } = await supabase
     .from("vehicle_sessions")
     .update({

@@ -17,7 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data: batch } = await supabase
       .from("shift_import_batches")
-      .select("id, org_id, reverted_at")
+      .select("id, org_id, reverted_at").eq("org_id", orgId)
       .eq("id", id)
       .single();
     if (!batch || batch.org_id !== orgId) {
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     await supabase
       .from("shift_import_batches")
-      .update({ reverted_at: new Date().toISOString() })
+      .update({ reverted_at: new Date().toISOString() }).eq("org_id", orgId)
       .eq("id", id);
 
     return NextResponse.json({ removed: (removed ?? []).length });

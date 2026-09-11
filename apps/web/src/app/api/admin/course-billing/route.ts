@@ -199,7 +199,7 @@ export async function PUT(req: NextRequest) {
         payout_fixed_tax_basis: payoutFixedTaxBasis,
         revenue_rate_mode: revenueRateMode,
         payout_rate_mode: payoutRateMode,
-      })
+      }).eq("org_id", orgId)
       .eq("id", courseId);
     if (error) {
       console.error(error);

@@ -21,8 +21,8 @@ export function useSearchParams(): URLSearchParams {
   return new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
 }
 
-export function useParams(): Record<string, string> {
-  return {};
+export function useParams<T extends Record<string, string> = Record<string, string>>(): T {
+  return (usePreviewRuntime().store.fixture.params ?? {}) as T;
 }
 
 export function redirect(href: string): never {

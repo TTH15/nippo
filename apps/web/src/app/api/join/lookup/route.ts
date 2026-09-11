@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
   const invite = (req.nextUrl.searchParams.get("invite") || "").trim();
   if (invite) {
     const { data: row, error } = await supabase
+      // tenant-scope-ok: 推測困難な招待tokenから参加先を解決し、有効期限・失効・会社状態を検証
       .from("invites")
       .select("used_at, revoked_at, expires_at, organizations ( name, status )")
       .eq("token", invite)

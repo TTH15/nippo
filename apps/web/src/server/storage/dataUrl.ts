@@ -11,6 +11,7 @@
 // 二重解決を用意して段階移行できるようにする。
 // ============================================================
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isStoredPathInScope } from "./scope";
 import { verifyFileContent } from "@/server/storage/fileSignature";
 
 export type DecodedDataUrl = { bytes: Uint8Array; mime: string; bytesLength: number };
@@ -81,7 +82,9 @@ export async function uploadDataUrl(
   value: string,
   allowedMime: readonly string[] = ["application/pdf", "image/jpeg", "image/png"],
 ): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
-  if (!isDataUrl(value)) return { ok: true, path: value };
+  if (!isDataUrl(value)) return isStoredPathInScope(value, prefix)
+    ? { ok: true, path: value }
+    : { ok: false, message: "このファイルは使用できません。もう一度添付してください。" };
 
   const decoded = decodeDataUrl(value);
   if (!decoded) return { ok: false, message: "ファイル形式を認識できませんでした。" };
@@ -117,10 +120,12 @@ export async function resolveStoredUrl(
   supabase: SupabaseClient,
   bucket: string,
   value: string | null | undefined,
+  prefix: string,
   expiresInSec = 60 * 60,
 ): Promise<string | null> {
   if (!value) return null;
-  if (isDataUrl(value)) return value;
+  if (isDataUrl(value)) return safeLegacyDataUrl(value);
+  if (!isStoredPathInScope(value, prefix)) return null;
   const { data } = await supabase.storage
     .from(bucket)
     .createSignedUrl(value, expiresInSec, signedUrlOptions(value));
@@ -146,16 +151,17 @@ export async function resolveStoredUrls(
   supabase: SupabaseClient,
   bucket: string,
   values: (string | null | undefined)[],
+  prefix: string,
   expiresInSec = 60 * 60,
 ): Promise<(string | null)[]> {
   // data URL（移行前データ）はそのまま返し、path だけ署名対象にする
-  const out: (string | null)[] = values.map((v) => (v && isDataUrl(v) ? v : null));
+  const out: (string | null)[] = values.map((v) => (v && isDataUrl(v) ? safeLegacyDataUrl(v) : null));
   const groups = [
     { download: false, indexes: [] as number[], paths: [] as string[] },
     { download: true, indexes: [] as number[], paths: [] as string[] },
   ];
   values.forEach((v, i) => {
-    if (!v || isDataUrl(v)) return;
+    if (!v || isDataUrl(v) || !isStoredPathInScope(v, prefix)) return;
     const g = groups[signedUrlOptions(v) ? 1 : 0];
     g.indexes.push(i);
     g.paths.push(v);
@@ -184,9 +190,16 @@ export async function removeStoredPaths(
   supabase: SupabaseClient,
   bucket: string,
   values: (string | null | undefined)[],
+  prefix: string,
 ): Promise<void> {
-  const paths = values.filter((v): v is string => Boolean(v) && !isDataUrl(v));
+  const paths = values.filter((v): v is string => isStoredPathInScope(v, prefix));
   if (paths.length === 0) return;
   const { error } = await supabase.storage.from(bucket).remove(paths);
   if (error) console.error(`[storage/${bucket}] remove error`, error);
+}
+
+/** 旧base64もHTML/SVG等をそのまま閲覧URLにしない。 */
+export function safeLegacyDataUrl(value: string): string | null {
+  const decoded = decodeDataUrl(value);
+  return decoded && verifyFileContent(decoded.bytes, ["application/pdf", "image/jpeg", "image/png", "image/webp"], decoded.mime).ok ? value : null;
 }

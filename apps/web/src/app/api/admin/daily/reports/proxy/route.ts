@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
 
     let reportId: string;
     if (existing?.id) {
-      const { error } = await supabase.from("daily_reports_v2").update(header).eq("id", existing.id);
+      const { error } = await supabase.from("daily_reports_v2").update(header).eq("org_id", orgId).eq("id", existing.id);
       if (error) {
         console.error(error);
         return NextResponse.json({ error: "日報の更新に失敗しました" }, { status: 500 });

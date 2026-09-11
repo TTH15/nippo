@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
 
   const coursesQuery = supabase
     .from("courses")
-    .select("id, sort_order, carrier, principal_invoice_address_id")
+    .select("id, sort_order, carrier, principal_invoice_address_id").eq("org_id", orgId)
     .in("id", courseIds);
 
   const { data: courses, error: coursesErr } =

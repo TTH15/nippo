@@ -189,6 +189,7 @@ export async function GET(req: NextRequest) {
     // 内容（送信画面と同じ動的 unit/field 構造）を report_entries から取得
     const contentByReport = await loadReportContents(
       supabase,
+      orgId,
       (reportRows ?? []).map((r: any) => r.id).filter(Boolean),
     );
 

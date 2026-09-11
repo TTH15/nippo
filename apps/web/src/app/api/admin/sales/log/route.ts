@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (syncErr) {
     console.error("[sales/log POST] syncSalesLogDriverReward", syncErr);
-    await supabase.from("sales_log_entries").delete().eq("id", data.id);
+    await supabase.from("sales_log_entries").delete().eq("org_id", orgId).eq("id", data.id);
     return NextResponse.json(
       { error: "ドライバー報酬の同期に失敗しました。もう一度お試しください。" },
       { status: 500 },

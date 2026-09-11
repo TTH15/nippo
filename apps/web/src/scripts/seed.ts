@@ -82,7 +82,7 @@ async function main() {
           office_code: d.office_code,
           driver_code: d.driver_code,
         })
-        .eq("id", existing.id);
+        .eq("id", existing.id).eq("org_id", orgId);
       
       if (error) {
         console.error(`Failed to update ${d.name}:`, error.message);
@@ -117,7 +117,7 @@ async function main() {
         .select("id")
         .single();
       if (identity) {
-        await supabase.from("drivers").update({ identity_id: identity.id }).eq("id", data.id);
+        await supabase.from("drivers").update({ identity_id: identity.id }).eq("id", data.id).eq("org_id", orgId);
       }
       console.log(`[OK] ${d.name} (${d.role}) — id: ${data.id}`);
     }

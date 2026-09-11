@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { resolveReportCycleChoices } from "@repo/core/logic/dailyReport";
 import { loadCourseReportFields } from "@/server/reports/courseReportFields";
@@ -16,6 +17,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const date = req.nextUrl.searchParams.get("date") ?? "";
   if (!date) return NextResponse.json({ error: "date が必要です" }, { status: 400 });
@@ -43,11 +45,12 @@ export async function GET(req: NextRequest) {
   const [{ data: shiftVehicle }, { data: courses }, { data: existingReports }] = await Promise.all([
     // その日にシフトで割り当てられた車両（先頭の非null）。廃車・一時使用不可は既定から除外
     rawShiftVehicleId
+      // tenant-scope-ok: 本人の当日シフトで割当済みの車両。貸与車も含め利用可否の2フラグだけを取得
       ? supabase.from("vehicles").select("is_disposed, is_unavailable").eq("id", rawShiftVehicleId).maybeSingle()
       : Promise.resolve({ data: null as { is_disposed: boolean; is_unavailable: boolean } | null }),
     // コース → キャリア
     courseIds.length
-      ? supabase.from("courses").select("id, name, color, summary_title, carrier_id, course_cycles(cycle_no, label)").in("id", courseIds)
+      ? supabase.from("courses").select("id, name, color, summary_title, carrier_id, course_cycles(cycle_no, label)").in("id", courseIds).eq("org_id", orgId)
       : Promise.resolve({ data: [] as any[] }),
     // 既存 v2 レポート（prefill）
     courseIds.length

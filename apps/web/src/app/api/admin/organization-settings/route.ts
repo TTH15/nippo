@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   const orgId = await resolveOrgId(user.driverId);
   const { data, error } = await load(orgId);
   if (error || !data) return NextResponse.json({ error: "会社設定を取得できません" }, { status: 500 });
-  const storedStampUrl = await resolveStoredUrl(supabase, BUCKET, data.invoice_stamp_path, 60 * 60 * 8);
+  const storedStampUrl = await resolveStoredUrl(supabase, BUCKET, data.invoice_stamp_path, orgId, 60 * 60 * 8);
   // migration直後もACEの既存社印を維持し、UIからアップロード後はStorageを正本にする。
   const stampUrl = storedStampUrl ?? (data.code === "ACE" ? companies.ACE.invoiceIssuer.stampPath : null);
   return NextResponse.json({ settings: { ...data, stampUrl } });
@@ -60,7 +60,7 @@ export async function PUT(req: NextRequest) {
   if (error) return NextResponse.json({ error: "会社設定を保存できません" }, { status: 500 });
 
   if (current.invoice_stamp_path && current.invoice_stamp_path !== stampPath) {
-    await removeStoredPaths(supabase, BUCKET, [current.invoice_stamp_path]);
+    await removeStoredPaths(supabase, BUCKET, [current.invoice_stamp_path], orgId);
   }
   return GET(req);
 }

@@ -57,11 +57,12 @@ export async function GET(req: NextRequest) {
   const [{ data: shiftVehicle }, { data: courses }, { data: existingReports }] = await Promise.all([
     // その日にシフトで割り当てられた車両（先頭の非null）。廃車・一時使用不可は既定から除外
     rawShiftVehicleId
+      // tenant-scope-ok: 自社の対象ドライバーで絞った当日シフトの割当車両（正式な貸与車も含む）
       ? supabase.from("vehicles").select("is_disposed, is_unavailable").eq("id", rawShiftVehicleId).maybeSingle()
       : Promise.resolve({ data: null as { is_disposed: boolean; is_unavailable: boolean } | null }),
     // コース → キャリア
     courseIds.length
-      ? supabase.from("courses").select("id, name, color, summary_title, carrier_id, course_cycles(cycle_no, label)").in("id", courseIds)
+      ? supabase.from("courses").select("id, name, color, summary_title, carrier_id, course_cycles(cycle_no, label)").eq("org_id", orgId).in("id", courseIds)
       : Promise.resolve({ data: [] as any[] }),
     // 既存 v2 レポート（prefill）
     courseIds.length

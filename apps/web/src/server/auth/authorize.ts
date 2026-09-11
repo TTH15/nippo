@@ -28,6 +28,7 @@ export type { Grants, PermissionScope, PermissionSpec } from "./policy";
  */
 export async function resolveGrants(driverId: string, fallbackRole?: string): Promise<Grants> {
   const { data: driver } = await supabase
+    // tenant-scope-ok: 認可の解決処理。呼び出し元が認証済みのmembership IDを渡す
     .from("drivers")
     .select("role, role_id, works_as_driver")
     .eq("id", driverId)
