@@ -27,6 +27,6 @@
   "devDependencies": {
     "@gltf-transform/core": "^4.4.2",
     "@gltf-transform/extensions": "^4.4.2",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.4"
   }
 }

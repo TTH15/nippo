@@ -8,3 +8,9 @@ sample
 /invoice/
 docs
 *.log
+# 独自名のDB接続ファイルも含め、ローカル環境値をアップロードしない。
+.env*
+**/.env*
+.claude
+.codex
+apps/web/public/glb
