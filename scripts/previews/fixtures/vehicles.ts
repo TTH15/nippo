@@ -7,7 +7,9 @@ export type MockVehicle = {
   manufacturer: string | null;
   brand: string | null;
   model_code: string | null;
+  model_key?: string | null;
   body_color: string | null;
+  part_colors?: Record<string, string>;
   is_disposed: boolean;
   is_unavailable: boolean;
   unavailable_reason: string | null;
@@ -71,7 +73,7 @@ export const seedVehicles: MockVehicle[] = [
   },
   {
     ...base, id: "00000000-0000-4000-8000-000000000003", created_at: "2026-07-12T09:00:00+09:00",
-    manufacturer: "スズキ", brand: "エブリイ", model_code: "DA17V", body_color: "#272b30",
+    manufacturer: "スズキ", brand: "エブリイ", model_code: "EBD-DA64V", body_color: "#272b30",
     number_prefix: "京都", number_class: "480", number_hiragana: "れ", number_numeric: "2752",
     current_mileage: 86200, last_oil_change_mileage: 84000, purchase_cost: 180000, ...linked(previewDrivers[2]),
   },
@@ -137,6 +139,10 @@ export const vehiclesFixture: PreviewFixture<State> = {
   }),
   read: (state, { path, params }, { driver }) => {
     const canViewCost = driver.capabilities.includes("can_view_vehicle_cost");
+    if (path === "/api/admin/vehicles/check-number") return { vehicles: state.vehicles.filter(v =>
+      !v.is_disposed && v.number_prefix === params.get("numberPrefix") && v.number_class === params.get("numberClass") &&
+      v.number_hiragana === params.get("numberHiragana") && v.number_numeric === params.get("numberNumeric")
+    ).map(v => ({ id: v.id, manufacturer: v.manufacturer, brand: v.brand })) };
     if (path === "/api/admin/vehicles") {
       const cursor = Number(params.get("cursor") ?? "0") || 0;
       const limit = Number(params.get("limit") ?? String(PAGE_SIZE)) || PAGE_SIZE;
@@ -181,6 +187,8 @@ export const vehiclesFixture: PreviewFixture<State> = {
         id: `00000000-0000-4000-8000-${String(state.vehicles.length + 10).padStart(12, "0")}`,
         created_at: new Date(Date.parse("2026-09-01T09:00:00+09:00") + state.vehicles.length * 1000).toISOString(),
         manufacturer: (body.manufacturer as string) ?? null, brand: (body.brand as string) ?? null,
+        model_key: (body.modelKey as string) ?? null,
+        part_colors: (body.partColors as Record<string, string>) ?? {},
         model_code: (body.modelCode as string) ?? null, body_color: (body.bodyColor as string) ?? null,
         is_disposed: !!body.isDisposed, is_unavailable: !!body.isUnavailable,
         unavailable_reason: (body.unavailableReason as string) ?? null, is_ev: !!body.isEv,
@@ -204,6 +212,10 @@ export const vehiclesFixture: PreviewFixture<State> = {
       if (!target) return undefined;
       if (typeof body.manufacturer === "string") target.manufacturer = body.manufacturer;
       if (typeof body.brand === "string") target.brand = body.brand;
+      if (body.partColors && typeof body.partColors === "object") target.part_colors = body.partColors as Record<string, string>;
+      for (const [from, to] of [["modelCode", "model_code"], ["modelKey", "model_key"], ["bodyColor", "body_color"], ["nextShakenDate", "next_shaken_date"], ["numberPrefix", "number_prefix"], ["numberClass", "number_class"], ["numberHiragana", "number_hiragana"], ["numberNumeric", "number_numeric"]] as const) {
+        if (from in body) target[to] = (body[from] as string) || null;
+      }
       if (typeof body.isUnavailable === "boolean") target.is_unavailable = body.isUnavailable;
       if ("unavailableReason" in body) target.unavailable_reason = (body.unavailableReason as string) ?? null;
       if (typeof body.currentMileage === "number") target.current_mileage = body.currentMileage;
@@ -214,6 +226,7 @@ export const vehiclesFixture: PreviewFixture<State> = {
       return { ok: true };
     }
     if (path === "/api/admin/org/vehicle-colors") {
+      if (typeof body.color === "string" && !state.colors.includes(body.color)) state.colors.push(body.color);
       if (Array.isArray(body.colors)) state.colors = body.colors as string[];
       return { ok: true };
     }

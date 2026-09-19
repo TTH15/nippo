@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapModelKeyForVehicle, vehicleMapModelFor } from "@/lib/vehicleModels";
 
@@ -16,16 +17,23 @@ export const PLATE_MODEL_BUCKET = "vehicle-plate-models";
 // これを静的 import にしていたため、地図APIが sharp の読み込み失敗で 500 になった（2026-09-09）。
 const loadBuilder = () => import("@/server/vehicles/plateModel");
 
-/** 保存パス。番号を変えたら中身を差し替える（1台1ファイル） */
-const plateModelPath = (orgId: string, vehicleId: string) => `${orgId}/${vehicleId}.glb`;
+/** 保存パス。車体版と番号を含む。非同期生成中に古いプレートを別世代の車体へ重ねない */
+export function plateModelPath(orgId: string, vehicle: PlateVehicle): string {
+  const model = vehicleMapModelFor(mapModelKeyForVehicle(vehicle));
+  const revision = createHash("sha256").update(JSON.stringify([
+    vehicle.number_prefix ?? "", vehicle.number_class ?? "", vehicle.number_hiragana ?? "", vehicle.number_numeric ?? "",
+  ])).digest("hex").slice(0, 20);
+  return `${orgId}/${vehicle.id}/${model.id}-${revision}.glb`;
+}
 
-type PlateVehicle = {
+export type PlateVehicle = {
   id: string;
   number_prefix?: string | null;
   number_class?: string | null;
   number_hiragana?: string | null;
   number_numeric?: string | null;
   model_key?: string | null;
+  model_code?: string | null;
   manufacturer?: string | null;
   brand?: string | null;
 };
@@ -52,7 +60,7 @@ export async function syncPlateModel(
     return { ok: false, reason: "生成に失敗" };
   }
 
-  const path = plateModelPath(orgId, vehicle.id);
+  const path = plateModelPath(orgId, vehicle);
   const { error } = await supabase.storage.from(PLATE_MODEL_BUCKET).upload(path, glb, {
     contentType: "model/gltf-binary",
     upsert: true,
@@ -66,8 +74,17 @@ export async function syncPlateModel(
 
 /** 車を消したときの後始末。失敗しても本処理は止めない */
 export async function removePlateModel(supabase: SupabaseClient, orgId: string, vehicleId: string): Promise<void> {
-  const { error } = await supabase.storage.from(PLATE_MODEL_BUCKET).remove([plateModelPath(orgId, vehicleId)]);
-  if (error) console.error("[plateModel] remove error", vehicleId, error);
+  // 旧形式と、モデル・番号ごとの版をまとめて削除する。
+  const bucket = supabase.storage.from(PLATE_MODEL_BUCKET);
+  const prefix = `${orgId}/${vehicleId}`;
+  for (;;) {
+    const { data, error } = await bucket.list(prefix, { limit: 100 });
+    if (error) { console.error("[plateModel] list error", vehicleId); return; }
+    if (!data?.length) break;
+    const removed = await bucket.remove(data.map(file => `${prefix}/${file.name}`));
+    if (removed.error) { console.error("[plateModel] remove error", vehicleId); return; }
+  }
+  await bucket.remove([`${orgId}/${vehicleId}.glb`]);
 }
 
 /**
@@ -77,11 +94,11 @@ export async function removePlateModel(supabase: SupabaseClient, orgId: string, 
 export async function signPlateModels(
   supabase: SupabaseClient,
   orgId: string,
-  vehicleIds: readonly string[],
+  vehicles: readonly PlateVehicle[],
   expiresInSec = 60 * 60,
 ): Promise<Record<string, string>> {
-  if (vehicleIds.length === 0) return {};
-  const paths = vehicleIds.map((id) => plateModelPath(orgId, id));
+  if (vehicles.length === 0) return {};
+  const paths = vehicles.map((vehicle) => plateModelPath(orgId, vehicle));
   const { data, error } = await supabase.storage.from(PLATE_MODEL_BUCKET).createSignedUrls(paths, expiresInSec);
   if (error) {
     // バケット未作成でも地図は動かす（プレートが既定のまま出るだけ）
@@ -90,7 +107,7 @@ export async function signPlateModels(
   }
   const byVehicle: Record<string, string> = {};
   (data ?? []).forEach((item, index) => {
-    if (item.signedUrl && !item.error) byVehicle[vehicleIds[index]] = item.signedUrl;
+    if (item.signedUrl && !item.error) byVehicle[vehicles[index].id] = item.signedUrl;
   });
   return byVehicle;
 }

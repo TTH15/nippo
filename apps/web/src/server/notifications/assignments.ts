@@ -105,6 +105,7 @@ export async function loadAssignmentsByDate(
 
   const rows = await fetchAllRows<ShiftRow>((from, to) =>
     supabase
+      // tenant-scope-ok: courses!inner + .eq("courses.org_id", orgId) で結合先の org を絞っている
       .from("shifts")
       .select(
         `id, shift_date, slot, course_id, driver_id, vehicle_id, meeting_place, meeting_time, end_time,

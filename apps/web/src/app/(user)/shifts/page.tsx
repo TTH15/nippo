@@ -5,6 +5,7 @@ import { preload } from "swr";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import ShiftPlanConfirmations from "./ShiftPlanConfirmations";
 import { swrFetcher } from "@/lib/swr";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -649,6 +650,7 @@ export default function ShiftsPage() {
                 </div>
               </div>
             )}
+            <ShiftPlanConfirmations />
           </section>
         )}
       </div>

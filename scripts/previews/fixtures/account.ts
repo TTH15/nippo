@@ -1,13 +1,15 @@
 // 本番 /admin/account を再利用。端末認証とAPIは隔離runnerの中だけで模擬する。
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 
-type State = { hasPasskey: boolean; attempts: number; tokens: Set<string> };
+type State = { hasPasskey: boolean; attempts: number; tokens: Set<string>; verified: boolean; keys: { id: string; name: string; created_at: string; last_used_at: null }[] };
 
 export const accountFixture: PreviewFixture<State> = {
   id: "account",
   title: "アカウント設定",
   pathname: "/admin/account",
   scenarios: {
+    nofactor: { label: "確認方法なし", description: "登録済みの確認方法がなく運営へ案内" },
+    lastkey: { label: "最後の鍵", description: "SMS未確認の場合、最後の鍵は削除できない" },
     normal: { label: "登録済み", description: "架空のPasskeyを追加登録する" },
     empty: { label: "未登録", description: "初めての登録を試す" },
     expired: { label: "期限切れ", description: "最初の認証が期限切れになり、再試行で成功する" },
@@ -16,9 +18,23 @@ export const accountFixture: PreviewFixture<State> = {
     inactive: { label: "利用停止", description: "画面を開いた後に停止。次の操作でログインへ戻り、再ログインも拒否される" },
     changed: { label: "権限変更", description: "画面を開いた後に権限変更。次の操作でログインへ戻る" },
   },
-  createState: ({ scenario }) => ({ hasPasskey: scenario === "normal", attempts: 0, tokens: new Set() }),
-  read: (state, { path }) => path === "/api/admin/account" ? { hasPasskey: state.hasPasskey } : undefined,
-  write: (state, { path, body }, { scenario }) => {
+  createState: ({ scenario }) => ({ hasPasskey: scenario === "normal", attempts: 0, tokens: new Set(), verified: false,
+    keys: ["normal", "lastkey"].includes(scenario) ? [{ id: "00000000-0000-0000-0000-000000000001", name: "普段の端末", created_at: "2026-09-16T03:00:00Z", last_used_at: null }] : [] }),
+  read: (state, { path }, { scenario }) => {
+    if (path === "/api/admin/account") return { hasPasskey: state.hasPasskey };
+    if (path === "/api/me/passkeys") return { keys: state.keys, canRecoverWithSms: !["lastkey", "nofactor"].includes(scenario) };
+    if (path === "/api/auth/reauth") return { recent: state.verified, canUseSms: !["lastkey", "nofactor"].includes(scenario), phoneMasked: "下4桁 0000", hasPasskey: state.keys.length > 0 };
+    return undefined;
+  },
+  write: (state, { path, body, method }, { scenario }) => {
+    if (path === "/api/auth/reauth/options") return { options: {}, challengeToken: "preview-reauth" };
+    if (path === "/api/auth/reauth/verify") {
+      if (body.method === "sms" && body.code !== "123456") throw new Error("認証コードが正しくありません");
+      state.verified = true; return { reauthToken: "preview-reauth-proof" };
+    }
+    if (path === "/api/me/passkeys" && method === "DELETE") {
+      state.keys = state.keys.filter((key) => key.id !== body.id); state.hasPasskey = state.keys.length > 0; return { ok: true };
+    }
     if (path === "/api/auth/webauthn/register/options") {
       if (scenario === "inactive" || scenario === "changed") {
         throw Object.assign(new Error("ログインし直してください"), { status: 401 });
@@ -39,6 +55,7 @@ export const accountFixture: PreviewFixture<State> = {
       if (scenario === "unavailable" && state.attempts === 1) {
         throw new Error("認証を完了できませんでした。時間をおいてもう一度お試しください");
       }
+      state.keys.push({ id: `00000000-0000-0000-0000-${String(state.attempts + 1).padStart(12, "0")}`, name: "追加した端末", created_at: "2026-09-17T03:00:00Z", last_used_at: null });
       state.hasPasskey = true;
       return { ok: true };
     }

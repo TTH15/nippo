@@ -11,6 +11,7 @@ import { BroadcastTab } from "./_components/BroadcastTab";
 import { ChatTab } from "./_components/ChatTab";
 import { SettingsTab } from "./_components/SettingsTab";
 import { QuotaBar } from "./_components/QuotaBar";
+import UndeliveredTab, { UNDELIVERED_KEY } from "./_components/UndeliveredTab";
 
 // ============================================================
 // 通知（roadmap-2026-07 E④）。3つの役割を1画面に集約する:
@@ -19,7 +20,7 @@ import { QuotaBar } from "./_components/QuotaBar";
 //   自動配信 = 定時・イベント駆動の ON/OFF（§3 モード1・2）
 // ============================================================
 
-type TabValue = "broadcast" | "chat" | "settings";
+type TabValue = "broadcast" | "chat" | "settings" | "undelivered";
 
 export default function NotificationsPage() {
   const [canWrite, setCanWrite] = useState(false);
@@ -35,6 +36,10 @@ export default function NotificationsPage() {
     { refreshInterval: 60000 },
   );
   const unread = Number(chatSummary?.totalUnread) || 0;
+
+  // 届かなかった通知はタブに出したいので、開いていなくても件数だけ取る
+  const { data: undelivered } = useApi<{ items: unknown[] }>(UNDELIVERED_KEY, { refreshInterval: 300000 });
+  const undeliveredCount = Array.isArray(undelivered?.items) ? undelivered.items.length : 0;
 
   return (
     <AdminLayout>
@@ -58,6 +63,7 @@ export default function NotificationsPage() {
               { value: "broadcast", label: "一斉配信" },
               { value: "chat", label: unread > 0 ? `チャット (${unread})` : "チャット" },
               { value: "settings", label: "自動配信" },
+              { value: "undelivered", label: undeliveredCount > 0 ? `届いていない (${undeliveredCount})` : "届いていない" },
             ]}
           />
         </div>
@@ -67,6 +73,7 @@ export default function NotificationsPage() {
         {tab === "broadcast" && <BroadcastTab />}
         {tab === "chat" && <ChatTab canWrite={canWrite} />}
         {tab === "settings" && <SettingsTab canWrite={canWrite} />}
+        {tab === "undelivered" && <UndeliveredTab canWrite={canWrite} />}
       </div>
     </AdminLayout>
   );

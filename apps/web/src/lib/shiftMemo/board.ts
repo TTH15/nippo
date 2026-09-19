@@ -1,8 +1,8 @@
 // ============================================================
 // シフトメモ（個人の下書き盤）の純粋ロジック。
 //
-// メモ盤は端末ごとの下書きで、正式シフトへは反映しない（`docs/admin-information-architecture.md`）。
-// ここには「その日その枠が稼働か」「その日に希望休を出している人は誰か」だけを置く。
+// メモ盤は端末ごとの下書き。正式シフトへの反映は、対象・差分を確認する専用操作だけで行う。
+// 稼働・必要人数・希望休の判定をまとめ、表と日別配置・出力でそろえる。
 // ============================================================
 
 /** 担当枠×日の例外指定。曜日の設定より優先する */
@@ -10,6 +10,37 @@ export type DayOverride = "off" | "on";
 
 /** 担当枠×日のキー。`assignments` と同じ形にそろえる */
 export const cellKey = (laneId: string, date: string): string => `${laneId}|${date}`;
+
+export const MAX_REQUIRED_COUNT = 10;
+
+function isRequiredCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_REQUIRED_COUNT;
+}
+
+/** 旧データには例外が無い。不正値だけを落とし、別の月や非表示の枠の指定は残す。 */
+export function readRequiredCountOverrides(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([key, count]) =>
+    /^.+\|\d{4}-\d{2}-\d{2}$/.test(key) && isRequiredCount(count),
+  ));
+}
+
+/** 0人も有効な指定。休みの設定とは独立し、配置済みの人を減らさない。 */
+export function resolveDayStaffing(normalCount: number, override: number | undefined, active: boolean, assigned: number) {
+  const requiredCount = isRequiredCount(override) ? override : normalCount;
+  return { requiredCount, shortage: active ? Math.max(0, requiredCount - assigned) : 0 };
+}
+
+/** 通常へ戻す操作／通常と同じ人数の反映は、その日の人数指定だけを消す。 */
+export function updateRequiredCountOverride(
+  current: Record<string, number>, key: string, normalCount: number, wanted: number | null,
+): Record<string, number> {
+  if (wanted !== null && !isRequiredCount(wanted)) return current;
+  const next = { ...current };
+  if (wanted === null || wanted === normalCount) delete next[key];
+  else next[key] = wanted;
+  return next;
+}
 
 export type DayActivity = {
   /** その日にその枠が動くか */

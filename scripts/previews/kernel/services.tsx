@@ -1,5 +1,6 @@
 // "@/lib/api" の差し替え。本番の apiFetch / 認証ストレージの代わりに fixture ストアへ読み書きする。
-// getStoredDriver は URL の ?role= に応じた架空の管理者を返し、@/lib/capabilities（本物）がそれを読む。
+// 初期状態はURLの ?role= に応じた架空ユーザー。同じ画面のSMS認証後はsetAuthの結果を返す。
+// @/lib/capabilities（本物）がこれを読み、本番のトークン・ストレージには触れない。
 import { getPreviewRuntime } from "./runtime";
 
 export type StoredDriver = {
@@ -11,6 +12,8 @@ export type StoredDriver = {
   driverCode?: string;
   capabilities?: string[];
 };
+
+let authState: { runtime: ReturnType<typeof getPreviewRuntime>; driver: StoredDriver | null } | null = null;
 
 export async function apiFetch<T = unknown>(path: string, init?: RequestInit, options?: { skipAuthRedirect?: boolean }): Promise<T> {
   const { store, navigate } = getPreviewRuntime();
@@ -26,12 +29,15 @@ export async function apiFetch<T = unknown>(path: string, init?: RequestInit, op
 }
 
 export function getStoredDriver(): StoredDriver | null {
-  return getPreviewRuntime().store.driver;
+  const runtime = getPreviewRuntime();
+  return authState?.runtime === runtime ? authState.driver : runtime.store.driver;
 }
 
 export function getToken(): string | null {
   return "preview-token";
 }
 
-export function setAuth(_token?: string, _driver?: StoredDriver): void {}
-export function clearAuth(): void {}
+export function setAuth(_token?: string, driver?: StoredDriver): void {
+  authState = { runtime: getPreviewRuntime(), driver: driver ?? null };
+}
+export function clearAuth(): void { authState = { runtime: getPreviewRuntime(), driver: null }; }

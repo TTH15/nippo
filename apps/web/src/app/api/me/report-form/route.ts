@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
 
   // その日のシフト（コース）
   const { data: shiftRows } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("shifts")
     .select("course_id, cycle_no, slot, vehicle_id")
     .eq("driver_id", user.driverId)
@@ -80,6 +81,7 @@ export async function GET(req: NextRequest) {
       ? supabase.from("units").select("id, carrier_id, name, code, billing_type, sort_order, active").in("carrier_id", carrierIds).eq("active", true).order("sort_order")
       : Promise.resolve({ data: [] as any[] }),
     reportIds.length
+      // tenant-scope-ok: reportIds は本人（user.driverId）の日報から作った集合
       ? supabase.from("report_entries").select("report_id, unit_id, field_key, value_num, value_text").in("report_id", reportIds)
       : Promise.resolve({ data: [] as any[] }),
   ]);

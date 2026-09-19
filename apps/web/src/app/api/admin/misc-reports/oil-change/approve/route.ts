@@ -121,6 +121,7 @@ export async function POST(req: NextRequest) {
         // のため PostgREST の onConflict upsert が一致せずエラー(42P10)になる。
         // 既存行を引いてから update / insert する手動 upsert にする。
         const { data: existingAdHoc, error: findAdHocErr } = await supabase
+          // tenant-scope-ok: report / driver とも直上で org_id を確認済み
           .from("driver_ad_hoc_expenses")
           .select("id")
           .eq("misc_report_id", id).eq("driver_id", report.driver_id)
@@ -130,7 +131,9 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "DB error" }, { status: 500 });
         }
         const { error: adHocErr } = existingAdHoc
+          // tenant-scope-ok: report / driver とも直上で org_id を確認済み
           ? await supabase.from("driver_ad_hoc_expenses").update(payload).eq("id", existingAdHoc.id).eq("driver_id", report.driver_id)
+          // tenant-scope-ok: report / driver とも直上で org_id を確認済み
           : await supabase.from("driver_ad_hoc_expenses").insert(payload);
         if (adHocErr) {
           console.error("[admin/misc-reports/oil-change/approve] ad hoc upsert error", adHocErr);

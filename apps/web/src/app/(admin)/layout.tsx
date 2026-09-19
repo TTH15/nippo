@@ -9,6 +9,9 @@ import { AdminAccessGuard } from "@/lib/components/AdminAccessGuard";
 import { AppModeRecorder } from "@/lib/components/AppModeRecorder";
 import { VehicleDetailProvider } from "@/lib/components/VehicleDetailSheet";
 
+// nonce付きCSPのため、管理画面HTMLを静的生成・共有キャッシュしない。
+export const dynamic = "force-dynamic";
+
 export default function AdminGroupLayout({
   children,
 }: {

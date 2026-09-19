@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { PasskeySetup } from "@/lib/components/PasskeySetup";
+import { registerPasskey } from "@/lib/registerPasskey";
+import { useIsWebAuthnHost } from "@/lib/webauthnHost";
 import { useRouter } from "next/navigation";
 import { apiFetch, setAuth, getStoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
@@ -10,14 +13,16 @@ import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
 // 公開・電話番号でログイン（初回ログイン／機種変／復旧の共通経路）。認証不要。
 // 検証済み電話への SMS OTP で本人確認しセッション発行（§2-1a のブートストラップ）。
 // 用途: ①仮承認直後の初回ログイン（PIN 無し）②Passkey/端末を失った復旧。
-// ログイン後、本登録が未完なら /register（本登録）へ、完了済みは通常のホームへ。
+// ログイン後、本登録が未完なら /join で再開し、完了済みもPasskey未登録なら登録を案内する。
 // その先で新しい端末に Passkey を登録し直せる。
 // ============================================================
 
-type Step = "phone" | "otp";
+type Step = "phone" | "otp" | "passkey";
 
 export default function RecoverPage() {
   const router = useRouter();
+  const canUsePasskey = useIsWebAuthnHost();
+  const [homePath, setHomePath] = useState("/");
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -45,22 +50,26 @@ export default function RecoverPage() {
   const goToNext = async (driver: { role: string; companyCode?: string }) => {
     const stored = getStoredDriver() ?? driver;
     const hasAdmin = canEnterAdmin(stored);
+    const nextPath = resolveHomePath({ hasAdminAccess: hasAdmin, lastMode: getLastAppMode(), isMobile: isMobileWidth() });
     if (!hasAdmin) {
       try {
-        const reg = await apiFetch<{ complete: boolean; kycVerified: boolean }>("/api/me/registration");
+        const reg = await apiFetch<{ complete: boolean; kycVerified: boolean; hasPasskey: boolean }>("/api/me/registration");
         // 本登録未完かつ本人確認前なら本登録へ（新規の仮承認ドライバー）。
         // 既存ドライバーは移行時に kyc_verified_at を付与済み → 本登録をスキップしてホームへ。
         if (!reg.complete && !reg.kycVerified) {
-          router.push("/register");
+          router.push("/join");
+          return;
+        }
+        if (!reg.hasPasskey) {
+          setHomePath(nextPath);
+          setStep("passkey");
           return;
         }
       } catch {
         // 取得失敗時はホームへフォールバック
       }
     }
-    router.push(
-      resolveHomePath({ hasAdminAccess: hasAdmin, lastMode: getLastAppMode(), isMobile: isMobileWidth() }),
-    );
+    router.push(nextPath);
   };
 
   const verify = async () => {
@@ -87,7 +96,7 @@ export default function RecoverPage() {
   const inputCls =
     "w-full py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors";
   const btnCls =
-    "w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
+    "min-h-11 w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
@@ -104,14 +113,16 @@ export default function RecoverPage() {
           </div>
 
           <div className="p-5 space-y-4">
+            {step === "passkey" && <PasskeySetup verifyIdentity supported={canUsePasskey} register={registerPasskey} onContinue={() => router.push(homePath)} />}
             {step === "phone" && (
               <>
                 <p className="text-sm text-slate-600">
-                  登録済みの電話番号にSMSで認証コードを送ります。初めての方・機種変更・PIN/Passkeyを忘れた方はこちらからログインできます。
+                  登録済みの電話番号にSMSで認証コードを送ります。初めての方やPasskeyを使えない方は、こちらからログインできます。
                 </p>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">電話番号</label>
+                  <label htmlFor="recover-phone" className="block text-sm font-medium text-slate-700 mb-1">電話番号</label>
                   <input
+                    id="recover-phone"
                     type="tel"
                     inputMode="tel"
                     value={phone}
@@ -133,6 +144,8 @@ export default function RecoverPage() {
               <>
                 <p className="text-sm text-slate-600">{phone} に送った6桁の認証コードを入力してください。</p>
                 <input
+                  aria-label="SMS認証コード"
+                  autoComplete="one-time-code"
                   type="text"
                   inputMode="numeric"
                   value={code}
@@ -146,7 +159,7 @@ export default function RecoverPage() {
                 <button onClick={verify} disabled={loading || code.length !== 6} className={btnCls}>
                   {loading ? "確認中..." : "ログインする"}
                 </button>
-                <button onClick={sendCode} disabled={loading} className="w-full text-sm text-blue-600 hover:text-blue-800">
+                <button onClick={sendCode} disabled={loading} className="min-h-11 w-full text-sm text-blue-600 hover:text-blue-800">
                   コードを再送する
                 </button>
               </>

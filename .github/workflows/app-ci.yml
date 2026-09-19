@@ -1,0 +1,46 @@
+name: App CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'codex/main-sync-ci-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Types, tests, tenant scope, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      # Build-time placeholders only. CI must never connect to the production DB.
+      SUPABASE_URL: http://127.0.0.1:9
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-not-a-real-key
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Check Web, preview, and mobile types
+        run: npm run typecheck
+      - name: Run Web and shared package tests
+        run: npm run test -w @repo/web -- --maxWorkers=2
+      - name: Check tenant query scope
+        run: npm run check:tenant
+      - name: Build Web
+        run: npm run build

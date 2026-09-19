@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { resolveOrgId } from "@/server/db/tenant";
+import { belongsToOrg } from "@/server/db/adminResourceScope";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +26,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "driver_id is required" }, { status: 400 });
   }
 
+  // ★driver_id はクエリ由来。自社のドライバーでなければ他社の固定控除（金額つき）が読めてしまう。
+  if (!(await belongsToOrg("drivers", driverId, await resolveOrgId(user.driverId)))) {
+    return NextResponse.json({ error: "対象のドライバーが見つかりません。" }, { status: 404 });
+  }
+
   const { data, error } = await supabase
+    // tenant-scope-ok: 直上の belongsToOrg で自社のドライバーと確認済みの driverId に固定
     .from("driver_fixed_expenses")
     .select("id, driver_id, name, amount, cycle, valid_from, valid_to")
     .eq("driver_id", driverId)
@@ -98,7 +106,13 @@ export async function POST(req: NextRequest) {
     payload.valid_to = valid_to || null;
   }
 
+  // ★driver_id は body 由来。自社のドライバーでなければ他社の報酬に固定控除を足せてしまう。
+  if (!(await belongsToOrg("drivers", driver_id, await resolveOrgId(user.driverId)))) {
+    return NextResponse.json({ error: "対象のドライバーが見つかりません。" }, { status: 404 });
+  }
+
   const { data, error } = await supabase
+    // tenant-scope-ok: payload.driver_id は直上の belongsToOrg で自社のドライバーと確認済み
     .from("driver_fixed_expenses")
     .insert(payload)
     .select("id, driver_id, name, amount, cycle, valid_from, valid_to")

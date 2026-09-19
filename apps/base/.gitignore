@@ -1,0 +1,27 @@
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native（CNG＝prebuild で生成。コミットしない）
+/ios/
+/android/
+
+# Native
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# Env
+.env
+.env.local
+
+# Logs
+npm-debug.*
+*.log

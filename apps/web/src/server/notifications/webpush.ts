@@ -14,6 +14,7 @@
 // ============================================================
 import webpush from "web-push";
 import { supabase } from "@/server/db/client";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "@/server/aggregation/pagination";
 
 let configured = false;
 
@@ -51,36 +52,81 @@ export type PushPayload = {
   url?: string;
 };
 
-export type PushResult = { sent: number; failed: number };
+export type PushResult = {
+  sent: number;
+  failed: number;
+  /**
+   * **通知ごと**の結果。端末を1台も持たない人は `devices: 0` で入る。
+   * 同じ本人宛の通知が複数あっても取り違えないよう、受信者ではなく通知の id をキーにする
+   * （受信者キーだと1人ぶんに潰れ、実際は1通しか送っていないのに全部「送信済み」になる）。
+   */
+  byNotification: Map<string, { sent: number; failed: number; devices: number }>;
+};
+
+/** 1通ぶんの送信対象 */
+export type PushTarget = { notificationId: string; identityId: string; payload: PushPayload };
 
 /**
  * 指定 identity 群の全端末へ push を送る。
  * 1端末の失敗は他へ影響させない（全端末に届けるのが目的のため）。
  */
-export async function sendWebPush(
-  payloadByIdentity: Map<string, PushPayload>,
-): Promise<PushResult> {
-  const result: PushResult = { sent: 0, failed: 0 };
-  if (!isWebPushConfigured() || payloadByIdentity.size === 0) return result;
+export async function sendWebPush(targets: readonly PushTarget[]): Promise<PushResult> {
+  const result: PushResult = { sent: 0, failed: 0, byNotification: new Map() };
+  // 端末を持たない人も「経路が無い」と分かるよう、先に0で埋めておく
+  for (const target of targets) {
+    result.byNotification.set(target.notificationId, { sent: 0, failed: 0, devices: 0 });
+  }
+  if (!isWebPushConfigured() || targets.length === 0) return result;
 
   ensureConfigured();
 
-  const identityIds = [...payloadByIdentity.keys()];
-  const { data: subscriptions, error } = await supabase
-    .from("push_subscriptions")
-    .select("endpoint, identity_id, p256dh, auth")
-    .in("identity_id", identityIds);
-  if (error) {
+  // 1人が複数通を受け取ることがあるので、受信者→通知の一覧で持つ
+  const targetsByIdentity = new Map<string, PushTarget[]>();
+  for (const target of targets) {
+    const list = targetsByIdentity.get(target.identityId);
+    if (list) list.push(target);
+    else targetsByIdentity.set(target.identityId, [target]);
+  }
+  const identityIds = [...targetsByIdentity.keys()];
+  // 200人を超える一斉配信で .in() がURL上限を越えると、購読が取れなかった人が
+  // devices:0（＝「通知の許可なし」）として記録され、運営に嘘の理由が出る
+  type Subscription = { endpoint: string; identity_id: string; p256dh: string; auth: string };
+  let subscriptions: Subscription[];
+  try {
+    const pages: Subscription[][] = [];
+    for (let i = 0; i < identityIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+      const batch = identityIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+      pages.push(
+        await fetchAllRows<Subscription>((from, to) =>
+          supabase
+            .from("push_subscriptions")
+            .select("endpoint, identity_id, p256dh, auth")
+            .in("identity_id", batch)
+            .order("identity_id")
+            .order("endpoint")
+            .range(from, to),
+        ),
+      );
+    }
+    subscriptions = pages.flat();
+  } catch (error) {
     console.error("[webpush] 購読の取得に失敗", error);
     return result;
   }
 
   const expired: string[] = [];
 
+  // 端末 × 通知 の総当たり。1人が3通・2端末なら6回送る
+  const sends = subscriptions.flatMap((sub) =>
+    (targetsByIdentity.get(sub.identity_id as string) ?? []).map((target) => ({ sub, target })),
+  );
+
   await Promise.all(
-    (subscriptions ?? []).map(async (sub) => {
-      const payload = payloadByIdentity.get(sub.identity_id as string);
-      if (!payload) return;
+    sends.map(async ({ sub, target }) => {
+      const payload = target.payload;
+      const per = result.byNotification.get(target.notificationId) ?? { sent: 0, failed: 0, devices: 0 };
+      per.devices += 1;
+      result.byNotification.set(target.notificationId, per);
 
       try {
         await webpush.sendNotification(
@@ -91,8 +137,10 @@ export async function sendWebPush(
           JSON.stringify(payload),
         );
         result.sent++;
+        per.sent += 1;
       } catch (e) {
         result.failed++;
+        per.failed += 1;
         // 404/410 = 購読が失効（アンインストール・許可取消）。掃除する。
         const statusCode = (e as { statusCode?: number }).statusCode;
         if (statusCode === 404 || statusCode === 410) {
@@ -104,8 +152,15 @@ export async function sendWebPush(
     }),
   );
 
-  if (expired.length > 0) {
-    await supabase.from("push_subscriptions").delete().in("endpoint", expired);
+  // 端末×通知の総当たりなので同じ endpoint が何度も積まれる。
+  // 重複を落として分割しないと、失効した購読が消えず毎回失敗し続ける
+  const uniqueExpired = [...new Set(expired)];
+  for (let i = 0; i < uniqueExpired.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const { error: deleteError } = await supabase
+      .from("push_subscriptions")
+      .delete()
+      .in("endpoint", uniqueExpired.slice(i, i + IN_CLAUSE_BATCH_SIZE));
+    if (deleteError) console.error("[webpush] 失効した購読の削除に失敗", deleteError);
   }
 
   return result;

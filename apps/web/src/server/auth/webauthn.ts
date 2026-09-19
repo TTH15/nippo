@@ -35,18 +35,20 @@ export function rpConfig() {
 // 検証成功後、consumeChallengeToken でDBへ使用済みを原子的に記録する。
 // -------------------------------------------------------
 
-type ChallengePurpose = "register" | "login";
+type ChallengePurpose = "register" | "login" | "reauth";
 
 export async function createChallengeToken(payload: {
   challenge: string;
   purpose: ChallengePurpose;
   identityId?: string | null;
+  sessionHash?: string;
 }): Promise<string> {
   return new SignJWT({
     kind: "webauthn_challenge",
     challenge: payload.challenge,
     purpose: payload.purpose,
     identity_id: payload.identityId ?? null,
+    session_hash: payload.sessionHash,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -57,7 +59,7 @@ export async function createChallengeToken(payload: {
 export async function verifyChallengeToken(
   token: string,
   expectedPurpose: ChallengePurpose,
-): Promise<{ challenge: string; identityId: string | null; expiresAt: number }> {
+): Promise<{ challenge: string; identityId: string | null; expiresAt: number; sessionHash?: string }> {
   const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
   if (payload.kind !== "webauthn_challenge" || payload.purpose !== expectedPurpose) {
     throw new Error("Invalid challenge token");
@@ -71,7 +73,8 @@ export async function verifyChallengeToken(
   }
   const identityId = payload.identity_id ?? null;
   if ((identityId !== null && typeof identityId !== "string") ||
-      (expectedPurpose === "register" && !identityId) ||
+      (expectedPurpose !== "login" && !identityId) ||
+      (expectedPurpose === "reauth" && (typeof payload.session_hash !== "string" || !/^[a-f0-9]{64}$/.test(payload.session_hash))) ||
       (expectedPurpose === "login" && identityId !== null)) {
     throw new Error("Invalid challenge token");
   }
@@ -79,6 +82,7 @@ export async function verifyChallengeToken(
     challenge,
     identityId,
     expiresAt: payload.exp,
+    ...(expectedPurpose === "reauth" ? { sessionHash: payload.session_hash as string } : {}),
   };
 }
 

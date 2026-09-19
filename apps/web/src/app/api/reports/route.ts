@@ -105,6 +105,7 @@ export async function POST(req: NextRequest) {
     // 部分ユニーク（rejected_at IS NULL）運用のため upsert は使わず、
     // 「未却下の同日レコードがあれば更新、なければ新規作成」を行う。
     const { data: existing } = await supabase
+      // tenant-scope-ok: driver_identities で本人（user.driverId）のものと確認済みの driverIdentityId に固定
       .from("daily_reports")
       .select("id")
       .eq("driver_identity_id", driverIdentityId)
@@ -116,6 +117,7 @@ export async function POST(req: NextRequest) {
     let error: any = null;
     if (existing?.id) {
       const result = await supabase
+        // tenant-scope-ok: driver_identities で本人（user.driverId）のものと確認済みの driverIdentityId に固定
         .from("daily_reports")
         .update(reportPayload)
         .eq("id", existing.id)
@@ -125,6 +127,7 @@ export async function POST(req: NextRequest) {
       error = result.error;
     } else {
       const result = await supabase
+        // tenant-scope-ok: driver_identities で本人（user.driverId）のものと確認済みの driverIdentityId に固定
         .from("daily_reports")
         .insert(reportPayload)
         .select()

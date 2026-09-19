@@ -58,7 +58,33 @@ export async function loadAggregationData(
   // キャリアは共有マスタ＋会社別有効化（company_carriers）。当 org が有効化した
   // キャリア集合に carriers / units を絞る（ACE は全有効＝従来どおり）。
   // 未設定（null）の場合は全キャリアにフォールバック（移行期に既存挙動を壊さない）。
-  const orgCarrierIds = await loadOrgCarrierIds(supabase, orgId);
+  // 単価3表は org 列を持たない（migration 178 で追加）。自社のコース集合を先に確定し、
+  // 単価は必ずその集合で絞る。絞らないと他社の単価を全件ページングして読んでしまう。
+  const [orgCarrierIds, courseModeRows] = await Promise.all([
+    loadOrgCarrierIds(supabase, orgId),
+    fetchAllRows((from, to) =>
+      supabase
+        // コースの計算方式(NONE/PER_PIECE/FIXED/BOTH)は単価行より上位の正本。
+        // 「自動支払なし」のコースへ古い支払単価が残っていても集計に載せない。
+        .from("courses")
+        .select("id, revenue_rate_mode, payout_rate_mode, revenue_tax_basis, payout_tax_basis, revenue_piece_tax_basis, payout_piece_tax_basis, revenue_fixed_tax_basis, payout_fixed_tax_basis")
+        .eq("org_id", orgId)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+  ]);
+  const orgCourseIds = (courseModeRows ?? []).map((c: any) => String(c.id));
+  /** 単価テーブルを自社のコースに絞って全件取る（IN 句は URL 上限を避けて分割）。 */
+  const fetchRatesByCourse = async <T,>(
+    build: (slice: string[], from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  ): Promise<T[]> => {
+    const out: T[] = [];
+    for (let i = 0; i < orgCourseIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+      const slice = orgCourseIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+      out.push(...(await fetchAllRows<T>((from, to) => build(slice, from, to))));
+    }
+    return out;
+  };
 
   // org_id を持つ高頻度テーブル（daily_reports_v2 / ledger_entries）はテナントで絞る。
   // unit_fields/各rate は子テーブル（unit/course 経由で決まる）ため、絞った units/reports
@@ -68,7 +94,6 @@ export async function loadAggregationData(
   const [
     carriers,
     units,
-    courseModeRows,
     unitFields,
     fixedRateBundles,
     unitRates,
@@ -90,40 +115,36 @@ export async function loadAggregationData(
     }),
     fetchAllRows((from, to) =>
       supabase
-        // コースの計算方式(NONE/PER_PIECE/FIXED/BOTH)は単価行より上位の正本。
-        // 「自動支払なし」のコースへ古い支払単価が残っていても集計に載せない。
-        .from("courses")
-        .select("id, revenue_rate_mode, payout_rate_mode, revenue_tax_basis, payout_tax_basis, revenue_piece_tax_basis, payout_piece_tax_basis, revenue_fixed_tax_basis, payout_fixed_tax_basis")
-        .eq("org_id", orgId)
-        .order("id", { ascending: true })
-        .range(from, to),
-    ),
-    fetchAllRows((from, to) =>
-      supabase
         .from("unit_fields")
         .select("unit_id, field_key, is_billable")
         // ページングには一意な並びが必須（無いと行の重複・欠落が起きる）
         .order("id", { ascending: true })
         .range(from, to),
     ),
-    fetchAllRows((from, to) =>
+    fetchRatesByCourse((slice, from, to) =>
       supabase
+        // tenant-scope-ok: orgCourseIds は自社の courses（.eq("org_id", orgId)）から作った集合
         .from("course_fixed_rate_bundles")
         .select("course_id, required_cycle_nos, fixed_revenue, fixed_payout, revenue_contract_amount, payout_contract_amount")
+        .in("course_id", slice)
         .order("course_id", { ascending: true })
         .range(from, to),
     ),
-    fetchAllRows((from, to) =>
+    fetchRatesByCourse((slice, from, to) =>
       supabase
+        // tenant-scope-ok: orgCourseIds は自社の courses（.eq("org_id", orgId)）から作った集合
         .from("course_unit_rates")
         .select("course_id, cycle_no, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit, revenue_contract_amount, payout_contract_amount, revenue_quantity_rule, payout_quantity_rule")
+        .in("course_id", slice)
         .order("id", { ascending: true })
         .range(from, to),
     ),
-    fetchAllRows((from, to) =>
+    fetchRatesByCourse((slice, from, to) =>
       supabase
+        // tenant-scope-ok: orgCourseIds は自社の courses（.eq("org_id", orgId)）から作った集合
         .from("course_fixed_rates")
         .select("course_id, cycle_no, fixed_revenue, fixed_profit, fixed_payout, revenue_contract_amount, payout_contract_amount")
+        .in("course_id", slice)
         // PK は course_id（id 列なし）
         .order("course_id", { ascending: true })
         .range(from, to),
@@ -197,6 +218,7 @@ export async function loadAggregationData(
       const slice = reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
       const entRows = await fetchAllRows((from, to) =>
         supabase
+          // tenant-scope-ok: reportIds は org 絞りの daily_reports_v2 から作った集合
           .from("report_entries")
           .select("report_id, unit_id, field_key, value_num")
           .in("report_id", slice)

@@ -18,11 +18,17 @@
     "db:migrate": "npm -w @repo/web run db:migrate",
     "mobile": "npm -w @repo/mobile run start",
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "typecheck": "npm run typecheck -w @repo/web && npm run typecheck:preview -w @repo/web && npm run typecheck -w @repo/mobile",
+    "check:tenant": "npm -w @repo/web run check:tenant"
   },
   "overrides": {
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "xcode": {
+      "uuid": "11.1.1"
+    },
+    "metro": "0.84.5"
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.4.2",

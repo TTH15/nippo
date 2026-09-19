@@ -1,6 +1,6 @@
 import "./global.css";
 import { useEffect, useState } from "react";
-import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer, useNavigationContainerRef } from "@react-navigation/native";
@@ -36,6 +36,7 @@ export default function App() {
   const [driver, setDriver] = useState<StoredDriver | null>(null);
   const [adminMode, setAdminMode] = useState(false);
   // ハードゲート判定: null=確認中 / {complete=本登録, kycVerified=本承認}
+  const [regError, setRegError] = useState(false);
   const [regState, setRegState] = useState<{ complete: boolean; kycVerified: boolean } | null>(null);
   // コールドスタートで既存セッションを復元したか（＝起動時に生体ロックを掛ける対象）。
   const [restoredSession, setRestoredSession] = useState(false);
@@ -46,10 +47,10 @@ export default function App() {
   const [routeName, setRouteName] = useState<string | undefined>(undefined);
 
   const fetchReg = () => {
-    setRegState(null);
+    setRegState(null); setRegError(false);
     apiFetch<{ complete: boolean; kycVerified: boolean }>("/api/me/registration")
       .then((r) => setRegState({ complete: r.complete, kycVerified: r.kycVerified }))
-      .catch(() => setRegState({ complete: true, kycVerified: true })); // 取得失敗時はブロックしない
+      .catch(() => setRegError(true)); // 確認失敗を本承認済みとして扱わない
   };
 
   useEffect(() => {
@@ -81,7 +82,7 @@ export default function App() {
     );
   }
 
-  // 未ログイン: ログイン（電話OTP 主 / PIN 副）。参加申請・本登録は web 一本化。
+  // 未ログイン: ログイン（SMS）。参加申請・本登録は web 一本化。
   if (!driver) {
     return (
       <>
@@ -95,6 +96,12 @@ export default function App() {
   if (locked) {
     return <LockScreen onUnlock={unlock} />;
   }
+
+  if (regError) return <View style={styles.center}>
+    <Text>登録状況を確認できませんでした</Text>
+    <Pressable onPress={fetchReg} style={{ padding: 16 }}><Text>もう一度確認する</Text></Pressable>
+    <Pressable onPress={() => { clearAuth(); setDriver(null); }} style={{ padding: 16 }}><Text>ログインし直す</Text></Pressable>
+  </View>;
 
   // ログイン後・ゲート状態確認中
   if (regState === null) {

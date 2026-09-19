@@ -1,6 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { resolveOrgId } from "@/server/db/tenant";
+import { belongsToOrg } from "@/server/db/adminResourceScope";
+
+// driver_fixed_expenses は org 列を持たず（migration 176 で追加・移行中は NULL もありうる）、
+// 会社は driver_id 経由でしか決まらない。id だけを条件に更新・削除すると、他社の固定控除の
+// 金額を書き換えたり消したりできてしまうため、対象行のドライバーの所属を必ず確かめる。
+async function ownExpense(id: string, actorDriverId: string): Promise<boolean> {
+  const orgId = await resolveOrgId(actorDriverId);
+  const { data } = await supabase
+    // tenant-scope-ok: id で1行に特定し、その driver_id の所属を直後に確かめる
+    .from("driver_fixed_expenses")
+    .select("driver_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!data?.driver_id) return false;
+  return belongsToOrg("drivers", String(data.driver_id), orgId);
+}
 
 export const dynamic = "force-dynamic";
 
@@ -73,7 +90,12 @@ export async function PATCH(
     );
   }
 
+  if (!(await ownExpense(id, user.driverId))) {
+    return NextResponse.json({ error: "対象の固定控除が見つかりません。" }, { status: 404 });
+  }
+
   const { data, error } = await supabase
+    // tenant-scope-ok: 直上の ownExpense で自社のドライバーの行と確認済みの id
     .from("driver_fixed_expenses")
     .update(updates)
     .eq("id", id)
@@ -108,7 +130,12 @@ export async function DELETE(
 
   const { id } = await params;
 
+  if (!(await ownExpense(id, user.driverId))) {
+    return NextResponse.json({ error: "対象の固定控除が見つかりません。" }, { status: 404 });
+  }
+
   const { error } = await supabase
+    // tenant-scope-ok: 直上の ownExpense で自社のドライバーの行と確認済みの id
     .from("driver_fixed_expenses")
     .delete()
     .eq("id", id);

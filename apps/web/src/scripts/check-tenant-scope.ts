@@ -51,6 +51,8 @@ function scanFile(file: string, tenantTables: Map<string, string>): Violation[] 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
+    // .tmp-import など、ドット始まりは使い捨てスクリプトの置き場。本番経路ではないので見ない
+    if (entry.name.startsWith(".")) continue;
     if (entry.isDirectory()) walk(full, out);
     else if (/\.(ts|tsx)$/.test(entry.name) && ! /\.(test|spec|itest)\.tsx?$/.test(entry.name)) out.push(full);
   }

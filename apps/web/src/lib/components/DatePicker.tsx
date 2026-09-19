@@ -59,7 +59,9 @@ export function DatePicker({
           {value ? format(value, displayFormat, { locale: ja }) : placeholder}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      {/* 320px 幅では既定の 368px がはみ出し、土曜と「次の月へ」が画面外になる。
+          画面に収まる範囲で横スクロールできるようにする（共有部品・全画面に効く） */}
+      <PopoverContent className="w-auto max-w-[calc(100vw-1rem)] overflow-x-auto p-0" align="start" collisionPadding={8}>
         <Calendar
           mode="single"
           selected={value}
@@ -70,6 +72,10 @@ export function DatePicker({
           }}
           fromDate={fromDate}
           toDate={toDate}
+          // v9 は fromDate/toDate では**月送りを止めない**。選べない月を延々めくれてしまうので
+          // 表示できる月そのものを縛る
+          startMonth={fromDate}
+          endMonth={toDate}
           disabled={
             fromDate != null || toDate != null
               ? (date) => {

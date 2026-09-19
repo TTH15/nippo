@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { belongsToOrg } from "@/server/db/adminResourceScope";
 import { normalizeTimeInput, normalizePlaceInput } from "@/server/shiftSlots/timeInput";
 
 export const dynamic = "force-dynamic";
@@ -153,6 +154,7 @@ export async function PUT(
     // 日報・シフト・単価履歴は過去計算に必要なため保持する。
     if (bodyRec.archived === true) {
       const { error: assignmentError } = await supabase
+        // tenant-scope-ok: 直上の .eq("org_id", orgId) 付き更新が成功した（＝自社の）コースの id
         .from("driver_courses")
         .delete()
         .eq("course_id", id);
@@ -180,10 +182,20 @@ export async function DELETE(
     return NextResponse.json({ error: "Invalid course id" }, { status: 400 });
   }
 
+  // ★関連レコードの削除は course_id だけを条件にするので、先に自社のコースか確かめる。
+  //   これが無いと、他社のコースIDを渡すだけで他社のシフト・担当・単価を消せてしまう
+  //   （courses 自体は下の .eq("org_id") で守られるため、コースだけ残って中身が消える）。
+  if (!(await belongsToOrg("courses", id, orgId))) {
+    return NextResponse.json({ error: "対象のコースが見つかりません。" }, { status: 404 });
+  }
+
   try {
     // 関連レコードを先に削除
+    // tenant-scope-ok: 直上の belongsToOrg で自社のコースと確認済みの id
     await supabase.from("driver_courses").delete().eq("course_id", id);
+    // tenant-scope-ok: 直上の belongsToOrg で自社のコースと確認済みの id
     await supabase.from("course_rates").delete().eq("course_id", id);
+    // tenant-scope-ok: 直上の belongsToOrg で自社のコースと確認済みの id
     await supabase.from("shifts").delete().eq("course_id", id);
 
     const { error } = await supabase.from("courses").delete().eq("id", id).eq("org_id", orgId);

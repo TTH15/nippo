@@ -1481,7 +1481,7 @@ export default function UsersPage() {
                   />
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  この6桁が初回ログイン時のPINになります
+                  PINは発行しません。招待リンクから登録を進めてください。
                 </p>
               </div>
               </div>

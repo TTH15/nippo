@@ -105,6 +105,7 @@ export async function GET(req: NextRequest) {
 
     const shiftResult = vehicleIds.length && courseIds.length
       ? await supabase
+          // tenant-scope-ok: vehicleIds / courseIds とも自社の集合（org 絞りのクエリ由来）
           .from("shifts")
           .select("id, shift_date, meeting_time, vehicle_id, driver_id, course_id, cycle_no, slot")
           .in("vehicle_id", vehicleIds)

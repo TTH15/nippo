@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { requirePermission, hasCapabilityCached, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
@@ -271,9 +270,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "会社コードが一致しません" }, { status: 400 });
     }
 
-    // ドライバーコードの数字部分をPINとしてハッシュ化
-    const pinPart = driverCode.slice(3);
-    const pinHash = await bcrypt.hash(pinPart, 10);
 
     // 勤務区分(driver_identities.driver_code)はグローバル一意。drivers を作る前に
     // 衝突を検査し、孤児行を残さず明確なエラーを返す（後続の driver_identities 挿入が
@@ -323,7 +319,7 @@ export async function POST(req: NextRequest) {
         display_name: typeof displayName === "string" && displayName.trim() ? displayName.trim() : null,
         role: "DRIVER",
         works_as_driver: true,
-        pin_hash: pinHash,
+        pin_hash: null,
         company_code: resolvedCompany,
         office_code: officeCode,
         driver_code: driverCode.toUpperCase(),
@@ -353,7 +349,7 @@ export async function POST(req: NextRequest) {
     }
 
     // identity 層（人単位）。driver=membership は必ず 1 つの identity を持つ（Phase 5a）。
-    // 氏名・電話・免許・PIN を人単位の属性として刻む（読み替えは Phase 6）。
+    // 氏名・電話・免許 を人単位の属性として刻む（読み替えは Phase 6）。
     const { data: identity, error: identErr } = await supabase
       .from("identities")
       .insert({
@@ -365,7 +361,7 @@ export async function POST(req: NextRequest) {
           typeof licenseExpiryDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(licenseExpiryDate)
             ? licenseExpiryDate
             : null,
-        pin_hash: pinHash,
+        pin_hash: null,
       })
       .select("id")
       .single();
@@ -409,6 +405,7 @@ export async function POST(req: NextRequest) {
         driver_identity_id: ident1.id,
         course_id: cid,
       }));
+      // tenant-scope-ok: 直前に自社の org で作成したドライバーと勤務区分の id
       await supabase.from("driver_courses").insert(courseLinks);
     }
 
@@ -425,6 +422,7 @@ export async function POST(req: NextRequest) {
           .select("id")
           .single();
         if (!e2 && ident2 && Array.isArray(courseIds2) && courseIds2.length > 0) {
+          // tenant-scope-ok: 直前に自社の org で作成したドライバーと勤務区分の id
           await supabase.from("driver_courses").insert(
             courseIds2.map((cid: string) => ({
               driver_id: driver.id,

@@ -83,6 +83,7 @@ export async function GET(req: NextRequest) {
       loadAggregationData(supabase, orgId, startDate, endDate),
       // 固定控除（毎月）
       supabase
+        // tenant-scope-ok: driverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
         .from("driver_fixed_expenses")
         .select("driver_id, amount")
         .in("driver_id", driverIds)
@@ -94,6 +95,7 @@ export async function GET(req: NextRequest) {
       loadCourseDailyLease(supabase, orgId),
       // 臨時手当/控除（月次・既存テーブル）。amount 正=控除（net から減算）。
       supabase
+        // tenant-scope-ok: driverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
         .from("driver_ad_hoc_expenses")
         .select("driver_id, amount")
         .in("driver_id", driverIds)

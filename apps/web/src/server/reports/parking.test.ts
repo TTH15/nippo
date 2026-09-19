@@ -41,3 +41,39 @@ describe("parseParkingReport", () => {
     expect(parseParkingReport({ vehicleId: "veh-1", status: "parked", placeId: "p", clientKey: "k", at: "not a date" }, ctx)).toMatchObject({ ok: false });
   });
 });
+
+describe("parseParkingReport の座標申告", () => {
+  const coords = { lat: 34.78, lng: 135.47, accuracyM: 12, fixAt: "2026-09-07T17:55:00+09:00" };
+
+  it("登録車庫も場所名も無くても、座標があれば parked を通す", () => {
+    const result = parseParkingReport({ vehicleId: "veh-1", status: "parked", coords, detectedBy: "session_end", clientKey: "k" }, ctx);
+    expect(result).toMatchObject({ ok: true, value: { placeId: null, placeName: null, detectedBy: "session_end" } });
+    // 測位時刻が分かるときは、それを停めた時刻の既定にする
+    if (result.ok) expect(result.value.at).toBe(new Date(coords.fixAt).toISOString());
+  });
+
+  it("場所も座標も無い parked は拒否", () => {
+    expect(parseParkingReport({ vehicleId: "veh-1", status: "parked", clientKey: "k" }, ctx)).toMatchObject({ ok: false });
+  });
+
+  it("座標のない取得方法は拒否（自動で取れた根拠にならない）", () => {
+    expect(parseParkingReport({ vehicleId: "veh-1", status: "parked", placeName: "路上", detectedBy: "stop", clientKey: "k" }, ctx)).toMatchObject({ ok: false });
+  });
+
+  it("範囲外の座標・不正な精度・未知の取得方法は拒否", () => {
+    const base = { vehicleId: "veh-1", status: "parked" as const, clientKey: "k" };
+    expect(parseParkingReport({ ...base, coords: { lat: 91, lng: 135.47 } }, ctx)).toMatchObject({ ok: false });
+    expect(parseParkingReport({ ...base, coords: { lat: 34.78, lng: 135.47, accuracyM: -1 } }, ctx)).toMatchObject({ ok: false });
+    expect(parseParkingReport({ ...base, coords, detectedBy: "guess" as never }, ctx)).toMatchObject({ ok: false });
+  });
+
+  it("測位時刻が対象日の前日より前なら拒否", () => {
+    const old = { ...coords, fixAt: "2026-09-01T10:00:00+09:00" };
+    expect(parseParkingReport({ vehicleId: "veh-1", status: "parked", coords: old, clientKey: "k" }, ctx)).toMatchObject({ ok: false });
+  });
+
+  it("parked 以外は座標を捨てる（履歴に行を作らない回答）", () => {
+    const result = parseParkingReport({ vehicleId: "veh-1", status: "in_use", coords, detectedBy: "session_end", clientKey: "k" }, ctx);
+    expect(result).toMatchObject({ ok: true, value: { coords: null, detectedBy: null } });
+  });
+});

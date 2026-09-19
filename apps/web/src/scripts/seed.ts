@@ -72,7 +72,7 @@ async function main() {
 
     if (existing) {
       // 既存のドライバーを更新（新しいフィールドを追加）
-      const pinHash = await bcrypt.hash(d.pin, 10);
+      const pinHash = d.role === "ADMIN" ? await bcrypt.hash(d.pin, 10) : null;
       const { error } = await supabase
         .from("drivers")
         .update({
@@ -92,7 +92,7 @@ async function main() {
       continue;
     }
 
-    const pinHash = await bcrypt.hash(d.pin, 10);
+    const pinHash = d.role === "ADMIN" ? await bcrypt.hash(d.pin, 10) : null;
     const { data, error } = await supabase
       .from("drivers")
       .insert({

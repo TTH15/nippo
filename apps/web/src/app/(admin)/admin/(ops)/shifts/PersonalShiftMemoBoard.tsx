@@ -48,11 +48,16 @@ import {
   cellKey,
   fullDayOffByDate,
   nextDayOverride,
+  MAX_REQUIRED_COUNT,
+  readRequiredCountOverrides,
+  resolveDayStaffing,
+  updateRequiredCountOverride,
   resolveDayActivity,
   type DayOverride,
   type ShiftRequestLike,
 } from "@/lib/shiftMemo/board";
 import { cn } from "@/lib/ui/utils";
+import { ReflectShiftMemoDialog } from "./ReflectShiftMemoDialog";
 
 type MemoCourse = {
   id: string;
@@ -114,6 +119,7 @@ type PanelAnchor = { left: number; top: number; right: number; bottom: number };
 type ActivePanel =
   | { kind: "add"; routeId: string; anchor: PanelAnchor }
   | { kind: "edit"; laneId: string; anchor: PanelAnchor }
+  | { kind: "required"; laneId: string; date: string; anchor: PanelAnchor }
   | null;
 type ExportSelection = {
   x: number;
@@ -136,6 +142,7 @@ type StoredBoard = {
   notes: Record<string, string>;
   /** 担当枠×日の「この日だけ休み／稼働」。曜日の設定より優先する */
   dayOverrides?: Record<string, DayOverride>;
+  requiredCountOverrides?: Record<string, number>;
   /** コース（取引先の枠）の並び順。よく使うコースを上に置くために持つ */
   routeOrder?: string[];
   /** 丸ごと隠しているコース */
@@ -320,6 +327,8 @@ export default function PersonalShiftMemoBoard({
   today,
   shiftRequests = [],
   storageNamespace,
+  canReflect = false,
+  onReflected,
 }: {
   dates: string[];
   courses: MemoCourse[];
@@ -329,6 +338,8 @@ export default function PersonalShiftMemoBoard({
   shiftRequests?: ShiftRequestLike[];
   /** 保存先を分けたいとき（プレビューで本物の下書きを汚さない）に指定する */
   storageNamespace?: string;
+  canReflect?: boolean;
+  onReflected?: () => Promise<unknown>;
 }) {
   const viewerId = storageNamespace ?? getStoredDriver()?.id ?? "local";
   // 担当枠設定は期間をまたいで使い回し、配置と日別メモはISO日付キーで同じ個人領域へ蓄積する。
@@ -352,7 +363,9 @@ export default function PersonalShiftMemoBoard({
   const [notes, setNotes] = useState<Record<string, string>>({});
   // 曜日の設定に対する「この日だけ休み／稼働」。イレギュラーな休みをここで持つ
   const [dayOverrides, setDayOverrides] = useState<Record<string, DayOverride>>({});
+  const [requiredCountOverrides, setRequiredCountOverrides] = useState<Record<string, number>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveRevision, setSaveRevision] = useState(0);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -383,13 +396,16 @@ export default function PersonalShiftMemoBoard({
   const [exportPreviewUrl, setExportPreviewUrl] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
+  const [reflectOpen, setReflectOpen] = useState(false);
 
   // 曜日の設定＋その日だけの例外で「動くかどうか」を決める。
   const dayActivity = (lane: AssignmentLane, date: string) =>
     resolveDayActivity(lane.activeWeekdays, dateInfo(date).weekdayNo, dayOverrides[cellKey(lane.id, date)]);
   const activeOn = (lane: AssignmentLane, date: string) => dayActivity(lane, date).active;
+  const staffingOn = (lane: AssignmentLane, date: string, people: AssignedPerson[]) =>
+    resolveDayStaffing(lane.requiredCount, requiredCountOverrides[cellKey(lane.id, date)], activeOn(lane, date), assignedCount(people));
   const shortageFor = (lane: AssignmentLane, date: string, people: AssignedPerson[]) =>
-    activeOn(lane, date) ? Math.max(0, lane.requiredCount - assignedCount(people)) : 0;
+    staffingOn(lane, date, people).shortage;
 
   /** その日だけ休み／稼働を切り替える。曜日の設定に戻るときは例外ごと捨てる */
   const toggleDayActivity = (lane: AssignmentLane, date: string) => {
@@ -449,6 +465,7 @@ export default function PersonalShiftMemoBoard({
           setExtraPeople(Array.isArray(stored.extraPeople) ? stored.extraPeople : []);
           setNotes(stored.notes && typeof stored.notes === "object" ? stored.notes : {});
           setDayOverrides(stored.dayOverrides && typeof stored.dayOverrides === "object" ? stored.dayOverrides : {});
+          setRequiredCountOverrides(readRequiredCountOverrides(stored.requiredCountOverrides));
           if (stored.widths) {
             setDayWidth(Math.max(56, Math.min(140, stored.widths.day || 76)));
             setLaneWidth(Math.max(150, Math.min(300, stored.widths.lane || 190)));
@@ -477,6 +494,7 @@ export default function PersonalShiftMemoBoard({
         extraPeople,
         notes,
         dayOverrides,
+        requiredCountOverrides,
         widths: { day: dayWidth, lane: laneWidth, detail: detailWidth },
       };
       try {
@@ -488,11 +506,12 @@ export default function PersonalShiftMemoBoard({
       }
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [assignments, dayOverrides, dayWidth, detailWidth, extraPeople, hiddenLaneIds, hiddenRouteIds, hydrated, laneOrder, laneWidth, lanes, notes, routeOrder, storageKey]);
+  }, [saveRevision, assignments, requiredCountOverrides, dayOverrides, dayWidth, detailWidth, extraPeople, hiddenLaneIds, hiddenRouteIds, hydrated, laneOrder, laneWidth, lanes, notes, routeOrder, storageKey]);
 
   useEffect(() => {
     if (!activePanel) return;
-    const closeOnScroll = () => {
+    const closeOnScroll = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest("[role=dialog]")) return;
       setActivePanel(null);
       requestAnimationFrame(() => activePanelTriggerRef.current?.focus({ preventScroll: true }));
     };
@@ -516,7 +535,7 @@ export default function PersonalShiftMemoBoard({
 
   // メモ盤の外を押したら日付の選択を外す（選んだ列の青い枠を残さない）
   useEffect(() => {
-    if (!selectedDate) return;
+    if (!selectedDate || reflectOpen) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
       if (!target) return;
@@ -527,7 +546,7 @@ export default function PersonalShiftMemoBoard({
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [selectedDate]);
+  }, [selectedDate, reflectOpen]);
 
   const orderedLanes = useMemo(() => {
     const byId = new Map(lanes.map((lane) => [lane.id, lane]));
@@ -559,6 +578,10 @@ export default function PersonalShiftMemoBoard({
   });
   const boardWidth = laneWidth + dayWidth * dates.length;
   const activeLane = activePanel?.kind === "edit" ? lanes.find((lane) => lane.id === activePanel.laneId) : undefined;
+  const requiredLane = activePanel?.kind === "required" ? lanes.find((lane) => lane.id === activePanel.laneId) : undefined;
+  const dailyRequiredCount = requiredLane && activePanel?.kind === "required" ? staffingOn(requiredLane, activePanel.date, []).requiredCount : 0;
+  const requiredCourseName = courses.find(course => course.id === requiredLane?.routeId)?.summary_title?.trim()
+    || courses.find(course => course.id === requiredLane?.routeId)?.name || requiredLane?.name;
   const activeRoute = activePanel?.kind === "add" ? routeGroups.find((route) => route.id === activePanel.routeId) : undefined;
 
   const closeActivePanel = (restoreFocus = false) => {
@@ -782,6 +805,10 @@ export default function PersonalShiftMemoBoard({
             overflow: "hidden",
           });
           setExportPillLabel(pill, text);
+        });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-shift-required-trigger='true']").forEach((trigger) => {
+          Object.assign(trigger.style, { boxShadow: "none", outline: "none", border: "0" });
+          trigger.querySelectorAll<HTMLElement>("span").forEach((label) => { label.style.textDecoration = "none"; });
         });
         // 選んでいる日の青い枠は下書き用の目印。画像には残さない
         clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-selected='true']").forEach((element) => {
@@ -1100,6 +1127,23 @@ export default function PersonalShiftMemoBoard({
     setActivePanel({ kind: "edit", laneId: lane.id, anchor: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom } });
   };
 
+  const openDailyRequiredCount = (lane: AssignmentLane, date: string, event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    activePanelTriggerRef.current = event.currentTarget;
+    const rect = event.currentTarget.getBoundingClientRect();
+    setActivePanel({ kind: "required", laneId: lane.id, date, anchor: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom } });
+  };
+
+  const changeDailyRequiredCount = (delta: number | null) => {
+    if (activePanel?.kind !== "required" || !requiredLane) return;
+    const { date } = activePanel;
+    const key = cellKey(requiredLane.id, date);
+    setRequiredCountOverrides((current) => {
+      const count = current[key] ?? requiredLane.requiredCount;
+      return updateRequiredCountOverride(current, key, requiredLane.requiredCount, delta === null ? null : Math.max(0, Math.min(MAX_REQUIRED_COUNT, count + delta)));
+    });
+  };
+
   const saveLaneSettings = (laneId: string) => {
     const name = settingsName.trim().slice(0, 30);
     if (!name || settingsWeekdays.length === 0) return;
@@ -1147,8 +1191,9 @@ export default function PersonalShiftMemoBoard({
         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
           <FontAwesomeIcon icon={faLock} className="h-3 w-3" />個人メモ
         </span>
+        {canReflect && onReflected && <button type="button" disabled={!hydrated || exportMode} onClick={() => setReflectOpen(true)} className="min-h-11 rounded-lg bg-slate-900 px-3 text-[11px] font-bold text-white hover:bg-slate-700 disabled:opacity-40">シフトへ反映</button>}
         <span className="text-[11px] text-slate-500">
-          {saveError ? <span className="text-rose-600">{saveError}</span> : savedAt ? "この端末に自動保存済み" : "この端末に保存"}
+          {saveError ? <span role="alert" className="text-rose-600">{saveError}<button type="button" onClick={() => setSaveRevision((value) => value + 1)} className="ml-2 min-h-11 underline underline-offset-2">保存を再試行</button></span> : savedAt ? "この端末に自動保存済み" : "この端末に保存"}
         </span>
         <button
           type="button"
@@ -1172,6 +1217,10 @@ export default function PersonalShiftMemoBoard({
         )}
       </div>
 
+      {reflectOpen && onReflected && <ReflectShiftMemoDialog dates={dates} courses={courses} drivers={drivers}
+        lanes={lanes.filter(lane => courses.some(course => course.id === lane.routeId))} assignments={assignments} dayOverrides={dayOverrides}
+        onClose={() => setReflectOpen(false)} onApplied={onReflected}/>}
+
       {hiddenOpen && hiddenLanes.length + hiddenRoutes.length > 0 && (
         <section className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
           {hiddenRoutes.map((route) => (
@@ -1191,8 +1240,8 @@ export default function PersonalShiftMemoBoard({
       )}
 
       <div
-        inert={activePanel !== null || pendingDuplicate !== null ? true : undefined}
-        aria-hidden={activePanel !== null || pendingDuplicate !== null ? true : undefined}
+        inert={activePanel !== null || pendingDuplicate !== null || reflectOpen ? true : undefined}
+        aria-hidden={activePanel !== null || pendingDuplicate !== null || reflectOpen ? true : undefined}
         className="grid min-h-[680px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:h-[calc(100dvh-250px)] lg:grid-cols-[minmax(0,1fr)_7px_var(--memo-detail-width)]"
         style={{ "--memo-detail-width": `${detailWidth}px` } as React.CSSProperties}
       >
@@ -1262,7 +1311,8 @@ export default function PersonalShiftMemoBoard({
                         const people = assignments[key] ?? [];
                         const activity = dayActivity(lane, date);
                         const active = activity.active;
-                        const shortage = shortageFor(lane, date, people);
+                        const { shortage, requiredCount } = staffingOn(lane, date, people);
+                        const hasRequiredOverride = requiredCountOverrides[key] !== undefined;
                         const offToday = dayOffByDate.get(date);
                         return (
                           <div
@@ -1271,7 +1321,7 @@ export default function PersonalShiftMemoBoard({
                             data-shift-export-selected={selectedDate === date && active ? "true" : undefined}
                             tabIndex={active ? 0 : undefined}
                             onKeyDown={(event) => {
-                              if (active && selectedToken && (event.key === "Enter" || event.key === " ")) {
+                              if (event.target === event.currentTarget && active && selectedToken && (event.key === "Enter" || event.key === " ")) {
                                 event.preventDefault();
                                 requestPlacement(selectedToken, key);
                               }
@@ -1279,7 +1329,7 @@ export default function PersonalShiftMemoBoard({
                             onDragOver={(event) => { if (active) event.preventDefault(); }}
                             onDrop={(event) => { if (active) dropPerson(event, key); }}
                             onClick={() => setSelectedDate(date)}
-                            className={cn("group relative flex min-h-28 flex-col content-start items-start gap-1.5 border-b border-r border-slate-200 p-1.5 pt-6 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", active ? "hover:bg-slate-50" : "bg-slate-100/80", selectedDate === date && active && "bg-indigo-50/45")}
+                            className={cn("group relative flex min-h-28 flex-col content-start items-start gap-1.5 border-b border-r border-slate-200 p-1.5 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", dayWidth < 72 ? "pt-12" : "pt-7", active ? "hover:bg-slate-50" : "bg-slate-100/80", selectedDate === date && active && "bg-indigo-50/45")}
                             // その日だけの指定で動かしている枠は破線で囲む（曜日どおりの枠と見分ける）
                             title={activity.spot ? (active ? "この日だけ稼働にしています" : "この日だけ休みにしています") : undefined}
                             style={{
@@ -1295,7 +1345,8 @@ export default function PersonalShiftMemoBoard({
                               title={`${dateInfo(date).monthDay}の${lane.name}を${active ? "休みにする" : "稼働にする"}`}
                               aria-label={`${dateInfo(date).monthDay}の${lane.name}を${active ? "休みにする" : "稼働にする"}`}
                               className={cn(
-                                "absolute left-1 top-1 z-10 inline-flex h-5 min-w-8 items-center justify-center rounded border px-1 text-[9px] font-bold leading-none transition-opacity [@media(hover:none)]:opacity-60",
+                                "absolute left-1 z-10 inline-flex h-5 w-7 items-center justify-center rounded border px-1 text-[9px] font-bold leading-none transition-opacity [@media(hover:none)]:opacity-60",
+                                dayWidth < 72 ? "top-7" : "top-1",
                                 active
                                   ? "border-slate-200 bg-white text-slate-400 opacity-0 hover:border-rose-200 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                                   : "border-slate-300 bg-white/90 text-slate-600 opacity-0 hover:border-slate-500 hover:text-slate-900 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100",
@@ -1303,15 +1354,25 @@ export default function PersonalShiftMemoBoard({
                             >
                               {active ? "休み" : "稼働"}
                             </button>
-                            {active ? shortage > 0
-                              ? <span data-shift-export-pill="true" className="absolute right-1.5 top-1.5 rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span>
-                              : <span data-shift-export-meta="true" className="absolute right-1.5 top-1.5 text-[9px] text-slate-400">{assignedCount(people)}/{lane.requiredCount}</span>
-                              : <span data-shift-export-meta="true" className={cn("absolute right-1.5 top-1.5 text-[9px]", activity.spot ? "font-bold text-slate-600" : "text-slate-400")}>{activityLabel(activity)}</span>}
+                            {active ? <button
+                              type="button"
+                              data-shift-required-trigger="true"
+                              disabled={exportMode}
+                              onClick={(event) => openDailyRequiredCount(lane, date, event)}
+                              aria-label={`${dateInfo(date).monthDay}の${lane.name}の必要人数を変更（現在${requiredCount}人）`}
+                              aria-haspopup="dialog"
+                              title="この日だけの必要人数を変更"
+                              className="absolute right-1 top-1 inline-flex h-5 min-w-8 items-center justify-center rounded hover:ring-1 hover:ring-slate-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500"
+                            >{shortage > 0
+                              ? <span data-shift-export-pill="true" className="rounded-full bg-amber-100 px-1 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span>
+                              : <span data-shift-export-meta="true" className="text-[9px] text-slate-500 underline decoration-slate-300 underline-offset-2">{assignedCount(people)}/{requiredCount}</span>}
+                            </button> : <span data-shift-export-meta="true" className={cn("absolute right-1 top-1.5 text-[9px]", activity.spot ? "font-bold text-slate-600" : "text-slate-400")}>{activityLabel(activity)}</span>}
                             {people.map((person) => {
                               const token: PersonToken = { personKey: person.personKey, driverId: person.driverId, name: person.name, sourceKey: key, placementId: person.placementId };
                               return <PersonSlip key={person.placementId} token={token} dayOff={!!person.driverId && offToday?.has(person.driverId)} selected={selectedToken?.placementId === person.placementId} onSelect={() => selectToken(token)} onRemove={() => removePerson(key, person.placementId, person.name)} />;
                             })}
                             {active && people.length === 0 && <span className="m-auto text-base font-light text-slate-300">＋</span>}
+                            {hasRequiredOverride && <span data-shift-export-meta="true" className="mt-auto self-end whitespace-nowrap text-[9px] text-slate-600">必要{requiredCount}人</span>}
                           </div>
                         );
                       })}
@@ -1559,10 +1620,16 @@ export default function PersonalShiftMemoBoard({
                 const activity = dayActivity(lane, selectedDate);
                 const active = activity.active;
                 const stateLabel = activityLabel(activity);
-                const shortage = shortageFor(lane, selectedDate, people);
+                const { shortage, requiredCount } = staffingOn(lane, selectedDate, people);
                 return (
-                  <div key={lane.id} role="group" tabIndex={active ? 0 : undefined} onKeyDown={(event) => { if (active && selectedToken && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); requestPlacement(selectedToken, key); } }} onDragOver={(event) => { if (active) event.preventDefault(); }} onDrop={(event) => { if (active) dropPerson(event, key); }} className={cn("rounded-lg border p-2.5 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", active ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-100/80")}>
-                    <div className="mb-2 flex items-center gap-2"><span className="h-4 w-1 rounded-full" style={{ backgroundColor: lane.color }} /><div className="min-w-0 flex-1"><div className="truncate text-[9px] text-slate-400">{routeGroups.find((route) => route.id === lane.routeId)?.name}・必要{lane.requiredCount}人</div><h4 className="truncate text-[11px] font-bold text-slate-700">{lane.name}</h4></div>{stateLabel ? <span className={cn("shrink-0 rounded px-1 text-[9px] font-bold leading-4", activity.spot ? "border border-dashed border-slate-400 text-slate-600" : "text-slate-400")}>{stateLabel}</span> : shortage > 0 ? <span className="rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span> : null}<button type="button" onClick={() => toggleDayActivity(lane, selectedDate)} className="inline-flex h-7 shrink-0 items-center rounded-md border border-slate-200 px-2 text-[9px] font-medium text-slate-500 hover:bg-slate-50">{active ? "この日を休みに" : "この日を稼働に"}</button></div>
+                  <div key={lane.id} role="group" tabIndex={active ? 0 : undefined} onKeyDown={(event) => { if (event.target === event.currentTarget && active && selectedToken && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); requestPlacement(selectedToken, key); } }} onDragOver={(event) => { if (active) event.preventDefault(); }} onDrop={(event) => { if (active) dropPerson(event, key); }} className={cn("rounded-lg border p-2.5 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", active ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-100/80")}>
+                    <div className="mb-2 flex items-center gap-2"><span className="h-4 w-1 rounded-full" style={{ backgroundColor: lane.color }} /><div className="min-w-0 flex-1"><div className="truncate text-[9px] text-slate-400">{routeGroups.find((route) => route.id === lane.routeId)?.name}</div><h4 className="truncate text-[11px] font-bold text-slate-700">{lane.name}</h4></div>{stateLabel ? <span className={cn("shrink-0 rounded px-1 text-[9px] font-bold leading-4", activity.spot ? "border border-dashed border-slate-400 text-slate-600" : "text-slate-400")}>{stateLabel}</span> : shortage > 0 ? <span className="rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span> : null}</div>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <button type="button" onClick={(event) => openDailyRequiredCount(lane, selectedDate, event)} aria-haspopup="dialog" aria-label={`${dateInfo(selectedDate).monthDay}の${lane.name}の必要人数を変更（現在${requiredCount}人）`} className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-slate-200 px-2 text-[11px] text-slate-700 hover:bg-slate-50">
+                        必要{requiredCount}人{requiredCountOverrides[key] !== undefined && <span className="text-[9px] text-slate-500">この日だけ</span>}<FontAwesomeIcon icon={faChevronDown} className="h-2.5 w-2.5 text-slate-400" />
+                      </button>
+                      <button type="button" onClick={() => toggleDayActivity(lane, selectedDate)} className="inline-flex min-h-11 shrink-0 items-center rounded-md px-2 text-[10px] font-medium text-slate-500 hover:bg-slate-50">{active ? "この日を休みに" : "この日を稼働に"}</button>
+                    </div>
                     <div className="flex min-h-8 flex-wrap gap-1.5 rounded-md border border-dashed border-slate-200 bg-slate-50/50 p-1.5">{people.map((person) => { const token: PersonToken = { personKey: person.personKey, driverId: person.driverId, name: person.name, sourceKey: key, placementId: person.placementId }; return <PersonSlip key={person.placementId} token={token} dayOff={!!person.driverId && dayOffOn(selectedDate)?.has(person.driverId)} selected={selectedToken?.placementId === person.placementId} onSelect={() => selectToken(token)} onRemove={() => removePerson(key, person.placementId, person.name)} />; })}</div>
                   </div>
                 );
@@ -1585,6 +1652,26 @@ export default function PersonalShiftMemoBoard({
       {activePanel?.kind === "edit" && activeLane && createPortal(
         <><div className="fixed inset-0 z-[90]" role="presentation" onMouseDown={() => closeActivePanel(true)} /><section role="dialog" aria-modal="true" aria-labelledby="personal-memo-lane-editor" onKeyDown={(event) => trapDialogFocus(event, () => closeActivePanel(true))} className="fixed z-[100] rounded-xl border border-slate-200 bg-white p-2.5 shadow-2xl" style={floatingPanelPosition(activePanel.anchor, 320, 218)}><div className="mb-2 flex items-center justify-between gap-3"><div id="personal-memo-lane-editor" className="text-[10px] font-bold text-slate-700">担当枠を編集</div><button type="button" onClick={() => closeActivePanel(true)} className="text-[10px] text-slate-400">閉じる</button></div><input autoFocus value={settingsName} onChange={(event) => setSettingsName(event.target.value)} className="mb-2 h-8 w-full rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold outline-none" aria-label="担当枠名" /><div className="mb-2 grid grid-cols-[1fr_auto] items-end gap-2"><div><div className="mb-1 text-[9px] text-slate-500">稼働曜日</div><div className="grid grid-cols-7 gap-1">{WEEKDAY_OPTIONS.map((weekday) => { const active = settingsWeekdays.includes(weekday.value); return <button key={weekday.value} type="button" aria-pressed={active} onClick={() => setSettingsWeekdays((current) => active ? current.filter((value) => value !== weekday.value) : [...current, weekday.value])} className={cn("h-7 rounded-md border text-[10px] font-bold", active ? "border-slate-800 bg-slate-800 text-white" : "border-slate-200 text-slate-400")}>{weekday.label}</button>; })}</div></div><div><div className="mb-1 text-center text-[9px] text-slate-500">必要人数</div><div className="flex h-7 items-center overflow-hidden rounded-md border border-slate-200 bg-slate-50"><button type="button" onClick={() => setSettingsRequiredCount((count) => Math.max(0, count - 1))} className="flex h-full w-7 items-center justify-center text-slate-500" aria-label="必要人数を減らす"><FontAwesomeIcon icon={faMinus} className="h-2.5 w-2.5" /></button><span className="w-7 text-center text-xs font-bold leading-none tabular-nums">{settingsRequiredCount}</span><button type="button" onClick={() => setSettingsRequiredCount((count) => Math.min(10, count + 1))} className="flex h-full w-7 items-center justify-center text-slate-500" aria-label="必要人数を増やす"><FontAwesomeIcon icon={faPlus} className="h-2.5 w-2.5" /></button></div></div></div><div className="flex items-center justify-between gap-2"><button type="button" onClick={() => { setHiddenLaneIds((ids) => ids.includes(activeLane.id) ? ids : [...ids, activeLane.id]); setActivePanel(null); }} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[9px] text-slate-400 hover:bg-slate-100"><FontAwesomeIcon icon={faEyeSlash} className="h-2.5 w-2.5" />非表示</button><button type="button" disabled={!settingsName.trim() || settingsWeekdays.length === 0} onClick={() => saveLaneSettings(activeLane.id)} className="h-8 min-w-28 rounded-lg bg-slate-900 px-4 text-[10px] font-semibold text-white disabled:opacity-40">設定を反映</button></div></section></>,
         document.body,
+      )}
+
+      {activePanel?.kind === "required" && requiredLane && createPortal(
+        <>
+          <div className="fixed inset-0 z-[90]" role="presentation" onMouseDown={() => closeActivePanel(true)} />
+          <section role="dialog" aria-modal="true" aria-labelledby="personal-memo-required-title personal-memo-required-course" onKeyDown={(event) => trapDialogFocus(event, () => closeActivePanel(true))} className="fixed z-[100] max-h-[calc(100dvh-24px)] overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-2xl" style={floatingPanelPosition(activePanel.anchor, 320, 250)}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0"><h2 id="personal-memo-required-title" className="text-lg font-bold text-slate-800">{dateInfo(activePanel.date).monthDay}（{dateInfo(activePanel.date).weekday}）</h2><p id="personal-memo-required-course" className="mt-1 break-words text-lg font-bold leading-snug text-slate-800">{requiredCourseName}</p>{requiredLane.name !== requiredCourseName && <p className="mt-1 break-words text-xs text-slate-500">{requiredLane.name}</p>}</div>
+              <button autoFocus type="button" onClick={() => closeActivePanel(true)} aria-label="閉じる" className="-mr-2 -mt-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-50"><FontAwesomeIcon icon={faXmark} className="h-4 w-4" /></button>
+            </div>
+            <div className="mt-4 flex items-center justify-center">
+              <div className="flex w-full items-center justify-between overflow-hidden rounded-lg border border-slate-200">
+                <button type="button" disabled={dailyRequiredCount === 0} onClick={() => changeDailyRequiredCount(-1)} aria-label="必要人数を減らす" className="inline-flex h-12 w-12 items-center justify-center text-slate-600 hover:bg-slate-50 disabled:opacity-30"><FontAwesomeIcon icon={faMinus} className="h-3 w-3" /></button>
+                <output aria-live="polite" aria-label="この日の必要人数" className="text-center text-2xl font-bold tabular-nums text-slate-800">{dailyRequiredCount}<span className="ml-1 text-xs font-normal">人</span></output>
+                <button type="button" disabled={dailyRequiredCount === MAX_REQUIRED_COUNT} onClick={() => changeDailyRequiredCount(1)} aria-label="必要人数を増やす" className="inline-flex h-12 w-12 items-center justify-center text-slate-600 hover:bg-slate-50 disabled:opacity-30"><FontAwesomeIcon icon={faPlus} className="h-3 w-3" /></button>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between"><span className="text-xs text-slate-500">通常:{requiredLane.requiredCount}人</span><button type="button" disabled={requiredCountOverrides[cellKey(requiredLane.id, activePanel.date)] === undefined} onClick={() => changeDailyRequiredCount(null)} aria-label="必要人数をリセット" title="リセット" className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50 disabled:opacity-30"><FontAwesomeIcon icon={faRotateLeft} className="h-3.5 w-3.5" /></button></div>
+          </section>
+        </>, document.body,
       )}
 
       {pendingDuplicate && createPortal(

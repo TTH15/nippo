@@ -1,12 +1,17 @@
 import { renderPlateImage } from "./plateImage";
 import type { VehiclePlateData } from "./components/VehiclePlate";
-import { planDispatchImagePages } from "./dispatchImagePages";
+import { captureScale } from "./imageCaptureScale";
 
 export type DispatchImage = { blob: Blob; url: string; width: number; height: number };
 
-/** 実際の日別一覧を複製し、CSS maskだけ同じSVG・配置で描画した画像へ差し替える。 */
+/**
+ * 実際の日別一覧を複製し、CSS maskだけ同じSVG・配置で描画した画像へ差し替える。
+ *
+ * ★縦に長くなっても**1枚**に収める（2026-09-19 ユーザー指定）。以前は12行ごとに
+ *   分けていたが、1日ぶんの配車は1枚で見渡せるほうが使いやすい。
+ */
 export async function captureDispatchImage(source: HTMLElement, options: {
-  title: string; subtitle: string; page: number; pageCount: number;
+  title: string; subtitle: string;
 }): Promise<DispatchImage> {
   await document.fonts.ready;
   const width = 408;
@@ -24,17 +29,11 @@ export async function captureDispatchImage(source: HTMLElement, options: {
     Object.assign(header.style, { color: "#0f172a", fontSize: "16px", fontWeight: "700", padding: "4px 0 12px", textAlign: "center" });
     header.textContent = options.title;
     const subtitle = document.createElement("div");
-    subtitle.textContent = `${options.subtitle}${options.pageCount > 1 ? ` · ${options.page + 1}/${options.pageCount}枚目` : ""}`;
+    subtitle.textContent = options.subtitle;
     Object.assign(subtitle.style, { color: "#64748b", fontSize: "12px", paddingBottom: "12px" });
     const list = source.cloneNode(true) as HTMLElement;
     list.removeAttribute("aria-hidden"); list.removeAttribute("inert");
     list.className = "";
-    const rows = [...list.querySelectorAll<HTMLElement>("[data-export-row]")];
-    const pages = planDispatchImagePages(rows.map((row, index) => row.dataset.exportGroup ?? `row-${index}`));
-    const range = pages[options.page] ?? pages[pages.length - 1];
-    rows.forEach((row, index) => {
-      if (index < range.start || index >= range.end) row.remove();
-    });
     list.querySelectorAll("[data-export-omit]").forEach(element => element.remove());
     list.querySelectorAll("[data-export-section]").forEach(element => { if (!element.querySelector("[data-export-row]")) element.remove(); });
     list.querySelectorAll<HTMLElement>("[data-mobile-export-course-color]").forEach(chip => {
@@ -72,8 +71,8 @@ export async function captureDispatchImage(source: HTMLElement, options: {
     const { default: html2canvas } = await import("html2canvas");
     document.head.append(fontMetricsStyle);
     const height = stage.scrollHeight;
-    // 端末のCanvas負荷を約400万画素以内へ抑えつつ、短い一覧は3倍で鮮明に保つ。
-    const scale = Math.min(3, Math.sqrt(4_000_000 / (width * height)));
+    // 1枚に収めるので、キャンバスの上限に当たらない倍率を選ぶ。
+    const scale = captureScale(width, height);
     const canvas = await html2canvas(stage, { backgroundColor: "#f8fafc", scale, logging: false, width, height, windowWidth: width, scrollX: 0, scrollY: 0 });
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));
     if (!blob) throw new Error("画像を作成できませんでした");

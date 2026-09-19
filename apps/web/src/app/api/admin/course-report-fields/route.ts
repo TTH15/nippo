@@ -32,7 +32,9 @@ export async function GET(req: NextRequest) {
     carrierId
       ? supabase.from("units").select("id, name, sort_order").eq("carrier_id", carrierId).eq("active", true).order("sort_order")
       : Promise.resolve({ data: [] as any[] }),
+    // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
     supabase.from("course_cycles").select("cycle_no, label, active").eq("course_id", courseId).order("cycle_no"),
+    // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
     supabase.from("course_report_fields").select("cycle_no, unit_id, field_key").eq("course_id", courseId),
   ]);
   const unitIds = (units ?? []).map((u: any) => u.id);
@@ -84,12 +86,14 @@ export async function PUT(req: NextRequest) {
     }));
 
   // 総入れ替え。空で保存＝絞り込み解除（全項目を使う）
+  // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
   const { error: delErr } = await supabase.from("course_report_fields").delete().eq("course_id", courseId);
   if (delErr) {
     console.error(delErr);
     return NextResponse.json({ error: "入力項目の保存に失敗しました" }, { status: 500 });
   }
   if (rows.length) {
+    // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
     const { error } = await supabase.from("course_report_fields").insert(rows);
     if (error) {
       console.error(error);

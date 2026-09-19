@@ -1,6 +1,7 @@
+import { isVehiclePartColors } from "@/lib/vehicleAppearance";
 import { NextRequest, NextResponse } from "next/server";
 import { afterSafely } from "@/server/afterSafely";
-import { syncPlateModel } from "@/server/vehicles/plateModelStorage";
+import { removePlateModel, syncPlateModel } from "@/server/vehicles/plateModelStorage";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
@@ -56,6 +57,7 @@ export async function PUT(
     }
     const body = await req.json();
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    if (body.partColors !== undefined && !isVehiclePartColors(body.partColors)) return NextResponse.json({ error: "部位の色を確認してください。" }, { status: 400 });
     const validationIssue = validateVehicleForm(body, { requireIdentity: false })[0];
     if (validationIssue) return NextResponse.json({ error: validationIssue.message }, { status: 400 });
     if (body.driverIds !== undefined) {
@@ -116,6 +118,7 @@ export async function PUT(
       updates.body_color =
         typeof bodyColor === "string" && /^#[0-9a-fA-F]{6}$/.test(bodyColor) ? bodyColor : null;
     }
+    if (body.partColors !== undefined) updates.part_colors = body.partColors;
     if (brand !== undefined) updates.brand = typeof brand === "string" ? brand.trim() || null : null;
     if (isDisposed !== undefined) updates.is_disposed = !!isDisposed;
     if (isUnavailable !== undefined) {
@@ -201,7 +204,7 @@ export async function PUT(
     afterSafely(async () => {
       const { data: saved } = await supabase
         .from("vehicles")
-        .select("id, number_prefix, number_class, number_hiragana, number_numeric, model_key, manufacturer, brand")
+        .select("id, number_prefix, number_class, number_hiragana, number_numeric, model_key, model_code, manufacturer, brand")
         .eq("id", vehicleId)
         .eq("owner_org_id", orgId)
         .maybeSingle();
@@ -235,5 +238,6 @@ export async function DELETE(
     return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
   }
 
+  if (orgId) afterSafely(() => removePlateModel(supabase, orgId, vehicleId));
   return NextResponse.json({ ok: true });
 }

@@ -9,7 +9,7 @@ export async function POST() {
   // allowCredentials を渡さない = discoverable credential（ドライバーコード入力不要のログイン）
   const options = await generateAuthenticationOptions({
     rpID,
-    userVerification: "preferred",
+    userVerification: "required",
   });
 
   const challengeToken = await createChallengeToken({

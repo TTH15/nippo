@@ -9,7 +9,7 @@ type Position = {
 };
 type MockVehicle = {
   id: string; number_prefix: string | null; number_class: string | null; number_hiragana: string | null; number_numeric: string | null;
-  plate_color: string; manufacturer: string | null; brand: string | null; model_key: string | null; body_color: string | null;
+  plate_color: string; manufacturer: string | null; brand: string | null; model_key: string | null; model_code?: string | null; part_colors?: Record<string, string>; body_color: string | null;
   current_mileage?: number; last_oil_change_mileage?: number; oil_change_interval?: number; is_ev?: boolean; next_shaken_date?: string | null;
   is_unavailable?: boolean; position: Position | null;
 };
@@ -51,20 +51,20 @@ const at = (hoursAgo: number) => new Date(Date.parse("2026-09-06T09:00:00+09:00"
 
 function seedVehicles(scenario: string): MockVehicle[] {
   const base: MockVehicle[] = [
-    { id: "vehicle-1", ...plate("大阪", "480", "り", "1201"), manufacturer: "ホンダ", brand: "アクティバン", model_key: "acty", body_color: "#2563eb", current_mileage: 149030, last_oil_change_mileage: 148692, oil_change_interval: 3000, next_shaken_date: "2026-11-20",
+    { id: "vehicle-1", ...plate("大阪", "480", "り", "1201"), manufacturer: "ホンダ", brand: "アクティバン", model_key: "acty", model_code: "HH5", body_color: "#2563eb", current_mileage: 149030, last_oil_change_mileage: 148692, oil_change_interval: 3000, next_shaken_date: "2026-11-20",
       position: { lat: TOYONAKA.lat + 0.0003, lng: TOYONAKA.lng - 0.0004, at: at(1), kind: "checkin", source: "punch", sessionStatus: "open", driverName: "佐藤 翔太" } },
-    { id: "vehicle-2", ...plate("京都", "480", "れ", "2752"), manufacturer: "スズキ", brand: "エブリイ", model_key: "every", body_color: "#ffffff", current_mileage: 86200, last_oil_change_mileage: 84000, oil_change_interval: 3000,
+    { id: "vehicle-2", ...plate("京都", "480", "れ", "2752"), manufacturer: "スズキ", brand: "エブリイ", model_key: "every", model_code: "HBD-DA17V", part_colors: { hood: "#1f2937", frontBumper: "#c0c6cc" }, body_color: "#ffffff", current_mileage: 86200, last_oil_change_mileage: 84000, oil_change_interval: 3000,
       position: { lat: 34.8012, lng: 135.4462, at: at(0.5), kind: "gps", source: "gps", sessionStatus: "open", driverName: "高橋 健太" } },
-    { id: "vehicle-3", ...plate("大阪", "480", "り", "4303"), manufacturer: "ダイハツ", brand: "ハイゼットカーゴ", model_key: "hijet", body_color: "#272b30", current_mileage: 72410, last_oil_change_mileage: 69000, oil_change_interval: 3000, next_shaken_date: "2027-03-05",
+    { id: "vehicle-3", ...plate("大阪", "480", "り", "4303"), manufacturer: "ダイハツ", brand: "ハイゼットカーゴ", model_key: "hijet", model_code: "S700V", body_color: "#272b30", current_mileage: 72410, last_oil_change_mileage: 69000, oil_change_interval: 3000, next_shaken_date: "2027-03-05",
       position: { lat: KYOTO.lat, lng: KYOTO.lng, at: at(20), kind: "manual", source: "manual", placedBy: "サンプル管理者", note: "京都車庫へ置いた", sessionStatus: "closed", driverName: "" } },
     { id: "vehicle-4", ...plate("大阪", "480", "わ", "5854"), manufacturer: null, brand: null, model_key: null, body_color: "#c8102e",
       position: { lat: SUITA.lat + 0.001, lng: SUITA.lng + 0.001, at: at(30), kind: "checkout", source: "punch", sessionStatus: "closed", driverName: "" } },
     { id: "vehicle-5", ...plate("京都", "481", "り", "6290"), manufacturer: "スズキ", brand: "エブリイ", model_key: "every", body_color: "#d7d9d8", position: null },
     // 拠点で降ろした車は「拠点の代表点」がそのまま入り、完全に同じ座標で重なる。
     // 寄っても1台にしか見えない状態を再現して、横ずらし（K-11）を確かめられるようにする。
-    { id: "vehicle-6", ...plate("大阪", "480", "り", "7788"), manufacturer: "ホンダ", brand: "アクティバン", model_key: "acty", body_color: "#f59e0b",
+    { id: "vehicle-6", ...plate("大阪", "480", "り", "7788"), manufacturer: "ホンダ", brand: "アクティバン", model_key: "acty", model_code: "HH5", body_color: "#f59e0b",
       position: { lat: TOYONAKA.lat, lng: TOYONAKA.lng, at: at(6), kind: "manual", source: "manual", placedBy: "サンプル管理者", sessionStatus: "closed", driverName: "" } },
-    { id: "vehicle-7", ...plate("大阪", "480", "り", "7799"), manufacturer: "ホンダ", brand: "アクティバン", model_key: "acty", body_color: "#16a34a",
+    { id: "vehicle-7", ...plate("大阪", "480", "り", "7799"), manufacturer: "ホンダ", brand: "アクティバン", model_key: "acty", model_code: "HH5", body_color: "#16a34a",
       position: { lat: TOYONAKA.lat, lng: TOYONAKA.lng, at: at(6), kind: "manual", source: "manual", placedBy: "サンプル管理者", sessionStatus: "closed", driverName: "" } },
   ];
   if (scenario === "empty") return base.map((v) => ({ ...v, position: null }));

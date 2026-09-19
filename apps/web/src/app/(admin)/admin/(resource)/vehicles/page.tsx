@@ -29,12 +29,14 @@ import { VehiclePlate, plateDigits } from "@/lib/components/VehiclePlate";
 import { format } from "date-fns";
 import { todayJST } from "@/lib/date";
 import { apiFetch, getStoredDriver } from "@/lib/api";
-import { VehicleModelPreview } from "@/lib/components/VehicleModelPreview";
+import { VehicleCertificateReader } from "./VehicleCertificateReader";
+import { findKeiVan } from "@/lib/vehicleModels";
+import { vehiclePartColors, type VehiclePartColors } from "@/lib/vehicleAppearance";
+import { VehicleAppearanceEditor } from "./VehicleAppearanceEditor";
 import {
   KEI_VANS_BY_MANUFACTURER,
-  BODY_COLOR_BASE,
-  modelUrlFor,
-  mapModelLabelFor,
+  APPEARANCE_PREFIX,
+  normalizeModelCode,
   resolveModelKey,
   generationsOf,
 } from "@/lib/vehicleModels";
@@ -80,6 +82,7 @@ type Vehicle = {
   is_ev?: boolean | null;
   manufacturer?: string | null;
   body_color?: string | null;
+  part_colors?: VehiclePartColors | null;
   model_key?: string | null;
   model_code?: string | null;
   brand?: string | null;
@@ -134,6 +137,7 @@ export default function VehiclesPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [showModal, setShowModal] = useState(false);
   /** カタログに無い車を自由入力するモード */
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [otherVehicle, setOtherVehicle] = useState(false);
   // 会社の車体色パレット（migration 127）。一度使った色を次回から選べるようにする
   const { data: colorData, refresh: refreshOrgColors } = useApi<{ colors: string[] }>(
@@ -161,7 +165,9 @@ export default function VehiclesPage() {
     isEv: false,
     manufacturer: "",
     bodyColor: "",
+    partColors: {} as VehiclePartColors,
     modelCode: "",
+    modelKey: "",
     brand: "",
     plateColor: "black",
     numberPrefix: "",
@@ -267,6 +273,7 @@ export default function VehiclesPage() {
     vehicles: Vehicle[];
     canViewCost?: boolean;
     availabilitySupported?: boolean;
+    partColorsSupported?: boolean;
     hasMore?: boolean;
     nextCursor?: string;
   }>(vehiclesPageKey, swrFetcher, {
@@ -383,7 +390,9 @@ export default function VehiclesPage() {
       isEv: false,
       manufacturer: "",
       bodyColor: "",
+      partColors: {} as VehiclePartColors,
       modelCode: "",
+      modelKey: "",
       brand: "",
       plateColor: "black",
       numberPrefix: "",
@@ -409,6 +418,7 @@ export default function VehiclesPage() {
     setOtherVehicle(false);
     setValidationAttempted(false);
     setVehTab("basic");
+    setAppearanceOpen(false);
     setDriverOpen(false);
     setShowModal(true);
   };
@@ -433,7 +443,9 @@ export default function VehiclesPage() {
       isEv: !!v.is_ev,
       manufacturer: v.manufacturer || "",
       bodyColor: v.body_color || "",
+      partColors: vehiclePartColors(v.part_colors),
       modelCode: v.model_code || "",
+      modelKey: v.model_key?.startsWith(APPEARANCE_PREFIX) ? v.model_key : "",
       brand: v.brand || "",
       plateColor: v.plate_color || "black",
       numberPrefix: v.number_prefix || "",
@@ -470,6 +482,7 @@ export default function VehiclesPage() {
     setOtherVehicle(!v.manufacturer || !KEI_VANS_BY_MANUFACTURER[v.manufacturer]);
     setValidationAttempted(false);
     setVehTab("basic");
+    setAppearanceOpen(false);
     setDriverOpen(false);
     setShowModal(true);
   };
@@ -528,9 +541,10 @@ export default function VehiclesPage() {
         isEv: form.isEv,
         manufacturer: form.manufacturer || null,
         // 地図の3Dモデルはメーカー・車種名から自動で決める（表に無ければ既定モデル）
-        modelKey: resolveModelKey(form.manufacturer, form.brand, form.modelCode),
+        modelKey: form.modelKey || resolveModelKey(form.manufacturer, form.brand, form.modelCode),
         modelCode: form.modelCode.trim().toUpperCase() || null,
         bodyColor: form.bodyColor || null,
+        ...(firstVehiclesPage?.partColorsSupported !== false ? { partColors: form.partColors } : {}),
         brand: form.brand || null,
         plateColor: form.plateColor,
         numberPrefix: form.numberPrefix || null,
@@ -572,6 +586,10 @@ export default function VehiclesPage() {
             : editingVehicle.unavailable_reason,
           is_ev: form.isEv,
           manufacturer: payload.manufacturer,
+          body_color: payload.bodyColor,
+          part_colors: form.partColors,
+          model_code: payload.modelCode,
+          model_key: payload.modelKey,
           brand: payload.brand,
           plate_color: payload.plateColor,
           number_prefix: payload.numberPrefix,
@@ -876,6 +894,16 @@ export default function VehiclesPage() {
 
   const validationIssues = validationAttempted ? validateVehicleForm(form) : [];
   const issueFor = (field: VehicleFormField) => validationIssues.find((issue) => issue.field === field);
+
+  const appearanceProps = {
+    manufacturer: form.manufacturer, brand: form.brand, modelCode: form.modelCode, modelKey: form.modelKey,
+    color: form.bodyColor, colors: orgColors, partColors: form.partColors, partsSupported: firstVehiclesPage?.partColorsSupported !== false,
+    plate: { id: editingVehicle?.id ?? "draft", number_prefix: form.numberPrefix, number_class: form.numberClass, number_hiragana: form.numberHiragana, number_numeric: form.numberNumeric, plate_color: form.plateColor },
+    onModel: (modelKey: string) => setForm(f => ({ ...f, modelKey })),
+    onColor: (bodyColor: string) => setForm(f => ({ ...f, bodyColor })),
+    onPartColors: (partColors: VehiclePartColors) => setForm(f => ({ ...f, partColors })),
+    onAddColor: (color: string) => { void addOrgColor(color); },
+  };
 
   return (
     <AdminLayout>
@@ -1501,9 +1529,14 @@ export default function VehiclesPage() {
       {/* 車両編集モーダル */}
       {showModal && canWrite && (
         <div className="modal-backdrop-in fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={async () => { if (!saving && await flushAutoSave()) setShowModal(false); }}>
-          <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel-in bg-white rounded-lg shadow-lg w-full max-w-2xl h-[92dvh] max-h-[1000px] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {appearanceOpen ? <VehicleAppearanceEditor {...appearanceProps} detailed
+              saving={saving || autoSave === "saving"} saveError={autoSave === "error"}
+              onRetry={() => { void flushAutoSave(); }}
+              onBack={() => { void (async () => { if (!editingVehicle || await flushAutoSave()) setAppearanceOpen(false); })(); }}
+            /> : (
             <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
-              <div className="flex items-start justify-between mb-4">
+              <div className="flex items-start justify-between mb-2">
                 <div>
                   <h2 className="text-lg font-semibold text-slate-900">
                     {editingVehicle ? "車両情報編集" : "新規車両追加"}
@@ -1566,6 +1599,15 @@ export default function VehiclesPage() {
               <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
                 {vehTab === "basic" && (
                 <>
+                <VehicleCertificateReader
+                  current={form} vehicleId={editingVehicle?.id}
+                  onApply={patch => {
+                    setForm(f => ({ ...f, ...patch, modelKey: patch.manufacturer || patch.brand || patch.modelCode ? "" : f.modelKey }));
+                    setOtherVehicle(!findKeiVan(patch.manufacturer ?? form.manufacturer, patch.brand ?? form.brand));
+                  }}
+                />
+                <VehicleAppearanceEditor {...appearanceProps} onDetails={() => setAppearanceOpen(true)} />
+
                 {/* 車種の選択。メーカーごとにまとめたチップから選ぶ（datalist の見た目が悪かった）。
                     カタログに無い車は「その他」で自由入力できる。
                     2026-08-10 は「実車の車種は変わらない」ので登録後は表示のみにしていたが、
@@ -1589,7 +1631,7 @@ export default function VehiclesPage() {
                             const v = e.target.value;
                             if (v === "__other__") {
                               setOtherVehicle(true);
-                              setForm((f) => ({ ...f, manufacturer: "", brand: "", modelCode: "" }));
+                              setForm((f) => ({ ...f, manufacturer: "", brand: "", modelCode: "", modelKey: "" }));
                               return;
                             }
                             setOtherVehicle(false);
@@ -1600,6 +1642,7 @@ export default function VehiclesPage() {
                               manufacturer: v,
                               brand: first?.brand ?? "",
                               modelCode: "",
+                              modelKey: "",
                             }));
                           }}
                           aria-invalid={!!issueFor("identity")}
@@ -1623,7 +1666,7 @@ export default function VehiclesPage() {
                           value={form.brand}
                           disabled={otherVehicle || !form.manufacturer}
                           onChange={(e) =>
-                            setForm((f) => ({ ...f, brand: e.target.value, modelCode: "" }))
+                            setForm((f) => ({ ...f, brand: e.target.value, modelCode: "", modelKey: "" }))
                           }
                           className="w-full rounded border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-400"
                         >
@@ -1675,9 +1718,9 @@ export default function VehiclesPage() {
                           <select
                             value={
                               generationsOf(form.manufacturer, form.brand).some(
-                                (g) => g.code.toUpperCase() === form.modelCode.toUpperCase(),
+                                (g) => g.code === normalizeModelCode(form.modelCode),
                               )
-                                ? form.modelCode.toUpperCase()
+                                ? normalizeModelCode(form.modelCode)
                                 : ""
                             }
                             onChange={(e) => setForm((f) => ({ ...f, modelCode: e.target.value }))}
@@ -1694,97 +1737,18 @@ export default function VehiclesPage() {
                             type="text"
                             value={form.modelCode}
                             onChange={(e) => setForm((f) => ({ ...f, modelCode: e.target.value }))}
-                            placeholder="型式を直接入力（例: DA17V）"
-                            maxLength={12}
+                            aria-label="型式"
+                            placeholder="型式を入力（例: HBD-DA17V）"
+                            maxLength={30}
                             className="w-full rounded border border-slate-200 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-1 focus:ring-slate-400"
                           />
                         </div>
                       )}
 
-                      {/* どのモデルで描かれるかを名前で示す。OEM は元車種で描くので、
-                          車種名をそのまま出すと食い違って見える（2026-09-09） */}
-                      {(() => {
-                        const resolved = mapModelLabelFor(
-                          resolveModelKey(form.manufacturer, form.brand, form.modelCode),
-                        );
-                        return (
-                          <p className={`text-[11px] ${resolved.isDefault ? "text-amber-700" : "text-slate-400"}`}>
-                            {resolved.isDefault
-                              ? "この車種・世代の3Dモデルはまだ無いため、標準の軽バン（エブリイ）で表示されます"
-                              : `地図・アプリでは ${resolved.label} の3Dモデルで表示されます`}
-                          </p>
-                        );
-                      })()}
                     </div>
                   )}
                 </div>
 
-                {/* 3Dプレビュー＋車体色。どう見えるかを見ながら決める。
-                    色は塗り直しがあるので、登録後も変更できるままにする（2026-08-10 ユーザー） */}
-                <div className="mt-3">
-                  <label className="block text-sm font-medium text-slate-500 mb-1">
-                    車体色（地図・アプリでの見え方）
-                  </label>
-                  <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:flex-row">
-                    <VehicleModelPreview
-                      modelUrl={modelUrlFor(resolveModelKey(form.manufacturer, form.brand, form.modelCode))}
-                      bodyColor={form.bodyColor || null}
-                      className="h-32 w-full shrink-0 overflow-hidden rounded-md bg-white sm:w-48"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {[
-                          ...BODY_COLOR_BASE,
-                          ...orgColors.map((c: string) => ({ label: c, value: c })),
-                        ].map((c) => {
-                          const active = form.bodyColor.toLowerCase() === c.value.toLowerCase();
-                          return (
-                            <button
-                              key={c.value}
-                              type="button"
-                              title={c.label}
-                              onClick={() => setForm((f) => ({ ...f, bodyColor: c.value }))}
-                              className={`h-8 w-8 rounded-full border-2 transition-transform ${
-                                active ? "scale-110 border-slate-900" : "border-white shadow-sm hover:scale-105"
-                              }`}
-                              style={{ backgroundColor: c.value }}
-                            />
-                          );
-                        })}
-                        {/* 新しい色。選ぶと会社のパレットに貯まり、次の車両からは選ぶだけで使える */}
-                        <label
-                          className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-dashed border-slate-300 text-slate-400 hover:border-slate-400 hover:text-slate-600"
-                          title="色を追加"
-                        >
-                          <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
-                          <input
-                            type="color"
-                            className="sr-only"
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setForm((f) => ({ ...f, bodyColor: v }));
-                              void addOrgColor(v);
-                            }}
-                          />
-                        </label>
-                      </div>
-                      <p className="mt-2 text-[11px] text-slate-400">
-                        白・グレー・黒はいつでも選べます。それ以外は追加すると会社の色として残り、
-                        次の車両からは選ぶだけで使えます。プレビューはドラッグで回せます
-                        （夜はライトが点きます）
-                      </p>
-                      {form.bodyColor && (
-                        <button
-                          type="button"
-                          onClick={() => setForm((f) => ({ ...f, bodyColor: "" }))}
-                          className="mt-1 text-[11px] text-slate-400 hover:text-slate-600"
-                        >
-                          未設定に戻す
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-500 mb-1">ナンバープレート</label>
@@ -2466,7 +2430,7 @@ export default function VehiclesPage() {
                 )}
               </div>
 
-              <div className="flex flex-col gap-3 pt-4 mt-4 border-t border-slate-100 shrink-0">
+              <div className="flex flex-row-reverse items-center justify-between gap-3 pt-3 mt-3 border-t border-slate-100 shrink-0">
                 <div className="flex items-center justify-end gap-3">
                   {editingVehicle ? (
                     <>
@@ -2508,7 +2472,7 @@ export default function VehiclesPage() {
                   )}
                 </div>
                 {editingVehicle && (
-                  <div className="pt-3 border-t border-slate-200">
+                  <div>
                     <button
                       onClick={() => {
                         const label = [editingVehicle.manufacturer, editingVehicle.brand].filter(Boolean).join(" ") || "この車両";
@@ -2544,6 +2508,7 @@ export default function VehiclesPage() {
                 )}
               </div>
             </div>
+            )}
           </div>
         </div>
       )}

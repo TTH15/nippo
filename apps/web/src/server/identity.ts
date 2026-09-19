@@ -78,7 +78,7 @@ export async function resolveActiveDriverByIdentity(
 }
 
 /** driver 行から通常ログインと同じ形の {token, driver} セッションを発行する。 */
-export async function issueDriverSession(driver: ActiveDriverRow) {
+export async function issueDriverSession(driver: ActiveDriverRow, strongAuth?: Pick<AuthUser, "strongAuthAt" | "strongAuthMethod">) {
   const envCompany = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
   const token = await signToken({
@@ -88,6 +88,8 @@ export async function issueDriverSession(driver: ActiveDriverRow) {
     identityId: driver.identity_id,
     orgId: driver.org_id,
     tokenVersion: driver.token_version,
+    strongAuthAt: strongAuth?.strongAuthAt,
+    strongAuthMethod: strongAuth?.strongAuthMethod,
   });
 
   const capabilities = await resolveCapabilities(driver.id, driver.role);

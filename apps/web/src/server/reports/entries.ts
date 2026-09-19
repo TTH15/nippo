@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isMissingOrgColumn } from "@/server/db/orgColumn";
 
 // ============================================================
 // report_entries（縦持ち）の差分同期。
@@ -21,10 +22,12 @@ const numOf = (v: unknown): number | null => (v == null ? null : Number(v));
 /** 指定日報の entries を next の内容へ差分同期する。エラーは throw。 */
 export async function syncReportEntries(
   supabase: SupabaseClient,
+  orgId: string,
   reportId: string,
   next: ReportEntryUpsertRow[],
 ): Promise<void> {
   const { data: existing, error: readErr } = await supabase
+    // tenant-scope-ok: reportId は呼び出し元が .eq("org_id", orgId) で読んだ日報の id
     .from("report_entries")
     .select("id, unit_id, field_key, value_num, value_text")
     .eq("report_id", reportId);
@@ -47,16 +50,26 @@ export async function syncReportEntries(
   }
   const upserts = next.filter((e) => !unchanged.has(keyOf(e)));
 
+  const withOrg = upserts.map((e) => ({ org_id: orgId, ...e }));
   const [delRes, upRes] = await Promise.all([
     deleteIds.length
+      // tenant-scope-ok: deleteIds は直上の reportId 限定 select（existing）由来
       ? supabase.from("report_entries").delete().in("id", deleteIds)
       : Promise.resolve({ error: null }),
     upserts.length
       ? supabase
+          // tenant-scope-ok: 各行に org_id: orgId（呼び出し元が確認済みの org）を入れている
           .from("report_entries")
-          .upsert(upserts, { onConflict: "report_id,unit_id,field_key" })
+          .upsert(withOrg, { onConflict: "report_id,unit_id,field_key" })
       : Promise.resolve({ error: null }),
   ]);
   if (delRes.error) throw delRes.error;
-  if (upRes.error) throw upRes.error;
+  if (!upRes.error) return;
+  if (!isMissingOrgColumn(upRes.error)) throw upRes.error;
+  // migration 177 未適用の環境向けフォールバック（org_id 列がまだ無い）
+  const { error: retryErr } = await supabase
+    // tenant-scope-ok: 同じ行の退避。migration 177 未適用（org_id 列が無い）環境でのみ通る
+    .from("report_entries")
+    .upsert(upserts, { onConflict: "report_id,unit_id,field_key" });
+  if (retryErr) throw retryErr;
 }

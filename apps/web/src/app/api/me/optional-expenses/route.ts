@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, error } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("driver_optional_expenses")
     .select("id, driver_id, month, name, amount")
     .eq("driver_id", user.driverId)
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { data, error } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("driver_optional_expenses")
     .insert({
       driver_id: user.driverId,

@@ -32,7 +32,10 @@ function measurePlate(vehicle: VehiclePlateData, width: number) {
   document.body.append(host);
   const root = createRoot(host);
   try {
-    flushSync(() => root.render(createElement(VehiclePlate, { vehicle, compact: true, className: "w-full" })));
+    // ★max-w を外す。compact の既定は max-w-[100px] で、これを残すと**渡した幅より小さく**
+    //   描かれる（幅を受け取る関数として壊れている）。セル幅が100pxを超える表では、
+    //   画面のプレートより画像のプレートだけ細くなる（2026-09-19 シフト表の出力で発覚）。
+    flushSync(() => root.render(createElement(VehiclePlate, { vehicle, compact: true, className: "w-full !max-w-none" })));
     const plate = host.querySelector<HTMLElement>('[style*="aspect-ratio"]');
     if (!plate) throw new Error("プレートの表示を取得できませんでした");
     const bounds = plate.getBoundingClientRect();

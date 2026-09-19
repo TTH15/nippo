@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -15,6 +15,8 @@ interface Props {
   open: boolean;
   canWrite: boolean;
   onClose: () => void;
+  /** 未保存の編集があるか。タブでまとめた親が閉じる操作を止められるようにする */
+  onDirtyChange?: (dirty: boolean) => void;
   /** 親モーダル（タブ）に埋め込む場合はオーバーレイ/カードを描かない。 */
   embedded?: boolean;
 }
@@ -28,6 +30,8 @@ type SlotRow = {
   endTime: string;
   active: boolean;
   driverIds: string[];
+  /** 自社が作った便か。他社の便は名前・時刻・削除を変えられない（割り当てだけできる） */
+  editable: boolean;
 };
 type SlotFull = {
   id: string;
@@ -37,6 +41,7 @@ type SlotFull = {
   sortOrder: number;
   active: boolean;
   driverIds: string[];
+  editable?: boolean;
 };
 
 const hhmm = (t: string | null) => (t && t.length >= 5 ? t.slice(0, 5) : t ?? "");
@@ -45,7 +50,14 @@ const driverName = (d: DriverInfo) => d.display_name || d.name;
 let keySeq = 0;
 const nextKey = () => `s-${keySeq++}`;
 
-export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embedded = false }: Props) {
+/** 未保存かどうかの比較用。表示のためだけの _key は含めない */
+function slotsSnapshot(rows: readonly { id?: string | null; name: string; startTime: string; endTime: string; active: boolean; driverIds: readonly string[] }[]): string {
+  return JSON.stringify(
+    rows.map((r) => [r.id ?? "", r.name, r.startTime, r.endTime, r.active, [...r.driverIds].sort()]),
+  );
+}
+
+export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embedded = false, onDirtyChange }: Props) {
   // SWR でキャッシュし、モーダルを開き直すたびのローディングをなくす。
   const apiKey = open || embedded ? "/api/admin/shift-slots" : null;
   const { data, isInitialLoading, error: loadError, refresh } =
@@ -58,6 +70,8 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
   const [error, setError] = useState<string | null>(null);
   // 削除確認中の便 key（確認ダイアログ用）。
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
+  // 取得時点の内容。ここから変わっていれば未保存（_key は表示用なので比べない）
+  const [savedSnapshot, setSavedSnapshot] = useState("");
 
   // 取得データを編集用 state に初期化（paint 前に行い、再オープン時のちらつきを防ぐ）。
   useLayoutEffect(() => {
@@ -72,10 +86,21 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
         endTime: hhmm(s.endTime),
         active: s.active,
         driverIds: s.driverIds ?? [],
+        editable: s.editable !== false,
       })),
     );
     setSeeded(true);
   }, [data, seeded]);
+
+  // 取得直後の内容を記録し、以後の編集を未保存として親へ知らせる
+  useLayoutEffect(() => {
+    if (!seeded) return;
+    setSavedSnapshot((current) => (current === "" ? slotsSnapshot(slots) : current));
+  }, [seeded, slots]);
+  useEffect(() => {
+    if (!seeded || savedSnapshot === "") return;
+    onDirtyChange?.(slotsSnapshot(slots) !== savedSnapshot);
+  }, [seeded, slots, savedSnapshot, onDirtyChange]);
 
   if (!open && !embedded) return null;
 
@@ -89,7 +114,7 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
   const addSlot = () =>
     setSlots((prev) => [
       ...prev,
-      { _key: nextKey(), id: null, name: "", startTime: "", endTime: "", active: true, driverIds: [] },
+      { _key: nextKey(), id: null, name: "", startTime: "", endTime: "", active: true, driverIds: [], editable: true },
     ]);
   const removeSlot = (key: string) => setSlots((prev) => prev.filter((s) => s._key !== key));
   const confirmSlotName = slots.find((s) => s._key === confirmDeleteKey)?.name ?? "";
@@ -127,7 +152,12 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
       // 保存後はキャッシュを最新化（次に開いたとき保存内容を反映）。
       // 保存は確定済みなので待たずに閉じる。
       void refresh();
-      onClose();
+      // 保存済み＝未保存ではない。閉じるときに確認が出ないようにする
+      setSavedSnapshot(slotsSnapshot(slots));
+      onDirtyChange?.(false);
+      // タブに埋め込んだときは閉じない（他のタブを続けて触れるように。
+      // 単独モーダルとして開いたときは従来どおり閉じる）
+      if (!embedded) onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
@@ -164,11 +194,19 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
             <>
               <div className="space-y-4">
                 {slots.map((slot) => (
-                  <div key={slot._key} className="rounded-lg border border-slate-200 p-3">
+                  <div
+                    key={slot._key}
+                    className={`rounded-lg border p-3 ${slot.editable ? "border-slate-200" : "border-slate-200 bg-slate-50"}`}
+                  >
+                    {!slot.editable && (
+                      <p className="mb-2 text-[11px] text-slate-500">
+                        他社が作った便です。名前と時刻は変えられません。自社のドライバーへの割り当てはできます。
+                      </p>
+                    )}
                     <div className="flex flex-wrap items-center gap-2 mb-3">
                       <input
                         type="text"
-                        disabled={!canWrite}
+                        disabled={!canWrite || !slot.editable}
                         value={slot.name}
                         onChange={(e) => patch(slot._key, { name: e.target.value })}
                         placeholder="便名（例: 午後便）"
@@ -177,7 +215,7 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
                       <div className="flex items-center gap-1" title="時刻は任意。空なら便名で表示">
                         <input
                           type="time"
-                          disabled={!canWrite}
+                          disabled={!canWrite || !slot.editable}
                           value={slot.startTime}
                           onChange={(e) => patch(slot._key, { startTime: e.target.value })}
                           className="px-2 py-1 text-sm border border-slate-200 rounded disabled:bg-slate-50"
@@ -185,7 +223,7 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
                         <span className="text-xs text-slate-400">-</span>
                         <input
                           type="time"
-                          disabled={!canWrite}
+                          disabled={!canWrite || !slot.editable}
                           value={slot.endTime}
                           onChange={(e) => patch(slot._key, { endTime: e.target.value })}
                           className="px-2 py-1 text-sm border border-slate-200 rounded disabled:bg-slate-50"
@@ -194,13 +232,13 @@ export default function ShiftSlotsSettingsModal({ open, canWrite, onClose, embed
                       <label className="flex items-center gap-1 text-xs text-slate-600">
                         <input
                           type="checkbox"
-                          disabled={!canWrite}
+                          disabled={!canWrite || !slot.editable}
                           checked={slot.active}
                           onChange={(e) => patch(slot._key, { active: e.target.checked })}
                         />
                         有効
                       </label>
-                      {canWrite && (
+                      {canWrite && slot.editable && (
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteKey(slot._key)}

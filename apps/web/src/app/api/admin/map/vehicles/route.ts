@@ -1,8 +1,9 @@
+import { isMissingVehiclePartColors } from "@/server/vehicles/partColors";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
-import { signPlateModels } from "@/server/vehicles/plateModelStorage";
+import { signPlateModels, type PlateVehicle } from "@/server/vehicles/plateModelStorage";
 
 export const dynamic = "force-dynamic";
 
@@ -35,11 +36,15 @@ export async function GET(req: NextRequest) {
   const VEHICLE_COLS = "id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, last_oil_change_mileage, oil_change_interval, is_ev, next_shaken_date";
   let vehicles: Record<string, unknown>[] | null = null;
   {
-    const withAppearance = await supabase
+    const appearanceColumns: string = `${VEHICLE_COLS}, model_key, model_code, body_color, part_colors`;
+    let withAppearance: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await supabase
       .from("vehicles")
-      .select(`${VEHICLE_COLS}, model_key, body_color`)
+      .select(appearanceColumns)
       .eq("owner_org_id", orgId)
       .eq("is_disposed", false);
+    if (isMissingVehiclePartColors(withAppearance.error)) {
+      withAppearance = await supabase.from("vehicles").select(`${VEHICLE_COLS}, model_key, model_code, body_color`).eq("owner_org_id", orgId).eq("is_disposed", false);
+    }
     if (withAppearance.error) {
       const fallback = await supabase
         .from("vehicles")
@@ -70,6 +75,9 @@ export async function GET(req: NextRequest) {
     /** migration 158: parked=日報の駐車申告。列が無い旧環境では undefined */
     kind?: string | null;
     place_name?: string | null;
+    /** migration 170: 端末の測位から来た行だけに入る。未適用の環境では undefined */
+    accuracy_m?: number | string | null;
+    detected_by?: string | null;
   };
   type SessionRow = {
     vehicle_id: string;
@@ -179,6 +187,10 @@ export async function GET(req: NextRequest) {
     note: string | null;
     /** 日報の駐車申告なら場所名（登録車庫名 or 別の場所の名前） */
     placeName: string | null;
+    /** 端末の測位の水平精度（m）。手動配置・拠点の代表点は null */
+    accuracyM: number | null;
+    /** session_end / stop / motion。手動の申告は null */
+    detectedBy: string | null;
   };
   /** 最新が座標なしの駐車申告（「別の場所」）の車。地図には置かず、名前と日時だけ返す */
   type ParkedWithoutCoords = { at: string; placeName: string | null; recordedBy: string | null };
@@ -199,6 +211,9 @@ export async function GET(req: NextRequest) {
       recordedBy: p.recorded_by ?? null,
       note: p.note ?? null,
       placeName: p.kind === "parked" ? (p.place_name ?? null) : null,
+      // numeric は文字列で返ることがある
+      accuracyM: p.accuracy_m == null ? null : Number(p.accuracy_m),
+      detectedBy: p.detected_by ?? null,
     });
   }
 
@@ -227,6 +242,8 @@ export async function GET(req: NextRequest) {
         recordedBy: (s.recorded_by as string | null) ?? null,
         note: null,
         placeName: null,
+        accuracyM: null,
+        detectedBy: null,
       });
     }
   }
@@ -260,6 +277,8 @@ export async function GET(req: NextRequest) {
             placedBy: p.recordedBy ? (driverNameById.get(p.recordedBy) ?? "") : "",
             note: p.note,
             placeName: p.placeName,
+            accuracyM: Number.isFinite(p.accuracyM) ? p.accuracyM : null,
+            detectedBy: p.detectedBy,
             // 互換のため従来キーも残す（FleetMapCard / FleetMapBoard が参照している）
             kind: p.source === "punch" ? "checkin" : p.source,
             sessionStatus: s?.open ? "open" : "closed",
@@ -278,7 +297,7 @@ export async function GET(req: NextRequest) {
   const plateModelUrls = await signPlateModels(
     supabase,
     orgId,
-    items.map((v) => String((v as { id?: unknown }).id ?? "")).filter(Boolean),
+    items as unknown as PlateVehicle[],
   );
 
   return NextResponse.json({ vehicles: items, asOf, historyNeighbors, plateModelUrls });

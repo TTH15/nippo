@@ -13,11 +13,13 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { PostSubmitView, type SubmitScreen } from "@/lib/components/PostSubmitView";
+import { LoginSetupPrompt } from "@/lib/components/LoginSetupPrompt";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 import { evaluateMeter } from "./submitFormUtils";
 import { EMPTY_PARKING_CHOICE, ParkingReportField, parkingChoiceError, type ParkingChoice } from "./ParkingReportField";
+import ReportSourceImageField from "./ReportSourceImageField";
 import type { DriverIdentity, SubmitVehicle as Vehicle, UnitDef, ShiftForm, ValueMap, ParkingPlaceOption, ParkingReport } from "@repo/core/types";
 import { formatMonthDayJP } from "@repo/core/logic/calendar";
 import { computeOilStatus, type OilLevel } from "@repo/core/logic/oilChange";
@@ -318,6 +320,8 @@ export default function SubmitPageClientV2() {
     <div className="max-w-md mx-auto px-4 py-6 space-y-5">
       <h1 className="text-lg font-semibold text-slate-900">日報入力</h1>
 
+      <LoginSetupPrompt />
+
       {deadlineReminder && (
         <div
           role="alert"
@@ -524,6 +528,11 @@ export default function SubmitPageClientV2() {
             );
           })}
         </div>
+      )}
+
+      {/* 配完表などの原本画像。件数の手入力は従来どおりで、原本は別に残す（RIMG-2） */}
+      {shifts.length > 0 && (
+        <ReportSourceImageField reportDate={reportFormDateStr} courseId={shifts[0]?.courseId ?? null} />
       )}
 
       {/* 車の置き場所（使用車両を選んだときだけ）。送信ボタンの手前に置く */}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
+import { belongsToOrg } from "@/server/db/adminResourceScope";
 import { supabase } from "@/server/db/client";
 import { computeDriverAutoPayout } from "@/server/billing/driverPayout";
 import { loadDriverLease, loadCourseDailyLease, computeLeaseDeduction, leaseDailyRateForCourse } from "@/server/billing/driverLease";
@@ -74,6 +75,11 @@ export async function GET(req: NextRequest) {
   if (!driverId) {
     return NextResponse.json({ error: "driver_id is required" }, { status: 400 });
   }
+  // ★driver_id はクエリ由来。経費3表は org 列を持たない（migration 176 で追加・移行中）ので、
+  //   ここで所属を確かめないと他社のドライバーの経費・金額が読めてしまう。
+  if (!(await belongsToOrg("drivers", driverId, orgId))) {
+    return NextResponse.json({ error: "対象のドライバーが見つかりません。" }, { status: 404 });
+  }
 
   const { month, startDate, endDate } = getMonthRange(monthParam);
 
@@ -85,12 +91,14 @@ export async function GET(req: NextRequest) {
     loadDriverLease(supabase, driverId, startDate, endDate),
     loadCourseDailyLease(supabase, orgId),
     supabase
+      // tenant-scope-ok: 直上の belongsToOrg で自社のドライバーと確認済みの driverId に固定
       .from("driver_ad_hoc_expenses")
       .select("month, name, amount, created_at, sales_log_entry_id, sales_log_entries(log_date)")
       .eq("driver_id", driverId)
       .eq("month", month)
       .order("created_at", { ascending: true }),
     supabase
+      // tenant-scope-ok: 直上の belongsToOrg で自社のドライバーと確認済みの driverId に固定
       .from("driver_fixed_expenses")
       .select("id, name, amount, cycle, valid_from, valid_to")
       .eq("driver_id", driverId)
@@ -98,6 +106,7 @@ export async function GET(req: NextRequest) {
       .lte("valid_from", endDate)
       .or(`valid_to.is.null,valid_to.gte.${startDate}`),
     supabase
+      // tenant-scope-ok: 直上の belongsToOrg で自社のドライバーと確認済みの driverId に固定
       .from("driver_optional_expenses")
       .select("id, name, amount")
       .eq("driver_id", driverId)

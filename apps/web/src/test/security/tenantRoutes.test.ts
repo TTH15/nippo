@@ -8,8 +8,14 @@ vi.mock("@/server/auth", () => ({
   isAuthError: (v: unknown) => v instanceof Response,
 }));
 vi.mock("@/server/db/tenant", () => ({ resolveOrgId: async () => "a" }));
+vi.mock("@/server/afterSafely", () => ({ afterSafely: vi.fn() }));
 vi.mock("@/server/aggregation/rateSnapshot", () => ({ captureReportRateSnapshots: h.snapshots }));
-vi.mock("@/server/db/client", () => ({ supabase: { from: (table: string) => {
+vi.mock("@/server/db/client", () => ({ supabase: { rpc: async (name: string, args: any) => {
+  if (name !== "save_vehicle_with_drivers") throw new Error("Unexpected RPC");
+  const row = h.tables.vehicles.find(v => v.id === args.p_vehicle_id && v.owner_org_id === args.p_org_id);
+  if (!row) return { data: null, error: { code: "P0002" } };
+  h.mutations.push("vehicles"); Object.assign(row, args.p_patch); return { data: row, error: null };
+}, from: (table: string) => {
   let mode = "select", payload: any, single = false;
   const filters: ((r: any) => boolean)[] = [];
   const q: any = {
@@ -40,6 +46,8 @@ import { POST as dailyApprove } from "@/app/api/admin/daily/approve/route";
 import { POST as dailyReject } from "@/app/api/admin/daily/reject/route";
 import { POST as attendance } from "@/app/api/admin/attendance/[id]/route";
 import { GET as attendanceList } from "@/app/api/admin/attendance/route";
+import { GET as checkVehicleNumber } from "@/app/api/admin/vehicles/check-number/route";
+import { PUT as updateVehicle } from "@/app/api/admin/vehicles/[id]/route";
 import { GET as vehicleDetail } from "@/app/api/admin/vehicles/[id]/detail/route";
 import { PATCH as editKind, DELETE as deleteKind } from "@/app/api/admin/report-kinds/[id]/route";
 const req = (body: unknown) => new NextRequest("http://localhost/api/test", { method: "POST", body: JSON.stringify(body) });
@@ -57,6 +65,26 @@ beforeEach(() => {
    vehicle_sessions: [{ id: "b-session", org_id: "b", vehicle_id: "a-vehicle", recorded_by: "b-driver", status: "open", approval_status: "pending" }],
    vehicle_positions: [{ org_id: "a", vehicle_id: "a-vehicle", recorded_by: "b-driver", at: "2026-09-12", lat: 35, lng: 139 }],
  };
+});
+describe("部位別色の保存範囲", () => {
+  const own = "00000000-0000-4000-8000-000000000001", other = "00000000-0000-4000-8000-000000000002";
+  it("自社の部位色を保存・解除し、他社と権限なしの更新を拒否する", async () => {
+    h.tables.vehicles = [{ id: own, owner_org_id: "a" }, { id: other, owner_org_id: "b" }];
+    expect((await updateVehicle(req({ partColors: { hood: "#111111" } }), ctx(own))).status).toBe(200);
+    expect(h.tables.vehicles[0].part_colors).toEqual({ hood: "#111111" });
+    expect((await updateVehicle(req({ partColors: {} }), ctx(own))).status).toBe(200);
+    expect(h.tables.vehicles[0].part_colors).toEqual({});
+    h.mutations = [];
+    expect((await updateVehicle(req({ partColors: {} }), ctx(other))).status).toBe(404);
+    h.denied = true;
+    expect((await updateVehicle(req({ partColors: {} }), ctx(own))).status).toBe(403);
+    expect(h.mutations).toEqual([]);
+  });
+  it("不正な部位や色はDB更新前に拒否する", async () => {
+    h.tables.vehicles = [{ id: own, owner_org_id: "a" }];
+    for (const partColors of [{ hood: "red" }, { roof: "#111111" }, null, []]) expect((await updateVehicle(req({ partColors }), ctx(own))).status).toBe(400);
+    expect(h.mutations).toEqual([]);
+  });
 });
 describe("会社をまたぐID指定", () => {
   it.each([approve, reject])("他社・存在しない諸報告を404にし、経費・車両を変更しない", async run => {
@@ -133,5 +161,21 @@ describe("会社をまたぐID指定", () => {
   it("権限なしはDBに到達しない", async () => {
     h.denied = true;
     expect((await approve(req({ id: "a-report" }))).status).toBe(403); expect(h.mutations).toEqual([]);
+  });
+});
+
+
+describe("車検証のナンバー確認", () => {
+  it("同じ番号の他社車両は返さず、権限なしは403にする", async () => {
+    const number = { number_prefix: "大阪", number_class: "480", number_hiragana: "り", number_numeric: "1234", is_disposed: false };
+    h.tables.vehicles = ["a", "b"].map(org => ({ ...number, id: `${org}-vehicle`, owner_org_id: org }));
+    const query = new URLSearchParams({ numberPrefix: "大阪", numberClass: "480", numberHiragana: "り", numberNumeric: "1234" });
+    const request = new NextRequest(`http://localhost/api/admin/vehicles/check-number?${query}`);
+    const response = await checkVehicleNumber(request);
+    expect(response.status).toBe(200);
+    expect((await response.json()).vehicles.map((v: { id: string }) => v.id)).toEqual(["a-vehicle"]);
+    h.denied = true;
+    expect((await checkVehicleNumber(request)).status).toBe(403);
+    expect(h.mutations).toEqual([]);
   });
 });

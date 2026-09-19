@@ -91,4 +91,24 @@ export type ParkingReport = {
   at?: string | null;
   /** 再送で二重登録しないための識別子（フォームごとに1つ） */
   clientKey: string;
+  /**
+   * 端末が測位した座標。登録車庫を選ばずに座標だけで申告できる（モバイルの自動特定）。
+   * どの車庫かはサーバーが決める。区画は座標からは決めない。
+   */
+  coords?: ParkingCoordsReport | null;
+  /** 座標をどうやって得たか。手動の申告・Web からは付けない */
+  detectedBy?: ParkingDetectionSource | null;
 };
+
+/** 端末の測位。設計: docs/design/mobile-parking-auto-detect.md §2-1 */
+export type ParkingCoordsReport = {
+  lat: number;
+  lng: number;
+  /** 水平精度（m）。取れなければ省略（「精度が良い」とは扱わない） */
+  accuracyM?: number | null;
+  /** 端末が測位した時刻（ISO）。送信時刻・対象日とは別に記録する */
+  fixAt?: string | null;
+};
+
+/** session_end=業務終了の操作 / stop=停車の継続 / motion=降車らしい活動変化 */
+export type ParkingDetectionSource = "session_end" | "stop" | "motion";

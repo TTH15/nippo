@@ -19,6 +19,8 @@ interface Props {
   open: boolean;
   canWrite: boolean;
   onClose: () => void;
+  /** 未保存の編集があるか。タブでまとめた親が閉じる操作を止められるようにする */
+  onDirtyChange?: (dirty: boolean) => void;
   /** 親モーダル（タブ）に埋め込む場合はオーバーレイ/カードを描かない。 */
   embedded?: boolean;
 }
@@ -128,7 +130,19 @@ function DayInput({
   );
 }
 
-export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, embedded = false }: Props) {
+/** 未保存かどうかの比較用。表示のためだけの _key は含めない */
+function rulesSnapshot(rows: readonly RuleRow[]): string {
+  return JSON.stringify(
+    rows.map((r) => [
+      r.name,
+      r.periods.map(({ _key, ...rest }) => { void _key; return rest; }),
+      r.overrides.map(({ _key, ...rest }) => { void _key; return rest; }),
+      [...r.driverIds].sort(),
+    ]),
+  );
+}
+
+export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, embedded = false, onDirtyChange }: Props) {
   // SWR でキャッシュし、モーダルを開き直すたびのローディングをなくす。
   const apiKey = open || embedded ? "/api/admin/shift-deadlines" : null;
   const { data, isInitialLoading, error: loadError, refresh } =
@@ -144,6 +158,8 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   // 折りたたみ編集: 展開中（編集モード）のルール key 集合。閲覧時はサマリのみ表示。
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // 取得時点の内容。ここから変わっていれば未保存
+  const [savedSnapshot, setSavedSnapshot] = useState("");
   const toggleExpand = (key: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -170,6 +186,16 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
     );
     setSeeded(true);
   }, [data, seeded]);
+
+  // 取得直後の内容を記録し、以後の編集を未保存として親へ知らせる
+  useLayoutEffect(() => {
+    if (!seeded) return;
+    setSavedSnapshot((current) => (current === "" ? rulesSnapshot(rules) : current));
+  }, [seeded, rules]);
+  useEffect(() => {
+    if (!seeded || savedSnapshot === "") return;
+    onDirtyChange?.(rulesSnapshot(rules) !== savedSnapshot);
+  }, [seeded, rules, savedSnapshot, onDirtyChange]);
 
   if (!open && !embedded) return null;
 
@@ -268,7 +294,12 @@ export default function ShiftDeadlineSettingsModal({ open, canWrite, onClose, em
       // 保存後はキャッシュを最新化（次に開いたとき保存内容を反映）。
       // 保存は確定済みなので待たずに閉じる。
       void refresh();
-      onClose();
+      // 保存済み＝未保存ではない。閉じるときに確認が出ないようにする
+      setSavedSnapshot(rulesSnapshot(rules));
+      onDirtyChange?.(false);
+      // タブに埋め込んだときは閉じない（他のタブを続けて触れるように。
+      // 単独モーダルとして開いたときは従来どおり閉じる）
+      if (!embedded) onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {

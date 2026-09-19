@@ -21,7 +21,9 @@ import { readFileSync } from "node:fs";
 import { NodeIO, VertexLayout } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 
-const [input, output] = process.argv.slice(2);
+import { applyVehiclePlateUV } from "./lib/vehicle-plate-uv.mjs";
+
+const [input, output, ...options] = process.argv.slice(2);
 if (!input || !output) {
   console.error("使い方: node scripts/finish-glb-for-mapbox.mjs <入力.glb> <出力.glb>");
   process.exit(1);
@@ -30,6 +32,11 @@ if (!input || !output) {
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).setVertexLayout(VertexLayout.SEPARATE);
 const doc = await io.read(input);
 const root = doc.getRoot();
+// 写真仕様の黒ボンネットなど、車体色で塗り替えない塗装を区別する。
+for (const option of options.filter(o => o.startsWith("--fixed-paint="))) {
+  const name = option.slice("--fixed-paint=".length);
+  for (const material of root.listMaterials()) if (material.getName() === name) material.setName(`Fixed ${name}`);
+}
 
 // プリミティブごとに頂点データを独立させる。
 // Mapbox の model ローダーはアクセサを共有した複数プリミティブを読めず、
@@ -69,6 +76,7 @@ for (const acc of root.listAccessors()) {
   if (acc.listParents().length <= 1) acc.dispose();
 }
 
+applyVehiclePlateUV(doc);
 await io.write(output, doc);
 
 let tris = 0;

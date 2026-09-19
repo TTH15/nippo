@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data: report } = await supabase
+    // tenant-scope-ok: driver_identities で本人（user.driverId）のものと確認済みの driverIdentityId に固定
     .from("daily_reports")
     .select("*")
     .eq("driver_identity_id", driverIdentityId)
@@ -42,6 +43,7 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   const { data: courseRows } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("driver_courses")
     .select("course_id")
     .eq("driver_identity_id", driverIdentityId);
@@ -55,6 +57,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data: shifts } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("shifts")
     .select("course_id")
     .eq("shift_date", reportDate)

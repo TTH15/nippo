@@ -13,6 +13,8 @@ export type Profile = {
   phoneVerified: boolean;
   /** この identity に登録済みの Passkey が1件以上あるか */
   hasPasskey: boolean;
+  /** 移行前からPINを持つ本人のみ変更可。未設定の場合は非表示にする。 */
+  canChangePin?: boolean;
   bankName: string;
   bankNo: string;
   bankHolder: string;

@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
     if (loaned) {
       // 紐付け済みのシフトがある日に貸出中へ切り替えるのは矛盾するため弾く。
       const { data: assigned, error: assignedError } = await supabase
+        // tenant-scope-ok: 直上の belongsToOrg で自社の車両と確認済みの vehicleId に固定
         .from("shifts")
         .select("id")
         .eq("vehicle_id", vehicleId)

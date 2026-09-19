@@ -3,6 +3,7 @@ import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { adminMutationError, belongsToOrg, isDateOnly, isUuid } from "@/server/db/adminResourceScope";
+import { isMissingOrgColumn } from "@/server/db/orgColumn";
 import { logShiftChange } from "@/server/shiftLog";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
       if (courses.error || drivers.error) throw courses.error ?? drivers.error;
       const courseIds = (courses.data ?? []).map(c => c.id), driverIds = (drivers.data ?? []).map(d => d.id);
       if (!courseIds.length || !driverIds.length) return NextResponse.json({ count: 0 });
+      // tenant-scope-ok: courseIds / driverIds は自社の courses・drivers（.eq("org_id", orgId)）から作った集合
       const { data, error } = await supabase.from("shifts").select("driver_id")
         .in("course_id", courseIds).in("driver_id", driverIds).gte("shift_date", startDate).lte("shift_date", endDate);
       if (error) throw error;
@@ -45,6 +47,7 @@ export async function GET(req: NextRequest) {
     const courseIds = courses.map(c => c.id), driverIds = members.map(d => d.id), vehicleIds = vehicles.map(v => v.id);
     const driverById = new Map(members.map(d => [d.id, d]));
     const fleetById = new Map(vehicles.map(v => [v.id, v]));
+    // tenant-scope-ok: courseIds / driverIds は自社の courses・drivers（.eq("org_id", orgId)）から作った集合
     const shiftsResult = courseIds.length ? await supabase.from("shifts")
       .select("id, shift_date, course_id, cycle_no, slot, driver_id, vehicle_id, uses_external_vehicle, meeting_place, meeting_time, arrival_time, end_time")
       .in("course_id", courseIds).gte("shift_date", startDate).lte("shift_date", endDate) : { data: [], error: null };
@@ -62,11 +65,14 @@ export async function GET(req: NextRequest) {
     const results = await Promise.all([
       driverIds.length && vehicleIds.length ? supabase.from("vehicle_drivers").select("driver_id, vehicle_id").in("driver_id", driverIds).in("vehicle_id", vehicleIds) : empty,
       vehicleIds.length ? supabase.from("vehicle_loans").select("vehicle_id, loan_date, note").in("vehicle_id", vehicleIds).gte("loan_date", startDate).lte("loan_date", endDate) : empty,
+      // tenant-scope-ok: driverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       driverIds.length ? supabase.from("shift_requests").select("*").in("driver_id", driverIds).gte("request_date", startDate).lte("request_date", endDate) : empty,
-      // 便はcarrierに属す共有マスター（会社固有の個人データではない）。
+      // tenant-scope-ok: 便は共有マスタ。元請→下請へ設定が伝わる構造を保つため全社で見える（編集は owner_org_id の会社だけ）
       supabase.from("shift_request_slots").select("id, name, start_time, end_time").eq("active", true).order("sort_order"),
+      // tenant-scope-ok: courseIds / driverIds は自社の courses・drivers（.eq("org_id", orgId)）から作った集合
       courseIds.length && driverIds.length ? supabase.from("shifts").select("driver_id, course_id, shift_date").in("course_id", courseIds).in("driver_id", driverIds).gte("shift_date", recent.toISOString().slice(0, 10)).lt("shift_date", startDate) : empty,
       // 区分の表示用。自社のdriver集合で絞り、報酬権限のない閲覧者へ金額を返さない。
+      // tenant-scope-ok: driverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       driverIds.length ? supabase.from("driver_leases").select("id, driver_id, mode, valid_from, valid_to")
         .in("driver_id", driverIds).lte("valid_from", endDate).or(`valid_to.is.null,valid_to.gte.${startDate}`) : empty,
     ]);
@@ -95,12 +101,15 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { shiftDate, courseId, driverId, slot, cycleNo } = body as {
+    const { shiftDate, courseId, driverId, slot, cycleNo, expectedDriverId, hasExpectation } = body as {
       shiftDate?: string;
       courseId?: string;
       driverId?: string | null;
       slot?: number;
       cycleNo?: number;
+      /** 画面で見ていた現在値。これと違っていれば他の人が変えたということ */
+      expectedDriverId?: string | null;
+      hasExpectation?: boolean;
     };
 
     if (!isDateOnly(shiftDate) || !isUuid(courseId) || (driverId != null && !isUuid(driverId))) {
@@ -113,9 +122,51 @@ export async function POST(req: NextRequest) {
 
     const slotNumber = Number.isFinite(slot) && Number(slot) >= 1 ? Math.floor(Number(slot)) : 1;
     const cycleNumber = Number.isInteger(cycleNo) && Number(cycleNo) >= 0 ? Number(cycleNo) : 0;
+    const expects = hasExpectation === true;
+    if (expects && expectedDriverId != null && !isUuid(expectedDriverId)) {
+      return NextResponse.json({ error: "expectedDriverId が不正です" }, { status: 400 });
+    }
+
+    // 競合検知と監査履歴を1トランザクションで行う RPC（migration 172）。
+    // 未適用の環境では下の従来経路へ落とす（画面は止めない）。
+    {
+      const { data, error } = await supabase.rpc("assign_shift_driver", {
+        p_org_id: user.orgId,
+        p_actor_id: user.driverId,
+        p_date: shiftDate,
+        p_course_id: courseId,
+        p_cycle_no: cycleNumber,
+        p_slot: slotNumber,
+        p_driver_id: driverId || null,
+        p_expect_driver_id: expects ? expectedDriverId ?? null : null,
+        p_expect_present: expects,
+      });
+      if (!error) return NextResponse.json({ shift: data });
+      // 40001 = 読み込み後に他の人が変えた。再取得して確認してもらう
+      if (error.code === "40001") {
+        return NextResponse.json(
+          { error: "別の変更が保存されています。最新の状態を確認してください。", conflict: true },
+          { status: 409 },
+        );
+      }
+      // コース・便・ドライバーが自社の有効なものでない
+      if (error.code === "P0002") {
+        return NextResponse.json({ error: "対象のコース・便・ドライバーが見つかりません。" }, { status: 404 });
+      }
+      // P0001 = 関数が判断した「所属・実行者が不正」
+      if (error.code === "P0001") {
+        return NextResponse.json({ error: "この操作の権限がありません。" }, { status: 403 });
+      }
+      // 関数が無い（migration 172 未適用）／実行権限が無い環境だけ従来経路へ落とす。
+      // メッセージの文面では判定しない（将来 PGRST203 等で黙って競合検知が無効化されるため）
+      const missingFunction = error.code === "PGRST202" || error.code === "42883" || error.code === "42501";
+      if (!missingFunction) throw error;
+      console.error("[shifts] assign_shift_driver を使えないため従来経路で保存します", error.code, error.message);
+    }
 
     // 変更ログ用に変更前の割当を読む（軽い1読取。ログ自体はベストエフォート）。
     const { data: prevRow, error: previousError } = await supabase
+      // tenant-scope-ok: 直上の belongsToOrg で自社のコース・ドライバーと確認済み
       .from("shifts")
       .select("driver_id")
       .eq("shift_date", shiftDate)
@@ -127,6 +178,7 @@ export async function POST(req: NextRequest) {
     if (previousError) throw previousError;
 
     const upsertRow: Record<string, unknown> = {
+      org_id: user.orgId,
       shift_date: shiftDate,
       course_id: courseId,
       cycle_no: cycleNumber,
@@ -141,12 +193,23 @@ export async function POST(req: NextRequest) {
     }
 
     // Upsert
-    const { data, error } = await supabase
+    let { data, error } = await supabase
+      // tenant-scope-ok: upsertRow に org_id: user.orgId（認証済み）を入れている
       .from("shifts")
       // cycle_no は便（migration 136）。便を使わないコースは 0 のままで従来と同じ挙動
       .upsert(upsertRow, { onConflict: "shift_date,course_id,cycle_no,slot" })
       .select()
       .single();
+    if (isMissingOrgColumn(error)) {
+      // migration 175 未適用の環境向けフォールバック（org_id 列がまだ無い）
+      delete upsertRow.org_id;
+      ({ data, error } = await supabase
+        // tenant-scope-ok: 同じ行の退避。migration 175 未適用（org_id 列が無い）環境でのみ通る
+        .from("shifts")
+        .upsert(upsertRow, { onConflict: "shift_date,course_id,cycle_no,slot" })
+        .select()
+        .single());
+    }
 
     if (error) throw error;
 
@@ -157,6 +220,7 @@ export async function POST(req: NextRequest) {
         action: driverId ? "assign_driver" : "clear_driver",
         shiftDate,
         courseId,
+        cycleNo: cycleNumber,
         slot: slotNumber,
         before: { driverId: prevRow?.driver_id ?? null },
         after: { driverId: driverId || null },

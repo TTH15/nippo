@@ -1,8 +1,11 @@
 // 希望休の変更ログ（shift_request_logs）への記録ヘルパー。
 //   ログ失敗は本処理を妨げない best-effort（記録漏れより本機能の継続を優先）。
 import { supabase } from "@/server/db/client";
+import { isMissingOrgColumn, withoutOrgId } from "@/server/db/orgColumn";
 
 export type ShiftLogRow = {
+  // 対象ドライバーの所属。型で必須にして、呼び出し側の入れ忘れを型検査で止める。
+  org_id: string;
   driver_id: string;
   request_date: string;
   slot_id: string | null;
@@ -15,7 +18,12 @@ export type ShiftLogRow = {
 
 export async function insertShiftRequestLogs(rows: ShiftLogRow[]): Promise<void> {
   if (rows.length === 0) return;
-  const { error } = await supabase.from("shift_request_logs").insert(rows);
+  // tenant-scope-ok: ShiftLogRow が org_id 必須。呼び出し側が対象ドライバーの所属を入れている
+  let error = (await supabase.from("shift_request_logs").insert(rows)).error;
+  if (isMissingOrgColumn(error)) {
+    // tenant-scope-ok: 同じ行の退避。migration 174 未適用（org_id 列が無い）環境でのみ通る
+    error = (await supabase.from("shift_request_logs").insert(withoutOrgId(rows))).error;
+  }
   if (error) console.error("[shift_request_logs] insert error", error);
 }
 

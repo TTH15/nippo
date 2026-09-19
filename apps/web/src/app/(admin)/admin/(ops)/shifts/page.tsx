@@ -52,14 +52,13 @@ import { DEFAULT_SHIFT_DISPLAY, SHIFT_DISPLAY_KEY, readShiftDisplay, type ShiftD
 import { ImageExportDialog } from "@/lib/components/ImageExportDialog";
 import { ShiftDriverOrderDialog, type ShiftDriverOrderItem } from "@/lib/components/ShiftDriverOrderDialog";
 import { captureDispatchImage } from "@/lib/captureDispatchImage";
-import { planDispatchImagePages } from "@/lib/dispatchImagePages";
 import ShiftSubmitSettingsModal from "./ShiftSubmitSettingsModal";
 import PendingChangesBar, { PENDING_CHANGES_KEY } from "./PendingChangesBar";
+import ShiftReadinessPanel, { SHIFT_READINESS_KEY } from "./ShiftReadinessPanel";
 import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./ShiftImportModal";
 import PersonalShiftMemoBoard from "./PersonalShiftMemoBoard";
-import { registerJapaneseFont } from "@/lib/pdfJapaneseFont";
-import { PDF_EXPORT_OPTIONS } from "@/lib/pdfExport";
-import { drawShiftPdf, renderShiftCanvas, type ShiftPdfData, type ExCell } from "@/lib/shiftPdf";
+import { ShiftExportDialog } from "./ShiftExportDialog";
+import type { ShiftExportCell, ShiftExportData } from "@/lib/shiftExport/data";
 import type { SpotJob } from "../spot-jobs/types";
 import { shouldShowCycleBadgesForSelection } from "@repo/core/logic/courseCycle";
 import { formatDateSlashWeekdayJP } from "@repo/core/logic/calendar";
@@ -742,8 +741,8 @@ export default function ShiftsPage() {
     message: string;
     detail?: string;
   } | null>(null);
-  const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [shiftExportOpen, setShiftExportOpen] = useState(false);
   // 編集中のセル（date×driverId）。null＝全セル閲覧モード。
   // クリックで開いた1セルだけが編集UI（ポップオーバー）を表示する。
   const [editingCell, setEditingCell] = useState<{ date: string; driverId: string } | null>(null);
@@ -823,6 +822,7 @@ export default function ShiftsPage() {
   const {
     data: shiftsData,
     isInitialLoading,
+    error: shiftsError,
     mutate: mutateShifts,
   } = useApi<{
     courses: Course[];
@@ -934,6 +934,8 @@ export default function ShiftsPage() {
       // 「通知済みの予定が変わったか」も同じタイミングで見直す。
       // 操作の一つひとつではなく、手が止まってからまとめて評価する
       void mutate(PENDING_CHANGES_KEY);
+      // 未解決一覧も同じタイミングで取り直す（不足を直したらその場で消える）
+      void mutate(SHIFT_READINESS_KEY);
     }, 1500);
   }, [mutateShifts]);
 
@@ -1202,6 +1204,22 @@ export default function ShiftsPage() {
     return row?.vehicle_id ?? null;
   };
 
+  /**
+   * その枠についてサーバーが持っている車両。配車の楽観ロックの期待値に使う。
+   * 直前に自分が保存した分は `lastSavedVehicleRef` が覚えているので、
+   * 再取得前に続けて操作しても誤って 409 にならない。
+   */
+  const lastSavedVehicleRef = useRef(new Map<string, string | null>());
+  const vehicleSaveChain = useRef(new Map<string, Promise<unknown>>());
+  const serverVehicleForRow = (date: string, courseId: string, slot: number, cycleNo: number): string | null => {
+    const key = getCellKey(date, courseId, slot, cycleNo);
+    if (lastSavedVehicleRef.current.has(key)) return lastSavedVehicleRef.current.get(key) ?? null;
+    const row = shifts.find(
+      (sh) => sh.shift_date === date && sh.course_id === courseId && (sh.cycle_no ?? 0) === cycleNo && sh.slot === slot,
+    );
+    return row?.vehicle_id ?? null;
+  };
+
   // その日に貸出中の車両 id（date → Set<vehicle_id>）。
   const loanedByDate = useMemo(() => {
     const m = new Map<string, Set<string>>();
@@ -1455,7 +1473,7 @@ export default function ShiftsPage() {
       getCurrentVehicleForDriverOnDate(date, driverId) ??
       lastVehicleByDriverDayRef.current.get(vehicleMemoryKey) ??
       null;
-    void persistAssignment(date, courseId, slot, driverId, cycleNo).then((ok) => {
+    void persistAssignment(date, courseId, slot, driverId, cycleNo, null).then((ok) => {
       if (ok && carriedVehicleId && canDispatch) {
         persistVehicle(date, courseId, slot, carriedVehicleId, false, cycleNo);
         // UI にも即時反映（再取得を待つと「車両なし」に見える時間ができる）
@@ -1556,7 +1574,9 @@ export default function ShiftsPage() {
       });
     }
     // 外したセルを即時保存（driverId=null。車両はサーバー側で連動クリア）
-    for (const placement of cleared) void persistAssignment(date, courseId, placement.slot, null, placement.cycleNo);
+    for (const placement of cleared) {
+      void persistAssignment(date, courseId, placement.slot, null, placement.cycleNo, driverId);
+    }
   };
 
   // ============================================================
@@ -1568,7 +1588,8 @@ export default function ShiftsPage() {
   const [dragSource, setDragSource] = useState<{
     date: string;
     driverId: string;
-    courseIds: string[];
+    /** ドラッグ元の枠（コース×便）。便を落とすと複製先の便が決まらない */
+    frames: { courseId: string; cycleNo: number }[];
   } | null>(null);
   const [dragOverCell, setDragOverCell] = useState<{ date: string; driverId: string } | null>(null);
 
@@ -1581,7 +1602,7 @@ export default function ShiftsPage() {
       const d = drivers.find((x) => x.id === driverId);
       if (!d) return false;
       const allowed = new Set(getDriverCourseIds(d));
-      if (!dragSource.courseIds.some((c) => allowed.has(c))) return false;
+      if (!dragSource.frames.some((f) => allowed.has(f.courseId))) return false;
     }
     return true;
   };
@@ -1590,7 +1611,11 @@ export default function ShiftsPage() {
    * コース割当を対象ドライバー×対象日へ複製する。希望休・担当外・定員満はスキップし、
    * スキップがあった場合のみまとめて通知する（1件ずつダイアログは出さない）。
    */
-  const copyCoursesTo = (srcCourseIds: string[], targetDriverId: string, targetDates: string[]) => {
+  const copyCoursesTo = (
+    srcFrames: { courseId: string; cycleNo: number }[],
+    targetDriverId: string,
+    targetDates: string[],
+  ) => {
     const driver = drivers.find((d) => d.id === targetDriverId);
     if (!driver) return;
     const allowed = new Set(getDriverCourseIds(driver));
@@ -1602,27 +1627,39 @@ export default function ShiftsPage() {
         notes.push(`${formatDate(date)}: 希望休（全休）のためスキップ`);
         continue;
       }
-      for (const courseId of srcCourseIds) {
+      for (const { courseId, cycleNo: srcCycleNo } of srcFrames) {
         const course = courses.find((c) => c.id === courseId);
         if (!course) continue;
         if (!allowed.has(courseId)) {
           notes.push(`${formatDate(date)} ${courseShiftLabel(course)}: 担当可能コースでないためスキップ`);
           continue;
         }
-        // すでに同コースに入っている日は黙ってスキップ（コピーの意図は満たされている）
+        // すでに同じ枠に入っている日は黙ってスキップ（コピーの意図は満たされている）
         if (
           findDriverPlacementsOnDate(localShifts, date, targetDriverId).some(
-            (p) => p.courseId === courseId,
+            (p) => p.courseId === courseId && (p.cycleNo ?? 0) === (course.uses_cycles ? srcCycleNo : 0),
           )
         ) {
           continue;
         }
+        // 複製先の便はドラッグ元と同じ。元の便が無効になっていたら入れられない
+        const activeCycles = activeCourseCycleNos(course);
+        let cycleNo = 0;
+        if (course.uses_cycles) {
+          if (!activeCycles.includes(srcCycleNo)) {
+            notes.push(
+              `${formatDate(date)} ${courseCycleLabel(course, srcCycleNo)}: この便が使えないためスキップ`,
+            );
+            continue;
+          }
+          cycleNo = srcCycleNo;
+        }
         // 一括コピーは黙って増枠しない（増枠はセルからの個別追加で確認モーダルを経由）
-        const maxSlots = slotCountFor(course, date);
+        const maxSlots = slotCountFor(course, date, cycleNo);
         let slot: number | null = null;
         for (let s = 1; s <= maxSlots; s++) {
-          const k = getCellKey(date, courseId, s);
-          const eff = updates.has(k) ? updates.get(k) : getEffectiveIdFromMap(localShifts, date, courseId, s);
+          const k = getCellKey(date, courseId, s, cycleNo);
+          const eff = updates.has(k) ? updates.get(k) : getEffectiveIdFromMap(localShifts, date, courseId, s, cycleNo);
           if (!eff) {
             slot = s;
             break;
@@ -1634,9 +1671,9 @@ export default function ShiftsPage() {
           );
           continue;
         }
-        updates.set(getCellKey(date, courseId, slot), targetDriverId);
+        updates.set(getCellKey(date, courseId, slot, cycleNo), targetDriverId);
         applied++;
-        void persistAssignment(date, courseId, slot, targetDriverId);
+        void persistAssignment(date, courseId, slot, targetDriverId, cycleNo, null);
       }
     }
     if (updates.size > 0) {
@@ -1649,17 +1686,19 @@ export default function ShiftsPage() {
     if (notes.length > 0) {
       setErrorState({
         title: "一部コピーできませんでした",
-        message: `${applied} 件コピーしました。以下はスキップしています。\n\n${notes.join("\n")}`,
+        // 保存は投げっぱなしなので、ここで言えるのは「送った件数」まで。
+        // 保存が失敗すれば別途エラーが出て盤面が取り直される
+        message: `${applied} 件を反映しています。以下はスキップしています。\n\n${notes.join("\n")}`,
       });
     }
   };
 
   const handleCellDrop = (targetDate: string, targetDriverId: string) => {
     if (!dragSource) return;
-    const { date: srcDate, driverId: srcDriverId, courseIds } = dragSource;
+    const { date: srcDate, driverId: srcDriverId, frames } = dragSource;
     setDragSource(null);
     setDragOverCell(null);
-    if (courseIds.length === 0) return;
+    if (frames.length === 0) return;
     if (targetDriverId === srcDriverId) {
       // 横フィル: ドラッグ元〜ドロップ位置の全日（元日を除く）へ連日コピー
       const si = displayDates.indexOf(srcDate);
@@ -1667,9 +1706,9 @@ export default function ShiftsPage() {
       if (si < 0 || ti < 0) return;
       const [a, b] = si < ti ? [si, ti] : [ti, si];
       const dates = displayDates.slice(a, b + 1).filter((d) => d !== srcDate);
-      copyCoursesTo(courseIds, srcDriverId, dates);
+      copyCoursesTo(frames, srcDriverId, dates);
     } else {
-      copyCoursesTo(courseIds, targetDriverId, [targetDate]);
+      copyCoursesTo(frames, targetDriverId, [targetDate]);
     }
   };
 
@@ -1678,18 +1717,61 @@ export default function ShiftsPage() {
    * 値は呼び出し側が明示指定（setState 直後で state が未反映のため）。
    * 失敗時は最新状態を再取得して巻き戻す。成功可否を返す（車両引き継ぎの連鎖用）。
    */
+  // 同じセルへの保存は順番に流す。「外す→別の人を入れる」を投げっぱなしにすると
+  // 到達順が入れ替わり、誰も同時編集していないのに 409 が出る（O-3 の誤検知）。
+  // 先行が失敗したら世代を上げ、待たせていた保存は**古い期待値のまま送らずに捨てる**
+  // （失敗時の load() で盤面が戻るので、そのまま送ると必ず 409 が続く）。
+  const cellSaveQueue = useRef(new Map<string, { chain: Promise<unknown>; generation: number }>());
+
   const persistAssignment = (
     date: string,
     courseId: string,
     slot: number,
     driverId: string | null,
     cycleNo = 0,
+    // 画面で見ていたそのセルの値。サーバーはこれと違っていれば保存せず 409 を返す
+    // （2人が同じセルを触ったときの後勝ちを防ぐ・O-3）
+    expectedDriverId: string | null = null,
   ): Promise<boolean> => {
     if (!canWrite) return Promise.resolve(false);
+    const cellKey = getCellKey(date, courseId, slot, cycleNo);
+    const entry = cellSaveQueue.current.get(cellKey) ?? { chain: Promise.resolve(), generation: 0 };
+    const generation = entry.generation;
+    // 待っている間も「保存中」を出す（送信開始まで無表示だと、未送信のまま離脱しうる）
     setAutoSaving((n) => n + 1);
+    const run = entry.chain
+      .then(async () => {
+        if ((cellSaveQueue.current.get(cellKey)?.generation ?? 0) !== generation) {
+          // 先行が失敗して捨てた分。送らないが、盤面の楽観表示は必ず取り直す
+          scheduleRevalidate();
+          return false;
+        }
+        const ok = await sendAssignment(date, courseId, slot, driverId, cycleNo, expectedDriverId);
+        if (!ok) {
+          const current = cellSaveQueue.current.get(cellKey);
+          if (current) cellSaveQueue.current.set(cellKey, { ...current, generation: current.generation + 1 });
+        }
+        return ok;
+      })
+      .finally(() => setAutoSaving((n) => Math.max(0, n - 1)));
+    cellSaveQueue.current.set(cellKey, { chain: run.catch(() => undefined), generation });
+    return run;
+  };
+
+  const sendAssignment = (
+    date: string,
+    courseId: string,
+    slot: number,
+    driverId: string | null,
+    cycleNo: number,
+    expectedDriverId: string | null,
+  ): Promise<boolean> => {
     return apiFetch("/api/admin/shifts", {
       method: "POST",
-      body: JSON.stringify({ shiftDate: date, courseId, cycleNo, slot, driverId }),
+      body: JSON.stringify({
+        shiftDate: date, courseId, cycleNo, slot, driverId,
+        expectedDriverId, hasExpectation: true,
+      }),
     })
       .then(() => {
         scheduleRevalidate();
@@ -1697,16 +1779,24 @@ export default function ShiftsPage() {
       })
       .catch((e) => {
         console.error(e);
-        setErrorState({
-          title: "自動保存に失敗しました",
-          message:
-            "変更をサーバーに保存できませんでした。最新の状態に戻します。\n通信状況を確認のうえ、もう一度お試しください。",
-          detail: e instanceof Error ? e.message : undefined,
-        });
+        // 他の人が先に変えていた場合は、通信失敗と区別して伝える
+        const conflict = e instanceof Error && e.message.includes("別の変更が保存されています");
+        setErrorState(
+          conflict
+            ? {
+                title: "別の変更が保存されています",
+                message: "この枠は他の人が先に変更しました。最新の状態に戻します。内容を確認してからやり直してください。",
+              }
+            : {
+                title: "自動保存に失敗しました",
+                message:
+                  "変更をサーバーに保存できませんでした。最新の状態に戻します。\n通信状況を確認のうえ、もう一度お試しください。",
+                detail: e instanceof Error ? e.message : undefined,
+              },
+        );
         void load({ silent: true });
         return false;
-      })
-      .finally(() => setAutoSaving((n) => Math.max(0, n - 1)));
+      });
   };
 
   /**
@@ -1722,15 +1812,33 @@ export default function ShiftsPage() {
     cycleNo = 0,
   ) => {
     if (!canDispatch) return;
+    // 画面が見ている値を、送る前に確定させる（送信が遅れても取り違えない）
+    const expectedVehicleId = serverVehicleForRow(date, courseId, slot, cycleNo);
+    const cellKey = getCellKey(date, courseId, slot, cycleNo);
     setAutoSaving((n) => n + 1);
-    apiFetch("/api/admin/shifts/vehicle", {
+    const previous = vehicleSaveChain.current.get(cellKey) ?? Promise.resolve();
+    const run = previous.then(() => apiFetch("/api/admin/shifts/vehicle", {
       method: "POST",
-      body: JSON.stringify({ shiftDate: date, courseId, cycleNo, slot, vehicleId, usesExternalVehicle: usesExternal ?? false }),
-    })
-      .then(() => scheduleRevalidate())
+      body: JSON.stringify({
+        shiftDate: date, courseId, cycleNo, slot, vehicleId,
+        usesExternalVehicle: usesExternal ?? false,
+        expectedVehicleId, hasExpectation: true,
+      }),
+    }))
+      .then(() => {
+        // 次の保存はこの値を期待値にする（再取得を待たずに続けて操作できる）
+        lastSavedVehicleRef.current.set(cellKey, usesExternal ? null : vehicleId);
+        scheduleRevalidate();
+      })
       .catch((e) => {
         console.error(e);
-        setErrorState({
+        // 期待値がずれた＝他の人が先に変えた。取り直して基準を捨てる
+        lastSavedVehicleRef.current.delete(cellKey);
+        const conflict = e instanceof Error && e.message.includes("別の変更が保存されています");
+        setErrorState(conflict ? {
+          title: "別の変更が保存されています",
+          message: "この枠の車両は他の人が先に変更しました。最新の状態に戻します。内容を確認してからやり直してください。",
+        } : {
           title: "車両の保存に失敗しました",
           message:
             "車両の割当をサーバーに保存できませんでした。最新の状態に戻します。\n通信状況を確認のうえ、もう一度お試しください。",
@@ -1739,6 +1847,8 @@ export default function ShiftsPage() {
         void load({ silent: true });
       })
       .finally(() => setAutoSaving((n) => Math.max(0, n - 1)));
+    // 同じ枠への配車は順番に流す（到達順が入れ替わると誤って 409 になる）
+    vehicleSaveChain.current.set(cellKey, run.catch(() => undefined));
   };
 
   /**
@@ -1845,29 +1955,35 @@ export default function ShiftsPage() {
   };
 
   /** その日に休みの人（その日いずれのコースにも割り当てられていない人）の名前リスト（コース未登録ドライバーは対象外） */
-  const getOffDriverNamesOnDate = (date: string): string[] => {
-    const assignedOnDate = new Set<string>();
+  /**
+   * その日いずれかの枠に入っているドライバー。
+   * ★便（cycle_no）を必ず見る。0 固定にすると C1/C2 のコースで誰も拾えず、
+   *   稼働している人まで「未割当」に出る（2026-09-19 にエクスポートで発覚）。
+   */
+  const assignedDriverIdsOnDate = (date: string): Set<string> => {
+    const assigned = new Set<string>();
     courses.forEach((course) => {
-      const maxSlots = slotCountFor(course, date);
-      for (let slot = 1; slot <= maxSlots; slot++) {
-        const driverId = getCurrentDriverId(date, course.id, slot);
-        if (driverId) assignedOnDate.add(driverId);
+      const cycleNos = activeCourseCycleNos(course);
+      for (const cycleNo of cycleNos.length ? cycleNos : [0]) {
+        const maxSlots = slotCountFor(course, date, cycleNo);
+        for (let slot = 1; slot <= maxSlots; slot++) {
+          const driverId = getCurrentDriverId(date, course.id, slot, cycleNo);
+          if (driverId) assigned.add(driverId);
+        }
       }
     });
+    return assigned;
+  };
+
+  const getOffDriverNamesOnDate = (date: string): string[] => {
+    const assignedOnDate = assignedDriverIdsOnDate(date);
     // エクスポートの「未割当」欄。表の行順（名簿の No. 順）と同じ並びで出す
     return driversWithCourses.filter((d) => !assignedOnDate.has(d.id)).map((d) => getDisplayName(d));
   };
 
   /** その日に未割当（いずれのコースにも入っていない）ドライバー実体。名簿と同じ No. 順。 */
   const getUnassignedDriversOnDate = (date: string): Driver[] => {
-    const assignedOnDate = new Set<string>();
-    courses.forEach((course) => {
-      const maxSlots = slotCountFor(course, date);
-      for (let slot = 1; slot <= maxSlots; slot++) {
-        const driverId = getCurrentDriverId(date, course.id, slot);
-        if (driverId) assignedOnDate.add(driverId);
-      }
-    });
+    const assignedOnDate = assignedDriverIdsOnDate(date);
     return driversWithCourses.filter((d) => !assignedOnDate.has(d.id));
   };
 
@@ -2183,18 +2299,23 @@ export default function ShiftsPage() {
     );
   };
 
-  // ベクターPDF用に、エクスポート表の内容を素データへ変換（描画ロジックと分離）。
-  const buildShiftPdfData = (): ShiftPdfData => {
+  // 出力用の素データ。描画（ShiftExportBoard）と画像化（captureShiftImage）で同じものを使う。
+  // 旧 shiftPdf.ts はここでプレートを文字列へ潰していたが、実物を描くため車両のまま持つ。
+  const buildShiftExportData = (): ShiftExportData => {
     const rows = driversWithCourses.map((driver) => {
-      const cells: ExCell[] = displayDates.map((date) => {
+      const cells: ShiftExportCell[] = displayDates.map((date) => {
         if (isDriverOffDay(driver.id, date)) return { kind: "off" };
         const placements = findDriverPlacementsOnDate(localShifts, date, driver.id);
-        const exCourses = placements
-          .map((p) => courses.find((c) => c.id === p.courseId))
-          .filter((c): c is Course => Boolean(c))
-          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-        const chrome = exportDayChrome(date);
-        if (exCourses.length === 0) return { kind: "designated", bg: chrome.cellBg };
+        // 便（cycle_no）まで含めてラベルにする。コース名だけだと C1/C2 が同じ行に見える
+        const entries = placements
+          .map((p) => ({ placement: p, course: courses.find((c) => c.id === p.courseId) }))
+          .filter((e): e is { placement: typeof placements[number]; course: Course } => Boolean(e.course))
+          .sort(
+            (a, b) =>
+              (a.course.sort_order ?? 0) - (b.course.sort_order ?? 0) ||
+              a.placement.cycleNo - b.placement.cycleNo,
+          );
+        if (entries.length === 0) return { kind: "none" };
         const placement = placements[0] ?? null;
         const exVid = getCurrentVehicleForDriverOnDate(date, driver.id);
         const prow = placement
@@ -2202,7 +2323,7 @@ export default function ShiftsPage() {
               (s) => s.shift_date === date && s.course_id === placement.courseId && (s.cycle_no ?? 0) === placement.cycleNo && s.slot === placement.slot,
             )
           : null;
-        const exPlate: VehiclePlateData | null = (() => {
+        const plate: VehiclePlateData | null = (() => {
           if (!exVid) return null;
           const f = fleetById.get(exVid);
           if (f) return f;
@@ -2210,69 +2331,37 @@ export default function ShiftsPage() {
         })();
         return {
           kind: "courses",
-          bg: chrome.cellBg,
-          plate: exPlate ? formatPlateOneLine(exPlate) : "",
-          courses: exCourses.map((c) => ({
-            label: courseShiftLabel(c),
+          plate,
+          externalVehicle: prow?.uses_external_vehicle === true,
+          courses: entries.map(({ placement: p, course: c }) => ({
+            label: courseCycleLabel(c, p.cycleNo),
             color: c.color,
             slotLabel: slotLabelById(c.slot_id) ?? undefined,
           })),
         };
       });
-      return { name: getDisplayName(driver), cells };
+      return {
+        driverId: driver.id,
+        name: getDisplayName(driver),
+        // 契約区分は期間の初日で判定する（期間内に変わる人は初日側に寄せる）
+        leaseMode: shiftLeaseMode(leaseIndex, driver.id, displayDates[0] ?? ""),
+        cells,
+      };
     });
     return {
-      title: `シフト表（${yearMonth.year}年${yearMonth.month}月 ${period === "first" ? "前半" : "後半"}）`,
-      dateLabels: displayDates.map((d) => formatDate(d)),
-      dayChrome: displayDates.map((d) => exportDayChrome(d)),
+      title: `シフト表（${yearMonth.year}年${yearMonth.month}月）`,
+      subtitle: "",
+      days: displayDates.map((d) => {
+        const chrome = exportDayChrome(d);
+        return { iso: d, label: formatDate(d), headBg: chrome.headBg, headColor: chrome.headColor, cellBg: chrome.cellBg };
+      }),
       rows,
-      offLabel: "未割当",
-      offRow: displayDates.map((d) => getOffDriverNamesOnDate(d).join("、")),
+      unassigned: displayDates.map((d) => getOffDriverNamesOnDate(d).join("、")),
     };
   };
 
-  const handleExport = async (format: "png" | "pdf") => {
-    if (exporting) return;
-    try {
-      setExporting(true);
-      const fileBase = `shifts_${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}_${period}`;
-
-      if (format === "pdf") {
-        // ベクターPDF（jsPDF で表を再描画。日本語フォントを埋め込む）。
-        const { jsPDF } = await import("jspdf");
-        const pdf = new jsPDF({ ...PDF_EXPORT_OPTIONS, orientation: "landscape", unit: "pt", format: "a4" });
-        const fontName = await registerJapaneseFont(pdf);
-        drawShiftPdf(pdf, buildShiftPdfData(), fontName);
-        pdf.save(`${fileBase}.pdf`);
-        return;
-      }
-
-      // PNG も PDF と同じ描画ロジックで高精細に生成（html2canvas は使わず、見た目を完全一致）。
-      const canvas = await renderShiftCanvas(buildShiftPdfData());
-      const a = document.createElement("a");
-      a.href = canvas.toDataURL("image/png");
-      a.download = `${fileBase}.png`;
-      a.click();
-    } catch (e) {
-      console.error(e);
-      setErrorState({
-        title: "エクスポートに失敗しました",
-        message: "シフト画面のエクスポート中にエラーが発生しました。もう一度お試しください。",
-      });
-    } finally {
-      setExporting(false);
-    }
-  };
 
   const exportRows = getDayRows(activeMobileDate).filter(row => mobileFilter === "all" || (row.placements.length > 0) === (mobileFilter === "working"));
-  const exportDayGroups = shiftLeaseGroups(exportRows, leaseIndex, activeMobileDate, "all", groupByLease);
-  const exportGroupKeys = [
-    ...(spotJobsByDate.get(activeMobileDate) ?? []).map(() => "spot-jobs"),
-    ...exportDayGroups.flatMap(group => group.drivers.map(row => group.mode
-      ? `lease:${group.mode}`
-      : `course:${row.assignedCourses[0]?.course.id ?? "unassigned"}`)),
-  ];
-  const exportPageCount = planDispatchImagePages(exportGroupKeys).length;
   const driverOrderItems: ShiftDriverOrderItem[] = getDayRows(activeMobileDate, "all").map(row => ({
     id: row.driver.id,
     name: getDisplayName(row.driver),
@@ -2293,14 +2382,13 @@ export default function ShiftsPage() {
     }));
     void mutateShifts();
   };
-  const generateDayImage = useCallback(async (page: number) => {
+  const generateDayImage = useCallback(async () => {
     if (!imageExportListRef.current || loading) throw new Error("シフトの読み込み完了後に再度お試しください。");
     return captureDispatchImage(imageExportListRef.current, {
       title: formatDateSlashWeekdayJP(activeMobileDate),
       subtitle: `${mobileFilter === "all" ? "全員" : mobileFilter === "working" ? "稼働" : "未割当"} ${exportRows.length}人 · ${leaseIndex ? leaseFilter === "all" ? "すべての契約" : SHIFT_LEASE_NAMES[leaseFilter] : "契約区分未取得"}`,
-      page, pageCount: exportPageCount,
     });
-  }, [activeMobileDate, mobileFilter, exportRows.length, exportPageCount, loading, display, shifts, localShifts, localVehicleByDriverDay, localExternalByDriverDay, spotJobsByDate, leaseIndex, leaseFilter, groupByLease]);
+  }, [activeMobileDate, mobileFilter, exportRows.length, loading, display, shifts, localShifts, localVehicleByDriverDay, localExternalByDriverDay, spotJobsByDate, leaseIndex, leaseFilter, groupByLease]);
   const handleMobileDayExport = () => { setExportMenuOpen(false); setImageExportOpen(true); };
 
   return (
@@ -2313,13 +2401,21 @@ export default function ShiftsPage() {
       />}
       {imageExportOpen && <>
         <div aria-hidden="true" inert className="pointer-events-none fixed -left-[10000px] top-0 w-[384px]" ref={imageExportListRef}>{renderDayList(activeMobileDate)}</div>
-        <ImageExportDialog title="日別配車を画像にする" filename={`dispatch_${activeMobileDate}_${mobileFilter}`} pageCount={exportPageCount} generate={generateDayImage} onClose={() => setImageExportOpen(false)}>
+        <ImageExportDialog title="日別配車を画像にする" filename={`dispatch_${activeMobileDate}_${mobileFilter}`} pageCount={1} generate={generateDayImage} onClose={() => setImageExportOpen(false)}>
           <DatePicker ariaLabel="画像にする日付" value={new Date(activeMobileDate + "T12:00:00")} onChange={selectMobileDate} displayFormat="yyyy/M/d（E）" />
           <div role="group" aria-label="画像の対象" className="mt-3 flex overflow-hidden rounded-lg border border-slate-300">
             {([["all", "全員"], ["working", "稼働"], ["unassigned", "未割当"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={mobileFilter === key} onClick={() => setMobileFilter(key)} className={cn("flex-1 py-2 text-xs", mobileFilter === key ? "bg-slate-800 text-white" : "bg-white text-slate-600")}>{label}</button>)}
           </div>
         </ImageExportDialog>
       </>}
+      {shiftExportOpen && (
+        <ShiftExportDialog
+          data={buildShiftExportData()}
+          fileBase={`shifts_${yearMonth.year}-${String(yearMonth.month).padStart(2, "0")}_${period}`}
+          formatDate={formatDate}
+          onClose={() => setShiftExportOpen(false)}
+        />
+      )}
       <div className="max-w-full">
         {/* ツールバーは PC のみ固定。スマホで固定するのは日付ナビ＋タブだけにして、
             固定領域が画面を占有して一覧が隠れるのを防ぐ */}
@@ -2420,17 +2516,17 @@ export default function ShiftsPage() {
                   }
                   setExportMenuOpen((o) => !o);
                 }}
-                disabled={exporting || loading}
+                disabled={loading}
                 title="シフトを画像保存・エクスポート"
                 aria-label="シフトを画像保存・エクスポート"
                 className="h-9 w-9 md:w-auto md:px-3 md:py-1.5 text-xs font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1"
               >
-                <FontAwesomeIcon icon={faDownload} className={cn("w-4 h-4", exporting && "animate-pulse")} />
-                <span className="hidden md:inline">{exporting ? "エクスポート中..." : "エクスポート"}</span>
+                <FontAwesomeIcon icon={faDownload} className="w-4 h-4" />
+                <span className="hidden md:inline">エクスポート</span>
                 {/* Font Awesomeのdisplay指定と競合しないよう、矢印の表示制御は外側で行う。 */}
-                {!exporting && <span className="hidden md:inline-flex" aria-hidden="true"><FontAwesomeIcon icon={faChevronDown} className="w-3.5 h-3.5" /></span>}
+                <span className="hidden md:inline-flex" aria-hidden="true"><FontAwesomeIcon icon={faChevronDown} className="w-3.5 h-3.5" /></span>
               </button>
-              {exportMenuOpen && !exporting && (
+              {exportMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setExportMenuOpen(false)} />
                   <div className="absolute right-0 z-20 mt-1 w-40 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
@@ -2438,17 +2534,10 @@ export default function ShiftsPage() {
                     <button type="button" onClick={handleMobileDayExport} className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50">日別配車の画像</button>
                     <button
                       type="button"
-                      onClick={() => { setExportMenuOpen(false); void handleExport("png"); }}
+                      onClick={() => { setExportMenuOpen(false); setShiftExportOpen(true); }}
                       className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
                     >
-                      半月の一覧（PNG）
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setExportMenuOpen(false); void handleExport("pdf"); }}
-                      className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
-                    >
-                      半月の一覧（PDF）
+                      シフト表の画像
                     </button>
                   </div>
                 </>
@@ -2473,7 +2562,8 @@ export default function ShiftsPage() {
             <button
               type="button"
               onClick={() => setSettingsModalOpen(true)}
-              title="シフト提出の設定（締切・便）"
+              title="シフト提出の設定（締切・便・必要人数・未解決の期限）"
+              aria-label="シフト提出の設定（締切・便・必要人数・未解決の期限）"
               className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
             >
               <FontAwesomeIcon icon={faGear} className="w-4 h-4" />
@@ -2505,6 +2595,8 @@ export default function ShiftsPage() {
 
         </div>
 
+        {workspaceView === "shift" && <ShiftReadinessPanel />}
+        {shiftsError && <p role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">シフトを読み込めませんでした。<button type="button" onClick={() => void load()} className="ml-2 min-h-11 underline underline-offset-2">再読込</button></p>}
         {workspaceView === "memo" ? (
           <PersonalShiftMemoBoard
             key={`${displayDates[0] ?? ""}:${displayDates.at(-1) ?? ""}`}
@@ -2513,6 +2605,8 @@ export default function ShiftsPage() {
             drivers={drivers}
             today={today}
             shiftRequests={requests}
+            canReflect={canWrite && !loading && !!shiftsData && !shiftsError}
+            onReflected={load}
           />
         ) : (
         <>
@@ -2745,7 +2839,7 @@ export default function ShiftsPage() {
                 <table aria-label="コース別シフト表" onMouseLeave={() => cursors.reportCell(null)} className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
                   <thead>
                     <tr className="bg-slate-50/95">
-                      <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
+                      <th className="sticky left-0 top-0 z-30 py-2.5 px-2 text-left font-medium text-slate-600 min-w-[7rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
                         コース
                       </th>
                       {displayDates.map((date) => {
@@ -2780,7 +2874,7 @@ export default function ShiftsPage() {
                           <td
                             className={cn(
                               // 車両プレートのオイル警告(z-20)より前、固定ヘッダー(z-30)より後ろに置く。
-                              "sticky left-0 z-[25] bg-white py-2 px-3 align-middle border-r border-slate-200/95",
+                              "sticky left-0 z-[25] bg-white py-2 px-2 align-middle border-r border-slate-200/95",
                               !isLastCourse && "border-b-2 border-slate-300",
                             )}
                           >
@@ -2859,7 +2953,7 @@ export default function ShiftsPage() {
               <table aria-label="ドライバー別シフト表" onMouseLeave={() => cursors.reportCell(null)} className="w-full text-sm min-w-[720px] border-separate border-spacing-0">
                 <thead>
                   <tr className="bg-slate-50/95">
-                    <th className="sticky left-0 top-0 z-30 py-2.5 px-3 text-left font-medium text-slate-600 min-w-[9rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
+                    <th className="sticky left-0 top-0 z-30 py-2.5 px-2 text-left font-medium text-slate-600 min-w-[7rem] bg-slate-50/95 border-r border-b border-slate-200/95 align-bottom">
                       ドライバー
                     </th>
                     {displayDates.map((date) => {
@@ -2895,11 +2989,11 @@ export default function ShiftsPage() {
                         <td
                           className={cn(
                             // 横スクロール時もオイル警告(z-20)をドライバー名の下へ通す。
-                            "sticky left-0 z-[25] bg-white py-2 px-3 align-middle border-r border-slate-200/95",
+                            "sticky left-0 z-[25] bg-white py-2 px-2 align-middle border-r border-slate-200/95",
                             !isLastDriver && "border-b-2 border-slate-300",
                           )}
                         >
-                          <span className="font-medium text-slate-800">{getDisplayName(driver)}</span>
+                          <span className="font-semibold text-slate-800">{getDisplayName(driver)}</span>
                           {showContract && !mode && <div className="mt-1"><ShiftLeaseBadge mode={shiftLeaseMode(leaseIndex, driver.id, displayDates[0] ?? "")} /></div>}
                         </td>
                         {displayDates.map((date) => {
@@ -3027,7 +3121,12 @@ export default function ShiftsPage() {
                                         setDragSource({
                                           date,
                                           driverId: driver.id,
-                                          courseIds: [...new Set(placements.map((p) => p.courseId))],
+                                          // 便まで持って運ぶ（同じコースの別便を取り違えない）
+                                          frames: [
+                                            ...new Map(
+                                              placements.map((p) => [`${p.courseId}|${p.cycleNo ?? 0}`, { courseId: p.courseId, cycleNo: p.cycleNo ?? 0 }]),
+                                            ).values(),
+                                          ],
                                         });
                                       }}
                                       onDragEnd={() => {
@@ -4116,6 +4215,7 @@ export default function ShiftsPage() {
       <ShiftSubmitSettingsModal
         open={settingsModalOpen}
         canWrite={canWrite}
+        courses={courses}
         onClose={() => setSettingsModalOpen(false)}
       />
       <ShiftImportModal

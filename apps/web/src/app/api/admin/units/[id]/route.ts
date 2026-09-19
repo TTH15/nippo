@@ -70,10 +70,12 @@ export async function DELETE(
   }
 
   const { count: rateCount } = await supabase
+    // tenant-scope-ok: 直上の orgOwnsUnit で自社の unit と確認済みの id で数えるだけ
     .from("course_unit_rates")
     .select("id", { count: "exact", head: true })
     .eq("unit_id", id);
   const { count: entryCount } = await supabase
+    // tenant-scope-ok: 直上の orgOwnsUnit で自社の unit と確認済みの id で数えるだけ
     .from("report_entries")
     .select("id", { count: "exact", head: true })
     .eq("unit_id", id);

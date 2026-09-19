@@ -33,6 +33,9 @@ export async function DELETE(
     return NextResponse.json({ error: "ドライバーが見つかりません" }, { status: 404 });
   }
 
+  if (user.identityId && driverRow.identity_id === user.identityId) {
+    return NextResponse.json({ error: "自分の電話番号の解除は、別の運営担当者に依頼してください" }, { status: 403 });
+  }
   if (driverRow.identity_id) {
     const { error: identityErr } = await supabase
       .from("identities")

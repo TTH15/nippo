@@ -31,6 +31,7 @@ export async function loadCourseReportFields(
   const allowed = new Set<string>();
   if (courseIds.length) {
     const { data } = await supabase
+      // tenant-scope-ok: courseIds は呼び出し元が org 絞りで作った集合（日報フォームの対象コース）
       .from("course_report_fields")
       .select("course_id, cycle_no, unit_id, field_key")
       .in("course_id", courseIds);

@@ -1,3 +1,4 @@
+import { freshStrongAuth } from "@/server/auth/recentAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/server/db/client";
 import {
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
         expectedChallenge: challenge,
         expectedOrigin: origin,
         expectedRPID: rpID,
+        requireUserVerification: true,
         credential: {
           id: cred.credential_id as string,
           publicKey: byteaToPublicKey(cred.public_key as string),
@@ -112,7 +114,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: failure.error }, { status: failure.status });
     }
 
-    return NextResponse.json(await issueDriverSession(resolved.driver));
+    return NextResponse.json(await issueDriverSession(resolved.driver, freshStrongAuth("passkey")));
   } catch (err) {
     console.error("[Passkey] login error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

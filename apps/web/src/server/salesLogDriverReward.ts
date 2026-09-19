@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isMissingOrgColumn, withoutOrgId } from "@/server/db/orgColumn";
 
 export type SalesLogEntryForReward = {
   id: string;
@@ -27,6 +28,7 @@ export async function syncSalesLogDriverReward(
     /^\d{4}-\d{2}-\d{2}$/.test(logDate) ? logDate.slice(0, 7) : null;
 
   const { data: existing } = await supabase
+    // tenant-scope-ok: sales_log_entry_id は呼び出し元が org で絞って読んだ売上ログの id
     .from("driver_ad_hoc_expenses")
     .select("id")
     .eq("sales_log_entry_id", entry.id)
@@ -40,6 +42,7 @@ export async function syncSalesLogDriverReward(
   if (!shouldPay) {
     if (existingId) {
       const { error } = await supabase
+        // tenant-scope-ok: existingId は直上の sales_log_entry_id 検索で得た1行
         .from("driver_ad_hoc_expenses")
         .delete()
         .eq("id", existingId);
@@ -60,6 +63,7 @@ export async function syncSalesLogDriverReward(
   if (!driverRow) {
     if (existingId) {
       const { error } = await supabase
+        // tenant-scope-ok: existingId は直上の sales_log_entry_id 検索で得た1行
         .from("driver_ad_hoc_expenses")
         .delete()
         .eq("id", existingId);
@@ -77,6 +81,8 @@ export async function syncSalesLogDriverReward(
 
   if (existingId) {
     const { error } = await supabase
+      // tenant-scope-ok: existingId は sales_log_entry_id 検索で得た1行。driver も org 確認済み
+      //   （org_id は既存行の値のまま。migration 176 の backfill と insert 側で埋まる）
       .from("driver_ad_hoc_expenses")
       .update({
         driver_id: entry.target_driver_id!,
@@ -90,13 +96,20 @@ export async function syncSalesLogDriverReward(
     return;
   }
 
-  const { error } = await supabase.from("driver_ad_hoc_expenses").insert({
+  const row = {
+    org_id: orgId,
     driver_id: entry.target_driver_id!,
     month: month!,
     name: nameFinal,
     amount,
     sales_log_entry_id: entry.id,
     updated_at: new Date().toISOString(),
-  });
+  };
+  // tenant-scope-ok: row に org_id: orgId（直上で所属を確認した driver と同じ org）を入れている
+  let { error } = await supabase.from("driver_ad_hoc_expenses").insert(row);
+  if (isMissingOrgColumn(error)) {
+    // tenant-scope-ok: 同じ行の退避。migration 176 未適用（org_id 列が無い）環境でのみ通る
+    ({ error } = await supabase.from("driver_ad_hoc_expenses").insert(withoutOrgId([row])[0]));
+  }
   if (error) throw error;
 }

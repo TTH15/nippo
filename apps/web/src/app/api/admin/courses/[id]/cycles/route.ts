@@ -53,6 +53,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   }
 
   const { data, error } = await supabase
+    // tenant-scope-ok: 直上の assertOwnCourse で自社のコースと確認済みの courseId に固定
     .from("course_cycles")
     .select("*")
     .eq("course_id", courseId)
@@ -107,6 +108,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
   // 画面から消えた便を削除 → 残りを upsert。
   // 削除しても shifts 側の cycle_no は書き換えない（既存の割当に遡及しない）
   const keep = rows.map((r) => r.cycle_no);
+  // tenant-scope-ok: 直上の assertOwnCourse で自社のコースと確認済みの courseId に固定
   const delQuery = supabase.from("course_cycles").delete().eq("course_id", courseId);
   const { error: delError } = keep.length > 0 ? await delQuery.not("cycle_no", "in", `(${keep.join(",")})`) : await delQuery;
   if (delError) {
@@ -116,6 +118,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   if (rows.length > 0) {
     const { error } = await supabase
+      // tenant-scope-ok: 直上の assertOwnCourse で自社のコースと確認済みの courseId に固定
       .from("course_cycles")
       .upsert(rows, { onConflict: "course_id,cycle_no" });
     if (error) {

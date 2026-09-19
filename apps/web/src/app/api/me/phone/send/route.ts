@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
-import { supabase } from "@/server/db/client";
 import { resolveIdentityId } from "@/server/identity";
 import { toE164JP } from "@/server/otp/phone";
 import { sendOtp } from "@/server/otp/twilio";
+
+import { phoneEnrollment } from "@/server/auth/phoneEnrollment";
 
 export const dynamic = "force-dynamic";
 
@@ -26,24 +27,27 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { data: identityRow } = await supabase
-    .from("identities")
-    .select("phone_verified_at")
-    .eq("id", identityId)
-    .maybeSingle();
+  let enrollment;
+  try { enrollment = await phoneEnrollment(user, identityId); }
+  catch { return NextResponse.json({ error: "登録済みの電話番号を確認できませんでした" }, { status: 503 }); }
+  const { identity: existingIdentity, phone: trustedPhone } = enrollment;
 
-  if (identityRow?.phone_verified_at) {
+  if (existingIdentity?.phone_verified_at) {
     return NextResponse.json(
       { error: "既に電話番号が確認済みです。変更する場合は運営にご連絡ください" },
       { status: 409 },
     );
   }
 
-  const body = await req.json();
-  const phone = toE164JP(typeof body.phone === "string" ? body.phone : "");
+  const body = await req.json().catch(() => ({}));
+  const phone = body?.phone === undefined ? trustedPhone : toE164JP(typeof body.phone === "string" ? body.phone : "");
   if (!phone) {
     return NextResponse.json({ error: "電話番号の形式が正しくありません" }, { status: 400 });
   }
+  if (!trustedPhone || phone !== trustedPhone) {
+    return NextResponse.json({ error: "登録済みの電話番号を入力してください。番号の変更は運営にご連絡ください" }, { status: 403 });
+  }
+
 
   try {
     await sendOtp(phone);

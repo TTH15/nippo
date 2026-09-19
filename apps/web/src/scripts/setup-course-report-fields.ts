@@ -55,8 +55,10 @@ async function main() {
   if (!apply) { console.log("[dry-run] --apply --confirm=setup-report-fields で反映"); return; }
   if (!confirmed) { console.log("確認フラグが違います"); return; }
   const courseIds = [...new Set(rows.map((r) => r.course_id))];
+  // tenant-scope-ok: 運用スクリプト（単一 org の初期設定用）
   const { error: delErr } = await supabase.from("course_report_fields").delete().in("course_id", courseIds);
   if (delErr) throw delErr;
+  // tenant-scope-ok: 運用スクリプト（単一 org の初期設定用）
   const { error } = await supabase.from("course_report_fields").insert(rows);
   if (error) throw error;
   console.log(`反映しました: ${rows.length}件`);

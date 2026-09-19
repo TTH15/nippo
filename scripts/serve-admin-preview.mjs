@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -18,6 +19,7 @@ if (!/^[a-z0-9-]+$/.test(feature)) throw new Error("Invalid preview name");
 const portIndex = args.indexOf("--port");
 const port = portIndex === -1 ? 3191 : Number(args[portIndex + 1]);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Invalid port");
+const strictCsp = args.includes("--strict-csp");
 const mapboxEnabled = args.includes("--mapbox");
 const mapboxFeatures = new Set(["driver-leases", "map-operations", "admin", "vehicles"]);
 if (mapboxEnabled && !mapboxFeatures.has(feature)) throw new Error("Mapbox mode is not available for this preview");
@@ -53,6 +55,8 @@ const adminReplacements = new Map([
   ["next/dynamic", "kernel/next-dynamic.tsx"],
   ["@/lib/components/AdminLayout", "kernel/AdminLayout.tsx"],
   ["@/lib/map/sharedView", "kernel/sharedView.tsx"],
+  ["@/lib/realtime/cellCursors", "kernel/shifts.ts"],
+  ["@/server/shiftRequests/diff", "kernel/shifts.ts"],
   ["@simplewebauthn/browser", "kernel/webauthn-browser.ts"],
 ].map(([from, to]) => [from, path.join(root, "scripts/previews", to)]));
 const entry = productionPageEntries.get(feature) ?? path.join(source, "app/preview", feature, "page.tsx");
@@ -66,7 +70,7 @@ const result = await build({
   bundle: true, outfile: path.join(output, "app.js"), platform: "browser", format: "esm",
   jsx: "automatic", alias: { "@": source, "@repo/core": path.join(root, "packages/core/src") },
   // 本番ページが読む公開設定は空文字で固定する（会社設定は DEFAULT 扱い）。環境ファイルは読まない。
-  define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_MAPBOX_TOKEN": JSON.stringify(publicMapboxToken), "process.env.NEXT_PUBLIC_PREVIEW_MAPBOX_ENABLED": JSON.stringify(String(mapboxEnabled)), "process.env.NEXT_PUBLIC_COMPANY_CODE": '""', "process.env.NEXT_PUBLIC_WEBAUTHN_RP_ID": '"127.0.0.1"' }, minify: true, metafile: true,
+  define: { "process.env.NEXT_PUBLIC_VEHICLE_READER_DEMO": '"true"', "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_MAPBOX_TOKEN": JSON.stringify(publicMapboxToken), "process.env.NEXT_PUBLIC_PREVIEW_MAPBOX_ENABLED": JSON.stringify(String(mapboxEnabled)), "process.env.NEXT_PUBLIC_COMPANY_CODE": '""', "process.env.NEXT_PUBLIC_WEBAUTHN_RP_ID": '"127.0.0.1"' }, minify: true, metafile: true,
   // 未定義の process.env.* が残っても ReferenceError で真っ白にならないよう、空の process を置く
   banner: { js: "var process = globalThis.process ?? { env: {} };" },
   plugins: [{ name: "mock-only", setup(builder) {
@@ -95,15 +99,18 @@ await writeFile(path.join(output, "style.css"), css.css);
 await writeFile(path.join(output, "index.html"), `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>ハコ虎｜管理プレビュー</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/app.css"></head><body><div id="root"></div><script type="module" src="/app.js"></script></body></html>`);
 // 実画面のロゴ・ナンバー描画に必要な公開アセットだけを固定リストで同梱する。
 // public全体やリポジトリを配信せず、シンボリックリンクも辿らない。
+await import("./prepare-vehicle-reader.mjs");
 const publicRoot = path.join(root, "apps/web/public");
-const assets = ["logo/hakotora-logo_primary_logo.svg", "logo/hakotora-logo_secondary_logo.svg", "fonts/TrmFontJB.ttf"];
+const readerAssets = JSON.parse(await readFile(path.join(publicRoot, "ocr/runtime/assets.json"), "utf8"));
+const assets = [...readerAssets, "ocr/lang/jpn.traineddata", "ocr/lang/eng.traineddata","logo/hakotora-logo_primary_logo.svg", "logo/hakotora-logo_secondary_logo.svg", "fonts/TrmFontJB.ttf"];
 if (feature === "shifts") assets.push("fonts/SawarabiGothic-Regular.ttf");
 if (feature === "map-operations" || isAdminRunner) {
   assets.push(
     "models/acty-hh5-blockout-70-tinted.glb",
     "models/acty-hh5-blockout-70-fixed.glb",
-    ...["hijet-s300-blockout-19", "every-da64v-blockout-88", "acty-hh5-blockout-75"].flatMap((id) => [
+    ...["hijet-s300-blockout-19", "every-da64v-blockout-88", "acty-hh5-blockout-75", ...JSON.parse(await readFile(path.join(source, "lib/vehicleModelAssets.json"), "utf8")).map(a => a.id)].flatMap((id) => [
       `models/${id}.glb`, `models/${id}-tinted.glb`, `models/${id}-fixed.glb`, `models/${id}-lamps.glb`,
+      ...(id.startsWith("kei-") ? [`models/${id}-hood.glb`, `models/${id}-front-bumper.glb`, `models/${id}-rear-bumper.glb`] : []),
     ]),
     "models/acty-hh5-plate-acty-1201.glb",
     "models/acty-hh5-plate-acty-2752.glb",
@@ -122,6 +129,13 @@ for (const asset of assets) {
   await copyFile(path.join(publicRoot, asset), path.join(output, asset));
 }
 console.log(`Built ${feature} (${Object.keys(result.metafile.inputs).length} modules): ${output}`);
+// 写真/PDFの実読取を架空書類で試す。通常のpublic配下には置かない。
+for (const name of ["table.png", "table.pdf", "broken.pdf"]) {
+  const asset = `reader-samples/${name}`;
+  await mkdir(path.join(output, "reader-samples"), { recursive: true });
+  await copyFile(path.join(root, "scripts/previews/samples/vehicle-certificate", name), path.join(output, asset));
+  assets.push(asset);
+}
 if (mapboxEnabled) console.log("Mapbox mode: map and address requests enabled; app APIs and notifications remain isolated.");
 if (!args.includes("--build")) {
   const allowed = new Map([["/", "index.html"], [`/preview/${feature}`, "index.html"], ["/app.js", "app.js"], ["/app.css", "app.css"], ["/style.css", "style.css"]]);
@@ -132,11 +146,13 @@ if (!args.includes("--build")) {
     const target = allowed.get(pathname) ?? (isAdminRunner && /^\/preview\/admin(?:\/[a-z0-9-]+)?$/.test(pathname) ? "index.html" : undefined);
     if (!target || !["GET", "HEAD"].includes(req.method ?? "")) { res.writeHead(404); res.end("Not found"); return; }
     try {
-      const body = await readFile(path.join(output, target));
+      let body = await readFile(path.join(output, target));
+      const nonce = Buffer.from(randomUUID()).toString("base64");
+      if (strictCsp && target === "index.html") body = Buffer.from(body.toString().replace('<script type="module"', `<script nonce="${nonce}" type="module"`));
       res.writeHead(200, {
-        "Content-Type": target.endsWith(".js") ? "text/javascript; charset=utf-8" : target.endsWith(".css") ? "text/css; charset=utf-8" : target.endsWith(".svg") ? "image/svg+xml" : target.endsWith(".ttf") ? "font/ttf" : target.endsWith(".glb") ? "model/gltf-binary" : "text/html; charset=utf-8",
+        "Content-Type": (target.endsWith(".js") || target.endsWith(".mjs")) ? "text/javascript; charset=utf-8" : target.endsWith(".css") ? "text/css; charset=utf-8" : target.endsWith(".svg") ? "image/svg+xml" : target.endsWith(".ttf") ? "font/ttf" : target.endsWith(".wasm") ? "application/wasm" : /\.(traineddata|bcmap|pfb)$/.test(target) ? "application/octet-stream" : target.endsWith(".png") ? "image/png" : target.endsWith(".pdf") ? "application/pdf" : target.endsWith(".glb") ? "model/gltf-binary" : "text/html; charset=utf-8",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "'self' https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/3dtiles/v1/ https://a.tiles.mapbox.com/3dtiles/v1/ https://b.tiles.mapbox.com/3dtiles/v1/ https://api.mapbox.com/models/v1/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : feature === "shifts" ? `http://127.0.0.1:${port}/fonts/SawarabiGothic-Regular.ttf` : "'none'"}; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:${mapboxEnabled ? " blob:" : ""}; ${mapboxEnabled ? "worker-src blob:; " : ""}font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "'self' https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/3dtiles/v1/ https://a.tiles.mapbox.com/3dtiles/v1/ https://b.tiles.mapbox.com/3dtiles/v1/ https://api.mapbox.com/models/v1/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : feature === "shifts" ? `http://127.0.0.1:${port}/fonts/SawarabiGothic-Regular.ttf` : "'self'"}; script-src 'self' ${strictCsp ? `'nonce-${nonce}' 'strict-dynamic' ` : ""}'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       });
       res.end(req.method === "HEAD" ? undefined : body);
     } catch { res.writeHead(404); res.end("Not found"); }

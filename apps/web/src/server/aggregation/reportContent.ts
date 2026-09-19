@@ -62,6 +62,7 @@ export async function loadReportContents(
     slices.map((slice) =>
       fetchAllRows<EntryRow>((from, to) =>
         supabase
+          // tenant-scope-ok: reportIds は org 絞りの daily_reports_v2 から作った集合
           .from("report_entries")
           .select("report_id, unit_id, field_key, value_num, value_text")
           .in("report_id", slice)

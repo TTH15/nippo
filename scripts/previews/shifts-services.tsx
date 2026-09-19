@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AdminPreviewLayout } from "../../apps/web/src/app/preview/driver-leases/AdminPreviewLayout";
 import type { ShiftLease } from "../../apps/web/src/lib/shiftLease";
 import { VehicleHandoffsPreview } from "../../apps/web/src/app/preview/vehicle-handoffs/VehicleHandoffsPreview";
@@ -136,7 +136,7 @@ export const mutate = async () => undefined;
 export const swrFetcher = async () => undefined;
 export const summarizeHistory = () => [];
 // 本番PersonalShiftMemoBoardの読込形式を使う。プレビュー専用ユーザーの架空データだけを保存する。
-function seedPreviewMemo(rowCount: number) {
+function seedPreviewMemo(rowCount: number, dailyCounts = false) {
   const lanes = Array.from({ length: rowCount }, (_, i) => {
     const course = courses[i % courses.length];
     return { id: i < courses.length ? `base-${course.id}` : `preview-lane-${i}`, routeId: course.id,
@@ -157,10 +157,18 @@ function seedPreviewMemo(rowCount: number) {
   }
   localStorage.setItem("hakotora_personal_shift_memo_v1:preview-admin", JSON.stringify({ version: 1, lanes,
     laneOrder: lanes.map(lane => lane.id), hiddenLaneIds: [], assignments, extraPeople: [], notes: {},
+    ...(dailyCounts ? {
+      requiredCountOverrides: {
+        [`${lanes[0].id}|2026-09-01`]: 3,
+        [`${lanes[0].id}|2026-09-02`]: 1,
+        [`${lanes[0].id}|2026-09-06`]: 3,
+        [`${lanes[0].id}|2026-09-16`]: 4,
+      },
+      dayOverrides: { [`${lanes[0].id}|2026-09-03`]: "off" },
+    } : {}),
     widths: { day: 76, lane: 190, detail: 330 } }));
 }
 export function AdminLayout({ children }: { children: ReactNode }) {
-  const [memoRevision, setMemoRevision] = useState(0);
   const [handoffsOpen, setHandoffsOpen] = useState(false);
   const [handoffRevision, setHandoffRevision] = useState(0);
   const reset = () => { resetPreviewShifts(); setHandoffsOpen(false); setHandoffRevision(value => value + 1); };
@@ -174,9 +182,10 @@ export function AdminLayout({ children }: { children: ReactNode }) {
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { firstDriverDaily = true; leaseScenario = "normal"; notify(); }}>佐藤の契約を日額へ変更</button>
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => setPreviewDuplicateVehicleScenario(!duplicateVehicleScenario)}>田中に佐藤と同じ車両を割り当て</button>
       <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={reset}>サンプルを初期化</button>
-      {[12, 40].map(count => <button key={count} type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { seedPreviewMemo(count); setMemoRevision(value => value + 1); }}>メモ{count}枠のサンプル</button>)}
+      <button type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { seedPreviewMemo(12, true); window.location.reload(); }}>日別の必要人数を試す</button>
+      {[12, 40].map(count => <button key={count} type="button" className="rounded border border-slate-300 bg-white px-2 py-1" onClick={() => { seedPreviewMemo(count); window.location.reload(); }}>メモ{count}枠のサンプル</button>)}
     </div>
-    <Fragment key={memoRevision}>{children}</Fragment>
+    {children}
     <VehicleHandoffsPreview key={handoffRevision} open={handoffsOpen} onClose={() => setHandoffsOpen(false)}/>
   </AdminPreviewLayout>;
 }

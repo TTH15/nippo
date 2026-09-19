@@ -28,6 +28,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const { data: removed, error } = await supabase
+      // tenant-scope-ok: import_batch_id は直上で org_id を確認済みの取込バッチ
       .from("shifts")
       .delete()
       .eq("import_batch_id", id)

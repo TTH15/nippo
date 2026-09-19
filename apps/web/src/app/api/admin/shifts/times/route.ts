@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { belongsToOrg, isDateOnly, isUuid } from "@/server/db/adminResourceScope";
 import { normalizeTimeInput, normalizePlaceInput } from "@/server/shiftSlots/timeInput";
 
 export const dynamic = "force-dynamic";
@@ -20,8 +21,13 @@ export async function POST(req: NextRequest) {
     const slot = body.slot;
     const cycleNo = Number.isInteger(body.cycleNo) && Number(body.cycleNo) >= 0 ? Number(body.cycleNo) : 0;
 
-    if (!shiftDate || !courseId) {
+    if (!isDateOnly(shiftDate) || !isUuid(courseId)) {
       return NextResponse.json({ error: "shiftDate and courseId are required" }, { status: 400 });
+    }
+    // ★自社のコースであることを必ず確かめる。shifts は org_id を持たないので、
+    //   ここを抜くと他社のコースIDを渡すだけで他社のシフト時刻を書き換えられる。
+    if (!(await belongsToOrg("courses", courseId, user.orgId))) {
+      return NextResponse.json({ error: "対象のコースが見つかりません。" }, { status: 404 });
     }
     const slotNumber = Number.isFinite(slot) && Number(slot) >= 1 ? Math.floor(Number(slot)) : 1;
 
@@ -36,6 +42,7 @@ export async function POST(req: NextRequest) {
     updates.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase
+      // tenant-scope-ok: 直上の belongsToOrg で自社のコースと確認済みの courseId に固定
       .from("shifts")
       .update(updates)
       .eq("shift_date", shiftDate)

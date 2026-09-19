@@ -8,6 +8,9 @@ const PENDING_ROUTES: Readonly<Record<string, readonly string[]>> = {
   "/api/reports/profile": ["GET", "POST"],
   "/api/auth/webauthn/register/options": ["POST"],
   "/api/auth/webauthn/register/verify": ["POST"],
+  "/api/auth/reauth": ["GET"],
+  "/api/auth/reauth/options": ["POST"],
+  "/api/auth/reauth/verify": ["POST"],
 };
 
 type MembershipResult = { user: AuthUser } | { status: 401 | 403 | 503; error: string };

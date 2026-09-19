@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
   if (isAuthError(user)) return user;
 
   const { data, error } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("driver_vehicle_preferences")
     .select("vehicle_id")
     .eq("driver_id", user.driverId)
@@ -37,6 +38,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const { error } = await supabase
+      // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
       .from("driver_vehicle_preferences")
       .upsert(
         { driver_id: user.driverId, vehicle_id: vehicleId, updated_at: new Date().toISOString() },

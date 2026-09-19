@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronLeft, faCircleCheck, faCommentSms, faFingerprint } from "@fortawesome/free-solid-svg-icons";
-import { faFaceSmile } from "@fortawesome/free-regular-svg-icons";
+import { faChevronLeft, faCircleCheck, faCommentSms } from "@fortawesome/free-solid-svg-icons";
 import { faApple, faGooglePlay } from "@fortawesome/free-brands-svg-icons";
-import { startRegistration } from "@simplewebauthn/browser";
+import { PasskeySetup } from "@/lib/components/PasskeySetup";
+import { registerPasskey } from "@/lib/registerPasskey";
 import { apiFetch, setAuth, getStoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
@@ -16,7 +16,7 @@ import { ocrLicenseExpiryFromBase64, prefetchLicenseOcr } from "@/lib/ocr/licens
 // ============================================================
 // 初期登録ウィザード（web 一本化・§2-1a）。認証不要で開始し、SMS 認証後は
 // pending のままセッションを受け取って本登録（KYC）まで一気に完了する。
-// ようこそ(規約同意) → 氏名 → 生年月日 → 電話 → SMS認証 → FaceID(Passkey・任意)
+// ようこそ(規約同意) → 氏名 → 生年月日 → 電話 → SMS認証 → Passkey（設定できない場合のみSMSで続行）
 //   → 免許証 → 顔写真 → 住所 → 申請完了（アプリ導入の案内）
 // 入口は ①単回招待リンク /join?invite=<token>（1回で消費）
 //        ②共有参加コード ?code= / 手入力（口頭伝達フォールバック）。
@@ -41,6 +41,7 @@ export type Reg = {
   bankHolder: string;
   complete: boolean;
   kycVerified: boolean;
+  hasPasskey?: boolean;
 };
 
 export type JoinPayload = {
@@ -74,6 +75,8 @@ export type WizardAdapter = {
 };
 
 type Step =
+  | "loading"
+  | "load-error"
   | "code"
   | "invite-invalid"
   | "welcome"
@@ -216,7 +219,9 @@ export function OnboardingWizard({
   const hostCanUsePasskey = useIsWebAuthnHost();
   const canUsePasskey = passkeyOverride ?? hostCanUsePasskey;
 
-  const [step, setStep] = useState<Step>("code");
+  const [step, setStep] = useState<Step>("loading");
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [passkeyDeferred, setPasskeyDeferred] = useState(false);
 
   // 免許ステップに近づいたら OCR モジュール（tesseract.js・数MB）を裏で温める。
   // 撮影→アップロード直後の初回 OCR で CDN 取得を待たないため（2026-08 監査）。
@@ -242,8 +247,6 @@ export function OnboardingWizard({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [resumed, setResumed] = useState(false);
-  const [passkeyDone, setPasskeyDone] = useState(false);
-  const [passkeyFailed, setPasskeyFailed] = useState(false);
   const [termsAgreed, setTermsAgreed] = useState(false);
   // 免許有効期限の OCR プリフィル（読み取り中表示と、自動入力したことの案内）。
   const [expiryOcrBusy, setExpiryOcrBusy] = useState(false);
@@ -323,19 +326,24 @@ export function OnboardingWizard({
       }
     }
 
+    let cancelled = false;
+    setStep("loading");
+    setError("");
     (async () => {
       const resumeReg = await api.tryResume();
+      if (cancelled) return;
       if (resumeReg) {
         setReg(splitAddress(resumeReg));
         setLicenseParts(partsFromDate(resumeReg.licenseExpiry));
         setAddressSame(resumeReg.addressMatchesLicense ?? true);
         setResumed(true);
-        setStep(resumeReg.complete ? "done" : firstIncompleteKyc(resumeReg));
+        setStep(resumeReg.hasPasskey ? (resumeReg.complete ? "done" : firstIncompleteKyc(resumeReg)) : "passkey");
         return;
       }
       if (invite) {
         try {
           const res = await api.lookupInvite(invite);
+          if (cancelled) return;
           setInviteToken(invite);
           setOrgName(res.organizationName);
           setStep("welcome");
@@ -343,6 +351,7 @@ export function OnboardingWizard({
           // 招待経由の人に共有コードの入力を求めるのは導線として不自然なので、
           // コード入力に落とさず行き止まり画面にする。理由（使用済み/期限切れ/無効）は
           // サーバの文言をそのまま見出しに使う。
+          if (cancelled) return;
           setError(e instanceof Error ? e.message : "この招待リンクは無効です");
           setStep("invite-invalid");
         }
@@ -351,15 +360,24 @@ export function OnboardingWizard({
       if (c.length >= 4) {
         try {
           const res = await api.lookupCode(c);
+          if (cancelled) return;
           setOrgName(res.organizationName);
           setStep("welcome");
         } catch {
-          // 無効なら手入力ステップのまま（エラーは出さず静かにコードだけ残す）
+          if (cancelled) return;
+          setStep("code");
         }
+      } else {
+        setStep("code");
       }
-    })();
+    })().catch((err) => {
+      if (cancelled) return;
+      setError(err instanceof Error ? err.message : "登録内容を読み込めませんでした");
+      setStep("load-error");
+    });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadAttempt]);
 
   const lookup = async () => {
     setBusy(true);
@@ -418,35 +436,10 @@ export function OnboardingWizard({
       setReg(splitAddress(res.reg));
       setLicenseParts(partsFromDate(res.reg.licenseExpiry));
       setAddressSame(res.reg.addressMatchesLicense ?? true);
-      if (res.reg.complete) {
-        setStep("done");
-      } else if (res.alreadyApplied) {
-        // 再開: Passkey 設定は済んでいる可能性があるためスキップして続きから。
-        setResumed(true);
-        setStep(firstIncompleteKyc(res.reg));
-      } else {
-        setStep(canUsePasskey ? "passkey" : "address");
-      }
+      setResumed(res.alreadyApplied);
+      setStep(res.reg.hasPasskey ? (res.reg.complete ? "done" : firstIncompleteKyc(res.reg)) : "passkey");
     } catch (err) {
       setError(err instanceof Error ? err.message : "申請に失敗しました");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // かんたんログイン（Passkey）登録。WebAuthn は仕様上、失敗理由を区別できない
-  // （キャンセル・時間切れ・重複登録はどれも NotAllowedError＝フィッシング対策）。
-  // 理由の推測は出さず、失敗したら「あとで設定できる」への誘導に切り替える。
-  const registerPasskey = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      await api.registerPasskey();
-      // その場で「設定が完了しました」を見せてから自動で次へ進む。
-      setPasskeyDone(true);
-      window.setTimeout(() => setStep("address"), 1200);
-    } catch {
-      setPasskeyFailed(true);
     } finally {
       setBusy(false);
     }
@@ -612,8 +605,8 @@ export function OnboardingWizard({
     "w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
   const backBtnCls = "w-full text-sm text-slate-500 hover:text-slate-700";
 
-  // 進捗バー（数えるステップに入ってから表示）。Passkey 非対応ホストでは Face ID を除外。
-  const numbered = canUsePasskey ? NUMBERED : NUMBERED.filter((s) => s !== "passkey");
+  // 非対応でもログイン方法を確認してから本登録へ進む。
+  const numbered = NUMBERED;
   const stepIndex = numbered.indexOf(step);
   const showProgress = stepIndex >= 0;
 
@@ -667,6 +660,12 @@ export function OnboardingWizard({
                 前回の続きから再開しています
               </p>
             )}
+            {step === "loading" && <p role="status" className="text-center text-sm text-slate-500">登録内容を確認中...</p>}
+            {step === "load-error" && <div className="space-y-4">
+              <p role="alert" className="text-center text-sm text-red-600">{error}</p>
+              <button onClick={() => setLoadAttempt((n) => n + 1)} className={btnCls}>もう一度読み込む</button>
+            </div>}
+
             {step === "invite-invalid" && (
               <p className="text-sm font-medium text-slate-900 text-center py-4">
                 {error || "この招待リンクは無効です"}
@@ -817,80 +816,13 @@ export function OnboardingWizard({
               </>
             )}
 
-            {step === "passkey" && (
-              <div className="space-y-4">
-                <div className="flex items-end justify-center gap-7 pt-4 pb-1">
-                  <div className="flex flex-col items-center gap-2.5">
-                    <FaceIdGlyph />
-                    <span className="text-xs text-slate-500">顔認証</span>
-                  </div>
-                  <div className="flex flex-col items-center gap-2.5">
-                    <div className="flex h-12 w-12 items-center justify-center">
-                      <FontAwesomeIcon icon={faFingerprint} className="h-10 w-10 text-slate-700" />
-                    </div>
-                    <span className="text-xs text-slate-500">指紋認証</span>
-                  </div>
-                  <div className="flex flex-col items-center gap-2.5">
-                    <PinGlyph />
-                    <span className="text-xs text-slate-500">PIN</span>
-                  </div>
-                  <div className="flex flex-col items-center gap-2.5">
-                    <PatternGlyph />
-                    <span className="text-xs text-slate-500">パターン</span>
-                  </div>
-                </div>
-                <div className="text-center space-y-2 py-2">
-                  <p className="text-base font-semibold text-slate-900">かんたんログインを設定</p>
-                  <p className="text-sm text-slate-600">
-                    次回からは、この端末の画面ロック（顔認証・指紋認証・PIN など）でそのままログインできます。
-                  </p>
-                </div>
-                {passkeyDone ? (
-                  // 成功はこのページで見せてから自動で次へ（registerPasskey 内のタイマー）。
-                  <p className="flex items-center justify-center gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-                    <FontAwesomeIcon icon={faCircleCheck} className="h-4 w-4" />
-                    設定が完了しました
-                  </p>
-                ) : passkeyFailed ? (
-                  // 失敗理由は仕様上わからないため推測は出さず、先へ進む導線を主にする。
-                  <>
-                    <p className="text-sm text-slate-600 text-center bg-slate-50 rounded-lg px-4 py-3">
-                      設定は完了しませんでした。
-                      <br />
-                      今は設定せずに進んで、登録完了後にあらためて設定できます。
-                    </p>
-                    <button
-                      onClick={() => {
-                        setError("");
-                        setStep("address");
-                      }}
-                      disabled={busy}
-                      className={btnCls}
-                    >
-                      今は設定せずに進む
-                    </button>
-                    <button onClick={registerPasskey} disabled={busy} className={backBtnCls}>
-                      {busy ? "設定中..." : "もう一度試す"}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button onClick={registerPasskey} disabled={busy} className={btnCls}>
-                      {busy ? "設定中..." : "設定する"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setError("");
-                        setStep("address");
-                      }}
-                      disabled={busy}
-                      className={backBtnCls}
-                    >
-                      あとで設定する
-                    </button>
-                  </>
-                )}
-              </div>
+            {step === "passkey" && reg && (
+              <PasskeySetup verifyIdentity={api === realAdapter} supported={canUsePasskey} register={api.registerPasskey}
+                onContinue={(registered) => {
+                  setPasskeyDeferred(!registered);
+                  if (registered) setReg((current) => current ? { ...current, hasPasskey: true } : current);
+                  setStep(reg.complete ? "done" : firstIncompleteKyc(reg));
+                }} />
             )}
 
             {step === "license" && reg && (
@@ -1049,6 +981,7 @@ export function OnboardingWizard({
                     </p>
                   </>
                 )}
+                {passkeyDeferred && <p className="text-sm text-slate-600">ログインにはSMSを使います。Passkeyはマイページで登録できます。</p>}
                 <div className="flex gap-3">
                   <StoreButton icon={faApple} label="App Store" url={APP_STORE_URL} />
                   <StoreButton icon={faGooglePlay} label="Google Play" url={PLAY_STORE_URL} />
@@ -1133,57 +1066,7 @@ function FloatingLineField({
   );
 }
 
-// Face ID 風グリフ（スマイル＋四隅のビューファインダー括弧）。
-// FontAwesome Free に face-viewfinder が無いため、括弧を CSS で描いて合成する。
-function FaceIdGlyph() {
-  const corner = "absolute h-3 w-3 border-slate-700";
-  return (
-    <div className="relative h-12 w-12">
-      <span className={`${corner} left-0 top-0 rounded-tl-lg border-l-2 border-t-2`} />
-      <span className={`${corner} right-0 top-0 rounded-tr-lg border-r-2 border-t-2`} />
-      <span className={`${corner} bottom-0 left-0 rounded-bl-lg border-b-2 border-l-2`} />
-      <span className={`${corner} bottom-0 right-0 rounded-br-lg border-b-2 border-r-2`} />
-      <FontAwesomeIcon icon={faFaceSmile} className="absolute inset-0 m-auto h-6 w-6 text-slate-700" />
-    </div>
-  );
-}
-
-// PIN グリフ（電話キーパッド型のドット。FontAwesome Free に該当なしのため自前 SVG）。
-function PinGlyph() {
-  const dots: [number, number][] = [];
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) dots.push([12 + c * 12, 10 + r * 12]);
-  dots.push([24, 46]); // 0 の段
-  return (
-    <svg viewBox="0 0 48 56" className="h-12 w-12" fill="currentColor" style={{ color: "#334155" }}>
-      {dots.map(([x, y], i) => (
-        <circle key={i} cx={x} cy={y} r="3.6" />
-      ))}
-    </svg>
-  );
-}
-
-// パターン グリフ（3×3 の丸＋なぞり線）。
-function PatternGlyph() {
-  const pts: [number, number][] = [];
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) pts.push([10 + c * 14, 10 + r * 14]);
-  return (
-    <svg viewBox="0 0 48 48" className="h-12 w-12" fill="none" stroke="#334155" style={{ color: "#334155" }}>
-      <polyline
-        points="10,10 38,10 24,24 10,38 38,38"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        opacity="0.55"
-      />
-      {pts.map(([x, y], i) => (
-        <circle key={i} cx={x} cy={y} r="4.5" strokeWidth="2.5" fill="white" />
-      ))}
-    </svg>
-  );
-}
-
-// 6桁認証コードの入力。見た目は「6本の下線スロット」、実体は透明な単一 input
-// （SMS の自動入力 one-time-code・ペースト・IME をそのまま活かすため）。
+// SMS認証コードの6桁入力。
 function OtpSlots({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [focused, setFocused] = useState(false);
   const composing = useRef(false);
@@ -1359,8 +1242,10 @@ export const realAdapter: WizardAdapter = {
     if (!stored || canEnterAdmin(stored)) return null;
     try {
       return await apiFetch<Reg>("/api/me/registration", undefined, { skipAuthRedirect: true });
-    } catch {
-      return null;
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status === 401 || status === 403) return null;
+      throw error;
     }
   },
   async sendOtp(phone) {
@@ -1381,17 +1266,7 @@ export const realAdapter: WizardAdapter = {
     const reg = await apiFetch<Reg>("/api/me/registration");
     return { alreadyApplied: !!res.alreadyApplied, reg };
   },
-  async registerPasskey() {
-    const { options, challengeToken } = await apiFetch<{
-      options: Parameters<typeof startRegistration>[0]["optionsJSON"];
-      challengeToken: string;
-    }>("/api/auth/webauthn/register/options", { method: "POST" });
-    const response = await startRegistration({ optionsJSON: options });
-    await apiFetch("/api/auth/webauthn/register/verify", {
-      method: "POST",
-      body: JSON.stringify({ response, challengeToken }),
-    });
-  },
+  registerPasskey,
   async getRegistration() {
     return apiFetch<Reg>("/api/me/registration");
   },

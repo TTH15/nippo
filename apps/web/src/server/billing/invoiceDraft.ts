@@ -243,6 +243,7 @@ export async function buildDriverDraft(
   // 有効期間（valid_from/valid_to）で当月分に絞る。ここを絞らないと
   // 終了済みの固定控除が請求書に載る（旧ペイメント画面の実装がそうだった）。
   const { data: fixedExpRows } = await supabase
+    // tenant-scope-ok: driverId はこの関数の冒頭で .eq("org_id", orgId) 付きで存在確認済み
     .from("driver_fixed_expenses")
     .select("name, amount")
     .eq("driver_id", driverId)
@@ -260,6 +261,7 @@ export async function buildDriverDraft(
 
   // 臨時経費（driver_ad_hoc_expenses・当月）: 正=控除（お支払い分）、負=手当（請求分へ加算）。
   const { data: adHocRows } = await supabase
+    // tenant-scope-ok: driverId はこの関数の冒頭で .eq("org_id", orgId) 付きで存在確認済み
     .from("driver_ad_hoc_expenses")
     .select("name, amount")
     .eq("driver_id", driverId)

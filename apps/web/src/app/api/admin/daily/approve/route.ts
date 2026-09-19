@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
 
     // シフト未登録の場合は承認不可（売上・報酬計算がシフト基準のため）
     const { data: shiftRow, error: shiftErr } = await supabase
+      // tenant-scope-ok: 直上で自社のドライバーと確認済みの driverId に固定
       .from("shifts")
       .select("id")
       .eq("driver_id", driverId)

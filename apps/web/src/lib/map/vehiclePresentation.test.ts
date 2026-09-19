@@ -23,25 +23,25 @@ describe("presentationChanged", () => {
 
 describe("vehicleMapModelFor", () => {
   it("登録済みの車種はそのモデル、OEMは元車種、未設定・未登録は既定へ倒す", () => {
-    expect(vehicleMapModelFor("acty")).toBe(VEHICLE_MAP_MODELS.acty);
-    expect(vehicleMapModelFor("hijet")).toBe(VEHICLE_MAP_MODELS.hijet);
-    expect(vehicleMapModelFor("clipper")).toBe(VEHICLE_MAP_MODELS.every);
-    expect(vehicleMapModelFor("sambar")).toBe(VEHICLE_MAP_MODELS.hijet);
+    expect(vehicleMapModelFor("acty")).toBe(VEHICLE_MAP_MODELS["acty-hh5"]);
+    expect(vehicleMapModelFor("hijet")).toBe(VEHICLE_MAP_MODELS["hijet-s300"]);
+    expect(vehicleMapModelFor("clipper")).toBe(VEHICLE_MAP_MODELS["every-da64v"]);
+    expect(vehicleMapModelFor("sambar")).toBe(VEHICLE_MAP_MODELS["hijet-s300"]);
     expect(vehicleMapModelFor(null)).toBe(VEHICLE_MAP_MODELS[DEFAULT_VEHICLE_MAP_MODEL_KEY]);
     expect(vehicleMapModelFor("unknown-model")).toBe(VEHICLE_MAP_MODELS[DEFAULT_VEHICLE_MAP_MODEL_KEY]);
   });
-  it("model_key が無い車もメーカー＋車種名から車種キーを引く（型式は問わない）", () => {
-    expect(mapModelKeyForVehicle({ model_key: "acty", manufacturer: "スズキ", brand: "エブリイ" })).toBe("acty");
+  it("保存キーが古くてもメーカー・車種から選び直す", () => {
+    expect(mapModelKeyForVehicle({ model_key: "acty", manufacturer: "スズキ", brand: "エブリイ" })).toBe("every");
     expect(mapModelKeyForVehicle({ model_key: null, manufacturer: "ダイハツ", brand: "ハイゼットカーゴ" })).toBe("hijet");
     expect(mapModelKeyForVehicle({ model_key: null, manufacturer: "ダイハツ", brand: "ハイゼット" })).toBe("hijet");
     expect(mapModelKeyForVehicle({ model_key: null, manufacturer: "スズキ", brand: "エブリイ" })).toBe("every");
     expect(mapModelKeyForVehicle({ model_key: null, manufacturer: null, brand: null })).toBeNull();
   });
   it("車両編集の3Dプレビューも同じ車種のモデルを使い、OEM・未登録は地図と同じ規則で倒す", () => {
-    expect(modelUrlFor("hijet")).toBe("/models/hijet-s300-blockout-19.glb");
-    expect(modelUrlFor("sambar")).toBe("/models/hijet-s300-blockout-19.glb");
-    expect(modelUrlFor("clipper")).toBe("/models/every-da64v-blockout-88.glb");
-    expect(modelUrlFor(null)).toBe("/models/every-da64v-blockout-88.glb");
+    expect(modelUrlFor("hijet")).toBe(`/models/${VEHICLE_MAP_MODELS["hijet-s300"].id}.glb`);
+    expect(modelUrlFor("sambar")).toBe(`/models/${VEHICLE_MAP_MODELS["hijet-s300"].id}.glb`);
+    expect(modelUrlFor("clipper")).toBe(`/models/${VEHICLE_MAP_MODELS["every-da64v"].id}.glb`);
+    expect(modelUrlFor(null)).toBe(`/models/${VEHICLE_MAP_MODELS["every-da64v"].id}.glb`);
   });
   it("全モデルが車体・固定色・灯火の3ファイルと全長を持つ", () => {
     for (const model of Object.values(VEHICLE_MAP_MODELS)) {

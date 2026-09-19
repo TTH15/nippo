@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAnyPermission, isAuthError } from "@/server/auth";
 import { COURSE_BILLING_VIEW_CAPS, COURSE_BILLING_MANAGE_CAPS } from "@/server/auth/domainCaps";
 import { supabase } from "@/server/db/client";
+import { resolveOrgId } from "@/server/db/tenant";
+import { belongsToOrg } from "@/server/db/adminResourceScope";
 
 export const dynamic = "force-dynamic";
 
@@ -11,12 +13,28 @@ export async function GET(req: NextRequest) {
   const user = await requireAnyPermission(req, COURSE_BILLING_VIEW_CAPS);
   if (isAuthError(user)) return user;
 
+  // ★course_rates は org 列を持たない（migration 178 で追加・移行中は NULL もありうる）。
+  //   絞りを入れないと **全社の単価（売上・支払・利益）をそのまま返す**。
+  const orgId = await resolveOrgId(user.driverId);
+  const { data: orgCourses, error: coursesError } = await supabase
+    .from("courses")
+    .select("id")
+    .eq("org_id", orgId);
+  if (coursesError) {
+    console.error(coursesError);
+    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  }
+  const orgCourseIds = (orgCourses ?? []).map((c) => c.id);
+  if (orgCourseIds.length === 0) return NextResponse.json({ rates: [] });
+
   const { data, error } = await supabase
+    // tenant-scope-ok: orgCourseIds は自社の courses（.eq("org_id", orgId)）から作った集合
     .from("course_rates")
     .select(`
       *,
       courses (id, name, color, sort_order)
-    `);
+    `)
+    .in("course_id", orgCourseIds);
 
   if (error) {
     console.error(error);
@@ -52,6 +70,10 @@ export async function PATCH(req: NextRequest) {
     if (!course_id) {
       return NextResponse.json({ error: "course_id is required" }, { status: 400 });
     }
+    // ★course_id は body 由来。自社のコースか確かめないと他社の単価を書き換えられる。
+    if (!(await belongsToOrg("courses", String(course_id), await resolveOrgId(user.driverId)))) {
+      return NextResponse.json({ error: "対象のコースが見つかりません。" }, { status: 404 });
+    }
 
     const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
@@ -79,6 +101,7 @@ export async function PATCH(req: NextRequest) {
     if (typeof fixed_profit === "number") payload.fixed_profit = fixed_profit;
 
     const { data, error } = await supabase
+      // tenant-scope-ok: 直上の belongsToOrg で自社のコースと確認済みの course_id
       .from("course_rates")
       .update(payload)
       .eq("course_id", course_id)

@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
     if (!rejected) return NextResponse.json({ error: "報告が見つかりません。" }, { status: 404 });
 
     const { error: cleanupError } = await supabase
+      // tenant-scope-ok: report は直上で org_id を確認済み。その driver_id に固定
       .from("driver_ad_hoc_expenses")
       .delete()
       .eq("misc_report_id", id).eq("driver_id", report.driver_id);

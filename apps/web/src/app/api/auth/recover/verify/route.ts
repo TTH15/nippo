@@ -1,3 +1,4 @@
+import { freshStrongAuth } from "@/server/auth/recentAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/server/db/client";
 import { toE164JP, phoneLookupVariants } from "@/server/otp/phone";
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: failure.error }, { status: failure.status });
     }
 
-    return NextResponse.json(await issueDriverSession(resolved.driver));
+    return NextResponse.json(await issueDriverSession(resolved.driver, freshStrongAuth("sms")));
   } catch (err) {
     console.error("[Recover] error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

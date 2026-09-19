@@ -97,6 +97,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    // シフトは自社のドライバー集合で絞る。絞らないと他社のシフトまで読み、1000行の上限で
+    // 黙って切られたときに自社の出勤が欠けて「休み」と誤表示される（2026-08-02 の不具合の同型）。
+    const orgDriverIds = (drivers ?? []).map((d) => d.id);
+
     let dates: string[];
     let shiftRows: ShiftRow[];
     let reportRows: Awaited<ReturnType<typeof loadLegacyDailyRows>>;
@@ -116,9 +120,11 @@ export async function GET(req: NextRequest) {
         const [shiftSlice, reportSlice] = await Promise.all([
           fetchAllRows<ShiftRow>((from, to) =>
             supabase
+              // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
               .from("shifts")
               .select("shift_date, driver_id, course_id")
               .in("shift_date", slice)
+              .in("driver_id", orgDriverIds)
               .not("driver_id", "is", null)
               .order("shift_date", { ascending: true })
               .order("id", { ascending: true })
@@ -141,10 +147,12 @@ export async function GET(req: NextRequest) {
       const [shiftsRes, reportsRes] = await Promise.all([
         fetchAllRows<ShiftRow>((from, to) =>
           supabase
+            // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
             .from("shifts")
             .select("shift_date, driver_id, course_id")
             .gte("shift_date", startParam)
             .lte("shift_date", endParam)
+            .in("driver_id", orgDriverIds)
             .not("driver_id", "is", null)
             .order("shift_date", { ascending: true })
             .order("id", { ascending: true })
@@ -208,6 +216,9 @@ export async function GET(req: NextRequest) {
         report_date: r.report_date,
         course_id: r.course_id ?? null,
         course_name: r.course_name ?? null,
+        // 便（C1/C2）。落とすと同じコースの行が見分けられなくなる（2026-09-19 指摘）
+        cycle_no: Number(r.cycle_no) || 0,
+        cycle_label: r.cycle_label ?? null,
         content: contentByReport.get(r.id) ?? [],
         // 旧数値カラムは互換のため残すが、表示は content が正（withEntries:false のため常に0）
         takuhaibin_completed: Number(r.takuhaibin_completed) || 0,

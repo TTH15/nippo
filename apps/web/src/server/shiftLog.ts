@@ -9,6 +9,8 @@ export async function logShiftChange(entry: {
   action: "assign_driver" | "clear_driver" | "assign_vehicle" | "loan_on" | "loan_off" | "import_apply";
   shiftDate?: string | null;
   courseId?: string | null;
+  /** 便（migration 136）。渡さないと便を使うコースのログが全部 0 になる */
+  cycleNo?: number | null;
   slot?: number | null;
   before?: unknown;
   after?: unknown;
@@ -20,6 +22,7 @@ export async function logShiftChange(entry: {
       action: entry.action,
       shift_date: entry.shiftDate ?? null,
       course_id: entry.courseId ?? null,
+      cycle_no: entry.cycleNo ?? 0,
       slot: entry.slot ?? null,
       before: entry.before ?? null,
       after: entry.after ?? null,

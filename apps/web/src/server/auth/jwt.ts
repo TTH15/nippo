@@ -19,6 +19,8 @@ export async function signToken(payload: {
   identityId?: string | null;
   orgId?: string | null;
   tokenVersion?: number;
+  strongAuthAt?: number;
+  strongAuthMethod?: "sms" | "passkey";
 }): Promise<string> {
   return new SignJWT({
     sub: payload.driverId,
@@ -27,6 +29,8 @@ export async function signToken(payload: {
     identity_id: payload.identityId ?? null,
     current_org_id: payload.orgId ?? null,
     token_version: payload.tokenVersion ?? 0,
+    strong_auth_at: payload.strongAuthAt,
+    strong_auth_method: payload.strongAuthMethod,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -67,6 +71,9 @@ export class SimpleJwtAuthProvider implements AuthProvider {
       identityId,
       orgId,
       tokenVersion,
+      ...(typeof payload.strong_auth_at === "number" && Number.isSafeInteger(payload.strong_auth_at) &&
+        (payload.strong_auth_method === "sms" || payload.strong_auth_method === "passkey")
+        ? { strongAuthAt: payload.strong_auth_at, strongAuthMethod: payload.strong_auth_method } : {}),
     };
   }
 }

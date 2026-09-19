@@ -19,6 +19,8 @@ vi.mock("@/server/identity", () => ({
   issueDriverSession: mock.issueSession,
   describeIdentityLoginFailure: vi.fn(),
 }));
+vi.mock("@/server/afterSafely", () => ({ afterSafely: vi.fn() }));
+vi.mock("@/server/notifications/dispatch", () => ({ deliverStoredNotifications: vi.fn() }));
 import { createChallengeToken } from "./webauthn";
 import { POST as login } from "@/app/api/auth/webauthn/login/verify/route";
 import { POST as register } from "@/app/api/auth/webauthn/register/verify/route";
@@ -28,6 +30,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   const used = new Set<string>();
   mock.rpc.mockImplementation(async (_name, args) => {
+    if (_name === "manage_passkey") { mock.insert(args); return { data: { notificationId: "notice" }, error: null }; }
     const fresh = !used.has(args.p_challenge_hash);
     used.add(args.p_challenge_hash);
     return { data: fresh, error: null };
@@ -52,7 +55,7 @@ beforeEach(() => {
     credential: { id: "credential", publicKey: new Uint8Array([1]), counter: 0 },
     credentialDeviceType: "multiDevice", credentialBackedUp: true,
   } });
-  mock.requireAuth.mockResolvedValue({ driverId: "driver-a", identityId: "person-a" });
+  mock.requireAuth.mockResolvedValue({ driverId: "driver-a", identityId: "person-a", orgId: "org-a", strongAuthMethod: "sms", strongAuthAt: Math.floor(Date.now() / 1000) });
   mock.resolveDriver.mockResolvedValue({ driver: { id: "driver-a" } });
   mock.issueSession.mockResolvedValue({ token: "test-session" });
 });
@@ -124,5 +127,18 @@ describe("Passkey登録の再送", () => {
     mock.rpc.mockResolvedValue({ data: null, error: { message: "offline" } });
     expect((await register(request(await registerToken()))).status).toBe(503);
     expect(mock.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe("Passkey登録前の本人確認", () => {
+  it("古いセッションからの登録は鍵検証・DB変更より先に拒否する", async () => {
+    mock.requireAuth.mockResolvedValue({ driverId: "driver-a", identityId: "person-a", orgId: "org-a" });
+    expect((await register(request(await registerToken()))).status).toBe(403);
+    expect(mock.verifyRegister).not.toHaveBeenCalled(); expect(mock.rpc).not.toHaveBeenCalled();
+  });
+  it("通知を含む鍵保存の失敗を成功扱いにしない", async () => {
+    mock.rpc.mockImplementation(async (name) => name === "manage_passkey" ? { data: null, error: { code: "offline" } } : { data: true, error: null });
+    expect((await register(request(await registerToken()))).status).toBe(500);
+    expect(mock.verifyRegister).toHaveBeenCalledWith(expect.objectContaining({ requireUserVerification: true }));
   });
 });

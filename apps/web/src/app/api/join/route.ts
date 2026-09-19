@@ -1,3 +1,4 @@
+import { freshStrongAuth } from "@/server/auth/recentAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/server/db/client";
 import { toE164JP } from "@/server/otp/phone";
@@ -177,7 +178,7 @@ export async function POST(req: NextRequest) {
       // セッションを再発行する（pending/active のみ。inactive は稼働終了のため発行しない）。
       const session =
         dup.status === "pending" || dup.status === "active"
-          ? await issueDriverSession(dup as ActiveDriverRow)
+          ? await issueDriverSession(dup as ActiveDriverRow, freshStrongAuth("sms"))
           : null;
       return NextResponse.json({
         ok: true,
@@ -233,7 +234,7 @@ export async function POST(req: NextRequest) {
           .maybeSingle();
         const session =
           raced && (raced.status === "pending" || raced.status === "active")
-            ? await issueDriverSession(raced as ActiveDriverRow)
+            ? await issueDriverSession(raced as ActiveDriverRow, freshStrongAuth("sms"))
             : null;
         return NextResponse.json({
           ok: true,
@@ -248,7 +249,7 @@ export async function POST(req: NextRequest) {
 
     // pending のままセッション発行（本登録を同一セッションで続けるため・§2-1a）。
     // requireAuth が本人登録以外の業務APIを拒否する。
-    const session = await issueDriverSession(created as ActiveDriverRow);
+    const session = await issueDriverSession(created as ActiveDriverRow, freshStrongAuth("sms"));
     return NextResponse.json({ ok: true, organizationName: org.name, ...session });
   } catch (err) {
     console.error("[Join] error:", err);

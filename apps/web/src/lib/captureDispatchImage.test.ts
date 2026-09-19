@@ -14,18 +14,19 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); document.body.replaceChildren(); });
 describe("日別配車の画像化", () => {
-  it("SVGの面だけ差し替え、警告と番号未登録車を残し、自然な区切りで分割する", async () => {
+  it("SVGの面だけ差し替え、警告と番号未登録車を残し、全員を1枚に入れる", async () => {
     const source = document.createElement("div");
     source.innerHTML = Array.from({ length: 13 }, (_, i) => `<div data-export-row data-export-group="${i < 10 ? "course-a" : "course-b"}">運転者${i}<span data-export-omit>タップで割当</span><span data-mobile-export-plate="true" data-mobile-export-plate-id="v${i}" data-mobile-export-plate-kana="れ" data-mobile-export-plate-number="1201"><div>${i === 12 ? "番号未登録車" : '<div style="aspect-ratio: 2 / 1">SVG面</div>'}<span role="status">使用不可</span></div></span></div>`).join("");
     document.body.append(source);
     let captured = "";
     vi.mocked(html2canvas).mockImplementation(async stage => { captured = stage.innerHTML; return canvas as unknown as HTMLCanvasElement; });
-    const result = await captureDispatchImage(source, { title: "配車", subtitle: "全員13人", page: 1, pageCount: 2 });
+    const result = await captureDispatchImage(source, { title: "配車", subtitle: "全員13人" });
     expect(captured).toContain('text-align: center');
-    expect(captured).toContain("運転者10"); expect(captured).toContain("運転者12"); expect(captured).not.toContain("運転者9");
+    // 縦に長くなっても1枚に収める（2026-09-19 ユーザー指定で分割をやめた）
+    expect(captured).toContain("運転者0"); expect(captured).toContain("運転者9"); expect(captured).toContain("運転者12");
     expect(captured).toContain("使用不可"); expect(captured).toContain("番号未登録車");
     expect(captured).not.toContain("タップで割当"); expect(captured).not.toContain("SVG面");
-    expect(renderPlateImage).toHaveBeenCalledTimes(2);
+    expect(renderPlateImage).toHaveBeenCalledTimes(12);
     expect(result.url).toBe(canvas.toDataURL());
     expect(source.querySelectorAll("[data-export-row]")).toHaveLength(13);
     expect(document.body.children).toHaveLength(1);
@@ -35,7 +36,7 @@ describe("日別配車の画像化", () => {
     source.innerHTML = '<span data-mobile-export-plate="true"><div style="aspect-ratio: 2 / 1"></div></span>';
     document.body.append(source);
     vi.mocked(renderPlateImage).mockRejectedValueOnce(new Error("SVG unavailable"));
-    await expect(captureDispatchImage(source, { title: "配車", subtitle: "稼働", page: 0, pageCount: 1 })).rejects.toThrow("SVG unavailable");
+    await expect(captureDispatchImage(source, { title: "配車", subtitle: "稼働" })).rejects.toThrow("SVG unavailable");
     expect(document.body.children).toHaveLength(1);
     expect(html2canvas).not.toHaveBeenCalled();
   });
@@ -62,7 +63,7 @@ describe("日別配車の画像化", () => {
         if (fail) throw new Error("capture failed");
         return canvas as unknown as HTMLCanvasElement;
       });
-      const capture = captureDispatchImage(source, { title: "配車", subtitle: "稼働", page: 0, pageCount: 1 });
+      const capture = captureDispatchImage(source, { title: "配車", subtitle: "稼働" });
       if (fail) await expect(capture).rejects.toThrow("capture failed");
       else await capture;
       expect(getComputedStyle(measurementImage).display).toBe("block");

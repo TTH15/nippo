@@ -14,6 +14,9 @@ export type AuthUser = {
   orgId: string | null;
   /** 所属・権限変更で増加する世代。未設定の旧JWTは0。 */
   tokenVersion?: number;
+  /** 最後にSMS/Passkeyを検証した時刻。セッションの再発行では更新しない。 */
+  strongAuthAt?: number;
+  strongAuthMethod?: "sms" | "passkey";
   /**
    * requirePermission が解決した capability 集合（同一リクエスト内の再利用用）。
    * 認可の正本はあくまでサーバーの都度判定で、これは往復を減らすためのキャッシュ。

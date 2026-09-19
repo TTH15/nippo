@@ -52,10 +52,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    // 自社のドライバー集合で絞る。絞らないと他社のシフトまで読み、1000行の上限で
+    // 黙って切られたときに自社の出勤が欠ける（表示は driverById で弾いていたので
+    // 露出はしないが、読む必要のない他社データを読んでいた）。
+    const orgDriverIds = (drivers ?? []).map((d) => d.id);
     const { data: shiftRows, error: shiftsErr } = await supabase
+      // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       .from("shifts")
       .select("driver_id")
       .eq("shift_date", dateParam)
+      .in("driver_id", orgDriverIds)
       .not("driver_id", "is", null);
 
     if (shiftsErr) {
@@ -71,6 +77,7 @@ export async function GET(req: NextRequest) {
     const driverIds = (drivers ?? []).map((d: { id: string }) => d.id);
     const { data: prefRows } = driverIds.length
       ? await supabase
+          // tenant-scope-ok: driverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
           .from("driver_vehicle_preferences")
           .select("driver_id, vehicles ( id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand )")
           .in("driver_id", driverIds)

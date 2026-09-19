@@ -53,10 +53,13 @@ export async function loadPendingDatesAppSide(
     course_id: string | null;
   }>((from, to) =>
     supabase
+      // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       .from("shifts")
       .select("shift_date, driver_id, course_id")
       .gte("shift_date", start)
       .lte("shift_date", end)
+      // 自社のドライバー集合で絞る（他社のシフトを読んでページ数を無駄に増やさない）
+      .in("driver_id", [...orgDriverIds])
       .not("driver_id", "is", null)
       .order("shift_date", { ascending: true })
       .order("id", { ascending: true })

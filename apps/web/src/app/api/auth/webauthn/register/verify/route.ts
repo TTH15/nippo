@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
+import { requireRecentAuth } from "@/server/auth/recentAuth";
 import { supabase } from "@/server/db/client";
 import {
   verifyRegistrationResponse,
@@ -9,11 +10,18 @@ import {
   rpConfig,
 } from "@/server/auth/webauthn";
 
+import { afterSafely } from "@/server/afterSafely";
+import { deliverStoredNotifications } from "@/server/notifications/dispatch";
+
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
+  if (!user.orgId) return NextResponse.json({ error: "所属を確認できません" }, { status: 403 });
+  const orgId = user.orgId;
+  const reauthError = await requireRecentAuth(req, user);
+  if (reauthError) return reauthError;
 
   if (!user.identityId) {
     return NextResponse.json(
@@ -51,6 +59,7 @@ export async function POST(req: NextRequest) {
       expectedChallenge: challenge,
       expectedOrigin: origin,
       expectedRPID: rpID,
+      requireUserVerification: true,
     });
   } catch (err) {
     console.error("[Passkey] register verify error:", err);
@@ -77,21 +86,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { error: insertError } = await supabase.from("passkey_credentials").insert({
-    identity_id: user.identityId,
-    credential_id: credential.id,
-    public_key: publicKeyToBytea(credential.publicKey),
-    counter: credential.counter,
-    transports: credential.transports ?? null,
-    device_type: credentialDeviceType,
-    backed_up: credentialBackedUp,
-    name: typeof name === "string" && name.trim() ? name.trim().slice(0, 100) : null,
+  const { data: saved, error: insertError } = await supabase.rpc("manage_passkey", {
+    p_driver_id: user.driverId, p_identity_id: user.identityId, p_org_id: user.orgId,
+    p_operation: "register", p_credential: {
+      credential_id: credential.id, public_key: publicKeyToBytea(credential.publicKey),
+      counter: credential.counter, transports: credential.transports ?? null,
+      device_type: credentialDeviceType, backed_up: credentialBackedUp,
+      name: typeof name === "string" && name.trim() ? name.trim().slice(0, 100) : null,
+    },
   });
 
-  if (insertError) {
+  if (insertError || !saved?.notificationId) {
     console.error("[Passkey] insert error:", insertError);
     return NextResponse.json({ error: "Passkeyの保存に失敗しました" }, { status: 500 });
   }
 
+  afterSafely(() => deliverStoredNotifications(orgId, [saved.notificationId]));
   return NextResponse.json({ ok: true });
 }

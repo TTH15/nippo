@@ -43,6 +43,7 @@ export async function loadDriverLeases(
   if (driverIds.length === 0) return result;
 
   const { data, error } = await supabase
+    // tenant-scope-ok: 呼び出し元が自社の drivers（.eq("org_id", orgId)）から作った driverIds を渡す
     .from("driver_leases")
     .select("driver_id, mode, amount, valid_from")
     .in("driver_id", driverIds)

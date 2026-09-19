@@ -1,269 +1,187 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { createGltfLoader } from "@/lib/three/gltf-loader";
+import { colorForVehicleMaterial, type VehiclePartColors } from "@/lib/vehicleAppearance";
+import type { VehiclePlateData } from "@repo/core/types";
+import { renderPlateImage } from "@/lib/plateImage";
 
-// ============================================================
-// 車両3Dモデルのプレビュー（2026-08-10）。
-// 車両編集画面で「その車がどう見えるか」をその場で確認するための小さなビューア。
-//
-// 地図と同じ keivan-3d 版の glb を読む（実寸・+X が前・Y-up）。
-// 車体色は塗装の材質（Body White / Paint Hood / Paint Front・Rear Bumper / Body Crease）にだけ効かせ、
-// 窓・タイヤ・灯火・プレートは元の色を保つ（2026-09-07）。旧 Meshy 版（材質名 plate 以外を全部塗る）も読める。
-// ============================================================
+const HEAD = new Set(["Headlight Lens"]);
+const TAIL = new Set(["Rear Red Lens", "Light Brake High"]);
+const isNight = () => { const h = (new Date().getUTCHours() + 9) % 24; return h >= 18 || h < 5; };
 
-/** 地図の分割スクリプト（scripts/split-vehicle-map-model.mjs）と同じ塗装材質名 */
-const PAINT_MATERIALS = new Set(["Body White", "Paint Hood", "Paint Front Bumper", "Paint Rear Bumper", "Body Crease"]);
-const HEADLIGHT_MATERIALS = new Set(["Headlight Lens"]);
-const TAILLIGHT_MATERIALS = new Set(["Rear Red Lens", "Light Brake High"]);
-
-/** 夜（JST）かどうか。地図のライティング切替と同じ考え方で、時間帯に合わせる。 */
-function isNightJST(): boolean {
-  const h = Number(
-    new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false })
-      .formatToParts(new Date())
-      .find((p) => p.type === "hour")?.value ?? "12",
-  );
-  return h >= 18 || h < 5;
+function disposeObject(root: THREE.Object3D) {
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
+  root.traverse(obj => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.dispose();
+    for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(m);
+  });
+  for (const m of materials) {
+    for (const v of Object.values(m)) if (v instanceof THREE.Texture) textures.add(v);
+    m.dispose();
+  }
+  for (const t of textures) t.dispose();
 }
 
-/** 発光の丸いテクスチャ（中心が明るく外へ向かって減衰）。 */
-function makeGlowTexture(): THREE.Texture {
-  const size = 64;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, "rgba(255,255,255,1)");
-  g.addColorStop(0.35, "rgba(255,255,255,0.55)");
-  g.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-export function VehicleModelPreview({
-  modelUrl,
-  bodyColor,
-  className,
-  night,
-}: {
-  modelUrl: string;
-  /** #RRGGBB。未指定ならモデル本来の色 */
-  bodyColor?: string | null;
-  className?: string;
-  /** 夜間表示（ライトを灯す）。未指定なら日本時間で判定 */
-  night?: boolean;
+/** 地図と同じGLBを表示。光は実際の灯火材質だけに付き、推測座標のスプライトは置かない。 */
+export function VehicleModelPreview({ modelUrl, bodyColor, partColors = {}, plate, className, night }: {
+  modelUrl: string; bodyColor?: string | null; partColors?: VehiclePartColors; plate?: VehiclePlateData; className?: string; night?: boolean;
 }) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const bodyMaterialsRef = useRef<THREE.MeshStandardMaterial[]>([]);
-  const lampMaterialsRef = useRef<{ material: THREE.MeshStandardMaterial; color: number }[]>([]);
-  const lampsRef = useRef<THREE.Sprite[]>([]);
-  const nightRef = useRef<boolean>(night ?? isNightJST());
-  nightRef.current = night ?? isNightJST();
+  const hostRef = useRef<HTMLDivElement>(null);
+  const appearance = useRef({ bodyColor, partColors, night: night ?? isNight() });
+  appearance.current = { bodyColor, partColors, night: night ?? isNight() };
+  const plateTexture = useRef<THREE.CanvasTexture | null>(null);
+  const [plateError, setPlateError] = useState(false);
+  const updateRef = useRef<() => void>(() => {});
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [retry, setRetry] = useState(0);
+  const plateKey = [plate?.number_prefix, plate?.number_class, plate?.number_hiragana, plate?.number_numeric, plate?.plate_color].join("|");
+  const plateRef = useRef(plate); plateRef.current = plate;
+  useEffect(() => {
+    let cancelled = false;
+    const current = plateRef.current;
+    setPlateError(false);
+    plateTexture.current?.dispose(); plateTexture.current = null; updateRef.current();
+    // 未入力を架空の番号で埋めず、番号が揃ったら共通の字形を描く。
+    if (!current || ![current.number_prefix, current.number_class, current.number_hiragana, current.number_numeric].every(Boolean)) {
+      return;
+    }
+    void renderPlateImage(current, 160).then(({ canvas, width, height, padding }) => {
+      if (cancelled) { canvas.width = 0; canvas.height = 0; return; }
+      const textureCanvas = document.createElement("canvas"); textureCanvas.width = 512; textureCanvas.height = 256;
+      const scale = canvas.width / (width + padding * 2);
+      textureCanvas.getContext("2d")!.drawImage(canvas, padding * scale, padding * scale, width * scale, height * scale, 0, 0, 512, 256);
+      canvas.width = 0; canvas.height = 0;
+      const texture = new THREE.CanvasTexture(textureCanvas); texture.colorSpace = THREE.SRGBColorSpace; texture.flipY = false;
+      plateTexture.current?.dispose(); plateTexture.current = texture; updateRef.current();
+    }).catch(() => { if (!cancelled) setPlateError(true); });
+    return () => { cancelled = true; plateTexture.current?.dispose(); plateTexture.current = null; };
+  }, [plateKey, retry]);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    setStatus("loading");
+    let renderer: THREE.WebGLRenderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); }
+    catch { setStatus("error"); return; }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    // 白飛びを抑えて陰影を残す（既定のままだと明るい面が潰れて「粘土」に見える）
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
-    host.appendChild(renderer.domElement);
-
-    // 平行光だけだと「粘土」に見えるので、環境マップで面の向きに応じた明暗を作る
+    const canvas = renderer.domElement;
+    canvas.setAttribute("aria-label", "車両の3D表示。ドラッグまたは左右キーで回転");
+    canvas.setAttribute("role", "img");
+    canvas.tabIndex = 0;
+    canvas.style.touchAction = "pan-y";
+    canvas.style.cursor = "grab";
+    host.appendChild(canvas);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 100);
+    const pivot = new THREE.Group();
+    pivot.rotation.y = -Math.PI * 0.28;
+    scene.add(pivot);
     const pmrem = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa4b2, 0.8));
+    const room = new RoomEnvironment();
+    const environment = pmrem.fromScene(room, 0.04);
+    room.dispose(); pmrem.dispose();
+    scene.environment = environment.texture;
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa4b2, 1));
     const key = new THREE.DirectionalLight(0xffffff, 1.1);
-    key.position.set(3, 5, 4);
-    scene.add(key);
-
-    lampsRef.current = [];
-    let raf = 0;
+    key.position.set(3, 5, 4); scene.add(key);
     let disposed = false;
+    let radius = 2;
     let model: THREE.Object3D | null = null;
-    // ★ぐるぐる回さない。生成モデルはリアの造形が実車と違うことが多く、
-    //   回すと必ず粗が見える（2026-08-11 指摘）。**前寄りの斜め45度**で止め、
-    //   ゆっくり左右に揺らすだけにする。見たい人はドラッグで回せる。
-    const BASE_ANGLE = -Math.PI * 0.28;
-    let angle = BASE_ANGLE;
-    let userAngle: number | null = null;
-    let t = 0;
-
+    const materials = new Set<THREE.MeshStandardMaterial>();
+    const originals = new Map<THREE.MeshStandardMaterial, THREE.Color>();
+    const render = () => { if (!disposed) renderer.render(scene, camera); };
     const resize = () => {
-      const w = host.clientWidth || 240;
-      const h = host.clientHeight || 160;
-      renderer.setSize(w, h); // updateStyle=true。false だと CSS サイズが付かず**枠からはみ出す**
+      const w = Math.max(1, host.clientWidth), h = Math.max(1, host.clientHeight);
+      renderer.setSize(w, h);
       camera.aspect = w / h;
-      camera.updateProjectionMatrix();
+      const vertical = THREE.MathUtils.degToRad(camera.fov);
+      const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * camera.aspect);
+      const distance = radius / Math.sin(Math.min(vertical, horizontal) / 2) * 1.05;
+      camera.position.set(0, distance * 0.22, distance);
+      camera.lookAt(0, 0, 0);
+      camera.updateProjectionMatrix(); render();
     };
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(host);
-
-    createGltfLoader().load(
-      modelUrl,
-      (gltf) => {
-        if (disposed) return;
-        model = gltf.scene;
-        // 車体マテリアルだけ集める。keivan-3d 版は塗装材質だけ、旧版は plate 以外の全部
-        bodyMaterialsRef.current = [];
-        lampMaterialsRef.current = [];
-        const standard: THREE.MeshStandardMaterial[] = [];
-        model.traverse((obj) => {
-          const mesh = obj as THREE.Mesh;
-          if (!mesh.isMesh) return;
-          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          for (const m of mats) if (m instanceof THREE.MeshStandardMaterial) standard.push(m);
-        });
-        const keivan = standard.some((m) => PAINT_MATERIALS.has(m.name));
-        for (const m of standard) {
-          if (keivan ? PAINT_MATERIALS.has(m.name) : m.name !== "plate") bodyMaterialsRef.current.push(m);
-          if (HEADLIGHT_MATERIALS.has(m.name)) lampMaterialsRef.current.push({ material: m, color: 0xfff1c2 });
-          if (TAILLIGHT_MATERIALS.has(m.name)) lampMaterialsRef.current.push({ material: m, color: 0xff2a1a });
+    const apply = () => {
+      const { bodyColor: color, partColors: parts, night: dark } = appearance.current;
+      for (const m of materials) {
+        const paint = colorForVehicleMaterial(m.name, color, parts);
+        if (paint) m.color.set(paint); else m.color.copy(originals.get(m)!);
+        if (/plate/i.test(m.name)) {
+          m.map = plateTexture.current;
+          if (m.map) { m.color.set(0xffffff); m.metalness = 0; m.roughness = .8; }
+          m.needsUpdate = true;
         }
-        applyColor();
-        scene.add(model);
-
-        // 接地影。浮いて見えると玩具っぽくなるので、足元に柔らかい影を敷く
-        const shadow = new THREE.Mesh(
-          new THREE.CircleGeometry(1, 48),
-          new THREE.MeshBasicMaterial({
-            color: 0x0f172a,
-            transparent: true,
-            opacity: 0.16,
-            depthWrite: false,
-          }),
-        );
-        shadow.rotation.x = -Math.PI / 2;
-        scene.add(shadow);
-
-        // 車全体が収まる距離にカメラを置く
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        model.position.sub(center); // 原点まわりで回せるように中心へ寄せる
-        // 枠の中に必ず収まる距離。視野角と縦横比の小さい方に合わせる
-        const radius = Math.max(size.x, size.y, size.z) * 0.62;
-        const fov = (camera.fov * Math.PI) / 180;
-        const dist = radius / Math.sin(Math.min(fov, fov * camera.aspect) / 2);
-        camera.position.set(0, size.y * 0.55, dist);
-        camera.lookAt(0, size.y * 0.35, 0);
-        shadow.scale.setScalar(Math.max(size.x, size.z) * 0.42);
-        shadow.position.y = -size.y / 2 + 0.01;
-
-        // 夜はライトを灯す。車体の前後端に発光スプライトを置き、keivan-3d 版は灯火材質も発光させる。
-        // keivan-3d 版は +X が前なので前を電球色・後ろを赤にする。旧生成モデルは前後が判定できないので両端とも電球色。
-        const glow = makeGlowTexture();
-        const halfLen = size.x / 2;
-        const lampY = -size.y / 2 + size.y * 0.28;
-        for (const sx of [-1, 1]) {
-          for (const sz of [-1, 1]) {
-            const sprite = new THREE.Sprite(
-              new THREE.SpriteMaterial({
-                map: glow,
-                color: keivan && sx < 0 ? 0xff4a3a : 0xffd9a0,
-                transparent: true,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false,
-              }),
-            );
-            sprite.position.set(sx * halfLen * 0.92, lampY, sz * (size.z / 2) * 0.55);
-            sprite.scale.setScalar(size.y * 0.5);
-            lampsRef.current.push(sprite);
-            model!.add(sprite); // 車体と一緒に回るよう子にする
+        if (HEAD.has(m.name) || TAIL.has(m.name)) {
+          m.emissive.set(dark ? (HEAD.has(m.name) ? 0xfff1cf : 0xff2515) : 0x000000);
+          m.emissiveIntensity = dark ? 2.5 : 0;
+        }
+      }
+      key.intensity = dark ? 0.55 : 1.1;
+      renderer.toneMappingExposure = dark ? 0.9 : 1.15;
+      render();
+    };
+    updateRef.current = apply;
+    const observer = new ResizeObserver(resize); observer.observe(host); resize();
+    createGltfLoader().load(modelUrl, gltf => {
+      if (disposed) { disposeObject(gltf.scene); return; }
+      model = gltf.scene;
+      model.traverse(obj => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          if (m instanceof THREE.MeshStandardMaterial) {
+            materials.add(m); originals.set(m, m.color.clone());
+            if (m.transparent) m.depthWrite = false;
           }
         }
-        applyNight();
-      },
-      undefined,
-      (err) => console.error("[VehicleModelPreview] load error", err),
-    );
+      });
+      const box = new THREE.Box3().setFromObject(model);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      radius = box.getBoundingSphere(new THREE.Sphere()).radius * 0.75;
+      model.position.sub(center);
+      pivot.add(model); // 中心移動は子へ、回転は親へ。灯火面と車体は同じ変換を受ける。
+      const shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicMaterial({
+        color: 0x0f172a, transparent: true, opacity: 0.1, depthWrite: false,
+      }));
+      shadow.rotation.x = -Math.PI / 2;
+      shadow.scale.set(size.x * 0.48, size.z * 0.48, 1);
+      shadow.position.y = -size.y / 2 + 0.005;
+      pivot.add(shadow);
+      setStatus("ready"); resize(); apply();
+    }, undefined, () => { if (!disposed) setStatus("error"); });
 
-    const applyNight = () => {
-      for (const lamp of lampsRef.current) lamp.visible = nightRef.current;
-      for (const { material, color } of lampMaterialsRef.current) {
-        material.emissive.set(nightRef.current ? color : 0x000000);
-        material.emissiveIntensity = nightRef.current ? 2.5 : 0;
-      }
-      // 夜は環境光を落として、灯りが際立つようにする
-      key.intensity = nightRef.current ? 0.45 : 1.1;
-      renderer.toneMappingExposure = nightRef.current ? 0.85 : 1.15;
-    };
-    applyNightRef.current = applyNight;
-
-    const applyColor = () => {
-      const hex = bodyColorRef.current;
-      for (const m of bodyMaterialsRef.current) {
-        m.color.set(hex && /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : "#eef0f5");
-      }
-    };
-    applyColorRef.current = applyColor;
-
-    // ドラッグで見たい向きに回せる（勝手に一周させない代わりの逃げ道）
-    let dragging = false;
-    let lastX = 0;
-    const onDown = (e: PointerEvent) => {
-      dragging = true;
-      lastX = e.clientX;
-      renderer.domElement.setPointerCapture(e.pointerId);
-    };
-    const onMove = (e: PointerEvent) => {
-      if (!dragging) return;
-      userAngle = (userAngle ?? angle) + (e.clientX - lastX) * 0.01;
-      lastX = e.clientX;
-    };
-    const onUp = () => {
-      dragging = false;
-    };
-    renderer.domElement.style.cursor = "grab";
-    renderer.domElement.addEventListener("pointerdown", onDown);
-    renderer.domElement.addEventListener("pointermove", onMove);
-    renderer.domElement.addEventListener("pointerup", onUp);
-
-    const tick = () => {
-      raf = requestAnimationFrame(tick);
-      if (model) {
-        t += 0.006;
-        angle = userAngle ?? BASE_ANGLE + Math.sin(t) * 0.14; // ±8度ほど揺らす
-        model.rotation.y = angle;
-      }
-      renderer.render(scene, camera);
-    };
-    tick();
-
+    let dragging = false, lastX = 0;
+    const down = (e: PointerEvent) => { dragging = true; lastX = e.clientX; canvas.setPointerCapture(e.pointerId); canvas.style.cursor = "grabbing"; };
+    const move = (e: PointerEvent) => { if (dragging) { pivot.rotation.y += (e.clientX - lastX) * 0.01; lastX = e.clientX; render(); } };
+    const up = () => { dragging = false; canvas.style.cursor = "grab"; };
+    const keyboard = (e: KeyboardEvent) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); pivot.rotation.y += e.key === "ArrowLeft" ? -0.2 : 0.2; render(); } };
+    canvas.addEventListener("pointerdown", down); canvas.addEventListener("pointermove", move);
+    canvas.addEventListener("pointerup", up); canvas.addEventListener("pointercancel", up);
+    canvas.addEventListener("keydown", keyboard);
     return () => {
-      disposed = true;
-      renderer.domElement.removeEventListener("pointerdown", onDown);
-      renderer.domElement.removeEventListener("pointermove", onMove);
-      renderer.domElement.removeEventListener("pointerup", onUp);
-      cancelAnimationFrame(raf);
+      disposed = true; updateRef.current = () => {};
       observer.disconnect();
-      renderer.dispose();
-      host.removeChild(renderer.domElement);
+      canvas.removeEventListener("pointerdown", down); canvas.removeEventListener("pointermove", move);
+      canvas.removeEventListener("pointerup", up); canvas.removeEventListener("pointercancel", up); canvas.removeEventListener("keydown", keyboard);
+      for (const m of materials) if (m.map === plateTexture.current) m.map = null;
+      disposeObject(scene); environment.dispose(); renderer.dispose(); canvas.remove();
     };
-  }, [modelUrl]);
-
-  // 色だけの変更でモデルを読み直さない（読み直すと一瞬消えてちらつく）
-  const bodyColorRef = useRef<string | null | undefined>(bodyColor);
-  const applyColorRef = useRef<() => void>(() => {});
-  const applyNightRef = useRef<() => void>(() => {});
-  bodyColorRef.current = bodyColor;
-  useEffect(() => {
-    applyColorRef.current();
-  }, [bodyColor]);
-  useEffect(() => {
-    applyNightRef.current();
-  }, [night]);
-
-  return <div ref={hostRef} className={className} />;
+  }, [modelUrl, retry]);
+  useEffect(() => { updateRef.current(); }, [bodyColor, partColors, night]);
+  return <div className={`relative ${className ?? ""}`} data-model-url={modelUrl}>
+    <div ref={hostRef} className="h-full w-full" />
+    {plateError && <button type="button" onClick={() => setRetry(v => v + 1)} className="absolute bottom-1 left-2 rounded bg-white/90 px-2 py-1 text-xs text-amber-900">ナンバーを再読み込み</button>}
+    {status !== "ready" && <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-50 text-sm text-slate-500" role="status">
+      {status === "loading" ? "車両を表示しています…" : <><span>車両を表示できませんでした</span><button type="button" className="min-h-11 rounded px-3 text-slate-700 underline" onClick={() => setRetry(v => v + 1)}>再読み込み</button></>}
+    </div>}
+  </div>;
 }

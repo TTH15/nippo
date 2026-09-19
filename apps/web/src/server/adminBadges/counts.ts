@@ -47,17 +47,22 @@ export async function countDailyUnreadAppSide(
     .eq("works_as_driver", true);
   if (driversErr) throw driversErr;
 
+  const orgDriverIds = (drivers ?? []).map((d: { id: string }) => d.id);
+
   // PostgREST の既定上限(1000行)で黙って切られると要対応を数え漏らすため必ずページングする。
+  // あわせて自社のドライバー集合で絞る（他社のシフトを読んでページ数を無駄に増やさない）。
   const shiftRows = await fetchAllRows<{
     shift_date: string;
     driver_id: string;
     course_id: string | null;
   }>((from, to) =>
     supabase
+      // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       .from("shifts")
       .select("shift_date, driver_id, course_id")
       .gte("shift_date", start)
       .lte("shift_date", end)
+      .in("driver_id", orgDriverIds)
       .not("driver_id", "is", null)
       .order("shift_date", { ascending: true })
       .order("id", { ascending: true })

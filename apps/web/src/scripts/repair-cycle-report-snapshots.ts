@@ -93,8 +93,10 @@ async function main() {
 
   const [{ data: courses, error: courseError }, { data: bundles, error: bundleError }, { data: shifts, error: shiftError }] = await Promise.all([
     supabase.from("courses").select("id, name").eq("org_id", orgId).in("id", courseIds),
+    // tenant-scope-ok: courseIds は自社の courses（.eq("org_id", orgId)）から作った集合
     supabase.from("course_fixed_rate_bundles").select("course_id, required_cycle_nos").in("course_id", courseIds),
     supabase
+      // tenant-scope-ok: courseIds は org 絞りの daily_reports_v2 から作った集合（運用スクリプト）
       .from("shifts")
       .select("driver_id, shift_date, course_id, cycle_no")
       .gte("shift_date", startDate)

@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
       .in("course_id", validItems.map((i) => i.courseId))
       .is("rejected_at", null),
     supabase
+      // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
       .from("shifts")
       .select("course_id, cycle_no")
       .eq("driver_id", user.driverId)
@@ -155,7 +156,7 @@ export async function POST(req: NextRequest) {
       }));
     try {
       // 差分 upsert（変わった項目だけ書く。全削除→全挿入を廃止）
-      await syncReportEntries(supabase, reportId, entryRows);
+      await syncReportEntries(supabase, orgId, reportId, entryRows);
     } catch (e) {
       console.error(e);
       throw new Error("報告項目の保存に失敗しました");
@@ -179,10 +180,16 @@ export async function POST(req: NextRequest) {
   // 車の置き場所。日報が保存できた後に記録する。失敗したら日報は保存済みのまま再送してもらう
   // （client_key で二重登録しない。日報側は (driver,date,course) 単位の上書きなので再送しても増えない）。
   let parkingSaved = false;
+  // 座標だけの申告をどの車庫に当てたか。端末の終了サマリーの1行に使う
+  let parkingPlaceName: string | null = null;
+  // 位置だけ記録できなかった場合。日報は完了しているので再送を求めない
+  let parkingUnavailable = false;
   if (parking && parking.ok) {
     try {
       const result = await saveParkingReport(supabase, parking.value, { orgId, driverId: user.driverId, reportDate });
       parkingSaved = result.saved;
+      parkingPlaceName = result.snap?.placeName ?? null;
+      parkingUnavailable = result.unavailable === true;
     } catch (e) {
       const message = e instanceof Error ? e.message : "駐車場所の保存に失敗しました";
       return NextResponse.json(
@@ -192,5 +199,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, reportIds: savedReportIds, parkingSaved });
+  return NextResponse.json({ ok: true, reportIds: savedReportIds, parkingSaved, parkingPlaceName, parkingUnavailable });
 }

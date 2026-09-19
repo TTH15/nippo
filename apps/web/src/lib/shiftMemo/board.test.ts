@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityLabel, cellKey, fullDayOffByDate, nextDayOverride, resolveDayActivity } from "./board";
+import { activityLabel, cellKey, fullDayOffByDate, nextDayOverride, resolveDayActivity, readRequiredCountOverrides, resolveDayStaffing, updateRequiredCountOverride } from "./board";
 
 const MON_TO_SAT = [1, 2, 3, 4, 5, 6];
 
@@ -67,5 +67,43 @@ describe("fullDayOffByDate", () => {
 describe("cellKey", () => {
   it("担当枠と日付を組にする", () => {
     expect(cellKey("lane-1", "2026-09-11")).toBe("lane-1|2026-09-11");
+  });
+});
+
+
+describe("日別の必要人数", () => {
+  it("旧データを読め、不正値だけ除いて別月や非表示の枠も保持する", () => {
+    expect(readRequiredCountOverrides(undefined)).toEqual({});
+    expect(readRequiredCountOverrides([3])).toEqual({});
+    expect(readRequiredCountOverrides({
+      "lane|2026-09-01": 0, "hidden|2026-10-01": 10,
+      "lane|2026-09-02": "3", "lane|2026-09-03": 1.5,
+      "lane|2026-09-04": -1, "lane|2026-09-05": 11, "lane|2026-09-06": null, broken: 3,
+    })).toEqual({ "lane|2026-09-01": 0, "hidden|2026-10-01": 10 });
+  });
+
+  it("その日だけの絶対数を使い、通常の人数を変えても指定は動かない", () => {
+    expect(resolveDayStaffing(2, undefined, true, 2)).toEqual({ requiredCount: 2, shortage: 0 });
+    expect(resolveDayStaffing(2, 3, true, 2)).toEqual({ requiredCount: 3, shortage: 1 });
+    expect(resolveDayStaffing(4, 3, true, 2)).toEqual({ requiredCount: 3, shortage: 1 });
+  });
+
+  it("0人・配置済みより少ない人数でも不足は0。休みから稼働へ戻すと指定人数で集計する", () => {
+    expect(resolveDayStaffing(2, 0, true, 2)).toEqual({ requiredCount: 0, shortage: 0 });
+    expect(resolveDayStaffing(2, 1, true, 2).shortage).toBe(0);
+    expect(resolveDayStaffing(2, 3, false, 2)).toEqual({ requiredCount: 3, shortage: 0 });
+    expect(resolveDayStaffing(2, 3, true, 2).shortage).toBe(1);
+  });
+
+  it("通常へ戻すとその日だけ解除し、通常と同じ人数の反映でも解除する", () => {
+    const current = { "lane|2026-09-01": 3, "lane|2026-09-02": 4 };
+    for (const wanted of [null, 2]) {
+      const next = updateRequiredCountOverride(current, "lane|2026-09-01", 2, wanted);
+      expect(next).toEqual({ "lane|2026-09-02": 4 });
+      expect(resolveDayStaffing(2, next["lane|2026-09-01"], true, 2).requiredCount).toBe(2);
+    }
+    expect(current["lane|2026-09-01"]).toBe(3);
+    expect(updateRequiredCountOverride(current, "lane|2026-09-01", 2, 0)["lane|2026-09-01"]).toBe(0);
+    expect(updateRequiredCountOverride(current, "lane|2026-09-01", 2, 11)).toBe(current);
   });
 });

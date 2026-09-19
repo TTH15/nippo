@@ -98,6 +98,7 @@ export async function GET(req: NextRequest) {
       const slice = orgCourseIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
       const rows = await fetchAllRows((from, to) =>
         supabase
+          // tenant-scope-ok: orgCourseIds は自社の courses（.eq("org_id", orgId)）から作った集合
           .from("shifts")
           .select("id, course_id, shift_date")
           .gte("shift_date", range.startDate)

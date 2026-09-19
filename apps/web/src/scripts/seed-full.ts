@@ -122,6 +122,7 @@ async function main() {
   const amazon = courseMap["Amazonミッドナイト"];
 
   // 2. コース単価更新
+  // tenant-scope-ok: 開発用シードスクリプト。単一 org のダミーデータを作るだけ
   await supabase.from("course_rates").upsert(
     courses.map((c) => ({
       course_id: c.id,
@@ -152,7 +153,7 @@ async function main() {
   // 4. ドライバー登録
   const driverIds: string[] = [];
   for (const d of DRIVERS) {
-    const pinHash = d.role === "ADMIN" ? await bcrypt.hash(d.pin, 10) : await bcrypt.hash(d.pin, 10);
+    const pinHash = d.role === "ADMIN" ? await bcrypt.hash(d.pin, 10) : null;
     const bankName = d.bank_institution && d.bank_branch ? `${d.bank_institution} ${d.bank_branch}` : null;
     const bankNo = d.bank_type && d.bank_number ? `${d.bank_type} ${d.bank_number}` : null;
 
@@ -213,6 +214,7 @@ async function main() {
       .maybeSingle();
     if (!ident?.id) continue;
     for (const cid of [yamatoA, yamatoB, yamatoC, amazon]) {
+      // tenant-scope-ok: 開発用シードスクリプト。単一 org のダミーデータを作るだけ
       await supabase.from("driver_courses").upsert(
         { driver_id: did, driver_identity_id: ident.id, course_id: cid },
         { onConflict: "driver_identity_id,course_id" }
@@ -285,7 +287,9 @@ async function main() {
     if (!isYamatoOff) {
       for (const cid of yamatoCourses) {
         const did = driverIdList[driverIdx % driverIdList.length];
-        await supabase.from("shifts").upsert(
+        // tenant-scope-ok: 開発用シードスクリプト。単一 org のダミーデータを作るだけ
+        // tenant-scope-ok: 開発用シードスクリプト。単一 org のダミーデータを作るだけ
+    await supabase.from("shifts").upsert(
           {
             shift_date: date,
             course_id: cid,
@@ -299,6 +303,7 @@ async function main() {
       }
     }
     const amazonDid = driverIdList[(driverIdx + 2) % driverIdList.length];
+    // tenant-scope-ok: 開発用シードスクリプト。単一 org のダミーデータを作るだけ
     await supabase.from("shifts").upsert(
       {
         shift_date: date,
@@ -314,6 +319,7 @@ async function main() {
 
   // 9. 日報作成（シフトに紐づくドライバーの実績）
   const { data: shifts } = await supabase
+    // tenant-scope-ok: 開発用シードスクリプト。単一 org のダミーデータを作るだけ
     .from("shifts")
     .select("shift_date, course_id, driver_id")
     .gte("shift_date", SHIFT_START)
@@ -354,6 +360,7 @@ async function main() {
       .eq("slot", 1)
       .maybeSingle();
     if (!ident?.id) continue;
+    // tenant-scope-ok: 開発用シードスクリプト。単一 org のダミーデータを作るだけ
     await supabase.from("daily_reports").upsert(
       {
         driver_id: driverId,

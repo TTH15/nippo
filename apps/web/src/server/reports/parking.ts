@@ -5,9 +5,12 @@
 // - 保存は vehicle_positions へ kind='parked' / source='report' の1行。client_key で再送に耐える
 // ============================================================
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ParkingReport, ParkingReportStatus } from "@repo/core/types";
+import type { ParkingDetectionSource, ParkingReport, ParkingReportStatus } from "@repo/core/types";
+import type { SnapPlace } from "@/lib/map/dropSnap";
+import { snapParkingCoords, type ParkingSnapResult } from "./parkingSnap";
 
 const STATUSES: ParkingReportStatus[] = ["parked", "in_use", "handed_over", "later"];
+const DETECTION_SOURCES: ParkingDetectionSource[] = ["session_end", "stop", "motion"];
 
 export type ParsedParkingReport = {
   vehicleId: string;
@@ -19,6 +22,9 @@ export type ParsedParkingReport = {
   /** ISO。省略時は now */
   at: string;
   clientKey: string;
+  /** 端末の測位。登録車庫を選ばない座標だけの申告でも parked を通す */
+  coords: { lat: number; lng: number; accuracyM: number | null; fixAt: string | null } | null;
+  detectedBy: ParkingDetectionSource | null;
 };
 
 export type ParkingParseResult = { ok: true; value: ParsedParkingReport } | { ok: false; error: string };
@@ -27,7 +33,7 @@ const isNonEmptyString = (v: unknown): v is string => typeof v === "string" && v
 
 /**
  * リクエストの parking を検証する。日報の items で使った車両と一致すること、
- * parked なら登録車庫か場所名のどちらかがあること、日時が対象日の前日0時〜受信+5分に収まることを見る。
+ * parked なら登録車庫・場所名・座標のいずれかがあること、日時が対象日の前日0時〜受信+5分に収まることを見る。
  */
 export function parseParkingReport(
   raw: unknown,
@@ -51,22 +57,64 @@ export function parseParkingReport(
   if (note && note.length > 200) return { ok: false, error: "メモは200文字までです" };
   if (slotId && !placeId) return { ok: false, error: "区画は登録車庫と一緒に選んでください" };
 
-  if (body.status === "parked" && !placeId && !placeName) {
-    return { ok: false, error: "停めた場所（登録車庫か場所名）を選んでください" };
+  // 対象日の前日0時（JST）より前、受信の5分後より未来は拒否する
+  const earliest = new Date(`${ctx.reportDate}T00:00:00+09:00`).getTime() - 24 * 3600_000;
+  const latest = now.getTime() + 5 * 60_000;
+  if (Number.isNaN(earliest)) return { ok: false, error: "対象日が不正です" };
+  const inWindow = (value: unknown): number | null => {
+    const parsed = new Date(String(value));
+    const time = parsed.getTime();
+    if (Number.isNaN(time) || time < earliest || time > latest) return null;
+    return time;
+  };
+
+  let coords: ParsedParkingReport["coords"] = null;
+  if (body.coords != null) {
+    const raw = body.coords;
+    if (typeof raw !== "object") return { ok: false, error: "位置の内容を確認してください" };
+    const { lat, lng } = raw;
+    if (typeof lat !== "number" || !Number.isFinite(lat) || lat < -90 || lat > 90
+      || typeof lng !== "number" || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+      return { ok: false, error: "位置が不正です" };
+    }
+    let accuracyM: number | null = null;
+    if (raw.accuracyM != null) {
+      if (typeof raw.accuracyM !== "number" || !Number.isFinite(raw.accuracyM) || raw.accuracyM < 0 || raw.accuracyM > 100_000) {
+        return { ok: false, error: "位置の精度が不正です" };
+      }
+      accuracyM = raw.accuracyM;
+    }
+    let fixAt: string | null = null;
+    if (raw.fixAt != null && raw.fixAt !== "") {
+      const time = inWindow(raw.fixAt);
+      if (time == null) return { ok: false, error: "測位時刻は対象日の前日から現在までにしてください" };
+      fixAt = new Date(time).toISOString();
+    }
+    coords = { lat, lng, accuracyM, fixAt };
+  }
+
+  let detectedBy: ParkingDetectionSource | null = null;
+  if (body.detectedBy != null) {
+    if (!DETECTION_SOURCES.includes(body.detectedBy as ParkingDetectionSource)) {
+      return { ok: false, error: "位置の取得方法が不正です" };
+    }
+    // 座標のない「自動で取れた」は根拠にならない
+    if (!coords) return { ok: false, error: "位置の取得方法には座標が必要です" };
+    detectedBy = body.detectedBy as ParkingDetectionSource;
+  }
+
+  if (body.status === "parked" && !placeId && !placeName && !coords) {
+    return { ok: false, error: "停めた場所（登録車庫・場所名・位置）のどれかが必要です" };
   }
 
   let at = now.toISOString();
   if (body.at != null && body.at !== "") {
-    const parsed = new Date(String(body.at));
-    if (Number.isNaN(parsed.getTime())) return { ok: false, error: "駐車日時が不正です" };
-    // 対象日の前日0時（JST）より前、受信の5分後より未来は拒否する
-    const earliest = new Date(`${ctx.reportDate}T00:00:00+09:00`).getTime() - 24 * 3600_000;
-    const latest = now.getTime() + 5 * 60_000;
-    if (Number.isNaN(earliest)) return { ok: false, error: "対象日が不正です" };
-    if (parsed.getTime() < earliest || parsed.getTime() > latest) {
-      return { ok: false, error: "駐車日時は対象日の前日から現在までにしてください" };
-    }
-    at = parsed.toISOString();
+    const time = inWindow(body.at);
+    if (time == null) return { ok: false, error: "駐車日時は対象日の前日から現在までにしてください" };
+    at = new Date(time).toISOString();
+  } else if (coords?.fixAt) {
+    // 測位時刻が分かるなら、それを停めた時刻の既定にする（受信時刻で置き換えない）
+    at = coords.fixAt;
   }
 
   return {
@@ -80,8 +128,32 @@ export function parseParkingReport(
       note,
       at,
       clientKey: body.clientKey,
+      coords: body.status === "parked" ? coords : null,
+      detectedBy: body.status === "parked" ? detectedBy : null,
     },
   };
+}
+
+export type ParkingSaveResult = {
+  saved: boolean;
+  positionId: string | null;
+  /** 座標だけの申告をどの車庫に当てたか。端末の終了サマリーに出す */
+  snap: ParkingSnapResult | null;
+  /** 位置は記録できなかったが、日報の完了は妨げない（migration 170 未適用など） */
+  unavailable?: boolean;
+};
+
+/** 自社の駐車候補拠点。座標のない拠点は距離を測れないので外す */
+async function loadParkingPlaces(db: SupabaseClient, orgId: string): Promise<SnapPlace[]> {
+  const { data, error } = await db
+    .from("map_places")
+    .select("id, name, lat, lng, shape, radius_m")
+    .eq("org_id", orgId)
+    .eq("allow_parking", true)
+    .not("lat", "is", null)
+    .not("lng", "is", null);
+  if (error) throw new Error("車庫の確認に失敗しました");
+  return (data ?? []) as SnapPlace[];
 }
 
 /**
@@ -92,8 +164,8 @@ export async function saveParkingReport(
   db: SupabaseClient,
   input: ParsedParkingReport,
   ctx: { orgId: string; driverId: string; reportDate: string },
-): Promise<{ saved: boolean; positionId: string | null }> {
-  if (input.status !== "parked") return { saved: false, positionId: null };
+): Promise<ParkingSaveResult> {
+  if (input.status !== "parked") return { saved: false, positionId: null, snap: null };
 
   const { data: vehicle, error: vehicleError } = await db
     .from("vehicles")
@@ -107,6 +179,19 @@ export async function saveParkingReport(
   let lat: number | null = null;
   let lng: number | null = null;
   let placeName = input.placeName;
+  let placeId = input.placeId;
+  let snap: ParkingSnapResult | null = null;
+  // 端末の測位だけの申告は、座標をそのまま残したうえでサーバーが拠点を当てる。
+  // 拠点の代表点で座標を置き換えない（測位した場所こそが「車のある場所」）。
+  if (!placeId && input.coords) {
+    lat = input.coords.lat;
+    lng = input.coords.lng;
+    snap = snapParkingCoords(input.coords, await loadParkingPlaces(db, ctx.orgId));
+    if (snap.placeId) {
+      placeId = snap.placeId;
+      placeName = snap.placeName;
+    }
+  }
   if (input.placeId) {
     const { data: place, error: placeError } = await db
       .from("map_places")
@@ -135,7 +220,19 @@ export async function saveParkingReport(
     }
   }
 
-  const row = {
+  // 端末の測位から来た申告かどうか。lat/lng がその測位そのものなら精度も意味を持つ
+  const fromDevice = !input.placeId && input.coords != null;
+  // migration 170 の列は、値があるときだけ送る。未適用の本番で従来の申告（Web・手動）が
+  // 「存在しない列」で落ちないようにする（座標だけの申告は 170 の適用が前提）
+  const deviceColumns: Record<string, unknown> = fromDevice
+    ? { accuracy_m: input.coords?.accuracyM ?? null, detected_by: input.detectedBy }
+    // 本人が車庫を選んだ場合、lat/lng は拠点の代表点になる。そこへ端末の精度を付けると
+    // 「この座標が ±Nm」という別の意味になってしまうので精度は持たせず、
+    // 「自動で気づいた申告だった」ことだけ detected_by に残す
+    : input.coords != null && input.detectedBy != null && (lat != null && lng != null)
+      ? { detected_by: input.detectedBy }
+      : {};
+  const row: Record<string, unknown> = {
     org_id: ctx.orgId,
     vehicle_id: input.vehicleId,
     at: input.at,
@@ -146,11 +243,12 @@ export async function saveParkingReport(
     recorded_by: ctx.driverId,
     driver_id: ctx.driverId,
     report_date: ctx.reportDate,
-    place_id: input.placeId,
+    place_id: placeId,
     slot_id: input.slotId,
     place_name: placeName,
     note: input.note,
     client_key: input.clientKey,
+    ...deviceColumns,
   };
   // 同じ client_key の再送は上書き（二重登録しない）
   const { data, error } = await db
@@ -161,7 +259,10 @@ export async function saveParkingReport(
     .single();
   if (error || !data) {
     console.error("[parking] upsert error", error);
+    // 端末の測位だけの申告は migration 170 が要る。未適用の環境で日報の完了を止めず、
+    // 「位置は記録できなかった」として返す（設計: 位置の失敗で日報を落とさない）
+    if (fromDevice) return { saved: false, positionId: null, snap, unavailable: true };
     throw new Error("駐車場所の保存に失敗しました");
   }
-  return { saved: true, positionId: data.id as string };
+  return { saved: true, positionId: data.id as string, snap };
 }

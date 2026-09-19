@@ -56,3 +56,6 @@ apps/web/public/glb/
 
 # サードパーティ配布のスキル（uipro init で展開。ハコ虎固有の定義は .claude/agents と .codex/skills に置く）
 .claude/skills/
+
+# Generated from locked OCR/PDF dependencies (prepare-vehicle-reader.mjs)
+/apps/web/public/ocr/runtime/

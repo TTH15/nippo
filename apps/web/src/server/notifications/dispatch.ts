@@ -13,7 +13,8 @@
 // ============================================================
 import { supabase } from "@/server/db/client";
 import { isLineConfigured, multicastMessages, type LineMessage } from "@/server/line/client";
-import { isWebPushConfigured, sendWebPush } from "@/server/notifications/webpush";
+import { IN_CLAUSE_BATCH_SIZE } from "@/server/aggregation/pagination";
+import { isWebPushConfigured, sendWebPush, type PushTarget } from "@/server/notifications/webpush";
 
 export type NotificationInput = {
   /** membership（org 文脈での受信者）。 */
@@ -78,17 +79,20 @@ function messageKeyOf(row: {
  */
 async function assertSameOrg(orgId: string, driverIds: string[]): Promise<void> {
   const unique = [...new Set(driverIds)];
-  const { data, error } = await supabase
-    .from("drivers")
-    .select("id")
-    .eq("org_id", orgId)
-    .in("id", unique);
-  if (error) throw new Error(`受信者の検証に失敗しました: ${error.message}`);
+  // ★ここだけは 200分割を落とせない。URL上限で取りこぼすと「自社の人が見つからない」→
+  //   越境検出として全員への配信が止まり、他社データが無いのに越境アラートが出る
+  const allowed: string[] = [];
+  for (let i = 0; i < unique.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const { data, error } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("org_id", orgId)
+      .in("id", unique.slice(i, i + IN_CLAUSE_BATCH_SIZE));
+    if (error) throw new Error(`受信者の検証に失敗しました: ${error.message}`);
+    for (const row of data ?? []) allowed.push(row.id as string);
+  }
 
-  const foreign = detectForeignRecipients(
-    unique,
-    (data ?? []).map((d) => d.id as string),
-  );
+  const foreign = detectForeignRecipients(unique, allowed);
   if (foreign.length > 0) {
     // ここに来るのは呼び出し側のバグ。送らずに落とす（部分送信もしない）。
     throw new Error(
@@ -131,67 +135,107 @@ export async function dispatchNotifications(
     dedupe_key: i.dedupeKey ?? null,
   }));
 
-  const { data: created, error } = await supabase
-    .from("notifications") // tenant-scope-ok: rows の各行に org_id を含む＋直前に assertSameOrg で受信者の越境を遮断
-    .upsert(rows, { onConflict: "dedupe_key", ignoreDuplicates: true })
-    .select("id, identity_id, title, body, dedupe_key");
-  if (error) throw new Error(`通知の保存に失敗しました: ${error.message}`);
+  // .select() の戻り行は db-max-rows（既定1000）で切り詰められる。切り詰められた通知は
+  // 保存はされるのに配信も配信ログも走らないので、まとめず分けて入れる
+  const INSERT_BATCH = 500;
+  const inserted: StoredNotification[] = [];
+  for (let i = 0; i < rows.length; i += INSERT_BATCH) {
+    const { data: created, error } = await supabase
+      .from("notifications") // tenant-scope-ok: rows の各行に org_id を含む＋直前に assertSameOrg で受信者の越境を遮断
+      .upsert(rows.slice(i, i + INSERT_BATCH), { onConflict: "dedupe_key", ignoreDuplicates: true })
+      .select("id, identity_id, title, body, dedupe_key");
+    if (error) throw new Error(`通知の保存に失敗しました: ${error.message}`);
+    for (const row of created ?? []) inserted.push(row as StoredNotification);
+  }
 
-  const inserted = created ?? [];
   result.created = inserted.length;
   result.skipped = inputs.length - inserted.length;
   if (inserted.length === 0) return result;
 
+  return deliverNotifications(inserted, inputs, result);
+}
+
+type StoredNotification = { id: string; identity_id: string; title: string; body: string; dedupe_key: string | null };
+
+/** 鍵変更と同時に保存済みの通知を配信する。保存済み会社・本人から宛先を導く。 */
+export async function deliverStoredNotifications(orgId: string, ids: string[]): Promise<DispatchResult> {
+  const { data, error } = await supabase.from("notifications")
+    .select("id, driver_id, identity_id, title, body, dedupe_key").eq("org_id", orgId).in("id", ids);
+  if (error) throw new Error("保存済み通知の取得に失敗しました");
+  // driver_id が NULL の通知（会社宛など）は受信者の照合対象にしない。
+  // 1件混ざっただけで越境扱いになり、バッチ全体が止まってしまう
+  await assertSameOrg(orgId, (data ?? []).map((n) => n.driver_id as string | null).filter((id): id is string => !!id));
+  return deliverNotifications(data ?? [], [], {
+    created: 0, skipped: 0, lineSent: 0, lineFailed: 0, webPushSent: 0, webPushFailed: 0,
+  });
+}
+
+async function deliverNotifications(inserted: StoredNotification[], inputs: NotificationInput[], result: DispatchResult): Promise<DispatchResult> {
+  if (inserted.length === 0) return result;
   const deliveries: { notification_id: string; channel: string; status: string; error?: string }[] = [];
 
   // --- Web Push へファンアウト（LINE 未連携者にも気づける経路を用意する）---
   // 端末単位。iOS Safari のタブなど購読できない環境ではそもそも購読が無く、
   // その人はインボックスで読むことになる（§1-2）。
   if (isWebPushConfigured()) {
-    const payloadByIdentity = new Map(
-      inserted.map((n) => [
-        n.identity_id as string,
-        {
-          id: n.id as string,
-          title: n.title as string,
-          body: n.body as string,
-          url: "/notifications",
-        },
-      ]),
-    );
-    const pushResult = await sendWebPush(payloadByIdentity);
+    // 同じ本人宛の通知が複数あっても潰さない（Map のキーを通知にする）
+    const targets: PushTarget[] = inserted.map((n) => ({
+      notificationId: n.id as string,
+      identityId: n.identity_id as string,
+      payload: {
+        id: n.id as string,
+        title: n.title as string,
+        body: n.body as string,
+        url: "/notifications",
+      },
+    }));
+    const pushResult = await sendWebPush(targets);
     result.webPushSent = pushResult.sent;
     result.webPushFailed = pushResult.failed;
 
-    // 端末単位の成否は集計で持つため、ログは通知単位で1行にまとめる
-    if (pushResult.sent > 0 || pushResult.failed > 0) {
-      for (const n of inserted) {
-        deliveries.push({
-          notification_id: n.id as string,
-          channel: "web_push",
-          status: pushResult.sent > 0 ? "sent" : "failed",
-        });
+    // ★通知ごとに記録する。バッチ全体の成否を各通知へ同じように書くと
+    //   「誰に届いていないか」が分からなくなる（設計 O-2）。
+    for (const n of inserted) {
+      const per = pushResult.byNotification.get(n.id as string);
+      if (!per) continue;
+      if (per.devices === 0) {
+        // 端末を1台も持っていない＝この経路では届かない
+        deliveries.push({ notification_id: n.id as string, channel: "web_push", status: "skipped", error: "no_subscription" });
+      } else if (per.sent > 0) {
+        deliveries.push({ notification_id: n.id as string, channel: "web_push", status: "sent" });
+      } else {
+        deliveries.push({ notification_id: n.id as string, channel: "web_push", status: "failed" });
       }
     }
   }
 
   // --- LINE へファンアウト（レイヤ4: 保存済みレコードから配信先を導出）---
   if (!isLineConfigured()) {
+    // 未設定も「この経路では届かない」として残す（黙って消さない）
+    for (const n of inserted) {
+      deliveries.push({ notification_id: n.id as string, channel: "line", status: "skipped", error: "not_configured" });
+    }
     await saveDeliveries(deliveries);
     return result;
   }
 
   const identityIds = [...new Set(inserted.map((n) => n.identity_id as string))];
-  const { data: linked } = await supabase
-    .from("identities")
-    .select("id, line_user_id")
-    .in("id", identityIds)
-    .not("line_user_id", "is", null)
-    .is("line_blocked_at", null);
-
-  const lineUserIdByIdentity = new Map(
-    (linked ?? []).map((r) => [r.id as string, r.line_user_id as string]),
-  );
+  // 200件を超える .in() は URL 上限で静かに失敗する。取れなかった人は
+  // 「未連携」として記録されてしまうので、必ず分割して引く
+  const lineUserIdByIdentity = new Map<string, string>();
+  for (let i = 0; i < identityIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const { data: linked, error: linkedError } = await supabase
+      .from("identities")
+      .select("id, line_user_id")
+      .in("id", identityIds.slice(i, i + IN_CLAUSE_BATCH_SIZE))
+      .not("line_user_id", "is", null)
+      .is("line_blocked_at", null);
+    if (linkedError) {
+      console.error("[notifications] LINE 連携の取得に失敗", linkedError);
+      continue;
+    }
+    for (const row of linked ?? []) lineUserIdByIdentity.set(row.id as string, row.line_user_id as string);
+  }
 
   // 保存された行から、入力（＝LINE の見た目）を引き直す。
   // upsert は挿入された行しか返さないため、dedupeKey が無い入力も引けるよう
@@ -204,7 +248,12 @@ export async function dispatchNotifications(
 
   for (const n of inserted) {
     const lineUserId = lineUserIdByIdentity.get(n.identity_id as string);
-    if (!lineUserId) continue; // 未連携＝インボックス＋Web Push のみ（§1-2）
+    if (!lineUserId) {
+      // 未連携＝インボックス＋Web Push のみ（§1-2）。
+      // 「送れなかった」ではなく「経路が無い」ことを記録して、運営が代替連絡を取れるようにする
+      deliveries.push({ notification_id: n.id as string, channel: "line", status: "skipped", error: "unlinked" });
+      continue;
+    }
 
     const input = inputByKey.get(messageKeyOf(n));
     const messages: LineMessage[] = input?.lineMessages ?? [
@@ -250,6 +299,17 @@ async function saveDeliveries(
   deliveries: { notification_id: string; channel: string; status: string; error?: string }[],
 ): Promise<void> {
   if (deliveries.length === 0) return;
-  const { error } = await supabase.from("notification_deliveries").insert(deliveries);
-  if (error) console.error("[notifications] 配信ログの保存に失敗", error);
+  // チャネルごとに分けて入れる。1行でも CHECK に当たると insert 全体が落ちるため、
+  // 片方の不備でもう片方のログまで失うことがないようにする
+  // （migration 173 未適用の環境では web_push が CHECK に当たる）。
+  const byChannel = new Map<string, typeof deliveries>();
+  for (const row of deliveries) {
+    const list = byChannel.get(row.channel);
+    if (list) list.push(row);
+    else byChannel.set(row.channel, [row]);
+  }
+  for (const [channel, rows] of byChannel) {
+    const { error } = await supabase.from("notification_deliveries").insert(rows);
+    if (error) console.error(`[notifications] 配信ログの保存に失敗 (${channel})`, error);
+  }
 }

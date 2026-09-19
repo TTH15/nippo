@@ -1,0 +1,290 @@
+[
+  {
+    "key": "every-da62v",
+    "label": "エブリイ DA62V",
+    "manufacturer": "スズキ",
+    "brand": "エブリイ",
+    "codes": [
+      "DA62V"
+    ],
+    "sourceDirectory": "suzuki_every_da62v",
+    "sourceFile": "suzuki_every_da62v_blockout_23.glb",
+    "sourceSha256": "505da3b28adca1e305aa24f75f93e226fb90f11f428c2336c9da0b9e24b2216e",
+    "id": "kei-every-da62v-505da3b2",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "every-da18v",
+    "label": "エブリイ DA18V",
+    "manufacturer": "スズキ",
+    "brand": "エブリイ",
+    "codes": [
+      "DA18V"
+    ],
+    "sourceDirectory": "suzuki_every_da18v",
+    "sourceFile": "suzuki_every_da18v_blockout_16.glb",
+    "sourceSha256": "a163746b7527c481f2d1ecdf42f7e5d285ac5b53359827d7ebdde7acf7e333ec",
+    "id": "kei-every-da18v-a163746b",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "every-da64v",
+    "label": "エブリイ DA64V",
+    "manufacturer": "スズキ",
+    "brand": "エブリイ",
+    "codes": [
+      "DA64V"
+    ],
+    "sourceDirectory": "suzuki_every",
+    "sourceFile": "suzuki_every_da64v_blockout_92.glb",
+    "sourceSha256": "db6f7aaf710f68157aa8c57330202d999f2ce8df84af794874a58365265a16a8",
+    "id": "kei-every-da64v-db6f7aaf",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "hijet-s300",
+    "label": "ハイゼットカーゴ S300系・前期",
+    "manufacturer": "ダイハツ",
+    "brand": "ハイゼットカーゴ",
+    "codes": [
+      "S320V",
+      "S330V",
+      "S321V",
+      "S331V"
+    ],
+    "sourceDirectory": "daihatsu_hijet",
+    "sourceFile": "daihatsu_hijet_blockout_26.glb",
+    "sourceSha256": "30f4838745f9726ae11fc08a4809817b28174899d08398faacf1a9edda1eb2ed",
+    "id": "kei-hijet-s300-30f48387",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "clipper-u7",
+    "label": "クリッパー U71V / U72V系",
+    "manufacturer": "日産",
+    "brand": "クリッパー",
+    "codes": [
+      "U71V",
+      "U72V"
+    ],
+    "sourceDirectory": "nissan_clipper",
+    "sourceFile": "nissan_clipper_blockout_19.glb",
+    "sourceSha256": "6a061c3aa980ae8459c948007df9819659ad6009e960b7223161235304583aad",
+    "id": "kei-clipper-u7-6a061c3a",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "acty-hh5",
+    "label": "アクティバン HH5",
+    "manufacturer": "ホンダ",
+    "brand": "アクティバン",
+    "codes": [
+      "HH5",
+      "HH6"
+    ],
+    "sourceDirectory": "acty_hh5",
+    "sourceFile": "acty_hh5_blockout_78.glb",
+    "sourceSha256": "e1a8b6631ff06be65089f5ecee30e603df3b662e9c70562b787bd6ea6fc41097",
+    "id": "kei-acty-hh5-e1a8b663",
+    "lengthMeters": 3.392
+  },
+  {
+    "key": "atrai-s220",
+    "label": "アトレー S220系（写真仕様）",
+    "manufacturer": "ダイハツ",
+    "brand": "アトレー",
+    "codes": [],
+    "sourceDirectory": "daihatsu_atrai",
+    "sourceFile": "daihatsu_atrai_blockout_05.glb",
+    "sourceSha256": "d4dd433545774c79eb9f2af17d857d47840e1db54d7d1def161dc57ac07101b6",
+    "id": "kei-atrai-s220-d4dd4335",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "scrum-dg64v",
+    "label": "スクラム DG64V",
+    "manufacturer": "マツダ",
+    "brand": "スクラム",
+    "codes": [
+      "DG64V"
+    ],
+    "sourceDirectory": "mazda_scrum_dg64v",
+    "sourceFile": "mazda_scrum_dg64v_blockout_03.glb",
+    "sourceSha256": "a678f31b342282ecb6f93caee160cd12edf31dfa631f1f4098ada28be74b7f0a",
+    "id": "kei-scrum-dg64v-a678f31b",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "clipper-dr64v",
+    "label": "クリッパー DR64V",
+    "manufacturer": "日産",
+    "brand": "クリッパー",
+    "codes": [
+      "DR64V"
+    ],
+    "sourceDirectory": "nissan_clipper_dr64v",
+    "sourceFile": "nissan_clipper_dr64v_blockout_05.glb",
+    "sourceSha256": "f6702d97f1f5763246e53844aef746746be40ec04ad6a5c5b75d13c27f937324",
+    "id": "kei-clipper-dr64v-f6702d97",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "minicab-ds64v",
+    "label": "ミニキャブ DS64V",
+    "manufacturer": "三菱",
+    "brand": "ミニキャブ",
+    "codes": [
+      "DS64V"
+    ],
+    "sourceDirectory": "mitsubishi_minicab_ds64v",
+    "sourceFile": "mitsubishi_minicab_ds64v_blockout_04.glb",
+    "sourceSha256": "c740a2b78a3461bb5b435d10d7746d6bac23048468e305995867d6f34195a43b",
+    "id": "kei-minicab-ds64v-c740a2b7",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "hijet-s700",
+    "label": "ハイゼットカーゴ S700V / S710V系",
+    "manufacturer": "ダイハツ",
+    "brand": "ハイゼットカーゴ",
+    "codes": [
+      "S700V",
+      "S710V"
+    ],
+    "sourceDirectory": "daihatsu_hijet_s700v",
+    "sourceFile": "daihatsu_hijet_s700v_blockout_10.glb",
+    "sourceSha256": "59037e7098bc50f5054325de727b0234de4b6dfe0ae2b848cf2d9eabe1a3f925",
+    "id": "kei-hijet-s700-59037e70",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "minicab-u6",
+    "label": "ミニキャブ U61V / U62V系候補",
+    "manufacturer": "三菱",
+    "brand": "ミニキャブ",
+    "codes": [
+      "U61V",
+      "U62V"
+    ],
+    "sourceDirectory": "mitsubishi_minicab_u6",
+    "sourceFile": "mitsubishi_minicab_u6_blockout_08.glb",
+    "sourceSha256": "e4cbdf4881af701cc2eac274b84ea639130315b6d534c72da81d94a4e543e661",
+    "id": "kei-minicab-u6-e4cbdf48",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "every-da17v",
+    "label": "エブリイ DA17V",
+    "manufacturer": "スズキ",
+    "brand": "エブリイ",
+    "codes": [
+      "DA17V"
+    ],
+    "sourceDirectory": "suzuki_every_da17v",
+    "sourceFile": "suzuki_every_da17v_blockout_08.glb",
+    "sourceSha256": "405b534e503afcd53a513a840aada6ed5f4d70693ac9e6cc0e1225937dc908b8",
+    "id": "kei-every-da17v-405b534e",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "scrum-dg17v",
+    "label": "スクラム DG17V",
+    "manufacturer": "マツダ",
+    "brand": "スクラム",
+    "codes": [
+      "DG17V"
+    ],
+    "sourceDirectory": "mazda_scrum_dg17v",
+    "sourceFile": "mazda_scrum_dg17v_blockout_02.glb",
+    "sourceSha256": "0c57600e3a8e8c8c09e54e514b29b77e958ad384e1aca715e535221d8fa4f1a5",
+    "id": "kei-scrum-dg17v-0c57600e",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "clipper-dr17v",
+    "label": "クリッパー DR17V",
+    "manufacturer": "日産",
+    "brand": "クリッパー",
+    "codes": [
+      "DR17V"
+    ],
+    "sourceDirectory": "nissan_clipper_dr17v",
+    "sourceFile": "nissan_clipper_dr17v_blockout_04.glb",
+    "sourceSha256": "a43d928e9c9c3ec9c4d03449f38a221e53592ed37df59ab50fddcd762889d4fd",
+    "id": "kei-clipper-dr17v-a43d928e",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "minicab-ds17v",
+    "label": "ミニキャブ DS17V",
+    "manufacturer": "三菱",
+    "brand": "ミニキャブ",
+    "codes": [
+      "DS17V"
+    ],
+    "sourceDirectory": "mitsubishi_minicab_ds17v",
+    "sourceFile": "mitsubishi_minicab_ds17v_blockout_02.glb",
+    "sourceSha256": "841916cf725a2e435810c43f75bd182b74ebfc89642ad8017ff327543cd3a98f",
+    "id": "kei-minicab-ds17v-841916cf",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "sambar-s321b",
+    "label": "サンバー S321B",
+    "manufacturer": "スバル",
+    "brand": "サンバー",
+    "codes": [
+      "S321B",
+      "S331B"
+    ],
+    "sourceDirectory": "subaru_sambar_s321b",
+    "sourceFile": "subaru_sambar_s321b_blockout_03.glb",
+    "sourceSha256": "ef696e4b540bf1d2ce58724d3c110dbc47f5a1004107cec0d88b8cbe2138413f",
+    "id": "kei-sambar-s321b-ef696e4b",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "pixis-s321m",
+    "label": "ピクシスバン S321M",
+    "manufacturer": "トヨタ",
+    "brand": "ピクシスバン",
+    "codes": [
+      "S321M",
+      "S331M"
+    ],
+    "sourceDirectory": "toyota_pixis_s321m",
+    "sourceFile": "toyota_pixis_s321m_blockout_03.glb",
+    "sourceSha256": "b54785de2b5aab275dab25251732bba88306cd0e0791f053c75dbb9c83a1c05b",
+    "id": "kei-pixis-s321m-b54785de",
+    "lengthMeters": 3.395
+  },
+  {
+    "key": "every-photo-custom",
+    "label": "エブリイ 黒ボンネット（写真仕様）",
+    "manufacturer": "スズキ",
+    "brand": "エブリイ",
+    "codes": [],
+    "sourceDirectory": "suzuki_every_da62_custom",
+    "sourceFile": "suzuki_every_da62_custom_blockout_07.glb",
+    "sourceSha256": "1487ff21bd6b755d6f5c4d45ada950176c133b2dcf632cdc433a17215c0bdf6c",
+    "id": "kei-every-photo-custom-1487ff21",
+    "lengthMeters": 3.395,
+    "fixedPaintMaterials": [
+      "Paint Hood"
+    ]
+  },
+  {
+    "key": "every-da52v",
+    "label": "エブリイ DA52V系",
+    "manufacturer": "スズキ",
+    "brand": "エブリイ",
+    "codes": [
+      "DA52V"
+    ],
+    "sourceDirectory": "suzuki_every_da52v",
+    "sourceFile": "suzuki_every_da52v_blockout_04.glb",
+    "sourceSha256": "0f4ced58619fb394bb064dd2bc6330e7dae6084663b88e01a07ef7ec0ceabdeb",
+    "id": "kei-every-da52v-0f4ced58",
+    "lengthMeters": 3.395
+  }
+]

@@ -3,12 +3,12 @@ import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator } from 
 import { FontAwesome6 } from "@expo/vector-icons";
 import { apiFetch } from "@repo/core/api";
 import type { Profile } from "@repo/core/types";
-import { buildProfileEntries, validatePinChange, digitsOnly, formatJPPhoneDisplay } from "@repo/core/logic/profile";
+import { buildProfileEntries, digitsOnly, formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { useAuth } from "../AuthContext";
 import { Skeleton } from "../components/Skeleton";
 
 // ============================================================
-// マイページ（me）＝プロフィール表示＋PIN変更＋電話番号確認＋振込口座。NativeWind。
+// マイページ（me）＝プロフィール表示＋電話番号確認＋振込口座。NativeWind。
 // 振込口座は web オンボーディングから除外されたため（§2-1a 2026-07-25）、
 // ここが収集の正: 初回の報酬支払いまでに登録してもらう（未登録なら案内を表示）。
 // 表示・検証ロジックは Web と同じ @repo/core/logic/profile を再利用。
@@ -24,11 +24,6 @@ export function MeScreen() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  const [newPin, setNewPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-  const [pinSubmitting, setPinSubmitting] = useState(false);
-  const [pinMessage, setPinMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   const [phoneStep, setPhoneStep] = useState<"input" | "otp">("input");
   const [phoneInput, setPhoneInput] = useState("");
@@ -82,29 +77,6 @@ export function MeScreen() {
   }, []);
 
   const entries = buildProfileEntries(profile);
-
-  const submitPin = async () => {
-    setPinMessage(null);
-    const check = validatePinChange(newPin, confirmPin);
-    if (!check.ok) {
-      setPinMessage({ type: "error", text: check.message! });
-      return;
-    }
-    setPinSubmitting(true);
-    try {
-      await apiFetch("/api/reports/profile", {
-        method: "PATCH",
-        body: JSON.stringify({ newPin, confirmPin }),
-      });
-      setPinMessage({ type: "ok", text: "PINを変更しました" });
-      setNewPin("");
-      setConfirmPin("");
-    } catch (e) {
-      setPinMessage({ type: "error", text: e instanceof Error ? e.message : "PINの変更に失敗しました" });
-    } finally {
-      setPinSubmitting(false);
-    }
-  };
 
   const sendPhoneCode = async () => {
     setPhoneMessage(null);
@@ -229,46 +201,6 @@ export function MeScreen() {
               disabled={bankSubmitting || !bankName.trim() || !bankNo.trim() || !bankHolder.trim()}
             >
               {bankSubmitting ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium">保存する</Text>}
-            </Pressable>
-          </View>
-
-          <Text className="text-base font-bold text-brand-900 mb-3 mt-8">PINの変更</Text>
-          <View className="bg-white rounded-lg border border-brand-200 p-4 gap-3">
-            <View className="gap-1">
-              <Text className="text-[13px] text-brand-600">新しいPIN（6桁）</Text>
-              <TextInput
-                className={`${INPUT} text-center text-lg font-mono tracking-wider`}
-                value={newPin}
-                onChangeText={(t) => setNewPin(digitsOnly(t).slice(0, 6))}
-                keyboardType="number-pad"
-                maxLength={6}
-                secureTextEntry
-                placeholder="000000"
-              />
-            </View>
-            <View className="gap-1">
-              <Text className="text-[13px] text-brand-600">確認用（6桁）</Text>
-              <TextInput
-                className={`${INPUT} text-center text-lg font-mono tracking-wider`}
-                value={confirmPin}
-                onChangeText={(t) => setConfirmPin(digitsOnly(t).slice(0, 6))}
-                keyboardType="number-pad"
-                maxLength={6}
-                secureTextEntry
-                placeholder="000000"
-              />
-            </View>
-            {pinMessage && (
-              <Text className={`text-[13px] ${pinMessage.type === "ok" ? "text-emerald-600" : "text-red-600"}`}>
-                {pinMessage.text}
-              </Text>
-            )}
-            <Pressable
-              className={`py-2.5 rounded-lg items-center bg-brand-900 active:opacity-80 ${pinSubmitting || newPin.length !== 6 || confirmPin.length !== 6 ? "opacity-50" : ""}`}
-              onPress={submitPin}
-              disabled={pinSubmitting || newPin.length !== 6 || confirmPin.length !== 6}
-            >
-              {pinSubmitting ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium">PINを変更する</Text>}
             </Pressable>
           </View>
 

@@ -41,6 +41,7 @@ export async function PATCH(
   }
 
   const { data, error } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("driver_optional_expenses")
     .update(updates)
     .eq("id", id)
@@ -75,6 +76,7 @@ export async function DELETE(
   const { id } = await params;
 
   const { error } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("driver_optional_expenses")
     .delete()
     .eq("id", id)

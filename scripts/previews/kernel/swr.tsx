@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getPreviewRuntime, usePreviewRuntime, useStoreRevision } from "./runtime";
 
+// 先読みもfixtureのGETに限定する。別期間の状態を画面へ適用しない。
+export async function preload(key: string) {
+  return getPreviewRuntime().store.fetch(key);
+}
+
 export type SWRConfiguration<T = unknown> = {
   fetcher?: (key: string) => Promise<T> | T;
   refreshInterval?: number;

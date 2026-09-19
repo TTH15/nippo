@@ -30,6 +30,11 @@ export async function GET(req: NextRequest) {
 
   const hasLicensePhoto = !!identity?.license_photo_path;
   const hasFacePhoto = !!identity?.face_photo_path;
+  const { count, error: passkeyError } = await supabase.from("passkey_credentials")
+    .select("id", { count: "exact", head: true }).eq("identity_id", identityId);
+  if (passkeyError) {
+    return NextResponse.json({ error: "ログイン設定を確認できませんでした。もう一度お試しください" }, { status: 503 });
+  }
   // 口座は本登録の完了条件から除外（2026-07-25）。初回の報酬支払いまでに
   // アプリ（マイページ）で登録してもらう。POST での受け付け・保存は従来どおり。
   const complete =
@@ -45,6 +50,7 @@ export async function GET(req: NextRequest) {
     licenseExpiry: identity?.license_expiry ?? "",
     hasLicensePhoto,
     hasFacePhoto,
+    hasPasskey: (count ?? 0) > 0,
     postalCode: driver?.postal_code ?? "",
     address: driver?.address ?? "",
     addressMatchesLicense: (driver?.address_matches_license as boolean | null) ?? null,

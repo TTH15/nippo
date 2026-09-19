@@ -8,6 +8,7 @@
 // 拠点ピンは DB 保存（map_places）。設定モーダルから追加・削除する。
 // ============================================================
 
+import { VEHICLE_PAINT_PARTS, colorForVehicleMaterial, vehiclePartColors, type VehiclePartColors } from "@/lib/vehicleAppearance";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -53,7 +54,7 @@ import {
   needsVehicleRelocation,
   type VehicleMovement,
 } from "@/lib/map/vehicleMovements";
-import { VEHICLE_MAP_MODELS, mapModelKeyForVehicle, vehicleMapModelFor } from "@/lib/vehicleModels";
+import { mapModelKeyForVehicle, vehicleMapModelFor } from "@/lib/vehicleModels";
 import { presentationChanged, vehicleMapPresentation, type VehicleMapPresentation } from "@/lib/map/vehiclePresentation";
 import { MapPlateLabel } from "@/lib/components/MapPlateLabel";
 import { MAP_PLATE_HEIGHT, MAP_PLATE_WIDTH } from "@/lib/map/mapPlateImage";
@@ -382,6 +383,8 @@ function PlaceMarkerBadge({ icon }: { icon: PlaceIcon }) {
 type MapVehicle = VehiclePlateData & {
   /** 地図の3Dモデル識別子（未設定は既定モデル）。migration 123 */
   model_key?: string | null;
+  model_code?: string | null;
+  part_colors?: VehiclePartColors | null;
   /** 車体色 #RRGGBB（未設定はモデル本来の色）。migration 123 */
   body_color?: string | null;
   /** 詳細に出すメンテ情報（vehicles の登録値）。未取得の旧キャッシュでは省略される */
@@ -983,6 +986,7 @@ export default function MapPage() {
   const declutterPlatesRef = useRef<() => void>(() => {});
   /** 3Dモデルのソースへ最新の車両位置を流し込む（スタイル再読込時にも呼ぶ） */
   const applyVehicleModelDataRef = useRef<() => void>(() => {});
+  const plateModelIdsRef = useRef<Set<string>>(new Set());
   /** 面（駐車区画・配達エリア・拠点の円）のデータを流し込む（同上） */
   const applyAreaDataRef = useRef<() => void>(() => {});
 
@@ -1396,11 +1400,6 @@ export default function MapPage() {
     // 足元には白地＋濃色線のコントラストリングを敷き、地図と重なっても形が読めるようにする（2026-09-02 プレビューで確定）。
     const addVehicleLayers = () => {
       if (map.getLayer("vehicles-3d-tinted")) return;
-      for (const model of Object.values(VEHICLE_MAP_MODELS)) {
-        if (!map.hasModel(`${model.id}-tinted`)) map.addModel(`${model.id}-tinted`, model.tintedUrl);
-        if (!map.hasModel(`${model.id}-fixed`)) map.addModel(`${model.id}-fixed`, model.fixedUrl);
-        if (!map.hasModel(`${model.id}-lamps`)) map.addModel(`${model.id}-lamps`, model.lampsUrl);
-      }
       if (!map.getSource("vehicles-src")) {
         map.addSource("vehicles-src", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       }
@@ -1432,6 +1431,12 @@ export default function MapPage() {
           // 夜のライティングでも沈まないよう自己発光させる
           "model-emissive-strength": 0.45,
         },
+      });
+      for (const part of VEHICLE_PAINT_PARTS) map.addLayer({
+        id: `vehicles-3d-${part.suffix}`, type: "model", source: "vehicles-src",
+        layout: { "model-id": ["get", `${part.key}Model`] },
+        paint: { "model-rotation": ["get", "rotation"], "model-color": ["get", `${part.key}Color`],
+          "model-color-mix-intensity": ["get", `${part.key}Mix`], "model-emissive-strength": 0.45 },
       });
       map.addLayer({
         id: "vehicles-3d-fixed",
@@ -1496,6 +1501,7 @@ export default function MapPage() {
         const scale = [next.modelScale, next.modelScale, next.modelScale];
         map.setPaintProperty("vehicles-3d-tinted", "model-scale", scale);
         map.setPaintProperty("vehicles-3d-fixed", "model-scale", scale);
+        for (const part of VEHICLE_PAINT_PARTS) if (map.getLayer(`vehicles-3d-${part.suffix}`)) map.setPaintProperty(`vehicles-3d-${part.suffix}`, "model-scale", scale);
         if (map.getLayer("vehicles-3d-plate")) map.setPaintProperty("vehicles-3d-plate", "model-scale", scale);
         if (map.getLayer("vehicles-3d-lamps")) map.setPaintProperty("vehicles-3d-lamps", "model-scale", scale);
       }
@@ -1506,7 +1512,7 @@ export default function MapPage() {
       // 出しっぱなしだと車が数kmの大きさになり、足元の円が市名を覆う（監査 P2-1・J-2 で確定）。
       if (changed.scale) {
         const visibility = next.modelVisible ? "visible" : "none";
-        for (const id of ["vehicles-3d-tinted", "vehicles-3d-fixed", "vehicles-3d-lamps", "vehicles-3d-plate", "vehicle-contrast"]) {
+        for (const id of ["vehicles-3d-tinted", "vehicles-3d-fixed", "vehicles-3d-lamps", "vehicles-3d-plate", ...VEHICLE_PAINT_PARTS.map(p => `vehicles-3d-${p.suffix}`), "vehicle-contrast"]) {
           if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visibility);
         }
       }
@@ -2228,17 +2234,28 @@ export default function MapPage() {
 
     const applyModelData = () => {
       const src = mapRef.current?.getSource("vehicles-src") as mapboxgl.GeoJSONSource | undefined;
-      // 署名URLは車ごとに違うので、その都度モデルとして登録する（同じ id は再登録しない）
+      // 実際に表示する車種だけ読み込む。全20仕様を地図起動時に取得しない。
+      const activeMap = mapRef.current;
+      if (!activeMap || !src) return;
+      const plateIds = new Set<string>();
+      const plateId = (v: MapVehicle) => `plate-${v.id}-${vehicleMapModelFor(mapModelKeyForVehicle(v)).id}-${v.number_prefix}-${v.number_class}-${v.number_hiragana}-${v.number_numeric}`;
       for (const v of displayedVehicles) {
         const url = plateModelUrls[v.id];
-        const id = `plate-${v.id}`;
-        if (url && mapRef.current && !mapRef.current.hasModel(id)) mapRef.current.addModel(id, url);
+        const model = vehicleMapModelFor(mapModelKeyForVehicle(v));
+        for (const [part, url] of [["tinted", model.tintedUrl], ["fixed", model.fixedUrl], ["lamps", model.lampsUrl], ...VEHICLE_PAINT_PARTS.map(p => [p.suffix, `/models/${model.id}-${p.suffix}.glb`])]) {
+          if (!activeMap.hasModel(`${model.id}-${part}`)) activeMap.addModel(`${model.id}-${part}`, url);
+        }
+        const id = plateId(v);
+        if (url) {
+          plateIds.add(id);
+          if (!activeMap.hasModel(id)) activeMap.addModel(id, url);
+        }
       }
-      src?.setData({
+      src.setData({
         type: "FeatureCollection",
         // まとめ表示で吸収された車は車体を描かない（代表の1台だけ）。札のドットで存在は示す
         features: displayedVehicles.filter((v) => !clusteredVehicleIdsRef.current.has(v.id)).map((v) => {
-          // 車種（model_key、無ければメーカー＋車種名）。未登録は既定モデル（型式は当面扱わない）
+          // 車種（model_key、無ければメーカー＋車種名）。型式と手動で選んだ外観を共通の解決規則へ渡す
           const model = vehicleMapModelFor(mapModelKeyForVehicle(v));
           const at = displayPointOf(v);
           return {
@@ -2250,17 +2267,26 @@ export default function MapPage() {
               rotation: [0, 0, slotBearingAt(v.position!.lng, v.position!.lat)],
               // 車体色（未設定は白）
               color: v.body_color || "#ffffff",
+              ...Object.fromEntries(VEHICLE_PAINT_PARTS.flatMap(part => {
+                const material = model.fixedPaintMaterials.includes(part.material) ? `Fixed ${part.material}` : part.material;
+                const color = colorForVehicleMaterial(material, v.body_color, vehiclePartColors(v.part_colors));
+                return [[`${part.key}Model`, `${model.id}-${part.suffix}`], [`${part.key}Color`, color ?? "#ffffff"], [`${part.key}Mix`, color ? 0.86 : 0]];
+              })),
               tintedModel: `${model.id}-tinted`,
               fixedModel: `${model.id}-fixed`,
               lampsModel: `${model.id}-lamps`,
               // 実ナンバーの GLB（無い車は空文字。model-id が空なら描かれない）
-              plateModel: plateModelUrls[v.id] ? `plate-${v.id}` : "",
+              plateModel: plateModelUrls[v.id] ? plateId(v) : "",
               // 夜の稼働中だけライトを点ける（履歴表示では点けない）
               lampsOn: isNightJst() && !historyDate && v.position!.sessionStatus === "open",
             },
           };
         }),
       });
+      for (const id of plateModelIdsRef.current) {
+        if (!plateIds.has(id) && activeMap.hasModel(id)) activeMap.removeModel(id);
+      }
+      plateModelIdsRef.current = plateIds;
     };
     applyVehicleModelDataRef.current = applyModelData;
     applyModelData();

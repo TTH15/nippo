@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data: report } = await supabase
+    // tenant-scope-ok: driver_identities で本人（user.driverId）のものと確認済みの driverIdentityId に固定
     .from("daily_reports")
     .select("takuhaibin_completed, nekopos_completed, carrier, approved_at, rejected_at")
     .eq("driver_identity_id", driverIdentityId)
@@ -39,6 +40,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data: shifts } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("shifts")
     .select("course_id")
     .eq("shift_date", reportDate)
@@ -49,6 +51,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data: rates } = await supabase
+    // tenant-scope-ok: courseIds は本人のシフトから作った集合（自社のコースに限られる）
     .from("course_rates")
     .select("course_id, takuhaibin_driver_payout, nekopos_driver_payout, fixed_revenue, fixed_profit")
     .in("course_id", courseIds);

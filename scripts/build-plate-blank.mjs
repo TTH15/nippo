@@ -13,8 +13,10 @@
 // エブリイ・ハイゼット= "Front Plate"）ため、名前に plate を含む材質を拾う。
 
 import { readFileSync } from "node:fs";
-import { Accessor, NodeIO, PropertyType, VertexLayout } from "@gltf-transform/core";
+import { NodeIO, PropertyType, VertexLayout } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
+
+import { applyVehiclePlateUV } from "./lib/vehicle-plate-uv.mjs";
 
 const [input, output] = process.argv.slice(2);
 if (!input || !output) {
@@ -54,33 +56,11 @@ for (const accessor of root.listAccessors()) {
 
 // 前後のプレートは向かい合っているので、x の符号で分けてそれぞれ正面から見た UV を張る。
 // （前から見ても後ろから見ても番号が正しい向きに読めるようにするため）
+applyVehiclePlateUV(doc);
 let triangles = 0;
 for (const mesh of root.listMeshes()) {
   for (const primitive of mesh.listPrimitives()) {
-    const position = primitive.getAttribute("POSITION");
-    triangles += (primitive.getIndices()?.getCount() ?? position.getCount()) / 3;
-    const sideBounds = new Map();
-    const point = [0, 0, 0];
-    for (let i = 0; i < position.getCount(); i += 1) {
-      position.getElement(i, point);
-      const side = point[0] >= 0 ? 1 : -1;
-      const bounds = sideBounds.get(side) ?? { minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity };
-      bounds.minY = Math.min(bounds.minY, point[1]);
-      bounds.maxY = Math.max(bounds.maxY, point[1]);
-      bounds.minZ = Math.min(bounds.minZ, point[2]);
-      bounds.maxZ = Math.max(bounds.maxZ, point[2]);
-      sideBounds.set(side, bounds);
-    }
-    const uv = new Float32Array(position.getCount() * 2);
-    for (let i = 0; i < position.getCount(); i += 1) {
-      position.getElement(i, point);
-      const side = point[0] >= 0 ? 1 : -1;
-      const bounds = sideBounds.get(side);
-      const across = (point[2] - bounds.minZ) / Math.max(1e-6, bounds.maxZ - bounds.minZ);
-      uv[i * 2] = side > 0 ? 1 - across : across;
-      uv[i * 2 + 1] = (bounds.maxY - point[1]) / Math.max(1e-6, bounds.maxY - bounds.minY);
-    }
-    primitive.setAttribute("TEXCOORD_0", doc.createAccessor("plate-uv").setType(Accessor.Type.VEC2).setArray(uv));
+    triangles += (primitive.getIndices()?.getCount() ?? primitive.getAttribute("POSITION").getCount()) / 3;
     // 実行時に番号のテクスチャを差し込む1材質へ寄せる
     primitive.getMaterial()
       .setName("Plate")

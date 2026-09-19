@@ -82,18 +82,22 @@ export async function captureReportRateSnapshots(
       .eq("org_id", orgId)
       .in("id", courseIds),
     supabase
+      // tenant-scope-ok: courseIds は自社の courses（.eq("org_id", orgId)）から作った集合
       .from("course_unit_rates")
       .select("course_id, cycle_no, unit_id, revenue_per_unit, payout_per_unit, revenue_contract_amount, payout_contract_amount, revenue_quantity_rule, payout_quantity_rule")
       .in("course_id", courseIds),
     supabase
+      // tenant-scope-ok: courseIds は自社の courses（.eq("org_id", orgId)）から作った集合
       .from("course_fixed_rates")
       .select("course_id, cycle_no, fixed_revenue, fixed_payout, revenue_contract_amount, payout_contract_amount")
       .in("course_id", courseIds),
     supabase
+      // tenant-scope-ok: courseIds は自社の courses（.eq("org_id", orgId)）から作った集合
       .from("course_fixed_rate_bundles")
       .select("course_id, required_cycle_nos, fixed_revenue, fixed_payout")
       .in("course_id", courseIds),
     supabase
+      // tenant-scope-ok: reportIds は org 絞りの daily_reports_v2 から作った集合
       .from("report_entries")
       .select("report_id, unit_id, field_key, value_num")
       .in("report_id", reportIds),

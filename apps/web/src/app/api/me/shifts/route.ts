@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, error } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("shifts")
     .select(`
       shift_date,

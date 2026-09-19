@@ -1,4 +1,5 @@
 import { supabase } from "@/server/db/client";
+import { isMissingOrgColumn, withoutOrgId } from "@/server/db/orgColumn";
 import { resolveOrgId } from "@/server/db/tenant";
 
 // ============================================================
@@ -44,6 +45,7 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
   // course_id: 同日同ドライバーの shift で、コースの carrier が一致するもの
   let courseId: string | null = null;
   const { data: shiftRows } = await supabase
+    // tenant-scope-ok: 日報の driver_id・日付で1人に固定。コースの carrier 一致を見るだけ
     .from("shifts")
     .select("course_id, created_at, courses(carrier)")
     .eq("driver_id", r.driver_id)
@@ -62,8 +64,9 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
   const { data: units } = await supabase.from("units").select("id, code").in("code", ["TAKUHAIBIN", "NEKOPOS", "AMAZON_DELIVERY"]);
   const unitByCode = new Map<string, string>((units ?? []).map((u: any) => [u.code, u.id]));
 
+  const orgId = await resolveOrgId(r.driver_id);
   const header = {
-    org_id: await resolveOrgId(r.driver_id),
+    org_id: orgId,
     driver_id: r.driver_id,
     report_date: r.report_date,
     course_id: courseId,
@@ -104,10 +107,10 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
   }
 
   // entries（旧固定カラム→縦持ち）
-  const rows: { report_id: string; unit_id: string; field_key: string; value_num: number }[] = [];
+  const rows: { org_id: string; report_id: string; unit_id: string; field_key: string; value_num: number }[] = [];
   const push = (code: string, fieldKey: string, value: number) => {
     const unitId = unitByCode.get(code);
-    if (unitId) rows.push({ report_id: reportId, unit_id: unitId, field_key: fieldKey, value_num: value });
+    if (unitId) rows.push({ org_id: orgId, report_id: reportId, unit_id: unitId, field_key: fieldKey, value_num: value });
   };
   if (r.carrier === "YAMATO") {
     push("TAKUHAIBIN", "completed", n(r.takuhaibin_completed));
@@ -131,19 +134,27 @@ export async function syncLegacyReportToV2(r: LegacyReport): Promise<void> {
   const hasMeaningful = rows.some((x) => x.value_num !== 0);
   if (isExisting && !hasMeaningful) {
     const { count } = await supabase
+      // tenant-scope-ok: reportId は直上で org_id 付きに解決した日報(v2)の id
       .from("report_entries")
       .select("id", { count: "exact", head: true })
       .eq("report_id", reportId);
     if ((count ?? 0) > 0) return; // 既存の実データを保護
   }
   // 安全と判断できたときだけ置換する。
+  // tenant-scope-ok: reportId は直上で org_id 付きに解決した日報(v2)の id
   await supabase.from("report_entries").delete().eq("report_id", reportId);
-  await supabase.from("report_entries").insert(rows);
+  // tenant-scope-ok: rows の各行に org_id（対象ドライバーの所属）を入れている
+  const { error: entryErr } = await supabase.from("report_entries").insert(rows);
+  if (isMissingOrgColumn(entryErr)) {
+    // tenant-scope-ok: 同じ行の退避。migration 177 未適用（org_id 列が無い）環境でのみ通る
+    await supabase.from("report_entries").insert(withoutOrgId(rows));
+  }
 }
 
 /** 旧 daily_reports の承認/却下状態を、対応する v2 にミラーする（driver+date 単位）。 */
 export async function mirrorApprovalToV2(driverId: string, date: string): Promise<void> {
   const { data: olds } = await supabase
+    // tenant-scope-ok: 旧日報の driver_id・日付で1人に固定（呼び出し元が対象ドライバーを決めている）
     .from("daily_reports")
     .select("id, approved_at, approved_by, rejected_at, rejected_by")
     .eq("driver_id", driverId)

@@ -38,7 +38,11 @@ export function ConfirmDialog({
     document.body.style.overflow = "hidden";
     const focusFrame = requestAnimationFrame(() => cancelRef.current?.focus());
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCloseRef.current();
+      if (event.key !== "Escape") return;
+      // 自分が受け取った Escape はここで止める。外側のモーダルが window で
+      // 同じイベントを拾うと、内側が閉じた直後に外側も反応してしまう
+      event.stopPropagation();
+      onCloseRef.current();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => {

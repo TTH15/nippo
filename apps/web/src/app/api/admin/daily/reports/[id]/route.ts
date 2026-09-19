@@ -95,7 +95,7 @@ export async function PUT(
 
       try {
         // 差分 upsert（変わった項目だけ書く。全削除→全挿入を廃止・2026-08 監査）
-        await syncReportEntries(supabase, reportId, entryRows);
+        await syncReportEntries(supabase, orgId, reportId, entryRows);
       } catch (e) {
         console.error("[admin/daily/reports] entries sync error", e);
         return NextResponse.json({ error: "DB error" }, { status: 500 });

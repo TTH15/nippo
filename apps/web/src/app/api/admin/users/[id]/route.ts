@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { requirePermission, isAuthError, getCapabilities } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
@@ -112,7 +111,7 @@ export async function PUT(
 
     const { data: driverRow, error: driverFetchErr } = await supabase
       .from("drivers")
-      .select("id, company_code, driver_code, pin_hash, role, role_id, status, phone, identity_id")
+      .select("id, company_code, driver_code, role, role_id, status, phone, identity_id")
       .eq("id", driverId)
       .eq("org_id", orgId)
       .single();
@@ -162,12 +161,16 @@ export async function PUT(
     if (address !== undefined) updates.address = typeof address === "string" ? address.trim() || null : null;
     if (phone !== undefined) {
       const nextPhone = typeof phone === "string" ? phone.trim() || null : null;
+      if (nextPhone !== driverRow.phone && user.identityId && driverRow.identity_id === user.identityId) {
+        return NextResponse.json({ error: "自分の電話番号の変更は、別の運営担当者に依頼してください" }, { status: 403 });
+      }
       if (nextPhone !== driverRow.phone && driverRow.identity_id) {
-        const { data: idn } = await supabase
+        const { data: idn, error: phoneReadError } = await supabase
           .from("identities")
           .select("phone_verified_at")
           .eq("id", driverRow.identity_id)
           .maybeSingle();
+        if (phoneReadError || !idn) return NextResponse.json({ error: "電話番号の確認状態を取得できません" }, { status: 503 });
         if (idn?.phone_verified_at) {
           return NextResponse.json(
             { error: "認証済みの電話番号は運営画面から変更できません。ドライバー本人にマイページでの再確認をご案内ください" },
@@ -191,6 +194,7 @@ export async function PUT(
     // （先にコース割り当てを全解除してもらう）。
     if (status === "inactive" && driverRow.status !== "inactive") {
       const { count: assignedCourseCount } = await supabase
+        // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した driverId に固定
         .from("driver_courses")
         .select("id", { count: "exact", head: true })
         .eq("driver_id", driverId);
@@ -247,31 +251,7 @@ export async function PUT(
     }
 
     const syncSlot1ToDriver = async (fullCode: string, office: string) => {
-      const { data: d } = await supabase
-        .from("drivers")
-        .select("driver_code, pin_hash").eq("org_id", orgId)
-        .eq("id", driverId)
-        .single();
-
-      const newPinPart = fullCode.slice(3);
-      if (d?.driver_code && d?.pin_hash) {
-        const oldPinPart = d.driver_code.slice(3);
-        const stillUsingInitialPin = await bcrypt.compare(oldPinPart, d.pin_hash);
-        if (stillUsingInitialPin && fullCode !== d.driver_code.toUpperCase()) {
-          await supabase
-            .from("drivers")
-            .update({
-              driver_code: fullCode,
-              office_code: office,
-              pin_hash: await bcrypt.hash(newPinPart, 10),
-            }).eq("org_id", orgId)
-            .eq("id", driverId);
-          return;
-        }
-      }
-      // PIN撤廃（§2-1a）: 承認で driver_code を割り当てても初期PINは発行しない。
-      // 仮承認で入った新規ドライバーは PINレス＝電話OTP でログイン→Passkey 登録する。
-      // 既存PIN（手動作成・カスタム含む）を持つドライバーは上の分岐で処理済みで、ここでは pin_hash を触らない。
+      // コード変更でログイン資格情報を発行・変更しない。
       await supabase
         .from("drivers")
         .update({ driver_code: fullCode, office_code: office })
@@ -349,8 +329,10 @@ export async function PUT(
         identityId = ins!.id;
       }
 
+      // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した driverId に固定
       await supabase.from("driver_courses").delete().eq("driver_identity_id", identityId);
       if (courseList.length > 0) {
+        // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した driverId に固定
         const { error: cErr } = await supabase.from("driver_courses").insert(
           courseList.map((cid: string) => ({
             driver_id: driverId,

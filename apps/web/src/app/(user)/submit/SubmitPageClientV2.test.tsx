@@ -20,6 +20,7 @@ function mockEndpoints({ mileage = 50000, isEv = false }: { mileage?: number; is
   mockApiFetch.mockImplementation((url: string, opts?: { method?: string }) => {
     const u = String(url);
     if (opts?.method === "POST" && u.includes("/api/reports/v2")) return Promise.resolve({});
+    if (u.includes("/api/me/login-setup")) return Promise.resolve({ phoneVerified: false, phoneMasked: "下4桁 0001", hasPasskey: false });
     if (u.includes("/api/reports/profile")) return Promise.resolve({ identities: [{ id: "id1", slot: 1, driverCode: "D1", officeCode: "O1" }] });
     if (u.includes("/api/reports/vehicles-unlinked")) return Promise.resolve({ vehicles: [] });
     if (u.includes("/api/reports/vehicles")) return Promise.resolve({ vehicles: [{ id: "v1", current_mileage: mileage, is_ev: isEv, number_numeric: "1234" }] });
@@ -82,6 +83,7 @@ describe("SubmitPageClientV2 — 走行距離の妥当性（探索的）", () =>
     mockEndpoints({ mileage: 50000 });
     render(<SubmitPageClientV2 />);
     await selectVehicleAndType("50001");
+    expect(await screen.findByRole("button", { name: "設定する" })).toBeEnabled(); // 認証の移行が未完了でも日報は提出可
     await userEvent.click(screen.getByRole("button", { name: "あとで記録" }));
     await userEvent.click(screen.getByRole("button", { name: "送信" }));
     await waitFor(() => expect(wasPosted()).toBe(true));

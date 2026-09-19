@@ -12,6 +12,9 @@ import { NodeIO, PropertyType, VertexLayout } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 
 const args = process.argv.slice(2);
+const paintParts = args.includes("--paint-parts");
+const PARTS = { hood: ["Paint Hood", "Fixed Paint Hood"], "front-bumper": ["Paint Front Bumper"], "rear-bumper": ["Paint Rear Bumper"] };
+const partMaterials = new Set(Object.values(PARTS).flat());
 const dropPlates = args.includes("--drop-plates");
 const [input, tintedOutput, fixedOutput, lampsOutput] = args.filter((arg) => !arg.startsWith("--"));
 if (!input || !tintedOutput || !fixedOutput) {
@@ -28,7 +31,7 @@ const TINTED_MATERIALS = new Set([
 ]);
 // 3車種（ハイゼット19／エブリイ88／アクティ75）で共通の灯火材質（keivan-3d の規約）
 const LAMP_MATERIALS = new Set(["Headlight Lens", "Rear Red Lens", "Light Brake High"]);
-const PLATE_MATERIALS = new Set(dropPlates ? ["License Plate Front"] : []);
+const PLATE_MATERIALS = new Set(dropPlates ? ["License Plate Front", "License Plate Rear", "Front Plate", "Rear Plate"] : []);
 
 const io = new NodeIO()
   .registerExtensions(ALL_EXTENSIONS)
@@ -42,11 +45,12 @@ async function writePart(output, part) {
     for (const primitive of [...mesh.listPrimitives()]) {
       const materialName = primitive.getMaterial()?.getName() ?? "";
       const isLamp = LAMP_MATERIALS.has(materialName);
-      const keep = part === "tinted"
-        ? TINTED_MATERIALS.has(materialName)
+      const isPaintPart = paintParts && partMaterials.has(materialName);
+      const keep = PARTS[part] ? PARTS[part].includes(materialName) : part === "tinted"
+        ? TINTED_MATERIALS.has(materialName) && !isPaintPart
         : part === "lamps"
           ? isLamp
-          : !TINTED_MATERIALS.has(materialName) && !PLATE_MATERIALS.has(materialName) && !(lampsOutput && isLamp);
+          : !TINTED_MATERIALS.has(materialName) && !isPaintPart && !PLATE_MATERIALS.has(materialName) && !(lampsOutput && isLamp);
       if (!keep) primitive.dispose();
     }
     if (mesh.listPrimitives().length === 0) {
@@ -86,3 +90,5 @@ async function writePart(output, part) {
 await writePart(tintedOutput, "tinted");
 await writePart(fixedOutput, "fixed");
 if (lampsOutput) await writePart(lampsOutput, "lamps");
+
+if (paintParts) for (const part of Object.keys(PARTS)) await writePart(input.replace(/\.glb$/, `-${part}.glb`), part);

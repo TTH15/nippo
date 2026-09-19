@@ -123,6 +123,7 @@ export async function loadDailyLeaseByVehicleMonth(
   const [{ data: leaseRows }, courseDaily] = await Promise.all([
     // driver_leases は org 列を持たないため driver 経由で絞る（他社の契約を混ぜない）
     supabase
+      // tenant-scope-ok: drivers!inner + .eq("drivers.org_id", orgId) で結合先の org を絞っている
       .from("driver_leases")
       .select("driver_id, mode, valid_from, valid_to, drivers!inner(org_id)")
       .eq("drivers.org_id", orgId),

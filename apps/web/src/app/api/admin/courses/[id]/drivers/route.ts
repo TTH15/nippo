@@ -14,6 +14,7 @@ const CAPS = COURSE_DRIVERS_CAPS;
 /** そのコースを担当しているドライバー（driver_courses → driver_identities → drivers）。 */
 async function loadAssigned(courseId: string, orgId: string) {
   const { data } = await supabase
+    // tenant-scope-ok: courseId は直上で org 確認済み。追加する identity も drivers.org_id で絞っている
     .from("driver_courses")
     .select("driver_identity_id, driver_identities ( id, slot, driver_id, drivers ( id, org_id ) )")
     .eq("course_id", courseId);
@@ -71,6 +72,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     .map((r) => r.driver_identity_id);
   if (removeIdentityIds.length > 0) {
     const { error } = await supabase
+      // tenant-scope-ok: courseId は直上で org 確認済み。追加する identity も drivers.org_id で絞っている
       .from("driver_courses")
       .delete()
       .eq("course_id", courseId)
@@ -112,6 +114,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       );
     if (rows.length > 0) {
       // cycle_no は便（migration 136）。0 = 全便を担当可＝この画面が扱う粒度
+      // tenant-scope-ok: courseId は直上で org 確認済み。追加する identity も drivers.org_id で絞っている
       const { error } = await supabase.from("driver_courses").upsert(rows, {
         onConflict: "driver_identity_id,course_id,cycle_no",
       });

@@ -199,7 +199,10 @@ function Calendar({
     <DayPicker
       locale={rdpJa}
       showOutsideDays={showOutsideDays}
-      className={cn("p-4", className)}
+      // 7列×48px ＋ 余白は 388px 未満の画面に収まらず、土曜と月送りが切れる。
+      // その幅だけ列と余白を詰める（388px 以上は従来どおり）。
+      // 360px は一般的なAndroid、375px は iPhone SE/mini の幅なので 359px 止まりでは足りない。
+      className={cn("p-4 max-[387px]:p-2", className)}
       modifiers={{
         saturday: (date) => date.getDay() === 6,
         sunday: (date) => date.getDay() === 0,
@@ -226,7 +229,7 @@ function Calendar({
         ),
         month_grid: "w-full border-collapse space-x-1",
         weekdays: "flex",
-        weekday: "text-slate-400 rounded-md w-12 font-normal text-[0.8rem]",
+        weekday: "text-slate-400 rounded-md w-12 max-[387px]:w-10 font-normal text-[0.8rem]",
         week: "flex w-full mt-2",
         day: cn(
           "relative p-0 text-center text-sm focus-within:relative focus-within:z-20 aria-selected:bg-slate-100",
@@ -236,7 +239,7 @@ function Calendar({
         ),
         day_button: cn(
           buttonVariants({ variant: "ghost" }),
-          "size-12 p-0 font-normal text-base hover:bg-slate-100",
+          "size-12 max-[387px]:size-10 p-0 font-normal text-base hover:bg-slate-100",
         ),
         range_start:
           "rounded-l-md [&>button]:bg-slate-900 [&>button]:text-white [&>button:hover]:bg-slate-800 [&>button:hover]:text-white",

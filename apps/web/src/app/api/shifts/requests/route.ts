@@ -8,6 +8,7 @@ import { monthPeriods } from "@/lib/shiftDeadline";
 import { todayJST } from "@/lib/date";
 import { diffShiftRequests, type ExistingReq } from "@/server/shiftRequests/diff";
 import { insertShiftRequestLogs, fetchActorName, type ShiftLogRow } from "@/server/shiftRequests/log";
+import { isMissingOrgColumn, withoutOrgId } from "@/server/db/orgColumn";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export async function GET(req: NextRequest) {
   const month = req.nextUrl.searchParams.get("month");
 
   let query = supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("shift_requests")
     .select("id, driver_id, request_date, request_type, slot_id")
     .eq("driver_id", user.driverId)
@@ -113,6 +115,7 @@ export async function POST(req: NextRequest) {
       // 既存行（締切済みは保護＝差分対象外）。差分方式で変更分だけ挿入/削除し、
       // 変更なしの行は触らず created_at（初回提出時刻）を保持する。
       const { data: existingRaw, error: exErr } = await supabase
+        // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
         .from("shift_requests")
         .select("id, request_date, slot_id")
         .eq("driver_id", user.driverId)
@@ -127,15 +130,26 @@ export async function POST(req: NextRequest) {
 
       if (toRemove.length > 0) {
         const { error: delErr } = await supabase
+          // tenant-scope-ok: id は直上の本人限定 select（existingOpen）由来
           .from("shift_requests")
           .delete()
           .in("id", toRemove.map((r) => r.id));
         if (delErr) throw delErr;
       }
       if (toAdd.length > 0) {
-        const { error: insErr } = await supabase.from("shift_requests").insert(
-          toAdd.map((r) => ({ driver_id: user.driverId, request_date: r.request_date, request_type: "OFF", slot_id: r.slot_id })),
-        );
+        const rows = toAdd.map((r) => ({
+          org_id: orgId,
+          driver_id: user.driverId,
+          request_date: r.request_date,
+          request_type: "OFF",
+          slot_id: r.slot_id,
+        }));
+        // tenant-scope-ok: 各行に org_id: orgId（本人の所属）を入れている
+        let insErr = (await supabase.from("shift_requests").insert(rows)).error;
+        if (isMissingOrgColumn(insErr)) {
+          // tenant-scope-ok: 同じ行の退避。migration 174 未適用（org_id 列が無い）環境でのみ通る
+          insErr = (await supabase.from("shift_requests").insert(withoutOrgId(rows))).error;
+        }
         if (insErr) throw insErr;
       }
 
@@ -145,6 +159,7 @@ export async function POST(req: NextRequest) {
         const actorName = await fetchActorName(user.driverId);
         const logs: ShiftLogRow[] = [
           ...toAdd.map((r) => ({
+            org_id: orgId,
             driver_id: user.driverId,
             request_date: r.request_date,
             slot_id: r.slot_id,
@@ -155,6 +170,7 @@ export async function POST(req: NextRequest) {
             actor_name: actorName,
           })),
           ...toRemove.map((r) => ({
+            org_id: orgId,
             driver_id: user.driverId,
             request_date: r.request_date,
             slot_id: r.slot_id,
@@ -190,12 +206,16 @@ export async function POST(req: NextRequest) {
       }
     }
     if (isOff) {
-      const { error } = await supabase
-        .from("shift_requests")
-        .insert({ driver_id: user.driverId, request_date: date, request_type: "OFF", slot_id: null });
+      const row = { driver_id: user.driverId, request_date: date, request_type: "OFF", slot_id: null };
+      let error = (await supabase.from("shift_requests").insert({ org_id: orgId, ...row })).error;
+      if (isMissingOrgColumn(error)) {
+        // tenant-scope-ok: 同じ行の退避。migration 174 未適用（org_id 列が無い）環境でのみ通る
+        error = (await supabase.from("shift_requests").insert(row)).error;
+      }
       if (error && error.code !== "23505") throw error; // 既存(全休)は無視
     } else {
       const { error } = await supabase
+        // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
         .from("shift_requests")
         .delete()
         .eq("driver_id", user.driverId)

@@ -163,7 +163,9 @@ export async function loadLegacyDailyRows(
     supabase.from("units").select("id, code"),
     // コースはテナント固有マスタ。名前解決のためだけでも他社行は読まない
     supabase.from("courses").select("id, name").eq("org_id", orgId),
-    supabase.from("course_cycles").select("course_id, cycle_no, label"),
+    // 便も同じ。courses!inner で結合先の org を絞る（course_cycles は org 列を持たない）
+    // tenant-scope-ok: courses!inner + .eq("courses.org_id", orgId) で結合先の org を絞っている
+    supabase.from("course_cycles").select("course_id, cycle_no, label, courses!inner(org_id)").eq("courses.org_id", orgId),
   ]);
   if (!reportRows?.length) return [];
 
@@ -221,6 +223,7 @@ export async function loadLegacyDailyRows(
       batches.map((slice) =>
         fetchAllRows((from, to) =>
           supabase
+            // tenant-scope-ok: reportIds は org 絞りの daily_reports_v2 から作った集合
             .from("report_entries")
             .select("report_id, unit_id, field_key, value_num")
             .in("report_id", slice)

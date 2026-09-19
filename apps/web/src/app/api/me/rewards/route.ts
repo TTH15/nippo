@@ -114,6 +114,7 @@ export async function GET(req: NextRequest) {
 
   // 報酬調整（臨時経費）: amount は +控除 / -手当（報酬加算）
   const { data: adHocRows, error: adHocError } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("driver_ad_hoc_expenses")
     .select("month, name, amount, created_at, sales_log_entry_id, sales_log_entries(log_date)")
     .eq("driver_id", user.driverId)
@@ -147,6 +148,7 @@ export async function GET(req: NextRequest) {
 
   // 固定経費（driver_fixed_expenses）
   const { data: fixedRows, error: fixedError } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("driver_fixed_expenses")
     .select(`
       id,
@@ -180,6 +182,7 @@ export async function GET(req: NextRequest) {
 
   // ドライバー入力の自由経費（管理者は参照不可・報酬計算用のみ）
   const { data: optionalRows, error: optionalError } = await supabase
+    // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
     .from("driver_optional_expenses")
     .select("id, name, amount")
     .eq("driver_id", user.driverId)

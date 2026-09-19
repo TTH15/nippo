@@ -1,3 +1,5 @@
+import { isMissingVehiclePartColors } from "@/server/vehicles/partColors";
+import { isVehiclePartColors } from "@/lib/vehicleAppearance";
 import { randomUUID } from "node:crypto";
 import { adminMutationError, isUuid } from "@/server/db/adminResourceScope";
 import { NextRequest, NextResponse } from "next/server";
@@ -60,12 +62,12 @@ export async function GET(req: NextRequest) {
   // ★ select("*") にしない。image_url に data URL が混ざると1台あたり数百KB になり、
   //   一覧のレスポンスが一気に肥大する（実測: 画像込み 1630ms/3777KB → 列指定 217ms/11KB）。
   //   列を明示しておけば、将来 data URL が紛れ込んでも一覧は太らない。
-  const loadVehicles = (includeAvailability: boolean) => {
+  const loadVehicles = (includeAvailability: boolean, includePartColors: boolean) => {
     // 動的テンプレートをselect()へ直接渡すとSupabaseの型パーサーが過剰展開するため、
     // ここでは実行時文字列として明示する。
     const availabilityColumns = includeAvailability ? "is_unavailable, unavailable_reason," : "";
     const selectColumns: string = `
-      id, owner_org_id, manufacturer, brand, model_key, model_code, body_color,
+      id, owner_org_id, manufacturer, brand, model_key, model_code, body_color, ${includePartColors ? "part_colors," : ""}
       is_disposed, ${availabilityColumns} is_ev,
       number_prefix, number_class, number_hiragana, number_numeric, plate_color,
       current_mileage, last_oil_change_mileage, oil_change_interval,
@@ -91,12 +93,13 @@ export async function GET(req: NextRequest) {
     return query;
   };
 
-  let availabilitySupported = true;
-  let { data: vehiclesRaw, error } = await loadVehicles(true);
-  if (isMissingVehicleAvailabilityColumns(error)) {
-    // コードが先にデプロイされmigration 147が未適用でも、既存車両を消えたように見せない。
-    availabilitySupported = false;
-    ({ data: vehiclesRaw, error } = await loadVehicles(false));
+  let availabilitySupported = true, partColorsSupported = true;
+  let { data: vehiclesRaw, error } = await loadVehicles(true, true);
+  for (let attempt = 0; attempt < 2 && error; attempt++) {
+    if (isMissingVehicleAvailabilityColumns(error)) availabilitySupported = false;
+    else if (isMissingVehiclePartColors(error)) partColorsSupported = false;
+    else break;
+    ({ data: vehiclesRaw, error } = await loadVehicles(availabilitySupported, partColorsSupported));
   }
 
   if (error) {
@@ -136,6 +139,7 @@ export async function GET(req: NextRequest) {
     vehicles: stripVehicleCostAll(activeDriverVehicles, canViewCost),
     canViewCost,
     availabilitySupported,
+    partColorsSupported,
     ...(limit !== null ? { hasMore, nextCursor: String(offset + limit) } : {}),
   });
 }
@@ -189,6 +193,7 @@ export async function POST(req: NextRequest) {
       if (error) throw error;
       if (new Set(data?.map(d => d.id)).size !== new Set(driverIds).size) return NextResponse.json({ error: "ドライバーが見つかりません。" }, { status: 404 });
     }
+    if (body.partColors !== undefined && !isVehiclePartColors(body.partColors)) return NextResponse.json({ error: "部位の色を確認してください。" }, { status: 400 });
     const validationIssue = validateVehicleForm(body)[0];
     if (validationIssue) return NextResponse.json({ error: validationIssue.message }, { status: 400 });
 
@@ -212,6 +217,7 @@ export async function POST(req: NextRequest) {
         // 型式（世代）。3Dモデルの出し分けと車両の記録の両方に使う
         model_code: typeof modelCode === "string" && modelCode.trim() ? modelCode.trim().toUpperCase() : null,
         body_color: typeof bodyColor === "string" && /^#[0-9a-fA-F]{6}$/.test(bodyColor) ? bodyColor : null,
+        ...(body.partColors !== undefined ? { part_colors: body.partColors } : {}),
         is_disposed: !!isDisposed,
         // migration 147 未適用環境との互換性のため、クライアントが状態を送った場合だけ列へ書く。
         ...(isUnavailable !== undefined || unavailableReason !== undefined
@@ -269,6 +275,7 @@ export async function POST(req: NextRequest) {
           number_hiragana: patch.number_hiragana,
           number_numeric: patch.number_numeric,
           model_key: patch.model_key,
+          model_code: patch.model_code,
           manufacturer: patch.manufacturer,
           brand: patch.brand,
         });

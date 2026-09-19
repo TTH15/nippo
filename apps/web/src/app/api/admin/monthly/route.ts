@@ -47,9 +47,14 @@ export async function GET(req: NextRequest) {
   const lastDay = new Date(year, mon, 0).getDate();
   const endDate = `${month}-${String(lastDay).padStart(2, "0")}`;
 
+  // 自社のドライバー集合で絞る。絞らないと他社の日報まで読み、行数上限で切られたときに
+  // 自社の日報が欠ける（表示は drivers 起点なので露出はしないが、読む必要がない）。
+  const orgDriverIds = (drivers ?? []).map((d: { id: string }) => d.id);
   const { data: reports } = await supabase
+    // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
     .from("daily_reports")
     .select("*")
+    .in("driver_id", orgDriverIds)
     .gte("report_date", startDate)
     .lte("report_date", endDate);
 

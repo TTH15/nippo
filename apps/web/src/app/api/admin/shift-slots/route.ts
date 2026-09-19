@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   const orgId = await resolveOrgId(user.driverId);
 
   const [slots, { data: drivers }] = await Promise.all([
-    loadAllSlots(supabase),
+    loadAllSlots(supabase, orgId),
     // org を絞らないと他社のドライバーが便の割当候補に出てしまう
     supabase
       .from("drivers")
@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const user = await requirePermission(req, "can_manage_shifts");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const body = await req.json().catch(() => ({}));
   const rawSlots = Array.isArray(body.slots) ? body.slots : [];
@@ -65,7 +66,7 @@ export async function PUT(req: NextRequest) {
   }
 
   try {
-    await saveSlots(supabase, slots);
+    await saveSlots(supabase, orgId, slots);
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "保存に失敗しました（migration 076 未適用の可能性）" }, { status: 500 });

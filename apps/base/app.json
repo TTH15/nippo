@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "ハコ虎 Base",
+    "slug": "hakotora-base",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "scheme": "hakotora-base",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "jp.hakotora.base",
+      "infoPlist": {}
+    },
+    "android": {
+      "package": "jp.hakotora.base"
+    },
+    "extra": {
+      "_note": "現場運営用アプリ。ドライバー用の「ハコ虎」(jp.hakotora.app) とは別アプリ。bundleId / name / slug は内部配布を始めるまで変更してよい（設計: docs/design/hakotora-base-2026-09.md）。orientation=default は iPad の横向き・分割表示のため。"
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
+        }
+      ]
+    ]
+  }
+}

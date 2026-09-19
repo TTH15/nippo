@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { startRegistration } from "@simplewebauthn/browser";
+import { PasskeyManagement } from "@/lib/components/PasskeyManagement";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -14,18 +14,16 @@ import { useApi } from "@/lib/useApi";
 import { useBodyScrollLock } from "@/lib/hooks/useBodyScrollLock";
 import { TeamPointsCard } from "@/lib/components/TeamPointsCard";
 import { DynamicField, ReportFileInput, type DynamicFieldValue } from "@/lib/components/report/DynamicField";
-import { validateAnswers, type AnswerAttachment } from "@/server/reportKinds/fields";
+import { validateAnswers, type AnswerAttachment } from "@/lib/reportKindFields";
 import type { Profile, VehiclePlateData as Vehicle, ReportKindOption } from "@repo/core/types";
 import { toLocalDateStr, toLocalTimeStr } from "@repo/core/logic/calendar";
 import { dedupeVehiclesById, excludeVehicleId } from "@repo/core/logic/vehicle";
-import { validatePinChange, digitsOnly, buildProfileEntries, formatJPPhoneDisplay } from "@repo/core/logic/profile";
+import { buildProfileEntries, formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { isValidReportDateTime, countAttachmentsByField } from "@repo/core/logic/report";
-import { useIsWebAuthnHost } from "@/lib/webauthnHost";
 import { LineLinkSection } from "./LineLinkSection";
 import { PushNotificationSection } from "./PushNotificationSection";
 
 export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
-  const canUsePasskey = useIsWebAuthnHost();
   const router = useRouter();
   const [logoutConfirming, setLogoutConfirming] = useState(false);
   const searchParams = useSearchParams();
@@ -53,12 +51,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [confirmVehicle, setConfirmVehicle] = useState<Vehicle | null>(null);
-  const [newPin, setNewPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-  const [pinSubmitting, setPinSubmitting] = useState(false);
-  const [pinMessage, setPinMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
-  const [passkeySubmitting, setPasskeySubmitting] = useState(false);
-  const [passkeyMessage, setPasskeyMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [phoneStep, setPhoneStep] = useState<"input" | "otp">("input");
   const [phoneInput, setPhoneInput] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
@@ -149,71 +141,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     () => excludeVehicleId(allKnownVehicles, selectedVehicleId),
     [allKnownVehicles, selectedVehicleId],
   );
-
-  const handlePinSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPinMessage(null);
-    const pinCheck = validatePinChange(newPin, confirmPin);
-    if (!pinCheck.ok) {
-      setPinMessage({ type: "error", text: pinCheck.message! });
-      return;
-    }
-    setPinSubmitting(true);
-    try {
-      await apiFetch("/api/reports/profile", {
-        method: "PATCH",
-        body: JSON.stringify({ newPin, confirmPin }),
-      });
-      setPinMessage({ type: "ok", text: "PINを変更しました" });
-      setNewPin("");
-      setConfirmPin("");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "PINの変更に失敗しました";
-      setPinMessage({ type: "error", text: msg });
-    } finally {
-      setPinSubmitting(false);
-    }
-  };
-
-  const handlePasskeyRegister = async () => {
-    setPasskeyMessage(null);
-    setPasskeySubmitting(true);
-    try {
-      const { options, challengeToken } = await apiFetch<{
-        options: Parameters<typeof startRegistration>[0]["optionsJSON"];
-        challengeToken: string;
-      }>("/api/auth/webauthn/register/options", { method: "POST" });
-
-      const registrationResponse = await startRegistration({ optionsJSON: options });
-
-      await apiFetch("/api/auth/webauthn/register/verify", {
-        method: "POST",
-        body: JSON.stringify({ response: registrationResponse, challengeToken }),
-      });
-
-      setPasskeyMessage({ type: "ok", text: "Passkeyを登録しました" });
-      setProfile((prev) => (prev ? { ...prev, hasPasskey: true } : prev));
-      void refreshProfile(); // キャッシュも確定（再訪時に「未登録」へ戻らないように）
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === "NotAllowedError") {
-        // ブラウザはキャンセル・時間切れ・既存Passkeyとの重複・アプリ内ブラウザ非対応を
-        // すべて同じ NotAllowedError で返す。サーバーに登録があるかで文言を分ける
-        //（0件なのに「既に登録済み」と案内すると原因に辿り着けない・2026-08-05 実例）。
-        const latest = await refreshProfile();
-        if (!latest?.hasPasskey) {
-          setPasskeyMessage({
-            type: "error",
-            text: "登録できませんでした。LINEなどのアプリ内ブラウザではPasskeyを登録できません。Safari / Chrome で開き直してからお試しください。",
-          });
-        }
-        return;
-      }
-      const msg = err instanceof Error ? err.message : "Passkeyの登録に失敗しました";
-      setPasskeyMessage({ type: "error", text: msg });
-    } finally {
-      setPasskeySubmitting(false);
-    }
-  };
 
   const handleSendPhoneCode = async () => {
     setPhoneMessage(null);
@@ -544,7 +471,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     );
   }
 
-  // マイページ: プロフィール + PIN変更
+  // マイページ: プロフィールとログイン設定
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-4">
@@ -599,60 +526,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
             ))}
           </dl>
         )}
-      </section>
-
-      <section>
-        <h2 className="text-base font-bold text-slate-900 mb-4">PINの変更</h2>
-        <form
-          onSubmit={handlePinSubmit}
-          className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm"
-        >
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              新しいPIN（6桁）
-            </label>
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={6}
-              value={newPin}
-              onChange={(e) => setNewPin(digitsOnly(e.target.value))}
-              className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
-              placeholder="000000"
-              autoComplete="new-password"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              確認用（6桁）
-            </label>
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={6}
-              value={confirmPin}
-              onChange={(e) => setConfirmPin(digitsOnly(e.target.value))}
-              className="w-full text-center text-lg tracking-wider font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
-              placeholder="000000"
-              autoComplete="new-password"
-            />
-          </div>
-          {pinMessage && (
-            <p
-              className={`text-sm ${pinMessage.type === "ok" ? "text-green-600" : "text-red-600"
-                }`}
-            >
-              {pinMessage.text}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={pinSubmitting || newPin.length !== 6 || confirmPin.length !== 6}
-            className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {pinSubmitting ? "変更中..." : "PINを変更する"}
-          </button>
-        </form>
       </section>
 
       <section className="mt-10">
@@ -744,40 +617,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
 
       <PushNotificationSection />
 
-      {canUsePasskey && (
-        <section className="mt-10">
-          <h2 className="text-base font-bold text-slate-900 mb-4">Passkeyの登録</h2>
-          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
-            {profile?.hasPasskey && (
-              <div className="flex items-center gap-2 text-sm text-slate-700">
-                <FontAwesomeIcon icon={faCircleCheck} className="w-4 h-4 text-green-600" />
-                <span>登録済みです</span>
-              </div>
-            )}
-            <p className="text-sm text-slate-600">
-              {profile?.hasPasskey
-                ? "別の端末を追加で登録することもできます。"
-                : "指紋・顔認証などでログインできるようになります（PINでのログインも引き続き使えます）。"}
-            </p>
-            {passkeyMessage && (
-              <p
-                className={`text-sm ${passkeyMessage.type === "ok" ? "text-green-600" : "text-red-600"
-                  }`}
-              >
-                {passkeyMessage.text}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={handlePasskeyRegister}
-              disabled={passkeySubmitting}
-              className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {passkeySubmitting ? "登録中..." : "この端末にPasskeyを登録する"}
-            </button>
-          </div>
-        </section>
-      )}
+      <PasskeyManagement />
 
       {/* ログアウトはここに集約（ヘッダーだと通知ベルと隣接して誤タップが起きる）。
           破壊的操作ではないが、間違えると再ログインが要るので下端に置き控えめに見せる。 */}

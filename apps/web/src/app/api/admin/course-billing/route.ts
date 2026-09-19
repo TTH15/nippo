@@ -74,6 +74,7 @@ export async function GET(req: NextRequest) {
     // 新規作成（course_id 無し）では既存単価は無いので空。
     courseId
       ? supabase
+          // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
           .from("course_unit_rates")
           .select("cycle_no, unit_id, revenue_per_unit, profit_per_unit, payout_per_unit, revenue_contract_amount, payout_contract_amount, revenue_quantity_rule, payout_quantity_rule")
           .eq("course_id", courseId)
@@ -88,12 +89,14 @@ export async function GET(req: NextRequest) {
       : Promise.resolve({ data: [] as any[] }),
     courseId
       ? supabase
+          // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
           .from("course_fixed_rates")
           .select("cycle_no, fixed_revenue, fixed_profit, fixed_payout, revenue_contract_amount, payout_contract_amount")
           .eq("course_id", courseId)
       : Promise.resolve({ data: [] as any[] }),
     courseId
       ? supabase
+          // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
           .from("course_fixed_rate_bundles")
           .select("required_cycle_nos, fixed_revenue, fixed_payout, revenue_contract_amount, payout_contract_amount")
           .eq("course_id", courseId)
@@ -232,6 +235,7 @@ export async function PUT(req: NextRequest) {
     });
     // cycle_no は便ごとの単価（migration 136）。0 = 全便共通で、便を使わないコースは常にこれ
     const { error } = await supabase
+      // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
       .from("course_unit_rates")
       .upsert(rows, { onConflict: "course_id,cycle_no,unit_id" });
     if (error) {
@@ -257,6 +261,7 @@ export async function PUT(req: NextRequest) {
       };
     });
     const { error } = await supabase
+      // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
       .from("course_fixed_rates")
       .upsert(fixedRows, { onConflict: "course_id,cycle_no" });
     if (error) {
@@ -269,6 +274,7 @@ export async function PUT(req: NextRequest) {
   if (fixedBundle) {
     const revenueContract = fixedBundle.revenue_contract_amount == null ? null : num(fixedBundle.revenue_contract_amount);
     const payoutContract = fixedBundle.payout_contract_amount == null ? null : num(fixedBundle.payout_contract_amount);
+    // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
     const { error } = await supabase.from("course_fixed_rate_bundles").upsert({
       course_id: courseId,
       required_cycle_nos: Array.isArray(fixedBundle.required_cycle_nos)

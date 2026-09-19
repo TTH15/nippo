@@ -23,6 +23,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const session = await issueDriverSession(driver);
+  const session = await issueDriverSession(driver, user);
   return NextResponse.json(session);
 }

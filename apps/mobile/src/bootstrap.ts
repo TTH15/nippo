@@ -14,6 +14,7 @@ export async function bootstrap(onUnauthorized: () => void): Promise<void> {
   configureAuth({ storage: secureStoreStorage, onUnauthorized });
   // 末尾スラッシュを除去（apiFetch は `${baseUrl}${path}` で path が "/api/..." のため、
   // baseUrl 末尾に "/" があると "//api/..." と二重になるのを防ぐ）。
-  const baseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, "");
+  const baseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://hakotora.jp").replace(/\/+$/, "");
+  if (!baseUrl.startsWith("https://") && !__DEV__) throw new Error("API接続先にはHTTPSが必要です");
   configureApi({ baseUrl });
 }

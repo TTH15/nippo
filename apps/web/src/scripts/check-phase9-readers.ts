@@ -44,6 +44,7 @@ async function main() {
   console.log(`\n=== Phase9 互換リーダー parity ${month} (${start}〜${end}) ===\n`);
 
   const { data: oldRows, error } = await supabase
+    // tenant-scope-ok: 運用スクリプト（単一 org の移行・検証用）
     .from("daily_reports")
     .select(
       "id, driver_id, driver_identity_id, report_date, carrier, takuhaibin_completed, takuhaibin_returned, nekopos_completed, nekopos_returned, amazon_am_mochidashi, amazon_am_completed, amazon_pm_mochidashi, amazon_pm_completed, amazon_4_mochidashi, amazon_4_completed, vehicle_id, meter_value, approved_at, rejected_at",

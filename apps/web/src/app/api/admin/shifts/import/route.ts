@@ -185,18 +185,22 @@ export async function POST(req: NextRequest) {
     historyStart.setDate(historyStart.getDate() - 35);
 
     const { data: driverCourses } = await supabase
+      // tenant-scope-ok: driverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       .from("driver_courses")
       .select("driver_id, course_id")
       .in("driver_id", driverIds);
     const { data: offRequests } = await supabase
+      // tenant-scope-ok: driverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       .from("shift_requests")
       .select("driver_id, request_date, slot_id")
       .in("driver_id", driverIds)
       .gte("request_date", ymd(monthStart))
       .lte("request_date", ymd(monthEnd));
     const { data: recentShifts } = await supabase
+      // tenant-scope-ok: driverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       .from("shifts")
       .select("driver_id, course_id")
+      .in("driver_id", driverIds)
       .not("driver_id", "is", null)
       .gte("shift_date", ymd(historyStart))
       .lte("shift_date", ymd(monthEnd));

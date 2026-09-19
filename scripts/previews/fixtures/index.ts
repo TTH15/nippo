@@ -12,17 +12,27 @@ import VehiclesPage from "@/app/(admin)/admin/(resource)/vehicles/page";
 import UsersPage from "@/app/(admin)/admin/(resource)/users/page";
 import MapPage from "@/app/(admin)/admin/(ops)/map/page";
 import PaymentsPage from "@/app/(admin)/admin/(accounting)/payments/page";
-import SubmitPage from "@/app/(user)/submit/SubmitPageClientV2";
+import SubmitPage from "../submit";
+import MyShiftsPage from "../my-shifts";
 import AccountPage from "@/app/(admin)/admin/account/page";
 import LoginPreview from "../login";
+import OnboardingPreview from "../onboarding";
+import RecoverPreview from "../recover";
+import MePreview from "../me";
+import { recoverFixture } from "./recover";
+import { meFixture } from "./me";
+import { onboardingFixture } from "./onboarding";
 import { dashboardFixture } from "./dashboard";
 import { vehiclesFixture } from "./vehicles";
 import { usersFixture } from "./users";
 import { mapFixture } from "./map";
 import { paymentsFixture } from "./payments";
 import { submitFixture } from "./submit";
+import { myShiftsFixture } from "./myShifts";
 import { accountFixture } from "./account";
 import { loginFixture } from "./login";
+import ShiftsPage from "@/app/(admin)/admin/(ops)/shifts/page";
+import { shiftsFixture } from "./shifts";
 
 export type PreviewPageEntry = {
   /** URLの末尾（/preview/admin/<slug>） */
@@ -35,6 +45,7 @@ export type PreviewPageEntry = {
 const entry = <S,>(slug: string, fixture: PreviewFixture<S>, Page: ComponentType): PreviewPageEntry => ({ slug, fixture: fixture as PreviewFixture<any>, Page });
 
 export const PREVIEW_PAGES: PreviewPageEntry[] = [
+  entry("shifts", shiftsFixture, ShiftsPage),
   entry("report-kinds", reportKindsFixture, ReportKindsPage),
   entry("invoice-preview", invoicePreviewFixture, InvoicePreviewPage),
   entry("invoice-edit", invoiceEditFixture, InvoiceEditPage),
@@ -44,10 +55,15 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("payments", paymentsFixture, PaymentsPage),
   entry("account", accountFixture, AccountPage),
   entry("login", loginFixture, LoginPreview),
+  entry("onboarding", onboardingFixture, OnboardingPreview),
+  entry("recover", recoverFixture, RecoverPreview),
+  entry("me", meFixture, MePreview),
   // 地図は Mapbox の公開キーが要る: npm run preview:admin -- admin --mapbox
   entry("map", mapFixture, MapPage),
   // ドライバー画面（管理レイアウトなし）。日報の「車の置き場所」の確認用
   entry("submit", submitFixture, SubmitPage),
+  // ドライバー画面。予定の確認（確認／対応できない）の監査用
+  entry("my-shifts", myShiftsFixture, MyShiftsPage),
 ];
 
 export function findPageBySlug(slug: string) {

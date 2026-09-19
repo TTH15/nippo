@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
+import { isMissingOrgColumn } from "@/server/db/orgColumn";
 import { supabase } from "@/server/db/client";
 import { normalizeJa } from "@/server/ai/shiftImport";
 
@@ -93,9 +94,13 @@ export async function POST(req: NextRequest) {
     }
 
     const dates = valid.map((a) => a.date).sort();
+    // 自社のコース集合で絞る。絞らないと他社のシフトまで読み、1000行の上限で黙って
+    // 切られたときに自社の既存割当を見落として二重割当になる。
     const { data: existing } = await supabase
+      // tenant-scope-ok: courseIds は自社の courses（.eq("org_id", orgId)）から作った集合
       .from("shifts")
       .select("shift_date, course_id, cycle_no, slot, driver_id")
+      .in("course_id", [...courseIds])
       .gte("shift_date", dates[0])
       .lte("shift_date", dates[dates.length - 1]);
 
@@ -117,14 +122,44 @@ export async function POST(req: NextRequest) {
     }
 
     // 取り込みバッチ（migration 119 未適用でも本体は動くよう、失敗時は null で続行）
+    //
+    // 読み取った内容そのものを `extracted` に残す。後から「原本のとおりに入っているか」を
+    // 照合する材料にする（docs/design/operational-risk-detection-2026-09.md O-1）。
+    // 同じ誤読は同じまま通るので、原本との独立した確認の代わりにはならない。
+    // ここに残すのは **AIが読み取った全件**で、既存割当でスキップした行も含める
+    // （スキップした行が抜けていると「原本にあって未配置」を見つけられない）。
+    const extractedRows = valid.map((a) => ({ date: a.date, courseId: a.courseId, cycleNo: a.cycleNo ?? 0, driverId: a.driverId }));
+    const extracted = {
+      version: 1,
+      readAt: new Date().toISOString(),
+      sources,
+      // 日×コース×便ごとに、原本が示すドライバーの集合へまとめる
+      rows: Object.values(
+        extractedRows.reduce<Record<string, { date: string; courseId: string; cycleNo: number; driverIds: string[] }>>((acc, row) => {
+          const key = `${row.date}|${row.courseId}|${row.cycleNo}`;
+          acc[key] ??= { date: row.date, courseId: row.courseId, cycleNo: row.cycleNo, driverIds: [] };
+          acc[key].driverIds.push(row.driverId);
+          return acc;
+        }, {}),
+      ),
+    };
     let batchId: string | null = null;
     {
-      const { data: batch } = await supabase
+      const base = { org_id: orgId, created_by: user.driverId, sources };
+      const { data: batch, error } = await supabase
+        // tenant-scope-ok: base.org_id は認証済みの orgId
         .from("shift_import_batches")
-        .insert({ org_id: orgId, created_by: user.driverId, sources })
+        .insert({ ...base, extracted, covers_start: dates[0], covers_end: dates[dates.length - 1] })
         .select("id")
         .single();
-      batchId = batch?.id ?? null;
+      if (error) {
+        // migration 168 未適用の環境では新しい列が無い。取り込み自体は止めない
+        // tenant-scope-ok: base.org_id は認証済みの orgId
+        const { data: fallback } = await supabase.from("shift_import_batches").insert(base).select("id").single();
+        batchId = fallback?.id ?? null;
+      } else {
+        batchId = batch?.id ?? null;
+      }
     }
 
     const rows: Record<string, unknown>[] = [];
@@ -150,6 +185,7 @@ export async function POST(req: NextRequest) {
         { courseId: a.courseId, cycleNo: a.cycleNo ?? 0 },
       ]);
       const row: Record<string, unknown> = {
+        org_id: orgId,
         shift_date: a.date,
         course_id: a.courseId,
         cycle_no: a.cycleNo ?? 0,
@@ -163,12 +199,20 @@ export async function POST(req: NextRequest) {
 
     if (rows.length > 0) {
       // 既存行の上書きを避けるため upsert ではなく insert（衝突時はエラーで全体を守る）
+      // tenant-scope-ok: rows の各行に org_id: orgId（認証済み）を入れている
       let { error } = await supabase.from("shifts").insert(rows);
+      if (isMissingOrgColumn(error)) {
+        // migration 175 未適用の環境向けフォールバック（org_id 列がまだ無い）
+        for (const r of rows) delete r.org_id;
+        // tenant-scope-ok: 同じ行の退避。migration 175 未適用（org_id 列が無い）環境でのみ通る
+        ({ error } = await supabase.from("shifts").insert(rows));
+      }
       if (error && batchId) {
         // import_batch_id 列が未適用の環境向けフォールバック
         await supabase.from("shift_import_batches").delete().eq("org_id", orgId).eq("id", batchId);
         batchId = null;
         for (const r of rows) delete r.import_batch_id;
+        // tenant-scope-ok: 同じ rows の再送。org_id は上で入れている（175 未適用時のみ落ちている）
         ({ error } = await supabase.from("shifts").insert(rows));
       }
       if (error) throw error;

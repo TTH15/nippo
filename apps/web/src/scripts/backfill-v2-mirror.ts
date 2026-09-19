@@ -39,6 +39,7 @@ async function main() {
     `\n=== v2 mirror backfill ${arg} (${apply ? "APPLY" : "DRY-RUN"}) ===\n`,
   );
 
+  // tenant-scope-ok: 運用スクリプト（単一 org の移行・検証用）
   let q = supabase.from("daily_reports").select("*").limit(100000);
   if (range) q = q.gte("report_date", range.start).lte("report_date", range.end);
   const { data: oldRows, error } = await q;
