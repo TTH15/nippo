@@ -3,7 +3,17 @@
 > 作成: 2026-06-29 / 目標: **2026-09-01 までにドライバーを Web PWA → ネイティブアプリへ完全移行**
 > 本書は計画。実装は別途着手。詳細メモは memory `mobile-app-roadmap` / `vehicle-qr-workflow` / `branding-hakotora` / `tenant-migration` 参照。
 
+> 2026年9月17日追記: 現場運営用の別アプリ「ハコ虎 Base」（iPadOS推奨・スマホでも利用可能）を残タスクに追加。Baseの業務範囲・実装・検証は [9月ロードマップのiPadOS・ハコ虎 Base](roadmap-2026-09.md#ipadosハコ虎-base2026年9月17日-残タスク追加) のBASE-1〜BASE-5で管理し、本書のドライバー移行とは分けて扱う。
+
 ---
+
+## 2026/09/17 更新（以下の6月計画より優先）
+
+- Web/モバイルのドライバーPIN入力・変更を撤去するコードを準備し、モバイルはSMSログインへ統一。旧PINをフォールバックとして新規実装しない。WebのPasskeyは初回登録の主操作にし、追加/削除には直近の本人確認を要求する。
+- 本番APIのHTTPS既定値・非開発時のHTTP拒否・EASプロファイルのHTTPS設定・ATS任意通信例外削除を実装。iOS/Androidエクスポートと型検査に成功。supportsTabletは維持。
+- **未公開・内部配布未検証**。EASのプロジェクト/資格情報、実機SMS、ネイティブPasskeyとassociated domainsを残す。本番PIN停止は、確認済みSMS/Passkeyがない11所属の移行と旧モバイルの置換後。[認証の適用状態](design/security-b1-b8-2026-09.md)。
+- [日報の画像提出](design/report-image-evidence-2026-09.md) RIMG-1〜5を追加。原本・取得できる作成日時・受領時刻・OCR候補と確認値を保持する。Web側はモバイル全面移行を待たず進められる。
+- [駐車位置の検知・確認](design/mobile-parking-auto-detect.md) PARK-M1〜5を更新。座標送信→モバイルで候補保持/通知へ段階導入。配送途中の降車で毎回通知しない。駐車位置写真と車体点検を分け、区画後の左右撮影を強制しない運用を検討する。
 
 ## 0. 現状サマリ（2026-06-29 時点・コード監査済）
 
@@ -58,7 +68,7 @@
 - アプリ内 `expo-notifications` は LINE で足りれば v1 省略可（必要なら APNs/FCM ＋トークン保存）。
 
 ### M4 機能パリティ（モバイルに不足）
-- **PIN変更**（web: PATCH `/api/reports/profile`）。
+- **PIN変更は廃止対象**。2026/09/17更新のSMS/Passkey移行を優先する。
 - **諸報告**（oil-change 動的フォーム＋ファイル添付）。
 - **請求書 表示・承認**（`/api/me/invoices` ＋ approve。**確定: ドライバー承認**）。
 - nice: チーム戦 / 任意経費 / 車両preference / 各種既読系（backend有・UI無）。
@@ -78,7 +88,7 @@
 - Pull-to-refresh / DatePicker化 / OTP resend cooldown / 住所〒補完。
 - **OTA(expo-updates)** 導入＋ `runtimeVersion`。
 
-### M8 Passkey（ドメイン確定で着手可・PIN併存）
+### M8 Passkey（Web先行・ネイティブ接続を残す）
 - サーバ RP（`@simplewebauthn/server`）＋ **Web版Passkeyを先行**（ネイティブ前提不要・`passkey_credentials` 結線・flow検証）。
 - ネイティブPasskey（後段・M1依存）: hakotora.jp が **AASA / assetlinks.json 配信**、`app.json` `associatedDomains`＋scheme、`react-native-passkey` 等 → **新dev build**。
 

@@ -25,9 +25,28 @@
 - 画面上部のバーでシナリオ・役割の切替、「次の保存を失敗させる」、「初期化」ができる。サイドバー・クイックリンクは pushState で遷移し、scenario/role を引き継ぐ。未登録ページへのリンクは一覧へ戻して案内を出す
 - 地図（`/preview/admin/map`）は Mapbox の公開キーが要るので `npm run preview:admin -- admin --port 3199 --mapbox` で起動する（`.env.local` の `NEXT_PUBLIC_MAPBOX_TOKEN` だけを読む）。シナリオは通常／位置なし／大量（40台密集）。共有ビューは Supabase Realtime を使うため常にオフのスタブ
 - 日報送信（`/preview/admin/submit`）はドライバー画面を同じ runner で開く。「車の置き場所」の候補・区画・別の場所・状況回答・未回答ブロック・保存失敗（上部バーの「次の保存を失敗させる」）を試せる。送信内容は console の `preview submit`
-- アカウント設定（`/preview/admin/account`）は本番 `/admin/account/page.tsx` を直接使う。通常／未登録／期限切れ／使用済み／認証保存失敗／利用停止／権限変更を切り替えられる。期限切れ・使用済み・保存失敗は2回目の登録操作で成功する。
+- 日報のログイン設定案内: `npm run preview:admin -- admin --port 3221` → `http://127.0.0.1:3221/preview/admin/submit?scenario=normal`。本番 `SubmitPageClientV2` / `LoginSetupPrompt` と `(user)/layout` のNav・UserBottomNavを再利用し、PCでも監査のため本文を表示。`normal`（SMS・鍵なし）/ `sms-only` / `complete` / `no-phone` / `setup-error` / `key-error` / `no-shifts` を切替。架空SMSコードは `123456`、`000000` は誤入力。SMS・OSのPasskey・本番API・DB・通知は呼ばない。入力保持・日報提出・設定完了での案内非表示、登録失敗→再試行、PC1280/スマホ390・320px（横はみ出しなし、操作高44px）を確認。実SMS到達・実端末の資格情報登録は別途確認が必要。
+- アカウント設定（`/preview/admin/account`）は本番 `/admin/account/page.tsx` を直接使う。通常／未登録／期限切れ／使用済み／認証保存失敗／利用停止／権限変更／最後の鍵／確認方法なしを切り替えられる。追加/削除時の本人確認は架空SMSコード `123456` または模擬Passkeyで進める。期限切れ・使用済み・保存失敗は2回目の登録操作で成功する。
+- シフト・シフトメモ（`/preview/admin/shifts`）も本番ページを直接使う。`npm run preview:admin -- admin --port 3215` → `http://127.0.0.1:3215/preview/admin/shifts?scenario=normal&role=admin`。通常／未設定／長い名前／多数／読み込み中／取得エラーに、`conflict`（同時変更）・`save-error`（初回反映失敗）・`unmapped`（名前の対応）を追加。メモの日別必要人数は即時更新、正式シフトへの反映は対象・差分・最終確認・失敗後の再確認を操作できる。保存は架空状態・プレビュー利用者専用localStorageで、再読み込み時に初期化。本番API・DB・通知・Realtimeに接続しない。既存の単独 `shifts` runner は維持。実装・監査範囲は [シフトメモ反映](../design/shift-memo-reflect-2026-09.md) を参照。
 - ログイン（`/preview/admin/login`）は本番 `/login/page.tsx` に共通のシナリオバーを付ける。アカウント設定で停止／権限変更後に操作するとここへ戻る。停止は再ログイン拒否、権限変更後は新しいログインでダッシュボードへ進む。`@simplewebauthn/browser` はrunnerだけのスタブで、OSの鍵登録・生体認証・本番認証ストレージに触れない。画面移動／再読み込みで架空状態を初期化する。
 - 旧コマンド `npm run preview:admin -- vehicles` は同じ bundle の `/preview/admin/vehicles` を開くエイリアス（`scripts/previews/vehicles-services.tsx` は fixture へ統合して削除）
+
+### 招待登録・ログイン設定（2026-09-17）
+
+`npm run preview:admin -- admin --port 3199` で起動し、次の本番画面を同じコードのまま確認する。
+
+| URL | 再利用元・確認する操作 |
+|---|---|
+| `/preview/admin/onboarding?scenario=normal` | `/join/OnboardingWizard.tsx`。架空の規約確認・氏名・電話・任意の6桁SMSコードからPasskey設定へ。`resumed` / `incomplete` は途中再開、`registered` は登録済み、`unsupported` は非対応、`retry` は初回失敗、`complete` は申請済み |
+| `/preview/admin/recover?scenario=normal` | `/login/recover/page.tsx`。架空の電話と任意の6桁コードでSMSログイン後の設定へ。`registered` はホーム、`incomplete` は `/join` の続き、`retry` は登録失敗→再試行 |
+| `/preview/admin/login?scenario=pinless` | `/login/page.tsx`。Passkey/SMSだけを表示。旧番号/PINログインのフォームは撤去 |
+| `/preview/admin/me?scenario=normal` | `/(user)/me/page.tsx`。PIN欄なし・電話確認・Passkey管理。`legacy` でもPIN操作は表示しない。`registered` は登録済み |
+| `/preview/admin/shifts?scenario=readiness` | `/admin/shifts/page.tsx` の未解決一覧（予定の未解決）。`readiness` は期限切れを含む8件、`readiness-light` は期限切れなし、`readiness-many` は40件・長いコース名、`conflict` はセル編集の409（他の人が先に変えた）。歯車の設定モーダルは4タブ（提出締切・便・必要人数・未解決の期限）で、いずれも `/api/admin/shift-deadlines` `/api/admin/shift-slots` `/api/admin/shifts/requirements` `/api/admin/shifts/readiness-settings` の fixture 付き。未保存のまま閉じると確認が出る |
+| `/preview/admin/my-shifts?scenario=normal` | `/(user)/shifts/page.tsx` の「予定の確認」。`none` は予定なし、`done` は全て確認済み、`changed` は確認後に予定が変わった状態、`save-error` は送信失敗→再試行 |
+
+`loading` / `error` は共通状態。登録の再開確認は読み込み・失敗・再取得を表示する。シナリオ変更または再読み込みで架空状態を初期化する。ロゴ・余白・フォームは本番の実装を維持し、今回の登録導線だけを変更した。
+
+SMS送信・WebAuthnのOSダイアログ・DB・本番認証ストレージは使わない。KYC写真・本番の本人確認・実SMS到達・ネイティブPasskeyはこのプレビューの検証対象外。登録完了の表示確認には `complete` を使う。アカウント設定fixtureの動作のため、プレビュー内の `setAuth` / `getStoredDriver` は同じページ状態の間だけ架空のドライバーを保持する。
 
 ### 仕組みと追加方法
 
@@ -319,3 +338,22 @@ PC 1280 幅と 375×812 で一覧・車両（通常／長い名前×閲覧のみ
 請求書の本番ページを `invoice-edit` / `invoice-preview` に登録。例: `/preview/admin/invoice-preview?scenario=unsafe-address&role=admin`。通常、対象なし、長文、45行、特殊文字、取得中・取得失敗に対応する。編集の自動保存・保存失敗もfixture内で試せる。動的IDはfixtureの`params`から供給し、画面遷移時にはデータを初期化する。本番DB・Storageの認可検証は別途API/DBテストで行う。
 
 報告種別の本番ページは `/preview/admin/report-kinds?scenario=normal&role=admin`。通常・未設定・長文・40件・対象消失・取得中・取得失敗、追加/編集/削除と保存失敗を模擬する。フィールドの定義・検証は純粋な`lib/reportKindFields.ts`を本番UIと共有し、サーバーサービスをbundleに含めない。DB上の会社分離そのものはfixtureではなくAPI/SQLテストで確認する。
+
+### シフトメモの日別必要人数（2026-09-14）
+
+- `npm run preview:admin -- shifts --port 3193` → `http://127.0.0.1:3193/preview/shifts` →「日別の必要人数を試す」→「シフトメモ」。本番 `shifts/page.tsx` / `PersonalShiftMemoBoard.tsx` を再利用し、既存の隔離アダプターへ架空データを追加した。
+- 豊中1エリアの通常は2人。9/1=3人、9/2=1人、9/3=臨時休、9/6=非稼働＋3人、9/16=4人。人数表示を押して変更・反映・通常復帰、通常設定の変更、休み／稼働切替、前後半・月切替、再読込を試せる。「この日の配置」からも同じ人数パネルを開く。
+- PC1280pxとスマホ390／320pxで確認。PNG／PDFを実保存し、必要人数・不足合計・名前札の一致を確認した。保存先は従来のプレビュー専用個人メモで、本番DB・正式シフトへは反映しない。
+- 上部の「次の保存を失敗させる」は正式シフトのAPIモック用。個人メモの保存失敗・再試行はコンポーネントテストで検証する。実機タッチと最小列幅のドラッグは未確認。
+- 詳細と判断は `docs/design/shift-memo-required-count-exceptions-2026-09.md`。
+
+- 2026/09/14 23:23、日別必要人数を本番公開（aa40e2d）。プレビューのサンプルは引き続き本番から隔離。[公開記録](../deployment/shift-memo-daily-count-2026-09-14.md)。
+
+
+## 本人確認・CSPの検証（2026/09/17）
+
+`npm run preview:admin -- admin --port 3199 --strict-csp` でnonce付きscriptのCSPを加えた隔離プレビューを起動する。通常の隔離（本番認証/DB/API/通知なし）は維持する。CSPのHTTPヘッダーとscriptのnonceは応答ごとに生成する。
+
+アカウント設定の `empty` で追加→SMS→誤コード→ `123456` →登録、`lastkey` でSMSなしの最後の鍵の保護、`nofactor` で本人確認手段なし、`unavailable` で保存失敗→再試行を試せる。`recover?scenario=normal` はSMS確認直後の登録で本人確認が二重にならない。PC/スマホ/iPad幅で確認する。
+
+実端末のWebAuthnやSMS到達・ネイティブ配布はこのプレビューでは検証できない。今回のCSP下の請求書は表示と印刷操作までで、PDF実保存と全管理画面の検査は公開前に残る。詳細は [セキュリティ対応記録](../design/security-b1-b8-2026-09.md)。

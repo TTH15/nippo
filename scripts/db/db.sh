@@ -92,8 +92,17 @@ case "$cmd" in
 
   dryrun)
     file="${1:?SQL ファイルを渡してください}"; load_url; banner
+    # ★migration ファイル自身の BEGIN / COMMIT を必ず外す。
+    #   外さないと内側の COMMIT で確定し、外側の ROLLBACK が空振りして
+    #   「試し流しのつもりが本番へ適用される」（2026-09-19 に実際に起きた）。
+    stripped="$(mktemp)"; trap 'rm -f "$stripped"' EXIT
+    grep -vEi '^[[:space:]]*(BEGIN|COMMIT|END)[[:space:]]*;[[:space:]]*$' "$file" > "$stripped"
+    if grep -qEi '(^|[[:space:];])(COMMIT|ROLLBACK|BEGIN|SAVEPOINT|START[[:space:]]+TRANSACTION)([[:space:];]|$)' "$stripped"; then
+      die "この SQL は行の途中でトランザクションを操作しています。dryrun では安全に巻き戻せません:
+  $(grep -nEi '(^|[[:space:];])(COMMIT|ROLLBACK|BEGIN|SAVEPOINT|START[[:space:]]+TRANSACTION)([[:space:];]|$)' "$stripped" | head -3)"
+    fi
     echo "[db] BEGIN … ROLLBACK で試し流しします（変更は残りません）" >&2
-    { echo "BEGIN;"; cat "$file"; echo "ROLLBACK;"; } | rw -P pager=off -f -
+    { echo "BEGIN;"; cat "$stripped"; echo "ROLLBACK;"; } | rw -P pager=off -f -
     ;;
 
   apply)
