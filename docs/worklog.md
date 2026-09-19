@@ -21,6 +21,8 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 
 ## 直近のエントリ（2026-09）
 
+- 2026-09-19 17:55 本番障害: シフト表が500（PGRST201）。複合外部キーが埋め込みを曖昧にしていた。migration 180 で20本を外し復旧（org_id 列は維持）
+
 - 2026-09-19 17:45 本番反映の完了確認（App CI 成功・Vercel Ready・hakotora.jp の主要ページ200/管理API 401を確認）
 
 - 2026-09-19 17:40 main へ push・マージ。CI が落ちた原因（apps/base が package-lock.json に未登録で npm ci が停止）を修正

@@ -13,6 +13,9 @@
 --   ON UPDATE CASCADE はドライバーの所属変更を塞がないため。
 -- ★2026-09-18 時点で、4表とも所属不明のドライバーを指す行は0件であることを確認済み。
 -- ============================================================
+-- ★2026-09-19 追記: ここで張った複合外部キーは **migration 180 で外した**。
+--   既存の単一列FKと合わせて「同じ親への関係が2本」になり、PostgREST の埋め込みが
+--   曖昧になって本番が 500（PGRST201）になったため。org_id 列・索引・backfill は残す。
 BEGIN;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_drivers_org_id ON public.drivers (org_id, id);

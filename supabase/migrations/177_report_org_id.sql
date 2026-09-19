@@ -12,6 +12,9 @@
 -- ★2026-09-18 時点で、親をたどれない行・所属不明の行は0件であることを本番で確認済み
 --   （report_entries 9,391行 / daily_reports 614行）。
 -- ============================================================
+-- ★2026-09-19 追記: ここで張った複合外部キーは **migration 180 で外した**。
+--   既存の単一列FKと合わせて「同じ親への関係が2本」になり、PostgREST の埋め込みが
+--   曖昧になって本番が 500（PGRST201）になったため。org_id 列・索引・backfill は残す。
 BEGIN;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_drivers_org_id ON public.drivers (org_id, id);
