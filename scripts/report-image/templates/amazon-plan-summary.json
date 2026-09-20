@@ -1,0 +1,154 @@
+{
+  "key": "amazon-plan-summary",
+  "version": "1",
+  "name": "Amazon 配達プラン概要",
+  "carrierId": null,
+  "definition": {
+    "orientation": {
+      "rotate": 0
+    },
+    "match": {
+      "required": [
+        {
+          "text": "配達プラン概要",
+          "match": "fuzzy",
+          "sampleBox": {
+            "x": 424,
+            "y": 218,
+            "w": 331,
+            "h": 65
+          }
+        },
+        {
+          "text": "完了",
+          "match": "fuzzy",
+          "sampleBox": {
+            "x": 63,
+            "y": 1665,
+            "w": 89,
+            "h": 43
+          }
+        }
+      ],
+      "optional": [],
+      "minScore": 0.6
+    },
+    "sample": {
+      "width": 1179,
+      "height": 2556,
+      "unitHeight": 47
+    },
+    "fields": [
+      {
+        "id": "done",
+        "role": "entry",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "完了",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "anchor",
+          "anchor": {
+            "text": "完了",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 63,
+              "y": 1665,
+              "w": 89,
+              "h": 43
+            }
+          },
+          "direction": "right",
+          "valueHint": {
+            "x": 950,
+            "y": 1620,
+            "w": 200,
+            "h": 90
+          },
+          "maxGap": 30,
+          "lineTolerance": 1.5,
+          "pick": "nearest"
+        },
+        "required": true
+      },
+      {
+        "id": "undone",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "未配達",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "anchor",
+          "anchor": {
+            "text": "ARELIZ",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 63,
+              "y": 1484,
+              "w": 140,
+              "h": 66
+            }
+          },
+          "direction": "right",
+          "valueHint": {
+            "x": 950,
+            "y": 1430,
+            "w": 200,
+            "h": 90
+          },
+          "maxGap": 29,
+          "lineTolerance": 1.5,
+          "pick": "nearest"
+        },
+        "required": false
+      },
+      {
+        "id": "problem",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "問題",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "anchor",
+          "anchor": {
+            "text": "問題",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 65,
+              "y": 1844,
+              "w": 91,
+              "h": 43
+            }
+          },
+          "direction": "right",
+          "valueHint": {
+            "x": 950,
+            "y": 1800,
+            "w": 200,
+            "h": 90
+          },
+          "maxGap": 30,
+          "lineTolerance": 1.5,
+          "pick": "nearest"
+        },
+        "required": false
+      }
+    ],
+    "checks": []
+  },
+  "note": "Amazon 配達プラン概要のひな形。ライト/ダークどちらのテーマでも同じ様式で読める（暗い画面は自動で反転する）。一覧型なので欄は見出しからの相対で読む。日報へ入れるのは『完了』。この画面には突き合わせられる合計が無いため、自動確定は働かず本人の確認が要る。同じ数字が2か所に出る画面（例: 見出しの件数と一覧の件数）なら、その2か所を検算に入れると自動確定にできる。報告項目の紐付けと見本画像は登録時に入れる"
+}

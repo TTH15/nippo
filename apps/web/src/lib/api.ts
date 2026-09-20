@@ -36,4 +36,5 @@ export {
   clearAuth,
 } from "@repo/core/auth";
 export type { StoredDriver } from "@repo/core/auth";
-export { apiFetch } from "@repo/core/api";
+export { apiFetch, apiUpload } from "@repo/core/api";
+

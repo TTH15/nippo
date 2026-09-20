@@ -1,0 +1,593 @@
+{
+  "key": "yamato-settlement",
+  "version": "1",
+  "name": "ヤマト 配達集計精算書",
+  "carrierId": null,
+  "definition": {
+    "orientation": {
+      "rotate": 90
+    },
+    "match": {
+      "required": [
+        {
+          "text": "配達集計精算書",
+          "match": "fuzzy",
+          "sampleBox": {
+            "x": 685,
+            "y": 90,
+            "w": 209,
+            "h": 31
+          }
+        },
+        {
+          "text": "ネコポス個数",
+          "match": "fuzzy",
+          "sampleBox": {
+            "x": 80,
+            "y": 471,
+            "w": 118,
+            "h": 17
+          }
+        }
+      ],
+      "optional": [
+        {
+          "text": "配達完了実績",
+          "match": "fuzzy",
+          "sampleBox": {
+            "x": 939,
+            "y": 221,
+            "w": 120,
+            "h": 28
+          }
+        },
+        {
+          "text": "B+C",
+          "match": "contains",
+          "sampleBox": {
+            "x": 1619,
+            "y": 298,
+            "w": 52,
+            "h": 16
+          }
+        },
+        {
+          "text": "宅急便コンパクト",
+          "match": "fuzzy",
+          "sampleBox": {
+            "x": 78,
+            "y": 387,
+            "w": 338,
+            "h": 25
+          }
+        }
+      ],
+      "minScore": 0.6
+    },
+    "sample": {
+      "width": 1887,
+      "height": 868,
+      "unitHeight": 17
+    },
+    "fields": [
+      {
+        "id": "takkyubin-a",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "宅急便 計A",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 452,
+            "y": 343,
+            "w": 171,
+            "h": 85
+          },
+          "row": {
+            "text": "宅急便コンパクト",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 78,
+              "y": 387,
+              "w": 338,
+              "h": 25
+            }
+          }
+        },
+        "required": false
+      },
+      {
+        "id": "takkyubin-c1",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "宅急便 配完入力",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 635,
+            "y": 343,
+            "w": 172,
+            "h": 85
+          },
+          "row": {
+            "text": "宅急便コンパクト",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 78,
+              "y": 387,
+              "w": 338,
+              "h": 25
+            }
+          }
+        },
+        "required": false
+      },
+      {
+        "id": "takkyubin-b",
+        "role": "entry",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "宅急便 計B",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 1188,
+            "y": 343,
+            "w": 172,
+            "h": 85
+          },
+          "row": {
+            "text": "宅急便コンパクト",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 78,
+              "y": 387,
+              "w": 338,
+              "h": 25
+            }
+          }
+        },
+        "required": true
+      },
+      {
+        "id": "takkyubin-c",
+        "role": "entry",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "宅急便 持戻",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 1373,
+            "y": 343,
+            "w": 170,
+            "h": 85
+          },
+          "row": {
+            "text": "宅急便コンパクト",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 78,
+              "y": 387,
+              "w": 338,
+              "h": 25
+            }
+          }
+        },
+        "required": true
+      },
+      {
+        "id": "takkyubin-bc",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "宅急便 配完+持戻",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 1556,
+            "y": 343,
+            "w": 172,
+            "h": 85
+          },
+          "row": {
+            "text": "宅急便コンパクト",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 78,
+              "y": 387,
+              "w": 338,
+              "h": 25
+            }
+          }
+        },
+        "required": false
+      },
+      {
+        "id": "nekopos-a",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "ネコポス 計A",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 452,
+            "y": 438,
+            "w": 171,
+            "h": 82
+          },
+          "row": {
+            "text": "ネコポス個数",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 80,
+              "y": 471,
+              "w": 118,
+              "h": 17
+            }
+          }
+        },
+        "required": false
+      },
+      {
+        "id": "nekopos-c1",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "ネコポス 配完入力",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 635,
+            "y": 438,
+            "w": 172,
+            "h": 82
+          },
+          "row": {
+            "text": "ネコポス個数",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 80,
+              "y": 471,
+              "w": 118,
+              "h": 17
+            }
+          }
+        },
+        "required": false
+      },
+      {
+        "id": "nekopos-b",
+        "role": "entry",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "ネコポス 計B",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 1188,
+            "y": 438,
+            "w": 172,
+            "h": 82
+          },
+          "row": {
+            "text": "ネコポス個数",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 80,
+              "y": 471,
+              "w": 118,
+              "h": 17
+            }
+          }
+        },
+        "required": true
+      },
+      {
+        "id": "nekopos-c",
+        "role": "entry",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "ネコポス 持戻",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 1373,
+            "y": 438,
+            "w": 170,
+            "h": 82
+          },
+          "row": {
+            "text": "ネコポス個数",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 80,
+              "y": 471,
+              "w": 118,
+              "h": 17
+            }
+          }
+        },
+        "required": true
+      },
+      {
+        "id": "nekopos-bc",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "ネコポス 配完+持戻",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 1556,
+            "y": 438,
+            "w": 172,
+            "h": 82
+          },
+          "row": {
+            "text": "ネコポス個数",
+            "match": "fuzzy",
+            "sampleBox": {
+              "x": 80,
+              "y": 471,
+              "w": 118,
+              "h": 17
+            }
+          }
+        },
+        "required": false
+      },
+      {
+        "id": "total-a",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "合計 計A",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 452,
+            "y": 530,
+            "w": 171,
+            "h": 85
+          }
+        },
+        "required": false
+      },
+      {
+        "id": "total-c1",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "合計 配完入力",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 635,
+            "y": 530,
+            "w": 172,
+            "h": 85
+          }
+        },
+        "required": false
+      },
+      {
+        "id": "total-b",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "合計 計B",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 1188,
+            "y": 530,
+            "w": 172,
+            "h": 85
+          }
+        },
+        "required": false
+      },
+      {
+        "id": "total-c",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "合計 持戻",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 1373,
+            "y": 530,
+            "w": 170,
+            "h": 85
+          }
+        },
+        "required": false
+      },
+      {
+        "id": "total-bc",
+        "role": "check",
+        "unitId": "",
+        "fieldKey": "",
+        "label": "合計 配完+持戻",
+        "value": {
+          "type": "int",
+          "min": 0,
+          "max": 9999
+        },
+        "locator": {
+          "kind": "region",
+          "rect": {
+            "x": 1556,
+            "y": 530,
+            "w": 172,
+            "h": 85
+          }
+        },
+        "required": false
+      }
+    ],
+    "checks": [
+      {
+        "kind": "sum",
+        "totalFieldId": "takkyubin-bc",
+        "partFieldIds": [
+          "takkyubin-b",
+          "takkyubin-c"
+        ]
+      },
+      {
+        "kind": "sum",
+        "totalFieldId": "takkyubin-a",
+        "partFieldIds": [
+          "takkyubin-bc"
+        ]
+      },
+      {
+        "kind": "sum",
+        "totalFieldId": "nekopos-bc",
+        "partFieldIds": [
+          "nekopos-b",
+          "nekopos-c"
+        ]
+      },
+      {
+        "kind": "sum",
+        "totalFieldId": "nekopos-a",
+        "partFieldIds": [
+          "nekopos-bc"
+        ]
+      },
+      {
+        "kind": "sum",
+        "totalFieldId": "total-bc",
+        "partFieldIds": [
+          "total-b",
+          "total-c"
+        ]
+      },
+      {
+        "kind": "sum",
+        "totalFieldId": "total-a",
+        "partFieldIds": [
+          "total-bc"
+        ]
+      },
+      {
+        "kind": "sum",
+        "totalFieldId": "total-a",
+        "partFieldIds": [
+          "takkyubin-a",
+          "nekopos-a"
+        ]
+      },
+      {
+        "kind": "sum",
+        "totalFieldId": "total-c1",
+        "partFieldIds": [
+          "takkyubin-c1",
+          "nekopos-c1"
+        ]
+      },
+      {
+        "kind": "sum",
+        "totalFieldId": "total-b",
+        "partFieldIds": [
+          "takkyubin-b",
+          "nekopos-b"
+        ]
+      },
+      {
+        "kind": "sum",
+        "totalFieldId": "total-c",
+        "partFieldIds": [
+          "takkyubin-c",
+          "nekopos-c"
+        ]
+      },
+      {
+        "kind": "sum",
+        "totalFieldId": "total-bc",
+        "partFieldIds": [
+          "takkyubin-bc",
+          "nekopos-bc"
+        ]
+      }
+    ]
+  },
+  "note": "ヤマトの配達集計精算書のひな形。日報へ入れるのは宅急便・ネコポスの『計B（配完）』と『持戻C』の4つで、残りは検算のためだけに読む。表の中の関係（配完+持戻=計B+持戻C／計A=配完+持戻／合計=宅急便+ネコポス）が全部閉じれば、欄を取り違えていないことを機械が示せる＝毎回画像と見比べずに済む。列見出し（計B・持戻C）は読み取りが不安定で『配完＋持戻』とも紛れるため手がかりに使わない。報告項目の紐付けと見本画像は登録時に入れる。sample.words は見本を登録すると管理画面が入れる"
+}

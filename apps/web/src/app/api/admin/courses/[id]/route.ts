@@ -131,6 +131,10 @@ export async function PUT(
           : 1;
       updates.max_drivers = capacity;
     }
+    if ("report_image_auto_fill" in bodyRec) {
+      // 画像から読んだ件数の目視確認を省くコースか（件数が報酬に効かないコース向け）
+      updates.report_image_auto_fill = bodyRec.report_image_auto_fill === true;
+    }
     if ("archived" in bodyRec) {
       updates.archived_at = bodyRec.archived === true ? new Date().toISOString() : null;
     }

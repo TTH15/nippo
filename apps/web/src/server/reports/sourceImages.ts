@@ -13,6 +13,7 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { verifyFileContent } from "@/server/storage/fileSignature";
+import { readCapturedAt } from "./imageMetadata";
 
 /** 原本として受け取る形式。PDFは原本になり得るが、まず画像から始める */
 export const SOURCE_IMAGE_MIME = ["image/jpeg", "image/png"];
@@ -144,6 +145,9 @@ export type SaveSourceImageResult = {
   duplicate: DuplicateFlag;
   /** 同じ提出の再送だったか（新しい行を作っていない） */
   reused: boolean;
+  /** 保存した作成日時と、その取得元。取れなければ null / "unknown" */
+  capturedAt: string | null;
+  capturedAtSource: CapturedAtSource;
 };
 
 /**
@@ -165,6 +169,15 @@ export async function saveSourceImage(
   if (!verified.ok) throw new Error("対応していない画像形式です（JPEG / PNG）");
 
   const sha256 = createHash("sha256").update(bytes).digest("hex");
+  // 作成日時はファイルの中身から読む。端末の申告より確かで、取れなければ「不明」のまま。
+  // スクショは日時を持たないことが多い（LINE経由などで落ちる）ので、無いことを異常としない
+  const fromFile = readCapturedAt(bytes);
+  const capturedAt = fromFile.capturedAt ?? input.capturedAt;
+  const capturedAtSource: CapturedAtSource = fromFile.capturedAt
+    ? "exif"
+    : input.capturedAt
+      ? input.capturedAtSource
+      : "unknown";
 
   const { data: existingRows, error: existingError } = await db
     .from("report_source_images")
@@ -189,7 +202,15 @@ export async function saveSourceImage(
   });
   // 同じ提出の再送。原本を増やさず、既にある行をそのまま返す
   if (duplicate.sameSubmissionId) {
-    return { id: duplicate.sameSubmissionId, sha256, status: "received", duplicate: "same_submission", reused: true };
+    return {
+      id: duplicate.sameSubmissionId,
+      sha256,
+      status: "received",
+      duplicate: "same_submission",
+      reused: true,
+      capturedAt,
+      capturedAtSource,
+    };
   }
 
   // 同じ提出枠（client_key）で中身の違う画像を出し直した＝訂正。
@@ -228,8 +249,8 @@ export async function saveSourceImage(
     width: input.width,
     height: input.height,
     original_filename: input.originalFilename,
-    captured_at: input.capturedAt,
-    captured_at_source: input.capturedAtSource,
+    captured_at: capturedAt,
+    captured_at_source: capturedAtSource,
     file_modified_at: input.fileModifiedAt,
     // 読み取りは別の処理。原本を受け取った時点では「提出済み・件数確認待ち」
     status: "received",
@@ -244,5 +265,13 @@ export async function saveSourceImage(
     console.error("[report source image] insert error", error);
     throw new Error("原本を保存できませんでした");
   }
-  return { id: data.id as string, sha256, status: "received", duplicate: duplicate.flag, reused: false };
+  return {
+    id: data.id as string,
+    sha256,
+    status: "received",
+    duplicate: duplicate.flag,
+    reused: false,
+    capturedAt,
+    capturedAtSource,
+  };
 }
