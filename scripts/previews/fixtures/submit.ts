@@ -1,6 +1,7 @@
 // 日報送信（本番 /submit の SubmitPageClientV2）用の架空データ。認証も外部へ送信しない。
 // 送信内容は console.info("preview submit", …) に出す（アプリ内ブラウザから確認する）。
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
+import { previewImageTemplate } from "./reportImageTemplates";
 
 const VEHICLES = [
   { id: "veh-1", number_prefix: "大阪", number_class: "480", number_hiragana: "り", number_numeric: "1201", plate_color: "black", manufacturer: "ホンダ", brand: "アクティ", current_mileage: 50000, is_ev: false, last_oil_change_mileage: 48000, oil_change_interval: 15000 },
@@ -22,8 +23,11 @@ const PLACES = [
   { id: "place-suita", name: "吹田 待機", lat: 34.7645, lng: 135.5158, icon: "parking", slots: [] },
 ];
 
+type SourceImage = { id: string; report_date: string; status: string; received_at: string; original_filename: string | null; byte_size: number };
+
 type State = { places: typeof PLACES; submissions: unknown[]; phoneVerified: boolean; hasPasskey: boolean;
-  recent: boolean; smsSent: boolean; challenge: string | null; attempts: number; statusFailures: number };
+  recent: boolean; smsSent: boolean; challenge: string | null; attempts: number; statusFailures: number;
+  sourceImages: SourceImage[]; readings: unknown[]; imageTemplates: boolean };
 
 export const submitFixture: PreviewFixture<State> = {
   id: "submit",
@@ -38,10 +42,12 @@ export const submitFixture: PreviewFixture<State> = {
     "setup-error": { label: "設定取得失敗", description: "最初の取得だけ失敗。再取得で戻る" },
     "key-error": { label: "Passkey保存失敗", description: "最初の登録だけ失敗。再試行で成功する" },
     "no-shifts": { label: "勤務予定なし", description: "当日の勤務予定がなくても未設定なら案内する" },
+    "no-image-template": { label: "様式なし", description: "画像の様式が未登録。画像は残せるが件数は手入力" },
   },
   createState: ({ scenario }) => ({ places: scenario === "no-places" ? [] : PLACES, submissions: [],
     phoneVerified: ["sms-only", "complete"].includes(scenario), hasPasskey: scenario === "complete",
-    recent: false, smsSent: false, challenge: null, attempts: 0, statusFailures: scenario === "setup-error" ? 1 : 0 }),
+    recent: false, smsSent: false, challenge: null, attempts: 0, statusFailures: scenario === "setup-error" ? 1 : 0,
+    sourceImages: [], readings: [], imageTemplates: scenario !== "no-image-template" }),
   read: (state, { path }, { scenario }) => {
     if (path === "/api/me/login-setup") {
       if (state.statusFailures-- > 0) throw new Error("設定を読み込めませんでした");
@@ -53,6 +59,10 @@ export const submitFixture: PreviewFixture<State> = {
     if (path === "/api/reports/vehicles") return { vehicles: VEHICLES };
     if (path === "/api/reports/parking-places") return { places: state.places };
     if (path === "/api/me/report-form") return { shifts: scenario === "no-shifts" ? [] : [SHIFT], shiftVehicleId: "veh-1" };
+    if (path === "/api/me/report-image-templates") {
+      return { templates: state.imageTemplates ? [previewImageTemplate({ unitId: "unit-1", doneKey: "delivered", backKey: "undelivered" })] : [] };
+    }
+    if (path.startsWith("/api/reports/source-images?")) return { images: state.sourceImages, unavailable: false };
     if (path === "/api/me/form-notice") return { notice: null };
     if (path === "/api/me/shift-deadline-reminder") return { reminder: null };
     if (path === "/api/me/submit-screen") return { todayReward: 12000, blocks: [{ id: "greeting", type: "greeting", title: "お疲れさまでした", message: "" }, { id: "reward", type: "today_reward", todayReward: 12000 }] };
@@ -79,6 +89,28 @@ export const submitFixture: PreviewFixture<State> = {
       state.challenge = null;
       if (scenario === "key-error" && state.attempts === 1) throw new Error("Passkeyを保存できませんでした");
       state.hasPasskey = true; return { ok: true };
+    }
+    if (path === "/api/reports/source-images" && method === "POST") {
+      const image: SourceImage = {
+        id: `preview-image-${state.sourceImages.length + 1}`,
+        report_date: new Date().toISOString().slice(0, 10),
+        status: "received",
+        received_at: new Date().toISOString(),
+        original_filename: ((body as { file?: { name?: string } }).file?.name) ?? "画像",
+        byte_size: ((body as { file?: { size?: number } }).file?.size) ?? 120000,
+      };
+      state.sourceImages.push(image);
+      // 作成日時は本番ではサーバーがファイルの中身から読む。スクショでは取れないことが多い
+      return { id: image.id, duplicate: "none", capturedAt: null, capturedAtSource: "unknown" };
+    }
+    if (path === "/api/reports/source-images/readings" && method === "POST") {
+      const reading = body as { sourceImageId?: string; adopted?: boolean };
+      state.readings.push(reading);
+      const image = state.sourceImages.find((row) => row.id === reading.sourceImageId);
+      if (image) image.status = reading.adopted ? "confirmed" : "needs_review";
+      // eslint-disable-next-line no-console
+      console.info("preview reading", reading);
+      return { reading: { id: `preview-reading-${state.readings.length}`, adopted: !!reading.adopted }, status: image?.status };
     }
     if (path === "/api/reports/v2" && method === "POST") {
       state.submissions.push(body);

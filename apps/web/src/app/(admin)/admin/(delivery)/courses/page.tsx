@@ -75,6 +75,8 @@ type Course = {
   carrier_id?: string | null;
   summary_title?: string | null;
   daily_lease?: number | null;
+  /** 画像から読んだ件数の目視確認を省くコースか（件数が報酬に効かないコース向け・migration 182） */
+  report_image_auto_fill?: boolean | null;
   principal_invoice_address_id?: string | null;
   counterparty_invoice_address_id?: string | null;
   slot_id?: string | null;
@@ -187,6 +189,7 @@ export default function CoursesPage() {
   const [editForm, setEditForm] = useState<CourseFormState>(EMPTY_COURSE_FORM);
   // 便は courses 本体とは別テーブルなので、フォーム状態も分けて持つ
   const [editUsesCycles, setEditUsesCycles] = useState(false);
+  const [editImageAutoFill, setEditImageAutoFill] = useState(false);
   const [editCycles, setEditCycles] = useState<CycleDraft[]>([]);
   const [editBillingRevision, setEditBillingRevision] = useState(0);
   const [editModalTab, setEditModalTab] = useState<"settings" | "pricing" | "reportFields">("settings");
@@ -543,6 +546,7 @@ export default function CoursesPage() {
     };
     setEditForm(form);
     setEditUsesCycles(Boolean(course.uses_cycles));
+    setEditImageAutoFill(Boolean(course.report_image_auto_fill));
     const cycleDrafts = toCycleDrafts(course.course_cycles ?? []);
     setEditCycles(cycleDrafts);
     setEditBillingRevision(0);
@@ -592,6 +596,10 @@ export default function CoursesPage() {
       if (changed("meeting_time")) payload.meeting_time = editForm.meeting_time || null;
       if (changed("arrival_time")) payload.arrival_time = editForm.arrival_time || null;
       if (changed("end_time")) payload.end_time = editForm.end_time || null;
+      // 画像から読んだ件数の扱い（差分PUTの対象外の状態なので、開いた時点の値と比べる）
+      if (Boolean(editingCourse.report_image_auto_fill) !== editImageAutoFill) {
+        payload.report_image_auto_fill = editImageAutoFill;
+      }
 
       // 本体と単価（course-billing・別コンポーネント状態）を並列で保存する（P2）
       const jobs: Promise<unknown>[] = [];
@@ -639,6 +647,7 @@ export default function CoursesPage() {
         arrival_time: editForm.arrival_time || null,
         end_time: editForm.end_time || null,
         uses_cycles: editUsesCycles,
+        report_image_auto_fill: editImageAutoFill,
         course_cycles: editUsesCycles
           ? editCycles.map((cycle) => {
             const existing = editingCourse.course_cycles?.find((row) => row.cycle_no === cycle.cycleNo);

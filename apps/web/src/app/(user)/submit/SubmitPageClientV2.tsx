@@ -18,6 +18,7 @@ import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 import { evaluateMeter } from "./submitFormUtils";
+import { applyImageEntries } from "@repo/core/logic/reportImageEntries";
 import { EMPTY_PARKING_CHOICE, ParkingReportField, parkingChoiceError, type ParkingChoice } from "./ParkingReportField";
 import ReportSourceImageField from "./ReportSourceImageField";
 import type { DriverIdentity, SubmitVehicle as Vehicle, UnitDef, ShiftForm, ValueMap, ParkingPlaceOption, ParkingReport } from "@repo/core/types";
@@ -530,9 +531,15 @@ export default function SubmitPageClientV2() {
         </div>
       )}
 
-      {/* 配完表などの原本画像。件数の手入力は従来どおりで、原本は別に残す（RIMG-2） */}
+      {/* 配完表などの原本画像。読み取れた件数は本人の確認後にフォームへ入る（RIMG-2 / RIMG-3） */}
       {shifts.length > 0 && (
-        <ReportSourceImageField reportDate={reportFormDateStr} courseId={shifts[0]?.courseId ?? null} />
+        <ReportSourceImageField
+          reportDate={reportFormDateStr}
+          courseId={shifts[0]?.courseId ?? null}
+          onApply={(entries) => {
+            setValues((prev) => applyImageEntries(prev, shifts, entries).values);
+          }}
+        />
       )}
 
       {/* 車の置き場所（使用車両を選んだときだけ）。送信ボタンの手前に置く */}

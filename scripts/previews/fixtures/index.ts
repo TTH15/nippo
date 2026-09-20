@@ -2,6 +2,10 @@ import InvoicePreviewPage from "@/app/(admin)/admin/(accounting)/invoices/[id]/p
 import InvoiceEditPage from "@/app/(admin)/admin/(accounting)/invoices/[id]/edit/page";
 import { invoicePreviewFixture, invoiceEditFixture } from "./invoices";
 import ReportKindsPage from "@/app/(admin)/admin/report-kinds/page";
+import ReportImageTemplatesPage from "@/app/(admin)/admin/(settings)/report-image-templates/page";
+import ReportImagesPage from "@/app/(admin)/admin/(ops)/report-images/page";
+import { reportImagesFixture } from "./reportImages";
+import { reportImageTemplatesFixture } from "./reportImageTemplates";
 import { reportKindsFixture } from "./reportKinds";
 // プレビューで開ける本番ページの登録表。1ページ = 本番の page.tsx + fixture。
 // 追加するときはここに1行足し、docs/development/preview-workflow.md の一覧も更新する。
@@ -47,6 +51,8 @@ const entry = <S,>(slug: string, fixture: PreviewFixture<S>, Page: ComponentType
 export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("shifts", shiftsFixture, ShiftsPage),
   entry("report-kinds", reportKindsFixture, ReportKindsPage),
+  entry("report-image-templates", reportImageTemplatesFixture, ReportImageTemplatesPage),
+  entry("report-images", reportImagesFixture, ReportImagesPage),
   entry("invoice-preview", invoicePreviewFixture, InvoicePreviewPage),
   entry("invoice-edit", invoiceEditFixture, InvoiceEditPage),
   entry("dashboard", dashboardFixture, DashboardPage),

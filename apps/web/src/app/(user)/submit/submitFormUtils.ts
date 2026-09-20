@@ -29,3 +29,4 @@ export function evaluateMeter(meter: string, vehicle: MeterVehicle): MeterState 
   const belowPrev = required && trimmed !== "" && prevKm > 0 && Number(trimmed) <= prevKm;
   return { required, prevKm, missing, belowPrev, canSubmit: !missing && !belowPrev };
 }
+

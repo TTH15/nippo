@@ -28,6 +28,16 @@ export async function apiFetch<T = unknown>(path: string, init?: RequestInit, op
   }
 }
 
+/** "@/lib/api" の apiUpload の差し替え。ファイルは送らず、fixture へ POST だけ伝える */
+export async function apiUpload<T = unknown>(path: string, form: FormData): Promise<T> {
+  const { store } = getPreviewRuntime();
+  const body: Record<string, unknown> = {};
+  form.forEach((value, key) => {
+    body[key] = value instanceof File ? { name: value.name, size: value.size, type: value.type } : value;
+  });
+  return (await store.fetch(path, { method: "POST", body: JSON.stringify(body) })) as T;
+}
+
 export function getStoredDriver(): StoredDriver | null {
   const runtime = getPreviewRuntime();
   return authState?.runtime === runtime ? authState.driver : runtime.store.driver;

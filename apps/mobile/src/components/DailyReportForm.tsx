@@ -12,6 +12,8 @@ import {
   groupFieldsByLabel,
   reportFormKey,
 } from "@repo/core/logic/dailyReport";
+import { ReportSourceImagePicker } from "./ReportSourceImagePicker";
+import { applyImageEntries } from "@repo/core/logic/reportImageEntries";
 
 // 日報入力フォーム（submit-v2）。値構築・整形は Web と同じ @repo/core/logic/dailyReport。
 // 退勤フロー（qr_flow v2.0 終了時の確認）と、ホームの「日報を書く」シートの両方から使う。
@@ -270,6 +272,15 @@ export const DailyReportForm = forwardRef<
             </View>
           );
         })
+      )}
+
+      {/* 配完表などの原本画像。件数の入力は従来どおりで、原本は別に残す（RIMG-2） */}
+      {shifts.length > 0 && (
+        <ReportSourceImagePicker
+          date={date}
+          courseId={shifts[0]?.courseId ?? null}
+          onApply={(entries) => setValues((prev) => applyImageEntries(prev, shifts, entries).values)}
+        />
       )}
 
       {error ? <Text className="text-red-600 py-1">{error}</Text> : null}
