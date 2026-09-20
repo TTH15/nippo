@@ -15,6 +15,7 @@ import { createWorker, PSM, type Worker } from "tesseract.js";
 import {
   applyRefinements,
   estimateSkewAngle,
+  orientationScore,
   buildLines,
   chooseTemplate,
   completeRead,
@@ -185,7 +186,7 @@ async function main() {
       const lines = buildLines(page.words);
       const numbers = page.words.filter((w) => /^\d+$/.test(w.text.trim()));
       console.log(
-        `\n==== 回転 ${rotate}° / ${width}x${height} / ${elapsed}ms / 語 ${page.words.length}（数字 ${numbers.length}）/ 文字高 ${medianWordHeight(page.words).toFixed(1)} / 傾き ${firstSkew.toFixed(2)}→${skew.toFixed(2)}° ====`,
+        `\n==== 回転 ${rotate}° / ${width}x${height} / ${elapsed}ms / 語 ${page.words.length}（数字 ${numbers.length}）/ 文字高 ${medianWordHeight(page.words).toFixed(1)} / 傾き ${firstSkew.toFixed(2)}→${skew.toFixed(2)}° / 向きの点 ${orientationScore(page.words)} ====`,
       );
       if (!quiet) console.log(lines.slice(0, 40).map((l) => `  [${Math.round(l.box.y)}] ${l.words.map((w) => w.text).join(" ")}`).join("\n"));
       if (process.env.OCR_WORDS === "1") {

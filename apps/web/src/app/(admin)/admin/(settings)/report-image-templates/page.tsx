@@ -1,8 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faTrash, faImage, faCircleCheck, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
+import {
+  faPlus,
+  faTrash,
+  faImage,
+  faCircleCheck,
+  faTriangleExclamation,
+  faXmark,
+  faRotateLeft,
+  faRotateRight,
+  faArrowLeft,
+} from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
@@ -10,21 +21,23 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { CheckboxField } from "@/lib/components/CheckboxField";
 import { Button } from "@/lib/ui/button";
-import Link from "next/link";
 import { apiFetch, apiUpload } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { hasCapability } from "@/lib/capabilities";
 import {
   buildLines,
+  isAnchorCandidate,
+  suggestAnchors,
+  suggestLocator,
+  suggestRequiredAnchors,
   type AnchorSpec,
   type Box,
   type ImageTemplate,
   type ImageTemplateDefinition,
   type OcrWord,
+  type ReadTrust,
   type TemplateCheck,
   type TemplateField,
-  suggestAnchors,
-  suggestLocator,
 } from "@repo/core/logic/reportImageTemplate";
 import { readReportImage, readSample, releaseReaders, type Rotation } from "@/lib/ocr/reportImageReader";
 import { SampleBoard } from "./SampleBoard";
@@ -33,8 +46,13 @@ import { SampleBoard } from "./SampleBoard";
 // 原本画像の様式（どの画面の、どの位置に、どの報告項目の数字があるか）を決める。
 // 設計: docs/design/report-image-evidence-2026-09.md（RIMG-1）
 //
-// 形式が増えるたびにコードを書かないための画面。見本画像に枠を引いて報告項目へ結び付け、
-// 別のスクショで試してから運用中にする。読み取りは端末の中だけで行う。
+// 画面は**手順どおりに上から進む1本の流れ**にする。
+//   1 見本のスクショを登録する（向きは自動で起こす。読めた語も一緒に覚える）
+//   2 見本の上で数字の欄を囲み、報告項目へ結ぶ
+//   3 見分ける見出し（自動で選ぶ。直したいときだけ触る）
+//   4 検算（合計＝内訳）
+//   5 別のスクショで試す → 運用中にする
+// 各段に「済み／未」を出し、運用中にできない理由はボタンの横に出す。
 // ============================================================
 
 type Field = { id: string; field_key: string; label: string; input_type: string };
@@ -56,6 +74,14 @@ type TemplateRow = {
   updated_at: string;
 };
 
+type Verify = {
+  score: number;
+  level: string;
+  trust: ReadTrust;
+  rows: { label: string; value: string; status: string }[];
+  warnings: string[];
+};
+
 const STATUS_LABEL: Record<TemplateRow["status"], string> = { draft: "編集中", active: "運用中", retired: "停止" };
 const VALUE_TYPES = [
   { value: "int", label: "件数（整数）" },
@@ -63,7 +89,7 @@ const VALUE_TYPES = [
   { value: "time", label: "時刻" },
   { value: "date", label: "日付" },
 ];
-const ROTATIONS: Rotation[] = [0, 90, 180, 270];
+const EMPTY_TRUST: ReadTrust = { level: "suspect", checksRun: 0, checksFailed: 0, incomplete: true, reasons: [] };
 
 const emptyDefinition = (): ImageTemplateDefinition => ({
   match: { required: [], optional: [], minScore: 0.6 },
@@ -85,6 +111,45 @@ function templateKeyFromName(name: string, taken: readonly string[]): string {
   return `${candidate.slice(0, 50)}-${Date.now().toString(36).slice(-4)}`;
 }
 
+/** 手順の見出し。済み／未を右に出す */
+function Step({
+  number,
+  title,
+  done,
+  doneLabel,
+  todoLabel,
+  action,
+  children,
+}: {
+  number: number;
+  title: string;
+  done: boolean;
+  doneLabel: string;
+  todoLabel: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5">
+        <span
+          className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+            done ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600"
+          }`}
+        >
+          {number}
+        </span>
+        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+        <span className={`text-[11px] font-medium ${done ? "text-emerald-700" : "text-slate-400"}`}>
+          {done ? doneLabel : todoLabel}
+        </span>
+        {action && <div className="ml-auto">{action}</div>}
+      </div>
+      <div className="px-4 py-3">{children}</div>
+    </section>
+  );
+}
+
 export default function ReportImageTemplatesPage() {
   const [canWrite, setCanWrite] = useState(false);
   useEffect(() => setCanWrite(hasCapability("can_manage_carriers")), []);
@@ -97,6 +162,7 @@ export default function ReportImageTemplatesPage() {
   const carriers = useMemo(() => carrierData?.carriers ?? [], [carrierData]);
   const templates = useMemo(() => data?.templates ?? [], [data]);
 
+  const [carrierId, setCarrierId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TemplateRow | null>(null);
   const [sampleUrl, setSampleUrl] = useState<string | null>(null);
@@ -104,16 +170,10 @@ export default function ReportImageTemplatesPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
-  const [verify, setVerify] = useState<{
-    score: number;
-    level: string;
-    trust: { level: string; checksRun: number; checksFailed: number; reasons: string[] };
-    rows: { label: string; value: string; status: string }[];
-    warnings: string[];
-  } | null>(null);
+  const [verify, setVerify] = useState<Verify | null>(null);
   const [creating, setCreating] = useState<{ name: string } | null>(null);
-  /** どのキャリアの画面を扱っているか。キャリア設定からの遷移で決まる */
-  const [carrierId, setCarrierId] = useState<string | null>(null);
+  /** 今の画面で選んだ見本ファイル。向きを手で直すときに読み直す */
+  const [lastSampleFile, setLastSampleFile] = useState<File | null>(null);
   const sampleInput = useRef<HTMLInputElement>(null);
   const verifyInput = useRef<HTMLInputElement>(null);
 
@@ -132,10 +192,16 @@ export default function ReportImageTemplatesPage() {
   const carrier = useMemo(() => carriers.find((row) => row.id === carrierId) ?? null, [carriers, carrierId]);
   const selected = useMemo(() => templates.find((t) => t.id === selectedId) ?? null, [templates, selectedId]);
 
+  // 選ばれていなければ、このキャリアの最初の様式を開く
+  useEffect(() => {
+    if (!selectedId && visible.length > 0) setSelectedId(visible[0].id);
+  }, [selectedId, visible]);
+
   useEffect(() => {
     setDraft(selected ? { ...selected } : null);
     setSelectedFieldId(null);
     setVerify(null);
+    setLastSampleFile(null);
   }, [selected]);
 
   // 見本画像は非公開。開いている様式のぶんだけ短時間URLを取る
@@ -157,15 +223,17 @@ export default function ReportImageTemplatesPage() {
     setDraft((prev) => (prev ? { ...prev, definition: patch(prev.definition) } : prev));
   }, []);
 
-  /** 見本を読んだときの語から、見出しの候補を作る */
+  const sampleWords = draft?.definition.sample?.words ?? [];
+
+  /** 見出しの候補（記号まみれの誤読は出さない） */
   const anchorCandidates = useMemo(() => {
-    const words = draft?.definition.sample?.words ?? [];
-    if (words.length === 0) return [] as { text: string; box: Box }[];
-    const asWords: OcrWord[] = words.map((word) => ({ text: word.text, ...word.box }));
+    if (sampleWords.length === 0) return [] as { text: string; box: Box }[];
+    const asWords: OcrWord[] = sampleWords.map((word) => ({ text: word.text, ...word.box }));
+    const seen = new Set<string>();
     return buildLines(asWords)
       .map((line) => ({ text: line.words.map((w) => w.text).join(""), box: line.box }))
-      .filter((line) => line.text.replace(/\s/g, "").length >= 2);
-  }, [draft?.definition.sample?.words]);
+      .filter((line) => isAnchorCandidate(line.text) && !seen.has(line.text) && seen.add(line.text));
+  }, [sampleWords]);
 
   const anchorRole = (text: string): "required" | "optional" | "none" => {
     const match = draft?.definition.match;
@@ -186,11 +254,27 @@ export default function ReportImageTemplatesPage() {
     });
   };
 
+  const entries = (draft?.definition.fields ?? []).filter((field) => (field.role ?? "entry") === "entry");
+  const unitOptions = carriers
+    .filter((c) => !draft?.carrier_id || c.id === draft.carrier_id)
+    .flatMap((c) => c.units.map((unit) => ({ value: unit.id, label: unit.name, unit })));
+
+  // --- 手順の済み／未 ---
+  const hasSample = !!draft?.definition.sample && !!draft?.sample_storage_path;
+  const boundEntries = entries.filter((field) => field.unitId && field.fieldKey);
+  const fieldsDone = entries.length > 0 && boundEntries.length === entries.length;
+  const anchorsDone = (draft?.definition.match.required?.length ?? 0) > 0;
+  const checksCount = draft?.definition.checks?.length ?? 0;
+  const verified = verify != null && verify.level !== "none";
+  const activationBlockers: string[] = [];
+  if (!hasSample) activationBlockers.push("見本を登録してください");
+  if (entries.length === 0) activationBlockers.push("読み取る項目を囲んでください");
+  else if (!fieldsDone) activationBlockers.push("報告項目を選んでいない項目があります");
+  if (!anchorsDone) activationBlockers.push("見分ける見出しがありません");
+
+  // --- 項目 ---
   const addField = (rect: Box) => {
     const id = `f${Date.now().toString(36)}`;
-    // 欄の上と左にある見出しを一緒に覚えておく。相手の画面が変わっても欄を追い直せる。
-    // 数字や、他の見出しに紛れる語は選ばない（隣の欄へ吸い寄せられる原因になる）
-    const sampleWords = draft?.definition.sample?.words ?? [];
     const anchors = suggestAnchors(rect, sampleWords);
     const locator = suggestLocator(rect, sampleWords);
     const field: TemplateField = {
@@ -198,7 +282,9 @@ export default function ReportImageTemplatesPage() {
       role: "entry",
       unitId: "",
       fieldKey: "",
-      label: anchors.row?.text ? `${anchors.row.text} ${anchors.column?.text ?? ""}`.trim() : `項目${(draft?.definition.fields.length ?? 0) + 1}`,
+      label: anchors.row?.text
+        ? `${anchors.row.text} ${anchors.column?.text ?? ""}`.trim()
+        : `項目${(draft?.definition.fields.length ?? 0) + 1}`,
       value: { type: "int", min: 0, max: 9999 },
       locator,
       required: true,
@@ -218,35 +304,30 @@ export default function ReportImageTemplatesPage() {
     patchDefinition((definition) => ({
       ...definition,
       fields: definition.fields.filter((field) => field.id !== id),
-      checks: (definition.checks ?? []).filter(
-        (check) => check.totalFieldId !== id && !check.partFieldIds.includes(id),
-      ),
+      checks: (definition.checks ?? []).filter((check) => check.totalFieldId !== id && !check.partFieldIds.includes(id)),
     }));
   };
 
+  // --- 検算 ---
   const addCheck = () => {
-    const entries = (draft?.definition.fields ?? []).filter((field) => (field.role ?? "entry") === "entry");
-    if (entries.length < 2) return;
+    if (entries.length < 2 && (draft?.definition.fields.length ?? 0) < 2) return;
+    const all = draft?.definition.fields ?? [];
     patchDefinition((definition) => ({
       ...definition,
-      checks: [...(definition.checks ?? []), { kind: "sum", totalFieldId: entries[0].id, partFieldIds: [] }],
+      checks: [...(definition.checks ?? []), { kind: "sum", totalFieldId: all[0].id, partFieldIds: [] }],
     }));
   };
-
   const patchCheck = (index: number, patch: Partial<TemplateCheck>) => {
     patchDefinition((definition) => ({
       ...definition,
       checks: (definition.checks ?? []).map((check, i) => (i === index ? { ...check, ...patch } : check)),
     }));
   };
-
   const removeCheck = (index: number) => {
-    patchDefinition((definition) => ({
-      ...definition,
-      checks: (definition.checks ?? []).filter((_, i) => i !== index),
-    }));
+    patchDefinition((definition) => ({ ...definition, checks: (definition.checks ?? []).filter((_, i) => i !== index) }));
   };
 
+  // --- 保存・作成 ---
   const save = async (patch: Partial<TemplateRow> = {}) => {
     if (!draft) return;
     setBusy("保存中…");
@@ -277,7 +358,6 @@ export default function ReportImageTemplatesPage() {
       const response = await apiFetch<{ template: TemplateRow }>("/api/admin/report-image-templates", {
         method: "POST",
         body: JSON.stringify({
-          // 識別子は名前から作る。運営に内部の値を考えさせない
           templateKey: templateKeyFromName(creating.name, templates.map((row) => row.template_key)),
           name: creating.name,
           carrierId,
@@ -294,38 +374,35 @@ export default function ReportImageTemplatesPage() {
     }
   };
 
-  /** 見本を読み込む。向きは全部試して、いちばん文字が取れた角度を採る */
-  const uploadSample = async (file: File) => {
+  /**
+   * 見本を登録する。向きは自動で起こし（rotate を渡せば固定）、起こした画像を見本として保存する。
+   * 見本の座標系と表示が同じになるので、囲んだ枠がそのまま読み取り位置になる。
+   */
+  const registerSample = async (file: File, rotate?: Rotation) => {
     if (!draft) return;
     setBusy("見本を読んでいます");
     try {
-      let best: { rotate: Rotation; words: number; sample: NonNullable<ImageTemplateDefinition["sample"]> } | null = null;
-      for (const rotate of ROTATIONS) {
-        const { sample } = await readSample(file, rotate);
-        const words = sample.words.length;
-        if (!best || words > best.words) best = { rotate, words, sample };
-      }
-      if (!best) throw new Error("見本を読めませんでした");
-
+      const reading = await readSample(file, rotate);
       const form = new FormData();
       form.append("id", draft.id);
-      form.append("file", file);
-      form.append("width", String(best.sample.width));
-      form.append("height", String(best.sample.height));
+      form.append("file", new File([reading.uprightBlob], "sample.jpg", { type: "image/jpeg" }));
+      form.append("width", String(reading.sample.width));
+      form.append("height", String(reading.sample.height));
       await apiUpload("/api/admin/report-image-templates/sample", form);
 
+      const required = suggestRequiredAnchors(reading.sample.words);
       const definition: ImageTemplateDefinition = {
         ...draft.definition,
-        orientation: { rotate: best.rotate },
-        sample: best.sample,
-        // 見本を差し替えたら、前の見本の座標で作った見出しは使えない
-        match: { ...draft.definition.match, required: [], optional: [] },
+        orientation: { rotate: reading.rotate },
+        sample: reading.sample,
+        // 見本を差し替えたら見出しは選び直す（前の見本の座標は使えない）
+        match: { ...draft.definition.match, required, optional: [] },
       };
-      setDraft((prev) => (prev ? { ...prev, definition } : prev));
       await apiFetch("/api/admin/report-image-templates", {
         method: "PATCH",
         body: JSON.stringify({ id: draft.id, definition }),
       });
+      setLastSampleFile(file);
       await mutate();
     } catch (e) {
       setError(e instanceof Error ? e.message : "見本を読めませんでした");
@@ -333,6 +410,13 @@ export default function ReportImageTemplatesPage() {
       setBusy(null);
       if (sampleInput.current) sampleInput.current.value = "";
     }
+  };
+
+  const rotateSample = (direction: -90 | 90) => {
+    if (!lastSampleFile || !draft) return;
+    const current = draft.definition.orientation?.rotate ?? 0;
+    const next = (((current + direction) % 360) + 360) % 360;
+    void registerSample(lastSampleFile, next as Rotation);
   };
 
   /** 別のスクショで試す。運用中にする前にここで確かめる */
@@ -349,13 +433,7 @@ export default function ReportImageTemplatesPage() {
       };
       const outcome = await readReportImage(file, [template]);
       if (!outcome.result) {
-        setVerify({
-          score: 0,
-          level: "none",
-          trust: { level: "needs_check", checksRun: 0, checksFailed: 0, reasons: [] },
-          rows: [],
-          warnings: ["この画像はこの様式として読めません"],
-        });
+        setVerify({ score: 0, level: "none", trust: EMPTY_TRUST, rows: [], warnings: ["この画像はこの様式として読めません"] });
         return;
       }
       setVerify({
@@ -377,129 +455,130 @@ export default function ReportImageTemplatesPage() {
     }
   };
 
-  const unitOptions = carriers
-    .filter((carrier) => !draft?.carrier_id || carrier.id === draft.carrier_id)
-    .flatMap((carrier) => carrier.units.map((unit) => ({ value: unit.id, label: `${carrier.name} / ${unit.name}`, unit })));
+  const boardFields = (draft?.definition.fields ?? [])
+    .map((field, index) => {
+      const rect =
+        field.locator.kind === "region"
+          ? field.locator.rect
+          : field.locator.kind === "anchor"
+            ? (field.locator.valueHint ?? null)
+            : null;
+      return rect ? { id: field.id, label: `${index + 1}`, rect } : null;
+    })
+    .filter((entry): entry is { id: string; label: string; rect: Box } => entry !== null);
 
   return (
     <AdminLayout>
       <div className="mx-auto max-w-6xl px-4 py-6">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
-          <FontAwesomeIcon icon={faImage} className="h-5 w-5 text-slate-400" />
-          画像の様式
-        </h1>
-        {carrier && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{carrier.name}</span>}
-        <Link href="/admin/carriers" className="ml-auto text-xs text-slate-500 hover:text-slate-800">
-          キャリア／フォーム設計へ戻る
-        </Link>
-      </div>
-      {data?.unavailable && (
-        <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-          <FontAwesomeIcon icon={faTriangleExclamation} className="mr-2 h-3.5 w-3.5" />
-          様式の保存先がまだ用意できていません（migration 181）
-        </p>
-      )}
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <Link href="/admin/carriers" className="text-xs text-slate-500 hover:text-slate-800">
+            <FontAwesomeIcon icon={faArrowLeft} className="mr-1 h-3 w-3" />
+            {carrier ? `${carrier.name}の設定` : "キャリア／フォーム設計"}
+          </Link>
+          <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+            <FontAwesomeIcon icon={faImage} className="h-5 w-5 text-slate-400" />
+            画像の様式
+          </h1>
+        </div>
 
-      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        <aside className="space-y-2">
-          {canWrite && (
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => setCreating({ name: "" })}
-            >
-              <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" />
-              様式を追加
-            </Button>
-          )}
-          {isInitialLoading ? (
-            <Skeleton className="h-40 w-full" />
-          ) : (
-            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
-              {visible.map((template) => (
-                <li key={template.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(template.id)}
-                    className={`w-full px-3 py-2.5 text-left ${template.id === selectedId ? "bg-slate-50" : ""}`}
-                  >
-                    <span className="block truncate text-sm text-slate-800">{template.name}</span>
-                    <span className="mt-0.5 block text-[11px] text-slate-500">
-                      第{template.version}版・{STATUS_LABEL[template.status]}
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {visible.length === 0 && <li className="px-3 py-6 text-center text-xs text-slate-400">様式がありません</li>}
-            </ul>
-          )}
-        </aside>
+        {data?.unavailable && (
+          <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+            <FontAwesomeIcon icon={faTriangleExclamation} className="mr-2 h-3.5 w-3.5" />
+            様式の保存先がまだ用意できていません（migration 181）
+          </p>
+        )}
 
-        <section className="space-y-4">
-          {!draft ? (
-            <p className="rounded-lg border border-dashed border-slate-200 py-16 text-center text-sm text-slate-400">
-              様式を選んでください
-            </p>
-          ) : (
-            <>
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <input
-                    value={draft.name}
-                    onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                    className="h-10 w-full flex-1 rounded-lg border border-slate-300 px-3 text-sm"
-                    aria-label="様式の名前"
-                    placeholder="配達集計精算書"
-                    disabled={!canWrite}
-                  />
-                  {/* CustomSelect は親の幅いっぱいに広がる。幅は外側の箱で決める */}
-                  <div className="w-full sm:w-52">
-                    <CustomSelect
-                      value={draft.carrier_id ?? ""}
-                      onChange={(value) => value && setDraft({ ...draft, carrier_id: value })}
-                      options={carriers.map((c) => ({ value: c.id, label: c.name }))}
-                      ariaLabel="荷主"
-                      size="sm"
-                      clearable={false}
-                      disabled={!canWrite}
-                    />
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-                  <span className="rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
-                    第{draft.version}版・{STATUS_LABEL[draft.status]}
-                  </span>
-                  {canWrite && (
-                    <div className="ml-auto flex items-center gap-2">
-                      <Button variant="outline" size="sm" disabled={busy != null} onClick={() => void save()}>
-                        {busy ?? "保存"}
-                      </Button>
-                      {draft.status !== "active" ? (
-                        <Button size="sm" disabled={busy != null} onClick={() => void save({ status: "active" })}>
-                          運用中にする
-                        </Button>
-                      ) : (
-                        <Button variant="outline" size="sm" disabled={busy != null} onClick={() => void save({ status: "retired" })}>
-                          停止する
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
+        {/* 同じキャリアに様式が複数あるときだけ切り替えを出す */}
+        {(visible.length > 1 || canWrite) && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            {visible.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                onClick={() => setSelectedId(template.id)}
+                className={`rounded-full border px-3 py-1 text-xs ${
+                  template.id === selectedId
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
+                }`}
+              >
+                {template.name}
+                <span className="ml-1 opacity-70">第{template.version}版・{STATUS_LABEL[template.status]}</span>
+              </button>
+            ))}
+            {canWrite && carrierId && (
+              <button
+                type="button"
+                onClick={() => setCreating({ name: "" })}
+                className="rounded-full border border-dashed border-slate-300 px-3 py-1 text-xs text-slate-600 hover:border-slate-500"
+              >
+                <FontAwesomeIcon icon={faPlus} className="mr-1 h-3 w-3" />
+                様式を追加
+              </button>
+            )}
+          </div>
+        )}
+
+        {isInitialLoading ? (
+          <Skeleton className="h-64 w-full" />
+        ) : !draft ? (
+          <p className="rounded-lg border border-dashed border-slate-200 py-16 text-center text-sm text-slate-400">
+            {carrierId ? "この荷主の様式はまだありません" : "キャリア設定の「画像の様式」から開いてください"}
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {/* 名前・状態・保存 */}
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  value={draft.name}
+                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                  className="h-10 w-full flex-1 rounded-lg border border-slate-300 px-3 text-sm"
+                  aria-label="様式の名前"
+                  placeholder="配達集計精算書"
+                  disabled={!canWrite}
+                />
+                <span className="rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                  {carrier?.name ?? "荷主未設定"}・第{draft.version}版・{STATUS_LABEL[draft.status]}
+                </span>
+                {canWrite && (
+                  <Button variant="outline" size="sm" disabled={busy != null} onClick={() => void save()}>
+                    {busy ?? "保存"}
+                  </Button>
+                )}
               </div>
+            </div>
 
-              <div className="grid gap-4 xl:grid-cols-2">
-                <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-medium text-slate-800">見本と読み取り位置</h3>
-                    {canWrite && (
-                      <Button variant="ghost" size="sm" disabled={busy != null} onClick={() => sampleInput.current?.click()}>
-                        <FontAwesomeIcon icon={faImage} className="h-3.5 w-3.5" />
-                        見本を選ぶ
-                      </Button>
-                    )}
-                  </div>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+              {/* 左: 見本（作業台） */}
+              <div className="space-y-4">
+                <Step
+                  number={1}
+                  title="見本のスクショ"
+                  done={hasSample}
+                  doneLabel={`登録済み${(draft.definition.orientation?.rotate ?? 0) !== 0 ? `・${draft.definition.orientation?.rotate}°起こして表示` : ""}`}
+                  todoLabel="未登録"
+                  action={
+                    canWrite && (
+                      <div className="flex items-center gap-1">
+                        {lastSampleFile && hasSample && (
+                          <>
+                            <Button variant="ghost" size="sm" aria-label="左に回す" disabled={busy != null} onClick={() => rotateSample(-90)}>
+                              <FontAwesomeIcon icon={faRotateLeft} className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="sm" aria-label="右に回す" disabled={busy != null} onClick={() => rotateSample(90)}>
+                              <FontAwesomeIcon icon={faRotateRight} className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
+                        <Button variant={hasSample ? "ghost" : "default"} size="sm" disabled={busy != null} onClick={() => sampleInput.current?.click()}>
+                          <FontAwesomeIcon icon={faImage} className="h-3.5 w-3.5" />
+                          {busy === "見本を読んでいます" ? busy : hasSample ? "差し替える" : "スクショを選ぶ"}
+                        </Button>
+                      </div>
+                    )
+                  }
+                >
                   <input
                     ref={sampleInput}
                     type="file"
@@ -507,76 +586,63 @@ export default function ReportImageTemplatesPage() {
                     className="sr-only"
                     onChange={(event) => {
                       const file = event.target.files?.[0];
-                      if (file) void uploadSample(file);
+                      if (file) void registerSample(file);
                     }}
                   />
                   {sampleUrl && draft.definition.sample ? (
-                    <SampleBoard
-                      url={sampleUrl}
-                      width={draft.definition.sample.width}
-                      height={draft.definition.sample.height}
-                      fields={draft.definition.fields
-                        .map((field) => {
-                          const rect =
-                            field.locator.kind === "region"
-                              ? field.locator.rect
-                              : field.locator.kind === "anchor"
-                                ? (field.locator.valueHint ?? null)
-                                : null;
-                          return rect ? { id: field.id, label: field.label, rect } : null;
-                        })
-                        .filter((entry): entry is { id: string; label: string; rect: Box } => entry !== null)}
-                      selectedId={selectedFieldId}
-                      onSelect={setSelectedFieldId}
-                      onDraw={addField}
-                      readOnly={!canWrite}
-                    />
+                    <>
+                      <SampleBoard
+                        url={sampleUrl}
+                        width={draft.definition.sample.width}
+                        height={draft.definition.sample.height}
+                        fields={boardFields}
+                        selectedId={selectedFieldId}
+                        onSelect={setSelectedFieldId}
+                        onDraw={addField}
+                        readOnly={!canWrite}
+                      />
+                      {canWrite && (
+                        <p className="mt-2 text-[11px] text-slate-500">
+                          {entries.length === 0 ? "数字の欄をドラッグで囲む" : "囲むと項目が増える。番号は右の一覧と対応"}
+                        </p>
+                      )}
+                    </>
                   ) : (
-                    <p className="rounded-lg border border-dashed border-slate-200 py-8 text-center text-xs text-slate-400">
-                      見本の画像がありません
-                    </p>
+                    <button
+                      type="button"
+                      disabled={!canWrite || busy != null}
+                      onClick={() => sampleInput.current?.click()}
+                      className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 py-14 text-sm text-slate-500 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      <FontAwesomeIcon icon={faImage} className="h-6 w-6 text-slate-300" />
+                      配完表などのスクショを選ぶ
+                    </button>
                   )}
+                </Step>
+              </div>
 
-                  {anchorCandidates.length > 0 && (
-                    <div className="space-y-1">
-                      <p className="text-xs font-medium text-slate-600">見分ける見出し</p>
-                      <div className="flex flex-wrap gap-1">
-                        {anchorCandidates.map((candidate) => {
-                          const role = anchorRole(candidate.text);
-                          return (
-                            <button
-                              key={`${candidate.text}-${candidate.box.y}`}
-                              type="button"
-                              disabled={!canWrite}
-                              onClick={() => cycleAnchor(candidate)}
-                              className={`rounded border px-1.5 py-0.5 text-[11px] ${
-                                role === "required"
-                                  ? "border-sky-500 bg-sky-50 text-sky-800"
-                                  : role === "optional"
-                                    ? "border-slate-400 bg-slate-50 text-slate-700"
-                                    : "border-slate-200 text-slate-500"
-                              }`}
-                            >
-                              {candidate.text}
-                              {role === "required" && "・必須"}
-                              {role === "optional" && "・任意"}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-                    <h3 className="text-sm font-medium text-slate-800">読み取る項目</h3>
-                    {draft.definition.fields.length === 0 && (
-                      <p className="py-6 text-center text-xs text-slate-400">見本の上で数字の欄を囲むと項目が増えます</p>
-                    )}
+              {/* 右: 手順 2〜5 */}
+              <div className="space-y-4">
+                <Step
+                  number={2}
+                  title="読み取る項目"
+                  done={fieldsDone}
+                  doneLabel={`${boundEntries.length}件`}
+                  todoLabel={entries.length === 0 ? "見本の上で数字を囲む" : `${entries.length - boundEntries.length}件が未設定`}
+                >
+                  {draft.definition.fields.length === 0 ? (
+                    <p className="py-4 text-center text-xs text-slate-400">{hasSample ? "左の見本で数字の欄を囲む" : "先に見本を登録する"}</p>
+                  ) : (
                     <ul className="space-y-2">
-                      {draft.definition.fields.map((field) => {
+                      {draft.definition.fields.map((field, index) => {
                         const unit = unitOptions.find((option) => option.value === field.unitId)?.unit;
+                        const isCheck = (field.role ?? "entry") === "check";
+                        const anchorLocator = field.locator.kind === "anchor" ? field.locator : null;
+                        const regionLocator = field.locator.kind === "region" ? field.locator : null;
+                        const anchorChips: { side: "row" | "column"; anchor: AnchorSpec }[] = [];
+                        if (anchorLocator) anchorChips.push({ side: "row", anchor: anchorLocator.anchor });
+                        if (regionLocator?.row) anchorChips.push({ side: "row", anchor: regionLocator.row });
+                        if (regionLocator?.column) anchorChips.push({ side: "column", anchor: regionLocator.column });
                         return (
                           <li
                             key={field.id}
@@ -584,6 +650,9 @@ export default function ReportImageTemplatesPage() {
                             onPointerDown={() => setSelectedFieldId(field.id)}
                           >
                             <div className="flex items-center gap-2">
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-[11px] font-bold text-white">
+                                {index + 1}
+                              </span>
                               <input
                                 value={field.label}
                                 onChange={(event) => patchField(field.id, { label: event.target.value })}
@@ -591,13 +660,13 @@ export default function ReportImageTemplatesPage() {
                                 aria-label="項目の名前"
                                 disabled={!canWrite}
                               />
-                              <div className="w-36 shrink-0">
+                              <div className="w-32 shrink-0">
                                 <CustomSelect
                                   value={field.value.type}
                                   onChange={(value) =>
                                     patchField(field.id, {
                                       value: { ...field.value, type: value as TemplateField["value"]["type"] },
-                                      role: value === "date" ? "date" : "entry",
+                                      role: value === "date" ? "date" : isCheck ? "check" : "entry",
                                     })
                                   }
                                   options={VALUE_TYPES}
@@ -612,323 +681,379 @@ export default function ReportImageTemplatesPage() {
                                   type="button"
                                   aria-label={`${field.label}を消す`}
                                   onClick={() => removeField(field.id)}
-                                  className="flex h-9 w-9 items-center justify-center rounded text-slate-400 hover:bg-slate-100"
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100"
                                 >
                                   <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
                                 </button>
                               )}
                             </div>
+
                             {(field.role ?? "entry") !== "date" && (
-                              <div className="flex flex-wrap items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-2 pl-8">
+                                {!isCheck && (
+                                  <>
+                                    <div className="w-44">
+                                      <CustomSelect
+                                        value={field.unitId}
+                                        onChange={(value) => patchField(field.id, { unitId: value, fieldKey: "" })}
+                                        options={[{ value: "", label: "報告単位" }, ...unitOptions.map(({ value, label }) => ({ value, label }))]}
+                                        ariaLabel="報告単位"
+                                        size="sm"
+                                        clearable={false}
+                                        disabled={!canWrite}
+                                      />
+                                    </div>
+                                    <div className="w-40">
+                                      <CustomSelect
+                                        value={field.fieldKey}
+                                        onChange={(value) => patchField(field.id, { fieldKey: value })}
+                                        options={[
+                                          { value: "", label: "報告項目" },
+                                          ...(unit?.fields ?? []).map((f) => ({ value: f.field_key, label: f.label })),
+                                        ]}
+                                        ariaLabel="報告項目"
+                                        size="sm"
+                                        clearable={false}
+                                        disabled={!canWrite}
+                                      />
+                                    </div>
+                                  </>
+                                )}
                                 <CheckboxField
-                                  checked={(field.role ?? "entry") === "check"}
+                                  checked={isCheck}
                                   onCheckedChange={(checked) =>
                                     patchField(field.id, {
                                       role: checked ? "check" : "entry",
-                                      ...(checked ? { unitId: "", fieldKey: "", required: false } : {}),
+                                      ...(checked ? { unitId: "", fieldKey: "", required: false } : { required: true }),
                                     })
                                   }
-                                  label="検算用（日報には入れない）"
+                                  label="検算にだけ使う"
                                   disabled={!canWrite}
                                 />
                               </div>
                             )}
-                            {((field.locator.kind === "region" && (field.locator.column || field.locator.row)) ||
-                              field.locator.kind === "anchor") && (
-                              <div className="flex flex-wrap items-center gap-1">
-                                {(field.locator.kind === "anchor" ? (["row"] as const) : (["row", "column"] as const)).map((side) => {
-                                  const locator = field.locator as Extract<TemplateField["locator"], { kind: "region" }>;
-                                  const anchorLocator = field.locator as Extract<TemplateField["locator"], { kind: "anchor" }>;
-                                  const isAnchorKind = field.locator.kind === "anchor";
-                                  const anchor = isAnchorKind ? anchorLocator.anchor : locator[side];
-                                  if (!anchor) return null;
-                                  return (
-                                    <span
-                                      key={side}
-                                      className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600"
-                                    >
-                                      {side === "row" ? "行" : "列"}:
-                                      {/* 見本の読み取りが崩れた見出しは、ここで正しい文字に直せる */}
-                                      <input
-                                        value={anchor.text}
-                                        onChange={(event) =>
-                                          patchField(field.id, {
-                                            locator: isAnchorKind
-                                              ? { ...anchorLocator, anchor: { ...anchor, text: event.target.value } }
-                                              : { ...locator, [side]: { ...anchor, text: event.target.value } },
-                                          })
-                                        }
-                                        disabled={!canWrite}
-                                        aria-label={`${side === "row" ? "行" : "列"}の見出し`}
-                                        className="w-24 rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px]"
-                                      />
-                                      {canWrite && (
-                                        <button
-                                          type="button"
-                                          aria-label={`${anchor.text}を手がかりにしない`}
-                                          onClick={() =>
+
+                            {anchorChips.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1 pl-8">
+                                {anchorChips.map(({ side, anchor }) => (
+                                  <span
+                                    key={side}
+                                    className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600"
+                                  >
+                                    {side === "row" ? "行" : "列"}:
+                                    <input
+                                      value={anchor.text}
+                                      onChange={(event) => {
+                                        const text = event.target.value;
+                                        if (anchorLocator) patchField(field.id, { locator: { ...anchorLocator, anchor: { ...anchor, text } } });
+                                        else if (regionLocator) patchField(field.id, { locator: { ...regionLocator, [side]: { ...anchor, text } } });
+                                      }}
+                                      disabled={!canWrite}
+                                      aria-label={`${side === "row" ? "行" : "列"}の見出し`}
+                                      className="w-24 rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px]"
+                                    />
+                                    {canWrite && (
+                                      <button
+                                        type="button"
+                                        aria-label={`${anchor.text}を手がかりにしない`}
+                                        onClick={() => {
+                                          if (regionLocator) patchField(field.id, { locator: { ...regionLocator, [side]: null } });
+                                          else if (anchorLocator) {
+                                            // 見出し相対の欄は見出しが無いと成り立たない。座標の欄に切り替える
                                             patchField(field.id, {
-                                              locator: isAnchorKind
-                                                ? { ...anchorLocator, valueHint: null }
-                                                : { ...locator, [side]: null },
-                                            })
+                                              locator: { kind: "region", rect: anchorLocator.valueHint ?? { x: 0, y: 0, w: 1, h: 1 } },
+                                            });
                                           }
-                                          className="text-slate-400 hover:text-slate-700"
-                                        >
-                                          <FontAwesomeIcon icon={faXmark} className="h-2.5 w-2.5" />
-                                        </button>
-                                      )}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            )}
-                            {(field.role ?? "entry") === "entry" && (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="w-56">
-                                  <CustomSelect
-                                    value={field.unitId}
-                                    onChange={(value) => patchField(field.id, { unitId: value, fieldKey: "" })}
-                                    options={[{ value: "", label: "報告単位" }, ...unitOptions.map(({ value, label }) => ({ value, label }))]}
-                                    ariaLabel="報告単位"
-                                    size="sm"
-                                    clearable={false}
-                                    disabled={!canWrite}
-                                  />
-                                </div>
-                                <div className="w-48">
-                                  <CustomSelect
-                                    value={field.fieldKey}
-                                    onChange={(value) => patchField(field.id, { fieldKey: value })}
-                                    options={[
-                                      { value: "", label: "報告項目" },
-                                      ...(unit?.fields ?? []).map((f) => ({ value: f.field_key, label: f.label })),
-                                    ]}
-                                    ariaLabel="報告項目"
-                                    size="sm"
-                                    clearable={false}
-                                    disabled={!canWrite}
-                                  />
-                                </div>
-                                <CheckboxField
-                                  checked={field.required}
-                                  onCheckedChange={(checked) => patchField(field.id, { required: checked })}
-                                  label="必須"
-                                  disabled={!canWrite}
-                                />
+                                        }}
+                                        className="text-slate-400 hover:text-slate-700"
+                                      >
+                                        <FontAwesomeIcon icon={faXmark} className="h-2.5 w-2.5" />
+                                      </button>
+                                    )}
+                                  </span>
+                                ))}
                               </div>
                             )}
                           </li>
                         );
                       })}
                     </ul>
-                  </div>
+                  )}
+                </Step>
 
-                  <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-medium text-slate-800">検算</h3>
-                      {canWrite && (
-                        <Button variant="ghost" size="sm" onClick={addCheck}>
-                          <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
-                          合計を確かめる
-                        </Button>
-                      )}
+                <Step
+                  number={3}
+                  title="見分ける見出し"
+                  done={anchorsDone}
+                  doneLabel={`${draft.definition.match.required?.length ?? 0}件（自動で選択）`}
+                  todoLabel="未選択"
+                >
+                  {anchorCandidates.length === 0 ? (
+                    <p className="py-4 text-center text-xs text-slate-400">{hasSample ? "見本から読めた見出しがありません" : "先に見本を登録する"}</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {anchorCandidates.map((candidate) => {
+                        const role = anchorRole(candidate.text);
+                        return (
+                          <button
+                            key={`${candidate.text}-${candidate.box.y}`}
+                            type="button"
+                            disabled={!canWrite}
+                            onClick={() => cycleAnchor(candidate)}
+                            className={`rounded border px-1.5 py-0.5 text-[11px] ${
+                              role === "required"
+                                ? "border-sky-500 bg-sky-50 text-sky-800"
+                                : role === "optional"
+                                  ? "border-slate-400 bg-slate-50 text-slate-700"
+                                  : "border-slate-200 text-slate-500"
+                            }`}
+                          >
+                            {candidate.text}
+                            {role === "required" && "・必須"}
+                            {role === "optional" && "・任意"}
+                          </button>
+                        );
+                      })}
                     </div>
-                    {(draft.definition.checks ?? []).length === 0 ? (
-                      <p className="py-3 text-center text-xs text-slate-400">合計と内訳の照合は設定されていません</p>
-                    ) : (
-                      <ul className="space-y-2">
-                        {(draft.definition.checks ?? []).map((check, index) => {
-                          const entries = draft.definition.fields.filter((field) => (field.role ?? "entry") === "entry");
-                          return (
-                            <li key={`${check.totalFieldId}-${index}`} className="space-y-1.5 rounded-lg border border-slate-200 p-2">
-                              <div className="flex items-center gap-2">
-                                <div className="w-48">
-                                  <CustomSelect
-                                    value={check.totalFieldId}
-                                    onChange={(value) => patchCheck(index, { totalFieldId: value })}
-                                    options={entries.map((field) => ({ value: field.id, label: field.label }))}
-                                    ariaLabel="合計の項目"
-                                    size="sm"
-                                    clearable={false}
-                                    disabled={!canWrite}
-                                  />
-                                </div>
-                                <span className="text-xs text-slate-500">＝ 内訳の合計</span>
-                                {canWrite && (
-                                  <button
-                                    type="button"
-                                    aria-label="この検算を消す"
-                                    onClick={() => removeCheck(index)}
-                                    className="ml-auto flex h-9 w-9 items-center justify-center rounded text-slate-400 hover:bg-slate-100"
-                                  >
-                                    <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {entries
-                                  .filter((field) => field.id !== check.totalFieldId)
-                                  .map((field) => {
-                                    const on = check.partFieldIds.includes(field.id);
-                                    return (
-                                      <button
-                                        key={field.id}
-                                        type="button"
-                                        disabled={!canWrite}
-                                        onClick={() =>
-                                          patchCheck(index, {
-                                            partFieldIds: on
-                                              ? check.partFieldIds.filter((id) => id !== field.id)
-                                              : [...check.partFieldIds, field.id],
-                                          })
-                                        }
-                                        className={`rounded border px-1.5 py-0.5 text-[11px] ${
-                                          on ? "border-sky-500 bg-sky-50 text-sky-800" : "border-slate-200 text-slate-500"
-                                        }`}
-                                      >
-                                        {field.label}
-                                      </button>
-                                    );
-                                  })}
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </div>
+                  )}
+                </Step>
 
-                  <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-medium text-slate-800">別のスクショで試す</h3>
-                      <Button variant="ghost" size="sm" disabled={busy != null} onClick={() => verifyInput.current?.click()}>
-                        画像を選ぶ
+                <Step
+                  number={4}
+                  title="検算（合計＝内訳）"
+                  done={checksCount > 0}
+                  doneLabel={`${checksCount}本`}
+                  todoLabel="無くても動く。あれば確認を省ける"
+                  action={
+                    canWrite &&
+                    (draft.definition.fields.length >= 2 ? (
+                      <Button variant="ghost" size="sm" onClick={addCheck}>
+                        <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
+                        式を足す
                       </Button>
-                    </div>
-                    <input
-                      ref={verifyInput}
-                      type="file"
-                      accept="image/jpeg,image/png"
-                      className="sr-only"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        if (file) void runVerify(file);
-                      }}
-                    />
-                    {verify && (
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-xs text-slate-600">
-                            一致 {Math.round(verify.score * 100)}%
-                            {verify.level === "high" && "・読み取り可"}
-                            {verify.level === "low" && "・要確認"}
-                            {verify.level === "none" && "・未対応"}
-                          </p>
-                          {verify.trust.level === "verified" ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                              <FontAwesomeIcon icon={faCircleCheck} className="h-3 w-3" />
-                              自動で確定できる（式 {verify.trust.checksRun}本）
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                              本人の確認が要る
-                            </span>
-                          )}
-                        </div>
-                        {verify.trust.reasons.map((reason) => (
-                          <p key={reason} className="text-[11px] text-amber-700">
-                            {reason}
-                          </p>
-                        ))}
-                        <ul className="divide-y divide-slate-100 text-xs">
-                          {verify.rows.map((row) => (
-                            <li key={row.label} className="flex items-center justify-between gap-2 py-1">
-                              <span className="truncate text-slate-700">{row.label}</span>
-                              <span className="flex items-center gap-1 tabular-nums text-slate-900">
-                                {row.value}
-                                {row.status === "read" && (
-                                  <FontAwesomeIcon icon={faCircleCheck} className="h-3 w-3 text-emerald-600" />
-                                )}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                        {verify.warnings.map((warning) => (
-                          <p key={warning} className="text-[11px] text-amber-700">
-                            {warning}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {canWrite && draft.status === "draft" && (
-                <Button
-                  variant="ghost"
-                  className="text-red-600"
-                  onClick={() =>
-                    setConfirm({
-                      message: `${draft.name}を消します。よろしいですか。`,
-                      onConfirm: async () => {
-                        setConfirm(null);
-                        try {
-                          await apiFetch(`/api/admin/report-image-templates?id=${draft.id}`, { method: "DELETE" });
-                          setSelectedId(null);
-                          await mutate();
-                        } catch (e) {
-                          setError(e instanceof Error ? e.message : "消せませんでした");
-                        }
-                      },
-                    })
+                    ) : null)
                   }
                 >
-                  <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
-                  この様式を消す
-                </Button>
-              )}
-            </>
-          )}
-        </section>
-      </div>
+                  {(draft.definition.checks ?? []).length === 0 ? (
+                    <p className="py-4 text-center text-xs text-slate-400">
+                      {draft.definition.fields.length >= 2 ? "合計の欄と内訳の欄があるなら式を足す" : "項目が2つ以上になると足せる"}
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {(draft.definition.checks ?? []).map((check, index) => {
+                        const all = draft.definition.fields;
+                        return (
+                          <li key={`${check.totalFieldId}-${index}`} className="space-y-1.5 rounded-lg border border-slate-200 p-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-44">
+                                <CustomSelect
+                                  value={check.totalFieldId}
+                                  onChange={(value) => patchCheck(index, { totalFieldId: value })}
+                                  options={all.map((field) => ({ value: field.id, label: field.label }))}
+                                  ariaLabel="合計の項目"
+                                  size="sm"
+                                  clearable={false}
+                                  disabled={!canWrite}
+                                />
+                              </div>
+                              <span className="text-xs text-slate-500">＝ 内訳の和</span>
+                              {canWrite && (
+                                <button
+                                  type="button"
+                                  aria-label="この検算を消す"
+                                  onClick={() => removeCheck(index)}
+                                  className="ml-auto flex h-9 w-9 items-center justify-center rounded text-slate-400 hover:bg-slate-100"
+                                >
+                                  <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {all
+                                .filter((field) => field.id !== check.totalFieldId)
+                                .map((field) => {
+                                  const on = check.partFieldIds.includes(field.id);
+                                  return (
+                                    <button
+                                      key={field.id}
+                                      type="button"
+                                      disabled={!canWrite}
+                                      onClick={() =>
+                                        patchCheck(index, {
+                                          partFieldIds: on
+                                            ? check.partFieldIds.filter((id) => id !== field.id)
+                                            : [...check.partFieldIds, field.id],
+                                        })
+                                      }
+                                      className={`rounded border px-1.5 py-0.5 text-[11px] ${
+                                        on ? "border-sky-500 bg-sky-50 text-sky-800" : "border-slate-200 text-slate-500"
+                                      }`}
+                                    >
+                                      {field.label}
+                                    </button>
+                                  );
+                                })}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </Step>
 
-      {creating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setCreating(null)}>
-          <div className="w-full max-w-sm space-y-3 rounded-lg bg-white p-4" onClick={(event) => event.stopPropagation()}>
-            <h2 className="text-sm font-semibold text-slate-900">{carrier ? `${carrier.name}の様式を追加` : "様式を追加"}</h2>
-            <input
-              value={creating.name}
-              onChange={(event) => setCreating({ name: event.target.value })}
-              placeholder="配達集計精算書"
-              autoFocus
-              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-              aria-label="様式の名前"
-            />
-            {!carrierId && (
-              <p className="text-xs text-amber-700">キャリア設定の「画像の様式」から追加してください</p>
-            )}
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setCreating(null)}>
-                やめる
-              </Button>
-              <Button disabled={!creating.name || !carrierId || busy != null} onClick={() => void create()}>
-                作成
-              </Button>
+                <Step
+                  number={5}
+                  title="別のスクショで試す"
+                  done={verified}
+                  doneLabel={verify?.trust.level === "verified" ? "自動で確定できる" : "読める（本人の確認あり）"}
+                  todoLabel="未確認"
+                  action={
+                    <Button variant={verified ? "ghost" : "outline"} size="sm" disabled={busy != null || !hasSample} onClick={() => verifyInput.current?.click()}>
+                      {busy === "試しています" ? busy : "画像を選ぶ"}
+                    </Button>
+                  }
+                >
+                  <input
+                    ref={verifyInput}
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void runVerify(file);
+                    }}
+                  />
+                  {!verify ? (
+                    <p className="py-4 text-center text-xs text-slate-400">別の日のスクショで、同じ値が読めるか確かめる</p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs text-slate-600">
+                          一致 {Math.round(verify.score * 100)}%
+                          {verify.level === "high" && "・読み取り可"}
+                          {verify.level === "low" && "・要確認"}
+                          {verify.level === "none" && "・未対応"}
+                        </p>
+                        {verify.trust.level === "verified" ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                            <FontAwesomeIcon icon={faCircleCheck} className="h-3 w-3" />
+                            自動で確定できる（式 {verify.trust.checksRun}本）
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                            本人の確認が要る
+                          </span>
+                        )}
+                      </div>
+                      {verify.trust.reasons.map((reason) => (
+                        <p key={reason} className="text-[11px] text-amber-700">{reason}</p>
+                      ))}
+                      <ul className="divide-y divide-slate-100 text-xs">
+                        {verify.rows.map((row) => (
+                          <li key={row.label} className="flex items-center justify-between gap-2 py-1">
+                            <span className="truncate text-slate-700">{row.label}</span>
+                            <span className="flex items-center gap-1 tabular-nums text-slate-900">
+                              {row.value}
+                              {row.status === "read" && <FontAwesomeIcon icon={faCircleCheck} className="h-3 w-3 text-emerald-600" />}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      {verify.warnings.map((warning) => (
+                        <p key={warning} className="text-[11px] text-amber-700">{warning}</p>
+                      ))}
+                    </div>
+                  )}
+                </Step>
+
+                {/* 運用中にする。できない理由は横に出す */}
+                {canWrite && (
+                  <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-3">
+                    {draft.status !== "active" ? (
+                      <Button disabled={busy != null || activationBlockers.length > 0} onClick={() => void save({ status: "active" })}>
+                        運用中にする
+                      </Button>
+                    ) : (
+                      <Button variant="outline" disabled={busy != null} onClick={() => void save({ status: "retired" })}>
+                        停止する
+                      </Button>
+                    )}
+                    {draft.status !== "active" && activationBlockers.length > 0 && (
+                      <ul className="text-[11px] text-slate-500">
+                        {activationBlockers.map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {draft.status !== "active" && activationBlockers.length === 0 && !verified && (
+                      <span className="text-[11px] text-slate-500">試してからにすると安心</span>
+                    )}
+                    {draft.status === "draft" && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setConfirm({
+                            message: `${draft.name}を消します。よろしいですか。`,
+                            onConfirm: async () => {
+                              setConfirm(null);
+                              try {
+                                await apiFetch(`/api/admin/report-image-templates?id=${draft.id}`, { method: "DELETE" });
+                                setSelectedId(null);
+                                await mutate();
+                              } catch (e) {
+                                setError(e instanceof Error ? e.message : "消せませんでした");
+                              }
+                            },
+                          })
+                        }
+                        className="ml-auto text-[11px] text-red-600 hover:underline"
+                      >
+                        <FontAwesomeIcon icon={faTrash} className="mr-1 h-3 w-3" />
+                        この様式を消す
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <ConfirmDialog
-        open={confirm != null}
-        message={confirm?.message ?? ""}
-        tone="danger"
-        onConfirm={() => confirm?.onConfirm()}
-        onClose={() => setConfirm(null)}
-      />
-      <ErrorDialog open={error != null} message={error ?? ""} onClose={() => setError(null)} />
+        {creating && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setCreating(null)}>
+            <div className="w-full max-w-sm space-y-3 rounded-lg bg-white p-4" onClick={(event) => event.stopPropagation()}>
+              <h2 className="text-sm font-semibold text-slate-900">{carrier ? `${carrier.name}の様式を追加` : "様式を追加"}</h2>
+              <input
+                value={creating.name}
+                onChange={(event) => setCreating({ name: event.target.value })}
+                placeholder="配達集計精算書"
+                autoFocus
+                className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                aria-label="様式の名前"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && creating.name && carrierId) void create();
+                }}
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setCreating(null)}>
+                  やめる
+                </Button>
+                <Button disabled={!creating.name || !carrierId || busy != null} onClick={() => void create()}>
+                  作成
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <ConfirmDialog
+          open={confirm != null}
+          message={confirm?.message ?? ""}
+          tone="danger"
+          onConfirm={() => confirm?.onConfirm()}
+          onClose={() => setConfirm(null)}
+        />
+        <ErrorDialog open={error != null} message={error ?? ""} onClose={() => setError(null)} />
       </div>
     </AdminLayout>
   );

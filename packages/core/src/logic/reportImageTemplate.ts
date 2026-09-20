@@ -1362,3 +1362,90 @@ export function canSkipReview(trust: ReadTrust, options: { courseAllowsSkip?: bo
   if (trust.level === "verified") return true;
   return options.courseAllowsSkip === true;
 }
+
+// ------------------------------------------------------------
+// 見本を登録するときの向きの判定と、見出しの下ごしらえ
+//
+// 向きは「語の数」で決めてはいけない。横向きのまま読むとラテン文字の誤読が
+// 大量に出て、語数だけなら正しい向きより多くなる（実際に起きた）。
+// **日本語・数字として読めた語がどれだけあるか**で決める。
+// ------------------------------------------------------------
+
+const READABLE = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー々〆0-9０-９]+$/u;
+const SYMBOL_HEAVY = /[@&{}\[\]~^|<>$%#*=+;:'"`]/;
+
+/** 日本語か数字としてまともに読めた語か */
+export function isReadableWord(text: string): boolean {
+  const t = text.trim();
+  if (t.length === 0) return false;
+  if (SYMBOL_HEAVY.test(t)) return false;
+  return READABLE.test(t.normalize("NFKC")) || /^[A-Za-z]{2,}$/.test(t);
+}
+
+/**
+ * その向きで読んだ結果の「まともさ」。大きいほど正しい向きらしい。
+ * 日本語・数字の語を数え、記号まみれの語は差し引く。
+ */
+export function orientationScore(words: readonly { text: string }[]): number {
+  let score = 0;
+  for (const word of words) {
+    const t = word.text.trim();
+    if (!t) continue;
+    if (READABLE.test(t.normalize("NFKC"))) score += Math.min(4, t.length);
+    else if (SYMBOL_HEAVY.test(t)) score -= 1;
+  }
+  return score;
+}
+
+/** 見出しの候補として見せてよい語か（記号まみれ・1文字・数字だけを外す） */
+export function isAnchorCandidate(text: string): boolean {
+  const key = normalizeForMatch(text);
+  if (key.length < 2) return false;
+  if (/^[0-9]+$/.test(key)) return false;
+  if (SYMBOL_HEAVY.test(text)) return false;
+  // 半分以上が日本語・英数でない語は誤読
+  const good = (text.normalize("NFKC").match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ーA-Za-z0-9]/gu) ?? []).length;
+  return good >= Math.ceil(text.length * 0.6);
+}
+
+/**
+ * 様式を見分ける見出しを自動で選ぶ。上のほうにある、長めで一意な日本語を優先する。
+ * 管理者が最初から3つ選ばなくても様式が成立するようにする（あとから変えられる）。
+ */
+export function suggestRequiredAnchors(sampleWords: readonly SampleWord[], limit = 3): AnchorSpec[] {
+  const words: OcrWord[] = sampleWords.map((word) => ({ text: word.text, ...word.box }));
+  const unit = medianWordHeight(words) || 12;
+  const clusters: { text: string; box: Box }[] = [];
+  for (const line of buildLines(words)) {
+    let group: OcrWord[] = [];
+    const flush = () => {
+      if (group.length === 0) return;
+      clusters.push({ text: group.map((w) => w.text).join(""), box: boxOf(group) });
+      group = [];
+    };
+    for (const word of line.words) {
+      const previous = group[group.length - 1];
+      if (previous && word.x - (previous.x + previous.w) > unit * 1.2) flush();
+      group.push(word);
+    }
+    flush();
+  }
+  const texts = clusters.map((c) => c.text);
+  const usable = clusters.filter((cluster) => {
+    if (!isAnchorCandidate(cluster.text)) return false;
+    const key = normalizeForMatch(cluster.text);
+    if (/[0-9]/.test(key)) return false;
+    // 他の見出しに含まれる語・同じ語が2回出る語は見分けに使えない
+    return texts.filter((other) => normalizeForMatch(other).includes(key)).length === 1;
+  });
+  const height = Math.max(1, ...words.map((w) => w.y + w.h));
+  return usable
+    .map((cluster) => ({
+      cluster,
+      // 長い日本語ほど、上にあるほど「その画面の題」らしい
+      weight: Math.min(8, normalizeForMatch(cluster.text).length) * 2 - (cluster.box.y / height) * 4,
+    }))
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, limit)
+    .map(({ cluster }) => ({ text: cluster.text, match: "fuzzy" as const, sampleBox: cluster.box }));
+}

@@ -19,7 +19,9 @@ import {
   chooseTemplate,
   completeRead,
   estimateSkewAngle,
+  isReadableWord,
   locateFields,
+  orientationScore,
   medianWordHeight,
   readAreas,
   type AreaRefinement,
@@ -170,7 +172,12 @@ function invertCanvas(canvas: HTMLCanvasElement): void {
  * 角度は90度単位に限らない（写真で撮った画面の傾きを直すため）。
  * 暗い画面はここで反転して、以降を白背景に揃える。
  */
-export async function loadUpright(file: Blob, rotate: Rotation, angle: number = rotate): Promise<PreparedImage> {
+export async function loadUpright(
+  file: Blob,
+  rotate: Rotation,
+  angle: number = rotate,
+  options: { invert?: boolean } = {},
+): Promise<PreparedImage> {
   const bitmap = await createImageBitmap(file);
   try {
     if (bitmap.width * bitmap.height > 60_000_000) throw new Error("画像が大きすぎます");
@@ -186,7 +193,7 @@ export async function loadUpright(file: Blob, rotate: Rotation, angle: number = 
     context.rotate(radians);
     context.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
     context.setTransform(1, 0, 0, 1, 0, 0);
-    const inverted = isDarkCanvas(canvas);
+    const inverted = options.invert !== false && isDarkCanvas(canvas);
     if (inverted) invertCanvas(canvas);
     return { canvas, width: canvas.width, height: canvas.height, rotate, angle, inverted };
   } finally {
@@ -297,22 +304,50 @@ export async function refineAreas(prepared: PreparedImage, areas: readonly Field
   return { refinements, crops };
 }
 
-/** 見本として登録するときの読み取り（様式の設定画面が使う） */
-export async function readSample(
-  file: Blob,
-  rotate: Rotation,
-): Promise<{ page: OcrPage; prepared: PreparedImage; sample: { width: number; height: number; unitHeight: number; words: SampleWord[] } }> {
-  const prepared = await loadUpright(file, rotate);
-  const page = await readPage(prepared);
+export type SampleReading = {
+  rotate: Rotation;
+  page: OcrPage;
+  prepared: PreparedImage;
+  sample: { width: number; height: number; unitHeight: number; words: SampleWord[] };
+  /** 起こした向きの見本画像（反転していない）。これを見本として保存する */
+  uprightBlob: Blob;
+};
+
+/**
+ * 見本として登録するときの読み取り（様式の設定画面が使う）。
+ * 向きは4方向を試し、**日本語・数字としてまともに読めた量**で決める
+ * （語の数で決めると、横向きの誤読が語数だけ多くて勝ってしまう）。
+ * rotate を渡せばその向きで固定する（管理者の手動指定）。
+ */
+export async function readSample(file: Blob, rotate?: Rotation): Promise<SampleReading> {
+  const candidates: Rotation[] = rotate != null ? [rotate] : [0, 90, 270, 180];
+  let best: { rotate: Rotation; page: OcrPage; prepared: PreparedImage; score: number } | null = null;
+  for (const candidate of candidates) {
+    const prepared = await loadUpright(file, candidate);
+    const page = await readPage(prepared);
+    const score = orientationScore(page.words);
+    if (!best || score > best.score) best = { rotate: candidate, page, prepared, score };
+  }
+  if (!best) throw new Error("見本を読めませんでした");
+
+  // 表示・保存用は反転していない画像にする（管理者が見るのは実際のスクショ）
+  const display = await loadUpright(file, best.rotate, best.rotate, { invert: false });
+  const uprightBlob = await new Promise<Blob | null>((resolve) =>
+    display.canvas.toBlob((value) => resolve(value), "image/jpeg", 0.92),
+  );
+  if (!uprightBlob) throw new Error("見本を作れませんでした");
+
   return {
-    page,
-    prepared,
+    rotate: best.rotate,
+    page: best.page,
+    prepared: best.prepared,
+    uprightBlob,
     sample: {
-      width: prepared.width,
-      height: prepared.height,
-      unitHeight: Number(medianWordHeight(page.words).toFixed(1)),
-      words: page.words
-        .filter((word) => word.text.trim().length >= 2)
+      width: best.prepared.width,
+      height: best.prepared.height,
+      unitHeight: Number(medianWordHeight(best.page.words).toFixed(1)),
+      words: best.page.words
+        .filter((word) => word.text.trim().length >= 1 && isReadableWord(word.text))
         .map((word) => ({
           text: word.text,
           box: { x: Math.round(word.x), y: Math.round(word.y), w: Math.round(word.w), h: Math.round(word.h) },

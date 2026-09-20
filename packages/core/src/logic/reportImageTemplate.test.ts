@@ -6,13 +6,16 @@ import {
   chooseTemplate,
   completeRead,
   estimateSkewAngle,
+  isAnchorCandidate,
   judgeSourceImageDay,
+  orientationScore,
   locateFields,
   MAX_SAFE_OUTLIER_RATE,
   parseValue,
   readAreas,
   readWithTemplate,
   suggestAnchors,
+  suggestRequiredAnchors,
   validateTemplateDefinition,
   type ImageTemplate,
   type OcrPage,
@@ -699,5 +702,28 @@ describe("目視確認を省いてよいか", () => {
 
   it("必須の欄が読めていなければ省けない（人の入力が要る）", () => {
     expect(canSkipReview(trust({ incomplete: true }), { courseAllowsSkip: true })).toBe(false);
+  });
+});
+
+describe("見本の向きと見出しの下ごしらえ", () => {
+  it("横向きの誤読は語が多くても点が低い", () => {
+    const upright = [{ text: "配達集計精算書" }, { text: "ネコポス個数" }, { text: "44" }, { text: "2" }];
+    const sideways = [{ text: "19:5856@&D" }, { text: "Hafk" }, { text: "orf" }, { text: "Eo" }, { text: "{ik" }, { text: "KR~~" }, { text: "aN" }];
+    expect(orientationScore(upright)).toBeGreaterThan(orientationScore(sideways));
+  });
+
+  it("記号まみれの語は見出し候補にしない", () => {
+    expect(isAnchorCandidate("19:5856@&D")).toBe(false);
+    expect(isAnchorCandidate("{ik")).toBe(false);
+    expect(isAnchorCandidate("配達集計精算書")).toBe(true);
+    expect(isAnchorCandidate("B+C")).toBe(false);
+  });
+
+  it("様式を見分ける見出しを、上にある長い日本語から選ぶ", () => {
+    const words = samplePage().words.map((w) => ({ text: w.text, box: { x: w.x, y: w.y, w: w.w, h: w.h } }));
+    const picked = suggestRequiredAnchors(words);
+    expect(picked.map((a) => a.text)).toContain("配達集計精算書");
+    expect(picked.every((a) => !/[0-9]/.test(a.text))).toBe(true);
+    expect(picked.every((a) => a.sampleBox)).toBe(true);
   });
 });
