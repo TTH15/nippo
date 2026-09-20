@@ -25,6 +25,7 @@
 - 画面上部のバーでシナリオ・役割の切替、「次の保存を失敗させる」、「初期化」ができる。サイドバー・クイックリンクは pushState で遷移し、scenario/role を引き継ぐ。未登録ページへのリンクは一覧へ戻して案内を出す
 - 地図（`/preview/admin/map`）は Mapbox の公開キーが要るので `npm run preview:admin -- admin --port 3199 --mapbox` で起動する（`.env.local` の `NEXT_PUBLIC_MAPBOX_TOKEN` だけを読む）。シナリオは通常／位置なし／大量（40台密集）。共有ビューは Supabase Realtime を使うため常にオフのスタブ
 - 日報送信（`/preview/admin/submit`）はドライバー画面を同じ runner で開く。「車の置き場所」の候補・区画・別の場所・状況回答・未回答ブロック・保存失敗（上部バーの「次の保存を失敗させる」）を試せる。送信内容は console の `preview submit`
+- 日報の「画像から入力」: 同じ runner の `/preview/admin/submit`。架空の様式を1件返すので、画像を選ぶと端末内OCR→読み取り結果の確認画面→日報への反映まで試せる。`no-image-template` は様式が未登録で、画像は残せるが件数は手入力のままになる。様式に合わない画像を選ぶと「未対応」として手入力へ戻る経路を確認できる。原本の送信・読み取りの記録は fixture 止まりで、本番API・DB・通知には接続しない
 - 日報のログイン設定案内: `npm run preview:admin -- admin --port 3221` → `http://127.0.0.1:3221/preview/admin/submit?scenario=normal`。本番 `SubmitPageClientV2` / `LoginSetupPrompt` と `(user)/layout` のNav・UserBottomNavを再利用し、PCでも監査のため本文を表示。`normal`（SMS・鍵なし）/ `sms-only` / `complete` / `no-phone` / `setup-error` / `key-error` / `no-shifts` を切替。架空SMSコードは `123456`、`000000` は誤入力。SMS・OSのPasskey・本番API・DB・通知は呼ばない。入力保持・日報提出・設定完了での案内非表示、登録失敗→再試行、PC1280/スマホ390・320px（横はみ出しなし、操作高44px）を確認。実SMS到達・実端末の資格情報登録は別途確認が必要。
 - アカウント設定（`/preview/admin/account`）は本番 `/admin/account/page.tsx` を直接使う。通常／未登録／期限切れ／使用済み／認証保存失敗／利用停止／権限変更／最後の鍵／確認方法なしを切り替えられる。追加/削除時の本人確認は架空SMSコード `123456` または模擬Passkeyで進める。期限切れ・使用済み・保存失敗は2回目の登録操作で成功する。
 - シフト・シフトメモ（`/preview/admin/shifts`）も本番ページを直接使う。`npm run preview:admin -- admin --port 3215` → `http://127.0.0.1:3215/preview/admin/shifts?scenario=normal&role=admin`。通常／未設定／長い名前／多数／読み込み中／取得エラーに、`conflict`（同時変更）・`save-error`（初回反映失敗）・`unmapped`（名前の対応）を追加。メモの日別必要人数は即時更新、正式シフトへの反映は対象・差分・最終確認・失敗後の再確認を操作できる。保存は架空状態・プレビュー利用者専用localStorageで、再読み込み時に初期化。本番API・DB・通知・Realtimeに接続しない。既存の単独 `shifts` runner は維持。実装・監査範囲は [シフトメモ反映](../design/shift-memo-reflect-2026-09.md) を参照。
@@ -43,6 +44,8 @@
 | `/preview/admin/me?scenario=normal` | `/(user)/me/page.tsx`。PIN欄なし・電話確認・Passkey管理。`legacy` でもPIN操作は表示しない。`registered` は登録済み |
 | `/preview/admin/shifts?scenario=readiness` | `/admin/shifts/page.tsx` の未解決一覧（予定の未解決）。`readiness` は期限切れを含む8件、`readiness-light` は期限切れなし、`readiness-many` は40件・長いコース名、`conflict` はセル編集の409（他の人が先に変えた）。歯車の設定モーダルは4タブ（提出締切・便・必要人数・未解決の期限）で、いずれも `/api/admin/shift-deadlines` `/api/admin/shift-slots` `/api/admin/shifts/requirements` `/api/admin/shifts/readiness-settings` の fixture 付き。未保存のまま閉じると確認が出る |
 | `/preview/admin/my-shifts?scenario=normal` | `/(user)/shifts/page.tsx` の「予定の確認」。`none` は予定なし、`done` は全て確認済み、`changed` は確認後に予定が変わった状態、`save-error` は送信失敗→再試行 |
+| `/preview/admin/report-images?scenario=normal&role=admin` | `/admin/report-images/page.tsx`（画像の確認）。確定・確定待ち・手入力が混ざった一覧、読み取り値と確認後の値の対比、原本の表示。`empty` は提出なし、`long-name` は折り返し、`large` は40件、`error` は原本を開けないとき。原本は架空のSVGの表 |
+| `/preview/admin/report-image-templates?scenario=normal&role=admin` | `/admin/report-image-templates/page.tsx`（画像の様式）。架空の見本（その場で組み立てるSVGの表）に枠を引いて報告項目へ結び付け、見出しの必須/任意を切り替え、運用中にする。`empty` は未登録、`long-name` は折り返し、`large` は20件、`error` は保存失敗。見本の差し替えと「別のスクショで試す」は**端末内OCRが実際に走る**（自サイト配信の言語データを使い、画像は外部へ送らない）。[設計](../design/report-image-evidence-2026-09.md) |
 
 `loading` / `error` は共通状態。登録の再開確認は読み込み・失敗・再取得を表示する。シナリオ変更または再読み込みで架空状態を初期化する。ロゴ・余白・フォームは本番の実装を維持し、今回の登録導線だけを変更した。
 
