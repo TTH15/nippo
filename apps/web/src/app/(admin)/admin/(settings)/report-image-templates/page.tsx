@@ -173,6 +173,7 @@ export default function ReportImageTemplatesPage() {
   const [creating, setCreating] = useState<{ name: string } | null>(null);
   /** 今の画面で選んだ見本ファイル。向きを手で直すときに読み直す */
   const [lastSampleFile, setLastSampleFile] = useState<File | null>(null);
+  const [showAnchors, setShowAnchors] = useState(false);
   const sampleInput = useRef<HTMLInputElement>(null);
   const verifyInput = useRef<HTMLInputElement>(null);
 
@@ -271,7 +272,7 @@ export default function ReportImageTemplatesPage() {
   if (!hasSample) activationBlockers.push("見本を登録してください");
   if (entries.length === 0) activationBlockers.push("読み取る項目を囲んでください");
   else if (!fieldsDone) activationBlockers.push("報告項目を選んでいない項目があります");
-  if (!anchorsDone) activationBlockers.push("見分ける見出しがありません");
+  if (!anchorsDone) activationBlockers.push("見本から目印になる見出しが読めていません（見本を差し替える）");
 
   // --- 項目 ---
   const addField = (rect: Box) => {
@@ -607,6 +608,52 @@ export default function ReportImageTemplatesPage() {
                           {entries.length === 0 ? "数字の欄をドラッグで囲む" : "囲むと項目が増える。番号は右の一覧と対応"}
                         </p>
                       )}
+                      {/* この画面を何で見分けるか。機械が選ぶ。直したいときだけ開く */}
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-[11px] text-slate-600">
+                        {anchorsDone ? (
+                          <span>
+                            この画面の目印:{" "}
+                            {(draft.definition.match.required ?? []).map((anchor) => (
+                              <span key={anchor.text} className="mr-1 rounded bg-slate-100 px-1.5 py-0.5 text-slate-700">
+                                {anchor.text}
+                              </span>
+                            ))}
+                          </span>
+                        ) : (
+                          <span className="text-amber-700">この画面の目印になる見出しが読めていません</span>
+                        )}
+                        {canWrite && anchorCandidates.length > 0 && (
+                          <button type="button" onClick={() => setShowAnchors((open) => !open)} className="ml-auto text-slate-500 hover:text-slate-800">
+                            {showAnchors ? "閉じる" : "変える"}
+                          </button>
+                        )}
+                      </div>
+                      {showAnchors && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {anchorCandidates.map((candidate) => {
+                            const role = anchorRole(candidate.text);
+                            return (
+                              <button
+                                key={`${candidate.text}-${candidate.box.y}`}
+                                type="button"
+                                disabled={!canWrite}
+                                onClick={() => cycleAnchor(candidate)}
+                                className={`rounded border px-1.5 py-0.5 text-[11px] ${
+                                  role === "required"
+                                    ? "border-sky-500 bg-sky-50 text-sky-800"
+                                    : role === "optional"
+                                      ? "border-slate-400 bg-slate-50 text-slate-700"
+                                      : "border-slate-200 text-slate-500"
+                                }`}
+                              >
+                                {candidate.text}
+                                {role === "required" && "・目印"}
+                                {role === "optional" && "・補助"}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </>
                   ) : (
                     <button
@@ -784,43 +831,6 @@ export default function ReportImageTemplatesPage() {
 
                 <Step
                   number={3}
-                  title="見分ける見出し"
-                  done={anchorsDone}
-                  doneLabel={`${draft.definition.match.required?.length ?? 0}件（自動で選択）`}
-                  todoLabel="未選択"
-                >
-                  {anchorCandidates.length === 0 ? (
-                    <p className="py-4 text-center text-xs text-slate-400">{hasSample ? "見本から読めた見出しがありません" : "先に見本を登録する"}</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1">
-                      {anchorCandidates.map((candidate) => {
-                        const role = anchorRole(candidate.text);
-                        return (
-                          <button
-                            key={`${candidate.text}-${candidate.box.y}`}
-                            type="button"
-                            disabled={!canWrite}
-                            onClick={() => cycleAnchor(candidate)}
-                            className={`rounded border px-1.5 py-0.5 text-[11px] ${
-                              role === "required"
-                                ? "border-sky-500 bg-sky-50 text-sky-800"
-                                : role === "optional"
-                                  ? "border-slate-400 bg-slate-50 text-slate-700"
-                                  : "border-slate-200 text-slate-500"
-                            }`}
-                          >
-                            {candidate.text}
-                            {role === "required" && "・必須"}
-                            {role === "optional" && "・任意"}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </Step>
-
-                <Step
-                  number={4}
                   title="検算（合計＝内訳）"
                   done={checksCount > 0}
                   doneLabel={`${checksCount}本`}
@@ -903,7 +913,7 @@ export default function ReportImageTemplatesPage() {
                 </Step>
 
                 <Step
-                  number={5}
+                  number={4}
                   title="別のスクショで試す"
                   done={verified}
                   doneLabel={verify?.trust.level === "verified" ? "自動で確定できる" : "読める（本人の確認あり）"}

@@ -63,6 +63,8 @@ export function ReportImageReviewSheet({
 }) {
   const verified = trust.level === "verified";
   const [showEvidence, setShowEvidence] = useState(!verified);
+  // 理由と重なる警告は出さない（同じ文が2回並ぶと読みにくい）
+  const extraWarnings = warnings.filter((warning) => !trust.reasons.some((reason) => warning.startsWith(reason.slice(0, 12))));
   const boxes = useMemo(
     () => rows.filter((row) => row.box).map((row) => ({ id: row.fieldId, box: row.box as Box, read: row.status === "read" })),
     [rows],
@@ -131,9 +133,9 @@ export function ReportImageReviewSheet({
           </ul>
         )}
 
-        {showEvidence && warnings.length > 0 && (
+        {showEvidence && extraWarnings.length > 0 && (
           <ul className="space-y-1 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
-            {warnings.map((warning) => (
+            {extraWarnings.map((warning) => (
               <li key={warning} className="flex gap-2">
                 <FontAwesomeIcon icon={faTriangleExclamation} className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>{warning}</span>

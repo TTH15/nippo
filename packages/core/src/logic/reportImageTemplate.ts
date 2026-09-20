@@ -989,9 +989,13 @@ export function completeRead(
   // 「式が1本以上通っていて、全部閉じていて、読めない欄も確度の低い欄も無い」ときだけ、
   // 画像と見比べる作業を省く。式が1本も無い様式では省かない（確かめようがないため）。
   const reasons: string[] = [];
-  // 式が何本も通っているなら、見出しが1つ欠けていること自体は問題にしない
-  // （合計の一致は、見出しの数より強い証拠になる）
-  const arithmeticProof = checksRun >= 3 && checksFailed === 0;
+  // 日報へ入る値が全部、通った式で裏付けられているなら、見出しが1つ欠けていること自体は
+  // 問題にしない（合計の一致は、見出しの数より強い証拠になる）
+  const entryIds = (template.definition.fields ?? [])
+    .filter((field) => (field.role ?? "entry") === "entry")
+    .map((field) => field.id);
+  const arithmeticProof =
+    checksRun >= 1 && checksFailed === 0 && entryIds.length > 0 && entryIds.every((id) => corroborated.has(id));
   if (match.level !== "high" && !arithmeticProof) reasons.push("様式の見出しを一部しか確認できません");
 
   const entryFields = (template.definition.fields ?? []).filter((field) => (field.role ?? "entry") === "entry");
@@ -1418,15 +1422,24 @@ export function orientationScore(words: readonly { text: string }[]): number {
   return score;
 }
 
-/** 見出しの候補として見せてよい語か（記号まみれ・1文字・数字だけを外す） */
+/**
+ * 見出しの候補として使ってよい語か。
+ * 記号まみれ・1文字・数字だけ・**日本語と英字が混ざった崩れ**（「osトシMeメメ」「1トトES」）を外す。
+ * 日本語が主体の語か、英字だけの語（「EAZY」）だけを通す。
+ */
 export function isAnchorCandidate(text: string): boolean {
+  const normalized = text.normalize("NFKC").replace(/[\s　]/g, "");
   const key = normalizeForMatch(text);
   if (key.length < 2) return false;
   if (/^[0-9]+$/.test(key)) return false;
   if (SYMBOL_HEAVY.test(text)) return false;
-  // 半分以上が日本語・英数でない語は誤読
-  const good = (text.normalize("NFKC").match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ーA-Za-z0-9]/gu) ?? []).length;
-  return good >= Math.ceil(text.length * 0.6);
+  const jp = (normalized.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー々]/gu) ?? []).length;
+  const latin = (normalized.match(/[A-Za-z]/g) ?? []).length;
+  const digits = (normalized.match(/[0-9]/g) ?? []).length;
+  const other = normalized.length - jp - latin - digits;
+  if (other > 0) return false;
+  if (jp > 0) return jp >= Math.ceil(normalized.length * 0.8) && latin === 0;
+  return latin >= 3 && digits === 0;
 }
 
 /**
@@ -1444,16 +1457,20 @@ export function suggestRequiredAnchors(
   const usable = clusters.filter((cluster) => {
     if (!isAnchorCandidate(cluster.text)) return false;
     const key = normalizeForMatch(cluster.text);
-    if (/[0-9]/.test(key)) return false;
+    if (/[0-9]/.test(key) || key.length < 3) return false;
     // 他の見出しに含まれる語・同じ語が2回出る語は見分けに使えない
     return texts.filter((other) => normalizeForMatch(other).includes(key)).length === 1;
   });
   const height = Math.max(1, ...words.map((w) => w.y + w.h));
+  const unit = medianWordHeight(words) || 12;
   return usable
     .map((cluster) => ({
       cluster,
-      // 長い日本語ほど、上にあるほど「その画面の題」らしい
-      weight: Math.min(8, normalizeForMatch(cluster.text).length) * 2 - (cluster.box.y / height) * 4,
+      // 長い日本語ほど、文字が大きいほど、上にあるほど「その画面の題」らしい
+      weight:
+        Math.min(8, normalizeForMatch(cluster.text).length) * 2 +
+        Math.min(3, cluster.box.h / unit) * 2 -
+        (cluster.box.y / height) * 4,
     }))
     .sort((a, b) => b.weight - a.weight)
     .slice(0, limit)

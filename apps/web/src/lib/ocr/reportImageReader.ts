@@ -18,8 +18,9 @@ import {
   applyRefinements,
   chooseTemplate,
   completeRead,
-  clusterSampleWords,
+  buildLines,
   estimateSkewAngle,
+  isAnchorCandidate,
   isReadableWord,
   locateFields,
   orientationScore,
@@ -378,45 +379,54 @@ export async function readSample(file: Blob, rotate?: Rotation): Promise<SampleR
   };
 }
 
-/** 見出しの欄を切り出して読み直すときの目標の高さ。数字の欄より少し大きめ */
+/** 見出しの帯を切り出して読み直すときの目標の高さ。数字の欄より少し大きめ */
 const LABEL_TARGET_HEIGHT = 120;
 const LABEL_MAX_COUNT = 40;
 
 /**
- * 見出しの欄だけを切り出して読み直す（数字で効いた手を見出しにも掛ける）。
- * 全体を一度に読むと小さい見出しは崩れる（「ネコポス個数」→「ホス人数」）が、
- * 欄を切り出すと行見出しと題はほぼ正しく読める。列見出しの細かい文字は直らないことがある。
+ * 見出しを読み直す（数字で効いた手を見出しにも掛ける）。
+ *
+ * ★切り出すのは1段目の**語の枠ではなく、行の帯**（数字より左の部分をまるごと）。
+ *   語の枠で切ると、1段目で「ネコ｜ホス人数」と割れた見出しは後半だけを読み直すことになり、直らない。
+ *   帯ごと読めば「ネコポス個数」として出る（実画像で確認）。列見出しの細かい文字は直らないことがある。
  */
 async function refineLabels(prepared: PreparedImage, page: OcrPage): Promise<SampleWord[]> {
-  const clusters = clusterSampleWords(
-    page.words.map((word) => ({ text: word.text, box: { x: word.x, y: word.y, w: word.w, h: word.h } })),
-  )
-    // 数字だけの欄と、画面の幅の4割を超えるような長い行（文章）は見出しではない
-    .filter((cluster) => !/^[\d,\.\s]+$/.test(cluster.text.normalize("NFKC")) && cluster.box.w <= page.width * 0.4)
-    .slice(0, LABEL_MAX_COUNT);
-  if (clusters.length === 0) return [];
+  const isNumeric = (text: string) => /^[\d,\.]+$/.test(text.normalize("NFKC").trim());
+  const bands: Box[] = [];
+  for (const line of buildLines(page.words)) {
+    const textual = line.words.filter((word) => !isNumeric(word.text) && word.text.trim().length > 0);
+    if (textual.length === 0) continue;
+    const numeric = line.words.filter((word) => isNumeric(word.text));
+    const left = Math.max(0, Math.min(...textual.map((word) => word.x)) - line.box.h * 0.5);
+    const right = numeric.length
+      ? Math.min(...numeric.map((word) => word.x)) - 4
+      : Math.max(...textual.map((word) => word.x + word.w)) + line.box.h * 0.5;
+    const top = Math.max(0, line.box.y - line.box.h * 0.6);
+    const bottom = Math.min(prepared.height, line.box.y + line.box.h * 1.6);
+    const box: Box = { x: left, y: top, w: Math.min(prepared.width, right) - left, h: bottom - top };
+    // 細すぎる・長すぎる（文章）帯は見出しではない
+    if (box.w < 10 || box.h < 8 || box.w > prepared.width * 0.6) continue;
+    bands.push(box);
+    if (bands.length >= LABEL_MAX_COUNT) break;
+  }
+  if (bands.length === 0) return [];
 
   const worker = await getPageWorker();
   const { PSM } = await import("tesseract.js");
   await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
   const labels: SampleWord[] = [];
   try {
-    for (const cluster of clusters) {
-      const pad = Math.max(4, Math.round(cluster.box.h * 0.35));
-      const box: Box = {
-        x: cluster.box.x - pad,
-        y: cluster.box.y - pad,
-        w: cluster.box.w + pad * 2,
-        h: cluster.box.h + pad * 2,
-      };
+    for (const box of bands) {
       const canvas = cropCanvas(prepared, box, { targetHeight: LABEL_TARGET_HEIGHT, threshold: true });
       if (!canvas) continue;
       const { data } = await worker.recognize(canvas);
-      const firstLine = (data.text ?? "").split(/\r?\n/).map((line) => line.replace(/\s+/g, "")).find((line) => line.length > 0) ?? "";
-      // 読み直してもまともでなければ、1段目の語のままにしておく（誤読で上書きしない）
-      if (firstLine.length >= 2 && orientationScore([{ text: firstLine }]) > 0) {
-        labels.push({ text: firstLine, box: cluster.box });
-      }
+      const firstLine =
+        (data.text ?? "")
+          .split(/\r?\n/)
+          .map((line) => line.replace(/\s+/g, ""))
+          .find((line) => line.length > 0) ?? "";
+      // 読み直しても崩れたものは残さない（崩れた見出しは、無いほうがまだ安全）
+      if (firstLine.length >= 2 && isAnchorCandidate(firstLine)) labels.push({ text: firstLine, box });
     }
   } finally {
     await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
@@ -475,8 +485,9 @@ export async function readReportImage(
     if (matched && (!best || score > best.score)) {
       best = { prepared, page, template: matched, score, ambiguous: choice.ambiguous };
     }
-    // 様式が確かに分かったらそこで止める（角度を全部試すと端末が待たされる）
-    if (choice.best?.level === "high") break;
+    // 様式に当てはまった時点で止める（4方向すべて読むと端末で数倍待たされる）。
+    // 向きの候補は様式のヒントから並べてあるので、最初に当たるのが普通
+    if (choice.best) break;
   }
 
   if (!best) {

@@ -54,6 +54,8 @@ export function ReportImageReviewSheet({
 }) {
   const verified = trust.level === "verified";
   const [showEvidence, setShowEvidence] = useState(!verified);
+  // 理由と重なる警告は出さない
+  const extraWarnings = warnings.filter((warning) => !trust.reasons.some((reason) => warning.startsWith(reason.slice(0, 12))));
   const canConfirm = rows.some((row) => row.value != null) && !saving;
 
   return (
@@ -88,9 +90,9 @@ export function ReportImageReviewSheet({
             </View>
           )}
 
-          {showEvidence && warnings.length > 0 && (
+          {showEvidence && extraWarnings.length > 0 && (
             <View className="gap-1 rounded-lg bg-brand-50 p-3">
-              {warnings.map((warning) => (
+              {extraWarnings.map((warning) => (
                 <Text key={warning} className="text-xs text-brand-700">
                   {warning}
                 </Text>

@@ -727,3 +727,69 @@ describe("見本の向きと見出しの下ごしらえ", () => {
     expect(picked.every((a) => a.sampleBox)).toBe(true);
   });
 });
+
+describe("見出しの候補の絞り込み（崩れを通さない）", () => {
+  it("日本語と英字が混ざった崩れは通さない", () => {
+    expect(isAnchorCandidate("osトシMeメメ")).toBe(false);
+    expect(isAnchorCandidate("1トトES")).toBe(false);
+  });
+
+  it("日本語主体か、英字だけの語は通す", () => {
+    expect(isAnchorCandidate("ネコポス個数")).toBe(true);
+    expect(isAnchorCandidate("宅急便コンパクト")).toBe(true);
+    expect(isAnchorCandidate("EAZY")).toBe(true);
+    expect(isAnchorCandidate("計A")).toBe(false);
+  });
+
+  it("日報へ入る値が全部式で裏付けられていれば、見出しの欠けを理由に確認を求めない", () => {
+    const withCheck: ImageTemplate = {
+      ...template,
+      definition: {
+        ...template.definition,
+        match: {
+          ...template.definition.match,
+          // 写らない見出しを必須に2つ入れてしまった様式（一致は「低」になる）
+          required: [
+            ...template.definition.match.required,
+            { text: "存在しない見出し", match: "fuzzy" },
+            { text: "これも無い見出し", match: "fuzzy" },
+          ],
+        },
+        fields: [
+          {
+            id: "takkyubin-done",
+            unitId: "unit-takkyubin",
+            fieldKey: "completed",
+            label: "宅急便 配完",
+            value: { type: "int" },
+            locator: { kind: "cell", row: { text: "宅急便個数", match: "fuzzy" }, column: { text: "計B", match: "fuzzy" } },
+            required: true,
+          },
+          {
+            id: "nekopos-done",
+            unitId: "unit-nekopos",
+            fieldKey: "completed",
+            label: "ネコポス 配完",
+            value: { type: "int" },
+            locator: { kind: "cell", row: { text: "ネコポス個数", match: "fuzzy" }, column: { text: "計B", match: "fuzzy" } },
+            required: true,
+          },
+          {
+            id: "total-done",
+            role: "check",
+            unitId: "",
+            fieldKey: "",
+            label: "合計 配完",
+            value: { type: "int" },
+            locator: { kind: "cell", row: { text: "合計", match: "fuzzy" }, column: { text: "計B", match: "fuzzy" } },
+            required: false,
+          },
+        ],
+        checks: [{ kind: "sum", totalFieldId: "total-done", partFieldIds: ["takkyubin-done", "nekopos-done"] }],
+      },
+    };
+    const result = readWithTemplate(samplePage(), withCheck);
+    expect(result.match.level).toBe("low");
+    expect(result.trust.level).toBe("verified");
+  });
+});

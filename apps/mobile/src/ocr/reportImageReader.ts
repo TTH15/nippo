@@ -173,7 +173,8 @@ export async function readReportImage(
     attempts.push({ rotate, score });
     const matched = choice.best ? (templates.find((t) => t.key === choice.best?.templateKey) ?? null) : null;
     if (matched && (!best || score > best.score)) best = { prepared, page, template: matched, score };
-    if (choice.best?.level === "high") break;
+    // 様式に当てはまった時点で止める（4方向すべて読むと実機で数倍待たされる）
+    if (choice.best) break;
   }
 
   if (!best) {
