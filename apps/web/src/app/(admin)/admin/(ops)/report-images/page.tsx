@@ -143,7 +143,16 @@ export default function ReportImagesPage() {
             ariaLabel="期間の終了日"
             className="h-10 w-44"
           />
-          <CustomSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} className="h-10 w-40" />
+          <div className="w-44">
+            <CustomSelect
+              value={status}
+              onChange={setStatus}
+              options={STATUS_OPTIONS}
+              ariaLabel="状態で絞る"
+              size="sm"
+              clearable={false}
+            />
+          </div>
           {needsReview > 0 && (
             <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">
               確認 {needsReview}件

@@ -14,7 +14,10 @@ export async function apiUpload<T = unknown>(path: string, form: FormData): Prom
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `HTTP ${response.status}`);
+    if (body?.error) throw new Error(body.error);
+    // 404 は「送信先が無い」＝配信の設定ミス。生の HTTP 404 だけだと原因が分からない
+    if (response.status === 404) throw new Error(`送信先が見つかりません（${path}）`);
+    throw new Error(`送信できませんでした（HTTP ${response.status}）`);
   }
   return (await response.json()) as T;
 }

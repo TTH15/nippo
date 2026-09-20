@@ -3,11 +3,13 @@ node_modules
 .git
 apps/mobile
 apps/base
-sample
-# ルート直下の請求書PDF保管庫だけを除外する。
-# `invoice` だけだと apps/web/public/invoice まで除外され、社印PNGが本番404になる。
+# ルート直下のものは必ず / で始める。名前だけ書くと**パスの途中の同名ディレクトリまで消える**。
+# `invoice` で apps/web/public/invoice（社印PNG）が、`sample` で
+# apps/web/src/app/api/admin/report-image-templates/sample（見本アップロードのAPI）が
+# 本番404になった（2026-09-20）。
+/sample/
 /invoice/
-docs
+/docs/
 *.log
 # 独自名のDB接続ファイルも含め、ローカル環境値をアップロードしない。
 .env*

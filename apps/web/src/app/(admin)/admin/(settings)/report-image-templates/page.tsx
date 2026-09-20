@@ -443,39 +443,50 @@ export default function ReportImageTemplatesPage() {
             </p>
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-3">
-                <input
-                  value={draft.name}
-                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                  className="h-10 min-w-48 flex-1 rounded-lg border border-slate-300 px-3 text-sm"
-                  aria-label="様式の名前"
-                  disabled={!canWrite}
-                />
-                <CustomSelect
-                  value={draft.carrier_id ?? ""}
-                  onChange={(value) => setDraft({ ...draft, carrier_id: value || null })}
-                  options={carriers.map((c) => ({ value: c.id, label: c.name }))}
-                  className="h-10 w-48"
-                />
-                <span className="rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
-                  第{draft.version}版・{STATUS_LABEL[draft.status]}
-                </span>
-                {canWrite && (
-                  <>
-                    <Button variant="outline" disabled={busy != null} onClick={() => void save()}>
-                      {busy ?? "保存"}
-                    </Button>
-                    {draft.status !== "active" ? (
-                      <Button disabled={busy != null} onClick={() => void save({ status: "active" })}>
-                        運用中にする
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    value={draft.name}
+                    onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                    className="h-10 w-full flex-1 rounded-lg border border-slate-300 px-3 text-sm"
+                    aria-label="様式の名前"
+                    placeholder="配達集計精算書"
+                    disabled={!canWrite}
+                  />
+                  {/* CustomSelect は親の幅いっぱいに広がる。幅は外側の箱で決める */}
+                  <div className="w-full sm:w-52">
+                    <CustomSelect
+                      value={draft.carrier_id ?? ""}
+                      onChange={(value) => value && setDraft({ ...draft, carrier_id: value })}
+                      options={carriers.map((c) => ({ value: c.id, label: c.name }))}
+                      ariaLabel="荷主"
+                      size="sm"
+                      clearable={false}
+                      disabled={!canWrite}
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+                  <span className="rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                    第{draft.version}版・{STATUS_LABEL[draft.status]}
+                  </span>
+                  {canWrite && (
+                    <div className="ml-auto flex items-center gap-2">
+                      <Button variant="outline" size="sm" disabled={busy != null} onClick={() => void save()}>
+                        {busy ?? "保存"}
                       </Button>
-                    ) : (
-                      <Button variant="outline" disabled={busy != null} onClick={() => void save({ status: "retired" })}>
-                        停止する
-                      </Button>
-                    )}
-                  </>
-                )}
+                      {draft.status !== "active" ? (
+                        <Button size="sm" disabled={busy != null} onClick={() => void save({ status: "active" })}>
+                          運用中にする
+                        </Button>
+                      ) : (
+                        <Button variant="outline" size="sm" disabled={busy != null} onClick={() => void save({ status: "retired" })}>
+                          停止する
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="grid gap-4 xl:grid-cols-2">
@@ -521,7 +532,7 @@ export default function ReportImageTemplatesPage() {
                       readOnly={!canWrite}
                     />
                   ) : (
-                    <p className="rounded-lg border border-dashed border-slate-200 py-12 text-center text-xs text-slate-400">
+                    <p className="rounded-lg border border-dashed border-slate-200 py-8 text-center text-xs text-slate-400">
                       見本の画像がありません
                     </p>
                   )}
@@ -580,17 +591,22 @@ export default function ReportImageTemplatesPage() {
                                 aria-label="項目の名前"
                                 disabled={!canWrite}
                               />
-                              <CustomSelect
-                                value={field.value.type}
-                                onChange={(value) =>
-                                  patchField(field.id, {
-                                    value: { ...field.value, type: value as TemplateField["value"]["type"] },
-                                    role: value === "date" ? "date" : "entry",
-                                  })
-                                }
-                                options={VALUE_TYPES}
-                                className="h-9 w-32"
-                              />
+                              <div className="w-36 shrink-0">
+                                <CustomSelect
+                                  value={field.value.type}
+                                  onChange={(value) =>
+                                    patchField(field.id, {
+                                      value: { ...field.value, type: value as TemplateField["value"]["type"] },
+                                      role: value === "date" ? "date" : "entry",
+                                    })
+                                  }
+                                  options={VALUE_TYPES}
+                                  ariaLabel="値の種類"
+                                  size="sm"
+                                  clearable={false}
+                                  disabled={!canWrite}
+                                />
+                              </div>
                               {canWrite && (
                                 <button
                                   type="button"
@@ -669,21 +685,31 @@ export default function ReportImageTemplatesPage() {
                             )}
                             {(field.role ?? "entry") === "entry" && (
                               <div className="flex flex-wrap items-center gap-2">
-                                <CustomSelect
-                                  value={field.unitId}
-                                  onChange={(value) => patchField(field.id, { unitId: value, fieldKey: "" })}
-                                  options={[{ value: "", label: "報告単位" }, ...unitOptions.map(({ value, label }) => ({ value, label }))]}
-                                  className="h-9 w-56"
-                                />
-                                <CustomSelect
-                                  value={field.fieldKey}
-                                  onChange={(value) => patchField(field.id, { fieldKey: value })}
-                                  options={[
-                                    { value: "", label: "報告項目" },
-                                    ...(unit?.fields ?? []).map((f) => ({ value: f.field_key, label: f.label })),
-                                  ]}
-                                  className="h-9 w-48"
-                                />
+                                <div className="w-56">
+                                  <CustomSelect
+                                    value={field.unitId}
+                                    onChange={(value) => patchField(field.id, { unitId: value, fieldKey: "" })}
+                                    options={[{ value: "", label: "報告単位" }, ...unitOptions.map(({ value, label }) => ({ value, label }))]}
+                                    ariaLabel="報告単位"
+                                    size="sm"
+                                    clearable={false}
+                                    disabled={!canWrite}
+                                  />
+                                </div>
+                                <div className="w-48">
+                                  <CustomSelect
+                                    value={field.fieldKey}
+                                    onChange={(value) => patchField(field.id, { fieldKey: value })}
+                                    options={[
+                                      { value: "", label: "報告項目" },
+                                      ...(unit?.fields ?? []).map((f) => ({ value: f.field_key, label: f.label })),
+                                    ]}
+                                    ariaLabel="報告項目"
+                                    size="sm"
+                                    clearable={false}
+                                    disabled={!canWrite}
+                                  />
+                                </div>
                                 <CheckboxField
                                   checked={field.required}
                                   onCheckedChange={(checked) => patchField(field.id, { required: checked })}
@@ -717,12 +743,17 @@ export default function ReportImageTemplatesPage() {
                           return (
                             <li key={`${check.totalFieldId}-${index}`} className="space-y-1.5 rounded-lg border border-slate-200 p-2">
                               <div className="flex items-center gap-2">
-                                <CustomSelect
-                                  value={check.totalFieldId}
-                                  onChange={(value) => patchCheck(index, { totalFieldId: value })}
-                                  options={entries.map((field) => ({ value: field.id, label: field.label }))}
-                                  className="h-9 w-48"
-                                />
+                                <div className="w-48">
+                                  <CustomSelect
+                                    value={check.totalFieldId}
+                                    onChange={(value) => patchCheck(index, { totalFieldId: value })}
+                                    options={entries.map((field) => ({ value: field.id, label: field.label }))}
+                                    ariaLabel="合計の項目"
+                                    size="sm"
+                                    clearable={false}
+                                    disabled={!canWrite}
+                                  />
+                                </div>
                                 <span className="text-xs text-slate-500">＝ 内訳の合計</span>
                                 {canWrite && (
                                   <button
