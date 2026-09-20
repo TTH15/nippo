@@ -9,6 +9,7 @@
 //   - 版を分ける。確定済みの日報を別の版で読み直して上書きしない
 // ============================================================
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadOrgCarrierIds } from "@/server/carriers/orgCarriers";
 import {
   validateTemplateDefinition,
   type ImageTemplate,
@@ -85,8 +86,12 @@ export function parseTemplateInput(raw: unknown, options: { allowEmpty?: boolean
 }
 
 /**
- * 様式が指している報告項目が自社のものか確かめる。
- * 他社の unit / field を指した様式を保存させない（値の流出も混入も防ぐ）。
+ * 様式が指している報告項目を、当 org が扱えるキャリアの配下に限る。
+ *
+ * ★carriers / units には org_id が無い（全社共通の表）。org との結び付きは
+ *   company_carriers（有効化したキャリア）だけ。ここを `.eq("org_id", …)` で
+ *   絞ろうとして「その荷主は選べません」になった（2026-09-20）。
+ *   company_carriers が未設定の org は全キャリアを許す（既存の読み取りと同じ扱い）。
  */
 export async function verifyBindings(
   db: SupabaseClient,
@@ -97,17 +102,12 @@ export async function verifyBindings(
   const unitIds = Array.from(new Set(entries.map((field) => field.unitId).filter(Boolean)));
   if (unitIds.length === 0) return [];
 
-  const { data: carriers, error: carrierError } = await db.from("carriers").select("id").eq("org_id", orgId);
-  if (carrierError) return ["報告項目を確認できませんでした"];
-  const carrierIds = (carriers ?? []).map((row) => row.id as string);
-  if (carrierIds.length === 0) return ["報告項目が登録されていません"];
+  const orgCarrierIds = await loadOrgCarrierIds(db, orgId);
 
-  const { data: units, error: unitError } = await db
-    // tenant-scope-ok: carrierIds は org 絞りで作った集合
-    .from("units")
-    .select("id, carrier_id")
-    .in("id", unitIds)
-    .in("carrier_id", carrierIds);
+  const unitsQuery = db.from("units").select("id, carrier_id").in("id", unitIds);
+  const { data: units, error: unitError } = await (orgCarrierIds
+    ? unitsQuery.in("carrier_id", orgCarrierIds)
+    : unitsQuery);
   if (unitError) return ["報告項目を確認できませんでした"];
   const ownUnits = new Set((units ?? []).map((row) => row.id as string));
 

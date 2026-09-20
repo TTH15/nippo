@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { orgOwnsCarrier } from "@/server/carriers/orgCarriers";
 import {
   parseTemplateInput,
   readyForActivation,
@@ -54,14 +55,9 @@ export async function POST(req: NextRequest) {
   if (bindingErrors.length > 0) {
     return NextResponse.json({ error: bindingErrors[0], errors: bindingErrors }, { status: 400 });
   }
-  if (parsed.value.carrierId) {
-    const { data: carrier } = await supabase
-      .from("carriers")
-      .select("id")
-      .eq("id", parsed.value.carrierId)
-      .eq("org_id", orgId)
-      .maybeSingle();
-    if (!carrier) return NextResponse.json({ error: "その荷主は選べません" }, { status: 400 });
+  // carriers に org_id は無い。org との結び付きは company_carriers（有効化したキャリア）
+  if (parsed.value.carrierId && !(await orgOwnsCarrier(supabase, orgId, parsed.value.carrierId))) {
+    return NextResponse.json({ error: "その荷主は選べません" }, { status: 400 });
   }
 
   // 同じ識別子があれば版を上げる。前の版は消さず、新しい版を編集中で足す
