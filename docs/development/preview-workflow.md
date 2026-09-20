@@ -45,7 +45,7 @@
 | `/preview/admin/shifts?scenario=readiness` | `/admin/shifts/page.tsx` の未解決一覧（予定の未解決）。`readiness` は期限切れを含む8件、`readiness-light` は期限切れなし、`readiness-many` は40件・長いコース名、`conflict` はセル編集の409（他の人が先に変えた）。歯車の設定モーダルは4タブ（提出締切・便・必要人数・未解決の期限）で、いずれも `/api/admin/shift-deadlines` `/api/admin/shift-slots` `/api/admin/shifts/requirements` `/api/admin/shifts/readiness-settings` の fixture 付き。未保存のまま閉じると確認が出る |
 | `/preview/admin/my-shifts?scenario=normal` | `/(user)/shifts/page.tsx` の「予定の確認」。`none` は予定なし、`done` は全て確認済み、`changed` は確認後に予定が変わった状態、`save-error` は送信失敗→再試行 |
 | `/preview/admin/report-images?scenario=normal&role=admin` | `/admin/report-images/page.tsx`（画像の確認）。確定・確定待ち・手入力が混ざった一覧、読み取り値と確認後の値の対比、原本の表示。`empty` は提出なし、`long-name` は折り返し、`large` は40件、`error` は原本を開けないとき。原本は架空のSVGの表 |
-| `/preview/admin/report-image-templates?scenario=normal&role=admin` | `/admin/report-image-templates/page.tsx`（画像の様式）。架空の見本（その場で組み立てるSVGの表）に枠を引いて報告項目へ結び付け、見出しの必須/任意を切り替え、運用中にする。`empty` は未登録、`long-name` は折り返し、`large` は20件、`error` は保存失敗。見本の差し替えと「別のスクショで試す」は**端末内OCRが実際に走る**（自サイト配信の言語データを使い、画像は外部へ送らない）。[設計](../design/report-image-evidence-2026-09.md) |
+| `/preview/admin/report-image-templates?scenario=normal&role=admin&carrier=carrier-yamato` | `/admin/report-image-templates/page.tsx`（画像の様式）。`carrier` を付けるとキャリア設定から開いた状態になり、様式を追加できる（本番の入口は `/admin/carriers` の「画像の様式」）。架空の見本（その場で組み立てるSVGの表）に枠を引いて報告項目へ結び付け、見出しの必須/任意を切り替え、運用中にする。`empty` は未登録、`long-name` は折り返し、`large` は20件、`error` は保存失敗。見本の差し替えと「別のスクショで試す」は**端末内OCRが実際に走る**（自サイト配信の言語データを使い、画像は外部へ送らない）。[設計](../design/report-image-evidence-2026-09.md) |
 
 `loading` / `error` は共通状態。登録の再開確認は読み込み・失敗・再取得を表示する。シナリオ変更または再読み込みで架空状態を初期化する。ロゴ・余白・フォームは本番の実装を維持し、今回の登録導線だけを変更した。
 

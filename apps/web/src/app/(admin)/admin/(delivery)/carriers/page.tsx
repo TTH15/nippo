@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faPenToSquare, faTrash, faTruck } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faPenToSquare, faTrash, faTruck, faImage } from "@fortawesome/free-solid-svg-icons";
+import Link from "next/link";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -29,6 +30,7 @@ type Field = {
 };
 type Unit = { id: string; carrier_id: string; name: string; code: string | null; billing_type: BillingType; sort_order: number; active: boolean; fields: Field[] };
 type Carrier = { id: string; name: string; code: string | null; sort_order: number; active: boolean; units: Unit[] };
+type ImageTemplateRow = { id: string; carrier_id: string | null; name: string; version: number; status: string };
 
 const INPUT_TYPE_LABEL: Record<InputType, string> = { INT: "数値", TEXT: "テキスト", TIME: "時刻", BOOL: "はい/いいえ" };
 
@@ -91,6 +93,15 @@ export default function CarriersPage() {
 
   const fail = (e: unknown) => setErrorState({ message: e instanceof Error ? e.message : "操作に失敗しました" });
   const selected = useMemo(() => carriers.find((c) => c.id === selectedId) ?? null, [carriers, selectedId]);
+
+  // 画像の様式はキャリアの画面を読む設定。報告項目と同じ場所から辿れるようにする
+  const { data: templateData } = useApi<{ templates: ImageTemplateRow[]; unavailable?: boolean }>(
+    "/api/admin/report-image-templates",
+  );
+  const carrierTemplates = useMemo(
+    () => (templateData?.templates ?? []).filter((template) => template.carrier_id === selectedId),
+    [templateData, selectedId],
+  );
 
   function askDelete(message: string, fn: () => Promise<void>) {
     setConfirmState({
@@ -328,6 +339,49 @@ export default function CarriersPage() {
                       <FontAwesomeIcon icon={faPlus} className="mr-1" />型(unit)を追加
                     </button>
                   )}
+
+                  {/* 画像の様式。このキャリアの画面を読んで、上の報告項目へ入れる決め */}
+                  <div className="soft-rise rounded-lg border border-slate-200 bg-white">
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
+                      <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                        <FontAwesomeIcon icon={faImage} className="h-3.5 w-3.5 text-slate-400" />
+                        画像の様式
+                      </span>
+                      {canWrite && (
+                        <Link
+                          href={`/admin/report-image-templates?carrier=${selected.id}`}
+                          className="text-[11px] text-slate-600 hover:text-slate-900"
+                        >
+                          <FontAwesomeIcon icon={faPlus} className="mr-1" />
+                          様式を追加
+                        </Link>
+                      )}
+                    </div>
+                    {carrierTemplates.length === 0 ? (
+                      <p className="px-4 py-3 text-xs text-slate-400">配完表などのスクショから件数を読む設定はまだありません。</p>
+                    ) : (
+                      <ul className="divide-y divide-slate-100">
+                        {carrierTemplates.map((template) => (
+                          <li key={template.id}>
+                            <Link
+                              href={`/admin/report-image-templates?carrier=${selected.id}&template=${template.id}`}
+                              className="flex items-center gap-2 px-4 py-2 text-xs hover:bg-slate-50"
+                            >
+                              <span className="min-w-0 flex-1 truncate text-slate-700">{template.name}</span>
+                              <span className="text-slate-400">第{template.version}版</span>
+                              <span
+                                className={`rounded px-1.5 py-0.5 font-medium ${
+                                  template.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
+                                }`}
+                              >
+                                {template.status === "active" ? "運用中" : template.status === "draft" ? "編集中" : "停止"}
+                              </span>
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

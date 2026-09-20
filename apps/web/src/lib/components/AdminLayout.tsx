@@ -89,7 +89,6 @@ const navItems: NavItem[] = [
       { href: "/admin/organization", label: "会社設定", icon: faBuilding, cap: "can_view_org_settings" },
       { href: "/admin/roles", label: "ロール・権限", icon: faUserShield, cap: "can_view_members" },
       { href: "/admin/carriers", label: "キャリア／フォーム設計", icon: faTruck, cap: "can_view_org_settings" },
-      { href: "/admin/report-image-templates", label: "画像の様式", icon: faImage, cap: "can_view_org_settings", beta: true },
       { href: "/admin/courses", label: "コース／単価表", icon: faRoute, cap: "can_view_org_settings" },
       { href: "/admin/record-forms", label: "フォーム管理", icon: faFileLines, cap: "can_manage_record_forms" },
       { href: "/admin/report-kinds", label: "報告種別", icon: faFileLines, cap: "can_view_org_settings" },

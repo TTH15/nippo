@@ -10,6 +10,7 @@ import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { CheckboxField } from "@/lib/components/CheckboxField";
 import { Button } from "@/lib/ui/button";
+import Link from "next/link";
 import { apiFetch, apiUpload } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { hasCapability } from "@/lib/capabilities";
@@ -71,6 +72,19 @@ const emptyDefinition = (): ImageTemplateDefinition => ({
   sample: null,
 });
 
+/** 様式の識別子は人が考えるものではない。名前から機械が作る */
+function templateKeyFromName(name: string, taken: readonly string[]): string {
+  const base = `form-${Date.now().toString(36)}`;
+  const ascii = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  const candidate = /^[a-z0-9][a-z0-9_-]{1,59}$/.test(ascii) ? ascii : base;
+  if (!taken.includes(candidate)) return candidate;
+  return `${candidate.slice(0, 50)}-${Date.now().toString(36).slice(-4)}`;
+}
+
 export default function ReportImageTemplatesPage() {
   const [canWrite, setCanWrite] = useState(false);
   useEffect(() => setCanWrite(hasCapability("can_manage_carriers")), []);
@@ -97,10 +111,25 @@ export default function ReportImageTemplatesPage() {
     rows: { label: string; value: string; status: string }[];
     warnings: string[];
   } | null>(null);
-  const [creating, setCreating] = useState<{ name: string; key: string; carrierId: string | null } | null>(null);
+  const [creating, setCreating] = useState<{ name: string } | null>(null);
+  /** どのキャリアの画面を扱っているか。キャリア設定からの遷移で決まる */
+  const [carrierId, setCarrierId] = useState<string | null>(null);
   const sampleInput = useRef<HTMLInputElement>(null);
   const verifyInput = useRef<HTMLInputElement>(null);
 
+  // /admin/carriers から「このキャリアの様式」として開く
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setCarrierId(params.get("carrier"));
+    const template = params.get("template");
+    if (template) setSelectedId(template);
+  }, []);
+
+  const visible = useMemo(
+    () => (carrierId ? templates.filter((template) => template.carrier_id === carrierId) : templates),
+    [templates, carrierId],
+  );
+  const carrier = useMemo(() => carriers.find((row) => row.id === carrierId) ?? null, [carriers, carrierId]);
   const selected = useMemo(() => templates.find((t) => t.id === selectedId) ?? null, [templates, selectedId]);
 
   useEffect(() => {
@@ -242,15 +271,16 @@ export default function ReportImageTemplatesPage() {
   };
 
   const create = async () => {
-    if (!creating) return;
+    if (!creating || !carrierId) return;
     setBusy("作成中…");
     try {
       const response = await apiFetch<{ template: TemplateRow }>("/api/admin/report-image-templates", {
         method: "POST",
         body: JSON.stringify({
-          templateKey: creating.key,
+          // 識別子は名前から作る。運営に内部の値を考えさせない
+          templateKey: templateKeyFromName(creating.name, templates.map((row) => row.template_key)),
           name: creating.name,
-          carrierId: creating.carrierId,
+          carrierId,
           definition: emptyDefinition(),
         }),
       });
@@ -354,10 +384,16 @@ export default function ReportImageTemplatesPage() {
   return (
     <AdminLayout>
       <div className="mx-auto max-w-6xl px-4 py-6">
-      <h1 className="mb-3 flex items-center gap-2 text-xl font-bold text-slate-900">
-        <FontAwesomeIcon icon={faImage} className="h-5 w-5 text-slate-400" />
-        画像の様式
-      </h1>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+          <FontAwesomeIcon icon={faImage} className="h-5 w-5 text-slate-400" />
+          画像の様式
+        </h1>
+        {carrier && <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{carrier.name}</span>}
+        <Link href="/admin/carriers" className="ml-auto text-xs text-slate-500 hover:text-slate-800">
+          キャリア／フォーム設計へ戻る
+        </Link>
+      </div>
       {data?.unavailable && (
         <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
           <FontAwesomeIcon icon={faTriangleExclamation} className="mr-2 h-3.5 w-3.5" />
@@ -371,7 +407,7 @@ export default function ReportImageTemplatesPage() {
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => setCreating({ name: "", key: "", carrierId: null })}
+              onClick={() => setCreating({ name: "" })}
             >
               <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" />
               様式を追加
@@ -381,7 +417,7 @@ export default function ReportImageTemplatesPage() {
             <Skeleton className="h-40 w-full" />
           ) : (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
-              {templates.map((template) => (
+              {visible.map((template) => (
                 <li key={template.id}>
                   <button
                     type="button"
@@ -395,7 +431,7 @@ export default function ReportImageTemplatesPage() {
                   </button>
                 </li>
               ))}
-              {templates.length === 0 && <li className="px-3 py-6 text-center text-xs text-slate-400">様式がありません</li>}
+              {visible.length === 0 && <li className="px-3 py-6 text-center text-xs text-slate-400">様式がありません</li>}
             </ul>
           )}
         </aside>
@@ -418,7 +454,7 @@ export default function ReportImageTemplatesPage() {
                 <CustomSelect
                   value={draft.carrier_id ?? ""}
                   onChange={(value) => setDraft({ ...draft, carrier_id: value || null })}
-                  options={[{ value: "", label: "荷主を選ばない" }, ...carriers.map((c) => ({ value: c.id, label: c.name }))]}
+                  options={carriers.map((c) => ({ value: c.id, label: c.name }))}
                   className="h-10 w-48"
                 />
                 <span className="rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
@@ -830,32 +866,23 @@ export default function ReportImageTemplatesPage() {
       {creating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setCreating(null)}>
           <div className="w-full max-w-sm space-y-3 rounded-lg bg-white p-4" onClick={(event) => event.stopPropagation()}>
-            <h2 className="text-sm font-semibold text-slate-900">様式を追加</h2>
+            <h2 className="text-sm font-semibold text-slate-900">{carrier ? `${carrier.name}の様式を追加` : "様式を追加"}</h2>
             <input
               value={creating.name}
-              onChange={(event) => setCreating({ ...creating, name: event.target.value })}
-              placeholder="ヤマト 配達集計精算書"
+              onChange={(event) => setCreating({ name: event.target.value })}
+              placeholder="配達集計精算書"
+              autoFocus
               className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
               aria-label="様式の名前"
             />
-            <input
-              value={creating.key}
-              onChange={(event) => setCreating({ ...creating, key: event.target.value })}
-              placeholder="yamato-settlement"
-              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-              aria-label="様式の識別子"
-            />
-            <CustomSelect
-              value={creating.carrierId ?? ""}
-              onChange={(value) => setCreating({ ...creating, carrierId: value || null })}
-              options={[{ value: "", label: "荷主を選ばない" }, ...carriers.map((c) => ({ value: c.id, label: c.name }))]}
-              className="h-10 w-full"
-            />
+            {!carrierId && (
+              <p className="text-xs text-amber-700">キャリア設定の「画像の様式」から追加してください</p>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setCreating(null)}>
                 やめる
               </Button>
-              <Button disabled={!creating.name || !creating.key || busy != null} onClick={() => void create()}>
+              <Button disabled={!creating.name || !carrierId || busy != null} onClick={() => void create()}>
                 作成
               </Button>
             </div>
