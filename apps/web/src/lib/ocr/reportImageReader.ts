@@ -18,6 +18,7 @@ import {
   applyRefinements,
   chooseTemplate,
   completeRead,
+  clusterSampleWords,
   estimateSkewAngle,
   isReadableWord,
   locateFields,
@@ -246,14 +247,18 @@ export async function readPage(prepared: PreparedImage): Promise<OcrPage> {
 }
 
 /** 枠を切り出して拡大し、周りに余白を足した画像。欄いっぱいの数字は余白が無いと桁を取り違える */
-function cropCanvas(prepared: PreparedImage, box: Box): HTMLCanvasElement | null {
-  const inset = Math.max(2, Math.round(Math.min(box.w, box.h) * 0.08));
+function cropCanvas(
+  prepared: PreparedImage,
+  box: Box,
+  options: { targetHeight?: number; threshold?: boolean } = {},
+): HTMLCanvasElement | null {
+  const inset = options.threshold ? 0 : Math.max(2, Math.round(Math.min(box.w, box.h) * 0.08));
   const left = Math.max(0, Math.round(box.x + inset));
   const top = Math.max(0, Math.round(box.y + inset));
   const width = Math.min(prepared.width - left, Math.round(box.w - inset * 2));
   const height = Math.min(prepared.height - top, Math.round(box.h - inset * 2));
   if (width <= 4 || height <= 4) return null;
-  const factor = Math.max(1, Math.min(CROP_MAX_SCALE, CROP_TARGET_HEIGHT / height));
+  const factor = Math.max(1, Math.min(CROP_MAX_SCALE, (options.targetHeight ?? CROP_TARGET_HEIGHT) / height));
   const canvas = makeCanvas(width * factor + CROP_PADDING * 2, height * factor + CROP_PADDING * 2);
   const context = canvas.getContext("2d");
   if (!context) return null;
@@ -261,6 +266,19 @@ function cropCanvas(prepared: PreparedImage, box: Box): HTMLCanvasElement | null
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.imageSmoothingQuality = "high";
   context.drawImage(prepared.canvas, left, top, width, height, CROP_PADDING, CROP_PADDING, width * factor, height * factor);
+  if (options.threshold) {
+    // 見出しは白黒に落としたほうが読める（1段目と同じ扱い）
+    const image = context.getImageData(0, 0, canvas.width, canvas.height);
+    const data = image.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      const value = gray < THRESHOLD ? 0 : 255;
+      data[i] = value;
+      data[i + 1] = value;
+      data[i + 2] = value;
+    }
+    context.putImageData(image, 0, 0);
+  }
   return canvas;
 }
 
@@ -308,7 +326,7 @@ export type SampleReading = {
   rotate: Rotation;
   page: OcrPage;
   prepared: PreparedImage;
-  sample: { width: number; height: number; unitHeight: number; words: SampleWord[] };
+  sample: { width: number; height: number; unitHeight: number; words: SampleWord[]; labels: SampleWord[] };
   /** 起こした向きの見本画像（反転していない）。これを見本として保存する */
   uprightBlob: Blob;
 };
@@ -330,6 +348,14 @@ export async function readSample(file: Blob, rotate?: Rotation): Promise<SampleR
   }
   if (!best) throw new Error("見本を読めませんでした");
 
+  const words = best.page.words
+    .filter((word) => word.text.trim().length >= 1 && isReadableWord(word.text))
+    .map((word) => ({
+      text: word.text,
+      box: { x: Math.round(word.x), y: Math.round(word.y), w: Math.round(word.w), h: Math.round(word.h) },
+    }));
+  const labels = await refineLabels(best.prepared, best.page);
+
   // 表示・保存用は反転していない画像にする（管理者が見るのは実際のスクショ）
   const display = await loadUpright(file, best.rotate, best.rotate, { invert: false });
   const uprightBlob = await new Promise<Blob | null>((resolve) =>
@@ -346,14 +372,56 @@ export async function readSample(file: Blob, rotate?: Rotation): Promise<SampleR
       width: best.prepared.width,
       height: best.prepared.height,
       unitHeight: Number(medianWordHeight(best.page.words).toFixed(1)),
-      words: best.page.words
-        .filter((word) => word.text.trim().length >= 1 && isReadableWord(word.text))
-        .map((word) => ({
-          text: word.text,
-          box: { x: Math.round(word.x), y: Math.round(word.y), w: Math.round(word.w), h: Math.round(word.h) },
-        })),
+      words,
+      labels,
     },
   };
+}
+
+/** 見出しの欄を切り出して読み直すときの目標の高さ。数字の欄より少し大きめ */
+const LABEL_TARGET_HEIGHT = 120;
+const LABEL_MAX_COUNT = 40;
+
+/**
+ * 見出しの欄だけを切り出して読み直す（数字で効いた手を見出しにも掛ける）。
+ * 全体を一度に読むと小さい見出しは崩れる（「ネコポス個数」→「ホス人数」）が、
+ * 欄を切り出すと行見出しと題はほぼ正しく読める。列見出しの細かい文字は直らないことがある。
+ */
+async function refineLabels(prepared: PreparedImage, page: OcrPage): Promise<SampleWord[]> {
+  const clusters = clusterSampleWords(
+    page.words.map((word) => ({ text: word.text, box: { x: word.x, y: word.y, w: word.w, h: word.h } })),
+  )
+    // 数字だけの欄と、画面の幅の4割を超えるような長い行（文章）は見出しではない
+    .filter((cluster) => !/^[\d,\.\s]+$/.test(cluster.text.normalize("NFKC")) && cluster.box.w <= page.width * 0.4)
+    .slice(0, LABEL_MAX_COUNT);
+  if (clusters.length === 0) return [];
+
+  const worker = await getPageWorker();
+  const { PSM } = await import("tesseract.js");
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+  const labels: SampleWord[] = [];
+  try {
+    for (const cluster of clusters) {
+      const pad = Math.max(4, Math.round(cluster.box.h * 0.35));
+      const box: Box = {
+        x: cluster.box.x - pad,
+        y: cluster.box.y - pad,
+        w: cluster.box.w + pad * 2,
+        h: cluster.box.h + pad * 2,
+      };
+      const canvas = cropCanvas(prepared, box, { targetHeight: LABEL_TARGET_HEIGHT, threshold: true });
+      if (!canvas) continue;
+      const { data } = await worker.recognize(canvas);
+      const firstLine = (data.text ?? "").split(/\r?\n/).map((line) => line.replace(/\s+/g, "")).find((line) => line.length > 0) ?? "";
+      // 読み直してもまともでなければ、1段目の語のままにしておく（誤読で上書きしない）
+      if (firstLine.length >= 2 && orientationScore([{ text: firstLine }]) > 0) {
+        labels.push({ text: firstLine, box: cluster.box });
+      }
+    }
+  } finally {
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+  }
+  return labels;
 }
 
 export type ReportImageOutcome = {

@@ -119,7 +119,19 @@ export type ImageTemplateDefinition = {
    * 語を持っておくと、見出し数個ではなく一致した語すべてからズレと倍率を出せる
    * （トリミングや画面サイズ違いでの位置合わせが目に見えて安定する）。
    */
-  sample?: { width: number; height: number; unitHeight: number; words?: SampleWord[] } | null;
+  sample?: {
+    width: number;
+    height: number;
+    unitHeight: number;
+    /** 1段目で読んだ語（位置合わせの対応点。読み取り時の1段目と同じ質にしておく） */
+    words?: SampleWord[];
+    /**
+     * 見出しの欄だけを切り出して読み直した文字。見出しの候補と自動選択に使う。
+     * 全体を一度に読むと小さい見出しは崩れる（「ネコポス個数」→「ホス人数」）が、
+     * 欄を切り出すと行見出しと題はほぼ正しく読める（数字で効いた手と同じ）。
+     */
+    labels?: SampleWord[];
+  } | null;
 };
 
 export type ImageTemplate = {
@@ -1226,6 +1238,37 @@ function unusableAnchorText(text: string, all: readonly string[]): boolean {
   return appearances !== 1;
 }
 
+/**
+ * 語を「欄1つぶんの見出し」にまとめる。行の中を間隔で区切る
+ * （「計A｜配完入力｜計B」のように、表の見出しは欄ごとに離れて並ぶ）。
+ */
+export function clusterSampleWords(sampleWords: readonly SampleWord[]): { text: string; box: Box }[] {
+  const words: OcrWord[] = sampleWords.map((word) => ({ text: word.text, ...word.box }));
+  const unit = medianWordHeight(words) || 12;
+  const clusters: { text: string; box: Box }[] = [];
+  for (const line of buildLines(words)) {
+    let group: OcrWord[] = [];
+    const flush = () => {
+      if (group.length === 0) return;
+      clusters.push({ text: group.map((word) => word.text).join(""), box: boxOf(group) });
+      group = [];
+    };
+    for (const word of line.words) {
+      const previous = group[group.length - 1];
+      if (previous && word.x - (previous.x + previous.w) > unit * 1.2) flush();
+      group.push(word);
+    }
+    flush();
+  }
+  return clusters;
+}
+
+/** 見出しの元。読み直した見出し（labels）があればそれを、無ければ語をまとめたものを使う */
+function anchorSources(sampleWords: readonly SampleWord[], labels?: readonly SampleWord[]): { text: string; box: Box }[] {
+  if (labels && labels.length > 0) return labels.map((label) => ({ text: label.text, box: label.box }));
+  return clusterSampleWords(sampleWords);
+}
+
 export type AnchorSuggestion = { column: AnchorSpec | null; row: AnchorSpec | null };
 
 /**
@@ -1235,8 +1278,8 @@ export type AnchorSuggestion = { column: AnchorSpec | null; row: AnchorSpec | nu
  * - 一覧（左に項目名があり、右に数字が並ぶ）… **見出しからの相対**で読む。
  *   一覧型は写真で撮ると遠近でゆがむので、座標で指すと隣の行を読む。見出しの隣を読む方が強い。
  */
-export function suggestLocator(rect: Box, sampleWords: readonly SampleWord[]): FieldLocator {
-  const { column, row } = suggestAnchors(rect, sampleWords);
+export function suggestLocator(rect: Box, sampleWords: readonly SampleWord[], labels?: readonly SampleWord[]): FieldLocator {
+  const { column, row } = suggestAnchors(rect, sampleWords, labels);
   if (!column && row?.sampleBox) {
     const gap = rect.x + rect.w - (row.sampleBox.x + row.sampleBox.w);
     const unit = Math.max(1, medianWordHeight(sampleWords.map((w) => ({ text: w.text, ...w.box }))));
@@ -1258,34 +1301,12 @@ export function suggestLocator(rect: Box, sampleWords: readonly SampleWord[]): F
  * 見本の語から、その欄の「上にある見出し」と「左にある見出し」を選ぶ。
  * 選べなければ null（座標だけで読むが、別の守りが働く）。
  */
-export function suggestAnchors(rect: Box, sampleWords: readonly SampleWord[]): AnchorSuggestion {
-  const words: OcrWord[] = sampleWords.map((word) => ({
-    text: word.text,
-    x: word.box.x,
-    y: word.box.y,
-    w: word.box.w,
-    h: word.box.h,
-  }));
-  const unit = medianWordHeight(words) || 12;
-
-  // 行の中を「間隔」で区切る。表の見出しは欄ごとに離れて並ぶので、
-  // 行まるごとではなく欄1つぶんの見出しが取れる（「計A｜配完入力｜計B」）
-  const clusters: { text: string; box: Box }[] = [];
-  for (const line of buildLines(words)) {
-    let group: OcrWord[] = [];
-    const flush = () => {
-      if (group.length === 0) return;
-      clusters.push({ text: group.map((word) => word.text).join(""), box: boxOf(group) });
-      group = [];
-    };
-    for (const word of line.words) {
-      const previous = group[group.length - 1];
-      if (previous && word.x - (previous.x + previous.w) > unit * 1.2) flush();
-      group.push(word);
-    }
-    flush();
-  }
-
+export function suggestAnchors(
+  rect: Box,
+  sampleWords: readonly SampleWord[],
+  labels?: readonly SampleWord[],
+): AnchorSuggestion {
+  const clusters = anchorSources(sampleWords, labels);
   const texts = clusters.map((cluster) => cluster.text);
   const usable = clusters
     .map((cluster) => ({ line: { box: cluster.box } as OcrLine, text: cluster.text }))
@@ -1412,24 +1433,13 @@ export function isAnchorCandidate(text: string): boolean {
  * 様式を見分ける見出しを自動で選ぶ。上のほうにある、長めで一意な日本語を優先する。
  * 管理者が最初から3つ選ばなくても様式が成立するようにする（あとから変えられる）。
  */
-export function suggestRequiredAnchors(sampleWords: readonly SampleWord[], limit = 3): AnchorSpec[] {
+export function suggestRequiredAnchors(
+  sampleWords: readonly SampleWord[],
+  limit = 3,
+  labels?: readonly SampleWord[],
+): AnchorSpec[] {
   const words: OcrWord[] = sampleWords.map((word) => ({ text: word.text, ...word.box }));
-  const unit = medianWordHeight(words) || 12;
-  const clusters: { text: string; box: Box }[] = [];
-  for (const line of buildLines(words)) {
-    let group: OcrWord[] = [];
-    const flush = () => {
-      if (group.length === 0) return;
-      clusters.push({ text: group.map((w) => w.text).join(""), box: boxOf(group) });
-      group = [];
-    };
-    for (const word of line.words) {
-      const previous = group[group.length - 1];
-      if (previous && word.x - (previous.x + previous.w) > unit * 1.2) flush();
-      group.push(word);
-    }
-    flush();
-  }
+  const clusters = anchorSources(sampleWords, labels);
   const texts = clusters.map((c) => c.text);
   const usable = clusters.filter((cluster) => {
     if (!isAnchorCandidate(cluster.text)) return false;

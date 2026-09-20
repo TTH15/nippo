@@ -25,7 +25,7 @@ import { apiFetch, apiUpload } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { hasCapability } from "@/lib/capabilities";
 import {
-  buildLines,
+  clusterSampleWords,
   isAnchorCandidate,
   suggestAnchors,
   suggestLocator,
@@ -34,7 +34,6 @@ import {
   type Box,
   type ImageTemplate,
   type ImageTemplateDefinition,
-  type OcrWord,
   type ReadTrust,
   type TemplateCheck,
   type TemplateField,
@@ -224,16 +223,18 @@ export default function ReportImageTemplatesPage() {
   }, []);
 
   const sampleWords = draft?.definition.sample?.words ?? [];
+  /** 見出しの欄を切り出して読み直した文字（あればこちらを見出しの元にする） */
+  const sampleLabels = draft?.definition.sample?.labels ?? [];
 
   /** 見出しの候補（記号まみれの誤読は出さない） */
   const anchorCandidates = useMemo(() => {
-    if (sampleWords.length === 0) return [] as { text: string; box: Box }[];
-    const asWords: OcrWord[] = sampleWords.map((word) => ({ text: word.text, ...word.box }));
+    const source =
+      sampleLabels.length > 0
+        ? sampleLabels.map((label) => ({ text: label.text, box: label.box }))
+        : clusterSampleWords(sampleWords);
     const seen = new Set<string>();
-    return buildLines(asWords)
-      .map((line) => ({ text: line.words.map((w) => w.text).join(""), box: line.box }))
-      .filter((line) => isAnchorCandidate(line.text) && !seen.has(line.text) && seen.add(line.text));
-  }, [sampleWords]);
+    return source.filter((line) => isAnchorCandidate(line.text) && !seen.has(line.text) && seen.add(line.text));
+  }, [sampleWords, sampleLabels]);
 
   const anchorRole = (text: string): "required" | "optional" | "none" => {
     const match = draft?.definition.match;
@@ -275,8 +276,8 @@ export default function ReportImageTemplatesPage() {
   // --- 項目 ---
   const addField = (rect: Box) => {
     const id = `f${Date.now().toString(36)}`;
-    const anchors = suggestAnchors(rect, sampleWords);
-    const locator = suggestLocator(rect, sampleWords);
+    const anchors = suggestAnchors(rect, sampleWords, sampleLabels);
+    const locator = suggestLocator(rect, sampleWords, sampleLabels);
     const field: TemplateField = {
       id,
       role: "entry",
@@ -390,7 +391,7 @@ export default function ReportImageTemplatesPage() {
       form.append("height", String(reading.sample.height));
       await apiUpload("/api/admin/report-image-templates/sample", form);
 
-      const required = suggestRequiredAnchors(reading.sample.words);
+      const required = suggestRequiredAnchors(reading.sample.words, 3, reading.sample.labels);
       const definition: ImageTemplateDefinition = {
         ...draft.definition,
         orientation: { rotate: reading.rotate },
