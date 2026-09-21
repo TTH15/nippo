@@ -265,6 +265,11 @@ export function findAnchorHits(lines: readonly OcrLine[], spec: AnchorSpec): Anc
         } else {
           const ratio = similarity(joined, target);
           score = ratio >= FUZZY_THRESHOLD ? ratio : 0;
+          // 見出しの文字で始まる語は当てる（読み直しで途中まで取れた見出し）。長い語ほど点は下げる。
+          // 2文字だと別の行の語の頭にも当たる（「宅急」→「※宅急便コンパクト」）ので3文字から
+          if (score === 0 && target.length >= 3 && joined.startsWith(target)) {
+            score = (target.length / joined.length) * 0.9 + 0.05;
+          }
         }
         if (score > 0) {
           hits.push({ spec, box: boxOf(window), score, text: window.map((w) => w.text).join("") });
@@ -397,9 +402,10 @@ export function predictMissingAnchors(
     seen.add(spec.text);
     if (resolveAnchor(lines, spec)) continue;
     const box = applyTransform(spec.sampleBox, transform);
-    // 少し広めに切り出す（位置合わせの誤差ぶん）
+    // 広めに切り出す（位置合わせの誤差ぶん）。短い見出しは枠が小さいので、幅は最低でも文字高の8倍取る
     const pad = Math.max(unit, box.h) * 0.6;
-    missing.push({ spec, box: { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 } });
+    const width = Math.max(box.w + pad * 2, unit * 8);
+    missing.push({ spec, box: { x: box.x - pad, y: box.y - pad, w: width, h: box.h + pad * 2 } });
   }
   return missing;
 }
@@ -1364,20 +1370,9 @@ export type AnchorSuggestion = { column: AnchorSpec | null; row: AnchorSpec | nu
  */
 export function suggestLocator(rect: Box, sampleWords: readonly SampleWord[], labels?: readonly SampleWord[]): FieldLocator {
   const { column, row } = suggestAnchors(rect, sampleWords, labels);
-  if (!column && row?.sampleBox) {
-    const gap = rect.x + rect.w - (row.sampleBox.x + row.sampleBox.w);
-    const unit = Math.max(1, medianWordHeight(sampleWords.map((w) => ({ text: w.text, ...w.box }))));
-    return {
-      kind: "anchor",
-      anchor: row,
-      direction: "right",
-      valueHint: rect,
-      // 見本での距離に余裕を足す。行の高さより広げると隣の行を拾うので広げすぎない
-      maxGap: Math.min(40, Math.max(4, Math.ceil((gap / unit) * 1.4))),
-      lineTolerance: 1.5,
-      pick: "nearest",
-    };
-  }
+  // 常に「見本の座標＋見出しで補正」の形にする。
+  // 見出し相対（anchor）は見出しが取れないと欄ごと失うが、この形なら見出しが取れなくても
+  // 座標で読める（見出しは取れたときだけズレの補正に使う）。劣化が緩やかな方を採る
   return { kind: "region", rect, column, row };
 }
 
@@ -1399,8 +1394,13 @@ export function suggestAnchors(
   const overlapsX = (box: Box) => box.x < rect.x + rect.w && box.x + box.w > rect.x;
   const overlapsY = (box: Box) => box.y < rect.y + rect.h && box.y + box.h > rect.y;
 
+  const unitForGap = medianWordHeight(sampleWords.map((w) => ({ text: w.text, ...w.box }))) || 12;
+  // 列見出しは欄のすぐ上にある。遠く上にある語（画面の題など）を列見出しにしない
   const column = usable
-    .filter((entry) => entry.line.box.y + entry.line.box.h <= rect.y + rect.h * 0.3 && overlapsX(entry.line.box))
+    .filter((entry) => {
+      const bottom = entry.line.box.y + entry.line.box.h;
+      return bottom <= rect.y + rect.h * 0.3 && rect.y - bottom <= unitForGap * 8 && overlapsX(entry.line.box);
+    })
     .sort((a, b) => b.line.box.y - a.line.box.y)[0];
   const row = usable
     .filter((entry) => entry.line.box.x + entry.line.box.w <= rect.x + rect.w * 0.3 && overlapsY(entry.line.box))

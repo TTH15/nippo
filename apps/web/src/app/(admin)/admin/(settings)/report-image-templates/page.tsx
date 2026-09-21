@@ -393,11 +393,19 @@ export default function ReportImageTemplatesPage() {
       await apiUpload("/api/admin/report-image-templates/sample", form);
 
       const required = suggestRequiredAnchors(reading.sample.words, 3, reading.sample.labels);
+      // 見本を差し替えたら、目印だけでなく**囲んである欄の行・列見出しも取り直す**。
+      // 古い見本で決めた見出しの位置が残ると、読み取り時の位置合わせがそこに引っ張られて欄がずれる
+      const fields = draft.definition.fields.map((field) => {
+        const rect =
+          field.locator.kind === "region" ? field.locator.rect : field.locator.kind === "anchor" ? field.locator.valueHint : null;
+        if (!rect) return field;
+        return { ...field, locator: suggestLocator(rect, reading.sample.words, reading.sample.labels) };
+      });
       const definition: ImageTemplateDefinition = {
         ...draft.definition,
         orientation: { rotate: reading.rotate },
         sample: reading.sample,
-        // 見本を差し替えたら見出しは選び直す（前の見本の座標は使えない）
+        fields,
         match: { ...draft.definition.match, required, optional: [] },
       };
       await apiFetch("/api/admin/report-image-templates", {

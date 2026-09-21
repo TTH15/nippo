@@ -252,6 +252,18 @@ export async function readPage(prepared: PreparedImage): Promise<OcrPage> {
 }
 
 /** 枠を切り出して拡大し、周りに余白を足した画像。欄いっぱいの数字は余白が無いと桁を取り違える */
+type CropMap = { left: number; top: number; factor: number };
+const cropMaps = new WeakMap<HTMLCanvasElement, CropMap>();
+
+/** 切り出し内の座標を原寸に戻す（読み直した文字の位置を記録するため） */
+function fromCrop(canvas: HTMLCanvasElement, x0: number, y0: number, x1: number, y1: number): Box | null {
+  const map = cropMaps.get(canvas);
+  if (!map) return null;
+  const x = map.left + (x0 - CROP_PADDING) / map.factor;
+  const y = map.top + (y0 - CROP_PADDING) / map.factor;
+  return { x, y, w: (x1 - x0) / map.factor, h: (y1 - y0) / map.factor };
+}
+
 function cropCanvas(
   prepared: PreparedImage,
   box: Box,
@@ -271,6 +283,7 @@ function cropCanvas(
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.imageSmoothingQuality = "high";
   context.drawImage(prepared.canvas, left, top, width, height, CROP_PADDING, CROP_PADDING, width * factor, height * factor);
+  cropMaps.set(canvas, { left, top, factor });
   if (options.threshold) {
     // 見出しは白黒に落としたほうが読める（1段目と同じ扱い）
     const image = context.getImageData(0, 0, canvas.width, canvas.height);
@@ -396,8 +409,8 @@ const LABEL_MAX_COUNT = 40;
  */
 async function refineLabels(prepared: PreparedImage, page: OcrPage): Promise<SampleWord[]> {
   const isNumeric = (text: string) => /^[\d,\.]+$/.test(text.normalize("NFKC").trim());
-  /** band=切り出す帯 / textBox=1段目の文字の枠（目印の位置はこちらで記録する） / raw=1段目の文字 */
-  const bands: { band: Box; textBox: Box; raw: string }[] = [];
+  /** band=切り出す帯 / raw=1段目の文字（英字だけの読み直しの妥当性を見る） */
+  const bands: { band: Box; raw: string }[] = [];
   for (const line of buildLines(page.words)) {
     const textual = line.words.filter((word) => !isNumeric(word.text) && word.text.trim().length > 0);
     if (textual.length === 0) continue;
@@ -411,15 +424,7 @@ async function refineLabels(prepared: PreparedImage, page: OcrPage): Promise<Sam
     const band: Box = { x: left, y: top, w: Math.min(prepared.width, right) - left, h: bottom - top };
     // 細すぎる・長すぎる（文章）帯は見出しではない
     if (band.w < 10 || band.h < 8 || band.w > prepared.width * 0.6) continue;
-    const tx = Math.min(...textual.map((word) => word.x));
-    const ty = Math.min(...textual.map((word) => word.y));
-    const textBox: Box = {
-      x: tx,
-      y: ty,
-      w: Math.max(...textual.map((word) => word.x + word.w)) - tx,
-      h: Math.max(...textual.map((word) => word.y + word.h)) - ty,
-    };
-    bands.push({ band, textBox, raw: textual.map((word) => word.text).join("") });
+    bands.push({ band, raw: textual.map((word) => word.text).join("") });
     if (bands.length >= LABEL_MAX_COUNT) break;
   }
   if (bands.length === 0) return [];
@@ -429,20 +434,35 @@ async function refineLabels(prepared: PreparedImage, page: OcrPage): Promise<Sam
   await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
   const labels: SampleWord[] = [];
   try {
-    for (const { band, textBox, raw } of bands) {
+    for (const { band, raw } of bands) {
       const canvas = cropCanvas(prepared, band, { targetHeight: LABEL_TARGET_HEIGHT, threshold: true });
       if (!canvas) continue;
-      const { data } = await worker.recognize(canvas);
-      const firstLine =
-        (data.text ?? "")
-          .split(/\r?\n/)
-          .map((line) => line.replace(/\s+/g, ""))
-          .find((line) => line.length > 0) ?? "";
-      // 読み直しても崩れたものは残さない（崩れた見出しは、無いほうがまだ安全）
+      const { data } = await worker.recognize(canvas, {}, { blocks: true });
+      // 読み直した語を**自前で行にまとめ直し**、いちばん上の行を見出しにする。
+      // tesseract の行分けに任せると「宅急｜便個数」のように途中で切れることがある。
+      // **位置もその行の文字枠から取る**（1段目の語の枠を使うと別の行の位置を記録して欄がずれる）
+      const cropWords: OcrWord[] =
+        data.blocks
+          ?.flatMap((block) => block.paragraphs.flatMap((paragraph) => paragraph.lines.flatMap((line) => line.words)))
+          .filter((word) => word.text.trim().length > 0)
+          .map((word) => ({
+            text: word.text,
+            x: word.bbox.x0,
+            y: word.bbox.y0,
+            w: word.bbox.x1 - word.bbox.x0,
+            h: word.bbox.y1 - word.bbox.y0,
+          })) ?? [];
+      const topLine = buildLines(cropWords).sort((a, b) => a.box.y - b.box.y)[0];
+      if (!topLine) continue;
+      const firstLine = topLine.words.map((word) => word.text).join("").replace(/\s+/g, "");
+      // 読み直しても崩れたものは残さない（崩れた見出しは、無いほうがまだ安全）。
+      // 2文字の見出し（合計・完了・問題）は残す。別の語の頭に当たる事故は照合側（前方一致は3文字から）で防ぐ
       if (firstLine.length < 2 || !isAnchorCandidate(firstLine)) continue;
       // 英字だけの読み直しは、1段目と食い違うなら誤読（「FETAREEX」）。日本語は読み直しを信じる
       if (/^[A-Za-z]+$/.test(firstLine) && similarity(normalizeForMatch(firstLine), normalizeForMatch(raw)) < 0.5) continue;
-      labels.push({ text: firstLine, box: textBox });
+      const box = fromCrop(canvas, topLine.box.x, topLine.box.y, topLine.box.x + topLine.box.w, topLine.box.y + topLine.box.h);
+      if (!box) continue;
+      labels.push({ text: firstLine, box });
     }
   } finally {
     await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });

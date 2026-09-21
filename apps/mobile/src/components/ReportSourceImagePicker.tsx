@@ -154,15 +154,21 @@ export function ReportSourceImagePicker({
       );
 
       setStep(templates.length > 0 ? "画像を読んでいます" : "送信中…");
+      // 様式は読む瞬間に取り直す。開きっぱなしの画面が、差し替え前の古い様式で読まないようにする
+      const fresh = await apiFetch<{ templates: ImageTemplate[]; autoFillCourseIds?: string[] }>(
+        "/api/me/report-image-templates",
+      ).catch(() => null);
+      const latestTemplates = fresh?.templates ?? templates;
+      if (fresh?.autoFillCourseIds) setAutoFillCourses(fresh.autoFillCourseIds);
       // 原本の送信と読み取りは同時に走らせる。送信の待ち時間ぶん読み取りが遅れないようにする
       const reading =
-        templates.length > 0
-          ? readReportImage(asset.uri, templates, { reportDate: date, onStep: (value) => setStep(value) })
+        latestTemplates.length > 0
+          ? readReportImage(asset.uri, latestTemplates, { reportDate: date, onStep: (value) => setStep(value) })
           : Promise.resolve(null);
       const uploaded = await apiUpload<UploadResponse>("/api/reports/source-images", form);
       await load();
 
-      if (templates.length === 0) {
+      if (latestTemplates.length === 0) {
         setNotes(
           judgeSourceImageDay({
             reportDate: date,

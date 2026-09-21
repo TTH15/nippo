@@ -161,11 +161,14 @@ export default function ReportSourceImageField({
     setBusy(canRead ? "画像を読んでいます" : "送信中…");
     setFilled([]);
     try {
+      // 様式は読む瞬間に取り直す。開きっぱなしの画面が、差し替え前の古い様式で読まないようにする
+      const fresh = await apiFetch<TemplatesResponse>("/api/me/report-image-templates").catch(() => null);
+      const latestTemplates = fresh?.templates ?? templates;
       // 原本の送信と読み取りは同時に走らせる。送信の待ち時間ぶん読み取りが遅れないようにする
       const [uploadResult, readResult] = await Promise.allSettled([
         uploadOriginal(file),
-        canRead
-          ? readReportImage(file, templates, { reportDate, onStep: (step) => setBusy(step) })
+        latestTemplates.length > 0
+          ? readReportImage(file, latestTemplates, { reportDate, onStep: (step) => setBusy(step) })
           : Promise.resolve(null),
       ]);
       await refresh();
@@ -173,7 +176,7 @@ export default function ReportSourceImageField({
         throw uploadResult.reason instanceof Error ? uploadResult.reason : new Error("画像を送れませんでした");
       }
       const uploaded = uploadResult.value;
-      if (!canRead) return;
+      if (latestTemplates.length === 0) return;
       if (readResult.status === "rejected") {
         setError("この画像からは件数を読み取れません。件数は手入力してください");
         return;

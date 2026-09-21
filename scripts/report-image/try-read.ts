@@ -102,13 +102,17 @@ async function recognize(worker: Worker, prepared: Prepared): Promise<OcrPage> {
 }
 
 /** 帯を切り出し、白黒化＋拡大して日本語として読む（見出し用） */
-async function readLabelCrop(worker: Worker, upright: Buffer, box: Box): Promise<{ text: string; confidence: number }> {
+async function readLabelCrop(
+  worker: Worker,
+  upright: Buffer,
+  box: Box,
+): Promise<{ text: string; confidence: number; firstLine: string; firstBox: Box | null }> {
   const meta = await sharp(upright).metadata();
   const left = Math.max(0, Math.round(box.x));
   const top = Math.max(0, Math.round(box.y));
   const width = Math.min((meta.width ?? 0) - left, Math.round(box.w));
   const height = Math.min((meta.height ?? 0) - top, Math.round(box.h));
-  if (width <= 8 || height <= 8) return { text: "", confidence: 0 };
+  if (width <= 8 || height <= 8) return { text: "", confidence: 0, firstLine: "", firstBox: null };
   const factor = Math.max(1, Math.min(6, 120 / height));
   const buffer = await sharp(upright)
     .extract({ left, top, width, height })
@@ -119,9 +123,21 @@ async function readLabelCrop(worker: Worker, upright: Buffer, box: Box): Promise
     .png()
     .toBuffer();
   await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
-  const { data } = await worker.recognize(buffer);
+  const { data } = await worker.recognize(buffer, {}, { blocks: true });
   await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
-  return { text: (data.text ?? "").replace(/\s+/g, ""), confidence: (data.confidence ?? 0) / 100 };
+  // 語を自前で行にまとめ直し、いちばん上の行を見出しにする（本番の refineLabels と同じ）
+  const cropWords: OcrWord[] =
+    data.blocks
+      ?.flatMap((b) => b.paragraphs.flatMap((p) => p.lines.flatMap((l) => l.words)))
+      .filter((w) => w.text.trim().length > 0)
+      .map((w) => ({ text: w.text, x: w.bbox.x0, y: w.bbox.y0, w: w.bbox.x1 - w.bbox.x0, h: w.bbox.y1 - w.bbox.y0 })) ?? [];
+  const topLine = buildLines(cropWords).sort((a, b) => a.box.y - b.box.y)[0];
+  const firstLine = topLine ? topLine.words.map((w) => w.text).join("").replace(/\s+/g, "") : "";
+  // 切り出し内の座標→原寸（余白16px・拡大率 factor）
+  const firstBox: Box | null = topLine
+    ? { x: left + (topLine.box.x - 16) / factor, y: top + (topLine.box.y - 16) / factor, w: topLine.box.w / factor, h: topLine.box.h / factor }
+    : null;
+  return { text: (data.text ?? "").replace(/\s+/g, ""), confidence: (data.confidence ?? 0) / 100, firstLine, firstBox };
 }
 
 /** 本番の readSample と同じ: 行の帯を切り出して見出しを読み直し、文字の枠で記録する */
@@ -140,15 +156,12 @@ async function refineLabels(worker: Worker, upright: Buffer, page: OcrPage): Pro
     const bottom = Math.min(page.height, line.box.y + line.box.h * 1.6);
     const band: Box = { x: left, y: top, w: Math.min(page.width, right) - left, h: bottom - top };
     if (band.w < 10 || band.h < 8 || band.w > page.width * 0.6) continue;
-    const tx = Math.min(...textual.map((w) => w.x));
-    const ty = Math.min(...textual.map((w) => w.y));
-    const textBox: Box = { x: tx, y: ty, w: Math.max(...textual.map((w) => w.x + w.w)) - tx, h: Math.max(...textual.map((w) => w.y + w.h)) - ty };
     const raw = textual.map((w) => w.text).join("");
-    const { text } = await readLabelCrop(worker, upright, band);
-    const firstLine = text.split(/\r?\n/).find((l) => l.length > 0) ?? "";
-    if (firstLine.length < 2 || !isAnchorCandidate(firstLine)) continue;
+    const { firstLine, firstBox } = await readLabelCrop(worker, upright, band);
+    if (!firstBox || firstLine.length < 2 || !isAnchorCandidate(firstLine)) continue;
     if (/^[A-Za-z]+$/.test(firstLine) && similarity(normalizeForMatch(firstLine), normalizeForMatch(raw)) < 0.5) continue;
-    labels.push({ text: firstLine, box: textBox });
+    // 位置は読み直した文字そのものの枠（1段目の語の枠は別の行を指していることがある）
+    labels.push({ text: firstLine, box: firstBox });
   }
   return labels;
 }

@@ -17,6 +17,7 @@ import {
   predictMissingAnchors,
   readAreas,
   readWithTemplate,
+  resolveAnchor,
   suggestAnchors,
   suggestRequiredAnchors,
   validateTemplateDefinition,
@@ -893,5 +894,27 @@ describe("式の矛盾の扱い", () => {
     const result = readWithTemplate(page, grid());
     expect(result.trust.level).toBe("suspect");
     expect(valueOf(result, "takkyubin-b")?.status).toBe("uncertain");
+  });
+});
+
+describe("短い見出しの照合", () => {
+  it("見出しの文字で始まる語に当たる（読み直しで途中まで取れた見出し）", () => {
+    const lines = buildLines(samplePage().words);
+    const hit = resolveAnchor(lines, { text: "宅急便", match: "fuzzy" });
+    expect(hit?.text).toBe("宅急便個数");
+    expect(hit?.box.x).toBe(80);
+    // 2文字は別の行の語の頭にも当たるので照合しない
+    expect(resolveAnchor(lines, { text: "宅急", match: "fuzzy" })).toBeNull();
+  });
+});
+
+describe("列見出しの提案の距離", () => {
+  it("遠く上にある画面の題を列見出しにしない", () => {
+    const words = samplePage().words.map((w) => ({ text: w.text, box: { x: w.x, y: w.y, w: w.w, h: w.h } }));
+    // 列見出し行（y=275）を消した状態で、①列の欄を囲む
+    const withoutHeaders = words.filter((w) => w.box.y !== 275);
+    const suggestion = suggestAnchors({ x: 660, y: 356, w: 126, h: 68 }, withoutHeaders);
+    expect(suggestion.column).toBeNull();
+    expect(suggestion.row?.text).toBe("宅急便個数");
   });
 });
