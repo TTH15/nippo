@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   applyRefinements,
+  anchorTextMatches,
   buildLines,
   canSkipReview,
   chooseTemplate,
   completeRead,
   estimateSkewAngle,
+  estimateTransformFromWords,
   isAnchorCandidate,
   judgeSourceImageDay,
   orientationScore,
   locateFields,
   MAX_SAFE_OUTLIER_RATE,
   parseValue,
+  predictMissingAnchors,
   readAreas,
   readWithTemplate,
   suggestAnchors,
@@ -791,5 +794,104 @@ describe("見出しの候補の絞り込み（崩れを通さない）", () => {
     const result = readWithTemplate(samplePage(), withCheck);
     expect(result.match.level).toBe("low");
     expect(result.trust.level).toBe("verified");
+  });
+});
+
+describe("見つからない見出しの探し直し", () => {
+  it("見本での位置を持つ見出しが1段目に無ければ、あるはずの場所を返す", () => {
+    const missingRow: OcrPage = {
+      ...samplePage(),
+      words: samplePage().words.map((word) => (word.text === "ネコポス個数" ? { ...word, text: "ホス人数" } : word)),
+    };
+    const missing = predictMissingAnchors(missingRow, template);
+    expect(missing.map((m) => m.spec.text)).toContain("ネコポス個数");
+    const box = missing.find((m) => m.spec.text === "ネコポス個数")!.box;
+    // 本来の位置（x=80, y=465）を含む
+    expect(box.x).toBeLessThan(80);
+    expect(box.x + box.w).toBeGreaterThan(200);
+    expect(box.y).toBeLessThan(465);
+    expect(box.y + box.h).toBeGreaterThan(489);
+  });
+
+  it("1段目で見つかっている見出しは探し直さない", () => {
+    expect(predictMissingAnchors(samplePage(), template).map((m) => m.spec.text)).not.toContain("配達集計精算書");
+  });
+
+  it("読み直した文字が見出しと言えるかは、あいまい一致で判定する", () => {
+    const spec = { text: "ネコポス個数", match: "fuzzy" as const };
+    expect(anchorTextMatches(spec, "ネコボス個数")).toBe(true);
+    expect(anchorTextMatches(spec, "ホス人数")).toBe(false);
+    expect(anchorTextMatches({ text: "合計", match: "fuzzy" }, "合計 49")).toBe(true);
+  });
+
+  it("位置合わせの対応点に数字を使わない（日によって変わる）", () => {
+    const sample = samplePage().words.map((w) => ({ text: w.text, box: { x: w.x, y: w.y, w: w.w, h: w.h } }));
+    // 別の日: 数字は全部違う位置・値になっているが、見出しは同じ
+    const anotherDay: OcrPage = {
+      ...samplePage(),
+      words: samplePage().words.map((word) => (/^\d+$/.test(word.text) ? { ...word, text: String(Number(word.text) + 7), x: word.x + 300 } : word)),
+    };
+    const fit = estimateTransformFromWords(sample, anotherDay, { scaleX: 1, scaleY: 1, dx: 0, dy: 0 });
+    expect(Math.abs(fit.transform.dx)).toBeLessThan(5);
+    expect(fit.outlierRate ?? 0).toBe(0);
+  });
+});
+
+describe("式の矛盾の扱い", () => {
+  /** 宅急便・ネコポス・合計 × 計B と 配完+持戻 の表。式: 合計=宅急便+ネコポス（2列） */
+  const grid = (): ImageTemplate => ({
+    ...template,
+    definition: {
+      ...template.definition,
+      checks: [
+        { kind: "sum", totalFieldId: "total-b", partFieldIds: ["takkyubin-b", "nekopos-b"] },
+        { kind: "sum", totalFieldId: "total-bc", partFieldIds: ["takkyubin-bc", "nekopos-bc"] },
+      ],
+      fields: (
+        [
+          ["takkyubin-b", "entry", "宅急便個数", "計B", "宅急便 配完"],
+          ["nekopos-b", "entry", "ネコポス個数", "計B", "ネコポス 配完"],
+          ["total-b", "check", "合計", "計B", "合計 配完"],
+          ["takkyubin-bc", "check", "宅急便個数", "配完+持戻", "宅急便 B+C"],
+          ["nekopos-bc", "check", "ネコポス個数", "配完+持戻", "ネコポス B+C"],
+          ["total-bc", "check", "合計", "配完+持戻", "合計 B+C"],
+        ] as const
+      ).map(([id, role, row, column, label]) => ({
+        id,
+        role,
+        unitId: role === "entry" ? "unit-x" : "",
+        fieldKey: role === "entry" ? "completed" : "",
+        label,
+        value: { type: "int" as const },
+        locator: { kind: "cell" as const, row: { text: row, match: "fuzzy" as const }, column: { text: column, match: "fuzzy" as const } },
+        required: role === "entry",
+      })),
+    },
+  });
+
+  it("検算専用の1欄を読み違えても、日報へ入る値が他の式で裏付けられていれば確定してよい", () => {
+    // 合計 B+C（49）だけ 99 に誤読 → 合計=宅急便+ネコポス（B+C列）と、その欄が関わる式が崩れる
+    const page: OcrPage = {
+      ...samplePage(),
+      words: samplePage().words.map((w) => (w.x === 1640 && w.y === 565 ? { ...w, text: "99" } : w)),
+    };
+    const result = readWithTemplate(page, grid());
+    expect(result.trust.checksFailed).toBe(1);
+    expect(result.trust.level).toBe("verified");
+    // 疑わしいのは誤読した欄だけ
+    expect(valueOf(result, "total-bc")?.status).toBe("uncertain");
+    expect(valueOf(result, "takkyubin-b")?.status).toBe("read");
+    expect(result.warnings.join()).toContain("合計 B+C");
+  });
+
+  it("日報へ入る値そのものが崩れた式にしか出てこなければ、確認を求める", () => {
+    // 宅急便 計B（44）を 40 に誤読 → 合計=宅急便+ネコポス と 宅急便 B+C=計B が両方崩れ、裏付けが無い
+    const page: OcrPage = {
+      ...samplePage(),
+      words: samplePage().words.map((w) => (w.x === 1260 && w.y === 375 ? { ...w, text: "40" } : w)),
+    };
+    const result = readWithTemplate(page, grid());
+    expect(result.trust.level).toBe("suspect");
+    expect(valueOf(result, "takkyubin-b")?.status).toBe("uncertain");
   });
 });

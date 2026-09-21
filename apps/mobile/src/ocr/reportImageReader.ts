@@ -1,11 +1,13 @@
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import TextRecognition, { TextRecognitionScript } from "@react-native-ml-kit/text-recognition";
 import {
+  anchorTextMatches,
   applyRefinements,
   chooseTemplate,
   completeRead,
   estimateSkewAngle,
   locateFields,
+  predictMissingAnchors,
   readAreas,
   type AreaRefinement,
   type Box,
@@ -130,6 +132,41 @@ export async function refineAreas(prepared: PreparedImage, areas: readonly Field
   return { refinements, crops };
 }
 
+/**
+ * 1段目で見つからなかった見出しを、あるはずの場所を切り出して探し直す（Web と同じ手）。
+ * 行見出しが崩れると位置合わせも行の押さえも効かなくなるので、見つけたら語として足す。
+ */
+async function recoverAnchors(prepared: PreparedImage, page: OcrPage, template: ImageTemplate): Promise<OcrPage> {
+  const missing = predictMissingAnchors(page, template).slice(0, 6);
+  if (missing.length === 0) return page;
+  const added: OcrWord[] = [];
+  for (const { spec, box } of missing) {
+    const originX = Math.max(0, Math.round(box.x));
+    const originY = Math.max(0, Math.round(box.y));
+    const width = Math.min(prepared.width - originX, Math.round(box.w));
+    const height = Math.min(prepared.height - originY, Math.round(box.h));
+    if (width <= 8 || height <= 8) continue;
+    const factor = Math.max(1, Math.min(CROP_MAX_SCALE, 120 / height));
+    const rendered = await ImageManipulator.manipulate(prepared.uri)
+      .crop({ originX, originY, width, height })
+      .resize({ width: Math.round(width * factor) })
+      .renderAsync();
+    const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.95 });
+    const result = await TextRecognition.recognize(saved.uri, TextRecognitionScript.JAPANESE);
+    const text = (result.text ?? "").replace(/\s+/g, "");
+    if (!anchorTextMatches(spec, text)) continue;
+    const sample = spec.sampleBox as Box;
+    added.push({
+      text: spec.text,
+      x: box.x + (box.w - sample.w) / 2,
+      y: box.y + (box.h - sample.h) / 2,
+      w: sample.w,
+      h: sample.h,
+    });
+  }
+  return added.length > 0 ? { ...page, words: [...page.words, ...added] } : page;
+}
+
 export type ReportImageOutcome = {
   template: ImageTemplate | null;
   rotation: Rotation;
@@ -183,8 +220,9 @@ export async function readReportImage(
   }
 
   options.onStep?.("件数を読み取っています");
-  const located = locateFields(best.page, best.template);
-  const first = readAreas(best.page, best.template, located, { reportDate: options.reportDate });
+  const page = await recoverAnchors(best.prepared, best.page, best.template);
+  const located = locateFields(page, best.template);
+  const first = readAreas(page, best.template, located, { reportDate: options.reportDate });
   const { refinements, crops } = await refineAreas(best.prepared, located.areas);
   const refined = applyRefinements(best.template, first, refinements, { reportDate: options.reportDate });
   const result = completeRead(best.template, located.match, refined);

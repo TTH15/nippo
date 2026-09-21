@@ -13,9 +13,16 @@ import path from "node:path";
 import sharp from "sharp";
 import { createWorker, PSM, type Worker } from "tesseract.js";
 import {
+  anchorTextMatches,
   applyRefinements,
   estimateSkewAngle,
+  isAnchorCandidate,
+  isReadableWord,
+  normalizeForMatch,
   orientationScore,
+  predictMissingAnchors,
+  similarity,
+  suggestRequiredAnchors,
   buildLines,
   chooseTemplate,
   completeRead,
@@ -92,6 +99,72 @@ async function recognize(worker: Worker, prepared: Prepared): Promise<OcrPage> {
       ),
     ) ?? [];
   return { width: prepared.width, height: prepared.height, words };
+}
+
+/** 帯を切り出し、白黒化＋拡大して日本語として読む（見出し用） */
+async function readLabelCrop(worker: Worker, upright: Buffer, box: Box): Promise<{ text: string; confidence: number }> {
+  const meta = await sharp(upright).metadata();
+  const left = Math.max(0, Math.round(box.x));
+  const top = Math.max(0, Math.round(box.y));
+  const width = Math.min((meta.width ?? 0) - left, Math.round(box.w));
+  const height = Math.min((meta.height ?? 0) - top, Math.round(box.h));
+  if (width <= 8 || height <= 8) return { text: "", confidence: 0 };
+  const factor = Math.max(1, Math.min(6, 120 / height));
+  const buffer = await sharp(upright)
+    .extract({ left, top, width, height })
+    .resize({ width: Math.round(width * factor), kernel: "lanczos3" })
+    .extend({ top: 16, bottom: 16, left: 16, right: 16, background: "#ffffff" })
+    .grayscale()
+    .threshold(185)
+    .png()
+    .toBuffer();
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+  const { data } = await worker.recognize(buffer);
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+  return { text: (data.text ?? "").replace(/\s+/g, ""), confidence: (data.confidence ?? 0) / 100 };
+}
+
+/** 本番の readSample と同じ: 行の帯を切り出して見出しを読み直し、文字の枠で記録する */
+async function refineLabels(worker: Worker, upright: Buffer, page: OcrPage): Promise<{ text: string; box: Box }[]> {
+  const isNumeric = (text: string) => /^[\d,\.]+$/.test(text.normalize("NFKC").trim());
+  const labels: { text: string; box: Box }[] = [];
+  for (const line of buildLines(page.words)) {
+    const textual = line.words.filter((word) => !isNumeric(word.text) && word.text.trim().length > 0);
+    if (textual.length === 0) continue;
+    const numeric = line.words.filter((word) => isNumeric(word.text));
+    const left = Math.max(0, Math.min(...textual.map((word) => word.x)) - line.box.h * 0.5);
+    const right = numeric.length
+      ? Math.min(...numeric.map((word) => word.x)) - 4
+      : Math.max(...textual.map((word) => word.x + word.w)) + line.box.h * 0.5;
+    const top = Math.max(0, line.box.y - line.box.h * 0.6);
+    const bottom = Math.min(page.height, line.box.y + line.box.h * 1.6);
+    const band: Box = { x: left, y: top, w: Math.min(page.width, right) - left, h: bottom - top };
+    if (band.w < 10 || band.h < 8 || band.w > page.width * 0.6) continue;
+    const tx = Math.min(...textual.map((w) => w.x));
+    const ty = Math.min(...textual.map((w) => w.y));
+    const textBox: Box = { x: tx, y: ty, w: Math.max(...textual.map((w) => w.x + w.w)) - tx, h: Math.max(...textual.map((w) => w.y + w.h)) - ty };
+    const raw = textual.map((w) => w.text).join("");
+    const { text } = await readLabelCrop(worker, upright, band);
+    const firstLine = text.split(/\r?\n/).find((l) => l.length > 0) ?? "";
+    if (firstLine.length < 2 || !isAnchorCandidate(firstLine)) continue;
+    if (/^[A-Za-z]+$/.test(firstLine) && similarity(normalizeForMatch(firstLine), normalizeForMatch(raw)) < 0.5) continue;
+    labels.push({ text: firstLine, box: textBox });
+  }
+  return labels;
+}
+
+/** 本番の recoverAnchors と同じ: 見つからない見出しを、あるはずの場所から探し直す */
+async function recoverAnchors(worker: Worker, upright: Buffer, page: OcrPage, template: ImageTemplate): Promise<OcrPage> {
+  const missing = predictMissingAnchors(page, template).slice(0, 6);
+  if (missing.length === 0) return page;
+  const added: OcrWord[] = [];
+  for (const { spec, box } of missing) {
+    const { text, confidence } = await readLabelCrop(worker, upright, box);
+    if (!anchorTextMatches(spec, text)) continue;
+    const sample = spec.sampleBox as Box;
+    added.push({ text: spec.text, x: box.x + (box.w - sample.w) / 2, y: box.y + (box.h - sample.h) / 2, w: sample.w, h: sample.h, confidence });
+  }
+  return added.length > 0 ? { ...page, words: [...page.words, ...added] } : page;
 }
 
 /** 枠の外側を少し落として切り出し、拡大してから数字として読む */
@@ -198,19 +271,21 @@ async function main() {
       if (template && updateSample) {
         const { writeFile } = await import("node:fs/promises");
         const raw = JSON.parse(await readFile(templateArg as string, "utf8"));
-        raw.definition.sample = {
-          width,
-          height,
-          unitHeight: Number(medianWordHeight(page.words).toFixed(1)),
-          words: page.words
-            .filter((word) => word.text.trim().length >= 2)
-            .map((word) => ({
-              text: word.text,
-              box: { x: Math.round(word.x), y: Math.round(word.y), w: Math.round(word.w), h: Math.round(word.h) },
-            })),
-        };
+        const words = page.words
+          .filter((word) => word.text.trim().length >= 1 && isReadableWord(word.text))
+          .map((word) => ({
+            text: word.text,
+            box: { x: Math.round(word.x), y: Math.round(word.y), w: Math.round(word.w), h: Math.round(word.h) },
+          }));
+        const labels = await refineLabels(worker, prepared.upright, page);
+        raw.definition.sample = { width, height, unitHeight: Number(medianWordHeight(page.words).toFixed(1)), words, labels };
+        raw.definition.orientation = { rotate };
+        raw.definition.match.required = suggestRequiredAnchors(words, 3, labels);
+        raw.definition.match.optional = [];
         await writeFile(templateArg as string, `${JSON.stringify(raw, null, 2)}\n`);
-        console.log(`  見本を更新しました（語 ${raw.definition.sample.words.length}）`);
+        console.log(`  見本を更新しました（語 ${words.length}・見出し ${labels.length}）`);
+        console.log(`  目印: ${raw.definition.match.required.map((a: { text: string }) => a.text).join(" / ")}`);
+        console.log(`  見出し: ${labels.map((l) => l.text).join(" / ")}`);
         continue;
       }
 
@@ -219,8 +294,14 @@ async function main() {
         const best = choice.ranked[0];
         console.log(`  様式一致: ${(best.score * 100).toFixed(0)}% / 採用=${best.accepted} / 欠け=[${best.missingRequired.join(", ")}]`);
 
-        // 1段目: 見出しから「値があるはずの枠」を決め、そこに入っている語で読む
+        // 見つからなかった見出しを探し直してから位置決めする（本番と同じ）
         const locateStarted = Date.now();
+        const recovered = await recoverAnchors(worker, prepared.upright, page, template);
+        if (recovered.words.length > page.words.length) {
+          console.log(`  見出しの探し直し: ${recovered.words.slice(page.words.length).map((w) => w.text).join(" / ")}`);
+        }
+        page = recovered;
+        // 1段目: 見出しから「値があるはずの枠」を決め、そこに入っている語で読む
         const located = locateFields(page, template);
         if (process.env.OCR_DEBUG === "1") {
           const t = located.transform;
@@ -237,10 +318,10 @@ async function main() {
           const field = template.definition.fields.find((f) => f.id === area.fieldId);
           if (!field) continue;
           const text = await readCrop(digitWorker, prepared.upright, area.box, process.env.OCR_DEBUG === "1" ? `${DUMP || "/tmp/claude-501/crop"}-${area.fieldId}.png` : null);
-          refinements.push(text);
+          refinements.push({ ...text, fieldId: area.fieldId });
         }
         const refineMs = Date.now() - locateStarted;
-        const refined = applyRefinements(template, first, refinements.map((r, i) => ({ ...r, fieldId: located.areas.filter((a) => a.box)[i].fieldId })));
+        const refined = applyRefinements(template, first, refinements);
         const result = completeRead(template, located.match, refined);
         for (const field of result.fields) {
           console.log(

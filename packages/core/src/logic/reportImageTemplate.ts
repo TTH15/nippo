@@ -364,6 +364,56 @@ export function scoreTemplate(lines: readonly OcrLine[], template: ImageTemplate
   };
 }
 
+/**
+ * 見つからなかった見出しが「あるはずの場所」。読み取り側はここを切り出して読み直し、
+ * 見出しの文字と合えば語を足してから位置決めをやり直す（1段目で行見出しが崩れても効く）。
+ * 見本での位置を持たない見出しは予測できない。
+ */
+export function predictMissingAnchors(
+  page: OcrPage,
+  template: ImageTemplate,
+): { spec: AnchorSpec; box: Box }[] {
+  const lines = buildLines(page.words);
+  const match = scoreTemplate(lines, template);
+  const unit = medianWordHeight(page.words);
+  const byAnchors = estimateTransform(match.hits, template.definition.sample?.unitHeight ?? 0, unit);
+  const transform = template.definition.sample?.words?.length
+    ? estimateTransformFromWords(template.definition.sample.words, page, byAnchors).transform
+    : byAnchors;
+
+  const wanted: AnchorSpec[] = [
+    ...(template.definition.match.required ?? []),
+    ...(template.definition.fields ?? []).flatMap((field) => {
+      const locator = field.locator;
+      if (locator.kind === "anchor") return [locator.anchor];
+      if (locator.kind === "region") return [locator.row, locator.column].filter((a): a is AnchorSpec => !!a);
+      return [locator.row, locator.column];
+    }),
+  ];
+  const seen = new Set<string>();
+  const missing: { spec: AnchorSpec; box: Box }[] = [];
+  for (const spec of wanted) {
+    if (!spec.sampleBox || seen.has(spec.text)) continue;
+    seen.add(spec.text);
+    if (resolveAnchor(lines, spec)) continue;
+    const box = applyTransform(spec.sampleBox, transform);
+    // 少し広めに切り出す（位置合わせの誤差ぶん）
+    const pad = Math.max(unit, box.h) * 0.6;
+    missing.push({ spec, box: { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 } });
+  }
+  return missing;
+}
+
+/** 読み直した文字が、その見出しと言えるか（あいまい一致の閾値と同じ） */
+export function anchorTextMatches(spec: AnchorSpec, text: string): boolean {
+  const target = normalizeForMatch(spec.text);
+  const candidate = normalizeForMatch(text);
+  if (!target || !candidate) return false;
+  if (spec.match === "exact") return candidate === target;
+  if (candidate.includes(target)) return true;
+  return similarity(candidate, target) >= FUZZY_THRESHOLD;
+}
+
 export type TemplateChoice = {
   best: TemplateMatchResult | null;
   /** 点数順。どれも届かなければ accepted=false のまま返す（「未対応」の説明に使う） */
@@ -474,12 +524,14 @@ export function estimateTransformFromWords(
     for (const entry of entries) counts.set(entry.key, (counts.get(entry.key) ?? 0) + 1);
     return counts;
   };
+  // 数字は日によって変わるので対応点にしない（同じ数字が別の欄に出て取り違える）
+  const stable = (key: string) => key.length >= 2 && !/^[0-9.,]+$/.test(key);
   const sample = sampleWords
     .map((word) => ({ key: normalizeForMatch(word.text), box: word.box }))
-    .filter((word) => word.key.length >= 2);
+    .filter((word) => stable(word.key));
   const target = page.words
     .map((word) => ({ key: normalizeForMatch(word.text), box: { x: word.x, y: word.y, w: word.w, h: word.h } }))
-    .filter((word) => word.key.length >= 2);
+    .filter((word) => stable(word.key));
   const sampleCounts = countBy(sample);
   const targetCounts = countBy(target);
 
@@ -948,12 +1000,20 @@ export function completeRead(
       warnings.push(`${field.label}の値を確認してください`);
     }
   }
-  // 検算が合わない＝どこかの欄を読み違えている。関係する項目をまとめて確認に回す
+  // 検算。通った式は裏付けに、崩れた式は「どの欄が怪しいか」の手がかりにする。
+  //
+  // **崩れた式の参加者を一律に疑わない。** 15欄読んで11本の式があるとき、検算専用の1欄を
+  // 読み違えただけで式が2本崩れる。その欄以外の参加者が別の通った式で裏付けられているなら、
+  // 怪しいのは裏付けの無い欄だけ。日報へ入る値が全部裏付けられていれば確認は要らない。
+  // 参加者が全員きれいに読めていて裏付けもあるのに崩れる式だけが、本当の矛盾。
   const suspectIds = new Set<string>();
   /** 通った式に参加した項目＝別の欄の値と辻褄が合っている＝裏が取れた */
   const corroborated = new Set<string>();
   let checksRun = 0;
   let checksFailed = 0;
+  let contradiction = false;
+  type Evaluated = { total: FieldRead; parts: FieldRead[]; sum: number; passed: boolean };
+  const evaluated: Evaluated[] = [];
   for (const check of template.definition.checks ?? []) {
     const total = fields.find((f) => f.fieldId === check.totalFieldId);
     const parts = check.partFieldIds.map((id) => fields.find((f) => f.fieldId === id));
@@ -961,20 +1021,31 @@ export function completeRead(
     if (parts.some((p) => !p || typeof p.value !== "number")) continue;
     checksRun += 1;
     const sum = parts.reduce((acc, p) => acc + (p!.value as number), 0);
-    if (sum !== total.value) {
-      checksFailed += 1;
+    evaluated.push({ total, parts: parts as FieldRead[], sum, passed: sum === total.value });
+  }
+  // まず通った式で裏付けを集める（ある項目の裏付けになるのは、残りの参加者が全部きれいに読めている式だけ）
+  for (const { total, parts, passed } of evaluated) {
+    if (!passed) continue;
+    const participants = [total, ...parts];
+    for (const target of participants) {
+      const others = participants.filter((p) => p.fieldId !== target.fieldId);
+      if (others.every((p) => p.status === "read")) corroborated.add(target.fieldId);
+    }
+  }
+  // 崩れた式は、裏付けの無い参加者だけを疑う
+  for (const { total, parts, sum, passed } of evaluated) {
+    if (passed) continue;
+    checksFailed += 1;
+    const participants = [total, ...parts];
+    const unbacked = participants.filter((p) => !corroborated.has(p.fieldId));
+    if (unbacked.length === 0) {
+      // 全員に裏付けがあるのに崩れる＝本当に矛盾している
+      contradiction = true;
+      for (const p of participants) suspectIds.add(p.fieldId);
       warnings.push(`${total.label}（${total.value}）と内訳の合計（${sum}）が合いません`);
-      suspectIds.add(total.fieldId);
-      for (const part of parts) if (part) suspectIds.add(part.fieldId);
     } else {
-      // 式が通っても、それだけでは裏付けにならない。
-      // **ある項目の裏付けになるのは、残りの参加者が全部きれいに読めている式だけ。**
-      // （読みに迷った値どうしで辻褄が合ってしまう事故を弾く）
-      const participants = [total, ...(parts as FieldRead[])];
-      for (const target of participants) {
-        const others = participants.filter((p) => p.fieldId !== target.fieldId);
-        if (others.every((p) => p.status === "read")) corroborated.add(target.fieldId);
-      }
+      for (const p of unbacked) suspectIds.add(p.fieldId);
+      warnings.push(`${unbacked.map((p) => p.label).join("・")}の読み取りを確かめてください（${total.label}の合計が合いません）`);
     }
   }
   const checked = fields.map((field) =>
@@ -1008,22 +1079,31 @@ export function completeRead(
   if (incomplete) reasons.push(`${unread.map((f) => f.label).join("・")}を読み取れていません`);
 
   // 読みに迷いがあっても、きれいに読めた値だけで組まれた式が通っていれば裏付けになる。
-  // **日報へ入れない検算用の欄も見る**。表のどこかが読めていないなら、全体を信用しない
+  // 検算専用の欄が怪しくても、日報へ入る値が全部裏付けられているなら止めない
+  // （怪しい検算欄は警告に残す。値そのものの信頼は式で担保されている）
+  const allEntriesBacked = entryIds.length > 0 && entryIds.every((id) => corroborated.has(id));
   const shaky = (template.definition.fields ?? []).filter((field) => {
-    if ((field.role ?? "entry") === "date") return false;
+    const role = field.role ?? "entry";
+    if (role === "date") return false;
     const read = checked.find((f) => f.fieldId === field.id);
     if (!read || read.value == null) return false;
-    if (read.status === "out_of_range") return true;
-    return read.status !== "read" && !corroborated.has(field.id);
+    if (read.status === "out_of_range") return role === "entry" || !allEntriesBacked;
+    const doubtful = read.status !== "read" && !corroborated.has(field.id);
+    if (!doubtful) return false;
+    return role === "entry" || !allEntriesBacked;
   });
   if (shaky.length > 0) reasons.push(`${shaky.map((f) => f.label).join("・")}が確かめられていません`);
 
-  if (checksFailed > 0) reasons.push("表の中の合計が合いません");
+  if (contradiction) reasons.push("表の中の合計が合いません");
+  else if (checksFailed > 0 && !allEntriesBacked) reasons.push("表の中の合計が合わない欄があります");
   if (checksRun === 0) reasons.push("表の中で突き合わせられる合計がありません");
 
-  // 食い違いが実際にあるもの（＝設定でも省けない）
+  // 食い違いが実際にあるもの（＝設定でも省けない）。
+  // 崩れた式があっても、疑わしいのが検算専用の欄だけで、日報へ入る値が全部裏付けられていれば通す
   const suspect =
-    checksFailed > 0 || shaky.length > 0 || checked.some((field) => field.status === "out_of_range");
+    contradiction ||
+    shaky.length > 0 ||
+    checked.some((field) => field.status === "out_of_range" && (field.role ?? "entry") === "entry");
   const trust: ReadTrust = {
     level: suspect ? "suspect" : reasons.length === 0 ? "verified" : "unproven",
     checksRun,
@@ -1458,6 +1538,8 @@ export function suggestRequiredAnchors(
     if (!isAnchorCandidate(cluster.text)) return false;
     const key = normalizeForMatch(cluster.text);
     if (/[0-9]/.test(key) || key.length < 3) return false;
+    // 英字だけの語は自動では選ばない（「FETAREEX」のような誤読が紛れ込む。手で選ぶことはできる）
+    if (/^[a-z]+$/.test(key)) return false;
     // 他の見出しに含まれる語・同じ語が2回出る語は見分けに使えない
     return texts.filter((other) => normalizeForMatch(other).includes(key)).length === 1;
   });

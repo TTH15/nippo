@@ -18,10 +18,14 @@ import {
   applyRefinements,
   chooseTemplate,
   completeRead,
+  anchorTextMatches,
   buildLines,
   estimateSkewAngle,
   isAnchorCandidate,
   isReadableWord,
+  normalizeForMatch,
+  predictMissingAnchors,
+  similarity,
   locateFields,
   orientationScore,
   medianWordHeight,
@@ -392,7 +396,8 @@ const LABEL_MAX_COUNT = 40;
  */
 async function refineLabels(prepared: PreparedImage, page: OcrPage): Promise<SampleWord[]> {
   const isNumeric = (text: string) => /^[\d,\.]+$/.test(text.normalize("NFKC").trim());
-  const bands: Box[] = [];
+  /** band=切り出す帯 / textBox=1段目の文字の枠（目印の位置はこちらで記録する） / raw=1段目の文字 */
+  const bands: { band: Box; textBox: Box; raw: string }[] = [];
   for (const line of buildLines(page.words)) {
     const textual = line.words.filter((word) => !isNumeric(word.text) && word.text.trim().length > 0);
     if (textual.length === 0) continue;
@@ -403,10 +408,18 @@ async function refineLabels(prepared: PreparedImage, page: OcrPage): Promise<Sam
       : Math.max(...textual.map((word) => word.x + word.w)) + line.box.h * 0.5;
     const top = Math.max(0, line.box.y - line.box.h * 0.6);
     const bottom = Math.min(prepared.height, line.box.y + line.box.h * 1.6);
-    const box: Box = { x: left, y: top, w: Math.min(prepared.width, right) - left, h: bottom - top };
+    const band: Box = { x: left, y: top, w: Math.min(prepared.width, right) - left, h: bottom - top };
     // 細すぎる・長すぎる（文章）帯は見出しではない
-    if (box.w < 10 || box.h < 8 || box.w > prepared.width * 0.6) continue;
-    bands.push(box);
+    if (band.w < 10 || band.h < 8 || band.w > prepared.width * 0.6) continue;
+    const tx = Math.min(...textual.map((word) => word.x));
+    const ty = Math.min(...textual.map((word) => word.y));
+    const textBox: Box = {
+      x: tx,
+      y: ty,
+      w: Math.max(...textual.map((word) => word.x + word.w)) - tx,
+      h: Math.max(...textual.map((word) => word.y + word.h)) - ty,
+    };
+    bands.push({ band, textBox, raw: textual.map((word) => word.text).join("") });
     if (bands.length >= LABEL_MAX_COUNT) break;
   }
   if (bands.length === 0) return [];
@@ -416,8 +429,8 @@ async function refineLabels(prepared: PreparedImage, page: OcrPage): Promise<Sam
   await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
   const labels: SampleWord[] = [];
   try {
-    for (const box of bands) {
-      const canvas = cropCanvas(prepared, box, { targetHeight: LABEL_TARGET_HEIGHT, threshold: true });
+    for (const { band, textBox, raw } of bands) {
+      const canvas = cropCanvas(prepared, band, { targetHeight: LABEL_TARGET_HEIGHT, threshold: true });
       if (!canvas) continue;
       const { data } = await worker.recognize(canvas);
       const firstLine =
@@ -426,12 +439,51 @@ async function refineLabels(prepared: PreparedImage, page: OcrPage): Promise<Sam
           .map((line) => line.replace(/\s+/g, ""))
           .find((line) => line.length > 0) ?? "";
       // 読み直しても崩れたものは残さない（崩れた見出しは、無いほうがまだ安全）
-      if (firstLine.length >= 2 && isAnchorCandidate(firstLine)) labels.push({ text: firstLine, box });
+      if (firstLine.length < 2 || !isAnchorCandidate(firstLine)) continue;
+      // 英字だけの読み直しは、1段目と食い違うなら誤読（「FETAREEX」）。日本語は読み直しを信じる
+      if (/^[A-Za-z]+$/.test(firstLine) && similarity(normalizeForMatch(firstLine), normalizeForMatch(raw)) < 0.5) continue;
+      labels.push({ text: firstLine, box: textBox });
     }
   } finally {
     await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
   }
   return labels;
+}
+
+/**
+ * 1段目で見つからなかった見出しを、あるはずの場所を切り出して探し直す。
+ * 実機の1段目で行見出しが崩れる（「ネコポス個数」→「ホス人数」）と、位置合わせも
+ * 行の押さえも効かなくなる。見出しの文字と合えば語を足し、以降はそれを使って位置決めする。
+ */
+async function recoverAnchors(prepared: PreparedImage, page: OcrPage, template: ImageTemplate): Promise<OcrPage> {
+  const missing = predictMissingAnchors(page, template).slice(0, 6);
+  if (missing.length === 0) return page;
+  const worker = await getPageWorker();
+  const { PSM } = await import("tesseract.js");
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+  const added: OcrWord[] = [];
+  try {
+    for (const { spec, box } of missing) {
+      const canvas = cropCanvas(prepared, box, { targetHeight: LABEL_TARGET_HEIGHT, threshold: true });
+      if (!canvas) continue;
+      const { data } = await worker.recognize(canvas);
+      const text = (data.text ?? "").replace(/\s+/g, "");
+      if (!anchorTextMatches(spec, text)) continue;
+      // 見出しの文字として語を足す。位置は切り出した帯の中央付近（見本の枠の大きさで）
+      const sample = spec.sampleBox as Box;
+      added.push({
+        text: spec.text,
+        x: box.x + (box.w - sample.w) / 2,
+        y: box.y + (box.h - sample.h) / 2,
+        w: sample.w,
+        h: sample.h,
+        confidence: (data.confidence ?? 0) / 100,
+      });
+    }
+  } finally {
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+  }
+  return added.length > 0 ? { ...page, words: [...page.words, ...added] } : page;
 }
 
 export type ReportImageOutcome = {
@@ -496,8 +548,10 @@ export async function readReportImage(
   }
 
   options.onStep?.("件数を読み取っています");
-  const located = locateFields(best.page, best.template);
-  const first = readAreas(best.page, best.template, located, { reportDate: options.reportDate });
+  // 見つからなかった見出しを探し直してから位置決めする
+  const page = await recoverAnchors(best.prepared, best.page, best.template);
+  const located = locateFields(page, best.template);
+  const first = readAreas(page, best.template, located, { reportDate: options.reportDate });
   const { refinements, crops } = await refineAreas(best.prepared, located.areas);
   const refined = applyRefinements(best.template, first, refinements, { reportDate: options.reportDate });
   const result = completeRead(best.template, located.match, refined);
