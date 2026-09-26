@@ -84,22 +84,7 @@ export function normGpsStatus(v: unknown): string | null {
   return v === "captured" || v === "denied" || v === "unavailable" ? v : null;
 }
 
-export type InspectionAngle = "front" | "right" | "rear" | "left";
-const INSPECTION_ANGLES: readonly InspectionAngle[] = ["front", "right", "rear", "left"];
-
-/** body.inspectionPhotos（4方向点検写真）を検証・整形する。不正な要素は無視。 */
-export function parseInspectionPhotos(v: unknown): Array<{ angle: InspectionAngle; path: string }> {
-  if (!Array.isArray(v)) return [];
-  const out: Array<{ angle: InspectionAngle; path: string }> = [];
-  for (const item of v) {
-    const angle = (item as { angle?: unknown })?.angle;
-    const path = (item as { path?: unknown })?.path;
-    if (typeof angle === "string" && typeof path === "string" && path && (INSPECTION_ANGLES as string[]).includes(angle)) {
-      out.push({ angle: angle as InspectionAngle, path });
-    }
-  }
-  return out;
-}
+export { parseInspectionPhotos, type InspectionAngle } from "./inspectionPolicy";
 
 /** オドメーター・4方向点検写真を vehicle_inspections(+vehicle_inspection_photos) として保存する（pre/post 共通）。 */
 export async function saveInspection(
@@ -112,9 +97,9 @@ export async function saveInspection(
     phase: "pre" | "post";
     odometerReading: number | null;
     odometerPhotoPath: string | null;
-    photos: Array<{ angle: InspectionAngle; path: string }>;
+    photos: Array<{ angle: string; path: string }>;
   },
-): Promise<void> {
+): Promise<boolean> {
   const { data: inspection, error } = await supabase
     .from("vehicle_inspections")
     .insert({
@@ -131,9 +116,9 @@ export async function saveInspection(
 
   if (error || !inspection) {
     console.error("[saveInspection] insert vehicle_inspections failed", error);
-    return;
+    return false;
   }
-  if (input.photos.length === 0) return;
+  if (input.photos.length === 0) return true;
 
   const { error: photosError } = await supabase.from("vehicle_inspection_photos").insert(
     input.photos.map((p) => ({
@@ -142,5 +127,10 @@ export async function saveInspection(
       photo_path: p.path,
     })),
   );
-  if (photosError) console.error("[saveInspection] insert vehicle_inspection_photos failed", photosError);
+  if (photosError) {
+    console.error("[saveInspection] insert vehicle_inspection_photos failed", photosError);
+    await supabase.from("vehicle_inspections").delete().eq("id", inspection.id).eq("org_id", input.orgId);
+    return false;
+  }
+  return true;
 }

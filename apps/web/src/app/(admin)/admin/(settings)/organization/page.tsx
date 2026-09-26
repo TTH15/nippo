@@ -7,6 +7,7 @@ import { AdminLayout } from "@/lib/components/AdminLayout";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { hasCapability } from "@/lib/capabilities";
+import { PhotoCaptureTasksEditor } from "./PhotoCaptureTasksEditor";
 
 type Settings = {
   name: string;
@@ -52,6 +53,7 @@ export default function OrganizationSettingsPage() {
     <AdminLayout>
       <div className="mx-auto max-w-3xl">
         <div className="mb-6 flex items-center gap-3"><FontAwesomeIcon icon={faBuilding} className="h-5 w-5 text-slate-500" /><div><h1 className="text-xl font-bold text-slate-900">会社設定</h1><p className="text-sm text-slate-500">請求書に表示する自社情報と社印を管理します。</p></div></div>
+        <div className="mb-5"><PhotoCaptureTasksEditor canWrite={canWrite} /></div>
         {isInitialLoading ? <p className="text-sm text-slate-500">読み込み中…</p> : (
           <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-6">
             <Field label="会社名" value={form.name} onChange={(v) => set("name", v)} disabled={!canWrite} />

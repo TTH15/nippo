@@ -4,12 +4,13 @@ import { supabase } from "@/server/db/client";
 import { recordPunchPosition } from "@/server/vehicles/positions";
 import { todayJST } from "@/lib/date";
 import { resolveScanTarget, parseIntOrNull, normGpsStatus, parseInspectionPhotos, saveInspection } from "@/server/vehicleQr/session";
+import { loadPhotoCaptureTasks, validateStagePhotos } from "@/server/vehicleQr/photoCaptureTasks";
 
 export const dynamic = "force-dynamic";
 
 // POST: 退勤打刻（チェックアウト）。★QRは最後（§3-0）。
-// メーター・駐車位置・日報など諸入力を済ませた後、最後に車両QRをスキャンして業務終了を確定する。
-// スキャン時刻=退勤時刻、スキャン時GPS=駐車位置。スキャンした車両が稼働中セッションの車両と一致することを必須にする。
+// 車両QRと退勤時の点検写真を確認して業務終了を確定する。
+// 駐車時メーター・駐車位置・日報は別の操作で記録する。
 // body: { sessionId?, method?, token|qr, vehicleId?, odometer?, lat?, lng?, gpsStatus?,
 //         platePhotoPath?, fallbackReason?, odometerPhotoPath? }
 export async function POST(req: NextRequest) {
@@ -55,6 +56,28 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // 点検写真を伴う場合は保存成功を確認してからセッションを閉じる。
+  const inspectionPhotos = parseInspectionPhotos(body?.inspectionPhotos);
+  const rawCount = Array.isArray(body.inspectionPhotos) ? body.inspectionPhotos.length : 0;
+  if (rawCount !== inspectionPhotos.length) return NextResponse.json({ ok: false, message: "点検写真を確認できませんでした" }, { status: 400 });
+  const tasks = await loadPhotoCaptureTasks(orgId);
+  if (!tasks) return NextResponse.json({ ok: false, message: "撮影項目を確認できませんでした" }, { status: 500 });
+  const photoError = await validateStagePhotos({ orgId, driverId: user.driverId, stage: "end", photos: inspectionPhotos, tasks });
+  if (photoError) return NextResponse.json({ ok: false, message: photoError }, { status: 409 });
+  if (body?.odometerPhotoPath || inspectionPhotos.length > 0) {
+    const saved = await saveInspection(supabase, {
+      sessionId: session.id,
+      vehicleId: session.vehicle_id,
+      orgId,
+      recordedBy: user.driverId,
+      phase: "post",
+      odometerReading: endOdometer,
+      odometerPhotoPath: body?.odometerPhotoPath ? String(body.odometerPhotoPath) : null,
+      photos: inspectionPhotos,
+    });
+    if (!saved) return NextResponse.json({ ok: false, message: "点検写真を保存できませんでした。もう一度送信してください。" }, { status: 503 });
+  }
+
   // 4) セッションを閉じる
   const updates: Record<string, unknown> = {
     status: "closed",
@@ -93,21 +116,6 @@ export async function POST(req: NextRequest) {
     lng: body?.lng,
     recordedBy: user.driverId,
   });
-
-  // 5) オドメーター写真・4方向点検写真があれば post 点検として保存（承認まで保持・§7）
-  const inspectionPhotos = parseInspectionPhotos(body?.inspectionPhotos);
-  if (body?.odometerPhotoPath || inspectionPhotos.length > 0) {
-    await saveInspection(supabase, {
-      sessionId: session.id,
-      vehicleId: session.vehicle_id,
-      orgId,
-      recordedBy: user.driverId,
-      phase: "post",
-      odometerReading: endOdometer,
-      odometerPhotoPath: body?.odometerPhotoPath ? String(body.odometerPhotoPath) : null,
-      photos: inspectionPhotos,
-    });
-  }
 
   return NextResponse.json({ ok: true, code: "ok", session: updated });
 }

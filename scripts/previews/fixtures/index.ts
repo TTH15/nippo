@@ -37,6 +37,8 @@ import { accountFixture } from "./account";
 import { loginFixture } from "./login";
 import ShiftsPage from "@/app/(admin)/admin/(ops)/shifts/page";
 import { shiftsFixture } from "./shifts";
+import OrganizationPage from "@/app/(admin)/admin/(settings)/organization/page";
+import { organizationFixture } from "./organization";
 
 export type PreviewPageEntry = {
   /** URLの末尾（/preview/admin/<slug>） */
@@ -49,6 +51,7 @@ export type PreviewPageEntry = {
 const entry = <S,>(slug: string, fixture: PreviewFixture<S>, Page: ComponentType): PreviewPageEntry => ({ slug, fixture: fixture as PreviewFixture<any>, Page });
 
 export const PREVIEW_PAGES: PreviewPageEntry[] = [
+  entry("organization", organizationFixture, OrganizationPage),
   entry("shifts", shiftsFixture, ShiftsPage),
   entry("report-kinds", reportKindsFixture, ReportKindsPage),
   entry("report-image-templates", reportImageTemplatesFixture, ReportImageTemplatesPage),

@@ -4,6 +4,7 @@ import { supabase } from "@/server/db/client";
 import { recordPunchPosition } from "@/server/vehicles/positions";
 import { todayJST } from "@/lib/date";
 import { resolveScanTarget, parseIntOrNull, normGpsStatus, parseInspectionPhotos, saveInspection } from "@/server/vehicleQr/session";
+import { loadPhotoCaptureTasks, validateStagePhotos } from "@/server/vehicleQr/photoCaptureTasks";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,13 @@ export async function POST(req: NextRequest) {
   const purpose = body?.purpose === "move" || body?.purpose === "private" ? body.purpose : "work";
   const startOdometer = parseIntOrNull(body?.odometer);
   const approvalStatus = target.method === "manual" ? "pending" : null;
+  const inspectionPhotos = parseInspectionPhotos(body?.inspectionPhotos);
+  const rawCount = Array.isArray(body.inspectionPhotos) ? body.inspectionPhotos.length : 0;
+  if (rawCount !== inspectionPhotos.length) return NextResponse.json({ ok: false, message: "写真を確認できませんでした" }, { status: 400 });
+  const tasks = await loadPhotoCaptureTasks(orgId);
+  if (!tasks) return NextResponse.json({ ok: false, message: "撮影項目を確認できませんでした" }, { status: 500 });
+  const photoError = await validateStagePhotos({ orgId, driverId: user.driverId, stage: "start", photos: inspectionPhotos, tasks });
+  if (photoError) return NextResponse.json({ ok: false, message: photoError }, { status: 409 });
 
   const { data: session, error } = await supabase
     .from("vehicle_sessions")
@@ -71,20 +79,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Failed to check in" }, { status: 500 });
   }
 
-  // 地図用の位置時系列へ追記（打刻＝位置の出どころのひとつ）
-  await recordPunchPosition({
-    orgId,
-    vehicleId: target.vehicleId,
-    at: session.started_at as string,
-    lat: body?.lat,
-    lng: body?.lng,
-    recordedBy: user.driverId,
-  });
-
   // 4) オドメーター写真・4方向点検写真があれば pre 点検として保存（承認まで保持・§7）
-  const inspectionPhotos = parseInspectionPhotos(body?.inspectionPhotos);
   if (body?.odometerPhotoPath || inspectionPhotos.length > 0) {
-    await saveInspection(supabase, {
+    const saved = await saveInspection(supabase, {
       sessionId: session.id,
       vehicleId: target.vehicleId,
       orgId,
@@ -94,7 +91,21 @@ export async function POST(req: NextRequest) {
       odometerPhotoPath: body?.odometerPhotoPath ? String(body.odometerPhotoPath) : null,
       photos: inspectionPhotos,
     });
+    if (!saved) {
+      await supabase.from("vehicle_sessions").delete().eq("id", session.id).eq("org_id", orgId).eq("recorded_by", user.driverId);
+      return NextResponse.json({ ok: false, message: "写真を保存できませんでした。もう一度送信してください" }, { status: 503 });
+    }
   }
+
+  // 地図用の位置時系列へ追記（打刻＝位置の出どころのひとつ）
+  await recordPunchPosition({
+    orgId,
+    vehicleId: target.vehicleId,
+    at: session.started_at as string,
+    lat: body?.lat,
+    lng: body?.lng,
+    recordedBy: user.driverId,
+  });
 
   return NextResponse.json({ ok: true, code: "ok", usage: target.usage, session });
 }
