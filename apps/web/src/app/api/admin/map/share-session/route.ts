@@ -10,8 +10,8 @@ export const dynamic = "force-dynamic";
 // anon キーを「認証済みの運営にだけ」ここで手渡す（NEXT_PUBLIC には置かない）。
 // チャンネル名は org×scope の HMAC で導出し、部外者が推測できないようにする
 //（流れるのは視点座標・カーソル・表示名のみ＝低機微。将来 Realtime Authorization に移行可）。
-// scope: map=地図の共有ビュー / shifts=シフト表の同時編集カーソル。
-const SCOPES: Record<string, string> = { map: "can_view_vehicles", shifts: "can_view_shifts" };
+// scope: map=地図 / shifts=シフト表 / shift-memo=共有メモの参加者・更新通知。
+const SCOPES: Record<string, string> = { map: "can_view_vehicles", shifts: "can_view_shifts", "shift-memo": "can_view_shifts" };
 
 export async function GET(req: NextRequest) {
   const scope = req.nextUrl.searchParams.get("scope") || "map";

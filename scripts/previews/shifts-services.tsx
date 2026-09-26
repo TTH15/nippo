@@ -130,7 +130,7 @@ export async function apiFetch<T>(key: string, init?: RequestInit): Promise<T> {
 export const getStoredDriver = () => ({ id: "preview-admin", name: "サンプル管理者" });
 export const getToken = () => null;
 export const hasCapability = (capability: string) => ["can_manage_shifts", "can_dispatch", "can_manage_vehicles"].includes(capability);
-export const useCellCursors = () => ({ reportCell: () => {}, cellPeers: {}, peers: [] });
+export const useCellCursors = () => ({ reportCell: () => {}, announceRevision: () => {}, cellPeers: {}, peers: [], connected: false });
 export const preload = async () => undefined;
 export const mutate = async () => undefined;
 export const swrFetcher = async () => undefined;

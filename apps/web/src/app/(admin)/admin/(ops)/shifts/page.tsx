@@ -605,6 +605,10 @@ function CellPeersBadge({ peers }: { peers?: CellPeer[] }) {
 
 export default function ShiftsPage() {
   const [workspaceView, setWorkspaceView] = useState<"shift" | "memo">("shift");
+  const [memoMode, setMemoMode] = useState<"personal" | "shared">("personal");
+  const [sharedMemoPending, setSharedMemoPending] = useState(false);
+  const canLeaveSharedMemo = () => memoMode !== "shared" || !sharedMemoPending
+    || window.confirm("共有メモに保存前の変更があります。破棄して切り替えますか？");
   const [canWrite, setCanWrite] = useState(false);
   // 配車（車両割当）はシフト編集と独立の can_dispatch でゲート（A1）。
   const [canDispatch, setCanDispatch] = useState(false);
@@ -624,7 +628,9 @@ export default function ShiftsPage() {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   // 同時編集カーソル（誰がどのセルを触っているか）。表示中は自動接続・未設定なら黙って無効。
   const [presenceName] = useState(() => getStoredDriver()?.name ?? "運営");
-  const cursors = useCellCursors({ scope: "shifts", selfName: presenceName });
+  const [remoteShiftNotice, setRemoteShiftNotice] = useState(0);
+  const cursors = useCellCursors({ scope: "shifts", selfName: presenceName,
+    onRevision: () => setRemoteShiftNotice((value) => value + 1) });
   // シフト表（PDF/画像）の AI 取り込み。専用ボタンは置かず、画面へのドラッグ&ドロップを入口にする。
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importFiles, setImportFiles] = useState<File[]>([]);
@@ -839,6 +845,8 @@ export default function ShiftsPage() {
     // 日付グリッドで前期間のデータが新しい列に重なって見えるのを防ぐため、
     // この画面では keepPreviousData を無効化（未訪問の期間切替時のみスケルトン）。
     keepPreviousData: false,
+    // Realtime が接続できない場合も、他の運営者の保存を次の操作まで見失わない。
+    refreshInterval: workspaceView === "shift" && !cursors.connected ? 15000 : 0,
     // 編集中のフォーカス復帰で楽観更新（localShifts 等）が消えるのを防ぐため無効化。
     revalidateOnFocus: false,
   });
@@ -920,14 +928,15 @@ export default function ShiftsPage() {
   // 1操作ごとに再取得すると通信が増え、取得結果で楽観更新が上書きされてちらつく。
   // 操作が途切れてからまとめて1回だけ再取得する。
   const revalidateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleRevalidate = useCallback(() => {
+  const scheduleRevalidate = useCallback((broadcast = true) => {
+    if (broadcast) cursors.announceRevision(Date.now());
     if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
     revalidateTimer.current = setTimeout(() => {
       revalidateTimer.current = null;
       // 別の保存がまだ通信中なら再取得を延期する。ここで取得すると「保存前のサーバー状態」で
       // 楽観更新が上書きされ、直後の変更が一瞬巻き戻って見える（挙動が不安定になる報告の原因）
       if (autoSavingRef.current > 0) {
-        scheduleRevalidate();
+        scheduleRevalidate(false);
         return;
       }
       void mutateShifts();
@@ -936,8 +945,19 @@ export default function ShiftsPage() {
       void mutate(PENDING_CHANGES_KEY);
       // 未解決一覧も同じタイミングで取り直す（不足を直したらその場で消える）
       void mutate(SHIFT_READINESS_KEY);
-    }, 1500);
-  }, [mutateShifts]);
+    }, 500);
+  }, [mutateShifts, cursors.announceRevision]);
+
+  useEffect(() => {
+    if (remoteShiftNotice === 0 || workspaceView !== "shift") return;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = () => {
+      if (autoSavingRef.current > 0) { timer = setTimeout(refresh, 100); return; }
+      void mutateShifts();
+    };
+    timer = setTimeout(refresh, 250);
+    return () => clearTimeout(timer);
+  }, [remoteShiftNotice, workspaceView, mutateShifts]);
 
   useEffect(
     () => () => {
@@ -979,12 +999,14 @@ export default function ShiftsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, displayDates, viewAxis]);
 
-  // 自動保存のため未保存確認は不要。そのまま切り替える。
+  // 共有メモは短い入力待ちや通信中だけ未保存確認を行う。
   const handleYearMonthChange = (value: { year: number; month: number }) => {
+    if (!canLeaveSharedMemo()) return;
     setYearMonth(value);
   };
 
   const switchPeriod = (p: Period) => {
+    if (!canLeaveSharedMemo()) return;
     setPeriod(p);
   };
 
@@ -997,6 +1019,7 @@ export default function ShiftsPage() {
 
   /** 前後の期間（半月）へ1ステップ移動。月またぎも自動（8月後半→9月前半 等） */
   const stepPeriod = (dir: 1 | -1, focusDate?: string) => {
+    if (!canLeaveSharedMemo()) return;
     const t = adjacentHalf(yearMonth.year, yearMonth.month, period, dir);
     setYearMonth({ year: t.year, month: t.month });
     setPeriod(t.period);
@@ -1743,7 +1766,7 @@ export default function ShiftsPage() {
       .then(async () => {
         if ((cellSaveQueue.current.get(cellKey)?.generation ?? 0) !== generation) {
           // 先行が失敗して捨てた分。送らないが、盤面の楽観表示は必ず取り直す
-          scheduleRevalidate();
+          scheduleRevalidate(false);
           return false;
         }
         const ok = await sendAssignment(date, courseId, slot, driverId, cycleNo, expectedDriverId);
@@ -2430,7 +2453,7 @@ export default function ShiftsPage() {
             <button
               type="button"
               aria-pressed={workspaceView === "shift"}
-              onClick={() => setWorkspaceView("shift")}
+              onClick={() => { if (canLeaveSharedMemo()) setWorkspaceView("shift"); }}
               className={cn(
                 "min-w-0 flex-1 whitespace-nowrap px-3 py-1.5 text-xs font-semibold transition-colors md:flex-none",
                 workspaceView === "shift" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50",
@@ -2598,8 +2621,22 @@ export default function ShiftsPage() {
         {workspaceView === "shift" && <ShiftReadinessPanel />}
         {shiftsError && <p role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">シフトを読み込めませんでした。<button type="button" onClick={() => void load()} className="ml-2 min-h-11 underline underline-offset-2">再読込</button></p>}
         {workspaceView === "memo" ? (
+          <>
+          <div role="group" aria-label="シフトメモの保存先" className="mb-3 inline-flex overflow-hidden rounded-lg border border-slate-300 bg-white">
+            {([["personal", "個人"], ["shared", "共有"]] as const).map(([mode, label]) => (
+              <button key={mode} type="button" aria-pressed={memoMode === mode} onClick={() => {
+                if (memoMode === "shared" && mode !== "shared" && !canLeaveSharedMemo()) return;
+                setSharedMemoPending(false);
+                setMemoMode(mode);
+              }}
+                className={cn("min-h-10 px-4 text-xs font-semibold", memoMode === mode ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50")}>{label}</button>
+            ))}
+          </div>
           <PersonalShiftMemoBoard
-            key={`${displayDates[0] ?? ""}:${displayDates.at(-1) ?? ""}`}
+            key={`${memoMode}:${displayDates[0] ?? ""}:${displayDates.at(-1) ?? ""}`}
+            mode={memoMode}
+            canEdit={memoMode === "personal" || canWrite}
+            onPendingChange={setSharedMemoPending}
             dates={displayDates}
             courses={courses}
             drivers={drivers}
@@ -2608,6 +2645,7 @@ export default function ShiftsPage() {
             canReflect={canWrite && !loading && !!shiftsData && !shiftsError}
             onReflected={load}
           />
+          </>
         ) : (
         <>
 

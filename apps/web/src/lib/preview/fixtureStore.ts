@@ -38,6 +38,8 @@ export type PreviewFixture<S> = {
   /** fixture固有のシナリオ。normal を必ず含める。loading / error は共通で自動追加される */
   scenarios: Record<string, ScenarioDefinition>;
   createState(context: FixtureContext): S;
+  /** 明示的な「初期化」でだけ、fixture外のプレビュー専用保存先を消す。 */
+  onReset?(context: FixtureContext): void;
   /** GET。undefined を返すと「プレビュー対象外」エラーになる */
   read(state: S, request: FixtureRequest, context: FixtureContext): unknown;
   /** POST/PUT/DELETE。undefined を返すと「プレビュー対象外」エラーになる。状態は直接書き換えてよい */
@@ -149,6 +151,7 @@ export function createFixtureStore<S>(fixture: PreviewFixture<S>, location: { sc
       return failNextWrite;
     },
     reset() {
+      fixture.onReset?.(context);
       state = fixture.createState(context);
       failNextWrite = false;
       notify();

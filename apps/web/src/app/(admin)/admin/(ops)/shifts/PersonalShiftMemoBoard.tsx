@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -35,6 +36,8 @@ import {
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { pngToPdf } from "@/lib/pdfExport";
+import { useCellCursors } from "@/lib/realtime/cellCursors";
+import { boardChanges, mergeBoardChanges } from "@/lib/shiftMemo/sharedBoardSync";
 import {
   exportBodySlices,
   exportDateLabel,
@@ -327,6 +330,9 @@ export default function PersonalShiftMemoBoard({
   today,
   shiftRequests = [],
   storageNamespace,
+  mode = "personal",
+  canEdit = true,
+  onPendingChange,
   canReflect = false,
   onReflected,
 }: {
@@ -338,11 +344,14 @@ export default function PersonalShiftMemoBoard({
   shiftRequests?: ShiftRequestLike[];
   /** 保存先を分けたいとき（プレビューで本物の下書きを汚さない）に指定する */
   storageNamespace?: string;
+  mode?: "personal" | "shared";
+  canEdit?: boolean;
+  onPendingChange?: (pending: boolean) => void;
   canReflect?: boolean;
   onReflected?: () => Promise<unknown>;
 }) {
   const viewerId = storageNamespace ?? getStoredDriver()?.id ?? "local";
-  // 担当枠設定は期間をまたいで使い回し、配置と日別メモはISO日付キーで同じ個人領域へ蓄積する。
+  // 個人モードの保存キーは維持する。共有モードではこのキーを読み書きしない。
   const storageKey = `hakotora_personal_shift_memo_v1:${viewerId}`;
   const initialLanes = useMemo(() => defaultLanes(courses), [courses]);
   const [invoiceAddressNames, setInvoiceAddressNames] = useState<Record<string, string>>({});
@@ -367,6 +376,21 @@ export default function PersonalShiftMemoBoard({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveRevision, setSaveRevision] = useState(0);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [sharedPending, setSharedPending] = useState(false);
+  const [loadRevision, setLoadRevision] = useState(0);
+  const [remoteRevision, setRemoteRevision] = useState(0);
+  const sharedRevisionRef = useRef(0);
+  const sharedSavingRef = useRef(false);
+  const sharedBlockedRef = useRef(false);
+  const sharedRetryRequiredRef = useRef(false);
+  const sharedSnapshotRef = useRef("");
+  const sharedCurrentRef = useRef("");
+  const sharedSkipFirstSaveRef = useRef(true);
+  const sharedInitialBoardRef = useRef<StoredBoard | null>(null);
+  const cursors = useCellCursors({
+    scope: "shift-memo", selfName: getStoredDriver()?.name ?? "運営", enabled: mode === "shared",
+    onRevision: () => setRemoteRevision((current) => current + 1),
+  });
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [customName, setCustomName] = useState("");
@@ -445,12 +469,8 @@ export default function PersonalShiftMemoBoard({
     defaultRequiredCount: Math.max(1, course.max_drivers ?? 1),
   })), [courses, invoiceAddressNames]);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const stored = JSON.parse(raw) as Partial<StoredBoard>;
-        if (stored.version === 1 && Array.isArray(stored.lanes)) {
+  const applyBoard = useCallback((stored: Partial<StoredBoard>) => {
+      if (stored.version === 1 && Array.isArray(stored.lanes)) {
           const knownIds = new Set(stored.lanes.map((lane) => lane.id));
           const mergedLanes = [...stored.lanes, ...initialLanes.filter((lane) => !knownIds.has(lane.id))];
           setLanes(mergedLanes);
@@ -471,19 +491,46 @@ export default function PersonalShiftMemoBoard({
             setLaneWidth(Math.max(150, Math.min(300, stored.widths.lane || 190)));
             setDetailWidth(Math.max(280, Math.min(520, stored.widths.detail || 330)));
           }
-        }
       }
-    } catch {
-      setSaveError("この端末に保存したメモを読み込めませんでした");
-    } finally {
-      setHydrated(true);
-    }
-  }, [initialLanes, storageKey]);
+  }, [initialLanes]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        if (mode === "shared") {
+          const result = await apiFetch<{ board: StoredBoard | null; revision: number }>("/api/admin/shifts/memo/board");
+          if (cancelled) return;
+          sharedRevisionRef.current = result.revision;
+          sharedSnapshotRef.current = result.board ? JSON.stringify(result.board) : "";
+          sharedInitialBoardRef.current = null;
+          sharedBlockedRef.current = false;
+          sharedRetryRequiredRef.current = false;
+          sharedSkipFirstSaveRef.current = true;
+          setSharedPending(false);
+          onPendingChange?.(false);
+          if (result.board) applyBoard(result.board);
+        } else {
+          const raw = localStorage.getItem(storageKey);
+          if (raw) applyBoard(JSON.parse(raw) as StoredBoard);
+        }
+        if (!cancelled) setSaveError(null);
+      } catch {
+        if (!cancelled) {
+          if (mode === "shared") sharedBlockedRef.current = true;
+          setSaveError(mode === "shared" ? "共有メモを読み込めませんでした" : "この端末に保存したメモを読み込めませんでした");
+        }
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [applyBoard, storageKey, mode, loadRevision, onPendingChange]);
 
   useEffect(() => {
     if (!hydrated) return;
-    const timer = window.setTimeout(() => {
-      const board: StoredBoard = {
+    const board: StoredBoard = {
         version: 1,
         lanes,
         laneOrder,
@@ -496,17 +543,123 @@ export default function PersonalShiftMemoBoard({
         dayOverrides,
         requiredCountOverrides,
         widths: { day: dayWidth, lane: laneWidth, detail: detailWidth },
-      };
+    };
+    const serialized = JSON.stringify(board);
+    if (mode === "shared") {
+      sharedCurrentRef.current = serialized;
+      if (sharedSkipFirstSaveRef.current) {
+        sharedSkipFirstSaveRef.current = false;
+        sharedSnapshotRef.current = serialized;
+        if (sharedRevisionRef.current === 0) sharedInitialBoardRef.current = board;
+        setSharedPending(false);
+        onPendingChange?.(false);
+        return;
+      }
+    }
+    const base = mode === "shared" ? JSON.parse(sharedSnapshotRef.current) as StoredBoard : null;
+    const changes = base ? boardChanges(base as unknown as Record<string, unknown>, board as unknown as Record<string, unknown>) : [];
+    if (mode === "shared") {
+      setSharedPending(changes.length > 0);
+      onPendingChange?.(changes.length > 0);
+      if (!canEdit || sharedBlockedRef.current || sharedRetryRequiredRef.current || changes.length === 0) return;
+    }
+    const timer = window.setTimeout(() => {
+      if (mode === "shared") {
+        if (sharedSavingRef.current) return;
+        sharedSavingRef.current = true;
+        void apiFetch<{ revision: number; board: StoredBoard }>("/api/admin/shifts/memo/board", {
+          method: "PATCH", body: JSON.stringify({
+            initialBoard: sharedRevisionRef.current === 0 ? sharedInitialBoardRef.current : null,
+            changes,
+          }),
+        }).then((result) => {
+          sharedRevisionRef.current = result.revision;
+          sharedInitialBoardRef.current = null;
+          sharedSnapshotRef.current = JSON.stringify(result.board);
+          const current = JSON.parse(sharedCurrentRef.current) as StoredBoard;
+          const merged = mergeBoardChanges(board as unknown as Record<string, unknown>, current as unknown as Record<string, unknown>, result.board as unknown as Record<string, unknown>);
+          if (merged.conflicts.length) {
+            sharedBlockedRef.current = true;
+            setSaveError("同じ箇所を他の人が更新しました。最新の内容を確認してください");
+          } else if (boardChanges(current as unknown as Record<string, unknown>, merged.board).length > 0) {
+            applyBoard(merged.board as StoredBoard);
+          }
+          cursors.announceRevision(result.revision);
+          if (!merged.conflicts.length) setSaveError(null);
+          setSavedAt(Date.now());
+        }).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : "共有メモを保存できませんでした";
+          if (message.includes("他の人が") || message.includes("同じ箇所")) sharedBlockedRef.current = true;
+          else sharedRetryRequiredRef.current = true;
+          setSaveError(message);
+        }).finally(() => {
+          sharedSavingRef.current = false;
+          if (!sharedBlockedRef.current && !sharedRetryRequiredRef.current
+            && boardChanges(JSON.parse(sharedSnapshotRef.current), JSON.parse(sharedCurrentRef.current)).length > 0) setSaveRevision((value) => value + 1);
+        });
+        return;
+      }
       try {
-        localStorage.setItem(storageKey, JSON.stringify(board));
+        localStorage.setItem(storageKey, serialized);
         setSaveError(null);
         setSavedAt(Date.now());
       } catch {
         setSaveError("端末へ保存できませんでした。ブラウザの保存容量を確認してください");
       }
-    }, 250);
+    }, mode === "shared" ? changes.every((change) => change.field === "notes") ? 400 : 80 : 250);
     return () => window.clearTimeout(timer);
-  }, [saveRevision, assignments, requiredCountOverrides, dayOverrides, dayWidth, detailWidth, extraPeople, hiddenLaneIds, hiddenRouteIds, hydrated, laneOrder, laneWidth, lanes, notes, routeOrder, storageKey]);
+  }, [saveRevision, assignments, requiredCountOverrides, dayOverrides, dayWidth, detailWidth, extraPeople, hiddenLaneIds, hiddenRouteIds, hydrated, laneOrder, laneWidth, lanes, notes, routeOrder, storageKey, mode, canEdit, applyBoard, cursors.announceRevision, onPendingChange]);
+
+  useEffect(() => {
+    if (mode !== "shared" || !hydrated) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      const dirty = sharedSnapshotRef.current && sharedCurrentRef.current
+        && boardChanges(JSON.parse(sharedSnapshotRef.current), JSON.parse(sharedCurrentRef.current)).length > 0;
+      if (sharedSavingRef.current || dirty) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [mode, hydrated]);
+
+  useEffect(() => {
+    if (mode !== "shared" || !hydrated || (!cursors.connected && remoteRevision === 0)) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const sync = async () => {
+      if (sharedSavingRef.current) {
+        timer = setTimeout(() => { void sync(); }, 100);
+        return;
+      }
+      try {
+        const result = await apiFetch<{ board: StoredBoard | null; revision: number }>("/api/admin/shifts/memo/board");
+        if (cancelled || !result.board || result.revision <= sharedRevisionRef.current) return;
+        const base = JSON.parse(sharedSnapshotRef.current) as StoredBoard;
+        const current = JSON.parse(sharedCurrentRef.current) as StoredBoard;
+        const merged = mergeBoardChanges(base as unknown as Record<string, unknown>, current as unknown as Record<string, unknown>, result.board as unknown as Record<string, unknown>);
+        sharedRevisionRef.current = result.revision;
+        sharedSnapshotRef.current = JSON.stringify(result.board);
+        if (merged.conflicts.length) {
+          sharedBlockedRef.current = true;
+          setSaveError("同じ箇所を他の人が更新しました。最新の内容を確認してください");
+        } else {
+          applyBoard(merged.board as StoredBoard);
+        }
+      } catch {
+        // 接続が戻った後や手動更新で再取得する。編集中の内容は保持する。
+      }
+    };
+    timer = setTimeout(() => { void sync(); }, 150);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [mode, hydrated, remoteRevision, cursors.connected, applyBoard]);
+
+  useEffect(() => {
+    if (mode !== "shared" || !hydrated || cursors.connected) return;
+    const timer = window.setInterval(() => setRemoteRevision((current) => current + 1), 15000);
+    return () => window.clearInterval(timer);
+  }, [mode, hydrated, cursors.connected]);
 
   useEffect(() => {
     if (!activePanel) return;
@@ -1185,16 +1338,35 @@ export default function PersonalShiftMemoBoard({
   }
 
   return (
-    <div ref={rootRef} className="space-y-3 pb-8 text-slate-900">
+    <div ref={rootRef}
+      onClickCapture={(event) => { if (mode === "shared" && !canEdit && !(event.target as Element).closest("[data-shared-refresh]")) { event.preventDefault(); event.stopPropagation(); } }}
+      onKeyDownCapture={(event) => { if (mode === "shared" && !canEdit && (event.key === "Enter" || event.key === " ") && !(event.target as Element).closest("[data-shared-refresh]")) { event.preventDefault(); event.stopPropagation(); } }}
+      onBeforeInputCapture={(event) => { if (mode === "shared" && !canEdit) event.preventDefault(); }}
+      onDragStartCapture={(event) => { if (mode === "shared" && !canEdit) event.preventDefault(); }}
+      className={cn("space-y-3 pb-8 text-slate-900", mode === "shared" && !canEdit && "[&_button]:pointer-events-none [&_input]:pointer-events-none [&_textarea]:pointer-events-none")}>
       <p className="sr-only" aria-live="polite">{liveMessage}</p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
-          <FontAwesomeIcon icon={faLock} className="h-3 w-3" />個人メモ
+          <FontAwesomeIcon icon={faLock} className="h-3 w-3" />{mode === "shared" ? "共有メモ" : "個人メモ"}
         </span>
+        {mode === "shared" && cursors.peers.length > 0 && <span className="text-[11px] text-slate-600">参加中: {cursors.peers.map((peer) => peer.name).join("、")}</span>}
         {canReflect && onReflected && <button type="button" disabled={!hydrated || exportMode} onClick={() => setReflectOpen(true)} className="min-h-11 rounded-lg bg-slate-900 px-3 text-[11px] font-bold text-white hover:bg-slate-700 disabled:opacity-40">シフトへ反映</button>}
         <span className="text-[11px] text-slate-500">
-          {saveError ? <span role="alert" className="text-rose-600">{saveError}<button type="button" onClick={() => setSaveRevision((value) => value + 1)} className="ml-2 min-h-11 underline underline-offset-2">保存を再試行</button></span> : savedAt ? "この端末に自動保存済み" : "この端末に保存"}
+          {saveError ? <span role="alert" className="text-rose-600">{saveError}<button type="button" data-shared-refresh={mode === "shared" ? "" : undefined} style={mode === "shared" ? { pointerEvents: "auto" } : undefined} onClick={() => {
+            if (mode === "shared" && (sharedBlockedRef.current || !hydrated)) {
+              if (saveError.includes("同じ箇所") && !window.confirm("未保存の変更を破棄して、最新の共有メモを開きますか？")) return;
+              setHydrated(false); setLoadRevision((value) => value + 1);
+            } else {
+              sharedRetryRequiredRef.current = false;
+              setSaveRevision((value) => value + 1);
+            }
+          }} className="ml-2 min-h-11 underline underline-offset-2">{mode === "shared" && (sharedBlockedRef.current || !hydrated) ? "再読み込み" : "保存を再試行"}</button></span> : savedAt ? mode === "shared" ? "保存済み" : "この端末に自動保存済み" : mode === "shared" ? null : "この端末に保存"}
         </span>
+        {mode === "shared" && <button type="button" data-shared-refresh style={{ pointerEvents: "auto" }} disabled={!!saveError || sharedSavingRef.current || sharedPending}
+          onClick={() => { setHydrated(false); setLoadRevision((value) => value + 1); }}
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+          <FontAwesomeIcon icon={faRotateLeft} className="h-3 w-3" />更新
+        </button>}
         <button
           type="button"
           onClick={exportMode ? closeExport : startExport}
@@ -1328,7 +1500,8 @@ export default function PersonalShiftMemoBoard({
                             }}
                             onDragOver={(event) => { if (active) event.preventDefault(); }}
                             onDrop={(event) => { if (active) dropPerson(event, key); }}
-                            onClick={() => setSelectedDate(date)}
+                            onClick={() => { setSelectedDate(date); if (mode === "shared") cursors.reportCell(key); }}
+                            onFocus={() => { if (mode === "shared") cursors.reportCell(key); }}
                             className={cn("group relative flex min-h-28 flex-col content-start items-start gap-1.5 border-b border-r border-slate-200 p-1.5 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", dayWidth < 72 ? "pt-12" : "pt-7", active ? "hover:bg-slate-50" : "bg-slate-100/80", selectedDate === date && active && "bg-indigo-50/45")}
                             // その日だけの指定で動かしている枠は破線で囲む（曜日どおりの枠と見分ける）
                             title={activity.spot ? (active ? "この日だけ稼働にしています" : "この日だけ休みにしています") : undefined}
@@ -1337,6 +1510,7 @@ export default function PersonalShiftMemoBoard({
                               ...(activity.spot ? { outline: "1px dashed #64748b", outlineOffset: "-3px" } : {}),
                             }}
                           >
+                            {mode === "shared" && cursors.cellPeers[key]?.map((peer) => <span key={peer.id} data-html2canvas-ignore="true" className="pointer-events-none absolute right-0.5 top-0.5 z-20 rounded px-1 text-[9px] font-bold text-white" style={{ backgroundColor: peer.color }}>{peer.name}</span>)}
                             {/* このコースのこの日を休みにする／戻す。日付を選ばなくても押せる */}
                             <button
                               data-html2canvas-ignore="true"
@@ -1636,7 +1810,7 @@ export default function PersonalShiftMemoBoard({
               })}
             </section>
 
-            <section className="rounded-xl border border-slate-200 bg-white p-3"><label className="mb-1.5 block text-xs font-bold text-slate-700">この日のメモ</label><textarea value={notes[selectedDate] ?? ""} maxLength={2000} onChange={(event) => { const date = selectedDate; setNotes((current) => ({ ...current, [date]: event.target.value })); }} rows={4} className="w-full resize-y rounded-lg border border-slate-200 px-2.5 py-2 text-xs leading-relaxed outline-none focus:border-slate-400" /></section>
+            <section className="rounded-xl border border-slate-200 bg-white p-3"><label className="mb-1.5 block text-xs font-bold text-slate-700">この日のメモ</label><textarea value={notes[selectedDate] ?? ""} maxLength={2000} onFocus={() => { if (mode === "shared") cursors.reportCell(`notes:${selectedDate}`); }} onBlur={() => { if (mode === "shared") cursors.reportCell(null); }} onChange={(event) => { const date = selectedDate; setNotes((current) => ({ ...current, [date]: event.target.value })); }} rows={4} className="w-full resize-y rounded-lg border border-slate-200 px-2.5 py-2 text-xs leading-relaxed outline-none focus:border-slate-400" /></section>
             </>
             )}
           </div>

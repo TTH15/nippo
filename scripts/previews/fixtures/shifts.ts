@@ -1,10 +1,18 @@
 // 本番 /admin/shifts/page.tsx と PersonalShiftMemoBoard を架空データで操作する。
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 import type { ReflectGroup, ReflectInput, ReflectPreview } from "@/lib/shiftMemo/reflect";
+import { applyBoardChanges, sameBoardValue, type BoardChange } from "@/lib/shiftMemo/sharedBoardSync";
 
 const names = ["佐藤 翔太", "田中 美咲", "鈴木 大輔", "高橋 健太", "伊藤 彩", "渡辺 直樹"];
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 export type PreviewShift = { id: string; shift_date: string; course_id: string; cycle_no: number; slot: number; driver_id: string | null; vehicle_id?: string | null };
+const LIVE_BOARD_KEY = "hakotora_preview_shared_memo_live_v1";
+function loadLiveBoard(): { board: Record<string, unknown> | null; revision: number } | null {
+  try {
+    const raw = localStorage.getItem(LIVE_BOARD_KEY);
+    return raw ? JSON.parse(raw) as { board: Record<string, unknown> | null; revision: number } : null;
+  } catch { return null; }
+}
 function createData(scenario: string) {
   const drivers = Array.from({ length: scenario === "large" ? 48 : 6 }, (_, i) => ({ id: id(i + 1), name: names[i % 6], display_name: scenario === "long-name" ? `${names[i % 6]}（配送応援・午前午後兼務）` : null, list_no: i + 1, status: "active", works_as_driver: true, driver_courses: [{ course_id: id(101) }, { course_id: id(102) }] }));
   const courses = [{ id: id(101), name: "豊中サンプル", summary_title: "豊中サンプル", color: "#fbbf24", max_drivers: 4, uses_cycles: true, course_cycles: [{ cycle_no: 1, label: "C1", active: true }, { cycle_no: 2, label: "C2", active: true }] },
@@ -54,7 +62,8 @@ function createData(scenario: string) {
     valid_from: "2026-01-01",
     valid_to: null as string | null,
   }));
-  return { courses, drivers: scenario === "empty" ? [] : drivers, vehicles, driverLeases, shifts: [] as PreviewShift[], baselines, requirements, readinessSettings, deadlineRules, timeSlots, seeded: new Set<string>(), revision: 0 };
+  return { courses, drivers: scenario === "empty" ? [] : drivers, vehicles, driverLeases, shifts: [] as PreviewShift[], baselines, requirements, readinessSettings, deadlineRules, timeSlots, seeded: new Set<string>(), revision: 0,
+    sharedBoard: null as Record<string, unknown> | null, sharedRevision: 0, sharedFailed: false };
 }
 export type ShiftsFixtureState = ReturnType<typeof createData>;
 
@@ -119,13 +128,23 @@ function readinessResponse(state: ShiftsFixtureState, scenario: string) {
 
 export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
   id: "shifts", title: "シフト・シフトメモ", pathname: "/admin/shifts",
-  scenarios: { normal: { label: "通常", description: "メモからシフトへ反映" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札を登録ドライバーに合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
+  scenarios: { normal: { label: "通常", description: "個人・共有メモを切り替え" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "shared-live": { label: "2タブ共同", description: "別タブとの参加・更新を試す" }, "shared-peers": { label: "共同編集者", description: "共有メモの参加者表示" }, "shared-disjoint": { label: "別の箇所", description: "他の人の変更も残す" }, "shared-conflict": { label: "共有メモ競合", description: "同じ箇所の変更を検出" }, "shared-save-error": { label: "共有メモ保存失敗", description: "保存失敗から再試行" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札を登録ドライバーに合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
   createState: ({ scenario, driver }) => {
     // 本番利用者の保存キーには触れない。シナリオを開くたびに架空メモを初期化する。
     if (typeof localStorage !== "undefined") localStorage.removeItem(`hakotora_personal_shift_memo_v1:${driver.id}`);
     return createData(scenario);
   },
+  onReset: ({ scenario }) => {
+    if (scenario === "shared-live") localStorage.removeItem(LIVE_BOARD_KEY);
+  },
   read(state, { path, params }, { driver, scenario }) {
+    if (path === "/api/admin/shifts/memo/board") {
+      if (scenario === "shared-live") {
+        const live = loadLiveBoard();
+        if (live) { state.sharedBoard = live.board; state.sharedRevision = live.revision; }
+      }
+      return { board: state.sharedBoard, revision: state.sharedRevision };
+    }
     if (path === "/api/admin/invoice-addresses") return { addresses: [] };
     if (path === "/api/admin/shifts/pending-changes") return { enabled: false, changes: [], canSend: false };
     if (path === "/api/admin/shifts/readiness") return readinessResponse(state, scenario);
@@ -176,6 +195,39 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
     return { courses: state.courses, drivers: state.drivers, shifts: state.shifts.filter(s => s.shift_date >= start && s.shift_date <= end), requests: [], slots: [], vehicles: state.vehicles, vehicle_driver_links: [], vehicle_loans: [], recent_assignments: [], driver_leases: state.driverLeases };
   },
   write(state, { path, body }, { role, scenario }) {
+    if (path === "/api/admin/shifts/memo/board") {
+      if (role !== "admin") throw new Error("この操作の権限がありません。");
+      if (scenario === "shared-live") {
+        const live = loadLiveBoard();
+        if (live) { state.sharedBoard = live.board; state.sharedRevision = live.revision; }
+      }
+      const changes = body.changes as BoardChange[];
+      if (!Array.isArray(changes) || changes.length === 0) throw new Error("変更内容を確認してください");
+      state.sharedBoard ??= body.initialBoard as Record<string, unknown>;
+      if (scenario === "shared-save-error" && !state.sharedFailed) {
+        state.sharedFailed = true;
+        throw new Error("共有メモを保存できませんでした");
+      }
+      if (scenario === "shared-conflict" && !state.sharedFailed) {
+        state.sharedFailed = true;
+        const first = changes[0];
+        state.sharedBoard = applyBoardChanges(state.sharedBoard, [{ ...first, value: first.field === "notes" ? "他の人のメモ" : [] }]);
+        state.sharedRevision++;
+      }
+      if (scenario === "shared-disjoint" && !state.sharedFailed) {
+        state.sharedFailed = true;
+        state.sharedBoard = applyBoardChanges(state.sharedBoard, [{ field: "notes", key: "2026-09-25", expected: null, value: "他の担当者のメモ" }]);
+        state.sharedRevision++;
+      }
+      for (const change of changes) {
+        const current = change.key === undefined ? state.sharedBoard[change.field] : ((state.sharedBoard[change.field] ?? {}) as Record<string, unknown>)[change.key];
+        if (!sameBoardValue(current, change.expected)) throw new Error("同じ箇所を他の人が更新しました。最新の内容を確認してください");
+      }
+      state.sharedBoard = applyBoardChanges(state.sharedBoard, changes);
+      state.sharedRevision++;
+      if (scenario === "shared-live") localStorage.setItem(LIVE_BOARD_KEY, JSON.stringify({ board: state.sharedBoard, revision: state.sharedRevision }));
+      return { revision: state.sharedRevision, board: state.sharedBoard };
+    }
     // シフト表のセル1つの割当。O-3 の競合検知（409）をプレビューでも試せるようにする
     if (path === "/api/admin/shifts") {
       if (role !== "admin") throw new Error("この操作の権限がありません。");

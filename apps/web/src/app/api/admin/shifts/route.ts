@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_shifts");
   if (isAuthError(user)) return user;
+  const startedAt = performance.now();
   try {
     const orgId = user.orgId ?? await resolveOrgId(user.driverId);
     const startDate = req.nextUrl.searchParams.get("start");
@@ -41,6 +42,7 @@ export async function GET(req: NextRequest) {
       supabase.from("vehicles").select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, is_ev, is_disposed, is_unavailable, unavailable_reason, last_oil_change_mileage, oil_change_interval").eq("owner_org_id", orgId).order("manufacturer").order("brand"),
     ]);
     for (const result of [courseResult, driverResult, fleetResult]) if (result.error) throw result.error;
+    const mastersAt = performance.now();
     const courses = courseResult.data ?? [];
     const members = driverResult.data ?? [];
     const vehicles = fleetResult.data ?? [];
@@ -52,6 +54,7 @@ export async function GET(req: NextRequest) {
       .select("id, shift_date, course_id, cycle_no, slot, driver_id, vehicle_id, uses_external_vehicle, meeting_place, meeting_time, arrival_time, end_time")
       .in("course_id", courseIds).gte("shift_date", startDate).lte("shift_date", endDate) : { data: [], error: null };
     if (shiftsResult.error) throw shiftsResult.error;
+    const shiftsAt = performance.now();
     // 既存の不正な横断参照もレスポンスへ流さない。
     const shifts = (shiftsResult.data ?? []).filter(s => !s.driver_id || driverById.has(s.driver_id)).map(s => {
       const driver = driverById.get(s.driver_id);
@@ -78,6 +81,7 @@ export async function GET(req: NextRequest) {
     ]);
     const [links, loans, requests, slots, assignments, leases] = results;
     for (const result of [links, loans, requests, slots, assignments]) if (result.error) throw result.error;
+    const detailsAt = performance.now();
     const courseSet = new Set(courseIds);
     const drivers = members.filter(d => d.works_as_driver && d.status === "active").map(d => ({ ...d,
       driver_identities: (d.driver_identities ?? []).map(identity => ({ ...identity, driver_courses: (identity.driver_courses ?? []).filter(c => courseSet.has(c.course_id)) })),
@@ -86,7 +90,9 @@ export async function GET(req: NextRequest) {
       requests: requests.data, slots: slots.data, vehicles: vehicles.filter(v => !v.is_disposed),
       vehicle_driver_links: links.data, vehicle_loans: loans.data, recent_assignments: assignments.data,
       // nullは取得失敗。空配列（契約なし）へ置換せず、画面で再試行を案内する。
-      driver_leases: leases.error ? null : (leases.data ?? []).map(({ id, driver_id, mode, valid_from, valid_to }) => ({ id, driver_id, mode, valid_from, valid_to })) });
+      driver_leases: leases.error ? null : (leases.data ?? []).map(({ id, driver_id, mode, valid_from, valid_to }) => ({ id, driver_id, mode, valid_from, valid_to })) }, {
+      headers: { "Server-Timing": `masters;dur=${(mastersAt - startedAt).toFixed(1)}, shifts;dur=${(shiftsAt - mastersAt).toFixed(1)}, details;dur=${(detailsAt - shiftsAt).toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}` },
+    });
   } catch (error) {
     return adminMutationError(error);
   }

@@ -1,10 +1,10 @@
 "use client";
 
-// グリッド画面（シフト表など）の「誰がどのセルを触っているか」共有。
+// グリッド画面の参加者・操作中セルと、保存確定後の版番号通知。
 // Supabase Realtime の presence + broadcast のみ使用（DB 不触・入場券は
 // /api/admin/map/share-session?scope=... が発行）。ページ表示中は自動接続の
 // アンビエント表示で、未設定・接続失敗時は黙って無効になる（編集機能に影響しない）。
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
 import { apiFetch } from "@/lib/api";
 
@@ -17,7 +17,7 @@ const colorFor = (id: string) => {
   return COLORS[h % COLORS.length];
 };
 
-export function useCellCursors(opts: { scope: string; selfName: string; enabled?: boolean }) {
+export function useCellCursors(opts: { scope: string; selfName: string; enabled?: boolean; onRevision?: (revision: number) => void }) {
   const { scope, selfName, enabled = true } = opts;
   const [peers, setPeers] = useState<CellPeer[]>([]);
   /** cellKey → そのセルにカーソルを置いている相手 */
@@ -34,6 +34,8 @@ export function useCellCursors(opts: { scope: string; selfName: string; enabled?
   // id → 現在のセル（presence 変動時の再構築用）
   const peerCellsRef = useRef<Map<string, string>>(new Map());
   const namesRef = useRef<Map<string, string>>(new Map());
+  const onRevisionRef = useRef(opts.onRevision);
+  onRevisionRef.current = opts.onRevision;
 
   useEffect(() => {
     if (!enabled) return;
@@ -91,11 +93,19 @@ export function useCellCursors(opts: { scope: string; selfName: string; enabled?
           else peerCellsRef.current.delete(p.id);
           rebuild();
         })
+        .on("broadcast", { event: "revision" }, ({ payload }) => {
+          const revision = (payload as { revision?: unknown }).revision;
+          if (typeof revision === "number" && Number.isSafeInteger(revision) && revision > 0) onRevisionRef.current?.(revision);
+        })
         .subscribe(async (s) => {
           if (disposed) return;
           if (s === "SUBSCRIBED") {
             setConnected(true);
             await channel.track({ name: selfName });
+          } else {
+            setConnected(false);
+            setPeers([]);
+            setCellPeers({});
           }
         });
     })();
@@ -115,7 +125,7 @@ export function useCellCursors(opts: { scope: string; selfName: string; enabled?
   }, [enabled, scope]);
 
   /** 自分のカーソルがいるセルを通知する（同一セルは再送しない。null=グリッド外）。 */
-  const reportCell = (key: string | null) => {
+  const reportCell = useCallback((key: string | null) => {
     if (!channelRef.current || key === lastSentRef.current) return;
     lastSentRef.current = key;
     void channelRef.current.send({
@@ -123,7 +133,12 @@ export function useCellCursors(opts: { scope: string; selfName: string; enabled?
       event: "cell",
       payload: { id: selfIdRef.current, key },
     });
-  };
+  }, []);
 
-  return { peers, cellPeers, connected, reportCell };
+  const announceRevision = useCallback((revision: number) => {
+    if (!channelRef.current || !connected) return;
+    void channelRef.current.send({ type: "broadcast", event: "revision", payload: { revision } });
+  }, [connected]);
+
+  return { peers, cellPeers, connected, reportCell, announceRevision };
 }
