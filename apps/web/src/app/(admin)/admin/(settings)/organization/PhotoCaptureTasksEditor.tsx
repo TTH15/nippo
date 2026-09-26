@@ -22,7 +22,7 @@ export function PhotoCaptureTasksEditor({ canWrite }: { canWrite: boolean }) {
   const add = (label: string) => {
     const trimmed = label.trim();
     if (!trimmed || trimmed.length > 40 || tasks.length >= 20) return;
-    setTasks(prev => [...prev, { id: crypto.randomUUID(), label: trimmed, stage: newStage, required: true }]);
+    setTasks(prev => [...prev, { id: crypto.randomUUID(), label: trimmed, stage: newStage, required: false }]);
     setNewLabel("");
     setMessage("");
   };
@@ -61,6 +61,7 @@ export function PhotoCaptureTasksEditor({ canWrite }: { canWrite: boolean }) {
       <div className="flex flex-wrap gap-2">{PHOTO_CAPTURE_PRESETS.map(label => <button key={label} type="button" disabled={tasks.length >= 20} onClick={() => add(label)} className="min-h-10 rounded-full border border-slate-300 px-3 text-sm text-slate-700 disabled:opacity-50"><FontAwesomeIcon icon={faPlus} className="mr-1.5 text-xs" />{label}</button>)}</div>
       <div className="flex flex-wrap gap-2"><input aria-label="追加する撮影項目" placeholder="その他の写真" value={newLabel} maxLength={40} onChange={event => setNewLabel(event.target.value)} className="min-h-10 min-w-0 flex-1 rounded-md border border-slate-300 px-3 text-sm" /><select aria-label="追加する撮影時点" value={newStage} onChange={event => setNewStage(event.target.value as PhotoCaptureStage)} className="min-h-10 rounded-md border border-slate-300 px-2 text-sm">{PHOTO_CAPTURE_STAGES.map(stage => <option key={stage.value} value={stage.value}>{stage.label}</option>)}</select><button type="button" disabled={!newLabel.trim() || tasks.length >= 20} onClick={() => add(newLabel)} className="min-h-10 rounded-md border border-slate-300 px-4 text-sm disabled:opacity-50">追加</button></div>
     </div>}
+    {tasks.some(task => task.required) && <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">必須項目は、更新前のアプリには表示されません。アプリ配布後に有効にしてください。</p>}
     {message && <p role={message.includes("保存しました") ? "status" : "alert"} className="mt-3 text-sm text-slate-700">{message}</p>}
     {canWrite && <div className="mt-5 flex justify-end"><button type="button" disabled={!data || saving || tasks.some(task => !task.label.trim())} onClick={() => void save()} className="min-h-11 rounded-lg bg-slate-900 px-5 text-sm font-medium text-white disabled:opacity-50">{saving ? "保存中…" : "撮影項目を保存"}</button></div>}
   </section>;
