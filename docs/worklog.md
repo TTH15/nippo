@@ -17,9 +17,11 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 
 - [2026年7月](worklog/2026-07.md) — 47件
 - [2026年8月](worklog/2026-08.md) — 310件
-- [2026年9月](worklog/2026-09.md) — 223件
+- [2026年9月](worklog/2026-09.md) — 224件
 
 ## 直近のエントリ（2026-09）
+
+- 2026-09-29 14:20 本番DBへ移行183を適用後、mainをpush。Vercel本番・App CI・pages buildを確認。AASA/DALは署名設定待ち。
 
 - 2026-09-29 14:12 元の `main` の統合後状態を再確認。作業ツリーはcleanで `origin/main` より7コミット先。GitHub pushと本番公開は移行183の確認後。
 
@@ -1539,3 +1541,9 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 変更: 元の作業ツリーの `main` を統合コミット `2df3b1e7` に進め、差分整理と認可修正を反映した。
 - 検証: 作業ツリーはclean。`git fetch origin main` 後も `main` は `origin/main` より7コミット先で、差分チェックは成功。
 - 残課題: GitHubへのpush・本番公開は未実施。DB移行183の本番適用を先に確認する。
+
+## 2026-09-29 14:20 移行183とmainを本番へ反映
+
+- 変更: 本番Supabaseへ移行183を適用・台帳記録した後、`main` の `765f4ebc` をGitHubへpush。Vercel `nippo-ace` の `dpl_CijPjPDFnXoX7NziT9A4srDFzDGv` が `hakotora.jp` を配信。
+- 検証: 移行のBEGIN/ROLLBACK試行、既存37件の既定値false・NULL0件、台帳183/184/185を確認。GitHub App CI・pages build成功。トップとログイン200、未認証の本人登録API401。
+- 残課題: AASA/DALは署名情報未設定で503。署名済みモバイルビルド・実機Passkey、担当コースのDB側保証は未実施。
