@@ -43,7 +43,18 @@ export function exportShiftMemoCsv(board: ShiftMemoBoardData, courses: readonly 
   const rows = [["日付", "コース", "担当枠", "名前", "必要人数", "備考"]];
   const lanes = new Map(board.lanes.map(lane => [lane.id, lane]));
   const laneIds = [...new Set([...board.laneOrder, ...board.lanes.map(lane => lane.id)])];
-  const keys = dates?.flatMap(date => laneIds.map(id => `${id}|${date}`)) ?? Object.keys(board.assignments).sort();
+  // 表示中の半月だけでなく、端末に保存された他の期間の配置・例外・備考も含める。
+  const allDates = new Set(dates ?? []);
+  for (const key of [
+    ...Object.keys(board.assignments),
+    ...Object.keys(board.dayOverrides ?? {}),
+    ...Object.keys(board.requiredCountOverrides ?? {}),
+  ]) {
+    const match = key.match(dateKey);
+    if (match) allDates.add(match[2]);
+  }
+  for (const date of Object.keys(board.notes)) if (/^\d{4}-\d{2}-\d{2}$/.test(date)) allDates.add(date);
+  const keys = [...allDates].sort().flatMap(date => laneIds.map(id => `${id}|${date}`));
   for (const key of keys) {
     const people = board.assignments[key] ?? [];
     const [laneId, date] = key.split("|");

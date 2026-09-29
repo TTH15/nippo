@@ -46,5 +46,6 @@ describe("シフトメモの端末間受け渡し", () => {
     expect(csv.charCodeAt(0)).toBe(0xfeff);
     const visible = exportShiftMemoCsv(board, [{ id: "course-1", name: "第一区域" }], ["2026-10-02"]);
     expect(visible).toContain('"2026-10-02","第一区域","第二区域","","2",""');
+    expect(visible).toContain('"2026-10-01","第一区域","第二区域","甲","3","確認中"');
   });
 });
