@@ -21,6 +21,8 @@ import {
   faEllipsis,
   faEye,
   faEyeSlash,
+  faFileCode,
+  faFileCsv,
   faFileImport,
   faFilePdf,
   faGripLines,
@@ -1748,16 +1750,9 @@ export default function PersonalShiftMemoBoard({
               </div>
             </div>
             <div className="space-y-4 p-3.5">
-              <section className="rounded-xl border border-slate-200 bg-white p-3">
-                <h3 className="text-xs font-bold text-slate-800">データを書き出す</h3>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => downloadMemoData("csv")} className="min-h-11 rounded-lg border border-slate-300 text-xs font-bold text-slate-700">CSV</button>
-                  <button type="button" onClick={() => downloadMemoData("json")} className="min-h-11 rounded-lg border border-slate-300 text-xs font-bold text-slate-700">JSON</button>
-                </div>
-              </section>
               {!exportSelection ? (
                 <section className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4 text-center">
-                  <h3 className="mb-3 text-xs font-bold text-slate-800">画像を書き出す</h3>
+                  <h3 className="mb-3 text-xs font-bold text-slate-800">範囲を選択</h3>
                   <span className="mx-auto inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-amber-600 shadow-sm ring-1 ring-amber-200">
                     <FontAwesomeIcon icon={faCropSimple} className="h-4 w-4" />
                   </span>
@@ -1824,6 +1819,20 @@ export default function PersonalShiftMemoBoard({
                       className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 text-[11px] font-bold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <FontAwesomeIcon icon={faFilePdf} className="h-3.5 w-3.5 text-rose-300" />PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadMemoData("csv")}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-[11px] font-bold text-slate-700 shadow-sm hover:border-slate-500"
+                    >
+                      <FontAwesomeIcon icon={faFileCsv} className="h-3.5 w-3.5 text-emerald-600" />CSV（全体）
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadMemoData("json")}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-[11px] font-bold text-slate-700 shadow-sm hover:border-slate-500"
+                    >
+                      <FontAwesomeIcon icon={faFileCode} className="h-3.5 w-3.5 text-violet-600" />JSON（全体）
                     </button>
                   </div>
                 </>
