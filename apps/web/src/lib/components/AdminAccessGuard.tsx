@@ -6,17 +6,15 @@
 // 認可の正本はサーバーの requirePermission（403）。ここは画面遷移の防壁。
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { getStoredDriver } from "@/lib/api";
+import { getAdminToken, getStoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
 import { useSyncSession } from "@/lib/useSyncSession";
 
 /**
- * 運営のログイン画面は (admin) 配下にあるが、ガードの対象外。
- * これから認証する画面を「未ログインだから」と弾くと、
- * /admin/portal-xxxx/login を開いた瞬間 /login へ飛ばされて永久に到達できない。
+ * 旧 /admin/login は本人ログインへ転送するため、ガードの対象外。
  */
 export function isAdminLoginPath(pathname: string | null): boolean {
-  return pathname?.endsWith("/login") ?? false;
+  return pathname === "/admin/login";
 }
 
 export function AdminAccessGuard({ children }: { children: React.ReactNode }) {
@@ -36,6 +34,8 @@ export function AdminAccessGuard({ children }: { children: React.ReactNode }) {
       router.replace("/login");
     } else if (!canEnterAdmin(driver)) {
       router.replace("/submit");
+    } else if (!getAdminToken()) {
+      router.replace("/login?next=admin");
     } else {
       setAllowed(true);
     }

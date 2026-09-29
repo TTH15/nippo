@@ -46,6 +46,11 @@ export function getStoredDriver(): StoredDriver | null {
 export function getToken(): string | null {
   return "preview-token";
 }
+export function getAdminToken(): string | null { return "preview-admin-token"; }
+
+export function setLoginSession(_token: string, driver: StoredDriver, _adminToken?: string | null): void {
+  setAuth(_token, driver);
+}
 
 export function setAuth(_token?: string, driver?: StoredDriver): void {
   authState = { runtime: getPreviewRuntime(), driver: driver ?? null };

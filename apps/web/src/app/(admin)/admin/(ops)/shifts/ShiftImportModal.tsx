@@ -12,7 +12,7 @@ import {
   faUserTag,
 } from "@fortawesome/free-solid-svg-icons";
 import { CustomSelect } from "@/lib/components/CustomSelect";
-import { apiFetch, getToken } from "@/lib/api";
+import { apiFetch, apiUpload } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import {
   SHIFT_IMPORT_IGNORE,
@@ -451,15 +451,7 @@ export default function ShiftImportModal({
       fd.append("year", String(year));
       fd.append("month", String(month));
       for (const f of files) fd.append("files", f);
-      const token = getToken();
-      const res = await fetch("/api/admin/shifts/import", {
-        method: "POST",
-        body: fd,
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "読み取りに失敗しました");
-      const data = json as ExtractResult;
+      const data = await apiUpload<ExtractResult>("/api/admin/shifts/import", fd);
       setResult(data);
       // 候補を初期値として反映（辞書=確定済みが最優先。未確定のものは空＝取り込まない/未選択）
       const pm: Record<string, string> = {};

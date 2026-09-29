@@ -5,7 +5,7 @@ import { PasskeySetup } from "@/lib/components/PasskeySetup";
 import { registerPasskey } from "@/lib/registerPasskey";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
 import { useRouter } from "next/navigation";
-import { apiFetch, setAuth, getStoredDriver } from "@/lib/api";
+import { apiFetch, setLoginSession, getStoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
 import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
 
@@ -50,7 +50,8 @@ export default function RecoverPage() {
   const goToNext = async (driver: { role: string; companyCode?: string }) => {
     const stored = getStoredDriver() ?? driver;
     const hasAdmin = canEnterAdmin(stored);
-    const nextPath = resolveHomePath({ hasAdminAccess: hasAdmin, lastMode: getLastAppMode(), isMobile: isMobileWidth() });
+    // SMS復旧は本人の業務セッション。運営は本人のPasskeyで入り直す。
+    const nextPath = hasAdmin ? "/submit" : resolveHomePath({ hasAdminAccess: false, lastMode: getLastAppMode(), isMobile: isMobileWidth() });
     if (!hasAdmin) {
       try {
         const reg = await apiFetch<{ complete: boolean; kycVerified: boolean; hasPasskey: boolean }>("/api/me/registration");
@@ -84,7 +85,7 @@ export default function RecoverPage() {
         { method: "POST", body: JSON.stringify({ phone: phone.trim(), code: code.trim() }) },
         { skipAuthRedirect: true },
       );
-      setAuth(res.token, res.driver);
+      setLoginSession(res.token, res.driver);
       await goToNext(res.driver);
     } catch (err) {
       setError(err instanceof Error ? err.message : "確認に失敗しました");

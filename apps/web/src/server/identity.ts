@@ -107,3 +107,19 @@ export async function issueDriverSession(driver: ActiveDriverRow, strongAuth?: P
     },
   };
 }
+
+/** 本人のPasskey検証が完了したログイン経路からだけ呼ぶ、短命の運営セッション。 */
+export async function issueAdminSession(driver: ActiveDriverRow): Promise<string | null> {
+  if (!driver.identity_id || !driver.org_id) return null;
+  const capabilities = await resolveCapabilities(driver.id, driver.role);
+  if (capabilities.size === 0) return null;
+  return signToken({
+    driverId: driver.id,
+    role: driver.role,
+    companyCode: driver.company_code || getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE).code,
+    identityId: driver.identity_id,
+    orgId: driver.org_id,
+    tokenVersion: driver.token_version,
+    purpose: "admin",
+  });
+}

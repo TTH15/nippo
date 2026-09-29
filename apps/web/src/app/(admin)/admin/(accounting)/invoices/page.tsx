@@ -11,7 +11,7 @@ import { CustomSelect } from "@/lib/components/CustomSelect";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { PixelLoadingOverlay } from "@/lib/components/PixelBoxLoader";
 import { Button } from "@/lib/ui/button";
-import { apiFetch, getStoredDriver, getToken } from "@/lib/api";
+import { apiFetch, apiUpload, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { hasCapability } from "@/lib/capabilities";
 
@@ -383,19 +383,13 @@ export default function InvoicesPage() {
       // +33%転送・最大約6.7MBのJSONになるため廃止・2026-08 監査）
       const fd = new FormData();
       fd.append("file", file);
-      const token = getToken();
-      const uploadRes = await fetch("/api/admin/invoices/attachments", {
-        method: "POST",
-        body: fd,
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const uploaded = (await uploadRes.json().catch(() => ({}))) as {
+      const uploaded = await apiUpload<{
         path?: string;
         name?: string;
         type?: string;
         error?: string;
-      };
-      if (!uploadRes.ok || !uploaded.path) {
+      }>("/api/admin/invoices/attachments", fd);
+      if (!uploaded.path) {
         throw new Error(uploaded.error || "アップロードに失敗しました");
       }
       const [y, m] = selectedMonth.split("-").map(Number);

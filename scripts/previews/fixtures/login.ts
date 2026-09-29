@@ -12,10 +12,9 @@ export const loginFixture: PreviewFixture<Record<string, never>> = {
   read: () => undefined,
   write: (_state, { path }, { scenario, driver }) => {
     if (path === "/api/auth/webauthn/login/options") return { options: {}, challengeToken: "preview-login" };
-    if (path === "/api/auth/webauthn/login/verify" || path === "/api/auth/login") {
-      if (path === "/api/auth/login" && scenario === "pinless") throw new Error("このアカウントはPINを使いません。電話番号でのログイン（SMS認証）をご利用ください。");
+    if (path === "/api/auth/webauthn/login/verify") {
       if (scenario === "inactive") throw new Error("このアカウントは現在利用できません。運営にお問い合わせください");
-      return { token: "preview-only-token", driver };
+      return { token: "preview-only-token", adminToken: driver.capabilities?.length ? "preview-only-admin-token" : null, driver };
     }
     return undefined;
   },

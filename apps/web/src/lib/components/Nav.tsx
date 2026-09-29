@@ -34,9 +34,7 @@ export function Nav({ variant = "default" }: NavProps) {
   const logout = () => {
     setMenuOpen(false);
     clearAuth();
-    router.push(
-      isAdmin ? "/admin/portal-3e71ac4/login" : "/login",
-    );
+    router.push("/login");
   };
 
   return (

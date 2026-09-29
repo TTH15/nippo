@@ -4,9 +4,7 @@ import { isAdminLoginPath } from "./AdminAccessGuard";
 // 運営ログイン画面は (admin) 配下にあるためガードに巻き込まれる。
 // 除外を誤ると「ログイン画面を開くと /login へ飛ばされて入れない」状態になる。
 describe("isAdminLoginPath", () => {
-  it("運営ログイン画面（難読URL含む）は除外する", () => {
-    expect(isAdminLoginPath("/admin/portal-3e71ac4/login")).toBe(true);
-    expect(isAdminLoginPath("/admin/viewer-portal-9c7f3b6/login")).toBe(true);
+  it("旧運営ログインの転送ページだけを除外する", () => {
     expect(isAdminLoginPath("/admin/login")).toBe(true);
   });
 
@@ -14,6 +12,7 @@ describe("isAdminLoginPath", () => {
     expect(isAdminLoginPath("/admin")).toBe(false);
     expect(isAdminLoginPath("/admin/notifications")).toBe(false);
     expect(isAdminLoginPath("/admin/users")).toBe(false);
+    expect(isAdminLoginPath("/admin/other/login")).toBe(false);
   });
 
   it("pathname 未確定でもガード側に倒す（default-deny）", () => {

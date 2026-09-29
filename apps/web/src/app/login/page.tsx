@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { startAuthentication } from "@simplewebauthn/browser";
-import { apiFetch, setAuth, getStoredDriver } from "@/lib/api";
+import { apiFetch, setLoginSession, getStoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
 import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
@@ -13,6 +13,7 @@ import { faCommentSms, faFingerprint } from "@fortawesome/free-solid-svg-icons";
 
 type LoginResult = {
   token: string;
+  adminToken?: string | null;
   driver: { id: string; name: string; role: string; companyCode?: string };
 };
 
@@ -21,14 +22,19 @@ export default function LoginPage() {
   const canUsePasskey = useIsWebAuthnHost();
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [passkeyError, setPasskeyError] = useState("");
+  const [adminEntry, setAdminEntry] = useState(false);
 
-  const goToHome = (driver: LoginResult["driver"]) => {
+  useEffect(() => {
+    setAdminEntry(new URLSearchParams(window.location.search).get("next") === "admin");
+  }, []);
+
+  const goToHome = (driver: LoginResult["driver"], adminToken?: string | null) => {
     // 判定は app/page.tsx と共通。role 直判定ではカスタムロール（配車担当など）が
     // ドライバー画面へ落ちてしまうため canEnterAdmin に揃える。
     // setAuth 済みなので capabilities はキャッシュから読める。
     router.push(
-      resolveHomePath({
-        hasAdminAccess: canEnterAdmin(getStoredDriver() ?? driver),
+      adminEntry && !!adminToken ? "/admin" : resolveHomePath({
+        hasAdminAccess: !!adminToken && canEnterAdmin(getStoredDriver() ?? driver),
         lastMode: getLastAppMode(),
         isMobile: isMobileWidth(),
       }),
@@ -59,8 +65,12 @@ export default function LoginPage() {
         { skipAuthRedirect: true },
       );
 
-      setAuth(res.token, res.driver);
-      goToHome(res.driver);
+      setLoginSession(res.token, res.driver, res.adminToken);
+      if (adminEntry && !res.adminToken) {
+        setPasskeyError("このアカウントの運営権限を確認できませんでした");
+        return;
+      }
+      goToHome(res.driver, res.adminToken);
     } catch (err: unknown) {
       // ユーザーがブラウザのPasskeyダイアログをキャンセルした場合は無言で戻す
       if (err instanceof Error && err.name !== "NotAllowedError") {
@@ -86,6 +96,7 @@ export default function LoginPage() {
                 style={{ maxWidth: '60%', height: 'auto' }}
               />
               <h1 className="text-base font-semibold text-slate-900 text-center">ログイン</h1>
+              {adminEntry && <p className="mt-1 text-center text-xs text-slate-600">運営画面はかんたんログインで本人確認してください</p>}
             </div>
           </div>
 
@@ -103,7 +114,7 @@ export default function LoginPage() {
               <span className="flex items-center gap-2 font-medium text-slate-900">
                 <FontAwesomeIcon icon={faCommentSms} className="h-4 w-4" />電話番号でログイン
               </span>
-              <span className="mt-1 text-xs text-slate-500">初めての方・かんたんログインを使えない方</span>
+              <span className="mt-1 text-xs text-slate-500">{adminEntry ? "かんたんログインの設定・復旧" : "初めての方・かんたんログインを使えない方"}</span>
             </Link>
           </div>
         </div>

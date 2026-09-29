@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 
 const mock = vi.hoisted(() => ({
   rpc: vi.fn(), from: vi.fn(), insert: vi.fn(), update: vi.fn(),
-  verifyLogin: vi.fn(), verifyRegister: vi.fn(), issueSession: vi.fn(), resolveDriver: vi.fn(),
+  verifyLogin: vi.fn(), verifyRegister: vi.fn(), issueSession: vi.fn(), issueAdminSession: vi.fn(), resolveDriver: vi.fn(),
   requireAuth: vi.fn(),
 }));
 vi.mock("@/server/db/client", () => ({ supabase: { rpc: mock.rpc, from: mock.from } }));
@@ -17,6 +17,7 @@ vi.mock("@/server/auth", () => ({ requireAuth: mock.requireAuth, isAuthError: ()
 vi.mock("@/server/identity", () => ({
   resolveActiveDriverByIdentity: mock.resolveDriver,
   issueDriverSession: mock.issueSession,
+  issueAdminSession: mock.issueAdminSession,
   describeIdentityLoginFailure: vi.fn(),
 }));
 vi.mock("@/server/afterSafely", () => ({ afterSafely: vi.fn() }));
@@ -58,6 +59,7 @@ beforeEach(() => {
   mock.requireAuth.mockResolvedValue({ driverId: "driver-a", identityId: "person-a", orgId: "org-a", strongAuthMethod: "sms", strongAuthAt: Math.floor(Date.now() / 1000) });
   mock.resolveDriver.mockResolvedValue({ driver: { id: "driver-a" } });
   mock.issueSession.mockResolvedValue({ token: "test-session" });
+  mock.issueAdminSession.mockResolvedValue("test-admin-session");
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -70,10 +72,18 @@ const registerToken = (identityId = "person-a") => createChallengeToken({ purpos
 describe("Passkeyログインの再送", () => {
   it("counter=0でも同じ応答は1回だけセッションを発行する", async () => {
     const token = await loginToken();
-    expect((await login(request(token))).status).toBe(200);
+    const response = await login(request(token));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ token: "test-session", adminToken: "test-admin-session" });
     expect((await login(request(token))).status).toBe(401);
     expect(mock.issueSession).toHaveBeenCalledTimes(1);
+    expect(mock.issueAdminSession).toHaveBeenCalledTimes(1);
     expect(mock.update).toHaveBeenCalledTimes(1);
+  });
+  it("運営権限がない人には運営セッションを発行しない", async () => {
+    mock.issueAdminSession.mockResolvedValue(null);
+    const response = await login(request(await loginToken()));
+    expect(await response.json()).toMatchObject({ token: "test-session", adminToken: null });
   });
   it("同時送信でも1回だけ発行する", async () => {
     const token = await loginToken();

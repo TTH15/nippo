@@ -12,6 +12,7 @@ import {
   resolveActiveDriverByIdentity,
   describeIdentityLoginFailure,
   issueDriverSession,
+  issueAdminSession,
 } from "@/server/identity";
 
 export const dynamic = "force-dynamic";
@@ -114,7 +115,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: failure.error }, { status: failure.status });
     }
 
-    return NextResponse.json(await issueDriverSession(resolved.driver, freshStrongAuth("passkey")));
+    const session = await issueDriverSession(resolved.driver, freshStrongAuth("passkey"));
+    const adminToken = await issueAdminSession(resolved.driver);
+    return NextResponse.json({ ...session, adminToken });
   } catch (err) {
     console.error("[Passkey] login error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
