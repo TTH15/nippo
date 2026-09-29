@@ -28,6 +28,32 @@ function setAdminToken(token: string | null, driverId: string) {
   }
 }
 
+let adminRenewal: Promise<string | null> | null = null;
+
+/** Cookie と業務セッションの両方が有効な場合だけ、運営トークンを自動更新する。 */
+export async function renewAdminToken(): Promise<string | null> {
+  if (adminRenewal) return adminRenewal;
+  const workToken = getToken();
+  const driverId = getStoredDriver()?.id;
+  if (!workToken || !driverId || typeof window === "undefined") return null;
+  adminRenewal = (async () => {
+    const response = await fetch("/api/auth/admin/refresh", {
+      method: "POST", credentials: "same-origin",
+      headers: { Authorization: `Bearer ${workToken}` },
+    });
+    if (response.status === 401 || response.status === 403) {
+      clearAdminToken();
+      return null;
+    }
+    if (!response.ok) throw new Error("運営画面の接続を確認できませんでした");
+    const body = await response.json() as { adminToken?: string };
+    if (!body.adminToken || getStoredDriver()?.id !== driverId) return null;
+    setAdminToken(body.adminToken, driverId);
+    return body.adminToken;
+  })().finally(() => { adminRenewal = null; });
+  return adminRenewal;
+}
+
 export function setAuth(token: string, driver: StoredDriver) {
   if (getStoredDriver()?.id !== driver.id) clearAdminToken();
   setCoreAuth(token, driver);
@@ -40,6 +66,9 @@ export function setLoginSession(token: string, driver: StoredDriver, adminToken?
 }
 
 export function clearAuth() {
+  if (typeof window !== "undefined") {
+    void fetch("/api/auth/admin/logout", { method: "POST", credentials: "same-origin", keepalive: true }).catch(() => {});
+  }
   clearAdminToken();
   clearCoreAuth();
 }
@@ -56,30 +85,46 @@ function requestAdminLogin() {
 
 export async function apiFetch<T = unknown>(path: string, options: RequestInit = {}, opts: { skipAuthRedirect?: boolean } = {}): Promise<T> {
   if (!isAdminRequest(path)) return coreApiFetch<T>(path, options, opts);
-  const token = getAdminToken();
+  const token = getAdminToken() ?? await renewAdminToken();
   if (!token) {
     requestAdminLogin();
     throw new Error("運営画面にはかんたんログインが必要です");
   }
-  try {
-    return await coreApiFetch<T>(path, {
-      ...options,
-      headers: { ...((options.headers as Record<string, string>) ?? {}), Authorization: `Bearer ${token}` },
-    }, { ...opts, skipAuthRedirect: true });
-  } catch (error) {
-    if (error instanceof Error && (error.message === "Unauthorized" || error.message.includes("ログインし直してください"))) requestAdminLogin();
-    throw error;
+  const call = (credential: string) => coreApiFetch<T>(path, {
+    ...options,
+    headers: { ...((options.headers as Record<string, string>) ?? {}), Authorization: `Bearer ${credential}` },
+  }, { ...opts, skipAuthRedirect: true });
+  try { return await call(token); }
+  catch (error) {
+    if (!(error instanceof Error) ||
+        (error.message !== "Unauthorized" && !error.message.includes("ログインし直してください"))) throw error;
+    const renewed = await renewAdminToken();
+    if (!renewed) { requestAdminLogin(); throw error; }
+    try { return await call(renewed); }
+    catch (retryError) {
+      if (retryError instanceof Error &&
+          (retryError.message === "Unauthorized" || retryError.message.includes("ログインし直してください"))) requestAdminLogin();
+      throw retryError;
+    }
   }
 }
 
 export async function apiUpload<T = unknown>(path: string, form: FormData): Promise<T> {
-  const token = isAdminRequest(path) ? getAdminToken() : getToken();
-  if (!token && isAdminRequest(path)) {
+  const admin = isAdminRequest(path);
+  const token = admin ? (getAdminToken() ?? await renewAdminToken()) : getToken();
+  if (!token && admin) {
     requestAdminLogin();
     throw new Error("運営画面にはかんたんログインが必要です");
   }
-  const response = await fetch(path, { method: "POST", body: form, headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  if (response.status === 401 && isAdminRequest(path)) requestAdminLogin();
+  const send = (credential: string | null) => fetch(path, { method: "POST", body: form,
+    headers: credential ? { Authorization: `Bearer ${credential}` } : {} });
+  let response = await send(token);
+  if (response.status === 401 && admin) {
+    const renewed = await renewAdminToken();
+    if (!renewed) requestAdminLogin();
+    else response = await send(renewed);
+  }
+  if (response.status === 401 && admin) requestAdminLogin();
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { error?: string } | null;
     throw new Error(body?.error ?? `送信できませんでした（HTTP ${response.status}）`);

@@ -6,7 +6,7 @@
 // 認可の正本はサーバーの requirePermission（403）。ここは画面遷移の防壁。
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { getAdminToken, getStoredDriver } from "@/lib/api";
+import { getAdminToken, getStoredDriver, renewAdminToken } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
 import { useSyncSession } from "@/lib/useSyncSession";
 
@@ -22,6 +22,8 @@ export function AdminAccessGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLoginPage = isAdminLoginPath(pathname);
   const [allowed, setAllowed] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [connectionError, setConnectionError] = useState(false);
   // 権限の入口判定より先に、DB の最新権限へ同期する。
   // 古い localStorage の権限で弾かないため（例: 直前に付与された運営権限）。
   const syncState = useSyncSession();
@@ -29,22 +31,32 @@ export function AdminAccessGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoginPage) return;
     if (syncState !== "done") return; // 同期完了まで判定を保留
+    let active = true;
     const driver = getStoredDriver();
     if (!driver) {
       router.replace("/login");
     } else if (!canEnterAdmin(driver)) {
       router.replace("/submit");
     } else if (!getAdminToken()) {
-      router.replace("/login?next=admin");
+      void renewAdminToken().then((token) => {
+        if (!active) return;
+        if (!token) router.replace("/login?next=admin");
+        else setAllowed(true);
+      }).catch(() => { if (active) setConnectionError(true); });
     } else {
       setAllowed(true);
     }
-  }, [router, isLoginPage, syncState]);
+    return () => { active = false; };
+  }, [router, isLoginPage, syncState, retry]);
 
   // ログイン画面は判定を挟まずそのまま描画する
   if (isLoginPage) return <>{children}</>;
 
   // 判定完了までは何も描画しない（権限のない人に運営画面の殻を見せない）
+  if (!allowed && connectionError) return <div role="alert" className="p-6 text-center">
+    <p>運営画面に接続できませんでした</p>
+    <button type="button" className="mt-3 underline" onClick={() => { setConnectionError(false); setRetry((value) => value + 1); }}>再試行</button>
+  </div>;
   if (!allowed) return null;
   return <>{children}</>;
 }

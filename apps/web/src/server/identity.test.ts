@@ -20,7 +20,7 @@ beforeEach(() => {
 });
 
 describe("運営用セッションの発行", () => {
-  it("同じ所属に運営権限があれば8時間用のadmin目的で発行する", async () => {
+  it("同じ所属に運営権限があれば短命のadmin目的で発行する", async () => {
     mock.capabilities.mockResolvedValue(new Set(["can_view_billing"]));
     expect(await issueAdminSession(driver)).toBe("short-admin-token");
     expect(mock.signToken).toHaveBeenCalledWith(expect.objectContaining({

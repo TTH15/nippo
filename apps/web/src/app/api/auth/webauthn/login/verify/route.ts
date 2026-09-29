@@ -1,4 +1,5 @@
 import { freshStrongAuth } from "@/server/auth/recentAuth";
+import { clearAdminRenewCookie, setAdminRenewCookie, signAdminRenew } from "@/server/auth/adminRenew";
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/server/db/client";
 import {
@@ -117,7 +118,19 @@ export async function POST(req: NextRequest) {
 
     const session = await issueDriverSession(resolved.driver, freshStrongAuth("passkey"));
     const adminToken = await issueAdminSession(resolved.driver);
-    return NextResponse.json({ ...session, adminToken });
+    const result = NextResponse.json({ ...session, adminToken }, { headers: { "Cache-Control": "no-store" } });
+    if (adminToken && resolved.driver.identity_id && resolved.driver.org_id) {
+      const renewal = await signAdminRenew({
+        driverId: resolved.driver.id,
+        identityId: resolved.driver.identity_id,
+        orgId: resolved.driver.org_id,
+        tokenVersion: resolved.driver.token_version,
+      });
+      setAdminRenewCookie(result, renewal);
+    } else {
+      clearAdminRenewCookie(result);
+    }
+    return result;
   } catch (err) {
     console.error("[Passkey] login error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
