@@ -128,10 +128,25 @@ function readinessResponse(state: ShiftsFixtureState, scenario: string) {
 
 export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
   id: "shifts", title: "シフト・シフトメモ", pathname: "/admin/shifts",
-  scenarios: { normal: { label: "通常", description: "個人・共有メモを切り替え" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "shared-live": { label: "2タブ共同", description: "別タブとの参加・更新を試す" }, "shared-peers": { label: "共同編集者", description: "共有メモの参加者表示" }, "shared-disjoint": { label: "別の箇所", description: "他の人の変更も残す" }, "shared-conflict": { label: "共有メモ競合", description: "同じ箇所の変更を検出" }, "shared-save-error": { label: "共有メモ保存失敗", description: "保存失敗から再試行" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札を登録ドライバーに合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
+  scenarios: { normal: { label: "通常", description: "個人・共有メモを切り替え" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, transfer: { label: "メモ受け渡し", description: "自作枠・未登録の名前札・別コースへの反映" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "shared-live": { label: "2タブ共同", description: "別タブとの参加・更新を試す" }, "shared-peers": { label: "共同編集者", description: "共有メモの参加者表示" }, "shared-disjoint": { label: "別の箇所", description: "他の人の変更も残す" }, "shared-conflict": { label: "共有メモ競合", description: "同じ箇所の変更を検出" }, "shared-save-error": { label: "共有メモ保存失敗", description: "保存失敗から再試行" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札はメモだけに残し、任意で登録ドライバーへ合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
   createState: ({ scenario, driver }) => {
     // 本番利用者の保存キーには触れない。シナリオを開くたびに架空メモを初期化する。
-    if (typeof localStorage !== "undefined") localStorage.removeItem(`hakotora_personal_shift_memo_v1:${driver.id}`);
+    if (typeof localStorage !== "undefined") {
+      const key = `hakotora_personal_shift_memo_v1:${driver.id}`;
+      localStorage.removeItem(key);
+      localStorage.removeItem(`${key}:before-import`);
+      if (scenario === "transfer") localStorage.setItem(key, JSON.stringify({
+        version: 1,
+        lanes: [{ id: "preview-custom-lane", routeId: id(101), name: "吹田サンプル", color: "#fbbf24", activeWeekdays: [0, 1, 2, 3, 4, 5, 6], requiredCount: 2, custom: true, reflectCourseId: id(102) }],
+        laneOrder: ["preview-custom-lane"], hiddenLaneIds: [], routeOrder: [], hiddenRouteIds: [],
+        assignments: { "preview-custom-lane|2026-09-30": [
+          { placementId: "preview-1", personKey: `driver:${id(1)}`, driverId: id(1), name: "佐藤" },
+          { placementId: "preview-2", personKey: "custom:応援（仮）", name: "応援（仮）" },
+        ] },
+        extraPeople: ["応援（仮）"], notes: { "2026-09-30": "架空の受領メモ" }, dayOverrides: {}, requiredCountOverrides: {},
+        widths: { day: 76, lane: 190, detail: 330 },
+      }));
+    }
     return createData(scenario);
   },
   onReset: ({ scenario }) => {
@@ -186,7 +201,7 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
         }
       }
       if (scenario === "unmapped") assignments[`${lanes[0].id}|${start}`] = [{ placementId: "extra", personKey: "custom:応援", name: "応援" }];
-      if (typeof localStorage !== "undefined") {
+      if (typeof localStorage !== "undefined" && scenario !== "transfer") {
         const key = `hakotora_personal_shift_memo_v1:${driver.id}`;
         const old = JSON.parse(localStorage.getItem(key) ?? "{}");
         localStorage.setItem(key, JSON.stringify({ version: 1, lanes, laneOrder: lanes.map(lane => lane.id), hiddenLaneIds: [], assignments: { ...old.assignments, ...assignments }, extraPeople: [], notes: {} }));
@@ -195,6 +210,14 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
     return { courses: state.courses, drivers: state.drivers, shifts: state.shifts.filter(s => s.shift_date >= start && s.shift_date <= end), requests: [], slots: [], vehicles: state.vehicles, vehicle_driver_links: [], vehicle_loans: [], recent_assignments: [], driver_leases: state.driverLeases };
   },
   write(state, { path, body }, { role, scenario }) {
+    if (path === "/api/admin/shifts/memo/read") {
+      if (role !== "admin") throw new Error("この操作の権限がありません。");
+      const year = Number(body.year), month = Number(body.month);
+      return { period: { year, month }, rows: [
+        { name: "吹田サンプル", days: [{ day: 16, names: ["佐藤 翔太", "応援（仮）"] }, { day: 17, names: ["田中 美咲"] }] },
+        { name: "臨時コース", days: [{ day: 16, names: ["外部スタッフ"] }] },
+      ], warnings: ["『臨時コース』の読み込み先を確認してください"] };
+    }
     if (path === "/api/admin/shifts/memo/board") {
       if (role !== "admin") throw new Error("この操作の権限がありません。");
       if (scenario === "shared-live") {

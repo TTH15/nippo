@@ -1,6 +1,6 @@
 # API・権限一覧
 
-この表は `node scripts/generate-api-permissions.mjs` でAPIルートの実装から生成する。対象は 319 操作（224 ルート）。
+この表は `node scripts/generate-api-permissions.mjs` でAPIルートの実装から生成する。対象は 320 操作（225 ルート）。
 
 - 「入口の権限・条件」はルート先頭のガードを示す。会社・所有者・対象状態・追加権限などの処理内条件も適用されるため、この列だけで実行可否は確定しない。
 - `requireAuth(req, "DRIVER")` はDRIVERロール限定ではない。認証済み本人の操作を表し、所属状態も検証する。
@@ -41,7 +41,7 @@
 
 「ドライバーとして扱う」が有効なメンバーには、ロールを問わず本人の日報提出、希望休管理、シフト・報酬閲覧、プロフィール管理の本人権限が付く。本人権限は全社の `can_*` と別に判定される。
 
-## 管理（225件）
+## 管理（226件）
 
 | Method | エンドポイント | APIの概要 | 入口の権限・条件 |
 | --- | --- | --- | --- |
@@ -216,6 +216,7 @@
 | PUT | `/api/admin/shifts/memo` | シフト・memoの更新 | can_manage_shifts |
 | GET | `/api/admin/shifts/memo/board` | シフト・memo・boardの取得 | can_view_shifts |
 | PATCH | `/api/admin/shifts/memo/board` | シフト・memo・boardの一部更新 | can_manage_shifts |
+| POST | `/api/admin/shifts/memo/read` | シフト・memo・readの作成・送信 | can_manage_shifts |
 | POST | `/api/admin/shifts/memo/reflect` | シフト・memo・reflectの作成・送信 | can_manage_shifts |
 | GET | `/api/admin/shifts/pending-changes` | シフト・pending changesの取得 | can_manage_shifts |
 | POST | `/api/admin/shifts/pending-changes` | シフト・pending changesの作成・送信 | can_send_notifications |

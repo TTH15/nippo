@@ -21,6 +21,9 @@ import {
   faEllipsis,
   faEye,
   faEyeSlash,
+  faFileCode,
+  faFileCsv,
+  faFileImport,
   faFilePdf,
   faGripLines,
   faImage,
@@ -33,11 +36,14 @@ import {
   faTruck,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
-import { apiFetch, getStoredDriver } from "@/lib/api";
+import { apiFetch, apiUpload, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { pngToPdf } from "@/lib/pdfExport";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { useCellCursors } from "@/lib/realtime/cellCursors";
 import { boardChanges, mergeBoardChanges } from "@/lib/shiftMemo/sharedBoardSync";
+import { exportShiftMemo, exportShiftMemoCsv, parseShiftMemoTransfer, type ShiftMemoBoardData, type TransferLane, type TransferPerson } from "@/lib/shiftMemo/transfer";
+import { imageRowDefaultTarget, mergeImageMemoRead, parseImageMemoRead, type ImageMemoRead } from "@/lib/shiftMemo/imageImport";
 import {
   exportBodySlices,
   exportDateLabel,
@@ -61,6 +67,7 @@ import {
 } from "@/lib/shiftMemo/board";
 import { cn } from "@/lib/ui/utils";
 import { ReflectShiftMemoDialog } from "./ReflectShiftMemoDialog";
+import { ImageMemoImportDialog } from "./ImageMemoImportDialog";
 
 type MemoCourse = {
   id: string;
@@ -93,22 +100,8 @@ type RouteGroup = {
   defaultRequiredCount: number;
 };
 
-type AssignmentLane = {
-  id: string;
-  routeId: string;
-  name: string;
-  color: string;
-  activeWeekdays: number[];
-  requiredCount: number;
-  custom: boolean;
-};
-
-type AssignedPerson = {
-  placementId: string;
-  personKey: string;
-  driverId?: string;
-  name: string;
-};
+type AssignmentLane = TransferLane;
+type AssignedPerson = TransferPerson;
 
 type PersonToken = {
   personKey: string;
@@ -135,23 +128,7 @@ type ExportSelection = {
 type ExportArtifacts = { png: Blob; pdf: Blob; filename: string };
 type ExportCellAnchor = { dayIndex: number; rowIndex: number };
 
-type StoredBoard = {
-  version: 1;
-  lanes: AssignmentLane[];
-  laneOrder: string[];
-  hiddenLaneIds: string[];
-  assignments: Record<string, AssignedPerson[]>;
-  extraPeople: string[];
-  notes: Record<string, string>;
-  /** 担当枠×日の「この日だけ休み／稼働」。曜日の設定より優先する */
-  dayOverrides?: Record<string, DayOverride>;
-  requiredCountOverrides?: Record<string, number>;
-  /** コース（取引先の枠）の並び順。よく使うコースを上に置くために持つ */
-  routeOrder?: string[];
-  /** 丸ごと隠しているコース */
-  hiddenRouteIds?: string[];
-  widths?: { day: number; lane: number; detail: number };
-};
+type StoredBoard = ShiftMemoBoardData;
 
 const WEEKDAY_OPTIONS = [
   { value: 1, label: "月" },
@@ -353,6 +330,7 @@ export default function PersonalShiftMemoBoard({
   const viewerId = storageNamespace ?? getStoredDriver()?.id ?? "local";
   // 個人モードの保存キーは維持する。共有モードではこのキーを読み書きしない。
   const storageKey = `hakotora_personal_shift_memo_v1:${viewerId}`;
+  const backupKey = `${storageKey}:before-import`;
   const initialLanes = useMemo(() => defaultLanes(courses), [courses]);
   const [invoiceAddressNames, setInvoiceAddressNames] = useState<Record<string, string>>({});
   const [hydrated, setHydrated] = useState(false);
@@ -421,6 +399,121 @@ export default function PersonalShiftMemoBoard({
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
   const [reflectOpen, setReflectOpen] = useState(false);
+  const transferInputRef = useRef<HTMLInputElement>(null);
+  const [transferError, setTransferError] = useState("");
+  const [pendingTransfer, setPendingTransfer] = useState<{
+    board: StoredBoard; fileName: string; placementCount: number; unregisteredNames: string[];
+  } | null>(null);
+  const [backupAvailable, setBackupAvailable] = useState(false);
+  const [restorePending, setRestorePending] = useState(false);
+  const [imageReadBusy, setImageReadBusy] = useState(false);
+  const [pendingImage, setPendingImage] = useState<{ file: File; read: ImageMemoRead; targets: string[] } | null>(null);
+
+  const currentBoard = (): StoredBoard => ({
+    version: 1, lanes, laneOrder, hiddenLaneIds, routeOrder, hiddenRouteIds,
+    assignments, extraPeople, notes, dayOverrides, requiredCountOverrides,
+    widths: { day: dayWidth, lane: laneWidth, detail: detailWidth },
+  });
+
+  const downloadMemoData = (format: "json" | "csv") => {
+    const blob = format === "json"
+      ? new Blob([exportShiftMemo(currentBoard())], { type: "application/json" })
+      : new Blob([exportShiftMemoCsv(currentBoard(), courses, dates)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ハコ虎_シフトメモ_${date}.${format}`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    setTransferError("");
+  };
+
+  const receiveMemoData = async (file: File | undefined) => {
+    if (!file) return;
+    setTransferError("");
+    try {
+      if (/\.(png|pdf)$/i.test(file.name)) {
+        if (mode !== "personal") throw new Error("画像・PDFは個人メモで読み込んでください");
+        if (file.size > 8 * 1024 * 1024) throw new Error("画像・PDFが大きすぎます");
+        setImageReadBusy(true);
+        const form = new FormData();
+        form.set("file", file);
+        form.set("year", String(Number(dates[0].slice(0, 4))));
+        form.set("month", String(Number(dates[0].slice(5, 7))));
+        const result = await apiUpload<ImageMemoRead>("/api/admin/shifts/memo/read", form);
+        const read = parseImageMemoRead(result, { year: Number(dates[0].slice(0, 4)), month: Number(dates[0].slice(5, 7)) });
+        setPendingImage({ file, read, targets: read.rows.map(row => imageRowDefaultTarget(row.name, lanes, courses)) });
+        return;
+      }
+      if (!/\.json$/i.test(file.name)) throw new Error("JSON、PNG、PDFを選んでください");
+      if (file.size > 4 * 1024 * 1024) throw new Error("メモのデータファイルが大きすぎます");
+      const parsed = parseShiftMemoTransfer(await file.text(), {
+        courseIds: courses.map((course) => course.id), driverIds: drivers.map((driver) => driver.id),
+      });
+      setPendingTransfer({ ...parsed, fileName: file.name });
+    } catch (error) {
+      setTransferError(error instanceof Error ? error.message : "メモを読み取れませんでした");
+    } finally {
+      setImageReadBusy(false);
+      if (transferInputRef.current) transferInputRef.current.value = "";
+    }
+  };
+
+  const applyImageMemo = () => {
+    if (!pendingImage) return;
+    try {
+      const next = mergeImageMemoRead(currentBoard(), pendingImage.read, pendingImage.targets, courses, drivers);
+      localStorage.setItem(backupKey, JSON.stringify(currentBoard()));
+      localStorage.setItem(storageKey, JSON.stringify(next));
+      applyBoard(next);
+      setBackupAvailable(true);
+      setPendingImage(null);
+      setTransferError("");
+      setLiveMessage("画像の読み取り結果をメモに保存しました");
+    } catch (error) {
+      setTransferError(error instanceof Error ? error.message : "メモに保存できませんでした");
+    }
+  };
+
+  const applyReceivedMemo = () => {
+    if (!pendingTransfer) return;
+    try {
+      localStorage.setItem(backupKey, JSON.stringify(currentBoard()));
+      localStorage.setItem(storageKey, JSON.stringify(pendingTransfer.board));
+      applyBoard(pendingTransfer.board);
+      setBackupAvailable(true);
+      setTransferError("");
+      setLiveMessage("受け取ったメモをこの端末に保存しました");
+      setPendingTransfer(null);
+    } catch {
+      setTransferError("この端末に保存できませんでした。空き容量を確認してください");
+    }
+  };
+
+  const restoreBeforeImport = () => {
+    try {
+      const saved = localStorage.getItem(backupKey);
+      if (!saved) throw new Error("保存した状態がありません");
+      const parsed = parseShiftMemoTransfer(
+        JSON.stringify({ format: "hakotora-shift-memo", version: 1, board: JSON.parse(saved) }),
+        { courseIds: courses.map((course) => course.id), driverIds: drivers.map((driver) => driver.id) },
+      );
+      localStorage.setItem(storageKey, JSON.stringify(parsed.board));
+      applyBoard(parsed.board);
+      localStorage.removeItem(backupKey);
+      setBackupAvailable(false);
+      setTransferError("");
+      setLiveMessage("読み込み前のメモに戻しました");
+    } catch {
+      setTransferError("読み込み前のメモに戻せませんでした");
+    } finally {
+      setRestorePending(false);
+    }
+  };
 
   // 曜日の設定＋その日だけの例外で「動くかどうか」を決める。
   const dayActivity = (lane: AssignmentLane, date: string) =>
@@ -513,6 +606,7 @@ export default function PersonalShiftMemoBoard({
         } else {
           const raw = localStorage.getItem(storageKey);
           if (raw) applyBoard(JSON.parse(raw) as StoredBoard);
+          setBackupAvailable(!!localStorage.getItem(backupKey));
         }
         if (!cancelled) setSaveError(null);
       } catch {
@@ -530,20 +624,7 @@ export default function PersonalShiftMemoBoard({
 
   useEffect(() => {
     if (!hydrated) return;
-    const board: StoredBoard = {
-        version: 1,
-        lanes,
-        laneOrder,
-        hiddenLaneIds,
-        routeOrder,
-        hiddenRouteIds,
-        assignments,
-        extraPeople,
-        notes,
-        dayOverrides,
-        requiredCountOverrides,
-        widths: { day: dayWidth, lane: laneWidth, detail: detailWidth },
-    };
+    const board = currentBoard();
     const serialized = JSON.stringify(board);
     if (mode === "shared") {
       sharedCurrentRef.current = serialized;
@@ -1351,6 +1432,13 @@ export default function PersonalShiftMemoBoard({
         </span>
         {mode === "shared" && cursors.peers.length > 0 && <span className="text-[11px] text-slate-600">参加中: {cursors.peers.map((peer) => peer.name).join("、")}</span>}
         {canReflect && onReflected && <button type="button" disabled={!hydrated || exportMode} onClick={() => setReflectOpen(true)} className="min-h-11 rounded-lg bg-slate-900 px-3 text-[11px] font-bold text-white hover:bg-slate-700 disabled:opacity-40">シフトへ反映</button>}
+        {mode === "personal" && <>
+          <input ref={transferInputRef} type="file" accept=".json,application/json,.png,image/png,.pdf,application/pdf" className="sr-only" aria-label="読み込むシフトメモを選ぶ" onChange={(event) => void receiveMemoData(event.target.files?.[0])}/>
+          <button type="button" disabled={!hydrated || imageReadBusy || exportMode} onClick={() => transferInputRef.current?.click()} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
+            <FontAwesomeIcon icon={faFileImport} className="h-3 w-3" />{imageReadBusy ? "読み取り中" : "読み込む"}
+          </button>
+          {backupAvailable && <button type="button" onClick={() => setRestorePending(true)} className="min-h-11 px-2 text-[11px] font-semibold text-slate-600 underline underline-offset-2">読み込み前に戻す</button>}
+        </>}
         <span className="text-[11px] text-slate-500">
           {saveError ? <span role="alert" className="text-rose-600">{saveError}<button type="button" data-shared-refresh={mode === "shared" ? "" : undefined} style={mode === "shared" ? { pointerEvents: "auto" } : undefined} onClick={() => {
             if (mode === "shared" && (sharedBlockedRef.current || !hydrated)) {
@@ -1389,9 +1477,20 @@ export default function PersonalShiftMemoBoard({
         )}
       </div>
 
+      {transferError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{transferError}</p>}
+      <ConfirmDialog open={!!pendingTransfer} title="この端末のメモを置き換えますか？"
+        message={pendingTransfer ? `${pendingTransfer.fileName}\n担当枠 ${pendingTransfer.board.lanes.length}件・配置 ${pendingTransfer.placementCount}件${pendingTransfer.unregisteredNames.length ? `\n未登録の名前札 ${pendingTransfer.unregisteredNames.length}人はメモに残ります。` : ""}\n読み込み前のメモには戻せます。` : ""}
+        confirmLabel="メモを読み込む" tone="neutral" onConfirm={applyReceivedMemo} onClose={() => setPendingTransfer(null)}/>
+      <ConfirmDialog open={restorePending} title="読み込み前のメモに戻しますか？"
+        message="読み込み後の変更は失われます。" confirmLabel="読み込み前に戻す" tone="danger" onConfirm={restoreBeforeImport} onClose={() => setRestorePending(false)}/>
+      {pendingImage && <ImageMemoImportDialog file={pendingImage.file} read={pendingImage.read} lanes={lanes} courses={courses}
+        targets={pendingImage.targets} onTargetChange={(index, target) => setPendingImage(current => current ? { ...current, targets: current.targets.map((value, i) => i === index ? target : value) } : null)}
+        onClose={() => setPendingImage(null)} onConfirm={applyImageMemo}/>}
+
       {reflectOpen && onReflected && <ReflectShiftMemoDialog dates={dates} courses={courses} drivers={drivers}
         lanes={lanes.filter(lane => courses.some(course => course.id === lane.routeId))} assignments={assignments} dayOverrides={dayOverrides}
-        onClose={() => setReflectOpen(false)} onApplied={onReflected}/>}
+        onClose={() => setReflectOpen(false)} onApplied={onReflected}
+        onLaneTargetChange={(laneId, courseId) => setLanes(current => current.map(lane => lane.id === laneId ? { ...lane, reflectCourseId: courseId } : lane))}/>}
 
       {hiddenOpen && hiddenLanes.length + hiddenRoutes.length > 0 && (
         <section className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
@@ -1643,8 +1742,7 @@ export default function PersonalShiftMemoBoard({
             <div className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[9px] font-bold tracking-[0.16em] text-amber-600">EXPORT</div>
-                  <h2 className="mt-0.5 text-base font-black text-slate-900">範囲を切り取る</h2>
+                  <h2 className="text-base font-black text-slate-900">エクスポート</h2>
                 </div>
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-white">
                   <FontAwesomeIcon icon={faCropSimple} className="h-3.5 w-3.5" />
@@ -1652,19 +1750,9 @@ export default function PersonalShiftMemoBoard({
               </div>
             </div>
             <div className="space-y-4 p-3.5">
-              <ol className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white text-[10px] font-bold">
-                <li className={cn("flex items-center gap-2 border-r border-slate-200 px-3 py-2.5", !exportSelection ? "bg-amber-50 text-amber-800" : "text-slate-500")}>
-                  <span className={cn("inline-flex h-5 w-5 items-center justify-center rounded-full", !exportSelection ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-500")}>1</span>
-                  範囲を選択
-                </li>
-                <li className={cn("flex items-center gap-2 px-3 py-2.5", exportSelection ? "bg-amber-50 text-amber-800" : "text-slate-400")}>
-                  <span className={cn("inline-flex h-5 w-5 items-center justify-center rounded-full", exportSelection ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-400")}>2</span>
-                  形式を選んで保存
-                </li>
-              </ol>
-
               {!exportSelection ? (
                 <section className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4 text-center">
+                  <h3 className="mb-3 text-xs font-bold text-slate-800">範囲を選択</h3>
                   <span className="mx-auto inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-amber-600 shadow-sm ring-1 ring-amber-200">
                     <FontAwesomeIcon icon={faCropSimple} className="h-4 w-4" />
                   </span>
@@ -1731,6 +1819,20 @@ export default function PersonalShiftMemoBoard({
                       className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 text-[11px] font-bold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <FontAwesomeIcon icon={faFilePdf} className="h-3.5 w-3.5 text-rose-300" />PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadMemoData("csv")}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-[11px] font-bold text-slate-700 shadow-sm hover:border-slate-500"
+                    >
+                      <FontAwesomeIcon icon={faFileCsv} className="h-3.5 w-3.5 text-emerald-600" />CSV（全体）
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadMemoData("json")}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-[11px] font-bold text-slate-700 shadow-sm hover:border-slate-500"
+                    >
+                      <FontAwesomeIcon icon={faFileCode} className="h-3.5 w-3.5 text-violet-600" />JSON（全体）
                     </button>
                   </div>
                 </>

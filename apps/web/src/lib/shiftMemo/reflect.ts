@@ -1,7 +1,7 @@
 import { cellKey, resolveDayActivity, type DayOverride } from "./board";
 
 export type ReflectCourse = { id: string; name: string; summary_title?: string | null; uses_cycles?: boolean | null; course_cycles?: { cycle_no: number; label?: string | null; active?: boolean | null }[] | null };
-export type ReflectLane = { id: string; routeId: string; name: string; activeWeekdays: number[] };
+export type ReflectLane = { id: string; routeId: string; name: string; activeWeekdays: number[]; custom?: boolean; reflectCourseId?: string };
 export type ReflectPerson = { personKey: string; driverId?: string; name: string };
 export type ReflectGroup = { date: string; courseId: string; cycleNo: number; driverIds: string[] };
 export type ReflectInput = { mode: "add" | "replace"; groups: ReflectGroup[] };
@@ -15,23 +15,34 @@ export function laneCycleDefault(lane: ReflectLane, course: ReflectCourse): stri
   return cycle ? String(cycle.cycle_no) : "";
 }
 
+/** 担当枠の置き場所と正式な反映先は別。自作枠は名前が一意に合う場合だけ候補にする。 */
+export function laneCourseDefault(lane: ReflectLane, courses: ReflectCourse[]): string {
+  if (lane.reflectCourseId && courses.some(course => course.id === lane.reflectCourseId)) return lane.reflectCourseId;
+  if (!lane.custom) return lane.routeId;
+  const name = lane.name.replace(/[\s　]/g, "");
+  const matches = courses.filter(course => [course.name, course.summary_title ?? ""].some(label => label.replace(/[\s　]/g, "") === name));
+  return matches.length === 1 ? matches[0].id : "";
+}
+
 /** 名前で同一人物を推測しない。選択した枠と日だけを便別のドライバー集合へ変換する。 */
 export function buildReflectGroups(input: {
   dates: string[]; lanes: ReflectLane[]; courses: ReflectCourse[]; selectedLaneIds: string[];
   assignments: Record<string, ReflectPerson[]>; dayOverrides: Record<string, DayOverride>;
   laneCycles: Record<string, string>; personMappings: Record<string, string>; driverIds: string[];
+  laneCourseIds?: Record<string, string>;
   includeEmpty: boolean;
 }): { groups: ReflectGroup[]; errors: string[] } {
   const groups = new Map<string, ReflectGroup>();
   const errors = new Set<string>();
   const registered = new Set(input.driverIds);
   for (const lane of input.lanes.filter(l => input.selectedLaneIds.includes(l.id))) {
-    const course = input.courses.find(c => c.id === lane.routeId);
+    const targetCourseId = input.laneCourseIds?.[lane.id] ?? lane.reflectCourseId ?? (lane.custom ? "" : lane.routeId);
+    const course = input.courses.find(c => c.id === targetCourseId);
     const selection = input.laneCycles[lane.id];
     const allowed = course?.uses_cycles ? (course.course_cycles ?? []).filter(c => c.active !== false).map(c => c.cycle_no) : [0];
     const cycles = selection === "all" ? allowed : selection !== undefined && selection !== "" ? [Number(selection)] : [];
     if (!course || !cycles.length || cycles.some(c => !allowed.includes(c))) {
-      errors.add(`「${lane.name}」の反映先の便を選んでください。`);
+      errors.add(`「${lane.name}」の反映先コース・便を選んでください。`);
       continue;
     }
     for (const date of input.dates) {
@@ -46,7 +57,7 @@ export function buildReflectGroups(input: {
       const driverIds = people.flatMap(person => {
         const driverId = input.personMappings[person.personKey] || person.driverId;
         if (!driverId || !registered.has(driverId)) {
-          errors.add(`「${person.name}」の登録ドライバーを選んでください。`);
+          // 未登録の名前札は個人メモに残し、正式シフトには載せない。
           return [];
         }
         return [driverId];

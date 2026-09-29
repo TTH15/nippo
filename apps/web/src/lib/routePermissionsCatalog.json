@@ -1027,6 +1027,12 @@
   },
   {
     "method": "POST",
+    "endpoint": "/api/admin/shifts/memo/read",
+    "description": "シフト・memo・readの作成・送信",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "POST",
     "endpoint": "/api/admin/shifts/memo/reflect",
     "description": "シフト・memo・reflectの作成・送信",
     "guard": "can_manage_shifts"

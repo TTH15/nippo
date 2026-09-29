@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReflectGroups, laneCycleDefault } from "./reflect";
+import { buildReflectGroups, laneCourseDefault, laneCycleDefault } from "./reflect";
 
 const course = { id: "course", name: "豊中", uses_cycles: true, course_cycles: [{ cycle_no: 1, active: true }, { cycle_no: 2, active: true }, { cycle_no: 3, active: false }] };
 const lane = { id: "base-course-1", routeId: "course", name: "C1", activeWeekdays: [1, 2, 3, 4, 5, 6] };
@@ -22,11 +22,19 @@ describe("個人メモから反映対象の作成", () => {
     expect(result.groups.map(g => [g.cycleNo, g.driverIds])).toEqual([[1, ["one", "two"]], [2, ["one", "two"]]]);
     expect(result.errors).toEqual([]);
   });
-  it("自由な名前は明示した登録ドライバーだけへ紐付ける", () => {
+  it("未登録の名前札はメモだけに残し、明示した登録ドライバーだけ反映する", () => {
     const assignments = { [`${lane.id}|2026-09-16`]: [{ personKey: "custom:応援", name: "応援" }] };
-    expect(buildReflectGroups({ ...base, assignments }).errors).toEqual(["「応援」の登録ドライバーを選んでください。"]);
+    expect(buildReflectGroups({ ...base, assignments })).toEqual({ groups: [], errors: [] });
     expect(buildReflectGroups({ ...base, assignments, personMappings: { "custom:応援": "two" } }).groups[0].driverIds).toEqual(["two"]);
-    expect(buildReflectGroups({ ...base, assignments, personMappings: { "custom:応援": "unknown" } }).errors).toHaveLength(1);
+    expect(buildReflectGroups({ ...base, assignments, personMappings: { "custom:応援": "unknown" } }).groups).toEqual([]);
+  });
+  it("自作枠は親と異なるコースへ反映でき、曖昧なら選択を要求する", () => {
+    const other = { id: "other", name: "第二区域", uses_cycles: false };
+    const custom = { ...lane, id: "custom", name: "第二区域", custom: true };
+    expect(laneCourseDefault(custom, [course, other])).toBe("other");
+    expect(laneCourseDefault({ ...custom, name: "補助枠" }, [course, other])).toBe("");
+    expect(buildReflectGroups({ ...base, lanes: [custom], courses: [course, other], selectedLaneIds: ["custom"],
+      assignments: { "custom|2026-09-16": [person] }, laneCourseIds: { custom: "other" }, laneCycles: { custom: "0" } }).groups[0].courseId).toBe("other");
   });
   it("休みの日に残った札を黙って消さず、メモの修正を求める", () => {
     const result = buildReflectGroups({ ...base, includeEmpty: true, dayOverrides: { [`${lane.id}|2026-09-16`]: "off" } });
