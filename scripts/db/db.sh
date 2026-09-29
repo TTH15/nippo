@@ -68,6 +68,36 @@ require_confirm() {
   die "書き込みには --confirm=$want が要ります（接続先=$TARGET）"
 }
 
+# Outer BEGIN/COMMIT in migration files must be removed before psql wraps them.
+# Keep PL/pgSQL bodies intact and reject any remaining transaction command.
+prepare_migration() {
+  local input="$1" output="$2" scan="$3"
+  awk '
+    at_start && (/^[[:space:]]*$/ || /^[[:space:]]*--/) { prefix[++p] = $0; next }
+    at_start && /^[[:space:]]*BEGIN[[:space:]]*;[[:space:]]*$/ { outer = 1; at_start = 0; next }
+    { at_start = 0; lines[++n] = $0 }
+    END {
+      for (i = 1; i <= p; i++) print prefix[i]
+      if (outer) {
+        while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+        if (n > 0 && lines[n] ~ /^[[:space:]]*COMMIT[[:space:]]*;[[:space:]]*$/) n--
+        else exit 2
+      }
+      for (i = 1; i <= n; i++) print lines[i]
+    }
+  ' at_start=1 "$input" > "$output" || die '外側の COMMIT が見つかりません'
+  # A BEGIN inside a $$ PL/pgSQL body is not a SQL transaction command.
+  awk '{ n = split($0, parts, /\$\$/); for (i = 1; i <= n; i++) {
+    if (!in_body) printf "%s", parts[i];
+    if (i < n) in_body = !in_body;
+  } print "" } END { if (in_body) exit 2 }' "$output" > "$scan" || die 'SQL の $$ が閉じられていません'
+  sed -E 's/--.*$//' "$scan" > "${scan}.clean"
+  if grep -qEi '(^|[[:space:];])(COMMIT|ROLLBACK|BEGIN|SAVEPOINT|START[[:space:]]+TRANSACTION)([[:space:];]|$)' "${scan}.clean"; then
+    die "この SQL は行の途中でトランザクションを操作しています:
+  $(grep -nEi '(^|[[:space:];])(COMMIT|ROLLBACK|BEGIN|SAVEPOINT|START[[:space:]]+TRANSACTION)([[:space:];]|$)' "${scan}.clean" | head -3)"
+  fi
+}
+
 cmd="${1:-}"; [ $# -gt 0 ] && shift || true
 
 case "$cmd" in
@@ -92,15 +122,9 @@ case "$cmd" in
 
   dryrun)
     file="${1:?SQL ファイルを渡してください}"; load_url; banner
-    # ★migration ファイル自身の BEGIN / COMMIT を必ず外す。
-    #   外さないと内側の COMMIT で確定し、外側の ROLLBACK が空振りして
-    #   「試し流しのつもりが本番へ適用される」（2026-09-19 に実際に起きた）。
-    stripped="$(mktemp)"; trap 'rm -f "$stripped"' EXIT
-    grep -vEi '^[[:space:]]*(BEGIN|COMMIT|END)[[:space:]]*;[[:space:]]*$' "$file" > "$stripped"
-    if grep -qEi '(^|[[:space:];])(COMMIT|ROLLBACK|BEGIN|SAVEPOINT|START[[:space:]]+TRANSACTION)([[:space:];]|$)' "$stripped"; then
-      die "この SQL は行の途中でトランザクションを操作しています。dryrun では安全に巻き戻せません:
-  $(grep -nEi '(^|[[:space:];])(COMMIT|ROLLBACK|BEGIN|SAVEPOINT|START[[:space:]]+TRANSACTION)([[:space:];]|$)' "$stripped" | head -3)"
-    fi
+    stripped="$(mktemp)"; transaction_scan="$(mktemp)"
+    trap 'rm -f "$stripped" "$transaction_scan" "${transaction_scan}.clean"' EXIT
+    prepare_migration "$file" "$stripped" "$transaction_scan"
     echo "[db] BEGIN … ROLLBACK で試し流しします（変更は残りません）" >&2
     { echo "BEGIN;"; cat "$stripped"; echo "ROLLBACK;"; } | rw -P pager=off -f -
     ;;
@@ -111,12 +135,14 @@ case "$cmd" in
     require_confirm "$base" "$@"
     load_url; banner
     echo "[db] $base を1トランザクションで適用します" >&2
-    tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
+    tmp="$(mktemp)"; stripped="$(mktemp)"; transaction_scan="$(mktemp)"
+    trap 'rm -f "$tmp" "$stripped" "$transaction_scan" "${transaction_scan}.clean"' EXIT
+    prepare_migration "$file" "$stripped" "$transaction_scan"
     cat >"$tmp" <<EOS
 CREATE TABLE IF NOT EXISTS _migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
 INSERT INTO _migrations(name) VALUES ('$base') ON CONFLICT DO NOTHING;
 EOS
-    rw --single-transaction -P pager=off -f "$file" -f "$tmp"
+    rw --single-transaction -P pager=off -f "$stripped" -f "$tmp"
     echo "[db] 適用完了: $base" >&2
     ;;
 
