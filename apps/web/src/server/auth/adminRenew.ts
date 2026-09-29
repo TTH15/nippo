@@ -1,7 +1,8 @@
 import { jwtVerify, SignJWT } from "jose";
 import { NextResponse, type NextRequest } from "next/server";
 
-export const ADMIN_RENEW_COOKIE = "nippo_admin_renew";
+export const ADMIN_RENEW_COOKIE = process.env.NODE_ENV === "production"
+  ? "__Host-nippo_admin_renew" : "nippo_admin_renew";
 const MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
 type AdminRenewClaims = {
