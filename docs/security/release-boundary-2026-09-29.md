@@ -28,6 +28,8 @@
 
 各段階を独立した差分としてレビューする。モバイルの撮影・地図・シフト・背景測位、migration 183の本番適用、EAS署名ビルド、OTA公開、Web本番公開はこのブランチの変更と一括にしない。必要な依存があれば、対象差分と公開順を先に明示する。
 
+第一段階のAPI検査はこのブランチ内の別コミットとして進める。コースID全件の自社所属を作成・編集の更新前に確認する。DBのトリガー等は、migration 180で発生したPostgREST結合障害を再現できる環境で検証してから独立した変更とする。
+
 ## 証拠と限界
 
 - Git: `git fetch origin main`、`git log HEAD..origin/main`、`git cat-file -e origin/main:<path>`。

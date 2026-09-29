@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, hasCapabilityCached, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { coursesBelongToOrg } from "@/server/db/adminResourceScope";
 import { toE164JP } from "@/server/otp/phone";
 import { signKyc } from "@/server/kyc/storage";
 
@@ -268,6 +269,11 @@ export async function POST(req: NextRequest) {
     const codeCompany = driverCode.slice(0, 3);
     if (codeCompany !== resolvedCompany) {
       return NextResponse.json({ error: "会社コードが一致しません" }, { status: 400 });
+    }
+
+    // 所属と参照先を先に検査する。作成後に弾くとdrivers/identitiesが孤立する。
+    if (!await coursesBelongToOrg([courseIds, courseIds2], orgId)) {
+      return NextResponse.json({ error: "指定された担当コースが見つかりません" }, { status: 404 });
     }
 
 

@@ -17,6 +17,20 @@ export async function belongsToOrg(table: "drivers" | "courses" | "vehicles", id
   return !!data;
 }
 
+/** 複数の勤務区分を更新する前に、参照するコースがすべて同じ会社か確認する。 */
+export async function coursesBelongToOrg(courseLists: readonly unknown[], orgId: string): Promise<boolean> {
+  const ids = new Set<string>();
+  for (const list of courseLists) {
+    if (!Array.isArray(list) || !list.every(isUuid)) return false;
+    for (const id of list) ids.add(id);
+  }
+  if (ids.size === 0) return true;
+  const { data, error } = await supabase.from("courses").select("id")
+    .eq("org_id", orgId).in("id", [...ids]);
+  if (error) throw error;
+  return data?.length === ids.size;
+}
+
 export function adminMutationError(error: unknown): NextResponse {
   const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
   if (code === "P0002") return NextResponse.json({ error: "対象のデータが見つかりません。" }, { status: 404 });
