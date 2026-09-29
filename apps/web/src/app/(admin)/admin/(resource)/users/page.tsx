@@ -17,7 +17,7 @@ import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
 import { formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { Button } from "@/lib/ui/button";
-import { faTrash, faUser, faPhone, faCircleCheck, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faTrash, faUser, faPhone, faCircleCheck, faCircleXmark, faCommentSms, faFingerprint, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { SaveFailureNotice } from "@/lib/components/SaveFailureNotice";
@@ -77,6 +77,35 @@ type UsersPageResponse = {
 
 const COMPANY_CODE = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE).code;
 const USERS_PAGE_SIZE = 20;
+
+function AuthStatusIcons({ driver, showLabels = false }: { driver: Driver; showLabels?: boolean }) {
+  const items = [
+    { label: "SMS", registered: !!driver.phone_verified_at, icon: faCommentSms, status: "認証済み", missing: "未認証" },
+    { label: "パスキー", registered: !!driver.has_passkey, icon: faFingerprint, status: "登録済み", missing: "未登録" },
+  ];
+  return (
+    <div className="flex items-center gap-1.5">
+      {items.map(({ label, registered, icon, status, missing }) => {
+        const description = `${label} ${registered ? status : missing}`;
+        return (
+          <span
+            key={label}
+            role="img"
+            aria-label={description}
+            title={description}
+            className={`inline-flex h-7 items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium whitespace-nowrap ${
+              registered ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-400"
+            }`}
+          >
+            <FontAwesomeIcon icon={icon} aria-hidden="true" className="h-3.5 w-3.5" />
+            {showLabels && <span>{label}</span>}
+            <FontAwesomeIcon icon={registered ? faCircleCheck : faCircleXmark} aria-hidden="true" className="h-2.5 w-2.5" />
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 // 口座種別の選択肢
 const BANK_TYPES = [
@@ -835,7 +864,10 @@ export default function UsersPage() {
         try {
           await apiFetch(`/api/admin/users/${id}/phone`, { method: "DELETE" });
           setEditingDriver((prev) => (prev ? { ...prev, phone_verified_at: null } : prev));
+          setDrivers((prev) => prev.map((driver) => driver.id === id ? { ...driver, phone: null, phone_verified_at: null } : driver));
+          detailCache.current.delete(id);
           setForm((f) => ({ ...f, phone: "" }));
+          void mutateUsers();
         } catch (e) {
           console.error(e);
           const reason = e instanceof Error ? e.message : "";
@@ -1127,7 +1159,7 @@ export default function UsersPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    {["No.", "ドライバー", "ドライバーコード", "表示名", "コース", "免許期限", "権限"].map((h) => (
+                    {["No.", "ドライバー", "認証", "ドライバーコード", "表示名", "コース", "免許期限", "権限"].map((h) => (
                       <th key={h} className="px-4 py-3 text-left">
                         <Skeleton className="h-3 w-16" />
                       </th>
@@ -1208,6 +1240,7 @@ export default function UsersPage() {
                         <p className="mt-0.5 truncate font-mono text-[11px] tracking-wide text-slate-400">
                           {d.driver_code || "コード未設定"}
                         </p>
+                        <div className="mt-1"><AuthStatusIcons driver={d} showLabels /></div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           {coursesOfDriver.slice(0, 2).map((dc) => (
                             <span
@@ -1260,11 +1293,12 @@ export default function UsersPage() {
             </div>
             {/* PC: 既存テーブル */}
             <div className="hidden md:block overflow-x-auto table-scroll table-scroll-fade">
-              <table className="w-full text-sm min-w-[900px]">
+              <table className="w-full text-sm min-w-[1000px]">
                 <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold w-12">No.</th>
                     <th className="px-4 py-3 text-left font-semibold">ドライバー</th>
+                    <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">SMS / パスキー</th>
                     <th className="px-4 py-3 text-left font-semibold">ドライバーコード</th>
                     <th className="px-4 py-3 text-left font-semibold">表示名</th>
                     <th className="px-4 py-3 text-left font-semibold">コース</th>
@@ -1298,6 +1332,7 @@ export default function UsersPage() {
                             <span className="font-semibold text-slate-900 whitespace-nowrap">{d.name}</span>
                           </div>
                         </td>
+                        <td className="px-4 py-3"><AuthStatusIcons driver={d} /></td>
                         <td className="px-4 py-3 font-mono text-xs tracking-wide text-slate-500 whitespace-nowrap">{d.driver_code || "—"}</td>
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{getDisplayName(d)}</td>
                         <td className="px-4 py-3">
