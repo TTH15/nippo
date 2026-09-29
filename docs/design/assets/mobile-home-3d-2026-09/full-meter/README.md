@@ -1,0 +1,5 @@
+# 計器盤全体のガイド
+
+2026/09/24。実カメラのCaptureFlow、CapturePreview、ParkingPreview、ブラウザCaptureReviewでMeterGuideOutlineを共用。見本は架空のSVG計器盤。スクリーンショットは撮影前のガイドを表示した状態。
+
+ブラウザ1280/768/390/320pxで枠の収まり、撮影→ガイド非表示→撮り直しで復帰、駐車後メーターから駐車写真への遷移を確認。Simulatorでも開始撮影からメーターへ進み、同じ表示/再撮影を確認。実カメラの構図や反射は未検証。アプリ内openはqueuedのため操作監査はローカルChromeで実施。

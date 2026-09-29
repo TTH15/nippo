@@ -1,0 +1,162 @@
+{
+  "date": "2026-09-23",
+  "scene": "every-da17v-poc-1",
+  "browser": {
+    "triangles": 9563,
+    "drawCalls": 46,
+    "textures": 0,
+    "widths": [
+      1280,
+      390,
+      320
+    ],
+    "states": [
+      "idle",
+      "working",
+      "moving",
+      "off"
+    ],
+    "checks": [
+      "pause/resume",
+      "reduced motion",
+      "dark lighting",
+      "failure/poster/recovery"
+    ],
+    "externalRequests": 0,
+    "pageErrors": 0
+  },
+  "iphone": {
+    "source": "User confirmation in this thread",
+    "result": "車と流れる景色が表示された",
+    "tenMinutePerformanceMeasured": false,
+    "confirmedScene": "every-da17v-poc-1"
+  },
+  "simulator": {
+    "device": "iPhone 17 Pro / iOS 26.0 / Expo Go 57.0.9",
+    "home3d": true,
+    "sheet": "Apple Software Renderer yields blank; final implementation falls back to same-model poster",
+    "renderCallCountsAreNotDisplayFPS": true,
+    "shellChecks": {
+      "passed": true,
+      "checks": [
+        "純正タブ5画面",
+        "短押し取消/長押し開始・終了",
+        "native sheet開閉",
+        "稼働/移動accessory",
+        "日報フォーム再利用",
+        "給油依頼",
+        "終了後のホーム",
+        "休み"
+      ],
+      "method": "Simulator Hermes callbacks + native screenshots; not physical touch gestures",
+      "exceptions": []
+    }
+  },
+  "validation": {
+    "mobileTypecheck": "passed",
+    "mobileTests": 21,
+    "previewStrictTypecheck": "passed",
+    "normalIosExport": "passed; 1406 source map sources exclude preview/Three/expo-gl JS",
+    "assetRegeneration": "same hashes on repeat; web source unchanged"
+  },
+  "limitations": [
+    "No production App integration or external deployment",
+    "Native module dependency requires next signed binary to be rebuilt",
+    "Real QR/GPS/save remain fixtures",
+    "Full UI dark mode and actual GPU/heat/memory profiling pending"
+  ],
+  "currentRevision": {
+    "scene": "every-da17v-miniature-2",
+    "browser": {
+      "triangles": 10997,
+      "drawCalls": 46,
+      "textures": 0,
+      "widths": [
+        1280,
+        390,
+        320
+      ],
+      "states": [
+        "idle",
+        "working",
+        "moving",
+        "off"
+      ],
+      "checks": [
+        "pause/resume",
+        "reduced motion",
+        "dark lighting",
+        "failure/poster/recovery"
+      ],
+      "pageErrors": 0,
+      "externalRequests": 0
+    },
+    "typechecks": [
+      "mobile passed",
+      "SceneReview strict passed"
+    ],
+    "motionChecks": [
+      "wheel centers fixed",
+      "body rise bounded 0–0.036m",
+      "idle/off static",
+      "zero delta preserves pose"
+    ],
+    "iphoneVisualConfirmed": false,
+    "inAppBrowser": "open queued; interaction tested with local Chrome/Playwright",
+    "tests": "No new unit tests for visual adjustment; earlier 21-test result belongs to previous revision"
+  },
+  "trafficRevision": {
+    "scene": "every-da17v-miniature-traffic-3",
+    "visibleTraffic": {
+      "triangles": 18536,
+      "drawCalls": 48,
+      "textures": 0
+    },
+    "intervalSeconds": 22,
+    "checks": [
+      "mobile/SceneReview strict typecheck",
+      "1280/390/320 widths",
+      "4 states/pause/resume/reduced motion/dark/failure recovery",
+      "60s scene progression: work/move 3 cars, idle/off 0",
+      "opposite lane/direction and paused position stable"
+    ],
+    "pageErrors": 0,
+    "externalRequests": 0,
+    "iphoneVisualConfirmed": false,
+    "inAppBrowser": "open queued; local Chrome/Playwright used for interaction"
+  },
+  "immersiveRevision": {
+    "scene": "every-da17v-immersive-4",
+    "typechecks": [
+      "mobile passed",
+      "browser strict passed"
+    ],
+    "mobileTests": 21,
+    "normalIosExport": {
+      "sources": 1376,
+      "previewSources": 0,
+      "holdSettingsIncluded": true
+    },
+    "browserChecks": [
+      "1280/390/320 widths",
+      "partial ring fill",
+      "short press cancelled / long press start & end",
+      "collapse/reopen",
+      "failure still permits end",
+      "4 scene modes/pause/reduced motion/dark/failure recovery"
+    ],
+    "simulatorChecks": [
+      "native shell regression passed",
+      "start/end partial ring screenshots and release cancellation",
+      "full sheet gradient and portrait fallback"
+    ],
+    "simulatorMethod": "Hermes component callbacks and native screenshots, not physical touches",
+    "inAppBrowser": "open queued; interaction checked with local Chrome",
+    "iphoneVisualConfirmed": false,
+    "limits": [
+      "Full-screen GPU/heat/memory not measured",
+      "Native sheet uses existing software renderer poster fallback",
+      "Dynamic type/landscape/older OS/Android not fully audited"
+    ]
+  }
+}
