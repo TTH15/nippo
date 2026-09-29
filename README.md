@@ -5,22 +5,27 @@
 
 ## リポジトリ構成（monorepo）
 
-npm workspaces による monorepo です。ネイティブ（Expo）化と基盤移行を見据え、プラットフォーム非依存のコア層を独立パッケージへ切り出しています。
+npm workspaces による monorepo です。Web、Expoモバイル、現場運営用Baseの作業領域と、共有コア層があります。
 
 ```
 <repo>/
 ├─ apps/
-│  └─ web/          Next.js アプリ（@repo/web）— UI・API ルート・サーバ層
+│  ├─ web/          Next.js アプリ（@repo/web）— UI・APIルート・サーバ層
+│  ├─ mobile/       Expoのドライバーアプリ
+│  └─ base/         現場運営アプリの作業領域
 ├─ packages/
-│  └─ core/         共有コア層（@repo/core）— 型・認証・APIクライアント・純粋ロジック（UI/DOM 非依存）
+│  ├─ core/         アプリ共通の型・ロジック
+│  ├─ auth/         @platform/auth のvendorコピー
+│  └─ api-client/   @platform/api-client のvendorコピー
 ├─ supabase/        DB マイグレーション
 ├─ docs/            設計・移行ドキュメント
 └─ package.json     workspaces ルート（scripts は各ワークスペースへ委譲）
 ```
 
 - `@repo/core` は TS ソースのまま消費します（ビルド不要。Next の `transpilePackages` でトランスパイル）。subpath: `@repo/core/types` `@repo/core/auth` `@repo/core/api` `@repo/core/logic/*`。
-- 将来 `apps/mobile`（Expo）が同じ `@repo/core` を import する想定です。
+- `apps/mobile` は `@repo/core` を共有し、Webと同じDB・業務APIを利用します。ネイティブアプリの配布はWebのデプロイと別です。
 - 移行の経緯と手順は `docs/monorepo-migration-step0.md` を参照。
+- 設計・公開状況を調べるときは [ドキュメントの入口](docs/README.md) から参照する。古い案は [設計書索引](docs/design/README.md) で現行資料と区別する。
 
 ## 現在の主な機能
 
@@ -32,8 +37,8 @@ npm workspaces による monorepo です。ネイティブ（Expo）化と基盤
 
 ## 技術スタック
 
-- Next.js 15 (App Router) + TypeScript
-- React 18 + Tailwind CSS
+- Next.js 16 (App Router) + TypeScript
+- React 19.2 + Tailwind CSS、Expo 57 / React Native 0.86
 - Supabase (Postgres)
 - SWR / Recharts / Font Awesome / Radix UI
 

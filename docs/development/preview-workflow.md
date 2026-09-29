@@ -18,17 +18,19 @@
 管理画面の本番 `page.tsx` を**そのまま**使い、認証・API・Next Router だけを fixture（架空データと読み書きの定義）へ差し替えて動かす runner。ページ・データ状態・閲覧者の権限を URL だけで指定できるので、AI や人が「この状態の画面を開いて直す」を1手で始められる。ChatGPT で整理した方針（別コピーを作らず同一コード・fixture・シナリオURL・役割URL）を hakotora の既存 runner に載せたもの。
 
 - 起動: `npm run preview:admin -- admin --port 3197` → `http://127.0.0.1:3197/preview/admin`（一覧）
-- ページ: `/preview/admin/<slug>`。登録済みは `dashboard`（/admin）・`vehicles`（/admin/vehicles）・`users`（/admin/users）
+- ページ: `/preview/admin/<slug>`。登録済みは `dashboard`（/admin）・`vehicles`（/admin/vehicles）・`users`（/admin/users）・`roles`（/admin/roles、API権限一覧）など。`roles` は既存のロール画面本体と架空のロール・メンバーを使用する。
 - データ状態: `?scenario=normal|empty|long-name|large|loading|error`（fixture 固有＋共通の loading/error。未知の値は normal）
 - 権限: `?role=admin|accounting|viewer`（本番のプリセット ADMIN / ACCOUNTING / ADMIN_VIEWER の capability 束を写す。メニューのロック・書込ボタン・コスト表示が本番と同じ判定で変わる）
 - 例: `http://127.0.0.1:3197/preview/admin/vehicles?scenario=long-name&role=viewer`
 - 画面上部のバーでシナリオ・役割の切替、「次の保存を失敗させる」、「初期化」ができる。サイドバー・クイックリンクは pushState で遷移し、scenario/role を引き継ぐ。未登録ページへのリンクは一覧へ戻して案内を出す
 - 地図（`/preview/admin/map`）は Mapbox の公開キーが要るので `npm run preview:admin -- admin --port 3199 --mapbox` で起動する（`.env.local` の `NEXT_PUBLIC_MAPBOX_TOKEN` だけを読む）。シナリオは通常／位置なし／大量（40台密集）。共有ビューは Supabase Realtime を使うため常にオフのスタブ
+- 車両地図を統合したダッシュボードは `npm run preview:admin -- admin --port 3198 --mapbox` → `/preview/admin/dashboard?scenario=normal&role=admin`。`empty` は位置なし、`large` は40台、共通の `loading` / `error` も使える。本番の3D地図と地図fixtureを直接再利用し、地図の移動・車両選択・履歴・配置と要対応を試せる。地図タイルだけMapboxから取得し、本番の位置送信・DB・認証は呼ばない。モバイルのバックグラウンド測位はプレビュー対象外で、署名済み開発ビルドの実機で確認する。
 - 日報送信（`/preview/admin/submit`）はドライバー画面を同じ runner で開く。「車の置き場所」の候補・区画・別の場所・状況回答・未回答ブロック・保存失敗（上部バーの「次の保存を失敗させる」）を試せる。送信内容は console の `preview submit`
 - 日報の「画像から入力」: 同じ runner の `/preview/admin/submit`。架空の様式を1件返すので、画像を選ぶと端末内OCR→読み取り結果の確認画面→日報への反映まで試せる。`no-image-template` は様式が未登録で、画像は残せるが件数は手入力のままになる。様式に合わない画像を選ぶと「未対応」として手入力へ戻る経路を確認できる。原本の送信・読み取りの記録は fixture 止まりで、本番API・DB・通知には接続しない
+- 日報画像欄はPNG/JPEGスクリーンショットのドラッグ&ドロップにも対応する。選択ボタンと同じ画像読取処理へ渡す。`/preview/admin/submit?scenario=normal&role=admin` でPC/スマホ幅・非対応画像の手入力復帰を確認する。
 - 日報のログイン設定案内: `npm run preview:admin -- admin --port 3221` → `http://127.0.0.1:3221/preview/admin/submit?scenario=normal`。本番 `SubmitPageClientV2` / `LoginSetupPrompt` と `(user)/layout` のNav・UserBottomNavを再利用し、PCでも監査のため本文を表示。`normal`（SMS・鍵なし）/ `sms-only` / `complete` / `no-phone` / `setup-error` / `key-error` / `no-shifts` を切替。架空SMSコードは `123456`、`000000` は誤入力。SMS・OSのPasskey・本番API・DB・通知は呼ばない。入力保持・日報提出・設定完了での案内非表示、登録失敗→再試行、PC1280/スマホ390・320px（横はみ出しなし、操作高44px）を確認。実SMS到達・実端末の資格情報登録は別途確認が必要。
 - アカウント設定（`/preview/admin/account`）は本番 `/admin/account/page.tsx` を直接使う。通常／未登録／期限切れ／使用済み／認証保存失敗／利用停止／権限変更／最後の鍵／確認方法なしを切り替えられる。追加/削除時の本人確認は架空SMSコード `123456` または模擬Passkeyで進める。期限切れ・使用済み・保存失敗は2回目の登録操作で成功する。
-- シフト・シフトメモ（`/preview/admin/shifts`）も本番ページを直接使う。`npm run preview:admin -- admin --port 3215` → `http://127.0.0.1:3215/preview/admin/shifts?scenario=normal&role=admin`。通常／未設定／長い名前／多数／読み込み中／取得エラーに、`conflict`（同時変更）・`save-error`（初回反映失敗）・`unmapped`（名前の対応）を追加。メモの日別必要人数は即時更新、正式シフトへの反映は対象・差分・最終確認・失敗後の再確認を操作できる。保存は架空状態・プレビュー利用者専用localStorageで、再読み込み時に初期化。本番API・DB・通知・Realtimeに接続しない。既存の単独 `shifts` runner は維持。実装・監査範囲は [シフトメモ反映](../design/shift-memo-reflect-2026-09.md) を参照。
+- シフト・シフトメモ（`/preview/admin/shifts`）も本番ページを直接使う。`npm run preview:admin -- admin --port 3197` → `http://127.0.0.1:3197/preview/admin/shifts?scenario=normal&role=admin`。通常／未設定／長い名前／多数／読み込み中／取得エラーに、`conflict`（同時変更）・`save-error`（初回反映失敗）・`unmapped`（名前の対応）を追加。個人／共有の切り替え、共有保存、`shared-peers`（架空の参加者）、`shared-disjoint`（別の箇所の同時編集）、`shared-conflict`（同じ箇所の競合）、`shared-save-error`（保存失敗）を操作できる。`shared-live` は同じURLを2タブで開き、参加者表示と別の箇所の自動反映を試せる。共有はfixtureの架空状態（`shared-live` のみプレビュー専用localStorageとBroadcastChannelでタブ間共有）、個人はプレビュー利用者専用localStorageで、再読み込み時に初期化。本番API・DB・通知・Realtimeに接続しない。既存の単独 `shifts` runner は維持。実装・監査範囲は [シフトメモ反映](../design/shift-memo-reflect-2026-09.md) を参照。
 - ログイン（`/preview/admin/login`）は本番 `/login/page.tsx` に共通のシナリオバーを付ける。アカウント設定で停止／権限変更後に操作するとここへ戻る。停止は再ログイン拒否、権限変更後は新しいログインでダッシュボードへ進む。`@simplewebauthn/browser` はrunnerだけのスタブで、OSの鍵登録・生体認証・本番認証ストレージに触れない。画面移動／再読み込みで架空状態を初期化する。
 - 旧コマンド `npm run preview:admin -- vehicles` は同じ bundle の `/preview/admin/vehicles` を開くエイリアス（`scripts/previews/vehicles-services.tsx` は fixture へ統合して削除）
 
@@ -38,7 +40,7 @@
 
 | URL | 再利用元・確認する操作 |
 |---|---|
-| `/preview/admin/onboarding?scenario=normal` | `/join/OnboardingWizard.tsx`。架空の規約確認・氏名・電話・任意の6桁SMSコードからPasskey設定へ。`resumed` / `incomplete` は途中再開、`registered` は登録済み、`unsupported` は非対応、`retry` は初回失敗、`complete` は申請済み |
+| `/preview/admin/onboarding?scenario=normal` | `/join/OnboardingWizard.tsx`。架空の規約確認・氏名・電話・任意の6桁SMSコードから必須のPasskey設定へ。`resumed` / `incomplete` は途中再開、`registered` は登録済み、`unsupported` は非対応で先へ進めない状態、`retry` は初回失敗から再試行、`complete` は申請済み |
 | `/preview/admin/recover?scenario=normal` | `/login/recover/page.tsx`。架空の電話と任意の6桁コードでSMSログイン後の設定へ。`registered` はホーム、`incomplete` は `/join` の続き、`retry` は登録失敗→再試行 |
 | `/preview/admin/login?scenario=pinless` | `/login/page.tsx`。Passkey/SMSだけを表示。旧番号/PINログインのフォームは撤去 |
 | `/preview/admin/me?scenario=normal` | `/(user)/me/page.tsx`。PIN欄なし・電話確認・Passkey管理。`legacy` でもPIN操作は表示しない。`registered` は登録済み |
@@ -49,7 +51,7 @@
 
 `loading` / `error` は共通状態。登録の再開確認は読み込み・失敗・再取得を表示する。シナリオ変更または再読み込みで架空状態を初期化する。ロゴ・余白・フォームは本番の実装を維持し、今回の登録導線だけを変更した。
 
-SMS送信・WebAuthnのOSダイアログ・DB・本番認証ストレージは使わない。KYC写真・本番の本人確認・実SMS到達・ネイティブPasskeyはこのプレビューの検証対象外。登録完了の表示確認には `complete` を使う。アカウント設定fixtureの動作のため、プレビュー内の `setAuth` / `getStoredDriver` は同じページ状態の間だけ架空のドライバーを保持する。
+SMS送信・WebAuthnのOSダイアログ・DB・本番認証ストレージは使わない。KYC写真・本番の本人確認・実SMS到達・ネイティブPasskeyはこのプレビューの検証対象外。招待経由ではSMSで先送りする操作を表示せず、成功した場合だけKYCへ進む。登録完了の表示確認には `complete` を使う。アカウント設定fixtureの動作のため、プレビュー内の `setAuth` / `getStoredDriver` は同じページ状態の間だけ架空のドライバーを保持する。
 
 ### 仕組みと追加方法
 
@@ -106,7 +108,7 @@ PC 1280 幅と 375×812 で一覧・車両（通常／長い名前×閲覧のみ
 
 ### UIの再利用・複製元
 
-- 外枠: `src/lib/components/AdminLayout.tsx` → `AdminPreviewLayout.tsx`。JSX・クラス・全メニュー・フライアウト・モバイルナビを複製。認証・API・Next Routerを読み込まず、架空の管理者とプレビュー専用遷移に置換。独立したラベル管理・一時貸出のメニューは設けない。
+- 外枠: `src/lib/components/AdminLayout.tsx` → `AdminPreviewLayout.tsx`。JSX・クラス・縦の開閉メニュー・モバイルナビを複製し、メニュー項目は`src/lib/components/adminNavItems.ts`を共用。認証・API・Next Routerを読み込まず、架空の管理者とプレビュー専用遷移に置換。独立したラベル管理・一時貸出のメニューは設けない。
 - シフト: `src/app/(admin)/admin/(ops)/shifts/page.tsx` の半月ツールバー・固定列・列幅・希望休・ナンバー付きセル → `ShiftBoard.tsx`。ラベル/リースフィルター、契約区分の区切り行、一時貸出を追加。複数コースの表示も反映。ドラッグ・共同編集は今回のモック対象外。
 - シフトの編集: 同ファイルの `editingCell`・`offModal`・`VehicleOptionList` → `ShiftEditor.tsx`、`courseCellModal` → `CourseAssignments.tsx`。コースを＋追加／×解除、プレートから車両を選択して即時反映。希望休解除の確認を維持。月額車を選んだ場合だけ、同じ編集モーダルを再利用した `MonthlyVehicleDialog.tsx` で通知内容を確認する。時間・集合場所・担当可能コース・定員の編集や検証は対象外。
 - ドライバー: `src/app/(admin)/admin/(resource)/users/page.tsx` の名簿テーブル・検索・稼働タブ・アバター・編集モーダル → `DriverBoard.tsx` / `ui.tsx`。ラベル・契約欄と一覧内の「ラベルを編集」を追加し、既存属性は架空の表示のみ。
@@ -360,3 +362,34 @@ PC 1280 幅と 375×812 で一覧・車両（通常／長い名前×閲覧のみ
 アカウント設定の `empty` で追加→SMS→誤コード→ `123456` →登録、`lastkey` でSMSなしの最後の鍵の保護、`nofactor` で本人確認手段なし、`unavailable` で保存失敗→再試行を試せる。`recover?scenario=normal` はSMS確認直後の登録で本人確認が二重にならない。PC/スマホ/iPad幅で確認する。
 
 実端末のWebAuthnやSMS到達・ネイティブ配布はこのプレビューでは検証できない。今回のCSP下の請求書は表示と印刷操作までで、PDF実保存と全管理画面の検査は公開前に残る。詳細は [セキュリティ対応記録](../design/security-b1-b8-2026-09.md)。
+
+
+## モバイルの認証・駐車選択（2026/09/21）
+
+`npm run preview:isolated -w @repo/mobile -- --port 3201` → `http://127.0.0.1:3201/preview/admin/mobile`。
+本番 `LoginScreen` / `PasskeySettings` / `ParkingChoice` をDOMアダプターで使い、ロゴ・色・文言・選択肢を再利用する。`screen=login|settings|parking`、`scenario=normal|empty|long-name|loading|error|cancel|unsupported|nofactor`。架空SMSは123456。本番認証/API/DB/通知/OS Passkeyから隔離し、CSPのconnect-src noneを維持する。
+
+1280/768/390/320pxで認証・SMS誤入力/復旧・再確認・鍵の追加/削除・長文・読込/失敗・駐車の3択/位置なしをローカルChromeで確認。Codex内ブラウザ表示要求はqueued、同ブラウザ内の操作は未確認。ネイティブ実描画、実SMS、鍵同期、GPS、退勤/日報APIの実結合は対象外。[実機の残確認](../design/mobile-passkey-distribution-2026-09.md)。
+
+### 写真中心の日報・駐車後メーター（2026/09/23）
+
+`node scripts/serve-mobile-preview.mjs --port 3202` で `/preview/admin/mobile?screen=home-design&board=ribbon&state=end-report&revision=photo-report`。実DailyReportForm、共通画像カード、実機と共通のParkingPreviewを隔離サービスで表示する。画像から84件入力、読取/送信失敗、終了→日報→完了→駐車確認→メーター→場所写真を確認可能。カメラ/画像解析/送信/位置は架空。通常アプリの返却写真API・LLMジョブは未接続。[設計と未接続範囲](../design/mobile-photo-report-2026-09.md)。
+
+### プレート表示と終了手続き（2026/09/24）
+
+mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐車の必須2項目を確認する。駐車→日報は自動遷移、日報→駐車は未完了タスクを残し、両方の送信後だけ完了表示。`state=end-report` の使用車両はSVG字形のプレート1台のみ。未完了管理はメモリfixtureで、再起動復元と本番APIは未接続。
+
+
+### 2026/09/24 モバイルのシフト確認
+
+`http://127.0.0.1:3202/preview/admin/mobile?screen=home-design&board=ribbon&state=shifts&revision=shift-details`。起動は `node scripts/serve-mobile-preview.mjs --port 3202`。実画面のShiftMonthContent/ShiftDayDetailを共用し、架空の複数便/希望休/指定休/未設定/失敗を操作可能。公開APIへは接続しない。アプリ内openはqueuedのためChromeで4幅監査、Simulatorで実画面を確認。
+
+### 2026/09/25 モバイルホームの駐車地図カード
+
+`node scripts/serve-mobile-preview.mjs --port 3202 --mapbox` で `http://127.0.0.1:3202/preview/admin/mobile?screen=home-design&board=ribbon&revision=native-menu-bell` を開く。`--mapbox` は `apps/web/.env.local` のMapbox公開キーだけを読み、操作可能なMapbox地図を日本語表示する。ロゴ・帰属情報は標準表示のまま。WebGLや地図取得の失敗時は静止地図、さらに画像取得失敗時はローカルの概略図へ戻る。Expo Goの隔離試作はiOSでApple MapKit、AndroidでGoogle Mapsの同じ地点を表示する。地図には既存の3D車両を見下ろす角度で描いた透過画像と共通ナンバープレート・駐車場所名の吹き出しを座標に固定し、車名とナンバーだけを地図の下へ置く。地図を動かした後は右上の中心ボタンで戻せる。「確認用：駐車位置が確定」を外すか、`scenario=empty` で開くと地図のない未確定表示になる。外部地図リンクは公開駐車場の座標を開くが、地図上の車両は実車の駐車区画を表さない。通常ホームの車両移動入口は非表示。実地点・担当権限・開始APIは未接続。
+
+ホーム上部は日付と「今日の稼働」を省き、ロゴ付き「ハコ虎」ヘッダーと右上の通知ベル・メニューを表示する。下部タブは表示せず、メニューからホーム・シフト・報酬・マイページを移動する。稼働前は時間帯の挨拶と「本日の担当」、経路アイコン付きの「中央エリア」を示す。通知には架空の未読1件があり、開いて既読にするとベルの印が消える。休み・稼働中・終了後の状態見出しは残す。プレビューのコースと通知は架空で、当日シフトAPI・本番通知には未接続。
+
+### 2026/09/26 休みの日の遊び構想
+
+`node scripts/serve-mobile-preview.mjs --port 3202` で `http://127.0.0.1:3202/preview/admin/mobile?screen=rest-playground` を開く。実際の休み画面に使う `SceneSurface mode="off"` を上部に再利用し、三案の切替と実装方針・エンジン比較を独立して表示する。ゲームとダブルタップ入口はまだ実装せず、架空の設計比較だけを行う。認証・DB・API・GPSには接続しない。

@@ -4,6 +4,8 @@
 基盤: `docs/platform-design.md`（車両グローバルID §5）。連携: `parking-location-flow.md`, `notification-flow.md`。
 関連方針: `構成A`。OCR/位置は端末側・単発イベント（Realtime不使用）。
 
+> 2026/09/26 の実装は [開始・終了撮影と駐車記録](design/mobile-capture-parking-lifecycle-2026-09.md) と [公開前確認](deployment/fleet-location-report-release-2026-09.md) を参照。本書のQR末尾・退勤時メーター/駐車位置・単発位置の記述は初期構想で、現行の操作順とは異なる。
+
 > 2026-06-25 更新: QRを**ローテーション式トークン**に変更（§8 全面改訂）。再発行で旧QRを失効、ADMIN貼付確認(有効化)を追加、スキャンエラーを全種可視化、**ナンバープレートOCRの退避ルート**を追加。`vehicle_sessions` に打刻手段・GPS状態の列を追記（§1）。
 
 ---

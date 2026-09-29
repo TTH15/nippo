@@ -74,6 +74,8 @@ migrations 001〜098 を適用した後の最終状態。
 | join_code | text | nullable, UNIQUE(部分: NOT NULL のみ)。参加用招待コード・再生成可 |
 | status | text | NOT NULL, DEFAULT 'active'（pending/active/suspended） |
 | admin_pin_hash | text | nullable |
+| photo_capture_tasks | jsonb | NOT NULL, DEFAULT `[]`。会社ごとの追加写真 `{id,label,stage,required}`、migration 185 |
+| photo_capture_tasks_version | integer | NOT NULL, DEFAULT 1。撮影設定の同時更新ガード、migration 185 |
 | created_at | timestamptz | NOT NULL, DEFAULT now() |
 
 各テーブルの `org_id`（車両は `owner_org_id`）はこの `organizations.id` を指す（FK は Phase 3 で付与）。
@@ -857,6 +859,24 @@ AIシフト表取り込みの実行単位。取り込んだ行を一括で取り
 
 ---
 
+### shared_shift_memo_boards
+半月グリッド型シフトメモの会社共有盤面。個人用localStorage、旧`shift_memo_days`とは独立。
+
+| カラム | 型 | 制約 |
+|--------|-----|------|
+| org_id | uuid | PK、organizations(id) FK |
+| board | jsonb | NOT NULL、1MiB以内、`version: 1` の盤面 |
+| revision | bigint | NOT NULL、初回1、保存ごとに加算 |
+| updated_by | uuid | nullable、drivers(id) FK |
+| updated_at | timestamptz | NOT NULL |
+
+`save_shared_shift_memo_board` RPCは変更した項目の旧値を行ロック内で照合して保存する。
+別項目の同時編集は統合し、同じ項目が変わっていれば競合として拒否する。
+`revision`は更新通知と再取得判定に用い、盤面全体の競合判定には使わない。
+テーブルとRPCはservice_role専用、Web APIで閲覧・編集権限と会社を確定する。
+
+---
+
 ### shifts
 シフト（コース×便×日付×スロット）。
 
@@ -1023,7 +1043,7 @@ AIシフト表取り込みの実行単位。取り込んだ行を一括で取り
 ---
 
 ### vehicle_inspection_photos
-点検の角度別写真（migration 095。UI未実装）。
+点検の角度別写真（migration 095）。会社設定の追加写真は `angle=extra:<撮影項目ID>` として保存する。
 
 | カラム | 型 | 制約 |
 |--------|-----|------|

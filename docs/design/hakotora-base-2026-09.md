@@ -109,3 +109,9 @@ AGENTS.md の標準手順（`scripts/previews/fixtures/` と `/preview/admin/<sl
 | BASE-3 iPad・スマホのプレビュー | 未着手。プレビュー方式（§5）が前提 |
 | BASE-4 初回機能とAPI・認可 | 未着手 |
 | BASE-5 実機検証・内部配布 | 未着手 |
+
+## 2026/09/23 車両の駐車場所と写真
+
+ドライバーが確認した駐車場所・場所が分かる写真をWebとBase双方の地図へ反映する方針。[撮影・駐車の接続設計](mobile-capture-parking-lifecycle-2026-09.md) にAPI/権限/未確定状態/古い候補の扱いを整理した。vehicle_positionsを位置の正本とし、Web/Baseで同じ保存結果を読む。GPSなしの写真だけを確定位置として表示しない。
+
+現時点のapps/baseはアプリの土台のみで、地図実装済みではない。Baseの認証/capabilityと地図、写真閲覧を独立した作業単位として扱う。

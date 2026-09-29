@@ -1,5 +1,7 @@
 # 日報フロー（現状＋新モデル接続）設計叩き台
 
+> **旧ドラフト（2026/09/28整理）**: 2026年6月時点のidentity/テナント移行案。現在の日報提出・撮影・駐車の操作順を表す文書ではない。現行フローは[開始・終了撮影と駐車](design/mobile-capture-parking-lifecycle-2026-09.md)、画像原本と読取は[日報画像](design/report-image-evidence-2026-09.md)を参照する。
+
 ステータス: ドラフト（合意形成中）／最終更新: 2026-06-21
 基盤: `docs/platform-design.md`。連携: `shift-assignment-flow.md`, `vehicle-session-flow.md`, 既存 `aggregation-redesign.md`。
 方針: **現行v2（集計刷新済）は良好＝作り直さない**。本書は新マルチテナント/identityモデルへの接続デルタ。

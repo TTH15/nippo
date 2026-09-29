@@ -1,11 +1,23 @@
 # ハコ虎 モバイル完全移行ロードマップ（2026 H2）
 
+> **計画の履歴（2026/09/28整理）**: 2026/09/01の完全移行目標と、下部タブ・PIN・bundle ID等の古い節は現在の進捗を表さない。最新の配布状況は[初回内部配布の準備手順](deployment/mobile-internal-first-build-2026-09.md)、撮影・背景測位の公開条件は[車両位置・日報・駐車の公開前確認](deployment/fleet-location-report-release-2026-09.md)を参照する。以下の週次計画は当時の意思決定履歴として残す。
+
 > 作成: 2026-06-29 / 目標: **2026-09-01 までにドライバーを Web PWA → ネイティブアプリへ完全移行**
 > 本書は計画。実装は別途着手。詳細メモは memory `mobile-app-roadmap` / `vehicle-qr-workflow` / `branding-hakotora` / `tenant-migration` 参照。
 
 > 2026年9月17日追記: 現場運営用の別アプリ「ハコ虎 Base」（iPadOS推奨・スマホでも利用可能）を残タスクに追加。Baseの業務範囲・実装・検証は [9月ロードマップのiPadOS・ハコ虎 Base](roadmap-2026-09.md#ipadosハコ虎-base2026年9月17日-残タスク追加) のBASE-1〜BASE-5で管理し、本書のドライバー移行とは分けて扱う。
 
 ---
+
+## 2026/09/23 ホームのデザイン方向
+
+通常画面に下部タブ、稼働中はSpotify型の拡大モーダル/ミニバーを置く。閉じてもセッションを終了しない。[車両の移動モード](design/mobile-vehicle-move-2026-09.md) は既存purpose=moveを基に、稼働と別のQR開始/終了・移動中位置追跡を設計。給油はユーザー決定により、移動依頼に「給油あり」がある場合に促す。`scripts/mobile-preview/README.md` の隔離モックで操作を確認できる。新しい位置追跡・給油保存・nativeシェルは未実装。
+
+[3Dホーム設計](design/mobile-home-3d-2026-09.md) と [素材制作ブリーフ](design/mobile-home-3d-asset-brief.md) を追加。中央に使用車両、稼働前/休みは明るく、稼働中は青い景色、稼働開始の長押し維持で画像の方向を了承。将来のダークモードを業務状態と分離して設計する。今回の成果は画像・設計・既存GLB計測・隔離レビューで、モデル制作/3D実装/実機性能検証は次段階。現行の800ms長押し→全画面CaptureFlowを基準とし、下記6月計画の「円内カメラ実装済み」とは扱わない。
+
+## 2026/09/21 更新（当時の現状）
+
+[ネイティブPasskeyと内部配布設計](design/mobile-passkey-distribution-2026-09.md)に従い、bundle ID `jp.hakotora.app` を維持して認証クライアント・Associated Domains・Android origin/DALをローカル実装した。iOS初回は少数端末のad hocで合意。[Expoアカウント作成からの手順](deployment/mobile-internal-first-build-2026-09.md)を追加。EAS project/owner・署名・関連付け公開は未設定で、JS export成功はネイティブ署名/実機確認を意味しない。旧資料のPIN撤去完了・`.driver` 識別子は現状に適用しない。PIN停止は全員移行後まで行わない。
 
 ## 2026/09/17 更新（以下の6月計画より優先）
 
