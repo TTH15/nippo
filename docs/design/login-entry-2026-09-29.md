@@ -31,4 +31,4 @@
 
 `npm run preview:admin -- admin --port 3230` で起動し、`http://127.0.0.1:3230/preview/admin/login?scenario=normal&role=admin` を開く。`next=driver` / `next=admin`、利用停止・運営権限なし、SMS復旧、PC幅・390/320px、キーボード操作を確認する。プレビューは本番ページ本体と架空の認証応答・写真を使い、実SMS・OSのPasskey・本番API・DBには接続しない。
 
-この設計とプレビューは本番公開を意味しない。
+2026/09/29にPR #53を`main`へ統合し、Webのログイン画面を本番公開した。モバイルアプリ画像のネイティブ配布と、実ユーザーのPasskey・SMS操作確認は別途行う。
