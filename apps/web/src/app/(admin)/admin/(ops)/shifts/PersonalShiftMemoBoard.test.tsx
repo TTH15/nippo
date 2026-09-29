@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import PersonalShiftMemoBoard from "./PersonalShiftMemoBoard";
+import { exportShiftMemo } from "@/lib/shiftMemo/transfer";
+import { apiUpload } from "@/lib/api";
 
-vi.mock("@/lib/api", () => ({ apiFetch: vi.fn().mockResolvedValue({ addresses: [] }), getStoredDriver: () => null }));
+vi.mock("@/lib/api", () => ({ apiFetch: vi.fn().mockResolvedValue({ addresses: [] }), apiUpload: vi.fn(), getStoredDriver: () => null }));
 const storageKey = "hakotora_personal_shift_memo_v1:required-count-test";
 const key = "base-course|2026-09-01";
 const nextKey = "base-course|2026-09-02";
@@ -14,9 +16,51 @@ const trigger = (count: number) => screen.getAllByRole("button", { name: `9月1�
 const click = (name: string) => fireEvent.click(screen.getByRole("button", { name }));
 
 beforeEach(() => {
+  URL.createObjectURL = vi.fn(() => "blob:preview");
+  URL.revokeObjectURL = vi.fn();
   localStorage.setItem(storageKey, JSON.stringify({ version: 1, lanes: [lane], assignments: { [key]: people, [nextKey]: people }, laneOrder: [lane.id] }));
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.removeItem(storageKey); });
+
+it("別端末のメモを確認してから置き換え、読み込み前へ戻せる", async () => {
+  render(<PersonalShiftMemoBoard {...props} />);
+  await screen.findByText("この端末に自動保存済み");
+  const received = { version: 1 as const,
+    lanes: [{ ...lane, id: "received-lane", name: "受領した担当枠" }], laneOrder: ["received-lane"], hiddenLaneIds: [],
+    assignments: { "received-lane|2026-09-01": [{ placementId: "received", personKey: "custom:応援", name: "応援" }] },
+    extraPeople: ["応援"], notes: {}, dayOverrides: {}, requiredCountOverrides: {}, routeOrder: [], hiddenRouteIds: [],
+    widths: { day: 76, lane: 190, detail: 330 },
+  };
+  const data = exportShiftMemo(received);
+  const file = new File([data], "received.json", { type: "application/json" });
+  Object.defineProperty(file, "text", { value: async () => data });
+  fireEvent.change(screen.getByLabelText("読み込むシフトメモを選ぶ"), { target: { files: [file] } });
+  expect(await screen.findByRole("dialog", { name: "この端末のメモを置き換えますか？" })).toHaveTextContent("未登録の名前札 1人");
+  expect(stored().lanes[0].name).toBe("豊中1");
+  click("メモを読み込む");
+  await waitFor(() => expect(stored().lanes[0].name).toBe("受領した担当枠"));
+  expect(localStorage.getItem(`${storageKey}:before-import`)).not.toBeNull();
+  click("読み込み前に戻す");
+  fireEvent.click(within(screen.getByRole("dialog", { name: "読み込み前のメモに戻しますか？" })).getByRole("button", { name: "読み込み前に戻す" }));
+  await waitFor(() => expect(stored().lanes[0].name).toBe("豊中1"));
+  expect(localStorage.getItem(`${storageKey}:before-import`)).toBeNull();
+});
+
+it("PNGの読み取り結果は確認後に対象日へ入り、未登録者はメモ内だけに残る", async () => {
+  vi.mocked(apiUpload).mockResolvedValueOnce({ period: { year: 2026, month: 9 },
+    rows: [{ name: "豊中1", days: [{ day: 1, names: ["応援"] }] }], warnings: [] });
+  render(<PersonalShiftMemoBoard {...props} />);
+  await screen.findByText("この端末に自動保存済み");
+  const file = new File(["sample"], "memo.png", { type: "image/png" });
+  fireEvent.change(screen.getByLabelText("読み込むシフトメモを選ぶ"), { target: { files: [file] } });
+  const dialog = await screen.findByRole("dialog", { name: "読み取り結果を確認" });
+  expect(dialog).toHaveTextContent("豊中1");
+  expect(stored().assignments[key][0].name).toBe("配置済み");
+  fireEvent.click(within(dialog).getByRole("button", { name: "メモに読み込む" }));
+  await waitFor(() => expect(stored().assignments[key][0].name).toBe("応援"));
+  expect(stored().assignments[key][0].driverId).toBeUndefined();
+  expect(stored().extraPeople).toContain("応援");
+});
 
 it("旧メモへ日別人数を追加して再読込でき、通常へ戻しても配置・他の日・休みは変わらない", async () => {
   const first = render(<PersonalShiftMemoBoard {...props} />);

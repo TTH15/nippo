@@ -8,7 +8,7 @@ import { CheckboxField } from "@/lib/components/CheckboxField";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 import { getDisplayName } from "@/lib/displayName";
-import { buildReflectGroups, laneCycleDefault, type ReflectCourse, type ReflectInput, type ReflectLane, type ReflectPerson, type ReflectPreview } from "@/lib/shiftMemo/reflect";
+import { buildReflectGroups, laneCourseDefault, laneCycleDefault, type ReflectCourse, type ReflectInput, type ReflectLane, type ReflectPerson, type ReflectPreview } from "@/lib/shiftMemo/reflect";
 import type { DayOverride } from "@/lib/shiftMemo/board";
 
 const dateLabel = (date: string) => {
@@ -18,15 +18,20 @@ const dateLabel = (date: string) => {
 const button = "min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40";
 const primary = "min-h-11 rounded-lg bg-slate-900 px-4 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-40";
 
-export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignments, dayOverrides, onClose, onApplied }: {
+export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignments, dayOverrides, onClose, onApplied, onLaneTargetChange }: {
   dates: string[]; courses: ReflectCourse[]; drivers: { id: string; name: string; display_name?: string | null }[];
   lanes: ReflectLane[]; assignments: Record<string, ReflectPerson[]>; dayOverrides: Record<string, DayOverride>;
   onClose: () => void; onApplied: () => Promise<unknown>;
+  onLaneTargetChange?: (laneId: string, courseId: string) => void;
 }) {
   const [start, setStart] = useState(dates[0]);
   const [end, setEnd] = useState(dates.at(-1)!);
   const [selectedLaneIds, setSelectedLaneIds] = useState<string[]>([]);
-  const [laneCycles, setLaneCycles] = useState<Record<string, string>>(() => Object.fromEntries(lanes.map(lane => [lane.id, laneCycleDefault(lane, courses.find(c => c.id === lane.routeId)!)])));
+  const [laneCourseIds, setLaneCourseIds] = useState<Record<string, string>>(() => Object.fromEntries(lanes.map(lane => [lane.id, laneCourseDefault(lane, courses)])));
+  const [laneCycles, setLaneCycles] = useState<Record<string, string>>(() => Object.fromEntries(lanes.map(lane => {
+    const course = courses.find(c => c.id === laneCourseDefault(lane, courses));
+    return [lane.id, course ? laneCycleDefault(lane, course) : ""];
+  })));
   const [personMappings, setPersonMappings] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<ReflectInput["mode"]>("add");
   const [includeEmpty, setIncludeEmpty] = useState(false);
@@ -61,8 +66,8 @@ export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignm
   }, []);
   const selectedDates = dates.filter(date => date >= start && date <= end);
   const groupResult = useMemo(() => buildReflectGroups({ dates: selectedDates, lanes, courses, selectedLaneIds, assignments, dayOverrides,
-    laneCycles, personMappings, driverIds: drivers.map(d => d.id), includeEmpty: mode === "replace" && includeEmpty }),
-  [selectedDates, lanes, courses, selectedLaneIds, assignments, dayOverrides, laneCycles, personMappings, drivers, includeEmpty, mode]);
+    laneCycles, laneCourseIds, personMappings, driverIds: drivers.map(d => d.id), includeEmpty: mode === "replace" && includeEmpty }),
+  [selectedDates, lanes, courses, selectedLaneIds, assignments, dayOverrides, laneCycles, laneCourseIds, personMappings, drivers, includeEmpty, mode]);
   const unknownPeople = [...new Map(selectedLaneIds.flatMap(laneId => selectedDates.flatMap(date => assignments[`${laneId}|${date}`] ?? []))
     .filter(p => !p.driverId || !drivers.some(d => d.id === p.driverId)).map(p => [p.personKey, p])).values()];
   const name = (id: string) => { const d = drivers.find(d => d.id === id); return d ? getDisplayName(d) : "登録外のドライバー"; };
@@ -129,7 +134,6 @@ export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignm
               {change.removeIds.length > 0 && <p className="break-words leading-5 text-rose-700">解除：{change.removeIds.map(name).join("、")}</p>}
             </section>)}</div>}
         </> : <fieldset disabled={busy} className="min-w-0 space-y-4">
-          <p className="leading-5 text-slate-600">メモの配置をシフト表へ反映します。担当枠と期間を選んでください。</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div><p className="mb-1 font-semibold">開始日</p><CustomSelect clearable={false} ariaLabel="反映の開始日" value={start} onChange={setStart} options={dates.map(date => ({ value: date, label: dateLabel(date) }))}/></div>
             <div><p className="mb-1 font-semibold">終了日</p><CustomSelect clearable={false} ariaLabel="反映の終了日" value={end} onChange={setEnd} options={dates.filter(date => date >= start).map(date => ({ value: date, label: dateLabel(date) }))}/></div>
@@ -143,25 +147,33 @@ export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignm
             <CheckboxField label="配置のない日も空にする" checked={includeEmpty} onCheckedChange={setIncludeEmpty}/>
           </div></SmoothCollapse>
           <section className="space-y-2">
-            <h3 className="font-semibold">担当枠・反映先の便</h3>
+            <h3 className="font-semibold">担当枠・反映先</h3>
             <input aria-label="担当枠を検索" placeholder="コース・担当枠を検索" value={search} onChange={e => setSearch(e.target.value)} className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"/>
             {lanes.length === 0 && <p className="text-slate-500">反映できる担当枠がありません。</p>}
             {lanes.filter(lane => `${lane.name} ${courseName(lane.routeId)}`.includes(search)).map(lane => {
-              const course = courses.find(c => c.id === lane.routeId)!;
+              const course = courses.find(c => c.id === laneCourseIds[lane.id]);
               const selected = selectedLaneIds.includes(lane.id);
               return <div key={lane.id} className="rounded-lg border border-slate-200 p-2">
                 <CheckboxField label={courseName(lane.routeId) === lane.name ? lane.name : `${courseName(lane.routeId)} / ${lane.name}`} checked={selected} onCheckedChange={checked => setSelectedLaneIds(ids => checked ? [...ids, lane.id] : ids.filter(id => id !== lane.id))}/>
-                <SmoothCollapse open={selected && !!course.uses_cycles} speed="quick"><div className="px-2 pb-2"><CustomSelect clearable={false} ariaLabel={`${courseName(lane.routeId)} ${lane.name}の反映先の便`} value={laneCycles[lane.id]} onChange={value => setLaneCycles(current => ({ ...current, [lane.id]: value }))} placeholder="便を選択" options={[
+                <SmoothCollapse open={selected} speed="quick"><div className="space-y-2 px-2 pb-2">
+                  <CustomSelect clearable={false} ariaLabel={`${lane.name}の反映先コース`} value={laneCourseIds[lane.id]} placeholder="反映先コースを選択" onChange={value => {
+                    setLaneCourseIds(current => ({ ...current, [lane.id]: value }));
+                    const nextCourse = courses.find(candidate => candidate.id === value);
+                    setLaneCycles(current => ({ ...current, [lane.id]: nextCourse ? laneCycleDefault(lane, nextCourse) : "" }));
+                    onLaneTargetChange?.(lane.id, value);
+                  }} options={courses.map(candidate => ({ value: candidate.id, label: candidate.summary_title || candidate.name }))}/>
+                  {course?.uses_cycles && <CustomSelect clearable={false} ariaLabel={`${lane.name}の反映先の便`} value={laneCycles[lane.id]} onChange={value => setLaneCycles(current => ({ ...current, [lane.id]: value }))} placeholder="便を選択" options={[
                   ...(course.course_cycles ?? []).filter(c => c.active !== false).map(c => ({ value: String(c.cycle_no), label: c.label || `C${c.cycle_no}` })),
                   { value: "all", label: "すべての便に同じ人を配置" },
-                ]}/></div></SmoothCollapse>
+                ]}/>}
+                </div></SmoothCollapse>
               </div>;
             })}
             <p className="text-slate-500">選択中 {selectedLaneIds.length}枠</p>
           </section>
           {unknownPeople.length > 0 && <section className="space-y-3 rounded-lg border border-amber-200 p-3">
-            <h3 className="font-semibold">名前札と登録ドライバーを合わせる</h3>
-            {unknownPeople.map(person => <div key={person.personKey}><p className="mb-1 break-words">{person.name}</p><CustomSelect ariaLabel={`${person.name}の登録ドライバー`} value={personMappings[person.personKey]} onChange={value => setPersonMappings(current => ({ ...current, [person.personKey]: value }))} placeholder="ドライバーを選択" options={drivers.map(driver => ({ value: driver.id, label: `${getDisplayName(driver)}（${driver.name}）` }))}/></div>)}
+            <h3 className="font-semibold">メモだけに残す名前札</h3>
+            {unknownPeople.map(person => <div key={person.personKey}><p className="mb-1 break-words">{person.name}</p><CustomSelect ariaLabel={`${person.name}の登録ドライバー`} value={personMappings[person.personKey]} onChange={value => setPersonMappings(current => ({ ...current, [person.personKey]: value }))} placeholder="正式シフトに反映しない" options={drivers.map(driver => ({ value: driver.id, label: `${getDisplayName(driver)}（${driver.name}）` }))}/></div>)}
           </section>}
           {groupResult.errors.length > 0 && <ul className="space-y-1 leading-5 text-rose-700">{groupResult.errors.map(message => <li key={message}>{message}</li>)}</ul>}
           {selectedLaneIds.length > 0 && !groupResult.groups.length && !groupResult.errors.length && <p className="text-slate-500">この期間に反映する配置がありません。</p>}
