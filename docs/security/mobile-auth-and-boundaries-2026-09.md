@@ -54,11 +54,13 @@
 
 各UI改修では、既存画面を再利用した隔離プレビューで通常・失敗・復旧・権限なしをPC/スマホ幅で操作する。本番認証・DB・通知はプレビューに接続しない。モバイル内部配布の公開条件は[初回内部配布手順](../deployment/mobile-internal-first-build-2026-09.md)に従う。
 
-### 運営セッションの30日継続（2026/09/30・公開候補）
+### 運営セッションの30日継続（2026/09/30・本番公開済み）
 
 15分の管理JWTは操作中でも絶対期限で切れていた。Passkeyログイン後に30日有効の更新用Cookieを発行し、管理API用JWTを自動更新する。更新Cookieは `HttpOnly`・`SameSite=Strict`、本番で `Secure` とし、JavaScriptから読めない。更新には通常業務JWTとCookieの両方を要求し、本人・所属・`token_version`を照合し、現時点の運営権限を再確認する。管理APIは引き続き `purpose=admin` と `aud=hakotora-admin` を必須にする。新しいタブでも更新でき、ログアウトとSMS復旧時はCookieを削除する。既発行の15分JWTだけでは更新できず、公開後に一度Passkeyログインが必要。
 
 30日後は再びPasskeyログインする。管理JWTの流出による利用可能時間は最大15分。更新Cookieはスクリプトから読み取れないが、端末自体の乗っ取り等を完全には防げない。権限変更と全端末失効には既存のDB・`token_version`を使う。端末ごとの強制失効が必要になった場合はサーバー側セッション台帳を追加する。`/api/auth/session`による管理JWT延長は認めない。
+
+PR #55を`main`の`4250c861`へ統合し、Vercel本番`dpl_7EBNgSoi7xLvi4RuPtnrCKLbH5ck`が`hakotora.jp`を配信する。PRの全体CIと候補ビルドが成功。本番の未認証リクエストでは更新APIが401、ログアウトAPIが`__Host-`付きCookieを`Secure`・`HttpOnly`で削除する応答を確認した。実利用者のPasskey認証と30日経過の実測は未確認。
 
 ## 外部資料と未確認事項
 
