@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError, getCapabilities } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { coursesBelongToOrg } from "@/server/db/adminResourceScope";
 
 export const dynamic = "force-dynamic";
 
@@ -108,6 +109,15 @@ export async function PUT(
       identities: identitiesRaw,
     } = body;
     const { id: driverId } = await params;
+
+    const courseLists = Array.isArray(identitiesRaw) && identitiesRaw.length > 0
+      ? identitiesRaw.map((item: unknown) => item && typeof item === "object" && "courseIds" in item
+        ? (item.courseIds ?? []) : [])
+      : driverCode && officeCode && Array.isArray(courseIds) ? [courseIds] : [];
+    // どの勤務区分も、既存行の更新・削除を始める前に参照先を検査する。
+    if (!await coursesBelongToOrg(courseLists, orgId)) {
+      return NextResponse.json({ error: "指定された担当コースが見つかりません" }, { status: 404 });
+    }
 
     const { data: driverRow, error: driverFetchErr } = await supabase
       .from("drivers")
