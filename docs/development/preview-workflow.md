@@ -20,6 +20,7 @@
 
 - 起動: `npm run preview:admin -- admin --port 3197` → `http://127.0.0.1:3197/preview/admin`（一覧）
 - ページ: `/preview/admin/<slug>`。登録済みは `dashboard`（/admin）・`vehicles`（/admin/vehicles）・`users`（/admin/users）・`roles`（/admin/roles、API権限一覧）など。`roles` は既存のロール画面本体と架空のロール・メンバーを使用する。
+- ドライバー一覧: `npm run preview:admin -- admin --port 3197` → `/preview/admin/users?scenario=normal&role=admin`。本番ページと架空の認証状態を使い、SMS認証・パスキー登録の両状態をPC表・スマホ一覧で確認する。実認証・DBには接続しない。
 - データ状態: `?scenario=normal|empty|long-name|large|loading|error`（fixture 固有＋共通の loading/error。未知の値は normal）
 - 権限: `?role=admin|accounting|viewer`（本番のプリセット ADMIN / ACCOUNTING / ADMIN_VIEWER の capability 束を写す。メニューのロック・書込ボタン・コスト表示が本番と同じ判定で変わる）
 - 例: `http://127.0.0.1:3197/preview/admin/vehicles?scenario=long-name&role=viewer`

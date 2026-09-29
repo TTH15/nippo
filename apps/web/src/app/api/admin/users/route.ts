@@ -155,15 +155,26 @@ export async function GET(req: NextRequest) {
     new Set((rows as { identity_id?: string | null }[]).map((r) => r.identity_id).filter(Boolean)),
   ) as string[];
   const faceByIdentity = new Map<string, string>();
+  const phoneVerifiedByIdentity = new Map<string, string | null>();
+  const passkeyIdentityIds = new Set<string>();
   // 承認画面用: 本登録（KYC）の提出状況。pending 行にだけ付与する（§2-1a 承認1回統合）。
   const kycByIdentity = new Map<string, { hasLicensePhoto: boolean; hasFacePhoto: boolean; hasLicenseExpiry: boolean }>();
   // 承認待ち一覧の副題に出すフリガナ（同姓の識別に電話マスクより役立つ・2026-08-03）。
   const kanaByIdentity = new Map<string, string>();
   if (identityIds.length > 0) {
-    const { data: idRows } = await supabase
-      .from("identities")
-      .select("id, face_photo_path, license_photo_path, license_expiry, name_kana")
-      .in("id", identityIds);
+    const [{ data: idRows, error: identityError }, { data: passkeyRows, error: passkeyError }] = await Promise.all([
+      supabase.from("identities")
+        .select("id, face_photo_path, license_photo_path, license_expiry, name_kana, phone_verified_at")
+        .in("id", identityIds),
+      supabase.from("passkey_credentials")
+        .select("identity_id")
+        .in("identity_id", identityIds),
+    ]);
+    if (identityError || passkeyError) {
+      console.error(identityError ?? passkeyError);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+    for (const credential of passkeyRows ?? []) passkeyIdentityIds.add(credential.identity_id);
     await Promise.all(
       (idRows ?? []).map(
         async (ir: {
@@ -172,7 +183,9 @@ export async function GET(req: NextRequest) {
           license_photo_path: string | null;
           license_expiry: string | null;
           name_kana: string | null;
+          phone_verified_at: string | null;
         }) => {
+          phoneVerifiedByIdentity.set(ir.id, ir.phone_verified_at);
           kycByIdentity.set(ir.id, {
             hasLicensePhoto: !!ir.license_photo_path,
             hasFacePhoto: !!ir.face_photo_path,
@@ -188,7 +201,12 @@ export async function GET(req: NextRequest) {
   }
   const rowsWithFace = (rows as ({ identity_id?: string | null } & Record<string, unknown>)[]).map(
     (r) => {
-      const base = maskBank({ ...r, faceUrl: r.identity_id ? faceByIdentity.get(r.identity_id) ?? null : null });
+      const base = maskBank({
+        ...r,
+        faceUrl: r.identity_id ? faceByIdentity.get(r.identity_id) ?? null : null,
+        phone_verified_at: r.identity_id ? phoneVerifiedByIdentity.get(r.identity_id) ?? null : null,
+        has_passkey: r.identity_id ? passkeyIdentityIds.has(r.identity_id) : false,
+      });
       if (status !== "pending") return base;
       const kyc = r.identity_id ? kycByIdentity.get(r.identity_id) : undefined;
       const hasLicensePhoto = kyc?.hasLicensePhoto ?? false;
