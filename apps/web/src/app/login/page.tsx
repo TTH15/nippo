@@ -1,80 +1,96 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState, type CSSProperties } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { apiFetch, setLoginSession, getStoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
-import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
+import { loginSceneTransition } from "@/lib/ui/motion";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCommentSms, faFingerprint } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft, faCommentSms, faFingerprint } from "@fortawesome/free-solid-svg-icons";
+import "./login.css";
 
+const styles = {
+  auth: "login-auth",
+  back: "login-back",
+  driverAuth: "login-driverAuth",
+  driverHit: "login-driverHit",
+  driverPhoto: "login-driverPhoto",
+  driverTitle: "login-driverTitle",
+  entryHit: "login-entryHit",
+  error: "login-error",
+  hostHint: "login-hostHint",
+  loading: "login-loading",
+  logo: "login-logo",
+  mobile: "login-mobile",
+  mobileOr: "login-mobileOr",
+  mobileBody: "login-mobileBody",
+  mobilePhoto: "login-mobilePhoto",
+  mobileLogo: "login-mobileLogo",
+  mobileTitle: "login-mobileTitle",
+  operationsAuth: "login-operationsAuth",
+  operationsHit: "login-operationsHit",
+  operationsPhoto: "login-operationsPhoto",
+  operationsTitle: "login-operationsTitle",
+  passkey: "login-passkey",
+  recover: "login-recover",
+  scene: "login-scene",
+  seam: "login-seam",
+} as const;
+
+type Entry = "driver" | "admin" | null;
 type LoginResult = {
   token: string;
   adminToken?: string | null;
   driver: { id: string; name: string; role: string; companyCode?: string };
 };
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const canUsePasskey = useIsWebAuthnHost();
+  const next = searchParams.get("next");
+  const [entry, setEntry] = useState<Entry>(next === "admin" || next === "driver" ? next : null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [passkeyError, setPasskeyError] = useState("");
-  const [adminEntry, setAdminEntry] = useState(false);
 
   useEffect(() => {
-    setAdminEntry(new URLSearchParams(window.location.search).get("next") === "admin");
-  }, []);
+    setEntry(next === "admin" || next === "driver" ? next : null);
+  }, [next]);
 
-  const goToHome = (driver: LoginResult["driver"], adminToken?: string | null) => {
-    // 判定は app/page.tsx と共通。role 直判定ではカスタムロール（配車担当など）が
-    // ドライバー画面へ落ちてしまうため canEnterAdmin に揃える。
-    // setAuth 済みなので capabilities はキャッシュから読める。
-    router.push(
-      adminEntry && !!adminToken ? "/admin" : resolveHomePath({
-        hasAdminAccess: !!adminToken && canEnterAdmin(getStoredDriver() ?? driver),
-        lastMode: getLastAppMode(),
-        isMobile: isMobileWidth(),
-      }),
-    );
+  const selectEntry = (selected: Entry) => {
+    if (passkeyLoading) return;
+    setEntry(selected);
+    setPasskeyError("");
+    router.replace(selected ? `/login?next=${selected}` : "/login");
   };
 
-  const handlePasskeyLogin = async () => {
+  const handlePasskeyLogin = async (target: "driver" | "admin") => {
     setPasskeyLoading(true);
     setPasskeyError("");
     try {
       const { options, challengeToken } = await apiFetch<{
         options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
         challengeToken: string;
-      }>(
-        "/api/auth/webauthn/login/options",
-        { method: "POST" },
-        { skipAuthRedirect: true },
-      );
-
+      }>("/api/auth/webauthn/login/options", { method: "POST" }, { skipAuthRedirect: true });
       const authResponse = await startAuthentication({ optionsJSON: options });
-
       const res = await apiFetch<LoginResult>(
         "/api/auth/webauthn/login/verify",
-        {
-          method: "POST",
-          body: JSON.stringify({ response: authResponse, challengeToken }),
-        },
+        { method: "POST", body: JSON.stringify({ response: authResponse, challengeToken }) },
         { skipAuthRedirect: true },
       );
 
       setLoginSession(res.token, res.driver, res.adminToken);
-      if (adminEntry && !res.adminToken) {
-        setPasskeyError("このアカウントの運営権限を確認できませんでした");
+      if (target === "admin" && (!res.adminToken || !canEnterAdmin(getStoredDriver() ?? res.driver))) {
+        setPasskeyError("運営画面の権限がありません");
         return;
       }
-      goToHome(res.driver, res.adminToken);
+      router.push(target === "admin" ? "/admin" : "/submit");
     } catch (err: unknown) {
-      // ユーザーがブラウザのPasskeyダイアログをキャンセルした場合は無言で戻す
       if (err instanceof Error && err.name !== "NotAllowedError") {
-        setPasskeyError(err.message || "かんたんログインに失敗しました");
+        setPasskeyError(err.message || "パスキーでログインできませんでした");
       }
       console.error("Passkey login error:", err);
     } finally {
@@ -82,43 +98,64 @@ export default function LoginPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
-      <div className="w-full max-w-sm">
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200">
-          {/* Header */}
-          <div className="p-3 border-b border-slate-200">
-            <div className="flex flex-col items-center">
-              <img
-                src="/logo/hakotora-logo_secondary_logo.svg"
-                alt="ハコ虎 ロゴ"
-                className="h-12 mb-2"
-                style={{ maxWidth: '60%', height: 'auto' }}
-              />
-              <h1 className="text-base font-semibold text-slate-900 text-center">ログイン</h1>
-              {adminEntry && <p className="mt-1 text-center text-xs text-slate-600">運営画面はかんたんログインで本人確認してください</p>}
-            </div>
-          </div>
+  const motionStyle = {
+    "--login-duration": `${loginSceneTransition.duration * 1000}ms`,
+    "--login-ease": `cubic-bezier(${loginSceneTransition.ease.join(",")})`,
+  } as CSSProperties;
 
-          <div className="p-5 space-y-4">
-            {canUsePasskey && <>
-              <button type="button" onClick={handlePasskeyLogin} disabled={passkeyLoading}
-                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
-                <FontAwesomeIcon icon={faFingerprint} className="h-4 w-4" />
-                {passkeyLoading ? "確認中..." : "かんたんログイン（パスキー）"}
-              </button>
-              {passkeyError && <p role="alert" className="text-sm text-red-600">{passkeyError}</p>}
-            </>}
-            <Link href="/login/recover"
-              className="flex min-h-11 w-full flex-col items-center rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-center hover:bg-slate-50">
-              <span className="flex items-center gap-2 font-medium text-slate-900">
-                <FontAwesomeIcon icon={faCommentSms} className="h-4 w-4" />電話番号でログイン
-              </span>
-              <span className="mt-1 text-xs text-slate-500">{adminEntry ? "かんたんログインの設定・復旧" : "初めての方・かんたんログインを使えない方"}</span>
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
+  const authControls = (target: "driver" | "admin", mobile = false) => <>
+    {canUsePasskey ? <button type="button" className={styles.passkey} onClick={() => handlePasskeyLogin(target)} disabled={passkeyLoading}>
+      <FontAwesomeIcon icon={faFingerprint} aria-hidden="true" />
+      {passkeyLoading ? "確認中..." : "パスキーでログイン"}
+    </button> : <p className={styles.hostHint}>パスキーはSafariかChromeでお使いください。</p>}
+    {passkeyError && <p role="alert" className={styles.error}>{passkeyError}</p>}
+    {mobile && target === "driver" && <div className={styles.mobileOr}>または</div>}
+    <Link className={styles.recover} href={`/login/recover?next=${target}`}>
+      {target === "admin" ? "パスキーを設定・復旧する" : <><FontAwesomeIcon icon={faCommentSms} aria-hidden="true" /> 電話番号でログイン</>}
+    </Link>
+  </>;
+
+  return (
+    <>
+    <main className={styles.scene} data-entry={entry ?? "none"} style={motionStyle}>
+      <div className={styles.driverPhoto} style={{ backgroundImage: "linear-gradient(180deg, rgb(240 244 249 / .36) 0%, rgb(240 244 249 / .02) 75%), url(\"/login/driver-keivan.webp\")" }} aria-hidden="true" />
+      <div className={styles.seam} aria-hidden="true" />
+      <div className={styles.operationsPhoto} style={{ backgroundImage: "linear-gradient(90deg, rgb(4 13 30 / .36), rgb(4 13 30 / .11)), url(\"/login/operations-depot.webp\")" }} aria-hidden="true" />
+
+      <img src="/logo/hakotora-logo_secondary_logo.svg" alt="ハコ虎" className={styles.logo} />
+
+      <button type="button" className={`${styles.entryHit} ${styles.driverHit}`}
+        onClick={() => selectEntry("driver")} aria-label="ドライバー画面を選ぶ" aria-pressed={entry === "driver"}>
+        <span className={styles.driverTitle}>ドライバー</span>
+      </button>
+      <button type="button" className={`${styles.entryHit} ${styles.operationsHit}`}
+        onClick={() => selectEntry("admin")} aria-label="運営画面を選ぶ" aria-pressed={entry === "admin"}>
+        <span className={styles.operationsTitle}>運営</span>
+      </button>
+
+      {entry && <section className={`${styles.auth} ${entry === "admin" ? styles.operationsAuth : styles.driverAuth}`}
+        aria-label={entry === "admin" ? "運営画面のログイン" : "ドライバー画面のログイン"}>
+        <button type="button" className={styles.back} onClick={() => selectEntry(null)} disabled={passkeyLoading}>
+          <FontAwesomeIcon icon={faArrowLeft} aria-hidden="true" /> 選び直す
+        </button>
+        {authControls(entry)}
+      </section>}
+    </main>
+    <main className={styles.mobile} data-entry={next === "admin" ? "admin" : "driver"}>
+      <div className={styles.mobilePhoto} style={{ backgroundImage: next === "admin"
+        ? "linear-gradient(180deg, rgb(4 13 30 / .06) 0%, rgb(4 13 30 / .24) 58%, #edf1f6 100%), url('/login/operations-depot.webp')"
+        : "linear-gradient(180deg, rgb(240 244 249 / .18) 0%, rgb(240 244 249 / .08) 70%, #edf1f6 100%), url('/login/driver-keivan.webp')" }} aria-hidden="true" />
+      <img src={next === "admin" ? "/login/hakotora-logo-cropped.svg" : "/logo/hakotora-logo_secondary_logo.svg"} alt="ハコ虎" className={styles.mobileLogo} />
+      <section className={`${styles.mobileBody} ${next === "admin" ? styles.operationsAuth : styles.driverAuth}`}
+        aria-label={next === "admin" ? "運営画面のログイン" : "ドライバー画面のログイン"}>
+        {next === "admin" && <h1 className={styles.mobileTitle}>運営</h1>}
+        {authControls(next === "admin" ? "admin" : "driver", true)}
+      </section>
+    </main>
+    </>
   );
+}
+
+export default function LoginPage() {
+  return <Suspense fallback={<div className={styles.loading} />}><LoginPageContent /></Suspense>;
 }

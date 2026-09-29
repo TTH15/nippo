@@ -106,6 +106,7 @@ await import("./prepare-vehicle-reader.mjs");
 const publicRoot = path.join(root, "apps/web/public");
 const readerAssets = JSON.parse(await readFile(path.join(publicRoot, "ocr/runtime/assets.json"), "utf8"));
 const assets = [...readerAssets, "ocr/lang/jpn.traineddata", "ocr/lang/eng.traineddata","logo/hakotora-logo_primary_logo.svg", "logo/hakotora-logo_secondary_logo.svg", "fonts/TrmFontJB.ttf"];
+if (isAdminRunner) assets.push("login/driver-keivan.webp", "login/operations-depot.webp", "login/hakotora-logo-cropped.svg");
 if (feature === "shifts") assets.push("fonts/SawarabiGothic-Regular.ttf");
 if (feature === "map-operations" || isAdminRunner) {
   assets.push(
@@ -154,7 +155,7 @@ if (!args.includes("--build")) {
       const nonce = Buffer.from(randomUUID()).toString("base64");
       if (strictCsp && target === "index.html") body = Buffer.from(body.toString().replace('<script type="module"', `<script nonce="${nonce}" type="module"`));
       res.writeHead(200, {
-        "Content-Type": (target.endsWith(".js") || target.endsWith(".mjs")) ? "text/javascript; charset=utf-8" : target.endsWith(".css") ? "text/css; charset=utf-8" : target.endsWith(".svg") ? "image/svg+xml" : target.endsWith(".ttf") ? "font/ttf" : target.endsWith(".wasm") ? "application/wasm" : /\.(traineddata|bcmap|pfb)$/.test(target) ? "application/octet-stream" : target.endsWith(".png") ? "image/png" : target.endsWith(".pdf") ? "application/pdf" : target.endsWith(".glb") ? "model/gltf-binary" : "text/html; charset=utf-8",
+        "Content-Type": (target.endsWith(".js") || target.endsWith(".mjs")) ? "text/javascript; charset=utf-8" : target.endsWith(".css") ? "text/css; charset=utf-8" : target.endsWith(".svg") ? "image/svg+xml" : target.endsWith(".ttf") ? "font/ttf" : target.endsWith(".wasm") ? "application/wasm" : /\.(traineddata|bcmap|pfb)$/.test(target) ? "application/octet-stream" : target.endsWith(".png") ? "image/png" : target.endsWith(".webp") ? "image/webp" : target.endsWith(".pdf") ? "application/pdf" : target.endsWith(".glb") ? "model/gltf-binary" : "text/html; charset=utf-8",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "'self' https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/3dtiles/v1/ https://a.tiles.mapbox.com/3dtiles/v1/ https://b.tiles.mapbox.com/3dtiles/v1/ https://api.mapbox.com/models/v1/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : feature === "shifts" ? `http://127.0.0.1:${port}/fonts/SawarabiGothic-Regular.ttf` : "'self'"}; script-src 'self' ${strictCsp ? `'nonce-${nonce}' 'strict-dynamic' ` : ""}'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:${mapboxEnabled ? " https://api.mapbox.com/styles/v1/mapbox/" : ""}; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       });

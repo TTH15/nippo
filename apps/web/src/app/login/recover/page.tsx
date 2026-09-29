@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { PasskeySetup } from "@/lib/components/PasskeySetup";
 import { registerPasskey } from "@/lib/registerPasskey";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
@@ -23,11 +24,16 @@ export default function RecoverPage() {
   const router = useRouter();
   const canUsePasskey = useIsWebAuthnHost();
   const [homePath, setHomePath] = useState("/");
+  const [adminRecovery, setAdminRecovery] = useState(false);
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setAdminRecovery(new URLSearchParams(window.location.search).get("next") === "admin");
+  }, []);
 
   const sendCode = async () => {
     setLoading(true);
@@ -46,28 +52,32 @@ export default function RecoverPage() {
     }
   };
 
-  // ログイン後の遷移先を決める。運営はホームへ、ドライバーは本登録の完了状況で分岐。
+  // SMSは業務セッションだけを発行する。運営入口へはPasskey登録後に入り直す。
   const goToNext = async (driver: { role: string; companyCode?: string }) => {
     const stored = getStoredDriver() ?? driver;
     const hasAdmin = canEnterAdmin(stored);
-    // SMS復旧は本人の業務セッション。運営は本人のPasskeyで入り直す。
     const nextPath = hasAdmin ? "/submit" : resolveHomePath({ hasAdminAccess: false, lastMode: getLastAppMode(), isMobile: isMobileWidth() });
-    if (!hasAdmin) {
+    if (adminRecovery || !hasAdmin) {
       try {
         const reg = await apiFetch<{ complete: boolean; kycVerified: boolean; hasPasskey: boolean }>("/api/me/registration");
-        // 本登録未完かつ本人確認前なら本登録へ（新規の仮承認ドライバー）。
-        // 既存ドライバーは移行時に kyc_verified_at を付与済み → 本登録をスキップしてホームへ。
         if (!reg.complete && !reg.kycVerified) {
           router.push("/join");
           return;
         }
         if (!reg.hasPasskey) {
-          setHomePath(nextPath);
+          setHomePath(adminRecovery ? "/login?next=admin" : nextPath);
           setStep("passkey");
           return;
         }
+        if (adminRecovery) {
+          router.push("/login?next=admin");
+          return;
+        }
       } catch {
-        // 取得失敗時はホームへフォールバック
+        if (adminRecovery) {
+          setError("パスキーの登録状態を確認できません。もう一度お試しください");
+          return;
+        }
       }
     }
     router.push(nextPath);
@@ -114,12 +124,12 @@ export default function RecoverPage() {
           </div>
 
           <div className="p-5 space-y-4">
-            {step === "passkey" && <PasskeySetup verifyIdentity supported={canUsePasskey} register={registerPasskey} onContinue={() => router.push(homePath)} />}
+            {step === "passkey" && <>
+              <PasskeySetup verifyIdentity required={adminRecovery} requiredMessage={adminRecovery ? "運営画面を使うにはパスキーが必要です。" : undefined} supported={canUsePasskey} register={registerPasskey} onContinue={() => router.push(homePath)} />
+              {adminRecovery && <Link href="/submit" className="block min-h-11 py-3 text-center text-sm text-slate-600 underline underline-offset-4">ドライバー画面へ</Link>}
+            </>}
             {step === "phone" && (
               <>
-                <p className="text-sm text-slate-600">
-                  登録済みの電話番号にSMSで認証コードを送ります。初めての方や、かんたんログインを使えない方はこちらからログインできます。
-                </p>
                 <div>
                   <label htmlFor="recover-phone" className="block text-sm font-medium text-slate-700 mb-1">電話番号</label>
                   <input
