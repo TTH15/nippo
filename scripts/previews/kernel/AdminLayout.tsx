@@ -65,7 +65,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       pathname={pathname}
       onReset={() => store.reset()}
       viewer={{ name: store.driver.name, role: store.driver.role, capabilities: store.driver.capabilities }}
-      noticeLabel="プレビュー · 架空データ・本番ページのコード・外部送信なし"
+      noticeLabel={`プレビュー ${process.env.NEXT_PUBLIC_PREVIEW_SOURCE} · 架空データ・本番ページのコード・外部送信なし`}
     >
       <ScenarioBar />
       {children}

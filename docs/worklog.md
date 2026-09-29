@@ -17,9 +17,11 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 
 - [2026年7月](worklog/2026-07.md) — 47件
 - [2026年8月](worklog/2026-08.md) — 310件
-- [2026年9月](worklog/2026-09.md) — 225件
+- [2026年9月](worklog/2026-09.md) — 226件
 
 ## 直近のエントリ（2026-09）
+
+- 2026-09-29 14:35 旧作業ツリーの管理プレビューを現行コードで再起動。生成元表示と反映前の確認手順を追加し、PC・スマホ幅を確認。
 
 - 2026-09-29 14:26 公開後のmain・CI・Vercelを再照合。最新 `b08e2023`、App CIとpages build成功。AASA/DALは設定待ち。
 
@@ -1549,8 +1551,15 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 - 変更: 本番Supabaseへ移行183を適用・台帳記録した後、`main` の `765f4ebc` をGitHubへpush。Vercel `nippo-ace` の `dpl_CijPjPDFnXoX7NziT9A4srDFzDGv` が `hakotora.jp` を配信。
 - 検証: 移行のBEGIN/ROLLBACK試行、既存37件の既定値false・NULL0件、台帳183/184/185を確認。GitHub App CI・pages build成功。トップとログイン200、未認証の本人登録API401。
 - 残課題: AASA/DALは署名情報未設定で503。署名済みモバイルビルド・実機Passkey、担当コースのDB側保証は未実施。
+
 ## 2026-09-29 14:26 公開後の最終状態を照合
 
 - 変更: 公開記録をGitHub `main` の `b08e2023` に反映した。
 - 検証: `main` と `origin/main` が一致し作業ツリーはclean。App CI・pages build成功。`hakotora.jp` はREADYの `dpl_7Zn6nm1sofWELCH7PhuP33NuspMG` を配信し、トップ・ログイン200、未認証の本人登録API401。
 - 残課題: AASA/DALは署名情報未設定で503。署名済みモバイルビルド・実機Passkey、担当コースのDB側保証は未実施。
+
+## 2026-09-29 14:35 管理プレビューを現行サイドバーへ更新
+
+- 変更: 旧作業ツリーから起動した3197番ポートのプレビューを停止し、現行コードで再起動。プレビュー内と起動ログに生成元のブランチ・コミットを表示し、反映前の生成元確認を手順に追加した。
+- 検証: 管理プレビューの型検査と差分検査が成功。アプリ内ブラウザのPC版で現行のグループ型サイドバー、390px幅でメニューの開閉を確認した。
+- 残課題: 今回の変更はプレビューと手順のみ。本番画面の変更・公開は行わず、以後のUI変更は候補プレビューを先に確認する。

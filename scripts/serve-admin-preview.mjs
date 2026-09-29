@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -8,6 +9,8 @@ import { createServer } from "node:http";
 
 // Standalone, loopback-only mock runner. Never load server code or application secrets.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const gitValue = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+const previewSource = `${gitValue("branch", "--show-current") || "detached"}@${gitValue("rev-parse", "--short=8", "HEAD")}`;
 const require = createRequire(path.join(root, "apps/web/package.json"));
 const { build } = require("esbuild");
 const postcss = require("postcss");
@@ -70,7 +73,7 @@ const result = await build({
   bundle: true, outfile: path.join(output, "app.js"), platform: "browser", format: "esm",
   jsx: "automatic", alias: { "@": source, "@repo/core": path.join(root, "packages/core/src") },
   // 本番ページが読む公開設定は空文字で固定する（会社設定は DEFAULT 扱い）。環境ファイルは読まない。
-  define: { "process.env.NEXT_PUBLIC_VEHICLE_READER_DEMO": '"true"', "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_MAPBOX_TOKEN": JSON.stringify(publicMapboxToken), "process.env.NEXT_PUBLIC_PREVIEW_MAPBOX_ENABLED": JSON.stringify(String(mapboxEnabled)), "process.env.NEXT_PUBLIC_COMPANY_CODE": '""', "process.env.NEXT_PUBLIC_WEBAUTHN_RP_ID": '"127.0.0.1"' }, minify: true, metafile: true,
+  define: { "process.env.NEXT_PUBLIC_VEHICLE_READER_DEMO": '"true"', "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_MAPBOX_TOKEN": JSON.stringify(publicMapboxToken), "process.env.NEXT_PUBLIC_PREVIEW_MAPBOX_ENABLED": JSON.stringify(String(mapboxEnabled)), "process.env.NEXT_PUBLIC_COMPANY_CODE": '""', "process.env.NEXT_PUBLIC_WEBAUTHN_RP_ID": '"127.0.0.1"', "process.env.NEXT_PUBLIC_PREVIEW_SOURCE": JSON.stringify(previewSource) }, minify: true, metafile: true,
   // 未定義の process.env.* が残っても ReferenceError で真っ白にならないよう、空の process を置く
   banner: { js: "var process = globalThis.process ?? { env: {} };" },
   plugins: [{ name: "mock-only", setup(builder) {
@@ -129,6 +132,7 @@ for (const asset of assets) {
   await copyFile(path.join(publicRoot, asset), path.join(output, asset));
 }
 console.log(`Built ${feature} (${Object.keys(result.metafile.inputs).length} modules): ${output}`);
+console.log(`Preview source: ${previewSource} (${root})`);
 // 写真/PDFの実読取を架空書類で試す。通常のpublic配下には置かない。
 for (const name of ["table.png", "table.pdf", "broken.pdf"]) {
   const asset = `reader-samples/${name}`;
