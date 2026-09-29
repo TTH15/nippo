@@ -18,3 +18,9 @@ export const reorderTransition = {
 };
 
 export const instantTransition = { duration: 0 };
+
+/** PCログイン入口の左右パネル切替。 */
+export const loginSceneTransition = {
+  duration: 0.62,
+  ease: [0.22, 1, 0.36, 1] as const,
+};

@@ -47,12 +47,12 @@ function createData(scenario: string) {
     { id: "slot-2", name: "午後", startTime: "13:00", endTime: "18:00", sortOrder: 1, active: true, driverIds: [] as string[] },
   ];
   // 出力（シフト表の画像）でナンバープレートを確かめるための架空車両。
-  // 実在の番号はコピーしない。色は4種を1台ずつ入れて塗り分けを見る。
+  // 実在の番号はコピーしない。配送車のモックはすべて黒ナンバーにする。
   const vehicles = scenario === "empty" ? [] : [
     { id: id(201), plate_color: "black", number_prefix: "京都", number_class: "480", number_hiragana: "り", number_numeric: "12-34", manufacturer: "サンプル", brand: "バン", is_disposed: false, is_unavailable: false },
-    { id: id(202), plate_color: "yellow", number_prefix: "大阪", number_class: "580", number_hiragana: "わ", number_numeric: "56-78", manufacturer: "サンプル", brand: "軽バン", is_disposed: false, is_unavailable: false },
-    { id: id(203), plate_color: "white", number_prefix: "なにわ", number_class: "400", number_hiragana: "あ", number_numeric: "9-01", manufacturer: "サンプル", brand: "トラック", is_disposed: false, is_unavailable: false },
-    { id: id(204), plate_color: "green", number_prefix: "神戸", number_class: "100", number_hiragana: "か", number_numeric: "2-345", manufacturer: "サンプル", brand: "中型", is_disposed: false, is_unavailable: false },
+    { id: id(202), plate_color: "black", number_prefix: "大阪", number_class: "480", number_hiragana: "れ", number_numeric: "56-78", manufacturer: "サンプル", brand: "軽バン", is_disposed: false, is_unavailable: false },
+    { id: id(203), plate_color: "black", number_prefix: "なにわ", number_class: "480", number_hiragana: "り", number_numeric: "9-01", manufacturer: "サンプル", brand: "軽バン", is_disposed: false, is_unavailable: false },
+    { id: id(204), plate_color: "black", number_prefix: "神戸", number_class: "480", number_hiragana: "れ", number_numeric: "2-345", manufacturer: "サンプル", brand: "軽バン", is_disposed: false, is_unavailable: false },
   ];
   // 契約区分（月額リース/日額リース/リースなし）。出力の絞り込みで使うので3種そろえる。
   const driverLeases = scenario === "empty" ? [] : drivers.slice(0, 4).map((driver, i) => ({

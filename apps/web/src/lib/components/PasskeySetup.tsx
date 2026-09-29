@@ -7,11 +7,12 @@ import { SmoothCollapse } from "./SmoothCollapse";
 import { useRecentAuthAction } from "./RecentAuth";
 
 /** 初回登録とSMSログイン後で共用。未完了を登録済みとして扱わない。 */
-export function PasskeySetup({ supported, register, onContinue, verifyIdentity = false, required = false }: {
+export function PasskeySetup({ supported, register, onContinue, verifyIdentity = false, required = false, requiredMessage }: {
   supported: boolean;
   register: (reauthToken?: string) => Promise<void>;
   verifyIdentity?: boolean;
   required?: boolean;
+  requiredMessage?: string;
   onContinue: (registered: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -52,7 +53,7 @@ export function PasskeySetup({ supported, register, onContinue, verifyIdentity =
       </div>
       <h2 className="text-base font-semibold text-slate-900">かんたんログイン（パスキー）</h2>
       <p className="text-sm text-slate-600">{required
-        ? "招待登録を続けるには設定が必要です。"
+        ? requiredMessage ?? "招待登録を続けるには設定が必要です。"
         : "この端末の画面ロックで、そのままログインできます。"}</p>
     </div>
     {done ? <>

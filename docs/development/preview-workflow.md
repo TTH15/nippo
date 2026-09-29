@@ -32,7 +32,7 @@
 - 日報のログイン設定案内: `npm run preview:admin -- admin --port 3221` → `http://127.0.0.1:3221/preview/admin/submit?scenario=normal`。本番 `SubmitPageClientV2` / `LoginSetupPrompt` と `(user)/layout` のNav・UserBottomNavを再利用し、PCでも監査のため本文を表示。`normal`（SMS・鍵なし）/ `sms-only` / `complete` / `no-phone` / `setup-error` / `key-error` / `no-shifts` を切替。架空SMSコードは `123456`、`000000` は誤入力。SMS・OSのPasskey・本番API・DB・通知は呼ばない。入力保持・日報提出・設定完了での案内非表示、登録失敗→再試行、PC1280/スマホ390・320px（横はみ出しなし、操作高44px）を確認。実SMS到達・実端末の資格情報登録は別途確認が必要。
 - アカウント設定（`/preview/admin/account`）は本番 `/admin/account/page.tsx` を直接使う。通常／未登録／期限切れ／使用済み／認証保存失敗／利用停止／権限変更／最後の鍵／確認方法なしを切り替えられる。追加/削除時の本人確認は架空SMSコード `123456` または模擬Passkeyで進める。期限切れ・使用済み・保存失敗は2回目の登録操作で成功する。
 - シフト・シフトメモ（`/preview/admin/shifts`）も本番ページを直接使う。`npm run preview:admin -- admin --port 3197` → `http://127.0.0.1:3197/preview/admin/shifts?scenario=normal&role=admin`。通常／未設定／長い名前／多数／読み込み中／取得エラーに、`conflict`（同時変更）・`save-error`（初回反映失敗）・`unmapped`（名前の対応）を追加。個人／共有の切り替え、共有保存、`shared-peers`（架空の参加者）、`shared-disjoint`（別の箇所の同時編集）、`shared-conflict`（同じ箇所の競合）、`shared-save-error`（保存失敗）を操作できる。`shared-live` は同じURLを2タブで開き、参加者表示と別の箇所の自動反映を試せる。共有はfixtureの架空状態（`shared-live` のみプレビュー専用localStorageとBroadcastChannelでタブ間共有）、個人はプレビュー利用者専用localStorageで、再読み込み時に初期化。本番API・DB・通知・Realtimeに接続しない。既存の単独 `shifts` runner は維持。実装・監査範囲は [シフトメモ反映](../design/shift-memo-reflect-2026-09.md) を参照。
-- ログイン（`/preview/admin/login`）は本番 `/login/page.tsx` に共通のシナリオバーを付ける。アカウント設定で停止／権限変更後に操作するとここへ戻る。停止は再ログイン拒否、権限変更後は新しいログインでダッシュボードへ進む。`@simplewebauthn/browser` はrunnerだけのスタブで、OSの鍵登録・生体認証・本番認証ストレージに触れない。画面移動／再読み込みで架空状態を初期化する。
+- ログイン（`/preview/admin/login`）は本番 `/login/page.tsx` に共通のシナリオバーを付ける。`/preview/admin/login?scenario=normal&role=admin` は軽バンと配送拠点の左右切替、`&next=driver` はドライバー、`&next=admin` は運営を選択済みで開く。スマホでは上下切替。背景写真は黒ナンバーの架空軽バンで、写真内に文字や認証操作を焼き込まない。停止は再ログイン拒否、運営権限なしはエラーを表示する。`@simplewebauthn/browser` はrunnerだけのスタブで、OSの鍵登録・生体認証・本番認証ストレージに触れない。画面移動／再読み込みで架空状態を初期化する。
 - 旧コマンド `npm run preview:admin -- vehicles` は同じ bundle の `/preview/admin/vehicles` を開くエイリアス（`scripts/previews/vehicles-services.tsx` は fixture へ統合して削除）
 
 ### 招待登録・ログイン設定（2026-09-17）
@@ -43,7 +43,7 @@
 |---|---|
 | `/preview/admin/onboarding?scenario=normal` | `/join/OnboardingWizard.tsx`。架空の規約確認・氏名・電話・任意の6桁SMSコードから必須のPasskey設定へ。`resumed` / `incomplete` は途中再開、`registered` は登録済み、`unsupported` は非対応で先へ進めない状態、`retry` は初回失敗から再試行、`complete` は申請済み |
 | `/preview/admin/recover?scenario=normal` | `/login/recover/page.tsx`。架空の電話と任意の6桁コードでSMSログイン後の設定へ。`registered` はホーム、`incomplete` は `/join` の続き、`retry` は登録失敗→再試行 |
-| `/preview/admin/login?scenario=pinless` | `/login/page.tsx`。Passkey/SMSだけを表示。旧番号/PINログインのフォームは撤去 |
+| `/preview/admin/login?scenario=pinless&next=driver` | `/login/page.tsx`。ドライバー選択後にPasskey/SMSを表示。旧番号/PINログインのフォームは撤去 |
 | `/preview/admin/me?scenario=normal` | `/(user)/me/page.tsx`。PIN欄なし・電話確認・Passkey管理。`legacy` でもPIN操作は表示しない。`registered` は登録済み |
 | `/preview/admin/shifts?scenario=readiness` | `/admin/shifts/page.tsx` の未解決一覧（予定の未解決）。`readiness` は期限切れを含む8件、`readiness-light` は期限切れなし、`readiness-many` は40件・長いコース名、`conflict` はセル編集の409（他の人が先に変えた）。歯車の設定モーダルは4タブ（提出締切・便・必要人数・未解決の期限）で、いずれも `/api/admin/shift-deadlines` `/api/admin/shift-slots` `/api/admin/shifts/requirements` `/api/admin/shifts/readiness-settings` の fixture 付き。未保存のまま閉じると確認が出る |
 | `/preview/admin/my-shifts?scenario=normal` | `/(user)/shifts/page.tsx` の「予定の確認」。`none` は予定なし、`done` は全て確認済み、`changed` は確認後に予定が変わった状態、`save-error` は送信失敗→再試行 |
@@ -394,3 +394,7 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 ### 2026/09/26 休みの日の遊び構想
 
 `node scripts/serve-mobile-preview.mjs --port 3202` で `http://127.0.0.1:3202/preview/admin/mobile?screen=rest-playground` を開く。実際の休み画面に使う `SceneSurface mode="off"` を上部に再利用し、三案の切替と実装方針・エンジン比較を独立して表示する。ゲームとダブルタップ入口はまだ実装せず、架空の設計比較だけを行う。認証・DB・API・GPSには接続しない。
+
+### 2026/09/29 Webログイン入口
+
+`npm run preview:admin -- admin --port 3230` で `http://127.0.0.1:3230/preview/admin/login?scenario=normal&role=admin` を開く。本番ログインページを隔離し、PCは軽バンと配送拠点の二分入口、スマホはドライバーログインを直接表示する。運営画面からの再認証は `next=admin` で開き、Passkeyと設定・復旧を表示する。`scenario=no-access` は権限なしの拒否を確認できる。実SMS・OS Passkey・本番API・DBには接続しない。
