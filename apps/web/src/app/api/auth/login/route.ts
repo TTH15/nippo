@@ -95,6 +95,7 @@ export async function POST(req: NextRequest) {
         identityId: admin.identity_id,
         orgId: admin.org_id,
         tokenVersion: admin.token_version,
+        purpose: "admin",
       });
 
       return NextResponse.json({

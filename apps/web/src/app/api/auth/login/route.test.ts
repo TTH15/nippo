@@ -17,5 +17,6 @@ it("運営パスワードは別経路として維持する", async () => {
   const q = { select: () => q, eq: () => q, single: async () => ({ data: { id: "admin", role: "ADMIN", status: "active", pin_hash: "admin-password-hash", company_code: "TST" }, error: null }) };
   m.from.mockReturnValue(q); m.compare.mockResolvedValue(true); m.caps.mockResolvedValue(new Set(["can_manage_members"])); m.sign.mockResolvedValue("session");
   expect((await POST(req({ loginType: "admin", adminCode: "TST123456", password: "long-password" }))).status).toBe(200);
-  expect(m.compare).toHaveBeenCalledWith("long-password", "admin-password-hash"); expect(m.sign).toHaveBeenCalled();
+  expect(m.compare).toHaveBeenCalledWith("long-password", "admin-password-hash");
+  expect(m.sign).toHaveBeenCalledWith(expect.objectContaining({ purpose: "admin" }));
 });

@@ -21,7 +21,12 @@ export async function signToken(payload: {
   tokenVersion?: number;
   strongAuthAt?: number;
   strongAuthMethod?: "sms" | "passkey";
+  purpose?: "work" | "admin";
 }): Promise<string> {
+  const purpose = payload.purpose ?? "work";
+  if (purpose === "admin" && (!payload.orgId || !payload.identityId)) {
+    throw new Error("Admin session requires organization and identity");
+  }
   return new SignJWT({
     sub: payload.driverId,
     role: payload.role,
@@ -31,10 +36,12 @@ export async function signToken(payload: {
     token_version: payload.tokenVersion ?? 0,
     strong_auth_at: payload.strongAuthAt,
     strong_auth_method: payload.strongAuthMethod,
+    purpose,
   })
     .setProtectedHeader({ alg: "HS256" })
+    .setAudience(`hakotora-${purpose}`)
     .setIssuedAt()
-    .setExpirationTime("30d")
+    .setExpirationTime(purpose === "admin" ? "15m" : "30d")
     .sign(secret());
 }
 
@@ -57,11 +64,15 @@ export class SimpleJwtAuthProvider implements AuthProvider {
     const identityId = (payload.identity_id as string | null | undefined) ?? null;
     const orgId = (payload.current_org_id as string | null | undefined) ?? null;
     const tokenVersion = payload.token_version ?? 0;
+    const purpose = payload.purpose ?? "work";
 
     // role は表示ラベル（カスタムロールのキーも入りうる）。権限の判定は capability 側で行うため、
     // ここでは driverId と非空 role の存在のみ検証する。
     if (!driverId || typeof role !== "string" || !role ||
-        typeof tokenVersion !== "number" || !Number.isSafeInteger(tokenVersion) || tokenVersion < 0) {
+        typeof tokenVersion !== "number" || !Number.isSafeInteger(tokenVersion) || tokenVersion < 0 ||
+        (purpose !== "work" && purpose !== "admin") ||
+        (payload.purpose !== undefined && payload.aud !== `hakotora-${purpose}`) ||
+        (purpose === "admin" && (!orgId || !identityId))) {
       throw new Error("Invalid token payload");
     }
     return {
@@ -71,6 +82,7 @@ export class SimpleJwtAuthProvider implements AuthProvider {
       identityId,
       orgId,
       tokenVersion,
+      purpose,
       ...(typeof payload.strong_auth_at === "number" && Number.isSafeInteger(payload.strong_auth_at) &&
         (payload.strong_auth_method === "sms" || payload.strong_auth_method === "passkey")
         ? { strongAuthAt: payload.strong_auth_at, strongAuthMethod: payload.strong_auth_method } : {}),

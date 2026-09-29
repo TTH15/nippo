@@ -23,6 +23,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // 管理トークンは短命。通常の30日トークンへの降格や、更新による延命をしない。
   const session = await issueDriverSession(driver, user);
+  if (user.purpose === "admin") {
+    session.token = req.headers.get("authorization")!.slice(7);
+  }
   return NextResponse.json(session);
 }

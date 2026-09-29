@@ -70,7 +70,10 @@ export async function requireScopedPermission(
   if (isAuthError(user)) return user;
 
   const grants = await resolveGrants(user.driverId, user.role);
-  const result = checkPermission(grants, user.driverId, spec);
+  // 通常セッションでは会社全体のcapabilityを使わず、本人スコープだけ評価する。
+  // any優先のポリシーへそのまま渡すと、兼務者が自分のシフトも開けなくなる。
+  const effectiveGrants = user.purpose === "admin" ? grants : { ...grants, capabilities: new Set<Capability>() };
+  const result = checkPermission(effectiveGrants, user.driverId, spec);
   if (!result.allowed || !result.scope) {
     console.log(
       `[Auth] Forbidden: required any=${spec.any ?? "-"} own=${spec.own ?? "-"}, role=${user.role}`,

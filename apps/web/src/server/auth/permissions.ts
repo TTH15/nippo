@@ -77,6 +77,9 @@ export async function requirePermission(
 ): Promise<AuthUser | NextResponse> {
   const user = await requireAuth(req);
   if (isAuthError(user)) return user;
+  if (user.purpose !== "admin") {
+    return NextResponse.json({ error: "管理画面にログインし直してください", code: "ADMIN_SESSION_REQUIRED" }, { status: 401 });
+  }
 
   const { caps, orgId } = await resolveAuthz(user.driverId, user.role);
   if (!caps.has(capability)) {
@@ -101,6 +104,9 @@ export async function requireAnyPermission(
 ): Promise<AuthUser | NextResponse> {
   const user = await requireAuth(req);
   if (isAuthError(user)) return user;
+  if (user.purpose !== "admin") {
+    return NextResponse.json({ error: "管理画面にログインし直してください", code: "ADMIN_SESSION_REQUIRED" }, { status: 401 });
+  }
 
   const { caps, orgId } = await resolveAuthz(user.driverId, user.role);
   if (!capabilities.some((c) => caps.has(c))) {

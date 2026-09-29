@@ -6,6 +6,8 @@ export type MembershipRole = "DRIVER" | "ADMIN" | "ADMIN_VIEWER" | "ACCOUNTING" 
 
 export type AuthUser = {
   driverId: string;
+  /** 管理APIは短命のadmin用途だけを受け付ける。旧JWTはworkとして扱う。 */
+  purpose?: "work" | "admin";
   role: MembershipRole;
   companyCode: string;
   // Phase 6a: identity（人）/ membership（所属=driver 行）分離の土台。

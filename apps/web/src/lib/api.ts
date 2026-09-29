@@ -22,7 +22,9 @@ const webStorage: KeyValueStorage = {
 configureAuth({
   storage: webStorage,
   onUnauthorized: () => {
-    if (typeof window !== "undefined") window.location.href = "/login";
+    if (typeof window !== "undefined") {
+      window.location.href = window.location.pathname.startsWith("/admin") ? "/admin/login" : "/login";
+    }
   },
 });
 
@@ -37,4 +39,3 @@ export {
 } from "@repo/core/auth";
 export type { StoredDriver } from "@repo/core/auth";
 export { apiFetch, apiUpload } from "@repo/core/api";
-

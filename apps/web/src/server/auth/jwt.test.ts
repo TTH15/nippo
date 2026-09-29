@@ -77,6 +77,23 @@ describe("signToken / verify (Phase 6a: identity_id + current_org_id)", () => {
     expect((await provider.verify(`Bearer ${legacy}`)).tokenVersion).toBe(0);
   });
 
+  it("管理セッションだけがadmin用途と15分の有効期限を持つ", async () => {
+    const token = await signToken({ driverId: "admin-1", role: "ADMIN", companyCode: "ACE",
+      identityId: "identity-1", orgId: "org-1", purpose: "admin" });
+    const user = await provider.verify(`Bearer ${token}`);
+    expect(user.purpose).toBe("admin");
+    const { payload } = await import("jose").then(({ jwtVerify }) => jwtVerify(token, secret()));
+    expect(payload.aud).toBe("hakotora-admin");
+    expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(15 * 60);
+  });
+
+  it("通常・旧トークンは管理用途にならず、会社のない管理トークンは発行しない", async () => {
+    const work = await signToken({ driverId: "admin-2", role: "ADMIN", companyCode: "ACE" });
+    expect((await provider.verify(`Bearer ${work}`)).purpose).toBe("work");
+    await expect(signToken({ driverId: "admin-2", role: "ADMIN", companyCode: "ACE",
+      identityId: "identity-1", purpose: "admin" })).rejects.toThrow();
+  });
+
   it.each([-1, 1.5, "0"])("不正な世代を拒否する: %s", async (token_version) => {
     const token = await new SignJWT({ sub: "drv-7", role: "DRIVER", token_version })
       .setProtectedHeader({ alg: "HS256" }).setExpirationTime("30d").sign(secret());

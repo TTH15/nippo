@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   // 車両閲覧権限を持つメンバーは全車両（旧: ADMIN/ADMIN_VIEWER の role 文字列判定。
   // カスタムロールにも権限どおりに効かせるため capability 判定へ移行）
-  const caps = await getCapabilities(user);
+  const caps = user.purpose === "admin" ? await getCapabilities(user) : new Set();
   if (caps.has("can_view_vehicles")) {
     // 単一テナント時代の名残で org フィルタが無かった箇所。当 org の車両に限定する。
     const orgId = await resolveOrgId(user.driverId);

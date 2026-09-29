@@ -55,7 +55,12 @@ export async function requireAuth(
   }
   try {
     const result = await checkMembership(user, { pathname: req.nextUrl.pathname, method: req.method });
-    if ("user" in result) return result.user;
+    if ("user" in result) {
+      if (req.nextUrl.pathname.startsWith("/api/admin/") && result.user.purpose !== "admin") {
+        return NextResponse.json({ error: "管理画面にログインし直してください", code: "ADMIN_SESSION_REQUIRED" }, { status: 401 });
+      }
+      return result.user;
+    }
     return NextResponse.json({ error: result.error }, { status: result.status });
   } catch {
     return NextResponse.json(
