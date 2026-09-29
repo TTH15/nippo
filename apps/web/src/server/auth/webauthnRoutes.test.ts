@@ -57,7 +57,7 @@ beforeEach(() => {
     credentialDeviceType: "multiDevice", credentialBackedUp: true,
   } });
   mock.requireAuth.mockResolvedValue({ driverId: "driver-a", identityId: "person-a", orgId: "org-a", strongAuthMethod: "sms", strongAuthAt: Math.floor(Date.now() / 1000) });
-  mock.resolveDriver.mockResolvedValue({ driver: { id: "driver-a" } });
+  mock.resolveDriver.mockResolvedValue({ driver: { id: "driver-a", identity_id: "person-a", org_id: "org-a", token_version: 0 } });
   mock.issueSession.mockResolvedValue({ token: "test-session" });
   mock.issueAdminSession.mockResolvedValue("test-admin-session");
 });
@@ -75,6 +75,7 @@ describe("Passkeyログインの再送", () => {
     const response = await login(request(token));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ token: "test-session", adminToken: "test-admin-session" });
+    expect(response.cookies.get("nippo_admin_renew")?.httpOnly).toBe(true);
     expect((await login(request(token))).status).toBe(401);
     expect(mock.issueSession).toHaveBeenCalledTimes(1);
     expect(mock.issueAdminSession).toHaveBeenCalledTimes(1);
