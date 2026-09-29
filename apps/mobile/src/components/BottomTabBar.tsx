@@ -1,11 +1,11 @@
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { AppIcon } from "./AppIcon";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
 // Web版 UserBottomNav（apps/web/src/lib/components/UserBottomNav.tsx）を踏襲。
 // 中央のタブだけ大きい円形ボタンにして目立たせる。
-const ICONS: Record<string, React.ComponentProps<typeof FontAwesome6>["name"]> = {
+const ICONS: Record<string, React.ComponentProps<typeof AppIcon>["name"]> = {
   シフト: "calendar-days",
   業務: "truck",
   報酬: "gift",
@@ -42,7 +42,7 @@ export function BottomTabBar({ state, navigation }: BottomTabBarProps) {
                 <View
                   className={`w-14 h-14 rounded-full items-center justify-center shadow-md ${isFocused ? "bg-accent-600" : "bg-accent-500"}`}
                 >
-                  <FontAwesome6 name={icon} size={20} color="#15181c" iconStyle="solid" />
+                  <AppIcon name={icon} size={20} color="#15181c" iconStyle="solid" />
                 </View>
                 <Text className={`text-[10px] mt-1 font-semibold ${isFocused ? "text-accent-600" : "text-brand-500"}`}>
                   {route.name}
@@ -58,7 +58,7 @@ export function BottomTabBar({ state, navigation }: BottomTabBarProps) {
             onPress={onPress}
             className="flex-1 h-16 items-center justify-center gap-1 active:opacity-70"
           >
-            <FontAwesome6 name={icon} size={18} color={isFocused ? "#d97706" : "#7c848f"} iconStyle="solid" />
+            <AppIcon name={icon} size={18} color={isFocused ? "#d97706" : "#7c848f"} iconStyle="solid" />
             <Text className={`text-[10px] ${isFocused ? "text-accent-600 font-semibold" : "text-brand-500"}`}>
               {route.name}
             </Text>

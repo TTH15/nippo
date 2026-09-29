@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340" viewBox="0 0 600 340">
+  <path d="M26 254 V115 Q26 50 116 35 Q300 10 484 35 Q574 50 574 115 V254 Q574 309 519 309 H81 Q26 309 26 254 Z" fill="#141c24" stroke="#66737e" stroke-width="7"/>
+  <path d="M210 34 H390 Q403 36 409 65 L418 249 Q432 294 412 299 H188 Q168 294 182 249 L191 65 Q197 36 210 34 Z" fill="#19232d" stroke="#81909b" stroke-width="5"/>
+  <path d="M62 260 V171 Q62 138 84 134 H147 Q168 135 171 160 L177 249 Q176 275 153 277 H84 Q62 276 62 260 Z M423 249 L429 160 Q432 135 453 134 H516 Q538 138 538 171 V260 Q538 276 516 277 H447 Q424 275 423 249 Z" fill="#19232d" stroke="#81909b" stroke-width="4"/>
+  <path d="M80 185 Q149 177 160 251 M440 251 Q451 177 520 185" fill="none" stroke="#d6e0df" stroke-width="4"/>
+  <path d="M300 186 L225 227 M124 217 L141 188 M478 218 L457 192" stroke="#f2866a" stroke-width="4"/>
+  <g fill="#d6e0df" font-family="Arial, sans-serif" font-size="15" text-anchor="middle"><text x="300" y="143">km/h</text><text x="85" y="165">F</text><text x="158" y="265">E</text><text x="516" y="165">H</text><text x="440" y="265">C</text></g>
+  <rect x="246" y="252" width="108" height="27" rx="4" fill="#ced9ab"/>
+  <text x="300" y="272" text-anchor="middle" fill="#24352e" font-family="monospace" font-size="17">123450</text>
+</svg>

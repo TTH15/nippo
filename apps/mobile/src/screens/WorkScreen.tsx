@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, TextInput, ActivityIndicator, ScrollView } from "react-native";
+import { VehicleIdentity } from "../components/VehiclePlate";
+import { workCaptureSteps } from "../capture/steps";
+import { useEffect, useState } from "react";
+import { View, Text, Pressable, ActivityIndicator, ScrollView } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { AppIcon } from "../components/AppIcon";
 import {
   resolveQr,
   checkIn,
@@ -13,11 +16,14 @@ import {
   type InspectionAngle,
 } from "../api/work";
 import { getGps } from "../location";
+import { activeTrackingSessionId, drainQueuedVehicleLocations, startVehicleTracking, stopVehicleTracking } from "../backgroundVehicleLocation";
+import { ParkingChoice, type ParkingChoiceValue } from "../components/ParkingChoice";
 import { PunchButton } from "../components/PunchButton";
 import { BottomSheet } from "../components/BottomSheet";
 import { CaptureFlow, type CaptureResult, type CaptureStep, type InspectionShot } from "../components/CaptureFlow";
 import { QrFallback, type FallbackResolution } from "../components/QrFallback";
-import { DailyReportForm, type DailyReportFormHandle } from "../components/DailyReportForm";
+import { DailyReportForm } from "../components/DailyReportForm";
+import { ExtraPhotoFields } from "../components/ExtraPhotoFields";
 import { HeroVan } from "../components/HeroVan";
 import { apiFetch } from "@repo/core/api";
 import type { MeShift, VehiclePlateData } from "@repo/core/types";
@@ -25,17 +31,11 @@ import { formatMonthDayJP, reportDateDefaultJST } from "@repo/core/logic/calenda
 import { useAuth } from "../AuthContext";
 import { useWorkSession } from "../WorkSessionContext";
 import { formatTime, formatDuration } from "../format";
+import type { PhotoCaptureStage, PhotoCaptureTask } from "@repo/core/logic/photoCapturePolicy";
 
 // 業務ホーム（qr_flow v2.0 Phase4）。1つの円が主役の3状態画面:
 //   待機（今日のシフト＋稼働開始） / 稼働中（経過時間・車両） / 終了後（稼働サマリー）。
-// 日報はホームに常設せず、退勤フロー（Bottom Sheet）の最終ステップで送信する。
-
-const INPUT = "border border-brand-200 rounded-lg px-3 py-2.5 text-base bg-white text-brand-900";
-
-function parseMeter(s: string): number | null {
-  const n = parseInt(s, 10);
-  return Number.isFinite(n) ? n : null;
-}
+// 日報は稼働中・終了後のどちらからも送信できる。
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : "通信に失敗しました";
@@ -72,10 +72,104 @@ export function WorkScreen() {
   const { open, todaySessions, loading: workLoading, loadError, vehicles, reload } = useWorkSession();
   const [busy, setBusy] = useState(false);
   const [workMsg, setWorkMsg] = useState<string | null>(null);
+  const [parkingSessionId, setParkingSessionId] = useState<string | null>(null);
+  const [parkingSheetOpen, setParkingSheetOpen] = useState(false);
+  const [photoTasks, setPhotoTasks] = useState<PhotoCaptureTask[]>([]);
+  const [photoTasksError, setPhotoTasksError] = useState(false);
+  const [extraShots, setExtraShots] = useState<Record<string, { base64: string; mime: string }>>({});
+  const [extraPaths, setExtraPaths] = useState<Record<string, string>>({});
+  const [extraCapturing, setExtraCapturing] = useState(false);
+
+  async function refreshPhotoTasks(): Promise<boolean> {
+    try {
+      const result = await apiFetch<{ tasks: PhotoCaptureTask[] }>("/api/work/photo-capture-tasks");
+      setPhotoTasks(result.tasks ?? []);
+      setPhotoTasksError(false);
+      return true;
+    } catch {
+      setPhotoTasksError(true);
+      return false;
+    }
+  }
+
+  useEffect(() => {
+    void refreshPhotoTasks();
+  }, []);
+
+  const tasksFor = (stage: PhotoCaptureStage) => photoTasks.filter(task => task.stage === stage);
+  async function captureExtra(task: PhotoCaptureTask) {
+    setExtraCapturing(true); setWorkMsg(null);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) { setWorkMsg("カメラを許可してから撮影してください。"); return; }
+      const result = await ImagePicker.launchCameraAsync({ base64: true, quality: 0.6, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+      const asset = result.canceled ? null : result.assets?.[0];
+      if (!asset?.base64) return;
+      setExtraShots(prev => ({ ...prev, [task.id]: { base64: asset.base64!, mime: asset.mimeType || "image/jpeg" } }));
+      setExtraPaths(prev => { const next = { ...prev }; delete next[task.id]; return next; });
+    } catch (error) { setWorkMsg(errMsg(error)); }
+    finally { setExtraCapturing(false); }
+  }
+
+  async function uploadExtra(stage: PhotoCaptureStage): Promise<Array<{ angle: string; path: string }>> {
+    if (photoTasksError) throw new Error("撮影項目を読み込めませんでした。画面を開き直してください。");
+    const uploaded = { ...extraPaths };
+    const result: Array<{ angle: string; path: string }> = [];
+    for (const task of tasksFor(stage)) {
+      const shot = extraShots[task.id];
+      if (!shot && task.required) throw new Error(`「${task.label}」を撮影してください。`);
+      if (!shot) continue;
+      if (!uploaded[task.id]) {
+        uploaded[task.id] = (await uploadInspectionPhoto(shot.base64, shot.mime)).path;
+        setExtraPaths({ ...uploaded });
+      }
+      result.push({ angle: `extra:${task.id}`, path: uploaded[task.id] });
+    }
+    return result;
+  }
+  function clearExtra(stage: PhotoCaptureStage) {
+    const ids = new Set(tasksFor(stage).map(task => task.id));
+    setExtraShots(prev => Object.fromEntries(Object.entries(prev).filter(([id]) => !ids.has(id))));
+    setExtraPaths(prev => Object.fromEntries(Object.entries(prev).filter(([id]) => !ids.has(id))));
+  }
+
+  useEffect(() => {
+    void activeTrackingSessionId().then(setParkingSessionId);
+  }, [open?.id]);
+
+  async function saveParking(sessionId: string, gps: Awaited<ReturnType<typeof getGps>>, meterPhoto: string) {
+    if (gps.status !== "captured" || gps.lat == null || gps.lng == null) {
+      throw new Error("現在地を取得できませんでした。駐車した場所で、もう一度お試しください。");
+    }
+    const { path: odometerPhotoPath } = await uploadMeterPhoto(meterPhoto);
+    const additionalPhotos = await uploadExtra("parking");
+    await drainQueuedVehicleLocations().catch(() => {});
+    await apiFetch("/api/work/parking", {
+      method: "POST",
+      body: JSON.stringify({ sessionId, odometerPhotoPath, additionalPhotos, coords: { lat: gps.lat, lng: gps.lng, accuracyM: gps.accuracyM, fixAt: gps.fixAt } }),
+    });
+    await stopVehicleTracking();
+    setParkingSessionId(null);
+  }
+
+  const [parkingMeterBase64, setParkingMeterBase64] = useState<string | null>(null);
+
+  async function completeParking(meterPhoto: string) {
+    if (!parkingSessionId || busy) return;
+    setBusy(true);
+    setWorkMsg(null);
+    try {
+      await saveParking(parkingSessionId, await getGps(), meterPhoto);
+      setParkingMeterBase64(null);
+      setParkingSheetOpen(false);
+      setExtraShots({}); setExtraPaths({});
+      setWorkMsg("車の場所を記録しました。");
+    } catch (e) { setWorkMsg(errMsg(e)); }
+    finally { setBusy(false); }
+  }
 
   const [inVehicle, setInVehicle] = useState<ResolvedVehicle | null>(null);
   const [inToken, setInToken] = useState<string | null>(null);
-  const [inMeter, setInMeter] = useState("");
 
   // 安全確認（Phase2、出勤時のみ）は 2026-08-03 に CaptureFlow のステップへ移動した。
   // 抜き打ち（免許証撮影）に切り替わる確率だけをここで決め、フローの steps に反映する。
@@ -88,24 +182,22 @@ export function WorkScreen() {
   const [inFallbackReason, setInFallbackReason] = useState<string | undefined>(undefined);
 
   const [outToken, setOutToken] = useState<string | null>(null);
-  const [outMeter, setOutMeter] = useState("");
   const [outMethod, setOutMethod] = useState<"qr" | "plate_ocr" | "manual">("qr");
   const [outFallbackVehicle, setOutFallbackVehicle] = useState<VehiclePlateData | null>(null);
   const [outPlatePhotoPath, setOutPlatePhotoPath] = useState<string | undefined>(undefined);
   const [outFallbackReason, setOutFallbackReason] = useState<string | undefined>(undefined);
-  // 退勤フローのステップ: 車両記録（メーター・点検）→ 日報 → 終了確定（qr_flow「終了時の確認」＋日報統合）
-  const [outStep, setOutStep] = useState<"meter" | "report">("meter");
-  const reportRef = useRef<DailyReportFormHandle>(null);
+  const [outParkingStatus, setOutParkingStatus] = useState<ParkingChoiceValue>("parked");
 
   const [meterBase64, setMeterBase64] = useState<string | null>(null);
 
   // 統一キャプチャ（案A）: 円の長押し → QR〜点検を1画面で通す。
-  const [captureFor, setCaptureFor] = useState<"in" | "out" | null>(null);
+  const [captureFor, setCaptureFor] = useState<"in" | "out" | "parking" | null>(null);
   const [captureSteps, setCaptureSteps] = useState<CaptureStep[]>([]);
 
   // 車両点検（Phase3・前後左右4方向）。in/outどちらの車両記録でも撮影可能（pre/postの比較用）。
   const [inInspectionPaths, setInInspectionPaths] = useState<Array<{ angle: InspectionAngle; path: string }>>([]);
   const [outInspectionPaths, setOutInspectionPaths] = useState<Array<{ angle: InspectionAngle; path: string }>>([]);
+  const [outInspectionShots, setOutInspectionShots] = useState<InspectionShot[]>([]);
   const [inspectionUploading, setInspectionUploading] = useState(false);
 
   // --- ホーム表示用データ ---
@@ -164,15 +256,22 @@ export function WorkScreen() {
   }
 
   /** 円の長押し → 統一キャプチャを開く。安全確認の抜き打ち判定はここで1回だけ引く。 */
-  function startCapture(target: "in" | "out") {
+  async function startCapture(target: "in" | "out") {
     setWorkMsg(null);
+    if (!await refreshPhotoTasks()) { setWorkMsg("撮影項目を読み込めませんでした。もう一度お試しください。"); return; }
     if (target === "in") {
       const spot = Math.random() < SPOT_CHECK_RATE;
-      setCaptureSteps(["qr", spot ? "license" : "safety", "meter", "inspection"]);
+      setCaptureSteps(workCaptureSteps("in", true, spot ? "license" : "safety"));
     } else {
-      setCaptureSteps(["qr", "meter", "inspection"]);
+      setCaptureSteps(workCaptureSteps("out", true));
     }
     setCaptureFor(target);
+  }
+
+  function startParkingCapture() {
+    setWorkMsg(null);
+    setCaptureSteps(["meter"]);
+    setCaptureFor("parking");
   }
 
   /** キャプチャ完了。撮影物を反映し、確認シート（出勤=車両確認 / 退勤=車両記録）へ繋ぐ。 */
@@ -180,24 +279,29 @@ export function WorkScreen() {
     const target = captureFor;
     setCaptureFor(null);
     if (!target) return;
-    if (result.meterBase64) setMeterBase64(result.meterBase64);
-    if (result.meterValue != null) {
-      if (target === "in") setInMeter(String(result.meterValue));
-      else setOutMeter(String(result.meterValue));
+    if (target === "parking") {
+      if (!result.meterBase64) { setWorkMsg("メーター写真を撮影してください。"); return; }
+      setParkingMeterBase64(result.meterBase64);
+      return;
     }
-    if (target === "out") setOutStep("meter");
+    if (target === "in") setMeterBase64(result.meterBase64);
+    if (target === "out") {
+      setOutInspectionShots(result.inspection);
+      setOutInspectionPaths([]);
+    }
+
     // 点検写真のアップロードは待たせず裏で進める（確認シートには枚数が後から出る）
     void uploadInspection(target, result.inspection);
   }
 
-  async function onScanIn(data: string): Promise<boolean> {
+  async function onScanIn(data: string): Promise<{ ok: true; vehicleLabel: string } | { ok: false; message: string }> {
     setBusy(true);
     setWorkMsg(null);
     try {
       const r = await resolveQr(data);
       if (!r.ok || !r.vehicle) {
         setWorkMsg(r.message ?? "読み取れませんでした。");
-        return false;
+        return { ok: false, message: r.message ?? "このQRでは車両を確認できません。" };
       }
       setInVehicle(r.vehicle);
       setInToken(data);
@@ -205,10 +309,10 @@ export function WorkScreen() {
       setInFallbackVehicle(null);
       setInPlatePhotoPath(undefined);
       setInFallbackReason(undefined);
-      return true;
+      return { ok: true, vehicleLabel: plateText(r.vehicle) };
     } catch (e) {
       setWorkMsg(errMsg(e));
-      return false;
+      return { ok: false, message: errMsg(e) };
     } finally {
       setBusy(false);
     }
@@ -229,10 +333,13 @@ export function WorkScreen() {
     setInFallbackVehicle(v);
     setInPlatePhotoPath(result.method === "plate_ocr" ? result.platePhotoPath : undefined);
     setInFallbackReason(result.method === "manual" ? result.fallbackReason : undefined);
+    setCaptureSteps(steps => steps.filter(step => step !== "qr"));
+    setCaptureFor("in");
   }
 
   async function confirmIn() {
     if (!inToken && !inFallbackVehicle) return;
+    if (!meterBase64) { setWorkMsg("メーター写真を撮影してください。"); return; }
     setBusy(true);
     setWorkMsg(null);
     try {
@@ -242,25 +349,31 @@ export function WorkScreen() {
         try {
           odometerPhotoPath = (await uploadMeterPhoto(meterBase64)).path;
         } catch {
-          /* 写真アップロード失敗は無視 */
+          throw new Error("メーター写真を送信できませんでした。写真を残しています。もう一度送信してください。");
         }
       }
+      const additionalPhotos = await uploadExtra("start");
       const res = await checkIn({
         ...(inToken
           ? { token: inToken }
           : { method: inMethod, vehicleId: inFallbackVehicle!.id, platePhotoPath: inPlatePhotoPath, fallbackReason: inFallbackReason }),
-        odometer: parseMeter(inMeter),
+        odometer: null, // 写真からの解析値はサーバー側で別途確定する。
         lat: gps.lat,
         lng: gps.lng,
         gpsStatus: gps.status,
         odometerPhotoPath,
-        inspectionPhotos: inInspectionPaths,
+        inspectionPhotos: [...inInspectionPaths, ...additionalPhotos],
       });
       if (!res.ok) {
         setWorkMsg(res.message ?? "出勤に失敗しました。");
         return;
       }
       cancelIn();
+      clearExtra("start");
+      if (res.session?.id) {
+        const started = await startVehicleTracking(res.session.id);
+        if (!started) setWorkMsg("バックグラウンド位置情報を許可すると、稼働中の車の位置を共有できます。");
+      }
       await reload();
     } catch (e) {
       setWorkMsg(errMsg(e));
@@ -272,7 +385,6 @@ export function WorkScreen() {
   function cancelIn() {
     setInVehicle(null);
     setInToken(null);
-    setInMeter("");
     setMeterBase64(null);
     setInInspectionPaths([]);
     setInMethod("qr");
@@ -282,15 +394,23 @@ export function WorkScreen() {
     setWorkMsg(null);
   }
 
-  async function onScanOut(data: string): Promise<boolean> {
-    if (!open) return false;
+  async function onScanOut(data: string): Promise<{ ok: true; vehicleLabel: string } | { ok: false; message: string }> {
+    if (!open) return { ok: false, message: "稼働中の車両を確認できません。" };
+    let vehicleLabel = "";
+    try {
+      const result = await resolveQr(data);
+      if (!result.ok || !result.vehicle) return { ok: false, message: result.message ?? "このQRでは車両を確認できません。" };
+      if (result.vehicle.id !== open.vehicle_id) return { ok: false, message: "稼働中の車両と異なります。車両のQRを読み取ってください。" };
+      vehicleLabel = plateText(result.vehicle);
+    } catch (e) {
+      return { ok: false, message: errMsg(e) };
+    }
     setOutToken(data);
     setOutMethod("qr");
     setOutFallbackVehicle(null);
     setOutPlatePhotoPath(undefined);
     setOutFallbackReason(undefined);
-    setOutStep("meter");
-    return true;
+    return { ok: true, vehicleLabel };
   }
 
   function onOutFallbackResolved(result: FallbackResolution) {
@@ -300,48 +420,55 @@ export function WorkScreen() {
     setOutFallbackVehicle(result.vehicle);
     setOutPlatePhotoPath(result.method === "plate_ocr" ? result.platePhotoPath : undefined);
     setOutFallbackReason(result.method === "manual" ? result.fallbackReason : undefined);
-    setOutStep("meter");
+    setCaptureSteps(steps => steps.filter(step => step !== "qr"));
+    setCaptureFor("out");
   }
 
-  // 業務終了の確定。日報は checkOut 成功後に送信する（qr_flow「終了時の確認」＋日報統合）。
-  // 日報送信だけが失敗しても業務終了は成立させ、ホームの「日報を書く」から再送できるよう案内する。
-  async function confirmOut(withReport: boolean) {
+  // 車両写真を送って業務を終了する。日報と駐車記録はそれぞれ独立して送信する。
+  async function confirmOut() {
     if (!open || (!outToken && !outFallbackVehicle)) return;
+    if (outInspectionShots.length !== 4) { setWorkMsg("車両の前・右・後・左を撮影してください。"); return; }
     setBusy(true);
     setWorkMsg(null);
     try {
       const gps = await getGps();
-      let odometerPhotoPath: string | undefined;
-      if (meterBase64) {
+      const inspectionPhotos = [...outInspectionPaths];
+      for (const shot of outInspectionShots) {
+        if (inspectionPhotos.some(photo => photo.angle === shot.angle)) continue;
         try {
-          odometerPhotoPath = (await uploadMeterPhoto(meterBase64)).path;
+          const { path } = await uploadInspectionPhoto(shot.base64);
+          inspectionPhotos.push({ angle: shot.angle, path });
         } catch {
-          /* 写真アップロード失敗は無視 */
+          setOutInspectionPaths(inspectionPhotos);
+          throw new Error("点検写真を送信できませんでした。写真を残しています。もう一度送信してください。");
         }
       }
+      setOutInspectionPaths(inspectionPhotos);
+      const additionalPhotos = await uploadExtra("end");
       const res = await checkOut({
         sessionId: open.id,
         ...(outToken
           ? { token: outToken }
           : { method: outMethod, vehicleId: outFallbackVehicle!.id, platePhotoPath: outPlatePhotoPath, fallbackReason: outFallbackReason }),
-        odometer: parseMeter(outMeter),
+        odometer: null, // 写真からの解析値はサーバー側で別途確定する。
         lat: gps.lat,
         lng: gps.lng,
         gpsStatus: gps.status,
-        odometerPhotoPath,
-        inspectionPhotos: outInspectionPaths,
+        inspectionPhotos: [...inspectionPhotos, ...additionalPhotos],
       });
       if (!res.ok) {
         setWorkMsg(res.message ?? "業務終了に失敗しました。");
         return;
       }
-      if (withReport) {
-        const sent = await reportRef.current?.submit();
-        if (!sent) {
-          setWorkMsg("業務は終了しました。日報の送信に失敗したため「日報を書く」からもう一度送信してください。");
-        }
+      if (outParkingStatus === "handed_over") {
+        await stopVehicleTracking();
+        setParkingSessionId(null);
+      } else {
+        setParkingSessionId(open.id);
       }
       cancelOut();
+      clearExtra("end");
+      setWorkMsg(outParkingStatus === "handed_over" ? "業務を終了しました。" : "業務を終了しました。駐車後に車の場所を記録してください。");
       await reload();
     } catch (e) {
       setWorkMsg(errMsg(e));
@@ -352,14 +479,14 @@ export function WorkScreen() {
 
   function cancelOut() {
     setOutToken(null);
-    setOutMeter("");
     setMeterBase64(null);
     setOutInspectionPaths([]);
+    setOutInspectionShots([]);
     setOutMethod("qr");
     setOutFallbackVehicle(null);
     setOutPlatePhotoPath(undefined);
     setOutFallbackReason(undefined);
-    setOutStep("meter");
+    setOutParkingStatus("parked");
   }
 
   // QR退避ルートの候補車両。退勤は稼働中セッションの車両1台に絞る（それ以外は結局サーバに拒否されるため）。
@@ -405,14 +532,14 @@ export function WorkScreen() {
               className="w-10 h-10 rounded-full bg-white border border-brand-100 items-center justify-center active:opacity-70"
               onPress={() => navigation.navigate("通知")}
             >
-              <FontAwesome6 name="bell" size={16} color="#454c56" iconStyle="solid" />
+              <AppIcon name="bell" size={16} color="#454c56" iconStyle="solid" />
               {unreadCount > 0 && <View className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-accent-500" />}
             </Pressable>
             <Pressable
               className="w-10 h-10 rounded-full bg-white border border-brand-100 items-center justify-center active:opacity-70"
               onPress={() => navigation.navigate("マイページ")}
             >
-              <FontAwesome6 name="user" size={16} color="#454c56" iconStyle="solid" />
+              <AppIcon name="user" size={16} color="#454c56" iconStyle="solid" />
             </Pressable>
           </View>
         </View>
@@ -422,6 +549,15 @@ export function WorkScreen() {
             <Text className="text-amber-800 text-[13px]">{workMsg ?? loadError}</Text>
           </View>
         )}
+
+        {!open && parkingSessionId && <Pressable
+          className="min-h-14 flex-row items-center gap-3 rounded-xl border border-amber-300 bg-white px-4 py-3"
+          onPress={() => { setParkingSheetOpen(true); void refreshPhotoTasks(); }} disabled={busy}
+        >
+          <AppIcon name="square-parking" size={18} color="#92400e" iconStyle="solid" />
+          <Text className="flex-1 text-[14px] font-semibold text-brand-900">駐車した場所を記録</Text>
+          {busy ? <ActivityIndicator size="small" /> : <AppIcon name="chevron-right" size={13} color="#92400e" iconStyle="solid" />}
+        </Pressable>}
 
         {/* ヒーローカード: 挨拶＋バン積み込みアニメ＋今日のシフト */}
         <View className="bg-white rounded-2xl p-5 gap-1 shadow-sm">
@@ -446,10 +582,10 @@ export function WorkScreen() {
             onPress={() => navigation.navigate("シフト")}
           >
             <View className="flex-row items-center gap-2.5">
-              <FontAwesome6 name="calendar-days" size={14} color="#454c56" iconStyle="solid" />
+              <AppIcon name="calendar-days" size={14} color="#454c56" iconStyle="solid" />
               <Text className="text-brand-800 font-medium text-[14px]">シフト・予定を確認</Text>
             </View>
-            <FontAwesome6 name="chevron-right" size={12} color="#a9b0b8" iconStyle="solid" />
+            <AppIcon name="chevron-right" size={12} color="#a9b0b8" iconStyle="solid" />
           </Pressable>
         </View>
 
@@ -504,6 +640,12 @@ export function WorkScreen() {
                 onTriggered={() => startCapture("out")}
               />
             </View>
+            <Pressable
+              className="border border-brand-300 rounded-lg py-2.5 items-center active:opacity-80"
+              onPress={() => setReportSheetOpen(true)}
+            >
+              <Text className="text-white font-medium">日報を書く・修正する</Text>
+            </Pressable>
           </View>
         )}
 
@@ -554,7 +696,7 @@ export function WorkScreen() {
             <Text className="text-base font-bold text-brand-900">お知らせ</Text>
             <Pressable className="flex-row items-center gap-1 active:opacity-70" onPress={() => navigation.navigate("通知")}>
               <Text className="text-[13px] text-brand-500">すべて見る</Text>
-              <FontAwesome6 name="chevron-right" size={10} color="#a9b0b8" iconStyle="solid" />
+              <AppIcon name="chevron-right" size={10} color="#a9b0b8" iconStyle="solid" />
             </Pressable>
           </View>
           {notifs.length === 0 ? (
@@ -569,7 +711,7 @@ export function WorkScreen() {
                 onPress={() => navigation.navigate("通知")}
               >
                 <View className={`w-9 h-9 rounded-full items-center justify-center ${n.read_at ? "bg-brand-50" : "bg-accent-50"}`}>
-                  <FontAwesome6 name="bell" size={13} color={n.read_at ? "#7c848f" : "#d97706"} iconStyle="solid" />
+                  <AppIcon name="bell" size={13} color={n.read_at ? "#7c848f" : "#d97706"} iconStyle="solid" />
                 </View>
                 <View className="flex-1">
                   <Text className={`text-[14px] ${n.read_at ? "text-brand-700" : "font-bold text-brand-900"}`} numberOfLines={1}>
@@ -598,7 +740,7 @@ export function WorkScreen() {
               className="flex-1 bg-white rounded-xl items-center py-4 gap-2 active:opacity-70"
               onPress={() => navigation.navigate(q.to)}
             >
-              <FontAwesome6 name={q.icon} size={18} color="#454c56" iconStyle="solid" />
+              <AppIcon name={q.icon} size={18} color="#454c56" iconStyle="solid" />
               <Text className="text-[13px] text-brand-700 font-medium">{q.label}</Text>
             </Pressable>
           ))}
@@ -606,23 +748,18 @@ export function WorkScreen() {
       </ScrollView>
 
       {/* 出勤: キャプチャ後の車両確認・メーター確認（安全確認はフロー内で完了済み） */}
-      <BottomSheet visible={inVehicle !== null && captureFor === null}>
+      <BottomSheet visible={inVehicle !== null && captureFor === null} scrollable>
         <Text className="text-[13px] text-brand-500">この車両で出勤します</Text>
-        <Text className="text-xl font-bold text-brand-900">{plateText(inVehicle) || "車両"}</Text>
-        <Text className="text-[13px] text-brand-500 mt-1">開始メーター（km）</Text>
-        <TextInput
-          className={INPUT}
-          value={inMeter}
-          onChangeText={(t) => setInMeter(t.replace(/[^0-9]/g, ""))}
-          keyboardType="number-pad"
-          placeholder="例: 123456"
-        />
-        {meterBase64 ? <Text className="text-xs text-accent-600">写真を添付しました</Text> : null}
+        {workMsg && <Text accessibilityRole="alert" className="text-red-700">{workMsg}</Text>}
+        {photoTasksError && <Text accessibilityRole="alert" className="text-red-700">撮影項目を読み込めませんでした。</Text>}
+        {inVehicle && <VehicleIdentity vehicle={{ id: inVehicle.id, number_prefix: inVehicle.numberPrefix, number_class: inVehicle.numberClass, number_hiragana: inVehicle.numberHiragana, number_numeric: inVehicle.numberNumeric }} />}
+        {meterBase64 ? <Text className="text-xs text-accent-600">メーター写真を添付しました</Text> : null}
         {inspectionUploading ? (
           <Text className="text-xs text-brand-400">点検写真をアップロード中...</Text>
         ) : inInspectionPaths.length > 0 ? (
           <Text className="text-xs text-accent-600">点検写真を{inInspectionPaths.length}枚添付しました</Text>
         ) : null}
+        <ExtraPhotoFields tasks={tasksFor("start")} captured={Object.fromEntries(Object.keys(extraShots).map(id => [id, true]))} busy={busy || extraCapturing} onCapture={task => void captureExtra(task)} />
         <Pressable
           className="border border-brand-200 rounded-lg py-2.5 items-center active:opacity-80"
           onPress={() => startCapture("in")}
@@ -648,38 +785,33 @@ export function WorkScreen() {
         </View>
       </BottomSheet>
 
-      {/* 退勤: QR認証後の終了フロー（①車両記録 → ②日報 → 終了確定） */}
-      <BottomSheet visible={(outToken !== null || outFallbackVehicle !== null) && outStep === "meter" && captureFor === null}>
-        <Text className="text-[13px] text-brand-500">業務終了 1/2 — 車両記録</Text>
-        <Text className="text-[13px] text-brand-500 mt-1">終了メーター（km）</Text>
-        <TextInput
-          className={INPUT}
-          value={outMeter}
-          onChangeText={(t) => setOutMeter(t.replace(/[^0-9]/g, ""))}
-          keyboardType="number-pad"
-          placeholder="例: 123480"
-        />
-        {meterBase64 ? <Text className="text-xs text-accent-600">写真を添付しました</Text> : null}
+      {/* 退勤: 車両撮影を送信後に業務終了。日報はいつでも別に送信する。 */}
+      <BottomSheet visible={(outToken !== null || outFallbackVehicle !== null) && captureFor === null} scrollable>
+        <Text className="text-[13px] text-brand-500">業務終了 — 車両記録</Text>
+        {workMsg && <Text accessibilityRole="alert" className="text-red-700">{workMsg}</Text>}
+        {photoTasksError && <Text accessibilityRole="alert" className="text-red-700">撮影項目を読み込めませんでした。</Text>}
         {inspectionUploading ? (
           <Text className="text-xs text-brand-400">点検写真をアップロード中...</Text>
         ) : outInspectionPaths.length > 0 ? (
           <Text className="text-xs text-accent-600">点検写真を{outInspectionPaths.length}枚添付しました</Text>
         ) : null}
+        <ExtraPhotoFields tasks={tasksFor("end")} captured={Object.fromEntries(Object.keys(extraShots).map(id => [id, true]))} busy={busy || extraCapturing} onCapture={task => void captureExtra(task)} />
+        <ParkingChoice value={outParkingStatus} onChange={setOutParkingStatus} />
         <Pressable
           className="border border-brand-200 rounded-lg py-2.5 items-center active:opacity-80"
           onPress={() => startCapture("out")}
           disabled={busy || inspectionUploading}
         >
-          <Text className="text-brand-700 font-medium">撮り直す（メーター・点検）</Text>
+          <Text className="text-brand-700 font-medium">点検写真を撮り直す</Text>
         </Pressable>
 
         <View className="flex-row gap-2 mt-1">
           <Pressable
             className="flex-1 bg-accent-500 rounded-lg py-3 items-center active:opacity-80"
-            onPress={() => setOutStep("report")}
-            disabled={busy}
+            onPress={() => void confirmOut()}
+            disabled={busy || inspectionUploading || outInspectionShots.length !== 4}
           >
-            <Text className="text-white font-semibold">次へ（日報）</Text>
+            {busy ? <ActivityIndicator size="small" color="#fff" /> : <Text className="text-white font-semibold">車両記録を送って業務終了</Text>}
           </Pressable>
           <Pressable
             className="px-4 bg-brand-100 rounded-lg py-3 items-center active:opacity-80"
@@ -691,42 +823,16 @@ export function WorkScreen() {
         </View>
       </BottomSheet>
 
-      {/* 退勤: ②日報を書いて業務終了（qr_flow 終了時の確認＋日報統合） */}
-      <BottomSheet visible={(outToken !== null || outFallbackVehicle !== null) && outStep === "report"} scrollable>
-        <Text className="text-[13px] text-brand-500">業務終了 2/2 — 日報</Text>
-        <DailyReportForm ref={reportRef} date={today} />
-        <View className="flex-row gap-2 mt-1">
-          <Pressable
-            className="flex-1 bg-accent-500 rounded-lg py-3 items-center active:opacity-80"
-            onPress={() => confirmOut(true)}
-            disabled={busy}
-          >
-            {busy ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text className="text-white font-semibold">日報を送信して業務終了</Text>
-            )}
-          </Pressable>
-        </View>
-        <View className="flex-row gap-2">
-          <Pressable
-            className="flex-1 border border-brand-200 rounded-lg py-2.5 items-center active:opacity-80"
-            onPress={() => confirmOut(false)}
-            disabled={busy}
-          >
-            <Text className="text-brand-600">日報はあとで書いて業務終了</Text>
-          </Pressable>
-          <Pressable
-            className="px-4 bg-brand-100 rounded-lg py-2.5 items-center active:opacity-80"
-            onPress={() => setOutStep("meter")}
-            disabled={busy}
-          >
-            <Text className="text-brand-600">戻る</Text>
-          </Pressable>
-        </View>
+      <BottomSheet visible={parkingSheetOpen && captureFor === null} scrollable>
+        <View className="flex-row items-center justify-between"><Text className="text-xl font-bold text-brand-900">駐車の記録</Text><Pressable onPress={() => setParkingSheetOpen(false)} className="min-h-11 px-3 justify-center"><Text className="text-brand-600">閉じる</Text></Pressable></View>
+        {workMsg && <Text accessibilityRole="alert" className="text-red-700">{workMsg}</Text>}
+        {photoTasksError && <Text accessibilityRole="alert" className="text-red-700">撮影項目を読み込めませんでした。画面を開き直してください。</Text>}
+        <Pressable onPress={startParkingCapture} disabled={busy} className="min-h-14 flex-row items-center gap-3 rounded-xl border border-brand-200 bg-white px-4 py-3"><AppIcon name={parkingMeterBase64 ? "circle-check" : "camera"} size={17} color="#454c56" iconStyle="solid" /><Text className="flex-1 text-brand-900 font-medium">メーター</Text><Text className="text-brand-500 text-[12px]">{parkingMeterBase64 ? "撮影済み・撮り直す" : "必須"}</Text></Pressable>
+        <ExtraPhotoFields tasks={tasksFor("parking")} captured={Object.fromEntries(Object.keys(extraShots).map(id => [id, true]))} busy={busy || extraCapturing} onCapture={task => void captureExtra(task)} />
+        <Pressable onPress={() => { if (parkingMeterBase64) void completeParking(parkingMeterBase64); }} disabled={busy || extraCapturing || !parkingMeterBase64 || photoTasksError} className="min-h-14 items-center justify-center rounded-xl bg-accent-500 px-4 disabled:opacity-50"><Text className="text-white font-semibold">写真と駐車場所を記録</Text></Pressable>
       </BottomSheet>
 
-      {/* ホーム（終了後）からの日報シート */}
+      {/* ホームからの日報シート。稼働中も送れる。 */}
       <BottomSheet visible={reportSheetOpen} scrollable>
         <View className="flex-row items-center justify-between">
           <Text className="text-xl font-bold text-brand-900">日報</Text>
@@ -741,15 +847,16 @@ export function WorkScreen() {
       <CaptureFlow
         visible={captureFor !== null}
         steps={captureSteps}
-        headline={captureFor === "out" ? "業務終了" : "稼働開始"}
+        headline={captureFor === "out" ? "業務終了" : captureFor === "parking" ? "駐車の記録" : "稼働開始"}
         onQrScanned={captureFor === "out" ? onScanOut : onScanIn}
         onFallback={() => {
           const target = captureFor;
           setCaptureFor(null);
-          setFallbackOpenFor(target);
+          if (target === "in" || target === "out") setFallbackOpenFor(target);
         }}
         onComplete={onCaptureComplete}
         onCancel={() => setCaptureFor(null)}
+        allowSkipInspection={captureFor !== "out"}
       />
 
       <QrFallback

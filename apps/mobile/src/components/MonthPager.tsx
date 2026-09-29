@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { AppIcon } from "./AppIcon";
 import { BottomSheet } from "./BottomSheet";
 
 // ============================================================
@@ -65,13 +65,13 @@ export function MonthPager({
   );
 }
 
-export function MonthTitle({ ym, onPress }: { ym: YM; onPress: () => void }) {
+export function MonthTitle({ ym, onPress, large = false }: { ym: YM; onPress: () => void; large?: boolean }) {
   return (
-    <Pressable onPress={onPress} className="flex-row items-center justify-center gap-1.5 py-1.5 active:opacity-70">
-      <Text className="text-base font-semibold text-brand-900">
-        {ym.year}年 {ym.month}月
+    <Pressable accessibilityRole="button" accessibilityLabel={`${ym.year}年${ym.month}月、年月を選択`} onPress={onPress} style={large ? { minHeight: 60 } : undefined} className="flex-row items-center justify-center gap-1.5 py-1.5 active:opacity-70">
+      <Text style={large ? { fontSize: 23, fontWeight: "700" } : undefined} className="text-base font-semibold text-brand-900">
+        {ym.year}年{ym.month}月
       </Text>
-      <FontAwesome6 name="chevron-down" size={11} color="#7c848f" iconStyle="solid" />
+      <AppIcon name="chevron-down" size={11} color="#7c848f" iconStyle="solid" />
     </Pressable>
   );
 }
@@ -103,11 +103,11 @@ export function MonthPickerSheet({
     <BottomSheet visible={visible}>
       <View className="flex-row items-center justify-between">
         <Pressable className="w-10 h-10 rounded-lg bg-brand-50 items-center justify-center active:opacity-70" onPress={() => setYear((y) => y - 1)}>
-          <FontAwesome6 name="chevron-left" size={14} color="#454c56" iconStyle="solid" />
+          <AppIcon name="chevron-left" size={14} color="#454c56" iconStyle="solid" />
         </Pressable>
         <Text className="text-lg font-bold text-brand-900">{year}年</Text>
         <Pressable className="w-10 h-10 rounded-lg bg-brand-50 items-center justify-center active:opacity-70" onPress={() => setYear((y) => y + 1)}>
-          <FontAwesome6 name="chevron-right" size={14} color="#454c56" iconStyle="solid" />
+          <AppIcon name="chevron-right" size={14} color="#454c56" iconStyle="solid" />
         </Pressable>
       </View>
 

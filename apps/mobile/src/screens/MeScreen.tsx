@@ -1,26 +1,26 @@
 import { useEffect, useState } from "react";
 import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator } from "react-native";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { AppIcon } from "../components/AppIcon";
 import { apiFetch } from "@repo/core/api";
 import type { Profile } from "@repo/core/types";
 import { buildProfileEntries, digitsOnly, formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { useAuth } from "../AuthContext";
-import { Skeleton } from "../components/Skeleton";
+import { PasskeySettings } from "../components/PasskeySettings";
+import { MyPageMenu, type AccountSection, type BankStatus } from "../components/MyPageMenu";
 
 // ============================================================
-// マイページ（me）＝プロフィール表示＋電話番号確認＋振込口座。NativeWind。
+// マイページの入口と、プロフィール/ログイン・電話番号/振込口座の詳細。
 // 振込口座は web オンボーディングから除外されたため（§2-1a 2026-07-25）、
 // ここが収集の正: 初回の報酬支払いまでに登録してもらう（未登録なら案内を表示）。
 // 表示・検証ロジックは Web と同じ @repo/core/logic/profile を再利用。
-// Passkey登録はネイティブ実装（react-native-passkey ＋ AASA/assetlinks配信）が
-// bundleId確定待ちでブロック中のため未着手（[[mobile-app-roadmap]] M8参照）。
 // 諸報告（書き込み系）は今回スコープ外。
 // ============================================================
 
-const INPUT = "bg-white border border-brand-200 rounded-lg py-2.5 px-4 text-brand-900";
+const INPUT = "bg-white border border-brand-200 rounded-lg min-h-12 py-3 px-4 text-brand-900";
 
-export function MeScreen() {
-  const { logout } = useAuth();
+export function MeScreen({ section = "home", onOpen, onAppSettings, onUnsavedChange, active = true }: { section?: AccountSection | "home"; onOpen?: (section: AccountSection) => void; onAppSettings?: () => void; active?: boolean; onUnsavedChange?: (dirty: boolean) => void } = {}) {
+  const { driver, logout } = useAuth();
+  const [revision, setRevision] = useState(0);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -34,30 +34,38 @@ export function MeScreen() {
   const [bankName, setBankName] = useState("");
   const [bankNo, setBankNo] = useState("");
   const [bankHolder, setBankHolder] = useState("");
+  const [originalBank, setOriginalBank] = useState("");
   const [bankRegistered, setBankRegistered] = useState(false);
+  const [bankStatus, setBankStatus] = useState<BankStatus>("loading");
   const [bankSubmitting, setBankSubmitting] = useState(false);
   const [bankMessage, setBankMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   useEffect(() => {
+    if (!active) return;
     let alive = true;
+    setBankStatus("loading");
     apiFetch<{ bankName: string; bankNo: string; bankHolder: string }>("/api/me/registration")
       .then((r) => {
         if (!alive) return;
+        setOriginalBank(JSON.stringify([(r.bankName || "").trim(), (r.bankNo || "").trim(), (r.bankHolder || "").trim()]));
         setBankName(r.bankName || "");
         setBankNo(r.bankNo || "");
         setBankHolder(r.bankHolder || "");
         setBankRegistered(!!(r.bankName && r.bankNo && r.bankHolder));
+        setBankStatus(r.bankName && r.bankNo && r.bankHolder ? "registered" : "missing");
       })
       .catch(() => {
-        // 取得失敗時は未登録扱いのまま（保存時にエラーが出る）
+        if (alive) setBankStatus("error");
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [revision, active]);
 
   useEffect(() => {
+    if (!active) return;
     let alive = true;
+    setLoading(true); setError("");
     apiFetch<Profile>("/api/reports/profile")
       .then((p) => {
         if (alive) {
@@ -74,9 +82,13 @@ export function MeScreen() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [revision, active]);
 
-  const entries = buildProfileEntries(profile);
+  useEffect(() => {
+    onUnsavedChange?.(section === "bank" && !!originalBank && JSON.stringify([bankName.trim(), bankNo.trim(), bankHolder.trim()]) !== originalBank);
+  }, [section, originalBank, bankName, bankNo, bankHolder, onUnsavedChange]);
+  useEffect(() => () => onUnsavedChange?.(false), [onUnsavedChange]);
+  const entries = buildProfileEntries(profile).filter(e => !["銀行名", "口座番号", "口座名義"].includes(e.label));
 
   const sendPhoneCode = async () => {
     setPhoneMessage(null);
@@ -95,6 +107,7 @@ export function MeScreen() {
   };
 
   const submitBank = async () => {
+    if (bankStatus === "loading" || bankStatus === "error") return;
     setBankMessage(null);
     setBankSubmitting(true);
     try {
@@ -102,7 +115,8 @@ export function MeScreen() {
         method: "POST",
         body: JSON.stringify({ bankName: bankName.trim(), bankNo: bankNo.trim(), bankHolder: bankHolder.trim() }),
       });
-      setBankRegistered(true);
+      setOriginalBank(JSON.stringify([bankName.trim(), bankNo.trim(), bankHolder.trim()]));
+      setBankRegistered(true); setBankStatus("registered");
       setBankMessage({ type: "ok", text: "振込口座を保存しました" });
     } catch (e) {
       setBankMessage({ type: "error", text: e instanceof Error ? e.message : "保存に失敗しました" });
@@ -130,21 +144,20 @@ export function MeScreen() {
     }
   };
 
-  return (
-    <ScrollView className="flex-1 bg-brand-50" contentContainerClassName="px-4 pt-4 pb-10">
+  const retry = <Pressable accessibilityRole="button" onPress={() => setRevision(v => v + 1)} style={{ minHeight: 44, justifyContent: "center" }}><Text style={{ color: "#355A84" }}>再読み込み</Text></Pressable>;
+  if (section === "home") return <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+    <MyPageMenu name={profile?.name || driver.name} code={profile?.driverCode} bankStatus={bankStatus} onOpen={page => onOpen?.(page)} onAppSettings={onAppSettings} />
+    {!!error && <View style={{ marginTop: 20 }}><Text accessibilityRole="alert" style={{ color: "#B91C1C" }}>{error}</Text>{retry}</View>}
+  </ScrollView>;
 
-      <Text className="text-base font-bold text-brand-900 mb-3">プロフィール</Text>
+  return (
+    <ScrollView testID={`account-detail-${section}`} className="flex-1 bg-brand-50" keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" contentContainerClassName="px-4 pt-4 pb-10">
+      {section === "profile" && <>
+
       {loading ? (
-        <View className="bg-white rounded-lg border border-brand-200 divide-y divide-brand-100">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <View key={i} className="px-4 py-3 gap-2">
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-4 w-40" />
-            </View>
-          ))}
-        </View>
+        <ActivityIndicator />
       ) : error ? (
-        <Text className="text-red-600 text-sm">{error}</Text>
+        <View><Text accessibilityRole="alert" className="text-red-600 text-sm">{error}</Text>{retry}</View>
       ) : entries.length === 0 ? (
         <Text className="text-brand-500 text-sm">登録内容はありません</Text>
       ) : (
@@ -158,14 +171,14 @@ export function MeScreen() {
         </View>
       )}
 
-      {!loading && !error && (
-        <>
-          <Text className="text-base font-bold text-brand-900 mb-3 mt-8">振込口座</Text>
+      </>}
+      {section === "bank" && <>
+        {bankStatus === "loading" ? <ActivityIndicator /> : bankStatus === "error" ? <View><Text accessibilityRole="alert" className="text-red-600">振込口座を取得できませんでした</Text>{retry}</View> : <>
           <View className="bg-white rounded-lg border border-brand-200 p-4 gap-3">
             {bankRegistered ? (
               <View className="flex-row items-center gap-2">
-                <FontAwesome6 name="circle-check" size={14} color="#059669" iconStyle="solid" />
-                <Text className="text-sm text-brand-700">登録済みです（変更するには上書きして保存）</Text>
+                <AppIcon name="circle-check" size={14} color="#059669" iconStyle="solid" />
+                <Text className="text-sm text-brand-700">登録済み</Text>
               </View>
             ) : (
               <Text className="text-sm text-brand-600">
@@ -174,12 +187,13 @@ export function MeScreen() {
             )}
             <View className="gap-1">
               <Text className="text-[13px] text-brand-600">銀行名・支店</Text>
-              <TextInput className={INPUT} value={bankName} onChangeText={setBankName} placeholder="◯◯銀行 ◯◯支店" />
+              <TextInput accessibilityLabel="銀行名・支店" className={INPUT} value={bankName} onChangeText={setBankName} placeholder="◯◯銀行 ◯◯支店" />
             </View>
             <View className="gap-1">
               <Text className="text-[13px] text-brand-600">口座番号</Text>
               <TextInput
                 className={INPUT}
+                accessibilityLabel="口座番号"
                 value={bankNo}
                 onChangeText={(t) => setBankNo(digitsOnly(t).slice(0, 8))}
                 keyboardType="number-pad"
@@ -188,7 +202,7 @@ export function MeScreen() {
             </View>
             <View className="gap-1">
               <Text className="text-[13px] text-brand-600">口座名義（カナ）</Text>
-              <TextInput className={INPUT} value={bankHolder} onChangeText={setBankHolder} placeholder="ヤマダ タロウ" />
+              <TextInput accessibilityLabel="口座名義（カナ）" className={INPUT} value={bankHolder} onChangeText={setBankHolder} placeholder="ヤマダ タロウ" />
             </View>
             {bankMessage && (
               <Text className={`text-[13px] ${bankMessage.type === "ok" ? "text-emerald-600" : "text-red-600"}`}>
@@ -197,6 +211,7 @@ export function MeScreen() {
             )}
             <Pressable
               className={`py-2.5 rounded-lg items-center bg-brand-900 active:opacity-80 ${bankSubmitting || !bankName.trim() || !bankNo.trim() || !bankHolder.trim() ? "opacity-50" : ""}`}
+              testID="account-save-bank"
               onPress={submitBank}
               disabled={bankSubmitting || !bankName.trim() || !bankNo.trim() || !bankHolder.trim()}
             >
@@ -204,11 +219,15 @@ export function MeScreen() {
             </Pressable>
           </View>
 
-          <Text className="text-base font-bold text-brand-900 mb-3 mt-8">電話番号の確認</Text>
+        </>}
+      </>}
+      {section === "security" && <>
+        {loading ? <ActivityIndicator /> : error ? <View><Text accessibilityRole="alert" className="text-red-600">{error}</Text>{retry}</View> : <>
+          <Text className="text-base font-bold text-brand-900 mb-3">電話番号の確認</Text>
           <View className="bg-white rounded-lg border border-brand-200 p-4 gap-3">
             {profile?.phoneVerified ? (
               <View className="flex-row items-center gap-2">
-                <FontAwesome6 name="circle-check" size={14} color="#059669" iconStyle="solid" />
+                <AppIcon name="circle-check" size={14} color="#059669" iconStyle="solid" />
                 <Text className="text-sm text-brand-700">{formatJPPhoneDisplay(profile.phone)} を確認済みです</Text>
               </View>
             ) : (
@@ -274,8 +293,9 @@ export function MeScreen() {
               </>
             )}
           </View>
-        </>
-      )}
+        </>}
+
+      <View className="mt-8"><PasskeySettings /></View>
 
       <Pressable
         className="mt-10 self-center border border-brand-200 bg-white py-2.5 px-6 rounded-lg active:opacity-80"
@@ -283,6 +303,7 @@ export function MeScreen() {
       >
         <Text className="text-brand-700 font-medium">ログアウト</Text>
       </Pressable>
+      </>}
     </ScrollView>
   );
 }

@@ -1,5 +1,6 @@
+import { ReportImageInputCard } from "./ReportImageInputCard";
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, ActivityIndicator, Alert } from "react-native";
+import { View, Text, Alert } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { apiFetch, apiUpload } from "@repo/core/api";
 import { capturedAtFromPicked } from "@repo/core/logic/imageCapturedAt";
@@ -298,8 +299,7 @@ export function ReportSourceImagePicker({
   };
 
   return (
-    <View className="gap-2 rounded-xl border border-brand-200 bg-white p-4">
-      <Text className="text-base font-semibold text-brand-900">配完表の画像</Text>
+    <ReportImageInputCard busy={busy} onPress={() => void pick()} label={busy ? step || "読み取り中…" : templates.length > 0 ? "画像から入力" : "画像を添付"}>
 
       {images.map((image) => (
         <View key={image.id} className="flex-row items-center gap-2">
@@ -319,23 +319,6 @@ export function ReportSourceImagePicker({
           {note}
         </Text>
       ))}
-
-      <Pressable
-        onPress={() => void pick()}
-        disabled={busy}
-        className="min-h-12 flex-row items-center justify-center rounded-lg border border-brand-300 px-4"
-      >
-        {busy ? (
-          <View className="flex-row items-center gap-2">
-            <ActivityIndicator />
-            {step ? <Text className="text-sm text-brand-600">{step}</Text> : null}
-          </View>
-        ) : (
-          <Text className="text-base font-medium text-brand-800">
-            {templates.length > 0 ? "画像から入力" : images.length > 0 ? "画像を追加" : "画像を選ぶ"}
-          </Text>
-        )}
-      </Pressable>
 
       {review && (
         <ReportImageReviewSheet
@@ -357,6 +340,6 @@ export function ReportSourceImagePicker({
           onConfirm={() => void confirmReview()}
         />
       )}
-    </View>
+    </ReportImageInputCard>
   );
 }

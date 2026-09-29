@@ -1,46 +1,55 @@
+import { VehicleIdentity } from "./VehiclePlate";
 import { useEffect, useImperativeHandle, useState, forwardRef } from "react";
 import { View, Text, Pressable, TextInput, ActivityIndicator } from "react-native";
+import { AppIcon } from "./AppIcon";
 import { apiFetch } from "@repo/core/api";
-import type { DriverIdentity, SubmitVehicle, ShiftForm, ValueMap, VehiclePlateData } from "@repo/core/types";
+import type {
+  DriverIdentity,
+  SubmitVehicle,
+  ShiftForm,
+  ValueMap,
+  VehiclePlateData,
+} from "@repo/core/types";
 import {
   buildInitialValues,
-  parseMeter as parseReportMeter,
   resolveDefaultVehicleId,
-  resolveExistingMeter,
-  buildReportItems,
   buildVehicleCards,
   groupFieldsByLabel,
   reportFormKey,
 } from "@repo/core/logic/dailyReport";
+import { buildPhotoReportItems } from "../reports/photo-report";
 import { ReportSourceImagePicker } from "./ReportSourceImagePicker";
 import { applyImageEntries } from "@repo/core/logic/reportImageEntries";
 
 // 日報入力フォーム（submit-v2）。値構築・整形は Web と同じ @repo/core/logic/dailyReport。
-// 退勤フロー（qr_flow v2.0 終了時の確認）と、ホームの「日報を書く」シートの両方から使う。
+// 稼働中・終了後のホームから使う。駐車記録は独立APIへ送る。
 
-const INPUT = "border border-brand-200 rounded-lg px-3 py-2.5 text-base bg-white text-brand-900";
-const CHIP = "py-2 px-3.5 rounded-full border";
-
-const reportPlateText = (v: VehiclePlateData): string =>
-  [v.number_class, v.number_hiragana, v.number_numeric].filter(Boolean).join(" ") || v.id;
+const INPUT = "border border-brand-200 rounded-xl px-4 py-3 text-xl bg-white text-brand-900";
+const CHIP = "min-h-12 justify-center py-3 px-4 rounded-xl border";
 
 export type DailyReportFormHandle = {
-  /** 日報を送信する。成功で true。フォームが空（シフト無し）の場合も true を返す。 */
-  submit: () => Promise<boolean>;
+  /** 日報を送信する。フォームが空（シフト無し）の場合も成功を返す。 */
+  submit: () => Promise<DailyReportSubmitResult>;
   /** この日のシフトが1件以上あるか。 */
   hasShifts: () => boolean;
+};
+
+export type DailyReportSubmitResult = {
+  ok: boolean;
 };
 
 export const DailyReportForm = forwardRef<
   DailyReportFormHandle,
   {
     date: string;
+    /** QRで確定した車両。未指定時は既存日報/割当情報を表示する。 */
+    confirmedVehicle?: VehiclePlateData;
     /** 送信成功時に呼ばれる（submit ボタン・外部 submit() どちらでも）。 */
     onSubmitted?: () => void;
-    /** true なら内蔵の送信ボタンを表示する（ホームの日報シート用）。退勤フローでは外部の確定ボタンから submit() を呼ぶ。 */
+    /** true なら内蔵の送信ボタンを表示する。 */
     showSubmitButton?: boolean;
   }
->(function DailyReportForm({ date, onSubmitted, showSubmitButton = false }, ref) {
+>(function DailyReportForm({ date, confirmedVehicle, onSubmitted, showSubmitButton = false }, ref) {
   const [identities, setIdentities] = useState<DriverIdentity[]>([]);
   const [identityId, setIdentityId] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<SubmitVehicle[]>([]);
@@ -48,7 +57,6 @@ export const DailyReportForm = forwardRef<
   const [shifts, setShifts] = useState<ShiftForm[]>([]);
   const [shiftVehicleId, setShiftVehicleId] = useState<string | null>(null);
   const [vehicleId, setVehicleId] = useState<string | null>(null);
-  const [meter, setMeter] = useState("");
   const [values, setValues] = useState<ValueMap>({});
   const [initLoading, setInitLoading] = useState(true);
   const [formLoading, setFormLoading] = useState(false);
@@ -94,7 +102,6 @@ export const DailyReportForm = forwardRef<
         setShiftVehicleId(d.shiftVehicleId ?? null);
         setValues(buildInitialValues(sh));
         setVehicleId(resolveDefaultVehicleId(sh, d.shiftVehicleId ?? null));
-        setMeter(resolveExistingMeter(sh));
       })
       .catch((e) => {
         if (alive) setError(e instanceof Error ? e.message : "フォームの取得に失敗しました");
@@ -116,27 +123,28 @@ export const DailyReportForm = forwardRef<
       },
     }));
 
-  const submit = async (): Promise<boolean> => {
-    if (shifts.length === 0) return true; // シフトが無い日は送るものが無い＝成功扱い
+  const submit = async (): Promise<DailyReportSubmitResult> => {
+    if (initLoading || formLoading || submitting) return { ok: false };
+    if (shifts.length === 0) return { ok: true }; // シフトが無い日は送るものが無い＝成功扱い
     if (!identityId) {
       setError("勤務区分が選択されていません");
-      return false;
+      return { ok: false };
     }
     setSubmitting(true);
     setError("");
     setMessage("");
     try {
-      const items = buildReportItems(shifts, values, vehicleId, parseReportMeter(meter));
+      const items = buildPhotoReportItems(shifts, values, confirmedVehicle?.id ?? vehicleId);
       await apiFetch("/api/reports/v2", {
         method: "POST",
         body: JSON.stringify({ reportDate: date, driverIdentityId: identityId, items }),
       });
       setMessage("日報を送信しました");
       onSubmitted?.();
-      return true;
+      return { ok: true };
     } catch (e) {
       setError(e instanceof Error ? e.message : "送信に失敗しました");
-      return false;
+      return { ok: false };
     } finally {
       setSubmitting(false);
     }
@@ -161,7 +169,7 @@ export const DailyReportForm = forwardRef<
   }
 
   return (
-    <View className="gap-2.5">
+    <View className="gap-4">
       {identities.length > 1 && (
         <View className="flex-row flex-wrap gap-2">
           {identities.map((i) => {
@@ -179,36 +187,11 @@ export const DailyReportForm = forwardRef<
         </View>
       )}
 
-      <Text className="text-[13px] text-brand-500 mt-2">車両</Text>
-      <View className="flex-row flex-wrap gap-2">
-        <Pressable
-          className={`${CHIP} ${vehicleId === null ? "bg-brand-900 border-brand-900" : "bg-white border-brand-200"}`}
-          onPress={() => setVehicleId(null)}
-        >
-          <Text className={`text-[13px] ${vehicleId === null ? "text-white" : "text-brand-700"}`}>車両なし</Text>
-        </Pressable>
-        {cards.map((v) => {
-          const on = vehicleId === v.id;
-          return (
-            <Pressable
-              key={v.id}
-              className={`${CHIP} ${on ? "bg-brand-900 border-brand-900" : "bg-white border-brand-200"}`}
-              onPress={() => setVehicleId(v.id)}
-            >
-              <Text className={`text-[13px] ${on ? "text-white" : "text-brand-700"}`}>{reportPlateText(v)}</Text>
-            </Pressable>
-          );
-        })}
+      <View className="gap-3 py-2">
+        <Text className="text-sm text-brand-500">使用車両</Text>
+        {confirmedVehicle || cards.find(v => v.id === vehicleId) ? <VehicleIdentity vehicle={(confirmedVehicle ?? cards.find(v => v.id === vehicleId))!} />
+          : <Text className="text-brand-500">{formLoading ? "確認中…" : vehicleId ? "車両情報を確認できません" : "使用車両の記録がありません"}</Text>}
       </View>
-
-      <Text className="text-[13px] text-brand-500 mt-2">メーター（km）</Text>
-      <TextInput
-        className={INPUT}
-        value={meter}
-        onChangeText={(t) => setMeter(t.replace(/[^0-9]/g, ""))}
-        keyboardType="number-pad"
-        placeholder="例: 123456"
-      />
 
       {formLoading ? (
         <View className="py-6 items-center">
@@ -221,15 +204,21 @@ export const DailyReportForm = forwardRef<
           const formKey = reportFormKey(s.courseId, s.cycleNo);
           const cycleLabel = s.cycleLabel || `C${s.cycleNo ?? 0}`;
           return (
-            <View key={formKey} className="bg-white rounded-[10px] border border-brand-200 p-3 gap-2.5 mt-1.5">
+            <View key={formKey} className="bg-white rounded-2xl border border-brand-200 p-4 gap-5 mt-2">
               <Text className="text-base font-bold text-brand-900">
                 {s.courseName}{(s.cycleNo ?? 0) > 0 ? `  ${cycleLabel}` : ""}
               </Text>
+              <ReportSourceImagePicker
+                key={`${date}:${formKey}`}
+                date={date}
+                courseId={s.courseId}
+                onApply={(entries) => setValues((prev) => applyImageEntries(prev, [s], entries).values)}
+              />
               {s.units.map((u) => (
-              <View key={u.id} className="gap-1.5">
+              <View key={u.id} className="gap-4">
                 <Text className="text-sm font-semibold text-brand-700">{u.name}</Text>
                 {groupFieldsByLabel(u.fields).map(([group, fields]) => (
-                  <View key={group || "_"} className="gap-1.5 pl-1">
+                  <View key={group || "_"} className="gap-4">
                     {group ? <Text className="text-xs text-brand-500 mt-1">{group}</Text> : null}
                     {fields.map((f) => {
                       const raw = values[formKey]?.[u.id]?.[f.fieldKey] ?? "";
@@ -238,23 +227,27 @@ export const DailyReportForm = forwardRef<
                         return (
                           <Pressable
                             key={f.fieldKey}
-                            className="flex-row items-center justify-between py-1.5"
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: on }}
+                            className="flex-row items-center justify-between gap-3 min-h-14 py-3"
                             onPress={() => setVal(formKey, u.id, f.fieldKey, on ? "false" : "true")}
                           >
-                            <Text className="text-[13px] text-brand-700">{f.label}</Text>
+                            <Text className="text-base font-medium text-brand-700">{f.label}</Text>
                             <View
                               className={`w-6 h-6 rounded-md border items-center justify-center ${on ? "bg-brand-900 border-brand-900" : "bg-white border-brand-200"}`}
                             >
-                              {on ? <Text className="text-white font-bold">✓</Text> : null}
+                              {on ? <AppIcon name="check" size={14} color="white" /> : null}
                             </View>
                           </Pressable>
                         );
                       }
                       return (
-                        <View key={f.fieldKey} className="gap-1">
-                          <Text className="text-[13px] text-brand-700">{f.label}</Text>
+                        <View key={f.fieldKey} className="gap-2">
+                          <Text className="text-base font-medium text-brand-700">{f.label}</Text>
                           <TextInput
                             className={INPUT}
+                            style={{ minHeight: 56 }}
+                            accessibilityLabel={`${s.courseName} ${cycleLabel} ${f.label}`}
                             value={raw}
                             onChangeText={(t) =>
                               setVal(formKey, u.id, f.fieldKey, f.inputType === "INT" ? t.replace(/[^0-9]/g, "") : t)
@@ -274,23 +267,14 @@ export const DailyReportForm = forwardRef<
         })
       )}
 
-      {/* 配完表などの原本画像。件数の入力は従来どおりで、原本は別に残す（RIMG-2） */}
-      {shifts.length > 0 && (
-        <ReportSourceImagePicker
-          date={date}
-          courseId={shifts[0]?.courseId ?? null}
-          onApply={(entries) => setValues((prev) => applyImageEntries(prev, shifts, entries).values)}
-        />
-      )}
-
       {error ? <Text className="text-red-600 py-1">{error}</Text> : null}
       {message ? <Text className="text-accent-600 py-1 font-semibold">{message}</Text> : null}
 
       {showSubmitButton && (
         <Pressable
-          className={`mt-2 bg-accent-500 py-3.5 rounded-lg items-center active:opacity-80 ${shifts.length === 0 || submitting ? "opacity-40" : ""}`}
-          onPress={submit}
-          disabled={shifts.length === 0 || submitting}
+          className={`mt-2 min-h-14 justify-center bg-accent-500 py-4 rounded-xl items-center active:opacity-80 ${shifts.length === 0 || submitting ? "opacity-40" : ""}`}
+          onPress={() => void submit()}
+          disabled={initLoading || formLoading || shifts.length === 0 || submitting}
         >
           <Text className="text-white font-bold text-base">{submitting ? "送信中..." : "日報を送信"}</Text>
         </Pressable>

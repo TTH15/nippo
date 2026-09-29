@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { View, Text, ScrollView, Pressable, ActivityIndicator } from "react-native";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { AppIcon } from "../../components/AppIcon";
 import { apiFetch } from "@repo/core/api";
 
 // ============================================================
@@ -106,7 +106,7 @@ export function AdminDailyScreen() {
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
                         <>
-                          <FontAwesome6 name="check" size={12} color="#fff" iconStyle="solid" />
+                          <AppIcon name="check" size={12} color="#fff" iconStyle="solid" />
                           <Text className="text-white text-[13px] font-medium">承認</Text>
                         </>
                       )}

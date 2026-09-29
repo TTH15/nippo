@@ -23,4 +23,4 @@ config.resolver.nodeModulesPaths = [
 config.resolver.unstable_enablePackageExports = true;
 
 // 4) NativeWind（Tailwind for RN）。global.css を入力に className 変換を有効化。
-module.exports = withNativeWind(config, { input: "./global.css" });
+module.exports = require("./ui-preview/metro.cjs")(withNativeWind(config, { input: "./global.css" }), projectRoot);

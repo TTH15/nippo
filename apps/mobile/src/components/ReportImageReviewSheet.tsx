@@ -101,15 +101,15 @@ export function ReportImageReviewSheet({
           )}
 
           {rows.map((row) => (
-            <View key={row.fieldId} className="flex-row items-center gap-3 border-b border-brand-100 py-2">
+            <View key={row.fieldId} className="gap-3 border-b border-brand-100 py-4">
               <View className="flex-1">
-                <Text className="text-sm text-brand-800">{row.label}</Text>
+                <Text className="text-base font-medium text-brand-800">{row.label}</Text>
                 {BADGE[row.status] ? <Text className="text-[11px] text-amber-700">{BADGE[row.status]}</Text> : null}
               </View>
               {showEvidence && row.cropUri ? (
                 <Image
                   source={{ uri: row.cropUri }}
-                  className="h-8 w-20 rounded border border-brand-200"
+                  className="h-16 w-full rounded border border-brand-200"
                   resizeMode="contain"
                 />
               ) : null}
@@ -121,7 +121,8 @@ export function ReportImageReviewSheet({
                 }}
                 keyboardType="number-pad"
                 accessibilityLabel={row.label}
-                className={`h-12 w-20 rounded-lg border px-3 text-right text-base ${
+                style={{ minHeight: 56 }}
+                className={`w-full rounded-xl border px-4 py-3 text-xl ${
                   row.status === "read" ? "border-brand-300 bg-white" : "border-amber-400 bg-amber-50"
                 }`}
               />

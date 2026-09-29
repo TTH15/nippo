@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { View, Text, ScrollView, Pressable, TextInput, Modal, Image } from "react-native";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { AppIcon } from "../components/AppIcon";
 import { apiFetch } from "@repo/core/api";
 import type { RewardsSummary, MyInvoice, InvoiceRow } from "@repo/core/types";
 import { nowYearMonth1, formatYearMonth, formatMonthDayJP } from "@repo/core/logic/calendar";
@@ -80,7 +80,7 @@ export function RewardsScreen() {
           className="flex-row items-center gap-2 bg-white border border-brand-200 rounded-lg px-3 py-1.5"
           onPress={() => setInvoicePanelOpen(true)}
         >
-          <FontAwesome6 name="file-invoice" size={13} color="#454c56" iconStyle="solid" />
+          <AppIcon name="file-invoice" size={13} color="#454c56" iconStyle="solid" />
           <Text className="text-sm text-brand-700">請求書</Text>
           {invoices.length > 0 && (
             <View className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 items-center justify-center">
@@ -118,7 +118,7 @@ export function RewardsScreen() {
             <View className="p-3 border-b border-brand-100 flex-row items-center justify-between">
               <Text className="text-sm font-semibold text-brand-900">請求書確認</Text>
               <Pressable onPress={() => setInvoicePanelOpen(false)} hitSlop={8}>
-                <FontAwesome6 name="xmark" size={16} color="#7c848f" iconStyle="solid" />
+                <AppIcon name="xmark" size={16} color="#7c848f" iconStyle="solid" />
               </Pressable>
             </View>
             <ScrollView contentContainerClassName="p-4 gap-3">
@@ -164,7 +164,7 @@ export function RewardsScreen() {
             <View className="p-3 border-b border-brand-100 flex-row items-center justify-between">
               <Text className="text-sm font-semibold text-brand-900">請求書プレビュー</Text>
               <Pressable onPress={() => setPreviewInvoiceId(null)} hitSlop={8}>
-                <FontAwesome6 name="xmark" size={16} color="#7c848f" iconStyle="solid" />
+                <AppIcon name="xmark" size={16} color="#7c848f" iconStyle="solid" />
               </Pressable>
             </View>
             {previewInvoice && (() => {
@@ -439,7 +439,7 @@ function RewardsMonthContent({ ym }: { ym: YM }) {
       <View className="bg-white rounded-lg border border-brand-200 p-4">
         <Pressable className="flex-row items-center justify-between" onPress={() => setDetailsOpen((o) => !o)}>
           <Text className="text-sm font-semibold text-brand-800">詳細</Text>
-          <FontAwesome6 name={detailsOpen ? "chevron-up" : "chevron-down"} size={12} color="#a9b0b8" iconStyle="solid" />
+          <AppIcon name={detailsOpen ? "chevron-up" : "chevron-down"} size={12} color="#a9b0b8" iconStyle="solid" />
         </Pressable>
         {detailsOpen && (
           <View className="mt-3 pt-3 border-t border-brand-100 gap-2">
@@ -514,7 +514,7 @@ function RewardsMonthContent({ ym }: { ym: YM }) {
                 <View className="flex-row items-center gap-3">
                   <Text className="text-accent-600 font-semibold text-[13px]">-{formatYen(e.amount)}</Text>
                   <Pressable onPress={() => deleteOptionalExpense(e.id)} hitSlop={8}>
-                    <FontAwesome6 name="trash" size={14} color="#dc2626" iconStyle="solid" />
+                    <AppIcon name="trash" size={14} color="#dc2626" iconStyle="solid" />
                   </Pressable>
                 </View>
               </View>

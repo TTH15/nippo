@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340" viewBox="0 0 600 340">
+  <path d="M20 259 V140 Q20 55 130 32 Q300 8 470 32 Q580 55 580 140 V259 Q580 307 532 307 H68 Q20 307 20 259 Z" fill="#141c24" stroke="#66737e" stroke-width="7"/>
+  <circle cx="91" cy="165" r="81" fill="#19232d" stroke="#81909b" stroke-width="4"/>
+  <circle cx="300" cy="165" r="124" fill="#19232d" stroke="#81909b" stroke-width="5"/>
+  <circle cx="509" cy="165" r="81" fill="#19232d" stroke="#81909b" stroke-width="4"/>
+  <path d="M55 195 Q91 175 127 195 M56 135 Q91 109 126 135" fill="none" stroke="#d6e0df" stroke-width="4"/>
+  <path d="M300 165 L220 206 M91 204 L114 190 M509 165 L468 191" stroke="#f2866a" stroke-width="4"/>
+  <g fill="#d6e0df" font-family="Arial, sans-serif" font-size="14" text-anchor="middle"><text x="300" y="178">km/h</text><text x="49" y="213">E</text><text x="132" y="213">F</text><text x="48" y="117">C</text><text x="132" y="117">H</text><text x="509" y="182">x1000r/min</text></g>
+  <rect x="253" y="122" width="94" height="26" rx="3" fill="#ced9ab"/><text x="300" y="141" text-anchor="middle" fill="#24352e" font-family="monospace" font-size="16">123450</text>
+  <rect x="253" y="218" width="94" height="26" rx="3" fill="#ced9ab"/><text x="300" y="237" text-anchor="middle" fill="#24352e" font-family="monospace" font-size="16">000120</text>
+</svg>

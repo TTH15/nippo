@@ -1,20 +1,20 @@
 {
   "expo": {
-    "name": "Nippo Mobile (dev)",
-    "slug": "nippo-mobile",
+    "name": "ハコ虎",
+    "slug": "hakotora",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "jp.hakotora.app",
-      "infoPlist": {}
+      "infoPlist": {},
+      "associatedDomains": [
+        "webcredentials:hakotora.jp"
+      ]
     },
     "android": {
       "package": "jp.hakotora.app"
-    },
-    "extra": {
-      "_note": "bundleId は jp.hakotora.app で確定（2026-07-27）。name/slug は EAS 設定（eas init）時に確定させる。"
     },
     "plugins": [
       "expo-asset",
@@ -34,7 +34,11 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "出退勤の打刻位置・駐車位置の記録のために位置情報を使用します（任意）。"
+          "locationWhenInUsePermission": "稼働中から駐車完了まで車両の位置を記録するために使用します。",
+          "locationAlwaysAndWhenInUsePermission": "稼働中から駐車完了まで、アプリを閉じている間も車両の位置を共有するために使用します。",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       [
@@ -52,6 +56,14 @@
         }
       ],
       "expo-font"
-    ]
+    ],
+    "scheme": "hakotora",
+    "icon": "./assets/logo-icon.png",
+    "extra": {
+      "eas": {
+        "projectId": "c874c3eb-642e-4670-8706-31e47e821d76"
+      }
+    },
+    "owner": "next-eight"
   }
 }

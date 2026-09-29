@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { View, Text, ScrollView, Pressable, ActivityIndicator, Linking } from "react-native";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { AppIcon } from "../../components/AppIcon";
 import { apiFetch } from "@repo/core/api";
 
 // ============================================================
@@ -65,7 +65,7 @@ export function AdminDriversScreen() {
               className="w-11 h-11 rounded-full bg-accent-500 items-center justify-center active:opacity-80"
               onPress={() => call(d.phone)}
             >
-              <FontAwesome6 name="phone" size={16} color="#15181c" iconStyle="solid" />
+              <AppIcon name="phone" size={16} color="#15181c" iconStyle="solid" />
             </Pressable>
           </View>
         ))

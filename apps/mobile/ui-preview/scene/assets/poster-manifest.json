@@ -1,0 +1,49 @@
+{
+  "source": "create-scene.ts",
+  "sourceSha256": "d53311d77a98d07f8a1ee4dae83ff876d15a59a39f67114add0892280d9fc8ff",
+  "plateInputs": {
+    "apps/mobile/ui-preview/vehicle.ts": "2c38df9bc904e62ced90a331d5a3854ad390a919a4cf7508842c62f405d3a79e",
+    "apps/mobile/ui-preview/scene/vehicle-plate.ts": "cd047b2d594949a9e34318121dc085ee158122c1ed118e37cd3bb59a96e32db4",
+    "apps/mobile/ui-preview/scene/assets/plate-textures.json": "a3ce59fc49c4fe57cc795ebf8946d3a64661731c9146ae0666ca8f8f5cf686fd"
+  },
+  "vehicleSha256": "5a0f46de8776c931cec07bcd8efe395eb8df16f270473a9124651bfbffc36a12",
+  "renderer": "Three 0.180.0 / Chrome SwiftShader / ACES exposure 1.05",
+  "generatedImages": false,
+  "files": [
+    {
+      "filename": "van-poster.png",
+      "width": 760,
+      "height": 353,
+      "bytes": 52598,
+      "sha256": "5fbe6d8521e7aa91519d01c2db9523b9655fda77aee90eaec68d744198366b61"
+    },
+    {
+      "filename": "off-poster.png",
+      "width": 760,
+      "height": 567,
+      "bytes": 69858,
+      "sha256": "1211a80a4fcdac9d732cd0376ac67c78830751fad513e3b5171f311f91ae4a4a"
+    },
+    {
+      "filename": "van-dark-poster.png",
+      "width": 760,
+      "height": 353,
+      "bytes": 54390,
+      "sha256": "966d0338ba578646d73dc5281aa0d1444f0833c1d556715d43778a295f98e33c"
+    },
+    {
+      "filename": "off-dark-poster.png",
+      "width": 760,
+      "height": 567,
+      "bytes": 68495,
+      "sha256": "79ce6c0ce69e1da0837501d5406167e9905c97153f6aa95a08844c5cda2b5a39"
+    },
+    {
+      "filename": "session-poster.png",
+      "width": 388,
+      "height": 746,
+      "bytes": 54106,
+      "sha256": "fb4526298d55176f171d2146a6a9d33a95d5def0c39ca19a7fa1fc5e7d30c869"
+    }
+  ]
+}

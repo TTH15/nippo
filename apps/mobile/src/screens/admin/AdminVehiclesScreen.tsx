@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, Text, ScrollView, Pressable, ActivityIndicator, Modal, Image } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { AppIcon } from "../../components/AppIcon";
 import { apiFetch } from "@repo/core/api";
 import type { VehiclePlateData } from "@repo/core/types";
 import { VehiclePlateMini } from "../../components/VehiclePlateMini";
@@ -156,7 +156,7 @@ export function AdminVehiclesScreen() {
                     onPress={() => addPhoto(false)}
                     disabled={uploading}
                   >
-                    <FontAwesome6 name="image" size={14} color="#454c56" iconStyle="solid" />
+                    <AppIcon name="image" size={14} color="#454c56" iconStyle="solid" />
                     <Text className="text-brand-700 text-[12px] mt-1">ライブラリ</Text>
                   </Pressable>
                   <Pressable
@@ -164,7 +164,7 @@ export function AdminVehiclesScreen() {
                     onPress={() => addPhoto(true)}
                     disabled={uploading}
                   >
-                    <FontAwesome6 name="camera" size={14} color="#454c56" iconStyle="solid" />
+                    <AppIcon name="camera" size={14} color="#454c56" iconStyle="solid" />
                     <Text className="text-brand-700 text-[12px] mt-1">カメラ</Text>
                   </Pressable>
                 </View>

@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "source": "apps/web/public/models/kei-every-da17v-405b534e.glb",
+  "sourceSha256": "74a2be55f757fb6f8af6694a934091de78a129093f89fa1ec8d5df71525eb27e",
+  "glbSha256": "5a0f46de8776c931cec07bcd8efe395eb8df16f270473a9124651bfbffc36a12",
+  "triangles": 8719,
+  "meshes": 33,
+  "sourceMeshes": 317,
+  "bytes": {
+    "source": 852524,
+    "glb": 448940,
+    "sceneJson": 1835781
+  },
+  "transform": {
+    "translation": [
+      0,
+      0,
+      0
+    ],
+    "rotationY": -1.5707963267948966,
+    "axis": "Y-up, front +Z (source front +X)",
+    "dimensions": [
+      3.431999921798706,
+      1.967326283454895,
+      1.8259999752044678
+    ]
+  },
+  "wheels": [
+    {
+      "name": "wheel-left-front",
+      "pivot": [
+        0.655000001192093,
+        0.2685000002384186,
+        1.237500011920929
+      ],
+      "axle": "X",
+      "members": [
+        "Left_Front_Tire",
+        "Left_Front_Steel_Rim",
+        "Left_Front_Hub",
+        "Left_Front_Lug_0",
+        "Left_Front_Lug_1",
+        "Left_Front_Lug_2",
+        "Left_Front_Lug_3",
+        "Left_Front_DA17_Wheel_Vent_0",
+        "Left_Front_DA17_Wheel_Vent_1",
+        "Left_Front_DA17_Wheel_Vent_2",
+        "Left_Front_DA17_Wheel_Vent_3",
+        "Left_Front_DA17_Wheel_Vent_4",
+        "Left_Front_DA17_Wheel_Vent_5",
+        "Left_Front_DA17_Wheel_Vent_6",
+        "Left_Front_DA17_Wheel_Vent_7",
+        "Left_Front_DA17_Wheel_Vent_8",
+        "Left_Front_DA17_Wheel_Vent_9",
+        "Left_Front_DA17_Wheel_Vent_10",
+        "Left_Front_DA17_Wheel_Vent_11"
+      ]
+    },
+    {
+      "name": "wheel-right-front",
+      "pivot": [
+        -0.6550000011920928,
+        0.2685000002384186,
+        1.237500011920929
+      ],
+      "axle": "X",
+      "members": [
+        "Right_Front_Tire",
+        "Right_Front_Steel_Rim",
+        "Right_Front_Hub",
+        "Right_Front_Lug_0",
+        "Right_Front_Lug_1",
+        "Right_Front_Lug_2",
+        "Right_Front_Lug_3",
+        "Right_Front_DA17_Wheel_Vent_0",
+        "Right_Front_DA17_Wheel_Vent_1",
+        "Right_Front_DA17_Wheel_Vent_2",
+        "Right_Front_DA17_Wheel_Vent_3",
+        "Right_Front_DA17_Wheel_Vent_4",
+        "Right_Front_DA17_Wheel_Vent_5",
+        "Right_Front_DA17_Wheel_Vent_6",
+        "Right_Front_DA17_Wheel_Vent_7",
+        "Right_Front_DA17_Wheel_Vent_8",
+        "Right_Front_DA17_Wheel_Vent_9",
+        "Right_Front_DA17_Wheel_Vent_10",
+        "Right_Front_DA17_Wheel_Vent_11"
+      ]
+    },
+    {
+      "name": "wheel-left-rear",
+      "pivot": [
+        0.645000010728836,
+        0.2685000002384186,
+        -1.1924999952316284
+      ],
+      "axle": "X",
+      "members": [
+        "Left_Rear_Tire",
+        "Left_Rear_Steel_Rim",
+        "Left_Rear_Hub",
+        "Left_Rear_Lug_0",
+        "Left_Rear_Lug_1",
+        "Left_Rear_Lug_2",
+        "Left_Rear_Lug_3",
+        "Left_Rear_DA17_Wheel_Vent_0",
+        "Left_Rear_DA17_Wheel_Vent_1",
+        "Left_Rear_DA17_Wheel_Vent_2",
+        "Left_Rear_DA17_Wheel_Vent_3",
+        "Left_Rear_DA17_Wheel_Vent_4",
+        "Left_Rear_DA17_Wheel_Vent_5",
+        "Left_Rear_DA17_Wheel_Vent_6",
+        "Left_Rear_DA17_Wheel_Vent_7",
+        "Left_Rear_DA17_Wheel_Vent_8",
+        "Left_Rear_DA17_Wheel_Vent_9",
+        "Left_Rear_DA17_Wheel_Vent_10",
+        "Left_Rear_DA17_Wheel_Vent_11"
+      ]
+    },
+    {
+      "name": "wheel-right-rear",
+      "pivot": [
+        -0.6450000107288362,
+        0.2685000002384186,
+        -1.1924999952316284
+      ],
+      "axle": "X",
+      "members": [
+        "Right_Rear_Tire",
+        "Right_Rear_Steel_Rim",
+        "Right_Rear_Hub",
+        "Right_Rear_Lug_0",
+        "Right_Rear_Lug_1",
+        "Right_Rear_Lug_2",
+        "Right_Rear_Lug_3",
+        "Right_Rear_DA17_Wheel_Vent_0",
+        "Right_Rear_DA17_Wheel_Vent_1",
+        "Right_Rear_DA17_Wheel_Vent_2",
+        "Right_Rear_DA17_Wheel_Vent_3",
+        "Right_Rear_DA17_Wheel_Vent_4",
+        "Right_Rear_DA17_Wheel_Vent_5",
+        "Right_Rear_DA17_Wheel_Vent_6",
+        "Right_Rear_DA17_Wheel_Vent_7",
+        "Right_Rear_DA17_Wheel_Vent_8",
+        "Right_Rear_DA17_Wheel_Vent_9",
+        "Right_Rear_DA17_Wheel_Vent_10",
+        "Right_Rear_DA17_Wheel_Vent_11"
+      ]
+    }
+  ],
+  "notes": [
+    "No source geometry removed. Grouped by material and wheel; wheelhouse/inner arch remain on body.",
+    "Texture-free Three ObjectLoader JSON accompanies GLB to avoid browser-only loaders on native.",
+    "Blank base plates; runtime adds front/rear lettering from the shared preview vehicle fixture. Not production vehicle data."
+  ]
+}

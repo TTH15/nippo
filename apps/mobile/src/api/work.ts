@@ -44,7 +44,7 @@ export type CheckInBody = {
   lng?: number | null;
   gpsStatus?: GpsStatus | null;
   odometerPhotoPath?: string;
-  inspectionPhotos?: Array<{ angle: InspectionAngle; path: string }>;
+  inspectionPhotos?: Array<{ angle: string; path: string }>;
   platePhotoPath?: string;
   fallbackReason?: string;
 };

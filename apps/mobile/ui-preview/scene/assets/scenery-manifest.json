@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "generator": "scripts/export-mobile-scenery.mjs",
+  "source": "apps/mobile/ui-preview/scene/create-scene.ts",
+  "sourceSha256": "794bb4f0ab55ceec07bb038584a1904d8bd5cc41be94342c5f6d6f86329660b1",
+  "sha256": "fb2c171d4a4913fa109e28fd4e03d654e41e6acf60ec87729ab40631bf7c6eb1",
+  "bytes": 129172,
+  "units": "meters, Y-up; prefab nodes overlap at origin, select individual nodes for placement",
+  "models": [
+    {
+      "name": "tree-round",
+      "triangles": 80
+    },
+    {
+      "name": "tree-pine",
+      "triangles": 62
+    },
+    {
+      "name": "building-low",
+      "triangles": 180
+    },
+    {
+      "name": "building-mid",
+      "triangles": 192
+    },
+    {
+      "name": "building-tall",
+      "triangles": 336
+    },
+    {
+      "name": "cloud-0",
+      "triangles": 60
+    },
+    {
+      "name": "cloud-1",
+      "triangles": 60
+    },
+    {
+      "name": "cloud-2",
+      "triangles": 60
+    },
+    {
+      "name": "bench",
+      "triangles": 48
+    },
+    {
+      "name": "road-tile",
+      "triangles": 12
+    },
+    {
+      "name": "sidewalk-tile",
+      "triangles": 12
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340" viewBox="0 0 600 340" fill="none">
+  <!-- 車種ごとの計器配置に依存せず、計器盤全体を囲う。中央の読取部分には線を重ねない。 -->
+  <path d="M28 258V106C28 55 133 26 300 26S572 55 572 106V258Q572 314 518 314H82Q28 314 28 258Z" stroke="#fff" stroke-opacity=".85" stroke-width="3"/>
+  <path d="M28 134V106M28 246V258Q28 286 46 301M112 314H82M488 314H518M554 301Q572 286 572 258V246M572 134V106" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+</svg>

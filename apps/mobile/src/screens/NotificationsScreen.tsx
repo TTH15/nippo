@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, Text, Pressable, ActivityIndicator, ScrollView, RefreshControl } from "react-native";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { AppIcon } from "../components/AppIcon";
 import { apiFetch } from "@repo/core/api";
 
 // 通知インボックス。アプリ内インボックスが真実（LINE/Web Push は追加チャネル）— docs/notification-flow.md
@@ -109,7 +109,7 @@ export function NotificationsScreen() {
 
       {items.length === 0 && !error ? (
         <View className="items-center py-16 gap-3">
-          <FontAwesome6 name="bell-slash" size={28} color="#cfd3d8" iconStyle="solid" />
+          <AppIcon name="bell-slash" size={28} color="#cfd3d8" iconStyle="solid" />
           <Text className="text-brand-300">通知はまだありません</Text>
         </View>
       ) : (

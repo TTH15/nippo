@@ -1,0 +1,12 @@
+if (!__DEV__) throw new Error("画面確認モードは開発専用です");
+export const Passkey = { isSupported: () => true, create: async () => ({ id: "preview-only", response: {} }), get: async () => ({ id: "preview-only", response: {} }) };
+export const hasHardwareAsync = async () => false;
+export const isEnrolledAsync = async () => false;
+export const authenticateAsync = async () => ({ success: true });
+export const requestForegroundPermissionsAsync = async () => ({ status: "denied" });
+export const Accuracy = { Balanced: 3 };
+export const watchPositionAsync = async () => ({ remove() {} });
+export const TextRecognitionScript = { LATIN: "Latin", JAPANESE: "Japanese" };
+export default { recognize: async () => ({ text: "", blocks: [] }) };
+export const SaveFormat = { JPEG: "jpeg", PNG: "png" };
+export const ImageManipulator = { manipulate() { throw new Error("画面確認では画像を読み取りません"); } };

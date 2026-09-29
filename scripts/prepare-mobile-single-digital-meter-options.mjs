@@ -1,0 +1,29 @@
+// 丸型速度計と燃料・距離一体液晶の描き込み比較。変動値や針は描かない。
+import sharp from 'sharp';
+import { writeFile } from 'node:fs/promises';
+
+const assetDir = 'apps/mobile/src/capture/assets';
+const hood = '<path d="M35 252 V164 Q35 48 153 25 Q300 -5 447 25 Q565 48 565 164 V252 Q565 310 507 310 H93 Q35 310 35 252 Z" stroke-opacity=".82" stroke-width="2.6"/>';
+const dial = '<path d="M120 252 C116 133 188 61 300 58 C412 61 484 133 480 252" stroke-opacity=".61" stroke-width="2.3"/>';
+const display = '<rect x="174" y="242" width="188" height="47" rx="5" stroke-opacity=".68" stroke-width="2"/><rect x="185" y="251" width="27" height="29" rx="2" stroke-opacity=".47" stroke-width="1.6"/>';
+const inner = '<path d="M135 231 C139 135 202 77 300 74 C398 77 461 135 465 231" stroke-opacity=".32" stroke-width="1.5"/><path d="M223 251 H350" stroke-opacity=".28" stroke-width="1.3"/>';
+const text = '<g fill="white" stroke="none" fill-opacity=".62" font-family="Arial, sans-serif"><text x="300" y="146" text-anchor="middle" font-size="20">km/h</text><text x="188" y="238" font-size="13">FUEL</text><text x="187" y="258" font-size="11">F</text><text x="187" y="278" font-size="11">E</text><text x="226" y="269" font-size="12">ODO</text></g>';
+const values = [
+  [158, 224, '0'], [184, 184, '20'], [223, 138, '40'], [271, 103, '60'],
+  [329, 103, '80'], [377, 138, '100'], [416, 184, '120'], [442, 224, '140'],
+].map(([x, y, label]) => `<text x="${x}" y="${y}" text-anchor="middle" font-size="17">${label}</text>`).join('');
+const numbers = `<g fill="white" stroke="none" fill-opacity=".62" font-family="Arial, sans-serif">${values}</g>`;
+const dots = '<g fill="white" stroke="none" fill-opacity=".55"><circle cx="177" cy="206" r="3"/><circle cx="204" cy="160" r="3"/><circle cx="246" cy="119" r="3"/><circle cx="300" cy="98" r="3"/><circle cx="354" cy="119" r="3"/><circle cx="396" cy="160" r="3"/><circle cx="423" cy="206" r="3"/></g>';
+const details = '<path d="M43 251 V165 Q43 56 157 33 Q300 3 443 33 Q557 56 557 165 V251" stroke-opacity=".28" stroke-width="1.4"/><g fill="white" stroke="none" fill-opacity=".37"><circle cx="162" cy="230" r="2.1"/><circle cx="189" cy="184" r="2.1"/><circle cx="225" cy="143" r="2.1"/><circle cx="269" cy="111" r="2.1"/><circle cx="331" cy="111" r="2.1"/><circle cx="375" cy="143" r="2.1"/><circle cx="411" cy="184" r="2.1"/><circle cx="438" cy="230" r="2.1"/></g><path d="M191 256 H207 M191 261 H207 M191 266 H207 M191 271 H207 M191 276 H207" stroke-opacity=".45" stroke-width="1.2"/>';
+const options = [
+  hood + dial + display + inner,
+  hood + dial + display + inner + text,
+  hood + dial + display + inner + text + numbers + dots,
+  hood + dial + display + inner + text + numbers + dots + details,
+];
+for (const [index, content] of options.entries()) {
+  const name = `meter-single-digital-option-${index + 2}`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340" viewBox="0 0 600 340" fill="none" stroke="white" stroke-linecap="round" stroke-linejoin="round">${content}</svg>`;
+  await writeFile(`${assetDir}/${name}.svg`, svg);
+  await sharp(Buffer.from(svg)).resize({ width: 1200 }).png().toFile(`${assetDir}/${name}.png`);
+}

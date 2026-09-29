@@ -1,0 +1,28 @@
+{
+  "referenceWidth": 240,
+  "referenceHeight": 120,
+  "cornerRadius": 10.3,
+  "borderWidth": 3.28,
+  "insetWidth": 2.34,
+  "bolt": {
+    "centerX": 35,
+    "centerY": 18,
+    "outerDiameter": 12,
+    "innerDiameter": 7.2
+  },
+  "top": {
+    "top": 8,
+    "glyphHeight": 29,
+    "regionGap": 2.5,
+    "classificationGap": 1,
+    "groupGap": 7
+  },
+  "bottom": {
+    "bottom": 8,
+    "kanaHeight": 27,
+    "kanaGap": 10,
+    "serialHeight": 58,
+    "serialGap": 7.5,
+    "hyphenScaleY": 1
+  }
+}

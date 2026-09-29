@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { AppIcon } from "./AppIcon";
 import Animated, {
   FadeInDown,
   FadeOutDown,
@@ -64,7 +64,7 @@ export function WorkingMiniBar({ onPress }: { onPress: () => void }) {
           <Text className="text-white text-[15px] font-bold">{formatDuration(elapsed)}</Text>
         </View>
         {!!plate && <Text className="text-brand-300 text-[12px]">{plate}</Text>}
-        <FontAwesome6 name="chevron-right" size={12} color="#7c848f" iconStyle="solid" />
+        <AppIcon name="chevron-right" size={12} color="#7c848f" iconStyle="solid" />
       </Pressable>
     </Animated.View>
   );

@@ -1,14 +1,30 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { View, Text, TextInput, Pressable, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, Image } from "react-native";
 import { apiFetch } from "@repo/core/api";
 import { setAuth, type StoredDriver } from "@repo/core/auth";
 
-// ログインはSMS。初めての方は招待リンクからブラウザで登録する。
+import { PASSKEY_LABEL, supportsPasskey, loginWithPasskey, passkeyError } from "../auth/passkey";
+import { PasskeySettings } from "../components/PasskeySettings";
+
+// ログインはパスキーとSMS。初めての方は招待リンクからブラウザで登録する。
 
 const INPUT = "bg-white border border-brand-200 rounded-lg py-2.5 px-4 text-lg font-semibold text-center tracking-widest text-brand-900";
 
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
 
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const [error, setError] = useState("");
+  const [sms, setSms] = useState(!supportsPasskey());
+  async function login() {
+    if (lock.current) return;
+    lock.current = true; setBusy(true); setError("");
+    try {
+      const result = await loginWithPasskey();
+      setAuth(result.token, result.driver); onLoggedIn();
+    } catch (e) { setError(passkeyError(e)); }
+    finally { lock.current = false; setBusy(false); }
+  }
   return (
     <KeyboardAvoidingView className="flex-1 bg-brand-50" behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView contentContainerClassName="grow justify-center p-6" keyboardShouldPersistTaps="handled">
@@ -18,7 +34,15 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
             <Image source={require("../../assets/logo-primary.png")} style={{ width: 240, height: 160 }} resizeMode="contain" />
           </View>
 
-          <PhoneLogin onLoggedIn={onLoggedIn} />
+          {sms ? <PhoneLogin onLoggedIn={onLoggedIn} onBack={supportsPasskey() ? () => setSms(false) : undefined} /> : <View className="p-5 gap-4">
+            <Pressable accessibilityRole="button" disabled={busy} onPress={() => void login()} className="min-h-[48px] py-3 px-3 rounded-lg items-center bg-brand-900">
+              {busy ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium text-center">{PASSKEY_LABEL}</Text>}
+            </Pressable>
+            {error ? <Text accessibilityRole="alert" className="text-red-600 text-sm">{error}</Text> : null}
+            <Pressable accessibilityRole="button" disabled={busy} onPress={() => setSms(true)} className="min-h-[44px] justify-center items-center">
+              <Text className="text-brand-700 text-sm">SMSでログイン・復旧</Text>
+            </Pressable>
+          </View>}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -26,14 +50,17 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
 }
 
 // 電話番号 + SMS OTP でログイン（初回ログイン/機種変/復旧の共通経路）。
-function PhoneLogin({ onLoggedIn }: { onLoggedIn: () => void }) {
-  const [step, setStep] = useState<"phone" | "otp">("phone");
+function PhoneLogin({ onLoggedIn, onBack }: { onLoggedIn: () => void; onBack?: () => void }) {
+  const lock = useRef(false);
+  const [step, setStep] = useState<"phone" | "otp" | "setup">("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const sendCode = async () => {
+    if (lock.current) return;
+    lock.current = true;
     setLoading(true);
     setError("");
     try {
@@ -42,11 +69,13 @@ function PhoneLogin({ onLoggedIn }: { onLoggedIn: () => void }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : "認証コードの送信に失敗しました");
     } finally {
-      setLoading(false);
+      lock.current = false; setLoading(false);
     }
   };
 
   const verify = async () => {
+    if (lock.current) return;
+    lock.current = true;
     setLoading(true);
     setError("");
     try {
@@ -56,13 +85,18 @@ function PhoneLogin({ onLoggedIn }: { onLoggedIn: () => void }) {
         { skipAuthRedirect: true },
       );
       setAuth(res.token, res.driver);
-      onLoggedIn();
+      setStep("setup");
     } catch (e) {
       setError(e instanceof Error ? e.message : "確認に失敗しました");
     } finally {
-      setLoading(false);
+      lock.current = false; setLoading(false);
     }
   };
+
+  if (step === "setup") return <View className="p-5 gap-4">
+    <PasskeySettings />
+    <Pressable accessibilityRole="button" onPress={onLoggedIn} className="min-h-[44px] bg-brand-900 rounded-lg items-center py-3"><Text className="text-white">ホームへ</Text></Pressable>
+  </View>;
 
   return (
     <View className="p-5 gap-4">
@@ -78,7 +112,7 @@ function PhoneLogin({ onLoggedIn }: { onLoggedIn: () => void }) {
               placeholder="090-1234-5678"
               autoFocus
             />
-            <Text className="text-[12px] text-brand-400">この番号に SMS で認証コードを送ります。</Text>
+
           </View>
           {error ? <Text className="text-red-600 text-[13px] text-center">{error}</Text> : null}
           <Pressable
@@ -111,12 +145,15 @@ function PhoneLogin({ onLoggedIn }: { onLoggedIn: () => void }) {
           >
             {loading ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium text-base">ログイン</Text>}
           </Pressable>
-          <Pressable onPress={sendCode} disabled={loading} className="items-center">
+          <Pressable onPress={sendCode} disabled={loading} className="min-h-[44px] items-center justify-center">
             <Text className="text-accent-600 text-[13px]">コードを再送する</Text>
           </Pressable>
+          <Pressable disabled={loading} onPress={() => { setStep("phone"); setCode(""); setError(""); }} className="min-h-[44px] items-center justify-center"><Text className="text-brand-700 text-sm">番号を入れ直す</Text></Pressable>
         </>
       )}
 
+      {onBack && <Pressable accessibilityRole="button" disabled={loading} onPress={onBack} className="min-h-[44px] items-center justify-center"><Text className="text-brand-700 text-sm">ログイン方法に戻る</Text></Pressable>}
+      <Text className="text-[12px] text-brand-600">電話番号も使えない場合は、運営にお問い合わせください。</Text>
       <View className="border-t border-brand-100 pt-3 gap-2 items-center">
         <Text className="text-[12px] text-brand-400 text-center">
           はじめての方は、運営から届いた招待リンクをブラウザで開いて登録してください。

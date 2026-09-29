@@ -1,9 +1,11 @@
+import { AccountDetailScreen } from "./src/screens/AccountDetailScreen";
+import { accountSectionTitles } from "./src/components/MyPageMenu";
 import "./global.css";
 import { useEffect, useState } from "react";
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { NavigationContainer, useNavigationContainerRef } from "@react-navigation/native";
+import { NavigationContainer, useNavigation, useIsFocused, useNavigationContainerRef } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { getStoredDriver, clearAuth, type StoredDriver } from "@repo/core/auth";
@@ -26,10 +28,17 @@ import { AdminVehiclesScreen } from "./src/screens/admin/AdminVehiclesScreen";
 import { BottomTabBar } from "./src/components/BottomTabBar";
 import { ModeSwitchFab } from "./src/components/ModeSwitchFab";
 import { WorkSessionProvider } from "./src/WorkSessionContext";
+import { stopVehicleTracking } from "./src/backgroundVehicleLocation";
 import { WorkingMiniBar } from "./src/components/WorkingMiniBar";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+
+function AccountHome() {
+  const navigation = useNavigation<any>();
+  const active = useIsFocused();
+  return <MeScreen active={active} onOpen={section => navigation.navigate("登録情報", { section })} />;
+}
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -54,7 +63,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    bootstrap(() => setDriver(null))
+    bootstrap(() => { void stopVehicleTracking(); setDriver(null); })
       .then(() => {
         const restored = getStoredDriver();
         setDriver(restored);
@@ -63,6 +72,8 @@ export default function App() {
       })
       .catch(() => setReady(true));
   }, []);
+
+  const logout = () => { void stopVehicleTracking(); clearAuth(); setDriver(null); };
 
   // ログイン後にゲート状態を取得。
   useEffect(() => {
@@ -100,7 +111,7 @@ export default function App() {
   if (regError) return <View style={styles.center}>
     <Text>登録状況を確認できませんでした</Text>
     <Pressable onPress={fetchReg} style={{ padding: 16 }}><Text>もう一度確認する</Text></Pressable>
-    <Pressable onPress={() => { clearAuth(); setDriver(null); }} style={{ padding: 16 }}><Text>ログインし直す</Text></Pressable>
+    <Pressable onPress={logout} style={{ padding: 16 }}><Text>ログインし直す</Text></Pressable>
   </View>;
 
   // ログイン後・ゲート状態確認中
@@ -117,7 +128,7 @@ export default function App() {
   if (!regState.complete) {
     return (
       <SafeAreaProvider>
-        <AuthContext.Provider value={{ driver, logout: () => { clearAuth(); setDriver(null); } }}>
+        <AuthContext.Provider value={{ driver, logout }}>
           <WebRegisterNotice onRefresh={fetchReg} />
         </AuthContext.Provider>
         <StatusBar style="auto" />
@@ -129,7 +140,7 @@ export default function App() {
   if (!regState.kycVerified) {
     return (
       <SafeAreaProvider>
-        <AuthContext.Provider value={{ driver, logout: () => { clearAuth(); setDriver(null); } }}>
+        <AuthContext.Provider value={{ driver, logout }}>
           <KycPending onRefresh={fetchReg} />
         </AuthContext.Provider>
         <StatusBar style="auto" />
@@ -144,7 +155,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <AuthContext.Provider value={{ driver, logout: () => { clearAuth(); setDriver(null); } }}>
+      <AuthContext.Provider value={{ driver, logout }}>
         <WorkSessionProvider>
           <NavigationContainer
             ref={navRef}
@@ -166,7 +177,8 @@ export default function App() {
                 <Stack.Screen name="シフト" component={ShiftsScreen} />
                 <Stack.Screen name="報酬" component={RewardsScreen} />
                 <Stack.Screen name="通知" component={NotificationsScreen} />
-                <Stack.Screen name="マイページ" component={MeScreen} />
+                <Stack.Screen name="マイページ" component={AccountHome} />
+                <Stack.Screen name="登録情報" options={({ route }: any) => ({ title: accountSectionTitles[route.params.section as keyof typeof accountSectionTitles], headerBackTitle: "マイページ" })}>{(props: any) => <AccountDetailScreen {...props} />}</Stack.Screen>
               </Stack.Navigator>
             )}
           </NavigationContainer>

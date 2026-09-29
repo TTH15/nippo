@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { apiFetch } from "@repo/core/api";
 import type { SubmitVehicle } from "@repo/core/types";
 import { fetchToday, type WorkSession } from "./api/work";
+import { reconcileVehicleTracking } from "./backgroundVehicleLocation";
 
 // 稼働セッション（出退勤）の状態をアプリ全体で共有する。
 // 業務ホーム（WorkScreen）だけでなく、他画面下部の「稼働中ミニバー」（Spotify 型業務中モード）
@@ -36,6 +37,7 @@ export function WorkSessionProvider({ children }: { children: ReactNode }) {
       const t = await fetchToday();
       setOpen(t.open);
       setTodaySessions(t.today ?? []);
+      void reconcileVehicleTracking(t.open?.purpose === "work" ? t.open.id : null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "通信に失敗しました");
     } finally {

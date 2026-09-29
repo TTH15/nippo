@@ -10,14 +10,16 @@ export function BottomSheet({
   visible,
   children,
   scrollable = false,
+  onClose,
 }: {
   visible: boolean;
   children: ReactNode;
   scrollable?: boolean;
+  onClose?: () => void;
 }) {
   const { height } = useWindowDimensions();
   return (
-    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent>
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
       <View className="flex-1 justify-end bg-black/40">
         <SafeAreaView edges={["bottom"]} className="bg-white rounded-t-3xl">
           {scrollable ? (

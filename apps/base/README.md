@@ -10,13 +10,14 @@ iPad 推奨・スマホでも使う、**現場の事実を登録・確認する*
 
 金銭処理（請求・報酬確定・控除・振込・単価や契約条件の変更・会社設定・権限管理）は Base に持ち込まない。到達できないことはアプリの画面ではなく**サーバー側の capability** で保証する。
 
-## まだ動かせない
+## 現在地
 
-`apps/base` を workspace に取り込むには、リポジトリのルートで一度だけ **`npm install`** が要る（`package-lock.json` が書き換わる）。それまでは依存が入っていないので `npm start` も型チェックも通らない。
+`apps/base` は workspace と依存ロックへ取り込み済みで、ルートの `npm run typecheck` と App CI の対象。
+業務機能と内部配布はまだ始めていない。
 
-取り込んだ後に足すもの:
+次に必要なもの:
 
-- ルート `package.json` の `typecheck` に `&& npm run typecheck -w @repo/base` を追加（追加しないと CI に載らない）
+- 最初に載せる現場業務の決定と実装
 - `eas init`（このリポジトリはまだ未実施。`app.json` に `extra.eas.projectId` が無い）
 
 ## 決まっていないこと
