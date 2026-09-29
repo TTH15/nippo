@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { SignJWT } from "jose";
 import { signToken, SimpleJwtAuthProvider } from "./jwt";
+import { signAdminRenew } from "./adminRenew";
 
 // jwt.ts は process.env.JWT_SECRET を要求する
 beforeAll(() => {
@@ -77,7 +78,7 @@ describe("signToken / verify (Phase 6a: identity_id + current_org_id)", () => {
     expect((await provider.verify(`Bearer ${legacy}`)).tokenVersion).toBe(0);
   });
 
-  it("管理セッションだけがadmin用途と15分の有効期限を持つ", async () => {
+  it("管理API用トークンだけがadmin用途と15分の有効期限を持つ", async () => {
     const token = await signToken({ driverId: "admin-1", role: "ADMIN", companyCode: "ACE",
       identityId: "identity-1", orgId: "org-1", purpose: "admin" });
     const user = await provider.verify(`Bearer ${token}`);
@@ -92,6 +93,11 @@ describe("signToken / verify (Phase 6a: identity_id + current_org_id)", () => {
     expect((await provider.verify(`Bearer ${work}`)).purpose).toBe("work");
     await expect(signToken({ driverId: "admin-2", role: "ADMIN", companyCode: "ACE",
       identityId: "identity-1", purpose: "admin" })).rejects.toThrow();
+  });
+
+  it("更新Cookieの署名値をAPIのBearerトークンとして使えない", async () => {
+    const renewal = await signAdminRenew({ driverId: "admin-2", identityId: "identity-1", orgId: "org-1", tokenVersion: 0 });
+    await expect(provider.verify(`Bearer ${renewal}`)).rejects.toThrow("Invalid token payload");
   });
 
   it.each([-1, 1.5, "0"])("不正な世代を拒否する: %s", async (token_version) => {

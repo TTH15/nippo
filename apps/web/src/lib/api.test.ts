@@ -15,7 +15,7 @@ vi.mock("@repo/core/auth", () => ({
 }));
 vi.mock("@repo/core/api", () => ({ apiFetch: mock.fetch }));
 
-import { apiFetch, clearAuth, getAdminToken, setAuth, setLoginSession } from "./api";
+import { apiFetch, clearAuth, getAdminToken, renewAdminToken, setAuth, setLoginSession } from "./api";
 
 const driver = { id: "member-1", name: "試験者", role: "DRIVER" };
 
@@ -23,6 +23,7 @@ beforeEach(() => {
   mock.token = null;
   mock.driver = null;
   mock.fetch.mockReset().mockResolvedValue({ ok: true });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ adminToken: "renewed-admin-token" }), { status: 200 })));
   window.sessionStorage.clear();
   window.history.replaceState({}, "", "/admin");
 });
@@ -50,5 +51,24 @@ describe("同じアカウントの業務・運営セッション", () => {
     expect(getAdminToken()).toBeNull();
     clearAuth();
     expect(mock.token).toBeNull();
+  });
+
+  it("新しいタブでは業務セッションとCookieで運営トークンを復元する", async () => {
+    setAuth("work-token", driver);
+    expect(await renewAdminToken()).toBe("renewed-admin-token");
+    expect(getAdminToken()).toBe("renewed-admin-token");
+    expect(fetch).toHaveBeenCalledWith("/api/auth/admin/refresh", expect.objectContaining({
+      method: "POST", credentials: "same-origin", headers: { Authorization: "Bearer work-token" },
+    }));
+  });
+
+  it("運営APIの期限切れは自動更新して1回再送する", async () => {
+    setLoginSession("work-token", driver, "expired-admin-token");
+    mock.fetch.mockRejectedValueOnce(new Error("Unauthorized")).mockResolvedValueOnce({ ok: true });
+    await apiFetch("/api/admin/payments");
+    expect(mock.fetch).toHaveBeenCalledTimes(2);
+    expect(mock.fetch).toHaveBeenLastCalledWith("/api/admin/payments", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer renewed-admin-token" }),
+    }), expect.objectContaining({ skipAuthRedirect: true }));
   });
 });
