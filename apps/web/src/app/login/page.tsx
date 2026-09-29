@@ -64,7 +64,7 @@ export default function LoginPage() {
     } catch (err: unknown) {
       // ユーザーがブラウザのPasskeyダイアログをキャンセルした場合は無言で戻す
       if (err instanceof Error && err.name !== "NotAllowedError") {
-        setPasskeyError(err.message || "Passkeyでのログインに失敗しました");
+        setPasskeyError(err.message || "かんたんログインに失敗しました");
       }
       console.error("Passkey login error:", err);
     } finally {
@@ -94,7 +94,7 @@ export default function LoginPage() {
               <button type="button" onClick={handlePasskeyLogin} disabled={passkeyLoading}
                 className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 font-medium text-white hover:bg-slate-800 disabled:opacity-50">
                 <FontAwesomeIcon icon={faFingerprint} className="h-4 w-4" />
-                {passkeyLoading ? "確認中..." : "Passkeyでログイン"}
+                {passkeyLoading ? "確認中..." : "かんたんログイン（パスキー）"}
               </button>
               {passkeyError && <p role="alert" className="text-sm text-red-600">{passkeyError}</p>}
             </>}
@@ -103,7 +103,7 @@ export default function LoginPage() {
               <span className="flex items-center gap-2 font-medium text-slate-900">
                 <FontAwesomeIcon icon={faCommentSms} className="h-4 w-4" />電話番号でログイン
               </span>
-              <span className="mt-1 text-xs text-slate-500">初めての方・Passkeyを使えない方</span>
+              <span className="mt-1 text-xs text-slate-500">初めての方・かんたんログインを使えない方</span>
             </Link>
           </div>
         </div>

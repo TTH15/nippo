@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (credError || !cred) {
-      return NextResponse.json({ error: "登録されていないPasskeyです" }, { status: 401 });
+      return NextResponse.json({ error: "登録されていないログイン端末です" }, { status: 401 });
     }
 
     const { rpID, origin } = rpConfig();
@@ -68,17 +68,17 @@ export async function POST(req: NextRequest) {
       });
     } catch (err) {
       console.error("[Passkey] login verify error:", err);
-      return NextResponse.json({ error: "Passkeyの検証に失敗しました" }, { status: 401 });
+      return NextResponse.json({ error: "かんたんログインを確認できませんでした" }, { status: 401 });
     }
 
     if (!verification.verified) {
-      return NextResponse.json({ error: "Passkeyの検証に失敗しました" }, { status: 401 });
+      return NextResponse.json({ error: "かんたんログインを確認できませんでした" }, { status: 401 });
     }
 
     try {
       if (!await consumeChallengeToken(challengeToken, "login")) {
         return NextResponse.json(
-          { error: "認証をやり直してください。もう一度Passkeyでログインできます" },
+          { error: "認証をやり直してください。もう一度かんたんログインを使えます" },
           { status: 401 },
         );
       }

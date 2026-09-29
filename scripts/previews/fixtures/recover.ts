@@ -2,7 +2,7 @@ import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 export const recoverFixture: PreviewFixture<{ attempts: number }> = {
   id: "recover", title: "SMSログイン", pathname: "/login/recover",
   scenarios: {
-    normal: { label: "Passkey未登録", description: "SMS認証後にPasskey登録を案内する" },
+    normal: { label: "未設定", description: "SMS認証後にかんたんログイン設定を案内する" },
     registered: { label: "登録済み", description: "SMS認証後はホームへ進む" },
     incomplete: { label: "申請途中", description: "SMS認証後は初期登録を再開する" },
     retry: { label: "登録失敗", description: "登録が一度失敗し再試行できる" },

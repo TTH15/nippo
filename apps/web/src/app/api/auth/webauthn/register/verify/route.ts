@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
   if (!user.identityId) {
     return NextResponse.json(
-      { error: "identityが未設定のためPasskeyを登録できません" },
+      { error: "アカウント情報が不完全なため、かんたんログインを設定できません" },
       { status: 400 },
     );
   }
@@ -63,11 +63,11 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[Passkey] register verify error:", err);
-    return NextResponse.json({ error: "Passkeyの検証に失敗しました" }, { status: 400 });
+    return NextResponse.json({ error: "かんたんログインを確認できませんでした" }, { status: 400 });
   }
 
   if (!verification.verified || !verification.registrationInfo) {
-    return NextResponse.json({ error: "Passkeyの検証に失敗しました" }, { status: 400 });
+    return NextResponse.json({ error: "かんたんログインを確認できませんでした" }, { status: 400 });
   }
 
   const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
   try {
     if (!await consumeChallengeToken(challengeToken, "register", user.identityId)) {
       return NextResponse.json(
-        { error: "認証をやり直してください。もう一度Passkeyを登録できます" },
+        { error: "認証をやり直してください。もう一度かんたんログインを設定できます" },
         { status: 401 },
       );
     }
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
 
   if (insertError || !saved?.notificationId) {
     console.error("[Passkey] insert error:", insertError);
-    return NextResponse.json({ error: "Passkeyの保存に失敗しました" }, { status: 500 });
+    return NextResponse.json({ error: "かんたんログインを保存できませんでした" }, { status: 500 });
   }
 
   afterSafely(() => deliverStoredNotifications(orgId, [saved.notificationId]));

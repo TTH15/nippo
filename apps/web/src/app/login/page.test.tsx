@@ -11,7 +11,7 @@ afterEach(cleanup);
 describe("招待ユーザーのログイン入口", () => {
   it("最初はPIN欄を出さずPasskeyとSMSを表示する", () => {
     render(<LoginPage />);
-    expect(screen.getByRole("button", { name: "Passkeyでログイン" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "かんたんログイン（パスキー）" })).toBeEnabled();
     expect(screen.getByRole("link", { name: /電話番号でログイン/ })).toHaveAttribute("href", "/login/recover");
     expect(screen.queryByLabelText("PIN")).toBeNull();
   });

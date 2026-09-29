@@ -29,6 +29,8 @@ import { onboardingFixture } from "./onboarding";
 import { dashboardFixture } from "./dashboard";
 import { vehiclesFixture } from "./vehicles";
 import { usersFixture } from "./users";
+import RolesPage from "@/app/(admin)/admin/(resource)/roles/page";
+import { rolesFixture } from "./roles";
 import { mapFixture } from "./map";
 import { paymentsFixture } from "./payments";
 import { submitFixture } from "./submit";
@@ -61,6 +63,7 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("dashboard", dashboardFixture, DashboardPage),
   entry("vehicles", vehiclesFixture, VehiclesPage),
   entry("users", usersFixture, UsersPage),
+  entry("roles", rolesFixture, RolesPage),
   entry("payments", paymentsFixture, PaymentsPage),
   entry("account", accountFixture, AccountPage),
   entry("login", loginFixture, LoginPreview),

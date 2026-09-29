@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
   if (!user.identityId) {
     return NextResponse.json(
-      { error: "identityが未設定のためPasskeyを登録できません" },
+      { error: "アカウント情報が不完全なため、かんたんログインを設定できません" },
       { status: 400 },
     );
   }

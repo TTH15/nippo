@@ -11,6 +11,7 @@ export default function OnboardingPreview() {
       name: "見本 太郎", dob: "1995-04-02", licenseExpiry: "", hasLicensePhoto: false,
       hasFacePhoto: false, postalCode: "", address: "", bankName: "", bankNo: "", bankHolder: "",
       complete: false, kycVerified: false, hasPasskey: scenario === "registered",
+      passkeyRequired: true,
     };
     if (scenario === "complete") Object.assign(reg, {
       licenseExpiry: "2030-04-02", hasLicensePhoto: true, hasFacePhoto: true,

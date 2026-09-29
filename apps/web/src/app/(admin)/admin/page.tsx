@@ -3,398 +3,94 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faChartColumn,
-  faFileLines,
-  faCalendar,
-  faFileInvoice,
-  faMoneyBill1Wave,
-  faCar,
-  faTriangleExclamation,
-  faChevronRight,
-  faOilCan,
-  faCircleCheck,
-  faLock,
-} from "@fortawesome/free-solid-svg-icons";
+import { faArrowRight, faCalendar, faCar, faClipboardCheck, faIdCard, faOilCan, faUserPlus } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
 import { AdminLayout } from "@/lib/components/AdminLayout";
-import { Skeleton } from "@/lib/components/Skeleton";
-import { apiFetch, getStoredDriver } from "@/lib/api";
+import { FleetMapBoard } from "@/lib/components/FleetMapBoard";
+import { getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { todayJST, currentMonthJST } from "@/lib/date";
+import { todayJST } from "@/lib/date";
 
-const yen = (n: number) => `¥${(n || 0).toLocaleString("ja-JP")}`;
-const yenShort = (n: number) => {
-  const v = n || 0;
-  if (Math.abs(v) >= 10000) return `¥${Math.round(v / 1000).toLocaleString("ja-JP")}k`;
-  return `¥${v.toLocaleString("ja-JP")}`;
+type Badges = {
+  dailyUnread: number | null;
+  otherUnread: number | null;
+  oilAlert: number | null;
+  licenseAlert: number | null;
+  pendingApproval: number | null;
 };
 
-type SalesRow = { iso: string; date: string; yamato: number; amazon: number; other: number; profit: number };
-type DayBar = { iso: string; label: string; total: number };
+type Task = { label: string; count: number | null; href: string; icon: IconDefinition };
 
 export default function AdminDashboardPage() {
-  const { month, monthLabel, today, start14 } = useMemo(() => {
-    const month = currentMonthJST(); // YYYY-MM
-    const [y, m] = month.split("-").map(Number);
-    const today = todayJST();
-    const base = new Date(today + "T12:00:00+09:00");
-    base.setDate(base.getDate() - 13);
-    const start14 = base.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
-    return { month, monthLabel: `${y}年${m}月`, today, start14 };
-  }, []);
-
-  const [sales, setSales] = useState(0);
-  const [profit, setProfit] = useState(0);
-  const [trend, setTrend] = useState<DayBar[]>([]);
-  const [activeDrivers, setActiveDrivers] = useState<number | null>(null);
-
-  // バッジ系は AdminLayout と同じ統合エンドポイント・同一SWRキーを共有する
-  // （従来は合成キー内で3本を重複取得しており dedup が効かなかった）。
-  // ポーリングは AdminLayout 側の refreshInterval が同一キーに効く。
-  const { data: badges } = useApi<{
-    dailyUnread: number | null;
-    otherUnread: number | null;
-    oilAlert: number | null;
-  }>("/api/admin/badges");
-  const dailyUnread = badges ? badges.dailyUnread : null;
-  const oilUnread = badges ? badges.otherUnread : null;
-  const oilAlert = badges ? badges.oilAlert : null;
-
-  // SWR でダッシュボードの集計をまとめてキャッシュし、遷移をまたいで保持する。
-  // capability を見てから発射する（権限の狭いロールが毎回 403 を数本受けないように・2026-08 監査）。
-  // capabilities 未取得（旧セッション）は従来どおり全部取得にフォールバック。
-  const { data: dash, isInitialLoading } = useApi<{
-    sales: number;
-    profit: number;
-    trend: DayBar[];
-    activeDrivers: number | null;
-  }>(`admin/dashboard:${month}:${start14}:${today}`, {
-    fetcher: async () => {
-      const capList = getStoredDriver()?.capabilities;
-      const allowed = (cap: string) => !Array.isArray(capList) || capList.includes(cap);
-      const [monthRes, trendRes, shiftRes] = await Promise.all([
-        allowed("can_view_billing")
-          ? apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?month=${month}`).catch(() => ({ data: [] as SalesRow[] }))
-          : Promise.resolve({ data: [] as SalesRow[] }),
-        allowed("can_view_billing")
-          ? apiFetch<{ data: SalesRow[] }>(`/api/admin/sales?start=${start14}&end=${today}`).catch(() => ({ data: [] as SalesRow[] }))
-          : Promise.resolve({ data: [] as SalesRow[] }),
-        // 本日の稼働数は軽量カウントモード（全行転送→クライアント集計を廃止）
-        allowed("can_view_shifts")
-          ? apiFetch<{ count: number }>(`/api/admin/shifts?start=${today}&end=${today}&countDrivers=1`).catch(() => null)
-          : Promise.resolve(null),
-      ]);
-      const monthRows = monthRes.data ?? [];
-      const trendRows = (trendRes.data ?? []).map((r) => ({
-        iso: r.iso,
-        label: r.date,
-        total: (r.yamato || 0) + (r.amazon || 0) + (r.other || 0),
-      }));
-      return {
-        sales: monthRows.reduce((s, r) => s + (r.yamato || 0) + (r.amazon || 0) + (r.other || 0), 0),
-        profit: monthRows.reduce((s, r) => s + (r.profit || 0), 0),
-        trend: trendRows,
-        activeDrivers: shiftRes ? Number(shiftRes.count) || 0 : null,
-      };
-    },
-  });
-  const loading = isInitialLoading;
-
-  useEffect(() => {
-    if (!dash) return;
-    setSales(dash.sales);
-    setProfit(dash.profit);
-    setTrend(dash.trend);
-    setActiveDrivers(dash.activeDrivers);
-  }, [dash]);
-
-  // 表示するカードは capability で出し分ける（権限のあるものだけを見せる）。
-  // capabilities 未取得（旧セッション・読込前）は誤って隠さないよう全表示にフォールバックし、
-  // 最終的な防壁はサーバーの requirePermission（403）に委ねる。
+  const today = useMemo(() => todayJST(), []);
+  const dateLabel = useMemo(() => {
+    const [year, month, day] = today.split("-");
+    const weekday = new Date(`${today}T12:00:00+09:00`).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo", weekday: "short" });
+    return `${year}/${month}/${day}（${weekday}）`;
+  }, [today]);
   const [caps, setCaps] = useState<string[] | null>(null);
   useEffect(() => {
     const list = getStoredDriver()?.capabilities;
     setCaps(Array.isArray(list) ? list : null);
   }, []);
   const can = (cap: string) => caps === null || caps.includes(cap);
-  const canSales = can("can_view_billing"); // 売上・粗利・推移（/api/admin/sales）
-  const canReports = can("can_view_reports"); // 報告の未承認・オイル交換申請
-  const canVehicles = can("can_view_vehicles"); // オイル交換が迫る車両
-  const canShifts = can("can_view_shifts"); // 本日の稼働ドライバー
-  const showAlerts = canReports || canVehicles;
-  const quickLinks = [
-    { href: "/admin/sales", label: "売上", icon: faChartColumn, show: canSales },
-    { href: "/admin/daily", label: "報告", icon: faFileLines, show: canReports },
-    { href: "/admin/shifts", label: "シフト", icon: faCalendar, show: canShifts },
-    { href: "/admin/invoices", label: "請求書", icon: faFileInvoice, show: can("can_view_billing") },
-    { href: "/admin/payments", label: "ペイメント", icon: faMoneyBill1Wave, show: can("can_view_rewards") },
-    { href: "/admin/vehicles", label: "車両", icon: faCar, show: canVehicles },
-  ].filter((q) => q.show);
-  // 見せるカードが1つも無いときだけ、空状態を出す（メニューから使える機能へ誘導）。
-  const nothingToShow =
-    !canSales && !showAlerts && !canShifts && quickLinks.length === 0;
+  const canVehicles = can("can_view_vehicles");
+  const canReports = can("can_view_reports");
+  const canMembers = can("can_view_members");
+  const canShifts = can("can_view_shifts");
 
-  const margin = sales > 0 ? Math.round((profit / sales) * 1000) / 10 : 0;
-  const maxTrend = Math.max(1, ...trend.map((d) => d.total));
-  // 「対応が必要な項目はありません」の判定は、実際に表示する行だけで数える
-  const totalAlerts =
-    (canReports ? (dailyUnread ?? 0) + (oilUnread ?? 0) : 0) + (canVehicles ? (oilAlert ?? 0) : 0);
+  // レイアウトの通知バッジと同じSWRキーを使う。車両位置も地図ページと同じ認可済みAPIから読む。
+  const badgesApi = useApi<Badges>("/api/admin/badges");
+  const shiftsApi = useApi<{ count: number }>(canShifts ? `/api/admin/shifts?start=${today}&end=${today}&countDrivers=1` : null);
+  const badges = badgesApi.data;
+  const tasks: Task[] = [
+    ...(canMembers ? [
+      { label: "参加の承認", count: badges?.pendingApproval ?? null, href: "/admin/users/pending", icon: faUserPlus },
+      { label: "免許の確認", count: badges?.licenseAlert ?? null, href: "/admin/users", icon: faIdCard },
+    ] : []),
+    ...(canReports ? [{ label: "日報の確認", count: badges?.dailyUnread ?? null, href: "/admin/daily", icon: faClipboardCheck }] : []),
+    ...(canVehicles ? [
+      { label: "オイル交換の申請", count: badges?.otherUnread ?? null, href: "/admin/misc-reports/others", icon: faOilCan },
+      { label: "車両の整備確認", count: badges?.oilAlert ?? null, href: "/admin/vehicles", icon: faCar },
+    ] : []),
+  ];
+  const activeTasks = tasks.filter((task) => task.count == null || task.count > 0);
 
   return (
     <AdminLayout>
-      <div className="mx-auto max-w-5xl space-y-4">
-        {/* ヘッダー */}
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-lg font-semibold text-slate-900">ダッシュボード</h1>
-          <span className="text-xs text-slate-400">{monthLabel}</span>
+      <div className="mx-auto max-w-7xl space-y-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h1 className="text-xl font-bold text-slate-900">ダッシュボード</h1>
+          <span className="text-xs font-medium text-slate-500">{dateLabel}</span>
         </div>
 
-        {nothingToShow && (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-slate-200 bg-white px-6 py-16 text-center">
-            <FontAwesomeIcon icon={faLock} className="h-8 w-8 text-slate-300" />
-            <p className="text-sm font-semibold text-slate-700">表示できる項目がありません</p>
-            <p className="text-xs text-slate-500">メニューから、権限のある機能をご利用ください。</p>
-          </div>
-        )}
+        {canVehicles && <FleetMapBoard embedded />}
 
-        {/* 今月の概況 KPI */}
-        {canSales && (
-        <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
-          <div className="grid grid-cols-2 gap-3 sm:gap-5">
-            <Kpi label="今月の売上" loading={loading} value={yen(sales)} />
-            <Kpi
-              label="今月の粗利"
-              loading={loading}
-              value={yen(profit)}
-              sub={`粗利率 ${margin}%`}
-            />
-          </div>
-        </section>
-        )}
-
-        {/* 直近14日の売上推移 */}
-        {canSales && (
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-[13px] font-semibold text-slate-700">直近14日の売上推移</h2>
-            <Link href="/admin/sales" className="text-[11px] font-medium text-sky-600 hover:underline">
-              詳細を見る
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+          {(canMembers || canReports || canVehicles) && <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="mb-3 text-sm font-bold text-slate-900">要対応</h2>
+            {badgesApi.error && <p role="alert" className="mb-3 text-xs text-rose-700">件数を読み込めませんでした。<button type="button" onClick={() => { void badgesApi.refresh(); }} className="ml-1 underline">再読込</button></p>}
+            {activeTasks.length === 0 ? <p className="rounded-lg bg-emerald-50 px-3 py-4 text-sm text-emerald-800">対応待ちはありません</p> : <div className="grid gap-2 sm:grid-cols-2">
+              {activeTasks.map((task) => <Link key={task.href} href={task.href} className="flex min-h-14 items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm hover:border-amber-300 hover:bg-amber-50">
+                <FontAwesomeIcon icon={task.icon} className="h-4 w-4 shrink-0 text-slate-500" />
+                <span className="min-w-0 flex-1 font-medium text-slate-800">{task.label}</span>
+                <span className="font-bold tabular-nums text-amber-800">{task.count == null ? "—" : task.count}</span>
+                <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3 text-slate-400" />
+              </Link>)}
+            </div>}
+          </section>}
+          {canShifts && <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="mb-3 text-sm font-bold text-slate-900">今日のシフト</h2>
+            <Link href="/admin/shifts" className="flex min-h-16 items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 hover:border-amber-300 hover:bg-amber-50">
+              <FontAwesomeIcon icon={faCalendar} className="h-4 w-4 text-slate-500" />
+              <span className="flex-1 text-sm text-slate-700">稼働予定</span>
+              <span className="text-lg font-bold tabular-nums text-slate-900">{shiftsApi.error ? "—" : shiftsApi.data ? `${shiftsApi.data.count}人` : "—"}</span>
+              <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3 text-slate-400" />
             </Link>
-          </div>
-          {loading ? (
-            <Skeleton className="h-[140px] w-full" />
-          ) : trend.length === 0 ? (
-            <p className="py-10 text-center text-xs text-slate-400">データがありません</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={140}>
-              <BarChart data={trend} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 10, fill: "#94a3b8" }}
-                  axisLine={false}
-                  tickLine={false}
-                  interval={1}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: "#cbd5e1" }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={48}
-                  tickFormatter={(v) => yenShort(Number(v))}
-                />
-                <Tooltip
-                  cursor={{ fill: "rgba(148,163,184,0.12)" }}
-                  formatter={(v) => [yen(Number(v)), "売上"] as [string, string]}
-                  labelFormatter={(l) => `${l}`}
-                  contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
-                />
-                <Bar dataKey="total" radius={[3, 3, 0, 0]} maxBarSize={28}>
-                  {trend.map((d) => (
-                    <Cell key={d.iso} fill={d.total >= maxTrend ? "#0f2a52" : "#475569"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </section>
-        )}
-
-        {/* 要対応 + 本日のシフト */}
-        {(showAlerts || canShifts) && (
-        <div className="grid gap-4 md:grid-cols-2">
-          {showAlerts && (
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="mb-3 text-[13px] font-semibold text-slate-700">要対応</h2>
-            {loading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-11 w-full" />
-                <Skeleton className="h-11 w-full" />
-              </div>
-            ) : totalAlerts === 0 ? (
-              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-4 text-sm text-emerald-700">
-                <FontAwesomeIcon icon={faCircleCheck} className="h-4 w-4" />
-                対応が必要な項目はありません
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {canVehicles && (oilAlert ?? 0) > 0 && (
-                  <AlertRow
-                    icon={faOilCan}
-                    label="オイル交換が迫っている車両"
-                    count={oilAlert ?? 0}
-                    href="/admin/vehicles"
-                    tone="danger"
-                  />
-                )}
-                {canReports && (
-                  <>
-                    <AlertRow
-                      icon={faFileLines}
-                      label="未承認の報告"
-                      count={dailyUnread ?? 0}
-                      href="/admin/daily"
-                    />
-                    <AlertRow
-                      icon={faOilCan}
-                      label="オイル交換の申請"
-                      count={oilUnread ?? 0}
-                      href="/admin/misc-reports/others"
-                    />
-                  </>
-                )}
-              </div>
-            )}
-          </section>
-          )}
-
-          {canShifts && (
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="mb-3 text-[13px] font-semibold text-slate-700">本日のシフト</h2>
-            <Link
-              href="/admin/shifts"
-              className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 transition-colors hover:bg-slate-50"
-            >
-              <div className="flex items-center gap-3">
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-50 text-sky-600">
-                  <FontAwesomeIcon icon={faCalendar} className="h-4 w-4" />
-                </span>
-                <div>
-                  <div className="text-[11px] text-slate-500">本日の稼働ドライバー</div>
-                  <div className="text-lg font-bold text-slate-900 tabular-nums">
-                    {loading || activeDrivers == null ? "—" : `${activeDrivers} 人`}
-                  </div>
-                </div>
-              </div>
-              <FontAwesomeIcon icon={faChevronRight} className="h-3.5 w-3.5 text-slate-400" />
-            </Link>
-          </section>
-          )}
+            {shiftsApi.error && <p role="alert" className="mt-2 text-xs text-rose-700">シフトを読み込めませんでした。<button type="button" onClick={() => { void shiftsApi.refresh(); }} className="ml-1 underline">再読込</button></p>}
+          </section>}
         </div>
-        )}
-
-        {/* クイックアクセス（権限のある行き先だけ） */}
-        {quickLinks.length > 0 && (
-        <section>
-          <div className="mb-2 text-[11px] font-medium text-slate-500">クイックアクセス</div>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            {quickLinks.map((q) => (
-              <QuickLink key={q.href} href={q.href} label={q.label} icon={q.icon} />
-            ))}
-          </div>
-        </section>
-        )}
       </div>
     </AdminLayout>
-  );
-}
-
-function Kpi({ label, value, sub, loading }: { label: string; value: string; sub?: string; loading: boolean }) {
-  return (
-    <div>
-      <div className="text-[11px] text-slate-500">{label}</div>
-      {loading ? (
-        <Skeleton className="mt-1.5 h-7 w-28" />
-      ) : (
-        <>
-          <div className="mt-1 whitespace-nowrap text-xl font-bold tabular-nums text-slate-900 sm:text-2xl">
-            {value}
-          </div>
-          {sub && <div className="mt-0.5 text-[11px] text-slate-400">{sub}</div>}
-        </>
-      )}
-    </div>
-  );
-}
-
-function AlertRow({
-  icon,
-  label,
-  count,
-  href,
-  tone = "warn",
-}: {
-  icon: IconDefinition;
-  label: string;
-  count: number;
-  href: string;
-  tone?: "warn" | "danger";
-}) {
-  const active = count > 0;
-  const danger = active && tone === "danger";
-  const containerClass = danger
-    ? "border-rose-300 bg-rose-50 hover:bg-rose-100"
-    : active
-      ? "border-amber-300 bg-amber-50 hover:bg-amber-100"
-      : "border-slate-200 hover:bg-slate-50";
-  const iconClass = danger ? "text-rose-500" : active ? "text-amber-500" : "text-slate-400";
-  const labelClass = danger ? "text-rose-800" : active ? "text-amber-800" : "text-slate-600";
-  const badgeClass = danger
-    ? "bg-rose-500 text-white"
-    : active
-      ? "bg-amber-500 text-white"
-      : "bg-slate-100 text-slate-400";
-  return (
-    <Link
-      href={href}
-      className={`flex items-center justify-between rounded-lg border px-3 py-2.5 transition-colors ${containerClass}`}
-    >
-      <span className="flex items-center gap-2.5">
-        <FontAwesomeIcon
-          icon={active ? faTriangleExclamation : icon}
-          className={`h-4 w-4 ${iconClass}`}
-        />
-        <span className={`text-sm font-medium ${labelClass}`}>{label}</span>
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span
-          className={`inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-bold tabular-nums ${badgeClass}`}
-        >
-          {count}
-        </span>
-        <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3 text-slate-300" />
-      </span>
-    </Link>
-  );
-}
-
-function QuickLink({ href, label, icon }: { href: string; label: string; icon: IconDefinition }) {
-  return (
-    <Link
-      href={href}
-      className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-3 text-center text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
-    >
-      <FontAwesomeIcon icon={icon} className="h-4 w-4 text-slate-500" />
-      {label}
-    </Link>
   );
 }

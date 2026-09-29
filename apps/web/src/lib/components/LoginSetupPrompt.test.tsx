@@ -30,12 +30,12 @@ it("未完了なら案内し、自動送信や日報の無効化はしない", a
 });
 it("SMS確認からPasskey登録まで同じ画面で進み、入力を保持する", async () => {
   mount(); fireEvent.click(await screen.findByRole("button", { name: "設定する" }));
-  expect(screen.getByRole("button", { name: "Passkeyを登録する" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "かんたんログインを設定する" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "SMSコードを送る" }));
   fireEvent.change(await screen.findByLabelText("SMS認証コード"), { target: { value: "123456" } });
   fireEvent.click(screen.getByRole("button", { name: "コードを確認する" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "Passkeyを登録する" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Passkeyを登録する" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "かんたんログインを設定する" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "かんたんログインを設定する" }));
   expect(await screen.findByRole("status")).toHaveTextContent("ログイン設定が完了しました");
   expect(m.api).toHaveBeenCalledWith("/api/auth/reauth", { headers: { "x-reauth-token": "sms-proof" } });
   expect(m.register).toHaveBeenCalledWith("sms-proof");
@@ -60,7 +60,7 @@ it("SMS確認失敗ではPasskeyへ進まず、入力したコードを残して
   fireEvent.click(screen.getByRole("button", { name: "コードを確認する" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("認証コードが正しくありません");
   expect(screen.getByLabelText("SMS認証コード")).toHaveValue("000000");
-  expect(screen.getByRole("button", { name: "Passkeyを登録する" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "かんたんログインを設定する" })).toBeDisabled();
   expect(m.register).not.toHaveBeenCalled();
 });
 it("SMS確認済みでも直近の本人確認を経て鍵を登録する。失敗時は完了にしない", async () => {
@@ -70,11 +70,11 @@ it("SMS確認済みでも直近の本人確認を経て鍵を登録する。失�
     ? { recent: false, canUseSms: true, phoneMasked: "下4桁 0001", hasPasskey: false }
     : path === "/api/auth/reauth/verify" ? { reauthToken: "renewed-proof" } : original(path, init));
   mount(); fireEvent.click(await screen.findByRole("button", { name: "設定する" }));
-  fireEvent.click(screen.getByRole("button", { name: "Passkeyを登録する" }));
+  fireEvent.click(screen.getByRole("button", { name: "かんたんログインを設定する" }));
   fireEvent.click(await screen.findByRole("button", { name: "SMSで確認する" }));
   fireEvent.change(await screen.findByLabelText("本人確認のSMS認証コード"), { target: { value: "123456" } });
   fireEvent.click(screen.getByRole("button", { name: "確認して続ける" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Passkeyの登録が完了しませんでした");
+  expect(await screen.findByRole("alert")).toHaveTextContent("かんたんログインの設定が完了しませんでした");
   expect(m.register).toHaveBeenCalledWith("renewed-proof");
   expect(screen.queryByText("ログイン設定が完了しました")).toBeNull();
 });
@@ -84,5 +84,5 @@ it("電話番号なし・Passkey非対応は対処先を案内し、誤った完
   expect(screen.getByText(/電話番号が登録されていません/)).toBeInTheDocument();
   expect(screen.getByText(/SafariやChrome/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "SMSコードを送る" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Passkeyを登録する" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "かんたんログインを設定する" })).toBeNull();
 });

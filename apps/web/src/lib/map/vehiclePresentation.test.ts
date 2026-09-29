@@ -53,22 +53,23 @@ describe("vehicleMapModelFor", () => {
   });
 });
 
-describe("ズーム下限（J-2: 広域では車体を出さない）", () => {
+describe("広域でも車両モデルを表示", () => {
   const at = (zoom: number) =>
     vehicleMapPresentation({ mapWidthPixels: 1440, mapHeightPixels: 800, zoom, latitude: 34.8 });
 
-  it("z13 未満はモデルもリングも出さない", () => {
-    for (const zoom of [8, 10, 12, 12.99]) {
+  it("広域でもモデルとリングを小さく表示する", () => {
+    for (const zoom of [0, 8, 10, 12]) {
       const p = at(zoom);
-      expect(p.modelVisible).toBe(false);
-      expect(p.renderedLengthPixels).toBe(0);
-      expect(p.contrastRadiusPixels).toBe(0);
+      expect(p.modelVisible).toBe(true);
+      expect(p.renderedLengthPixels).toBeGreaterThan(0);
+      expect(p.contrastRadiusPixels).toBeGreaterThan(0);
     }
   });
 
-  it("z13 でちょうど下限の 40px、z15 以上で目標いっぱい", () => {
+  it("広域は小さく、z15 以上で目標いっぱい", () => {
+    expect(at(0).targetLengthPixels).toBeCloseTo(24, 5);
     expect(at(13).modelVisible).toBe(true);
-    expect(at(13).targetLengthPixels).toBeCloseTo(VEHICLE_TARGET_MIN_PIXELS, 5);
+    expect(at(13).targetLengthPixels).toBeGreaterThan(VEHICLE_TARGET_MIN_PIXELS);
     const full = targetVehicleLengthPixels({ mapWidthPixels: 1440, mapHeightPixels: 800 });
     expect(at(15).targetLengthPixels).toBeCloseTo(full, 5);
     expect(at(18).targetLengthPixels).toBeCloseTo(full, 5);
@@ -79,9 +80,9 @@ describe("ズーム下限（J-2: 広域では車体を出さない）", () => {
     for (let i = 1; i < sizes.length; i += 1) expect(sizes[i]).toBeGreaterThan(sizes[i - 1]);
   });
 
-  it("表示・非表示の切り替わりは必ず反映する", () => {
-    expect(presentationChanged(at(12.9), at(13)).scale).toBe(true);
-    expect(presentationChanged(at(13), at(12.9)).contrast).toBe(true);
+  it("ズームに応じたサイズの変更を反映する", () => {
+    expect(presentationChanged(at(12), at(13)).scale).toBe(true);
+    expect(presentationChanged(at(13), at(12)).contrast).toBe(true);
   });
 
   it("札の逃がし量は車体が無くても 0 にしない（ドットと重ならない）", () => {

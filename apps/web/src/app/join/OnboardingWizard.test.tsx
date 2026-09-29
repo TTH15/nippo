@@ -20,16 +20,26 @@ afterEach(cleanup);
 describe("登録再開時のログイン設定", () => {
   it("途中再開でも未登録ならPasskey設定を先に出す", async () => {
     render(<OnboardingWizard adapter={adapterFor(registration())} persistDraft={false} />);
-    expect(await screen.findByRole("button", { name: "Passkeyを登録する" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "設定する" })).toBeEnabled();
     expect(screen.queryByText("郵便番号")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Passkeyを登録する" }));
+    fireEvent.click(screen.getByRole("button", { name: "設定する" }));
     fireEvent.click(await screen.findByRole("button", { name: "次へ" }));
     expect(await screen.findByText("郵便番号")).toBeInTheDocument();
   });
   it("登録済みならPasskeyを再要求せずKYCの続きへ進む", async () => {
     render(<OnboardingWizard adapter={adapterFor(registration({ hasPasskey: true }))} persistDraft={false} />);
     expect(await screen.findByText("郵便番号")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Passkeyを登録する" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "設定する" })).toBeNull();
+  });
+  it("招待経由の申請はPasskey未登録のままKYCへ進めない", async () => {
+    const adapter = adapterFor(registration({ passkeyRequired: true }));
+    vi.mocked(adapter.registerPasskey).mockRejectedValue(new Error("cancelled"));
+    render(<OnboardingWizard adapter={adapter} persistDraft={false} />);
+    expect(await screen.findByText("招待登録を続けるには設定が必要です。")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "この端末では設定できない" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "設定する" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("登録が完了しませんでした");
+    expect(screen.queryByText("郵便番号")).toBeNull();
   });
   it("申請完了後にSMSを選んでもKYCをやり直させない", async () => {
     render(<OnboardingWizard adapter={adapterFor(registration({ complete: true }))} persistDraft={false} />);
@@ -45,6 +55,6 @@ describe("登録再開時のログイン設定", () => {
     render(<OnboardingWizard adapter={adapter} persistDraft={false} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("接続できませんでした");
     fireEvent.click(screen.getByRole("button", { name: "もう一度読み込む" }));
-    expect(await screen.findByRole("button", { name: "Passkeyを登録する" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "設定する" })).toBeEnabled();
   });
 });

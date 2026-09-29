@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DRIVER_SESSION_COLS =
-  "id, name, role, company_code, office_code, driver_code, identity_id, org_id, status, token_version";
+  "id, name, role, company_code, office_code, driver_code, identity_id, org_id, status, token_version, onboarding_requires_passkey";
 
 export async function POST(req: NextRequest) {
   try {
@@ -174,6 +174,18 @@ export async function POST(req: NextRequest) {
       .limit(1)
       .maybeSingle();
     if (dup) {
+      // 有効な単回招待を使って本人確認した既存申請も、以降はPasskey必須で再開する。
+      if (inviteId && !dup.onboarding_requires_passkey) {
+        const { error: requirementError } = await supabase
+          .from("drivers")
+          .update({ onboarding_requires_passkey: true })
+          .eq("id", dup.id)
+          .eq("org_id", org.id);
+        if (requirementError) {
+          console.error("[Join] passkey requirement update error:", requirementError);
+          return NextResponse.json({ error: "申請の更新に失敗しました" }, { status: 500 });
+        }
+      }
       // 申請済みでも OTP 検証は済んでいるので、中断した本登録を再開できるよう
       // セッションを再発行する（pending/active のみ。inactive は稼働終了のため発行しない）。
       const session =
@@ -218,6 +230,7 @@ export async function POST(req: NextRequest) {
         status: "pending",
         name,
         phone,
+        onboarding_requires_passkey: !!inviteId,
       })
       .select(DRIVER_SESSION_COLS)
       .single();

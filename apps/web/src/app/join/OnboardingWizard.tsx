@@ -16,7 +16,7 @@ import { ocrLicenseExpiryFromBase64, prefetchLicenseOcr } from "@/lib/ocr/licens
 // ============================================================
 // 初期登録ウィザード（web 一本化・§2-1a）。認証不要で開始し、SMS 認証後は
 // pending のままセッションを受け取って本登録（KYC）まで一気に完了する。
-// ようこそ(規約同意) → 氏名 → 生年月日 → 電話 → SMS認証 → Passkey（設定できない場合のみSMSで続行）
+// ようこそ(規約同意) → 氏名 → 生年月日 → 電話 → SMS認証 → Passkey
 //   → 免許証 → 顔写真 → 住所 → 申請完了（アプリ導入の案内）
 // 入口は ①単回招待リンク /join?invite=<token>（1回で消費）
 //        ②共有参加コード ?code= / 手入力（口頭伝達フォールバック）。
@@ -42,6 +42,8 @@ export type Reg = {
   complete: boolean;
   kycVerified: boolean;
   hasPasskey?: boolean;
+  /** 新しい単回招待リンク経由の申請は、KYCへ進む前にPasskey登録が必須。 */
+  passkeyRequired?: boolean;
 };
 
 export type JoinPayload = {
@@ -818,6 +820,7 @@ export function OnboardingWizard({
 
             {step === "passkey" && reg && (
               <PasskeySetup verifyIdentity={api === realAdapter} supported={canUsePasskey} register={api.registerPasskey}
+                required={reg.passkeyRequired === true}
                 onContinue={(registered) => {
                   setPasskeyDeferred(!registered);
                   if (registered) setReg((current) => current ? { ...current, hasPasskey: true } : current);
@@ -981,7 +984,7 @@ export function OnboardingWizard({
                     </p>
                   </>
                 )}
-                {passkeyDeferred && <p className="text-sm text-slate-600">ログインにはSMSを使います。Passkeyはマイページで登録できます。</p>}
+                {passkeyDeferred && <p className="text-sm text-slate-600">ログインにはSMSを使います。かんたんログインはマイページで設定できます。</p>}
                 <div className="flex gap-3">
                   <StoreButton icon={faApple} label="App Store" url={APP_STORE_URL} />
                   <StoreButton icon={faGooglePlay} label="Google Play" url={PLAY_STORE_URL} />

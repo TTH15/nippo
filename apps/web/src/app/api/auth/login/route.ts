@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 
     // 古いアプリからのPIN認証も閉じる。本人検索やハッシュ比較を行わない。
     if (loginType === "driver") {
-      return NextResponse.json({ error: "PINログインは終了しました。Passkeyまたは電話番号でログインしてください", code: "PIN_LOGIN_RETIRED" }, { status: 410 });
+      return NextResponse.json({ error: "PINログインは終了しました。かんたんログインまたは電話番号をお使いください", code: "PIN_LOGIN_RETIRED" }, { status: 410 });
     }
 
     // 管理者ログイン: 管理者コード（会社コード3文字+管理者番号） + パスワード

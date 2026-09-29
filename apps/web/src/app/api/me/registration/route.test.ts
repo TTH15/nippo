@@ -1,18 +1,21 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
-const mock = vi.hoisted(() => ({ auth: vi.fn(), from: vi.fn(), eq: vi.fn(), count: 0, error: null as unknown }));
+const mock = vi.hoisted(() => ({ auth: vi.fn(), from: vi.fn(), eq: vi.fn(), count: 0,
+  passkeyRequired: false, error: null as unknown }));
 vi.mock("@/server/auth", () => ({ requireAuth: mock.auth, isAuthError: (value: unknown) => value instanceof NextResponse }));
 vi.mock("@/server/identity", () => ({ resolveIdentityId: async () => "self-identity" }));
 vi.mock("@/server/db/client", () => ({ supabase: { from: mock.from } }));
 import { GET } from "./route";
 const req = () => new NextRequest("http://localhost/api/me/registration");
 beforeEach(() => {
-  vi.clearAllMocks(); mock.count = 0; mock.error = null;
+  vi.clearAllMocks(); mock.count = 0; mock.passkeyRequired = false; mock.error = null;
   mock.auth.mockResolvedValue({ driverId: "self-driver", identityId: "self-identity" });
   mock.from.mockImplementation((table) => {
     const query = { select: () => query, eq: (key: string, value: string) => { mock.eq(table, key, value); return query; },
-      single: async () => ({ data: {} }),
+      single: async () => ({ data: table === "drivers"
+        ? { onboarding_requires_passkey: mock.passkeyRequired }
+        : {} }),
       then: (resolve: (value: unknown) => unknown) => Promise.resolve({ count: mock.count, error: mock.error }).then(resolve),
     };
     return query;
@@ -31,6 +34,10 @@ describe("登録再開時のPasskey状態", () => {
   it("状態取得失敗を未登録と誤認しない", async () => {
     mock.error = { message: "offline" };
     expect((await GET(req())).status).toBe(503);
+  });
+  it("招待経由のPasskey必須状態を再開時に返す", async () => {
+    mock.passkeyRequired = true;
+    expect(await (await GET(req())).json()).toMatchObject({ passkeyRequired: true });
   });
   it("未認証では状態を返さない", async () => {
     mock.auth.mockResolvedValue(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));

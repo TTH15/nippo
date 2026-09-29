@@ -3,10 +3,10 @@ import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 export const loginFixture: PreviewFixture<Record<string, never>> = {
   id: "login", title: "ログイン", pathname: "/login",
   scenarios: {
-    normal: { label: "通常", description: "架空のPasskeyでログインする" },
+    normal: { label: "通常", description: "架空のかんたんログインを使う" },
     inactive: { label: "利用停止", description: "停止済みの人の再ログインを拒否する" },
     changed: { label: "権限変更後", description: "新しくログインすると利用を再開できる" },
-    pinless: { label: "招待ユーザー", description: "PIN欄を表示せずPasskeyとSMSを案内する" },
+    pinless: { label: "招待ユーザー", description: "PIN欄を表示せず、かんたんログインとSMSを案内する" },
   },
   createState: () => ({}),
   read: () => undefined,

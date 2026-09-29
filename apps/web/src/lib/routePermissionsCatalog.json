@@ -1,0 +1,1916 @@
+[
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/account",
+    "description": "アカウントの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/attendance",
+    "description": "指定日の勤怠（車両セッション）一覧。出退勤・稼働時間・メーター・GPS状態・打刻手段・承認状態",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/attendance/[id]",
+    "description": "manual打刻の承認/却下（§8.5）。pending のセッションのみ対象",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/badges",
+    "description": "管理メニューのバッジ件数をまとめて返す統合エンドポイント",
+    "guard": "いずれか [ can_view_reports, can_view_vehicles, can_view_members, ]"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/carriers",
+    "description": "キャリア一覧（units / unit_fields をネストして返す）。当 org が有効化したキャリアのみ",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/carriers",
+    "description": "キャリア追加",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/carriers/[id]",
+    "description": "キャリア削除（依存があればハード削除を拒否し、無効化を促す）",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/carriers/[id]",
+    "description": "キャリア更新（name / code / sort_order / active）",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/counterparties/[id]/billing-detail",
+    "description": "取引先・請求明細の取得",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/counterparties/[id]/custom-lines/[lineId]",
+    "description": "取引先・調整行の一部更新",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/counterparties/[id]/line-label",
+    "description": "取引先・行名の一部更新",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/counterparties/[id]/merge-lines",
+    "description": "取引先・行統合の作成・送信",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/counterparties/[id]/merged-lines/[mergeId]",
+    "description": "取引先・統合行の削除",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/counterparties/[id]/merged-lines/[mergeId]",
+    "description": "取引先・統合行の一部更新",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/counterparties/[id]/month-lines",
+    "description": "取引先・月別明細の更新",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/counterparties/summary",
+    "description": "取引先・集計の取得",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/course-billing",
+    "description": "?course_id=... → そのコースのキャリア配下 unit と現単価",
+    "guard": "いずれか [can_view_billing, can_manage_courses]"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/course-billing",
+    "description": "単価保存（新テーブル upsert ＋ 旧 course_rates 同期）",
+    "guard": "いずれか [can_manage_billing, can_manage_courses]"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/course-rates",
+    "description": "全コースの単価",
+    "guard": "いずれか [can_view_billing, can_manage_courses]"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/course-rates",
+    "description": "コース単価を更新",
+    "guard": "いずれか [can_manage_billing, can_manage_courses]"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/course-report-fields",
+    "description": "コース報告項目の取得",
+    "guard": "いずれか [can_view_billing, can_manage_courses]"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/course-report-fields",
+    "description": "コース報告項目の更新",
+    "guard": "いずれか [can_manage_billing, can_manage_courses]"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/courses",
+    "description": "全コース一覧",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/courses",
+    "description": "コース並べ替え",
+    "guard": "can_manage_courses"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/courses",
+    "description": "コース追加",
+    "guard": "can_manage_courses"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/courses/[id]",
+    "description": "コース削除",
+    "guard": "can_manage_courses"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/courses/[id]",
+    "description": "コース名・色の更新",
+    "guard": "can_manage_courses"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/courses/[id]/cycles",
+    "description": "コース・便の取得",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/courses/[id]/cycles",
+    "description": "コース・便の更新",
+    "guard": "can_manage_courses"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/courses/[id]/drivers",
+    "description": "コース・ドライバーの取得",
+    "guard": "いずれか [...[can_manage_courses, can_manage_members]]"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/courses/[id]/drivers",
+    "description": "担当ドライバーを一括更新。{ driverIds: string[] }",
+    "guard": "いずれか [...[can_manage_courses, can_manage_members]]"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/daily",
+    "description": "日報の取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/daily/all",
+    "description": "日報・全件の取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/daily/approve",
+    "description": "日報を承認",
+    "guard": "can_edit_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/daily/day-summary",
+    "description": "日報・日別集計の取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/daily/day-summary-range",
+    "description": "日報・期間集計の取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/daily/pending",
+    "description": "日報・pendingの取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/daily/reject",
+    "description": "日報を差戻し",
+    "guard": "can_edit_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/daily/report-form",
+    "description": "日報・日報フォームの取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/daily/reports/[id]",
+    "description": "日報・日報の更新",
+    "guard": "can_edit_reports"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/daily/reports/proxy",
+    "description": "日報・日報・代理入力の作成・送信",
+    "guard": "can_edit_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/daily/unread-count",
+    "description": "日報・未読件数の取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/driver-ad-hoc-expenses",
+    "description": "指定ドライバー・月の臨時経費一覧",
+    "guard": "can_view_rewards"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/driver-ad-hoc-expenses",
+    "description": "臨時経費を1件追加",
+    "guard": "can_manage_rewards"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/driver-ad-hoc-expenses/[id]",
+    "description": "臨時経費を削除",
+    "guard": "can_manage_rewards"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/driver-ad-hoc-expenses/[id]",
+    "description": "臨時経費を更新",
+    "guard": "can_manage_rewards"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/driver-expenses",
+    "description": "ドライバーごとの固定経費一覧",
+    "guard": "can_view_rewards"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/driver-expenses",
+    "description": "固定経費の新規登録",
+    "guard": "can_manage_rewards"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/driver-expenses/[id]",
+    "description": "固定経費の削除",
+    "guard": "can_manage_rewards"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/driver-expenses/[id]",
+    "description": "固定経費の更新",
+    "guard": "can_manage_rewards"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/driver-lease",
+    "description": "ドライバーリースの取得",
+    "guard": "いずれか [can_view_rewards, can_manage_rewards]"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/driver-lease",
+    "description": "ドライバーリースの更新",
+    "guard": "can_manage_rewards"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/driver-rewards",
+    "description": "ドライバー報酬の取得",
+    "guard": "can_view_rewards"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/events",
+    "description": "イベント一覧",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/events",
+    "description": "イベント作成",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/events/[id]",
+    "description": "イベント削除（FK CASCADE で teams/members/points も削除）",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/events/[id]",
+    "description": "イベント詳細（teams / members / 採点UI用の drivers を同梱）",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/events/[id]",
+    "description": "イベント更新（名称/説明/期間/status/採点ルール）",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/events/[id]/members",
+    "description": "ドライバーをイベントのチームから外す",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/events/[id]/members",
+    "description": "ドライバーをチームへ割当（移動も兼ねる。1イベント1ドライバー1チーム）",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/events/[id]/points",
+    "description": "手動ポイント一覧（source='manual'）",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/events/[id]/points",
+    "description": "手動ポイント追加（個人 or チーム）",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/events/[id]/points/[entryId]",
+    "description": "手動ポイント削除",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/events/[id]/ranking",
+    "description": "ランキング（期間内の日報を採点ルールでライブ計算 + 手動加点）",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/events/[id]/teams",
+    "description": "チーム追加",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/events/[id]/teams/[teamId]",
+    "description": "チーム削除（メンバーは CASCADE、points.team_id は SET NULL）",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/events/[id]/teams/[teamId]",
+    "description": "チーム更新（名前/色/並び）",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/invites",
+    "description": "invitesの取得",
+    "guard": "can_view_members"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/invites",
+    "description": "invitesの作成・送信",
+    "guard": "can_approve_members"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/invites/[id]",
+    "description": "単回招待の失効（revoked_at を刻む）。org ガード。使用済みはそのまま（履歴保持）",
+    "guard": "can_approve_members"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/invoice-addresses",
+    "description": "法人アドレス一覧（会社コードでフィルタ）",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/invoice-addresses",
+    "description": "法人アドレス新規登録",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/invoice-addresses/[id]",
+    "description": "法人アドレス削除",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/invoice-addresses/[id]",
+    "description": "法人アドレス更新",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/invoice-principal",
+    "description": "invoice principalの取得",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/invoices",
+    "description": "請求書の取得",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/invoices",
+    "description": "請求書の作成・送信",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/invoices/[id]",
+    "description": "請求書の削除",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/invoices/[id]",
+    "description": "請求書の取得",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/invoices/[id]",
+    "description": "請求書の一部更新",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/invoices/[id]/staleness",
+    "description": "請求書・stalenessの取得",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/invoices/attachments",
+    "description": "請求書・attachmentsの作成・送信",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/invoices/draft",
+    "description": "請求書・draftの取得",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/invoices/from-source",
+    "description": "請求書・from sourceの作成・送信",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/join-code",
+    "description": "当 org の現在の参加コードを返す",
+    "guard": "can_view_members"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/join-code",
+    "description": "参加コードの作成・送信",
+    "guard": "can_manage_members"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/map/course-areas",
+    "description": "地図に重ねるためのコース一覧（色付き）。エリア未設定のコースも返す",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/map/course-areas/[id]",
+    "description": "地図・course areasの削除",
+    "guard": "can_manage_courses"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/map/course-areas/[id]",
+    "description": "地図・course areasの更新",
+    "guard": "can_manage_courses"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/map/movements",
+    "description": "地図・movementsの取得",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/map/movements",
+    "description": "地図・movementsの一部更新",
+    "guard": "can_dispatch"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/map/movements",
+    "description": "地図・movementsの作成・送信",
+    "guard": "can_dispatch"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/map/parking-slots",
+    "description": "地図・parking slotsの取得",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/map/parking-slots",
+    "description": "地図・parking slotsの作成・送信",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/map/parking-slots/[id]",
+    "description": "地図・parking slotsの削除",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/map/parking-slots/[id]",
+    "description": "地図・parking slotsの一部更新",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/map/places",
+    "description": "地図（ベータ）の拠点ピン一覧",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/map/places",
+    "description": "拠点ピンを追加 { name, lat, lng, icon, radiusM?, allowParking? }",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/map/places/[id]",
+    "description": "拠点ピンを削除（自テナントのもののみ）",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/map/places/[id]",
+    "description": "拠点の編集（名称・種別・位置・範囲・日報の置き場所の候補に出すか）",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/map/positions",
+    "description": "地図上で車両をドラッグして置いた位置を記録する（source='manual'）",
+    "guard": "can_dispatch"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/map/share-session",
+    "description": "地図・share sessionの取得",
+    "guard": "cap as Parameters<typeof requirePermission>[1]"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/map/vehicles",
+    "description": "地図・車両の取得",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/misc-reports/oil-change",
+    "description": "misc reports・oil changeの取得",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/misc-reports/oil-change/approve",
+    "description": "misc reports・oil changeを承認",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/misc-reports/oil-change/reject",
+    "description": "misc reports・oil changeを差戻し",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/misc-reports/oil-change/unread-count",
+    "description": "misc reports・oil change・未読件数の取得",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/monthly",
+    "description": "monthlyの取得",
+    "guard": "can_view_rewards"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/notifications",
+    "description": "配信対象になりうるメンバーと LINE 連携状況の一覧＋直近の送信履歴",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/notifications/broadcast",
+    "description": "通知・broadcastの作成・送信",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/notifications/chats",
+    "description": "通知・chatsの取得",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/notifications/chats/[driverId]",
+    "description": "通知・chatsの取得",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/notifications/chats/[driverId]",
+    "description": "inbound の既読化。GET の副作用として毎ポーリング書き込んでいたのを分離した",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/notifications/chats/[driverId]",
+    "description": "通知・chatsの作成・送信",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/notifications/quota",
+    "description": "通知・quotaの取得",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/notifications/settings",
+    "description": "通知・settingsの取得",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/notifications/settings",
+    "description": "通知・settingsの更新",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/notifications/undelivered",
+    "description": "通知・undeliveredの取得",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/notifications/undelivered",
+    "description": "通知・undeliveredの作成・送信",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/oil-forecast",
+    "description": "oil forecastの取得",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/org/vehicle-colors",
+    "description": "会社設定・車両色の削除",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/org/vehicle-colors",
+    "description": "会社設定・車両色の取得",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/org/vehicle-colors",
+    "description": "会社設定・車両色の作成・送信",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/organization-settings",
+    "description": "organization settingsの取得",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/organization-settings",
+    "description": "organization settingsの更新",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/payments",
+    "description": "支払の取得",
+    "guard": "can_view_rewards"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/payments/driver-breakdown",
+    "description": "支払・driver breakdownの取得",
+    "guard": "can_view_rewards"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/photo-capture-tasks",
+    "description": "撮影項目の取得",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/photo-capture-tasks",
+    "description": "撮影項目の更新",
+    "guard": "can_manage_org_settings"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/report-image-templates",
+    "description": "report image templatesの削除",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/report-image-templates",
+    "description": "report image templatesの取得",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/report-image-templates",
+    "description": "report image templatesの一部更新",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/report-image-templates",
+    "description": "report image templatesの作成・送信",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/report-image-templates/sample",
+    "description": "report image templates・sampleの取得",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/report-image-templates/sample",
+    "description": "report image templates・sampleの作成・送信",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/report-kinds",
+    "description": "全種別（管理画面の設定用）",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/report-kinds",
+    "description": "種別を追加（フォームビルダー: fields/vehicleMode）",
+    "guard": "can_manage_report_kinds"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/report-kinds/[id]",
+    "description": "種別を削除。既存の報告データは text の report_kind を保持（ラベルはキー表示にフォールバック）",
+    "guard": "can_manage_report_kinds"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/report-kinds/[id]",
+    "description": "種別を更新（key は不変＝既存報告との対応を保つ）",
+    "guard": "can_manage_report_kinds"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/report-source-images",
+    "description": "report source imagesの取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/report-source-images/file",
+    "description": "report source images・fileの取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/reports-summary",
+    "description": "reports summaryの取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/reports/source-images",
+    "description": "日報・原票画像の取得",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/roles",
+    "description": "ロールの取得",
+    "guard": "can_view_members"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/roles",
+    "description": "ロールの並べ替え（{ order: roleId[] }）。org 内の全ロールを対象に 0,10,20… で振り直す",
+    "guard": "can_manage_members"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/roles",
+    "description": "ロールの作成・送信",
+    "guard": "can_manage_members"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/roles/[id]",
+    "description": "ロールの削除",
+    "guard": "can_manage_members"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/roles/[id]",
+    "description": "ロールの一部更新",
+    "guard": "can_manage_members"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/sales",
+    "description": "salesの取得",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/sales/log",
+    "description": "期間内のログ明細（種別名・ドライバー名・車両ラベル付き）",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/sales/log",
+    "description": "1件追加",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/sales/log/[id]",
+    "description": "sales・logの削除",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/sales/log/[id]",
+    "description": "sales・logの一部更新",
+    "guard": "can_manage_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/sales/log/types",
+    "description": "種別一覧",
+    "guard": "いずれか [can_view_billing, can_view_org_settings]"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/sales/log/types",
+    "description": "種別を追加",
+    "guard": "いずれか [can_manage_billing, can_manage_org_settings]"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/sales/reports",
+    "description": "sales・日報の取得",
+    "guard": "can_view_billing"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shift-deadlines",
+    "description": "ルール一覧 + ドライバー一覧",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/shift-deadlines",
+    "description": "ルールを全置換で保存",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shift-slots",
+    "description": "便一覧 + ドライバー一覧",
+    "guard": "いずれか [can_view_shifts, can_view_org_settings]"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/shift-slots",
+    "description": "便マスタ＋割り当てを保存",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shifts",
+    "description": "指定期間のシフト取得",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/shifts",
+    "description": "シフト登録/更新",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/shifts/driver-order",
+    "description": "シフト・driver orderの一部更新",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/shifts/import",
+    "description": "シフト表ファイル（PDF/画像）を AI で読み取り、",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/shifts/import/apply",
+    "description": "AI 取り込みで確定した割当を shifts に一括登録する",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shifts/import/batches",
+    "description": "直近の取り込みバッチ一覧（取り消し UI 用）",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/shifts/import/batches/[id]/revert",
+    "description": "取り込みバッチの取り消し",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shifts/memo",
+    "description": "シフト・memoの取得",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/shifts/memo",
+    "description": "シフト・memoの更新",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shifts/memo/board",
+    "description": "シフト・memo・boardの取得",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/shifts/memo/board",
+    "description": "シフト・memo・boardの一部更新",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/shifts/memo/reflect",
+    "description": "シフト・memo・reflectの作成・送信",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shifts/pending-changes",
+    "description": "シフト・pending changesの取得",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/shifts/pending-changes",
+    "description": "シフト・pending changesの作成・送信",
+    "guard": "can_send_notifications"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shifts/readiness",
+    "description": "シフト・readinessの取得",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shifts/readiness-settings",
+    "description": "シフト・readiness settingsの取得",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/shifts/readiness-settings",
+    "description": "シフト・readiness settingsの更新",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/shifts/requests/[id]",
+    "description": "シフト・申請の削除",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shifts/requests/history",
+    "description": "指定ドライバー×日付の希望休 変更履歴（時系列）。運営UIの初回提出/最終変更表示用",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shifts/requirements",
+    "description": "シフト・requirementsの取得",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/shifts/requirements",
+    "description": "シフト・requirementsの更新",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/shifts/times",
+    "description": "シフト行の時間・集合場所の個別上書き（A2 時間モデル）",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/shifts/vehicle",
+    "description": "シフト行への車両割当（配車）。シフト編集（can_manage_shifts）から独立した",
+    "guard": "can_dispatch"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/shifts/vehicle-loans",
+    "description": "車両の日毎の貸出中を設定/解除（loaned で切替）",
+    "guard": "いずれか [can_dispatch, can_manage_vehicles]"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/spot-jobs",
+    "description": "単発案件一覧＋参加者ピッカー候補",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/spot-jobs",
+    "description": "単発案件を作成（参加者込み）",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/spot-jobs/[id]",
+    "description": "単発案件を削除（参加者は CASCADE で消える）",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/spot-jobs/[id]",
+    "description": "単発案件の編集。members を渡すと参加者を丸ごと置き換える",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/spot-jobs/guests",
+    "description": "ゲストメンバーを作成 { name }",
+    "guard": "can_manage_shifts"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/submit-screen",
+    "description": "設定 ＋ 設定UI用の drivers / carriers→units→fields",
+    "guard": "can_view_org_settings"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/submit-screen",
+    "description": "設定を保存",
+    "guard": "can_manage_submit_screen"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/unit-fields",
+    "description": "報告フィールド追加",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/unit-fields/[id]",
+    "description": "報告フィールド削除（report_entries は field_key 文字列参照のため FK 連鎖なし）",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/unit-fields/[id]",
+    "description": "報告フィールド更新",
+    "guard": "can_manage_carriers"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/units",
+    "description": "unit 追加",
+    "guard": "いずれか [can_manage_carriers, can_manage_courses]"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/units/[id]",
+    "description": "unit 削除（単価/報告で利用中ならハード削除を拒否）",
+    "guard": "いずれか [can_manage_carriers, can_manage_courses]"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/units/[id]",
+    "description": "unit 更新",
+    "guard": "いずれか [can_manage_carriers, can_manage_courses]"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/users",
+    "description": "全ドライバー一覧（コース情報含む）",
+    "guard": "can_view_members"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/users",
+    "description": "新規ドライバー追加",
+    "guard": "can_manage_members"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/users/[id]",
+    "description": "ドライバー削除",
+    "guard": "can_manage_members"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/users/[id]",
+    "description": "ドライバー詳細（編集用）",
+    "guard": "can_view_members"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/users/[id]",
+    "description": "ドライバー更新",
+    "guard": "can_manage_members"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/users/[id]/kyc",
+    "description": "メンバー・kycの取得",
+    "guard": "can_view_pii"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/users/[id]/kyc-check",
+    "description": "メンバー・kyc checkの作成・送信",
+    "guard": "can_view_pii"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/users/[id]/phone",
+    "description": "メンバー・phoneの削除",
+    "guard": "can_manage_members"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/users/[id]/verify-kyc",
+    "description": "メンバー・verify kycの作成・送信",
+    "guard": "can_approve_members"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/users/license-alert-count",
+    "description": "運転免許証の更新が迫っている（接近 or 期限切れ）ドライバーの人数（互換維持）",
+    "guard": "can_view_members"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/users/pending-count",
+    "description": "参加承認待ち（status='pending'）の申請件数（互換維持）",
+    "guard": "can_view_members"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/vehicle-qr/activate",
+    "description": "貼付確認（有効化）。車両に貼ったQRを ADMIN が実機スキャンし、",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/vehicle-qr/bulk",
+    "description": "複数車両のQRを一括 get-or-create（冪等）してラベル用データを返す",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/vehicles",
+    "description": "車両一覧。?limit=&cursor=（cursor は offset）でページング",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/vehicles",
+    "description": "車両追加",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/vehicles/[id]",
+    "description": "車両削除",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/vehicles/[id]",
+    "description": "車両情報更新",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/vehicles/[id]/detail",
+    "description": "車両・detailの取得",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/vehicles/[id]/meter-logs",
+    "description": "車両・meter logsの取得",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/vehicles/[id]/qr",
+    "description": "この車両の現在のQR（非revoked）を返す。ラベル印刷/状態表示用",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/vehicles/[id]/qr",
+    "description": "QR発行/再発行。再発行は既存QRを即失効させるため confirm を必須にする（§8.4）",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/vehicles/[id]/recovery",
+    "description": "1車両の初期費用回収の内訳（繰越＋自動カレンダー月＋日額自動計上＋手動行）",
+    "guard": "can_view_vehicle_cost"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/vehicles/[id]/recovery-collected",
+    "description": "特定月の回収済みマークを更新（collected: true でマーク、日付記録 / false で解除）",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/admin/vehicles/[id]/recovery-entries",
+    "description": "?entry_id= で手動回収行を削除",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/vehicles/[id]/recovery-entries",
+    "description": "月に紐づく手動回収行を追加",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/vehicles/check-number",
+    "description": "車両・check numberの取得",
+    "guard": "can_manage_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/vehicles/oil-alert-count",
+    "description": "オイル交換が迫っている（接近 or 要交換）車両の台数（互換維持）",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/vehicles/recovery",
+    "description": "全車両の回収済み額・残額（回収v2の集計だけを返す軽量エンドポイント）",
+    "guard": "can_view_vehicles"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/apply",
+    "description": "applyの作成・送信",
+    "guard": "公開応募。入力検証・レート制限を個別確認"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/login",
+    "description": "認証・loginの作成・送信",
+    "guard": "公開ログイン。資格情報を検証"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/auth/reauth",
+    "description": "認証・reauthの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/reauth/options",
+    "description": "認証・reauth・optionsの作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/reauth/verify",
+    "description": "認証・reauthを検証",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/recover/verify",
+    "description": "認証・recoverを検証",
+    "guard": "公開のアカウント復旧。復旧コード等を検証"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/auth/session",
+    "description": "現在のトークンの持ち主について、DB上の最新ロール・capabilityでセッションを再発行する",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/webauthn/login/options",
+    "description": "認証・webauthn・login・optionsの作成・送信",
+    "guard": "公開のPasskeyログイン開始。チャレンジを発行"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/webauthn/login/verify",
+    "description": "認証・webauthn・loginを検証",
+    "guard": "公開のPasskeyログイン。署名とチャレンジを検証"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/webauthn/register/options",
+    "description": "認証・webauthn・register・optionsの作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/webauthn/register/verify",
+    "description": "認証・webauthn・registerを検証",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/cron/daily-notifications",
+    "description": "定期処理・daily notificationsの取得",
+    "guard": "CRON_SECRETで認証する定期処理"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/join",
+    "description": "参加の作成・送信",
+    "guard": "公開の会社参加。招待コードと登録内容を検証"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/join/lookup",
+    "description": "参加・lookupの取得",
+    "guard": "公開の参加コード照会。コードを検証"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/line/webhook",
+    "description": "LINE・Webhookの作成・送信",
+    "guard": "LINE署名を検証する外部Webhook"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/me/bonus-seen",
+    "description": "ボーナス付与演出を表示したので既読時刻を now() に進める",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/form-notice",
+    "description": "本人・form noticeの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/invoices",
+    "description": "本人・請求書の取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/invoices/[id]",
+    "description": "本人・請求書の取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/me/invoices/[id]/approve",
+    "description": "本人・請求書を承認",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/me/line",
+    "description": "本人・LINEの削除",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/line",
+    "description": "連携状態（未連携/連携済み/ブロック中）",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/me/line",
+    "description": "本人・LINEの作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/login-setup",
+    "description": "本人・login setupの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/notifications",
+    "description": "本人・通知の取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/me/notifications",
+    "description": "本人・通知の一部更新",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/optional-expenses",
+    "description": "指定月の自由経費一覧",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/me/optional-expenses",
+    "description": "自由経費を1件追加",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/me/optional-expenses/[id]",
+    "description": "自由経費を削除",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/me/optional-expenses/[id]",
+    "description": "自由経費を更新",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/me/passkeys",
+    "description": "本人・passkeysの削除",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/passkeys",
+    "description": "本人・passkeysの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/me/phone/send",
+    "description": "本人・phoneを送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/me/phone/verify",
+    "description": "本人・phoneを検証",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/me/push",
+    "description": "本人・pushの削除",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/push",
+    "description": "公開鍵と、この端末が購読済みかの判定材料",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/me/push",
+    "description": "本人・pushの作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/registration",
+    "description": "本登録の現在状態（プリフィル＋完了判定）",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/me/registration",
+    "description": "本登録のテキスト項目を「部分更新」で保存（ウィザードのステップごと）",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/me/registration/photo",
+    "description": "本人・registration・photoの作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/report-form",
+    "description": "本人・日報フォームの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/report-image-templates",
+    "description": "本人・report image templatesの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/report-kinds",
+    "description": "本人・報告種別の取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/rewards",
+    "description": "本人・報酬の取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/shift-confirmations",
+    "description": "本人・shift confirmationsの取得",
+    "guard": "範囲 { own: own_view_shifts, any: can_view_shifts }"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/me/shift-confirmations",
+    "description": "本人・shift confirmationsの作成・送信",
+    "guard": "範囲 { own: own_view_shifts, any: can_view_shifts }"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/shift-deadline-reminder",
+    "description": "本人・shift deadline reminderの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/shifts",
+    "description": "本人・シフトの取得",
+    "guard": "範囲 { own: own_view_shifts, any: can_view_shifts, }"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/submit-screen",
+    "description": "本人・submit screenの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/me/team-status",
+    "description": "本人・team statusの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/otp/send",
+    "description": "認証コードを送信",
+    "guard": "認証コード送信。送信先・レート制限を検証"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/platform/applications",
+    "description": "platform・applicationsの取得",
+    "guard": "プラットフォーム運営者限定"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/platform/applications/[id]",
+    "description": "platform・applicationsの一部更新",
+    "guard": "プラットフォーム運営者限定"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/platform/orgs",
+    "description": "platform・orgsの取得",
+    "guard": "プラットフォーム運営者限定"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/record-forms",
+    "description": "記録フォームの取得",
+    "guard": "認証＋フォームごとの閲覧範囲。管理はcan_manage_record_forms"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/record-forms",
+    "description": "記録フォームの作成・送信",
+    "guard": "can_manage_record_forms"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/record-forms/[formId]",
+    "description": "記録フォームの更新",
+    "guard": "can_manage_record_forms"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/record-forms/[formId]/records",
+    "description": "記録フォーム・記録の取得",
+    "guard": "認証＋フォームごとの閲覧範囲"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/record-forms/[formId]/records",
+    "description": "記録フォーム・記録の作成・送信",
+    "guard": "認証＋フォームごとの提出/管理範囲"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/record-forms/[formId]/records/[recordId]",
+    "description": "記録フォーム・記録の取得",
+    "guard": "認証＋フォーム・記録ごとの閲覧範囲"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/record-forms/[formId]/records/[recordId]",
+    "description": "記録フォーム・記録の一部更新",
+    "guard": "認証＋フォーム・記録ごとの編集範囲"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/reports",
+    "description": "日報の作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/reports/attachments",
+    "description": "日報・attachmentsの作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/day",
+    "description": "日報・dayの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/me",
+    "description": "日報・本人の取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/monthly-totals",
+    "description": "日報・monthly totalsの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/reports/oil-change",
+    "description": "日報・oil changeの作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/parking-places",
+    "description": "日報の「車の置き場所」で選べる登録車庫と区画（ドライバー向け・自社の候補だけ）",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/profile",
+    "description": "日報・profileの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/reports/profile",
+    "description": "日報・profileの一部更新",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/source-images",
+    "description": "日報・原票画像の取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/reports/source-images",
+    "description": "日報・原票画像の作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/source-images/readings",
+    "description": "日報・原票画像・readingsの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/reports/source-images/readings",
+    "description": "日報・原票画像・readingsの作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/today-reward",
+    "description": "日報・today rewardの取得",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/reports/v2",
+    "description": "日報・v2の作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/vehicle-preference",
+    "description": "ドライバーの最終選択車両",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/reports/vehicle-preference",
+    "description": "ドライバーの最終選択車両を保存",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/vehicles",
+    "description": "ドライバーが選択可能な車両一覧",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/vehicles-unlinked",
+    "description": "現在のドライバーに紐付けられていない車両一覧（他ドライバーに紐付いている可能性あり）",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/shifts/deadlines",
+    "description": "指定月(YYYY-MM)の、そのドライバーの提出期間と締切・ロック状態を返す",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/shifts/requests",
+    "description": "自分の希望休一覧（便付き）＋ 自分が使う便",
+    "guard": "範囲 { own: own_manage_shift_requests, any: can_view_shifts, }"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/shifts/requests",
+    "description": "希望休の一括登録（month + offEntries[/offDates]）または単体（date + isOff）",
+    "guard": "範囲 { own: own_manage_shift_requests, any: can_manage_shifts, }"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/vehicle-qr/resolve",
+    "description": "ドライバーが車両QRをスキャンしたときの解決",
+    "guard": "認証＋会社所属"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/work/check-in",
+    "description": "出勤打刻（チェックイン）。車両QRが先頭（§2）",
+    "guard": "認証＋会社所属"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/work/check-out",
+    "description": "退勤打刻（チェックアウト）。★QRは最後（§3-0）",
+    "guard": "認証＋会社所属"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/work/inspection-photo",
+    "description": "車両点検写真（前後左右4方向）を非公開 Storage にアップロードし、保存パスを返す",
+    "guard": "認証＋会社所属"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/work/location",
+    "description": "稼働・位置情報の取得",
+    "guard": "認証＋会社所属＋本人の稼働セッション"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/work/location",
+    "description": "稼働・位置情報の作成・送信",
+    "guard": "認証＋会社所属＋本人の稼働セッション"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/work/meter-photo",
+    "description": "メーター写真を非公開 Storage にアップロードし、保存パスを返す",
+    "guard": "認証＋会社所属"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/work/parking",
+    "description": "稼働・駐車の作成・送信",
+    "guard": "認証＋会社所属"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/work/photo-capture-tasks",
+    "description": "稼働・撮影項目の取得",
+    "guard": "認証＋会社所属"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/work/plate-photo",
+    "description": "QRが読めない時の退避ルート（vehicle-session-flow §8.5）で撮るナンバープレート写真を",
+    "guard": "認証＋会社所属"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/work/today",
+    "description": "ドライバーの当日の業務状態。アプリ復帰時の同期に使う",
+    "guard": "認証＋会社所属"
+  }
+]

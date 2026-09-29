@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     const { data: credentials, error } = await supabase.from("passkey_credentials")
       .select("credential_id").eq("identity_id", user.identityId);
     if (error) throw error;
-    if (!credentials?.length) return NextResponse.json({ error: "登録済みのPasskeyがありません" }, { status: 409 });
+    if (!credentials?.length) return NextResponse.json({ error: "かんたんログインが設定されていません" }, { status: 409 });
     const options = await generateAuthenticationOptions({ rpID: rpConfig().rpID, userVerification: "required",
       allowCredentials: credentials.map((c) => ({ id: c.credential_id as string })) });
     const challengeToken = await createChallengeToken({ challenge: options.challenge, purpose: "reauth",

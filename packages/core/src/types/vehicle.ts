@@ -42,4 +42,7 @@ export type ShiftVehicle = {
   number_numeric: string | null;
   manufacturer: string | null;
   brand: string | null;
+  plate_color?: PlateColor | string | null;
+  is_unavailable?: boolean | null;
+  unavailable_reason?: string | null;
 };

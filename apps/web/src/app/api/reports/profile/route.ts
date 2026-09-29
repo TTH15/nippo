@@ -81,5 +81,5 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
-  return NextResponse.json({ error: "PINの変更は終了しました。PasskeyまたはSMSでログインしてください", code: "PIN_LOGIN_RETIRED" }, { status: 410 });
+  return NextResponse.json({ error: "PINの変更は終了しました。かんたんログインまたはSMSをお使いください", code: "PIN_LOGIN_RETIRED" }, { status: 410 });
 }

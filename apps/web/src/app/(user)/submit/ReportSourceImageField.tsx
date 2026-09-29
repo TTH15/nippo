@@ -101,6 +101,7 @@ export default function ReportSourceImageField({
   const { data: templateData } = useApi<TemplatesResponse>("/api/me/report-image-templates");
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [review, setReview] = useState<Review | null>(null);
   const [saving, setSaving] = useState(false);
@@ -154,6 +155,10 @@ export default function ReportSourceImageField({
 
   const handleFile = async (file: File) => {
     setError(null);
+    if (file.type !== "image/jpeg" && file.type !== "image/png") {
+      setError("PNGまたはJPEGの画像を選んでください");
+      return;
+    }
     if (file.size > MAX_BYTES) {
       setError(`画像は${Math.floor(MAX_BYTES / (1024 * 1024))}MBまでです`);
       return;
@@ -329,7 +334,28 @@ export default function ReportSourceImageField({
   };
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4" aria-label="配完表の画像">
+    <section
+      className={`rounded-lg border bg-white p-4 transition-colors ${dragging ? "border-amber-500 bg-amber-50" : "border-slate-200"}`}
+      aria-label="配完表の画像"
+      onDragEnter={(event) => {
+        if (event.dataTransfer.types.includes("Files")) {
+          event.preventDefault();
+          setDragging(true);
+        }
+      }}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragging(false);
+        const file = event.dataTransfer.files[0];
+        if (file && !busy) void handleFile(file);
+      }}
+    >
       <div className="mb-2 flex items-center gap-2">
         <FontAwesomeIcon icon={faImage} className="h-3.5 w-3.5 text-slate-400" />
         <h3 className="text-sm font-medium text-slate-800">配完表の画像</h3>
@@ -370,6 +396,7 @@ export default function ReportSourceImageField({
       >
         {busy ?? (canRead ? "画像から入力" : images.length > 0 ? "画像を追加" : "画像を選ぶ")}
       </Button>
+      <p className="mt-2 text-center text-xs text-slate-500">スクリーンショットをここにドロップ</p>
 
       {filled.length > 0 && (
         <p className="mt-2 text-xs text-emerald-700">

@@ -27,4 +27,23 @@ export type MeShift = {
   course_color: string | null;
   slot: number;
   vehicle: ShiftVehicle | null;
+  course_full_name?: string | null;
+  cycle_label?: string | null;
+  meeting_place?: string | null;
+  meeting_time?: string | null;
+  end_time?: string | null;
+  uses_external_vehicle?: boolean;
+  vehicle_unavailable?: boolean;
+};
+
+/** 希望休と指定休。指定休は表示側で「希望休も割当もない日」として算出する。 */
+export type MeShiftRest = {
+  date: string;
+  kind: "requested" | "designated";
+  slot_label?: string | null;
+};
+export type MeShiftsResponse = {
+  shifts: MeShift[];
+  rest_days?: MeShiftRest[];
+  rest_days_unavailable?: boolean;
 };

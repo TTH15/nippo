@@ -63,14 +63,14 @@ function RecentAuthPanel({ state, onVerified, onCancel }: {
     const res = await apiFetch<{ reauthToken: string }>("/api/auth/reauth/verify", { method: "POST", body: JSON.stringify(payload) });
     await onVerified(res.reauthToken);
   };
-  return <section aria-label="Passkey変更前の本人確認" className="space-y-3 rounded-lg border border-slate-300 bg-slate-50 p-4">
+  return <section aria-label="かんたんログイン変更前の本人確認" className="space-y-3 rounded-lg border border-slate-300 bg-slate-50 p-4">
     <h3 className="text-sm font-semibold text-slate-900">もう一度本人確認</h3>
     {state.hasPasskey && supported && <button type="button" className={primary} disabled={busy} onClick={() => perform(async () => {
       const options = await apiFetch<{ options: Parameters<typeof startAuthentication>[0]["optionsJSON"]; challengeToken: string }>(
         "/api/auth/reauth/options", { method: "POST", body: JSON.stringify({ method: "passkey" }) });
       const response = await startAuthentication({ optionsJSON: options.options });
       await verify({ method: "passkey", response, challengeToken: options.challengeToken });
-    })}>登録済みのPasskeyで確認</button>}
+    })}>かんたんログインで確認</button>}
     {state.canUseSms && <>
       <p className="text-sm text-slate-600">登録済みの電話番号（{state.phoneMasked}）に送信します。</p>
       <button type="button" className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:opacity-50" disabled={busy}

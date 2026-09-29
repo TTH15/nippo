@@ -5,97 +5,15 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faChartLine,
-  faChartColumn,
-  faUsers,
-  faCar,
-  faRoute,
-  faTruck,
-  faImage,
-  faFileInvoice,
-  faAddressBook,
-  faCalendar,
-  faClock,
-  faFileLines,
-  faBoxesStacked,
-  faListUl,
-  faRightFromBracket,
-  faMoneyBill1Wave,
-  faBuilding,
-  faTrophy,
-  faMobileScreenButton,
-  faGear,
-  faUserPlus,
-  faUserShield,
-  faLock,
-  faBell,
-  faMapLocationDot,
-  faBriefcase,
-  faXmark,
-} from "@fortawesome/free-solid-svg-icons";
+import { faChevronDown, faLock, faRightFromBracket, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
+import { activeAdminNavHref, adminNavItems as navItems, type NavChild, type NavItem } from "./adminNavItems";
+import { SmoothCollapse } from "./SmoothCollapse";
 import { clearAuth, getStoredDriver, type StoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite, isAdminViewerRole } from "@/lib/authz";
 import { ModeSwitchFab } from "@/lib/components/ModeSwitchFab";
-
-// cap: そのメニューの閲覧に必要な capability（各ページの主要 API の requirePermission と対応）。
-// 持っていない場合はロック表示（グレー＋鍵）にして「アクセスできない」ことを明示する。
-// beta: 試験提供中の機能。ラベル横に「β」バッジを表示する。
-type NavChild = { href: string; label: string; icon?: IconDefinition; cap?: string; beta?: boolean };
-type NavItem =
-  | { href: string; label: string; icon?: IconDefinition; cap?: string; beta?: boolean; children?: undefined }
-  | { label: string; icon?: IconDefinition; children: NavChild[]; href?: undefined; cap?: undefined; beta?: undefined };
-
-const navItems: NavItem[] = [
-  { href: "/admin", label: "ダッシュボード", icon: faChartLine, cap: "can_view_reports" },
-  { href: "/admin/daily", label: "報告", icon: faFileLines, cap: "can_view_reports" },
-  { href: "/admin/records", label: "記録・報告", icon: faFileLines, cap: "can_access_records" },
-  { href: "/admin/report-images", label: "画像の確認", icon: faImage, cap: "can_view_reports", beta: true },
-  { href: "/admin/delivery", label: "配達実績", icon: faBoxesStacked, cap: "can_view_reports" },
-  { href: "/admin/attendance", label: "勤怠", icon: faClock, cap: "can_view_vehicles", beta: true },
-  { href: "/admin/shifts", label: "シフト", icon: faCalendar, cap: "can_view_shifts" },
-  { href: "/admin/spot-jobs", label: "単発案件", icon: faBriefcase, cap: "can_view_shifts", beta: true },
-  { href: "/admin/vehicles", label: "車両", icon: faCar, cap: "can_view_vehicles" },
-  { href: "/admin/map", label: "地図", icon: faMapLocationDot, cap: "can_view_vehicles", beta: true },
-  {
-    label: "収支",
-    icon: faFileInvoice,
-    children: [
-      { href: "/admin/sales", label: "売上", icon: faChartColumn, cap: "can_view_billing" },
-      { href: "/admin/payments", label: "ペイメント", icon: faMoneyBill1Wave, cap: "can_view_rewards" },
-      { href: "/admin/invoices", label: "請求書", icon: faAddressBook, cap: "can_view_billing" },
-      // 取引先は月次の売上集計を見て請求書を作る業務画面。設定ではなく収支に置く
-      { href: "/admin/counterparties", label: "取引先", icon: faBuilding, cap: "can_view_billing" },
-      { href: "/admin/adjustments", label: "調整履歴", icon: faListUl, cap: "can_view_billing" },
-    ],
-  },
-  {
-    label: "ドライバー",
-    icon: faUsers,
-    children: [
-      { href: "/admin/users/pending", label: "参加・承認", icon: faUserPlus, cap: "can_approve_members" },
-      { href: "/admin/users", label: "ドライバー一覧", icon: faUsers, cap: "can_view_members" },
-    ],
-  },
-  { href: "/admin/events", label: "イベント", icon: faTrophy, cap: "can_view_org_settings" },
-  { href: "/admin/notifications", label: "通知配信", icon: faBell, cap: "can_send_notifications", beta: true },
-  {
-    label: "設定",
-    icon: faGear,
-    children: [
-      { href: "/admin/organization", label: "会社設定", icon: faBuilding, cap: "can_view_org_settings" },
-      { href: "/admin/roles", label: "ロール・権限", icon: faUserShield, cap: "can_view_members" },
-      { href: "/admin/carriers", label: "キャリア／フォーム設計", icon: faTruck, cap: "can_view_org_settings" },
-      { href: "/admin/courses", label: "コース／単価表", icon: faRoute, cap: "can_view_org_settings" },
-      { href: "/admin/record-forms", label: "フォーム管理", icon: faFileLines, cap: "can_manage_record_forms" },
-      { href: "/admin/report-kinds", label: "報告種別", icon: faFileLines, cap: "can_view_org_settings" },
-      { href: "/admin/submit-screen", label: "送信後画面", icon: faMobileScreenButton, cap: "can_view_org_settings" },
-    ],
-  },
-];
 
 // 試験提供中バッジ。ラベルの直後に置く。
 function BetaBadge() {
@@ -147,7 +65,6 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const licenseAlertCount = Number(badgesApi.data?.licenseAlert) || 0;
   // 参加承認待ちの申請件数（「ドライバー」→「参加・承認」に通知バッジで表示）
   const pendingApprovalCount = Number(badgesApi.data?.pendingApproval) || 0;
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
   const canWrite = canAdminWrite(driver?.role);
   const isViewer = isAdminViewerRole(driver?.role);
@@ -195,48 +112,25 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     router.push("/login");
   };
 
-  const isActive = (href: string) => {
-    const path = href.split("?")[0];
-    // ダッシュボード(/admin)は全ページが "/admin/..." で始まるため、前方一致だと
-    // 常にアクティブ扱いになってしまう。ルートのみ完全一致で判定する。
-    if (path === "/admin") return pathname === "/admin";
-    return pathname === path || pathname.startsWith(path + "/");
-  };
+  const isActive = (href: string) => activeAdminNavHref(pathname) === href;
 
-  const clearHideTimer = () => {
-    if (hideTimer.current) {
-      clearTimeout(hideTimer.current);
-      hideTimer.current = null;
-    }
-  };
+  useEffect(() => {
+    const activeGroup = navItems.find((item) => item.children?.some((child) =>
+      pathname === child.href || pathname.startsWith(`${child.href}/`),
+    ));
+    setOpenMenu(activeGroup?.label ?? null);
+  }, [pathname]);
 
-  const startHideTimer = () => {
-    clearHideTimer();
-    hideTimer.current = setTimeout(() => setOpenMenu(null), 200);
-  };
+  const toggleMenu = (label: string) => setOpenMenu((current) => current === label ? null : label);
 
-  const handleParentEnter = (label: string) => {
-    clearHideTimer();
-    setOpenMenu(label);
-  };
-
-  const handleParentLeave = () => {
-    startHideTimer();
-  };
-
-  const handlePanelEnter = () => {
-    clearHideTimer();
-  };
-
-  const handlePanelLeave = () => {
-    startHideTimer();
-  };
-
-  // クリックはフライアウトのトグル（タッチでも開ける）。ホバーは従来どおり補助的に開く。
-  const handleParentClick = (item: Extract<NavItem, { children: NavChild[] }>) => {
-    clearHideTimer();
-    setOpenMenu((cur) => (cur === item.label ? null : item.label));
-  };
+  useEffect(() => {
+    if (!openMenu) return;
+    const timer = window.setTimeout(() => {
+      const panel = document.getElementById(`${mobileNavOpen ? "admin-mobile-nav" : "admin-nav"}-${openMenu}`);
+      (panel?.querySelector('[aria-current="page"]') ?? panel?.querySelector("a"))?.scrollIntoView({ block: "nearest" });
+    }, 170);
+    return () => window.clearTimeout(timer);
+  }, [openMenu, mobileNavOpen]);
 
   const getChildUnreadCount = (href: string) => {
     if (href === "/admin/daily") return dailyUnreadCount;
@@ -248,15 +142,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   };
 
   const getParentUnreadCount = (item: Extract<NavItem, { children: NavChild[] }>) => {
-    // 「ドライバー」配下の要対応件数（参加承認待ち＋免許更新警告）を通知バッジで表示。
-    // （オイル交換警告はトップレベルの「車両」リンク側に getChildUnreadCount で直接表示）
+    if (item.label === "車両") return oilAlertCount;
+    if (item.label === "報告") return dailyUnreadCount + otherUnreadCount;
     if (item.label === "ドライバー") return licenseAlertCount + pendingApprovalCount;
     return 0;
   };
-
-  useEffect(() => {
-    return () => clearHideTimer();
-  }, []);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 max-md:bg-transparent">
@@ -301,8 +191,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 min-h-0">
         {/* Sidebar（デスクトップ常時表示） */}
         <aside
-          className="hidden md:flex z-40 w-56 bg-white text-slate-700 border-r border-slate-200 flex-col shrink-0 h-screen sticky top-0"
-          style={{ overflow: "visible" }}
+          className="hidden md:flex z-40 w-56 bg-white text-slate-700 border-r border-slate-200 flex-col shrink-0 h-screen sticky top-0 overflow-hidden"
         >
           {/* Logo */}
           <div className="h-20 flex items-center border-b border-slate-200 p-2">
@@ -319,15 +208,15 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 py-3" style={{ overflow: "visible" }}>
-            <ul className="space-y-0.5 px-2" style={{ overflow: "visible" }}>
+          <nav aria-label="管理メニュー" className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
+            <ul className="space-y-0.5 px-2">
               {navItems.map((item) => {
                 if (item.children) {
                   const filteredChildren = canWrite
                     ? item.children
                     : item.children.filter((c) => c.href !== "/admin/invoices/new");
                   const unlockedChildren = filteredChildren.filter((c) => !isLocked(c.cap));
-                  // 配下すべてに権限が無ければ親ごとロック（フライアウトも開かない）
+                  // 配下すべてに権限が無ければ親ごとロック
                   if (unlockedChildren.length === 0) {
                     return (
                       <li key={item.label}>
@@ -337,106 +226,57 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                   }
                   const hasActiveChild = unlockedChildren.some((c) => isActive(c.href));
                   const isOpen = openMenu === item.label;
+                  const panelId = `admin-nav-${item.label}`;
 
                   return (
-                    <li
-                      key={item.label}
-                      className="relative"
-                      style={{ overflow: "visible" }}
-                      onMouseEnter={() => handleParentEnter(item.label)}
-                      onMouseLeave={handleParentLeave}
-                    >
+                    <li key={item.label}>
                       <button
                         type="button"
-                        onClick={() => handleParentClick(item)}
-                        className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${hasActiveChild || isOpen
-                            ? "bg-amber-100 text-amber-800"
-                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                          }`}
+                        id={`${panelId}-button`}
+                        aria-expanded={isOpen}
+                        aria-controls={panelId}
+                        onClick={() => toggleMenu(item.label)}
+                        className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] font-bold transition-colors ${hasActiveChild
+                          ? "bg-amber-100 text-amber-800"
+                          : isOpen ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
                       >
-                        {item.icon && (
-                          <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />
-                        )}
+                        {item.icon && <FontAwesomeIcon icon={item.icon} className="h-3.5 w-3.5 opacity-90" />}
                         {item.label}
-                        {/* バッジは右端の chevron 列の左隣に固定（全項目で横位置を統一） */}
                         <span className="ml-auto flex items-center gap-2">
                           {getParentUnreadCount(item) > 0 && (
-                            <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
+                            <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] leading-none text-white tabular-nums">
                               {getParentUnreadCount(item)}
                             </span>
                           )}
-                          <svg
-                            className="w-3 h-3 opacity-50"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2.5}
-                              d="M9 5l7 7-7 7"
-                            />
-                          </svg>
+                          <FontAwesomeIcon icon={faChevronDown} className={`h-3 w-3 opacity-60 transition-transform motion-reduce:transition-none ${isOpen ? "rotate-180" : ""}`} />
                         </span>
                       </button>
-
-                      {/* フライアウトパネル */}
-                      {isOpen && (
-                        <div
-                          className="absolute left-full top-0 ml-1"
-                          style={{ zIndex: 9999 }}
-                          onMouseEnter={handlePanelEnter}
-                          onMouseLeave={handlePanelLeave}
-                        >
-                          <div className="bg-white rounded-lg shadow-2xl border border-slate-200 py-1.5 min-w-[200px]">
-                            {filteredChildren.map((child) => {
-                              if (isLocked(child.cap)) {
-                                return (
-                                  <div
-                                    key={child.href}
-                                    className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-bold text-slate-300 cursor-not-allowed select-none"
-                                    title="このロールには権限がありません"
-                                    aria-disabled
-                                  >
-                                    {child.icon && (
-                                      <FontAwesomeIcon icon={child.icon} className="w-3.5 h-3.5 opacity-60" />
-                                    )}
-                                    {child.label}
-                                    <FontAwesomeIcon icon={faLock} className="ml-auto w-3 h-3 opacity-70" />
-                                  </div>
-                                );
-                              }
-                              const childActive = isActive(child.href);
-                              return (
+                      <SmoothCollapse open={isOpen} id={panelId} labelledBy={`${panelId}-button`} speed="quick">
+                        <ul className="mb-1 ml-5 border-l border-slate-200 pl-2">
+                          {filteredChildren.map((child) => (
+                            <li key={child.href}>
+                              {isLocked(child.cap) ? <LockedNavRow label={child.label} icon={child.icon} /> : (
                                 <Link
-                                  key={child.href}
                                   href={child.href}
-                                  onClick={() => setOpenMenu(null)}
-                                  className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-bold transition-colors ${childActive
-                                      ? "bg-amber-100 text-amber-800"
-                                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                                    }`}
+                                  aria-current={isActive(child.href) ? "page" : undefined}
+                                  className={`flex min-h-11 items-center gap-2 rounded-lg px-2 py-2 text-[12px] font-semibold transition-colors ${isActive(child.href)
+                                    ? "bg-amber-50 text-amber-800"
+                                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
                                 >
-                                  {child.icon && (
-                                    <FontAwesomeIcon
-                                      icon={child.icon}
-                                      className="w-3.5 h-3.5 opacity-90"
-                                    />
-                                  )}
-                                  {child.label}
+                                  {child.icon && <FontAwesomeIcon icon={child.icon} className="h-3.5 w-3.5 shrink-0 opacity-90" />}
+                                  <span>{child.label}</span>
                                   {child.beta && <BetaBadge />}
                                   {getChildUnreadCount(child.href) > 0 && (
-                                    <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
+                                    <span className="ml-auto inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] leading-none text-white tabular-nums">
                                       {getChildUnreadCount(child.href)}
                                     </span>
                                   )}
                                 </Link>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </SmoothCollapse>
                     </li>
                   );
                 }
@@ -481,7 +321,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           </nav>
 
           {/* User section */}
-          <div className="p-4 border-t border-slate-200">
+          <div className="shrink-0 p-4 border-t border-slate-200">
             <div className="flex items-center justify-between">
               <Link href="/admin/account" className="min-w-0 hover:opacity-70 transition-opacity">
                 <p className="text-sm font-bold text-slate-900 truncate">{driver?.name}</p>
@@ -562,66 +402,59 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                           </li>
                         );
                       }
+                      const hasActiveChild = unlockedChildren.some((child) => isActive(child.href));
+                      const isOpen = openMenu === item.label;
+                      const panelId = `admin-mobile-nav-${item.label}`;
                       return (
                         <li key={item.label}>
-                          <p className="px-3 py-2.5 text-[12px] font-bold text-slate-500 uppercase tracking-wide">
-                            <span className="inline-flex items-center gap-2">
-                              {item.label}
+                          <button
+                            type="button"
+                            id={`${panelId}-button`}
+                            aria-expanded={isOpen}
+                            aria-controls={panelId}
+                            onClick={() => toggleMenu(item.label)}
+                            className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] font-bold ${hasActiveChild
+                              ? "bg-amber-100 text-amber-800"
+                              : isOpen ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-100"}`}
+                          >
+                            {item.icon && <FontAwesomeIcon icon={item.icon} className="h-3.5 w-3.5" />}
+                            {item.label}
+                            <span className="ml-auto flex items-center gap-2">
                               {getParentUnreadCount(item) > 0 && (
-                                <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums normal-case">
+                                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] text-white tabular-nums">
                                   {getParentUnreadCount(item)}
                                 </span>
                               )}
+                              <FontAwesomeIcon icon={faChevronDown} className={`h-3 w-3 opacity-60 transition-transform motion-reduce:transition-none ${isOpen ? "rotate-180" : ""}`} />
                             </span>
-                          </p>
-                          <ul className="mb-1">
-                            {filteredChildren.map((child) => {
-                              if (isLocked(child.cap)) {
-                                return (
-                                  <li key={child.href}>
-                                    <div
-                                      className="flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-300 cursor-not-allowed select-none"
-                                      title="このロールには権限がありません"
-                                      aria-disabled
-                                    >
-                                      {child.icon && (
-                                        <FontAwesomeIcon icon={child.icon} className="w-3.5 h-3.5 opacity-60" />
-                                      )}
-                                      {child.label}
-                                      <FontAwesomeIcon icon={faLock} className="ml-auto w-3 h-3 opacity-70" />
-                                    </div>
-                                  </li>
-                                );
-                              }
-                              const active = isActive(child.href);
-                              return (
+                          </button>
+                          <SmoothCollapse open={isOpen} id={panelId} labelledBy={`${panelId}-button`} speed="quick">
+                            <ul className="mb-1 ml-5 border-l border-slate-200 pl-2">
+                              {filteredChildren.map((child) => (
                                 <li key={child.href}>
-                                  <Link
-                                    href={child.href}
-                                    onClick={() => setMobileNavOpen(false)}
-                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-medium ${active
-                                        ? "bg-amber-100 text-amber-800"
-                                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                                      }`}
-                                  >
-                                    {child.icon && (
-                                      <FontAwesomeIcon
-                                        icon={child.icon}
-                                        className="w-3.5 h-3.5 opacity-90"
-                                      />
-                                    )}
-                                    {child.label}
-                                    {child.beta && <BetaBadge />}
-                                    {getChildUnreadCount(child.href) > 0 && (
-                                      <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
-                                        {getChildUnreadCount(child.href)}
-                                      </span>
-                                    )}
-                                  </Link>
+                                  {isLocked(child.cap) ? <LockedNavRow label={child.label} icon={child.icon} /> : (
+                                    <Link
+                                      href={child.href}
+                                      onClick={() => setMobileNavOpen(false)}
+                                      aria-current={isActive(child.href) ? "page" : undefined}
+                                      className={`flex min-h-11 items-center gap-2 rounded-lg px-2 py-2 text-[12px] font-semibold ${isActive(child.href)
+                                        ? "bg-amber-50 text-amber-800"
+                                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
+                                    >
+                                      {child.icon && <FontAwesomeIcon icon={child.icon} className="h-3.5 w-3.5 shrink-0" />}
+                                      <span>{child.label}</span>
+                                      {child.beta && <BetaBadge />}
+                                      {getChildUnreadCount(child.href) > 0 && (
+                                        <span className="ml-auto inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] text-white tabular-nums">
+                                          {getChildUnreadCount(child.href)}
+                                        </span>
+                                      )}
+                                    </Link>
+                                  )}
                                 </li>
-                              );
-                            })}
-                          </ul>
+                              ))}
+                            </ul>
+                          </SmoothCollapse>
                         </li>
                       );
                     }

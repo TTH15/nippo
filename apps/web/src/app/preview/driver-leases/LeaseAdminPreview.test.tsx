@@ -7,7 +7,16 @@ const openDrivers = () => {
   fireEvent.click(navigation().getByRole("button", { name: "ドライバー" }));
   fireEvent.click(navigation().getByRole("link", { name: "ドライバー一覧" }));
 };
-const click = (name: string) => fireEvent.click(screen.getByRole("button", { name }));
+const openShifts = () => {
+  fireEvent.click(navigation().getByRole("button", { name: "シフト" }));
+  fireEvent.click(navigation().getByRole("link", { name: "シフト" }));
+};
+const click = (name: string) => {
+  const nav = screen.getByRole("navigation");
+  const button = screen.getAllByRole("button", { name }).find((item) => !nav.contains(item));
+  if (!button) throw new Error(`${name} button not found outside navigation`);
+  fireEvent.click(button);
+};
 const choose = (name: string, option: string) => { click(name); click(option); };
 
 describe("管理プレビューの画面間連携", () => {
@@ -122,7 +131,7 @@ describe("管理プレビューの画面間連携", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Amazon" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "豊中" }));
     fireEvent.click(screen.getByRole("button", { name: "ドライバー情報を保存" }));
-    fireEvent.click(navigation().getByRole("link", { name: "シフト" }));
+    openShifts();
     fireEvent.click(screen.getByRole("button", { name: "Amazon" }));
     expect(screen.getByText("6人 / 全9人")).toBeTruthy();
   });
@@ -131,7 +140,7 @@ describe("管理プレビューの画面間連携", () => {
     openDrivers();
     fireEvent.click(screen.getAllByRole("button", { name: "佐藤 翔太のラベル・契約を編集" })[0]);
     fireEvent.change(screen.getByRole("spinbutton", { name: "月額料金" }), { target: { value: "39000" } });
-    fireEvent.click(navigation().getByRole("link", { name: "シフト" }));
+    openShifts();
     const dialog = screen.getByRole("dialog", { name: "変更を破棄しますか？" });
     fireEvent.click(within(dialog).getByRole("button", { name: "キャンセル" }));
     expect((screen.getByRole("spinbutton", { name: "月額料金" }) as HTMLInputElement).value).toBe("39000");

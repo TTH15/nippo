@@ -47,7 +47,7 @@ export default function AdminViewerLoginPage() {
       router.push("/admin");
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "NotAllowedError") {
-        setPasskeyError(err.message || "Passkeyでのログインに失敗しました");
+        setPasskeyError(err.message || "かんたんログインに失敗しました");
       }
       console.error("Admin viewer passkey login error:", err);
     } finally {
@@ -164,7 +164,7 @@ export default function AdminViewerLoginPage() {
                 disabled={passkeyLoading}
                 className="w-full py-2.5 bg-white text-slate-900 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {passkeyLoading ? "確認中..." : "Passkeyでログイン"}
+                {passkeyLoading ? "確認中..." : "かんたんログイン（パスキー）"}
               </button>
             </div>
           )}
@@ -173,4 +173,3 @@ export default function AdminViewerLoginPage() {
     </div>
   );
 }
-

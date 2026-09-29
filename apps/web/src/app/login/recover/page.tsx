@@ -117,7 +117,7 @@ export default function RecoverPage() {
             {step === "phone" && (
               <>
                 <p className="text-sm text-slate-600">
-                  登録済みの電話番号にSMSで認証コードを送ります。初めての方やPasskeyを使えない方は、こちらからログインできます。
+                  登録済みの電話番号にSMSで認証コードを送ります。初めての方や、かんたんログインを使えない方はこちらからログインできます。
                 </p>
                 <div>
                   <label htmlFor="recover-phone" className="block text-sm font-medium text-slate-700 mb-1">電話番号</label>

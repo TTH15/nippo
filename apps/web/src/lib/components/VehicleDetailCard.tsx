@@ -30,6 +30,7 @@ export type VehicleDetailPosition = {
   /** 日報の駐車申告なら場所名 */
   placeName?: string | null;
   sessionStatus: "open" | "closed";
+  parkingPending?: boolean;
   driverName: string;
 };
 
@@ -76,7 +77,8 @@ export function VehicleDetailCard({
     : oilRemaining < 100 ? "bg-red-500" : oilRemaining <= 300 ? "bg-yellow-400" : "bg-green-500";
 
   const recordIcon = p?.source === "report" ? faSquareParking : p?.source === "manual" ? faHand : faClock;
-  const recordTitle = p?.source === "report"
+  const recordTitle = p?.source === "gps" ? "端末から更新した位置"
+    : p?.source === "report"
     ? `日報で申告した置き場所${p.placedBy ? `（${p.placedBy}）` : ""}`
     : p?.source === "manual"
       ? `手動で配置${p.placedBy ? `（${p.placedBy}）` : ""}`
@@ -100,16 +102,16 @@ export function VehicleDetailCard({
           <div className="truncate text-[13px] font-bold">{model || "車種 未登録"}</div>
           <div
             className="flex items-center gap-1 text-[11px] text-slate-600"
-            title={working ? "稼働中" : "稼働外"}
+            title={working ? "稼働中" : p?.parkingPending ? "駐車待ち" : p?.source === "report" ? "駐車済み" : "稼働外"}
           >
-            <span className={`inline-block h-2 w-2 rounded-full ${working ? "bg-emerald-500" : "bg-slate-400"}`} />
+            <span className={`inline-block h-2 w-2 rounded-full ${working ? "bg-emerald-500" : p?.parkingPending ? "bg-orange-500" : p?.source === "report" ? "bg-sky-500" : "bg-slate-400"}`} />
             {working && p?.driverName ? (
               <span className="inline-flex items-center gap-1 truncate">
                 <FontAwesomeIcon icon={faUser} className="h-2.5 w-2.5" />
                 {p.driverName}
               </span>
             ) : (
-              <span>{working ? "稼働中" : "稼働外"}</span>
+              <span>{working ? "稼働中" : p?.parkingPending ? "駐車待ち" : p?.source === "report" ? "駐車済み" : "稼働外"}</span>
             )}
           </div>
         </div>

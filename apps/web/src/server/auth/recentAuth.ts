@@ -41,6 +41,6 @@ export async function hasRecentAuth(req: NextRequest, user: AuthUser): Promise<b
 
 export async function requireRecentAuth(req: NextRequest, user: AuthUser): Promise<NextResponse | null> {
   return await hasRecentAuth(req, user) ? null : NextResponse.json({
-    error: "Passkeyを変更する前に、もう一度本人確認をしてください", code: "RECENT_AUTH_REQUIRED",
+    error: "かんたんログインを変更する前に、もう一度本人確認をしてください", code: "RECENT_AUTH_REQUIRED",
   }, { status: 403 });
 }

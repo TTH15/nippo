@@ -1,0 +1,262 @@
+{
+  "capabilities": [
+    "can_access_records",
+    "can_manage_record_forms",
+    "can_view_reports",
+    "can_edit_reports",
+    "can_view_shifts",
+    "can_manage_shifts",
+    "can_dispatch",
+    "can_view_rewards",
+    "can_manage_rewards",
+    "can_view_bank_accounts",
+    "can_view_pii",
+    "can_view_vehicles",
+    "can_manage_vehicles",
+    "can_view_vehicle_cost",
+    "can_view_billing",
+    "can_manage_billing",
+    "can_view_members",
+    "can_approve_members",
+    "can_manage_members",
+    "can_view_org_settings",
+    "can_manage_org_settings",
+    "can_manage_courses",
+    "can_manage_carriers",
+    "can_manage_report_kinds",
+    "can_manage_submit_screen",
+    "can_send_notifications"
+  ],
+  "defaultRoleCapabilities": {
+    "ADMIN": [
+      "can_access_records",
+      "can_manage_record_forms",
+      "can_view_reports",
+      "can_edit_reports",
+      "can_view_shifts",
+      "can_manage_shifts",
+      "can_dispatch",
+      "can_view_rewards",
+      "can_manage_rewards",
+      "can_view_bank_accounts",
+      "can_view_pii",
+      "can_view_vehicles",
+      "can_manage_vehicles",
+      "can_view_vehicle_cost",
+      "can_view_billing",
+      "can_manage_billing",
+      "can_view_members",
+      "can_approve_members",
+      "can_manage_members",
+      "can_view_org_settings",
+      "can_manage_org_settings",
+      "can_manage_courses",
+      "can_manage_carriers",
+      "can_manage_report_kinds",
+      "can_manage_submit_screen",
+      "can_send_notifications"
+    ],
+    "ACCOUNTING": [
+      "can_view_reports",
+      "can_view_shifts",
+      "can_view_rewards",
+      "can_manage_rewards",
+      "can_view_bank_accounts",
+      "can_view_vehicles",
+      "can_view_vehicle_cost",
+      "can_view_billing",
+      "can_manage_billing",
+      "can_view_members",
+      "can_view_org_settings"
+    ],
+    "ADMIN_VIEWER": [
+      "can_view_reports",
+      "can_view_shifts",
+      "can_view_rewards",
+      "can_view_vehicles",
+      "can_view_billing",
+      "can_view_members",
+      "can_view_org_settings"
+    ],
+    "DRIVER": []
+  },
+  "permissionRows": [
+    {
+      "kind": "binary",
+      "key": "records",
+      "label": "記録・報告",
+      "description": "画面へのアクセス。利用できるフォームはフォーム管理で設定します。",
+      "capability": "can_access_records",
+      "onLabel": "アクセス可能"
+    },
+    {
+      "kind": "binary",
+      "key": "record_forms",
+      "label": "フォーム管理",
+      "description": "記録フォームの項目・公開範囲を設定し、全フォームの記録を管理できます。",
+      "capability": "can_manage_record_forms",
+      "onLabel": "管理可能"
+    },
+    {
+      "kind": "leveled",
+      "key": "reports",
+      "label": "日報",
+      "description": "全ドライバーの日報を閲覧できます。編集可能にすると代理入力・修正もできます。",
+      "view": "can_view_reports",
+      "manage": "can_edit_reports"
+    },
+    {
+      "kind": "leveled",
+      "key": "shifts",
+      "label": "シフト",
+      "description": "シフト表を閲覧できます。編集可能にするとシフト確定・希望休の管理もできます。",
+      "view": "can_view_shifts",
+      "manage": "can_manage_shifts"
+    },
+    {
+      "kind": "binary",
+      "key": "dispatch",
+      "label": "配車（車両割当）",
+      "description": "シフト表で車両の割当・貸出中の切替ができます。シフトの閲覧権限と合わせて付与してください。",
+      "capability": "can_dispatch",
+      "onLabel": "可能"
+    },
+    {
+      "kind": "leveled",
+      "key": "rewards",
+      "label": "報酬・給与",
+      "description": "報酬・給与を閲覧できます。編集可能にすると単価設定・給与締めもできます。",
+      "view": "can_view_rewards",
+      "manage": "can_manage_rewards"
+    },
+    {
+      "kind": "leveled",
+      "key": "vehicles",
+      "label": "車両",
+      "description": "車両情報を閲覧できます。編集可能にすると車両の登録・管理と、シフト画面での貸出中の切替もできます。",
+      "view": "can_view_vehicles",
+      "manage": "can_manage_vehicles"
+    },
+    {
+      "kind": "binary",
+      "key": "vehicle_cost",
+      "label": "車両の金額情報",
+      "description": "購入費用・リース代・保険料と初期費用の回収状況を閲覧できます。配車だけを担当する人には付けない運用ができます（編集は車両の管理権限が必要）。",
+      "capability": "can_view_vehicle_cost",
+      "onLabel": "閲覧可能"
+    },
+    {
+      "kind": "leveled",
+      "key": "billing",
+      "label": "請求・取引先",
+      "description": "請求・取引先を閲覧できます。編集可能にすると請求の確定・取引先の編集もできます。",
+      "view": "can_view_billing",
+      "manage": "can_manage_billing"
+    },
+    {
+      "kind": "leveled",
+      "key": "members",
+      "label": "ドライバー名簿",
+      "description": "メンバー名簿を閲覧できます。編集可能にするとロール変更・退会処理もできます。",
+      "view": "can_view_members",
+      "manage": "can_manage_members"
+    },
+    {
+      "kind": "binary",
+      "key": "approve_members",
+      "label": "参加承認・本人確認",
+      "description": "参加申請の承認と本人確認（KYC）を実施できます。",
+      "capability": "can_approve_members",
+      "onLabel": "可能"
+    },
+    {
+      "kind": "binary",
+      "key": "bank_accounts",
+      "label": "口座情報",
+      "description": "ドライバーの銀行口座情報を閲覧できます。",
+      "capability": "can_view_bank_accounts",
+      "onLabel": "閲覧可能"
+    },
+    {
+      "kind": "binary",
+      "key": "pii",
+      "label": "顔写真・免許証",
+      "description": "顔写真・運転免許証など本人確認書類を閲覧できます。",
+      "capability": "can_view_pii",
+      "onLabel": "閲覧可能"
+    },
+    {
+      "kind": "binary",
+      "key": "send_notifications",
+      "label": "通知の一斉配信",
+      "description": "ドライバーへの一斉連絡（LINE・アプリ内インボックス）を送信できます。送信先は自社のメンバーに限られます。",
+      "capability": "can_send_notifications",
+      "onLabel": "可能"
+    },
+    {
+      "kind": "leveled",
+      "key": "org_settings",
+      "label": "設定（全領域）",
+      "description": "フォーム・締切・コース等の設定を閲覧できます。「編集可能」は設定全般の編集（チーム戦・地図の拠点管理などを含む）で、下の領域別4つも自動で有効になります。特定の領域だけ任せたい場合は、ここは「閲覧のみ」にして下の領域別を使ってください。",
+      "view": "can_view_org_settings",
+      "manage": "can_manage_org_settings"
+    },
+    {
+      "kind": "binary",
+      "key": "manage_courses",
+      "label": "コース／単価表の編集",
+      "description": "コース・単価表・便の追加や変更ができます。他の設定は閲覧のみになります。",
+      "capability": "can_manage_courses",
+      "onLabel": "編集可能"
+    },
+    {
+      "kind": "binary",
+      "key": "manage_carriers",
+      "label": "キャリア／フォーム設計の編集",
+      "description": "キャリアと日報フォーム（報告項目）の設計を変更できます。",
+      "capability": "can_manage_carriers",
+      "onLabel": "編集可能"
+    },
+    {
+      "kind": "binary",
+      "key": "manage_report_kinds",
+      "label": "報告種別の編集",
+      "description": "日報以外の報告種別（オイル交換など）の設定を変更できます。",
+      "capability": "can_manage_report_kinds",
+      "onLabel": "編集可能"
+    },
+    {
+      "kind": "binary",
+      "key": "manage_submit_screen",
+      "label": "送信後画面の編集",
+      "description": "日報送信後にドライバーへ表示する画面の内容を変更できます。",
+      "capability": "can_manage_submit_screen",
+      "onLabel": "編集可能"
+    }
+  ],
+  "capabilityImplies": {
+    "can_manage_record_forms": [
+      "can_access_records"
+    ],
+    "can_manage_org_settings": [
+      "can_manage_record_forms",
+      "can_view_org_settings",
+      "can_manage_courses",
+      "can_manage_carriers",
+      "can_manage_report_kinds",
+      "can_manage_submit_screen"
+    ],
+    "can_manage_courses": [
+      "can_view_org_settings"
+    ],
+    "can_manage_carriers": [
+      "can_view_org_settings"
+    ],
+    "can_manage_report_kinds": [
+      "can_view_org_settings"
+    ],
+    "can_manage_submit_screen": [
+      "can_view_org_settings"
+    ]
+  }
+}

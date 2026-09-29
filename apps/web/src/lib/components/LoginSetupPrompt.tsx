@@ -59,7 +59,7 @@ export function LoginSetupPrompt() {
       <FontAwesomeIcon icon={faShieldHalved} aria-hidden className="shrink-0 text-amber-700" />
       <div className="min-w-0 flex-1">
         <h2 className="text-sm font-semibold text-slate-900">ログイン方法の登録</h2>
-        {!open && <p className="mt-0.5 text-xs text-slate-600">{!phoneVerified && !hasPasskey ? "SMS確認・Passkey登録" : !phoneVerified ? "SMS確認" : "Passkey登録"}が未完了です</p>}
+        {!open && <p className="mt-0.5 text-xs text-slate-600">{!phoneVerified && !hasPasskey ? "SMS確認・かんたんログイン設定" : !phoneVerified ? "SMS確認" : "かんたんログイン設定"}が未完了です</p>}
       </div>
       <button type="button" id={triggerId} aria-expanded={open} aria-controls={panelId} disabled={disabled}
         onClick={() => setOpen(!open)} className="min-h-11 shrink-0 rounded-lg border border-amber-300 bg-white px-3 text-sm font-medium text-slate-900 disabled:opacity-50">
@@ -97,16 +97,16 @@ export function LoginSetupPrompt() {
         <div className="space-y-3 border-t border-amber-200 pt-3">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             {hasPasskey && <FontAwesomeIcon icon={faCircleCheck} aria-hidden className="text-emerald-700" />}
-            {hasPasskey ? "Passkey登録済み" : "2. Passkeyの登録"}
+            {hasPasskey ? "かんたんログイン設定済み" : "2. かんたんログイン（パスキー）"}
           </h3>
           {!hasPasskey && <>
             {reauth.verification}
             {supported ? <button type="button" disabled={disabled || !phoneVerified} className={primary}
               onClick={() => { setError(""); void reauth.run(async (token) => {
                 try { await registerPasskey(token); setRegisteredHere(true); }
-                catch { setError("Passkeyの登録が完了しませんでした。もう一度お試しください。"); }
-              }, grant.current); }}>Passkeyを登録する</button>
-              : <p className="text-sm text-slate-700">この環境ではPasskeyを登録できません。SafariやChromeでハコ虎を開いてお試しください。</p>}
+                catch { setError("かんたんログインの設定が完了しませんでした。もう一度お試しください。"); }
+              }, grant.current); }}>かんたんログインを設定する</button>
+              : <p className="text-sm text-slate-700">この環境では設定できません。SafariやChromeでハコ虎を開いてお試しください。</p>}
           </>}
         </div>
         {busy && <p role="status" className="text-sm text-slate-600">確認中...</p>}

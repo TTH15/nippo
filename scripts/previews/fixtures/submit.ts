@@ -36,11 +36,11 @@ export const submitFixture: PreviewFixture<State> = {
   scenarios: {
     normal: { label: "通常", description: "車庫3件（豊中は区画あり・veh-1 は A-1 がいつもの）" },
     "no-places": { label: "車庫なし", description: "登録車庫が無い会社。別の場所と状況だけ選べる" },
-    "sms-only": { label: "Passkey未登録", description: "SMS確認済み。本人確認後にPasskeyを登録する" },
-    complete: { label: "設定済み", description: "SMS・Passkeyともに完了し、案内は表示しない" },
+    "sms-only": { label: "かんたんログイン未設定", description: "SMS確認済み。本人確認後にかんたんログインを設定する" },
+    complete: { label: "設定済み", description: "SMS・かんたんログインともに完了し、案内は表示しない" },
     "no-phone": { label: "電話番号なし", description: "保存済み番号がなく運営へ案内" },
     "setup-error": { label: "設定取得失敗", description: "最初の取得だけ失敗。再取得で戻る" },
-    "key-error": { label: "Passkey保存失敗", description: "最初の登録だけ失敗。再試行で成功する" },
+    "key-error": { label: "設定失敗", description: "最初の設定だけ失敗。再試行で成功する" },
     "no-shifts": { label: "勤務予定なし", description: "当日の勤務予定がなくても未設定なら案内する" },
     "no-image-template": { label: "様式なし", description: "画像の様式が未登録。画像は残せるが件数は手入力" },
   },
@@ -87,7 +87,7 @@ export const submitFixture: PreviewFixture<State> = {
     if (path === "/api/auth/webauthn/register/verify") {
       if (!state.challenge || body.challengeToken !== state.challenge) throw new Error("登録をやり直してください");
       state.challenge = null;
-      if (scenario === "key-error" && state.attempts === 1) throw new Error("Passkeyを保存できませんでした");
+      if (scenario === "key-error" && state.attempts === 1) throw new Error("かんたんログインを保存できませんでした");
       state.hasPasskey = true; return { ok: true };
     }
     if (path === "/api/reports/source-images" && method === "POST") {

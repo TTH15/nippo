@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { createHash } from "node:crypto";
+import { nativeAndroidOrigins } from "./nativeAssociation";
 import { supabase } from "@/server/db/client";
 import {
   generateRegistrationOptions,
@@ -25,7 +26,7 @@ export function rpConfig() {
   return {
     rpID: process.env.WEBAUTHN_RP_ID || "localhost",
     rpName: process.env.WEBAUTHN_RP_NAME || "ハコ虎",
-    origin: process.env.WEBAUTHN_ORIGIN || "http://localhost:3000",
+    origin: [process.env.WEBAUTHN_ORIGIN || "http://localhost:3000", ...nativeAndroidOrigins()],
   };
 }
 

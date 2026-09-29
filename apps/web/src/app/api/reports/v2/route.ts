@@ -3,6 +3,7 @@ import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { syncReportEntries } from "@/server/reports/entries";
+import { reportMeterPatch } from "@/server/reports/meterPatch";
 import { parseParkingReport, saveParkingReport } from "@/server/reports/parking";
 
 export const dynamic = "force-dynamic";
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
   const [{ data: existingRows, error: existingErr }, { data: shiftRows, error: shiftErr }] = await Promise.all([
     supabase
       .from("daily_reports_v2")
-      .select("id, course_id, cycle_no")
+      .select("id, course_id, cycle_no, vehicle_id")
       .eq("org_id", orgId)
       .eq("driver_id", user.driverId)
       .eq("report_date", reportDate)
@@ -98,6 +99,9 @@ export async function POST(req: NextRequest) {
       .filter((row) => row.course_id)
       .map((row) => `${row.course_id}:${Number(row.cycle_no) || 0}`),
   );
+  const existingVehicleByCourseCycle = new Map(
+    (existingRows ?? []).map((r) => [`${r.course_id}:${Number(r.cycle_no) || 0}`, r.vehicle_id as string | null]),
+  );
   const invalidItem = validItems.find((item) => {
     const key = `${item.courseId}:${Number(item.cycleNo) || 0}`;
     return !allowedShiftKeys.has(key) && !existingByCourseCycle.has(key);
@@ -118,7 +122,7 @@ export async function POST(req: NextRequest) {
       carrier_id: item.carrierId ?? null,
       identity_id: driverIdentityId,
       vehicle_id: item.vehicleId ?? null,
-      meter_value: typeof item.meterValue === "number" ? item.meterValue : null,
+      ...reportMeterPatch(item, existingVehicleByCourseCycle.get(`${item.courseId}:${cycleNo}`)),
       submitted_at: nowIso,
       // 再提出時は承認状態をリセット
       approved_at: null,

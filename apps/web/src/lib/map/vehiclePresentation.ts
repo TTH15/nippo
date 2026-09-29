@@ -2,9 +2,7 @@
 // 地図上の車両の見かけサイズ（純粋ロジック）。本番 /admin/map と検討用プレビューで共用する。
 //
 // 車両の長さは「地図の短い辺の 14%」を目標にし、寄って実寸に達したら等倍で止める。
-// ただし広域では車体を出さない。z13 未満は車が数kmの大きさになり、足元のリングが
-// 市名を覆って地図が読めなくなるため、モデルとリングを消して札＋ドットだけにする
-// （J-2 の判断・2026-09-08）。z13〜15 は 40px から目標へ線形に上げ、z15 以上で目標のまま。
+// 広域でも車両モデルを小さく残し、ズームに応じて 24px から目標サイズまで拡大する。
 // ============================================================
 
 const EARTH_CIRCUMFERENCE_METERS = 40_075_016.686;
@@ -26,8 +24,8 @@ export const VEHICLE_TARGET_MAX_PIXELS = 120;
 export const VEHICLE_PITCH_SHRINK = 0.3;
 /** 既定の車両長（アクティHH5）。車種別モデルは vehicleModels の登録表から渡す */
 export const ACTY_HH5_LENGTH_METERS = 3.392;
-/** これ未満のズームでは車体モデル・足元リングを描かない（札とドットだけにする） */
-export const VEHICLE_MODEL_MIN_ZOOM = 13;
+/** 広域でも車体モデルを描く。Mapbox の通常ズーム下限に合わせる */
+export const VEHICLE_MODEL_MIN_ZOOM = 0;
 /** このズーム以上で目標サイズいっぱい。MIN との間は線形に立ち上げる */
 export const VEHICLE_MODEL_FULL_ZOOM = 15;
 
@@ -45,20 +43,20 @@ export type VehicleMapPresentation = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-/** z13 未満はモデルを描かない */
+/** 車両位置がある限りモデルを描く */
 export function modelVisibleAtZoom(zoom: number): boolean {
   return zoom >= VEHICLE_MODEL_MIN_ZOOM;
 }
 
 /**
  * ズームに応じた目標の車両長（px）。
- * z13 で 40px、z15 で満額、その間は線形。z13 未満は 0（描かない）。
+ * z0 で 24px、z15 で満額。その間は滑らかに拡大する。
  */
 export function targetLengthForZoom(fullTargetPixels: number, zoom: number): number {
   if (!modelVisibleAtZoom(zoom)) return 0;
   if (zoom >= VEHICLE_MODEL_FULL_ZOOM) return fullTargetPixels;
   const t = (zoom - VEHICLE_MODEL_MIN_ZOOM) / (VEHICLE_MODEL_FULL_ZOOM - VEHICLE_MODEL_MIN_ZOOM);
-  return VEHICLE_TARGET_MIN_PIXELS + (fullTargetPixels - VEHICLE_TARGET_MIN_PIXELS) * t;
+  return 24 + (fullTargetPixels - 24) * Math.pow(t, 2);
 }
 
 /** 画面サイズとピッチから目標の車両長（px）を決める。ズームや緯度には依存しない */
@@ -99,7 +97,7 @@ export function vehicleMapPresentation({
   ) / (MAPBOX_TILE_SIZE * Math.pow(2, zoom));
   const fullTarget = targetVehicleLengthPixels({ mapWidthPixels, mapHeightPixels, pitch });
   const modelVisible = modelVisibleAtZoom(zoom);
-  // 広域では描かないが、札の逃がし量などは 0 除算にならない値を返しておく
+  // 地図全域で車両モデルを表示する。
   const targetLengthPixels = modelVisible ? targetLengthForZoom(fullTarget, zoom) : 0;
   const actualLengthPixels = length / metersPerPixel;
   const modelScale = Math.max(1, targetLengthPixels / actualLengthPixels);

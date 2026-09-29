@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_vehicles");
   if (isAuthError(user)) return user;
   const orgId = user.orgId ?? (await resolveOrgId(user.driverId));
+  const summary = req.nextUrl.searchParams.get("summary") === "1";
 
   // as-of 指定（履歴表示）。不正な値は無視して現在扱いにする。
   const atParam = req.nextUrl.searchParams.get("at");
@@ -217,14 +218,14 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  type SessionInfo = { open: boolean; driverId: string | null };
+  type SessionInfo = { open: boolean; driverId: string | null; startedAt: string | null; endedAt: string | null };
   const sessionByVehicle = new Map<string, SessionInfo>();
   for (const s of sessions ?? []) {
     if (sessionByVehicle.has(s.vehicle_id)) continue;
     // as-of 時点で「開始済み かつ 未終了（またはその時刻より後に終了）」なら稼働中
     const endedAt = s.ended_at as string | null;
     const open = asOf ? !endedAt || endedAt > asOf : s.status === "open";
-    sessionByVehicle.set(s.vehicle_id, { open, driverId: (s.recorded_by as string | null) ?? null });
+    sessionByVehicle.set(s.vehicle_id, { open, driverId: (s.recorded_by as string | null) ?? null, startedAt: s.started_at ?? null, endedAt: s.ended_at ?? null });
   }
 
   if (positionsUnavailable) {
@@ -262,11 +263,16 @@ export async function GET(req: NextRequest) {
   const driverNameById = new Map((drivers ?? []).map((d) => [d.id, d.display_name || d.name || ""]));
 
   const items = (vehicles ?? []).map((v) => {
-    const p = positionByVehicle.get(v.id as string);
     const s = sessionByVehicle.get(v.id as string);
-    const parkedElsewhere = parkedWithoutCoordsByVehicle.get(v.id as string);
+    const latestPosition = positionByVehicle.get(v.id as string);
+    const p = latestPosition && (!s?.open || !s.startedAt || Date.parse(latestPosition.at) >= Date.parse(s.startedAt))
+      ? latestPosition : undefined;
+    const latestParkedElsewhere = parkedWithoutCoordsByVehicle.get(v.id as string);
+    const parkedElsewhere = latestParkedElsewhere && (!s?.open || !s.startedAt || Date.parse(latestParkedElsewhere.at) >= Date.parse(s.startedAt))
+      ? latestParkedElsewhere : undefined;
     return {
       ...v,
+      session: s ? { open: s.open, driverName: s.driverId ? (driverNameById.get(s.driverId) ?? "") : "", startedAt: s.startedAt } : null,
       position: p
         ? {
             lat: p.lat,
@@ -282,6 +288,7 @@ export async function GET(req: NextRequest) {
             // 互換のため従来キーも残す（FleetMapCard / FleetMapBoard が参照している）
             kind: p.source === "punch" ? "checkin" : p.source,
             sessionStatus: s?.open ? "open" : "closed",
+            parkingPending: !asOf && !!s && !s.open && !!s.endedAt && p.source === "gps" && Date.parse(p.at) > Date.parse(s.endedAt),
             driverName: s?.driverId ? (driverNameById.get(s.driverId) ?? "") : "",
           }
         : null,
@@ -294,7 +301,7 @@ export async function GET(req: NextRequest) {
 
   // 3Dの車の面に出す実ナンバー（車両ごとの小さな GLB）。非公開バケットなので署名URLで渡す。
   // 未生成・番号未入力の車は含まれず、その場合は既定のプレートのまま描かれる。
-  const plateModelUrls = await signPlateModels(
+  const plateModelUrls = summary ? {} : await signPlateModels(
     supabase,
     orgId,
     items as unknown as PlateVehicle[],

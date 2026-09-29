@@ -1,0 +1,4087 @@
+"use client";
+
+// ============================================================
+// 地図（ベータ）— 車両の最終確認位置を Mapbox 上に表示する。
+// 位置ソースは vehicle_sessions の打刻GPS（/api/admin/map/vehicles）。
+// マーカーをタップすると吹き出しでナンバープレートを表示する。
+// スタイルは Mapbox Standard（3D建物・時間帯ライティング内蔵）。
+// 拠点ピンは DB 保存（map_places）。設定モーダルから追加・削除する。
+// ============================================================
+
+import { VEHICLE_PAINT_PARTS, colorForVehicleMaterial, vehiclePartColors, type VehiclePartColors } from "@/lib/vehicleAppearance";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
+import MapboxDraw from "@mapbox/mapbox-gl-draw";
+import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
+import { createRoot, type Root } from "react-dom/client";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faArrowRight,
+  faBuilding,
+  faCheck,
+  faChevronLeft,
+  faChevronRight,
+  faDrawPolygon,
+  faGasPump,
+  faGear,
+  faLocationDot,
+  faMagnifyingGlass,
+  faPlus,
+  faRotateRight,
+  faRoute,
+  faSquareParking,
+  faTrashCan,
+  faTriangleExclamation,
+  faUsers,
+  faWarehouse,
+  faXmark,
+} from "@fortawesome/free-solid-svg-icons";
+import { AerialMovementArrow } from "@/lib/components/AerialMovementArrow";
+import { CheckboxField } from "@/lib/components/CheckboxField";
+import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { DatePicker } from "@/lib/components/DatePicker";
+import { Skeleton } from "@/lib/components/Skeleton";
+import { TimePicker } from "@/lib/ui/time-picker";
+import { useApi } from "@/lib/useApi";
+import { apiFetch, getStoredDriver } from "@/lib/api";
+import { hasCapability } from "@/lib/capabilities";
+import { dateToReportDateStr, reportDateStrToDate, todayJST } from "@/lib/date";
+import { useSharedMapView } from "@/lib/map/sharedView";
+import {
+  movementNeedsAttention,
+  needsVehicleRelocation,
+  type VehicleMovement,
+} from "@/lib/map/vehicleMovements";
+import { mapModelKeyForVehicle, vehicleMapModelFor } from "@/lib/vehicleModels";
+import { presentationChanged, vehicleMapPresentation, type VehicleMapPresentation } from "@/lib/map/vehiclePresentation";
+import { MapPlateLabel } from "@/lib/components/MapPlateLabel";
+import { MAP_PLATE_HEIGHT, MAP_PLATE_WIDTH } from "@/lib/map/mapPlateImage";
+import { MAP_Z } from "@/lib/map/zIndex";
+import { VehicleDetailCard } from "@/lib/components/VehicleDetailCard";
+import { matchVehicles } from "@/lib/map/vehicleSearch";
+import { snapDrop, type DropTarget } from "@/lib/map/dropSnap";
+import { spreadOverlapping } from "@/lib/map/spreadVehicles";
+import { useModalKeys } from "@/lib/ui/dialog";
+import {
+  VehiclePlate,
+  formatPlateNumeric,
+  type VehiclePlateData,
+} from "@/lib/components/VehiclePlate";
+
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
+
+
+
+// Mapbox Standard の時間帯ライティング。現在時刻から自動で選ぶ。
+type LightPreset = "dawn" | "day" | "dusk" | "night";
+
+/** 日本時間で夜（17〜5時）か。車両のライトと足元の光はこの判定で灯す */
+function isNightJst(now = new Date()): boolean {
+  const hour = Number(
+    new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false })
+      .formatToParts(now)
+      .find((p) => p.type === "hour")?.value ?? "12",
+  );
+  return hour >= 17 || hour < 5;
+}
+
+function presetForHour(hour: number): LightPreset {
+  if (hour >= 5 && hour < 8) return "dawn";
+  if (hour >= 8 && hour < 16) return "day";
+  if (hour >= 16 && hour < 19) return "dusk";
+  return "night";
+}
+
+// 地図表示の設定（個人の好みなので localStorage 保存。DB には置かない）。
+type MapViewPrefs = {
+  basemap: "standard" | "satellite";
+  placeLabels: boolean; // 地名（山・川など自然地名を含む）
+  roadLabels: boolean;
+  poiLabels: boolean;
+  transitLabels: boolean;
+  objects3d: boolean; // 3D建物・ランドマーク（航空写真では無効）
+  terrain: boolean; // 3D地形（起伏）
+};
+const VIEW_PREFS_KEY = "hakotora_map_view_prefs";
+const DEFAULT_VIEW_PREFS: MapViewPrefs = {
+  basemap: "standard",
+  placeLabels: true,
+  roadLabels: false,
+  poiLabels: false,
+  transitLabels: false,
+  objects3d: true,
+  terrain: false,
+};
+
+function loadViewPrefs(): MapViewPrefs {
+  if (typeof window === "undefined") return DEFAULT_VIEW_PREFS;
+  try {
+    return { ...DEFAULT_VIEW_PREFS, ...JSON.parse(localStorage.getItem(VIEW_PREFS_KEY) ?? "{}") };
+  } catch {
+    return DEFAULT_VIEW_PREFS;
+  }
+}
+
+function styleUrlFor(basemap: MapViewPrefs["basemap"]): string {
+  return basemap === "satellite"
+    ? "mapbox://styles/mapbox/standard-satellite"
+    : "mapbox://styles/mapbox/standard";
+}
+
+/** 地点検索の結果1件。 */
+type GeocodeHit = { id: string; name: string; address: string; lat: number; lng: number };
+
+/**
+ * 地点検索。**Mapbox Search Box API** を使う。
+ * Geocoding v6 は住所・地名しか返さず、**施設（POI）が出ない**ため、
+ * 「ヤマト運輸の営業所」「ガソリンスタンド」のような探し方ができなかった（2026-08-10 指摘）。
+ * 地図の中心を proximity に渡し、近い順に出す。
+ */
+async function searchPlaces(
+  query: string,
+  proximity: [number, number] | null,
+  bbox: string | null,
+): Promise<GeocodeHit[]> {
+  const params = new URLSearchParams({
+    q: query,
+    country: "jp",
+    language: "ja",
+    limit: "10",
+    types: "poi,address,place,street",
+    access_token: MAPBOX_TOKEN,
+  });
+  if (proximity) params.set("proximity", `${proximity[0]},${proximity[1]}`);
+  // 表示範囲に限定しないと、同名の施設が全国から混ざる（「ヤマト 営業所」で埼玉・千葉が出た）
+  if (bbox) params.set("bbox", bbox);
+  const res = await fetch(`https://api.mapbox.com/search/searchbox/v1/forward?${params.toString()}`);
+  if (!res.ok) throw new Error(`search ${res.status}`);
+  return toHits(await res.json());
+}
+
+/**
+ * 種別で近くを探す（ガソリンスタンド・駐車場など）。
+ * 「この辺の給油所どこ」という調べ方は名前を知らないので、カテゴリ検索でないと引けない。
+ */
+async function searchCategory(
+  category: string,
+  proximity: [number, number] | null,
+  bbox: string | null,
+): Promise<GeocodeHit[]> {
+  const params = new URLSearchParams({
+    country: "jp",
+    language: "ja",
+    limit: "10",
+    access_token: MAPBOX_TOKEN,
+  });
+  if (proximity) params.set("proximity", `${proximity[0]},${proximity[1]}`);
+  if (bbox) params.set("bbox", bbox);
+  const res = await fetch(
+    `https://api.mapbox.com/search/searchbox/v1/category/${encodeURIComponent(category)}?${params.toString()}`,
+  );
+  if (!res.ok) throw new Error(`category ${res.status}`);
+  return toHits(await res.json());
+}
+
+type SearchBoxResponse = {
+  features?: {
+    id?: string;
+    properties?: {
+      name?: string;
+      full_address?: string;
+      place_formatted?: string;
+      coordinates?: { latitude: number; longitude: number };
+    };
+    geometry?: { coordinates?: [number, number] };
+  }[];
+};
+
+function toHits(json: SearchBoxResponse): GeocodeHit[] {
+  return (json.features ?? [])
+    .map((f, i) => {
+      const c = f.properties?.coordinates;
+      const g = f.geometry?.coordinates;
+      const lat = c?.latitude ?? g?.[1];
+      const lng = c?.longitude ?? g?.[0];
+      if (lat == null || lng == null) return null;
+      return {
+        id: f.id ?? `hit-${i}`,
+        name: f.properties?.name ?? "",
+        address: f.properties?.full_address ?? f.properties?.place_formatted ?? "",
+        lat,
+        lng,
+      };
+    })
+    .filter((h): h is GeocodeHit => h !== null && !!h.name);
+}
+
+/**
+ * よく調べる種別のショートカット。
+ * ガソリン・駐車場はカテゴリ検索、運送会社は名前で引く（ブランド名の方が確実に当たる）。
+ */
+const SEARCH_SHORTCUTS: { label: string; category?: string; query?: string; icon: PlaceIcon }[] = [
+  { label: "ガソリン", category: "gas_station", icon: "fuel" },
+  { label: "駐車場", category: "parking_lot", icon: "parking" },
+  { label: "ヤマト運輸", query: "ヤマト運輸", icon: "client" },
+  { label: "佐川急便", query: "佐川急便", icon: "client" },
+  { label: "コンビニ", category: "convenience_store", icon: "pin" },
+];
+
+// 拠点ピンのマーカー種別（DB の map_places.icon と対応）。
+const PLACE_ICONS = {
+  pin: { label: "拠点", icon: faLocationDot, bg: "bg-violet-600" },
+  warehouse: { label: "倉庫", icon: faWarehouse, bg: "bg-amber-600" },
+  parking: { label: "駐車場", icon: faSquareParking, bg: "bg-blue-600" },
+  client: { label: "取引先", icon: faBuilding, bg: "bg-emerald-600" },
+  fuel: { label: "給油所", icon: faGasPump, bg: "bg-rose-600" },
+} as const;
+type PlaceIcon = keyof typeof PLACE_ICONS;
+
+type MapPlace = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  icon: PlaceIcon;
+  /** point=1点 / circle=中心+半径（migration 124） */
+  shape?: "point" | "circle" | "polygon";
+  radius_m?: number | null;
+  /** 日報の「車の置き場所」の候補に出すか（migration 158）。未取得は出す扱い */
+  allow_parking?: boolean;
+};
+
+type ParkingSlot = {
+  id: string;
+  place_id: string;
+  label: string;
+  geometry: { type: "Polygon"; coordinates: [number, number][][] };
+  bearing: number;
+  lat: number;
+  lng: number;
+  vehicle_id: string | null;
+};
+
+type CourseArea = {
+  id: string;
+  name: string;
+  color: string | null;
+  delivery_area: { type: "Polygon" | "MultiPolygon"; coordinates: number[][][] } | null;
+  delivery_area_updated_at: string | null;
+};
+
+type PolygonFeature = {
+  type: "Feature";
+  properties: Record<string, unknown>;
+  geometry: { type: "Polygon"; coordinates: [number, number][][] };
+};
+type PolygonCollection = { type: "FeatureCollection"; features: PolygonFeature[] };
+
+/**
+ * 描いた多角形を「最小面積の長方形」に整える。
+ * 駐車区画は長方形なので、ざっくり囲ってもらってこちらで矩形に直す
+ *（4点をきっちり打たせるのは航空写真の上では難しい）。
+ */
+function snapToRectangle(ring: [number, number][]): [number, number][] {
+  const pts = ring.slice(0, -1);
+  if (pts.length < 3) return ring;
+  const lat0 = (pts.reduce((s, p) => s + p[1], 0) / pts.length) * (Math.PI / 180);
+  const kx = Math.cos(lat0); // 経度方向の縮尺補正
+  const xy = pts.map(([lng, lat]) => [lng * kx, lat] as [number, number]);
+
+  let best: { area: number; corners: [number, number][] } | null = null;
+  for (let i = 0; i < xy.length; i++) {
+    const a = xy[i];
+    const b = xy[(i + 1) % xy.length];
+    const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    const cos = Math.cos(-ang);
+    const sin = Math.sin(-ang);
+    const rot = xy.map(([x, y]) => [x * cos - y * sin, x * sin + y * cos] as [number, number]);
+    const minX = Math.min(...rot.map((p) => p[0]));
+    const maxX = Math.max(...rot.map((p) => p[0]));
+    const minY = Math.min(...rot.map((p) => p[1]));
+    const maxY = Math.max(...rot.map((p) => p[1]));
+    const area = (maxX - minX) * (maxY - minY);
+    if (best && area >= best.area) continue;
+    const back = ([x, y]: [number, number]): [number, number] => {
+      const c = Math.cos(ang);
+      const sn = Math.sin(ang);
+      return [(x * c - y * sn) / kx, x * sn + y * c];
+    };
+    best = {
+      area,
+      corners: [
+        back([minX, minY]),
+        back([maxX, minY]),
+        back([maxX, maxY]),
+        back([minX, maxY]),
+      ],
+    };
+  }
+  if (!best) return ring;
+  return [...best.corners, best.corners[0]];
+}
+
+/** 「12番」→「13番」のように末尾の数字を1つ進める（区画は連番で入力することが多い）。 */
+function nextSlotLabel(label: string): string {
+  const m = /^(.*?)(\d+)(\D*)$/.exec(label);
+  if (!m) return "";
+  return `${m[1]}${Number(m[2]) + 1}${m[3]}`;
+}
+
+/** 点が多角形の中にあるか（レイキャスティング）。車の向きを区画に合わせる判定に使う。 */
+function pointInRing(lng: number, lat: number, ring: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** 円を GeoJSON のポリゴンに落とす（Mapbox に円プリミティブが無いため）。 */
+function circlePolygon(lat: number, lng: number, radiusM: number, steps = 64): PolygonFeature {
+  const coords: [number, number][] = [];
+  const latR = radiusM / 111_320;
+  const lngR = radiusM / (111_320 * Math.cos((lat * Math.PI) / 180));
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * Math.PI * 2;
+    coords.push([lng + lngR * Math.cos(t), lat + latR * Math.sin(t)]);
+  }
+  return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [coords] } };
+}
+
+// 検索結果のピン。拠点ピン（登録済み）と区別できるよう、白地＋番号＋種別アイコンにする。
+// hover の強調は親マーカーの .search-hit.is-active（globals.css）で当てる。
+// プロップで切り替えるとマーカーごと作り直しになる（監査 P3-4）。
+function SearchHitMarker({ index, icon }: { index: number; icon: PlaceIcon }) {
+  const meta = PLACE_ICONS[icon] ?? PLACE_ICONS.pin;
+  return (
+    <div className="flex flex-col items-center">
+      <div className="search-hit-badge flex items-center gap-1 rounded-full border-2 border-white bg-white px-2 py-1 shadow-lg transition-transform">
+        <FontAwesomeIcon icon={meta.icon} className={`h-3 w-3 ${meta.bg.replace("bg-", "text-")}`} />
+        <span className="text-[10px] font-bold text-slate-700">{index}</span>
+      </div>
+      <div className="h-0 w-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-white" />
+    </div>
+  );
+}
+
+// 拠点ピンの見た目: 白縁の丸バッジ＋種別アイコン。
+function PlaceMarkerBadge({ icon }: { icon: PlaceIcon }) {
+  const meta = PLACE_ICONS[icon] ?? PLACE_ICONS.pin;
+  return (
+    <div
+      className={`flex h-7 w-7 items-center justify-center rounded-full border-2 border-white shadow-md ${meta.bg}`}
+    >
+      <FontAwesomeIcon icon={meta.icon} className="h-3.5 w-3.5 text-white" />
+    </div>
+  );
+}
+
+type MapVehicle = VehiclePlateData & {
+  session?: { open: boolean; driverName: string; startedAt: string | null } | null;
+  /** 地図の3Dモデル識別子（未設定は既定モデル）。migration 123 */
+  model_key?: string | null;
+  model_code?: string | null;
+  part_colors?: VehiclePartColors | null;
+  /** 車体色 #RRGGBB（未設定はモデル本来の色）。migration 123 */
+  body_color?: string | null;
+  /** 詳細に出すメンテ情報（vehicles の登録値）。未取得の旧キャッシュでは省略される */
+  last_oil_change_mileage?: number | null;
+  oil_change_interval?: number | null;
+  next_shaken_date?: string | null;
+  position: {
+    lat: number;
+    lng: number;
+    at: string | null;
+    kind: "checkin" | "checkout" | "manual" | "gps" | "report";
+    source?: "punch" | "manual" | "gps" | "report";
+    placedBy?: string;
+    note?: string | null;
+    /** 日報の駐車申告なら場所名（登録車庫名 or 別の場所） */
+    placeName?: string | null;
+    sessionStatus: "open" | "closed";
+    parkingPending?: boolean;
+    driverName: string;
+  } | null;
+};
+
+type MapOperationsData = {
+  movements: VehicleMovement[];
+  places: { id: string; name: string; lat: number; lng: number }[];
+  drivers: { id: string; name: string }[];
+  upcomingUses: {
+    id: string;
+    vehicleId: string;
+    shiftDate: string;
+    meetingTime: string | null;
+    driver: { id: string; name: string } | null;
+    course: { id: string; name: string } | null;
+    cycleNo: number;
+    slot: number;
+  }[];
+};
+
+type MapMode = "current" | "movements" | "history";
+
+type MovementFormState = {
+  id: string | null;
+  expectedVersion: number | null;
+  vehicleId: string;
+  fromPlaceId: string;
+  toPlaceId: string;
+  assigneeDriverId: string;
+  dueDate: string;
+  dueTime: string;
+  note: string;
+};
+
+function dateTimeInJst(value: string): { date: string; time: string } {
+  const [date, time] = new Date(value)
+    .toLocaleString("sv-SE", { timeZone: "Asia/Tokyo", hour12: false })
+    .split(" ");
+  return { date, time: time.slice(0, 5) };
+}
+
+function movementStatusLabel(movement: VehicleMovement): string {
+  if (movement.actualPlaceId && movement.actualPlaceId !== movement.toPlaceId) return "到着場所を確認";
+  if (movement.status === "needed") return "手配が必要";
+  if (movement.status === "planned" && Date.parse(movement.dueAt) < Date.now()) return "期限を確認";
+  return "手配済み";
+}
+
+function formatMovementAt(value: string): string {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatShiftDay(value: string): string {
+  const date = reportDateStrToDate(value);
+  return new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric", weekday: "short" }).format(date);
+}
+
+function MovementDetailCard({
+  movement,
+  vehicle,
+  upcomingUse,
+  places,
+  canDispatch,
+  completing,
+  completionPlaceId,
+  saving,
+  error,
+  onEdit,
+  onStartComplete,
+  onCompletionPlaceChange,
+  onComplete,
+  onCancelComplete,
+  onCancel,
+}: {
+  movement: VehicleMovement | null;
+  vehicle: MapVehicle | null;
+  upcomingUse: MapOperationsData["upcomingUses"][number] | null;
+  places: MapOperationsData["places"];
+  canDispatch: boolean;
+  completing: boolean;
+  completionPlaceId: string;
+  saving: boolean;
+  error: string;
+  onEdit: () => void;
+  onStartComplete: () => void;
+  onCompletionPlaceChange: (value: string) => void;
+  onComplete: () => void;
+  onCancelComplete: () => void;
+  onCancel: () => void;
+}) {
+  if (!movement || !vehicle) {
+    return <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">車両を選んでください</div>;
+  }
+  const attention = movementNeedsAttention(movement);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
+      <div className="flex items-start gap-3">
+        <VehiclePlate vehicle={vehicle} compact className="w-28 shrink-0" />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-slate-900">{vehicle.brand || "車両"}</p>
+          <span
+            className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
+              attention ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"
+            }`}
+          >
+            {attention && <FontAwesomeIcon icon={faTriangleExclamation} className="h-3 w-3" />}
+            {movementStatusLabel(movement)}
+          </span>
+        </div>
+      </div>
+
+      <dl className="mt-4 space-y-3 text-xs">
+        <div>
+          <dt className="font-semibold text-slate-400">移動</dt>
+          <dd className="mt-0.5 flex items-center gap-1.5 font-bold text-slate-800">
+            <span>{movement.fromPlace?.name ?? "出発地不明"}</span>
+            <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3 text-amber-600" />
+            <span>{movement.toPlace?.name ?? "届け先不明"}</span>
+          </dd>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <dt className="font-semibold text-slate-400">届ける期限</dt>
+            <dd className="mt-0.5 font-semibold text-slate-800">{formatMovementAt(movement.dueAt)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-slate-400">運ぶ人</dt>
+            <dd className={`mt-0.5 font-semibold ${movement.assignee ? "text-slate-800" : "text-amber-700"}`}>
+              {movement.assignee?.name ?? "未設定"}
+            </dd>
+          </div>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-400">次の利用</dt>
+          <dd className="mt-0.5 leading-5 text-slate-700">
+            {upcomingUse ? (
+              <>
+                {formatShiftDay(upcomingUse.shiftDate)} {upcomingUse.meetingTime?.slice(0, 5) || "時刻未設定"}
+                <br />
+                {[upcomingUse.driver?.name, upcomingUse.course?.name].filter(Boolean).join("・") || "利用者未設定"}
+              </>
+            ) : (
+              "直近14日にはありません"
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-400">最後の位置記録</dt>
+          <dd className="mt-0.5 text-slate-700">
+            {vehicle.position
+              ? `${formatAt(vehicle.position.at)}${vehicle.position.driverName ? `・${vehicle.position.driverName}` : ""}`
+              : "未記録"}
+          </dd>
+        </div>
+      </dl>
+
+      {movement.note && <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{movement.note}</p>}
+      {error && <p className="mt-3 text-xs font-semibold text-red-600">{error}</p>}
+
+      {canDispatch && !completing && (
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="min-h-11 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            手配を変更
+          </button>
+          <button
+            type="button"
+            onClick={onStartComplete}
+            className="min-h-11 rounded-lg bg-slate-900 text-xs font-semibold text-white hover:bg-slate-800"
+          >
+            <FontAwesomeIcon icon={faCheck} className="mr-1.5 h-3 w-3" />
+            完了を記録
+          </button>
+          <button type="button" onClick={onCancel} className="col-span-2 text-xs text-red-600 underline underline-offset-2">
+            この手配を取り消す
+          </button>
+        </div>
+      )}
+
+      {canDispatch && completing && (
+        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+          <label className="block text-xs font-bold text-emerald-900" htmlFor="movement-arrival-place">
+            実際に停めた場所
+          </label>
+          <select
+            id="movement-arrival-place"
+            value={completionPlaceId}
+            onChange={(event) => onCompletionPlaceChange(event.target.value)}
+            className="mt-1 min-h-11 w-full rounded-lg border border-emerald-300 bg-white px-3 text-sm"
+          >
+            <option value="">選んでください</option>
+            {places.map((place) => <option key={place.id} value={place.id}>{place.name}</option>)}
+          </select>
+          <p className="mt-1 text-[11px] leading-5 text-emerald-800">
+            予定と違う場所も記録できます。その場合、手配は完了にせず確認を残します。
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button type="button" onClick={onCancelComplete} className="min-h-11 rounded-lg text-xs font-semibold text-slate-600">
+              戻る
+            </button>
+            <button
+              type="button"
+              disabled={!completionPlaceId || saving}
+              onClick={onComplete}
+              className="min-h-11 rounded-lg bg-emerald-700 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "記録中..." : "この場所で記録"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** つまみに出す短い番号（一連指定番号だけ）。 */
+/** 通知メッセージ用の短いプレート表記。 */
+function plateText(v: MapVehicle): string {
+  return (
+    [v.number_class, v.number_hiragana, formatPlateNumeric(v.number_numeric || "")]
+      .filter(Boolean)
+      .join(" ") ||
+    v.brand ||
+    "車両"
+  );
+}
+
+function formatAt(at: string | null): string {
+  if (!at) return "";
+  const d = new Date(at);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(
+    d.getMinutes(),
+  ).padStart(2, "0")}`;
+}
+
+// 吹き出しの中身: ナンバープレート＋状態（稼働中/最終確認）。
+/**
+ * クリック時の詳細。中身は共通の VehicleDetailCard（シフト表などの長押しシートと同じもの）。
+ * ここで別実装を持つと、片方だけ直して見え方がズレる。
+ */
+function VehiclePopup({ vehicle }: { vehicle: MapVehicle }) {
+  return <VehicleDetailCard vehicle={vehicle} />;
+}
+
+/** 束（画面上で重なった車）は代表の詳細に全員分を並べる。1台なら従来どおり */
+function VehiclePopupGroup({ vehicles, maxHeight }: { vehicles: MapVehicle[]; maxHeight?: number }) {
+  if (vehicles.length <= 1) return <VehiclePopup vehicle={vehicles[0]} />;
+  return (
+    <div className="w-[216px] overflow-y-auto overscroll-contain" style={{ maxHeight: maxHeight ?? 360 }}>
+      <div className="mb-1 px-1 text-[11px] font-bold text-slate-500">{vehicles.length}台</div>
+      <div className="divide-y divide-slate-200">
+        {vehicles.map((vehicle) => (
+          <div key={vehicle.id} className="py-1.5 first:pt-0 last:pb-0">
+            <VehiclePopup vehicle={vehicle} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 車検日は年月で足りる（YYYY-MM-DD → YYYY年M月） */
+/** ポップアップは札の上へ逃がし、札と被らないようにする。anchor ごとの offset（Mapbox が収まる向きを選ぶ） */
+function popupOffsetFor(markerOffsetPixels: number): NonNullable<mapboxgl.PopupOptions["offset"]> {
+  const above = markerOffsetPixels + MAP_PLATE_HEIGHT + 22;
+  const side = MAP_PLATE_WIDTH / 2 + 12;
+  return {
+    top: [0, 10],
+    "top-left": [0, 10],
+    "top-right": [0, 10],
+    bottom: [0, -above],
+    "bottom-left": [0, -above],
+    "bottom-right": [0, -above],
+    left: [side, -above / 2],
+    right: [-side, -above / 2],
+    center: [0, 0],
+  };
+}
+
+// 車両の状態と表示色。稼働セッション＋拠点との距離から導出する。
+// 「積み込み中」は専用の記録が無いので、**拠点（倉庫・拠点ピン）に停まっている稼働中**を
+// そう見なす（ユーザー案 2026-08-10）。あくまで推定なので断定的な表現は避ける。
+const VEHICLE_STATUS_DOT = {
+  稼働中: "bg-emerald-500",
+  積み込み中: "bg-amber-400",
+  駐車待ち: "bg-orange-500",
+  駐車済み: "bg-sky-500",
+  稼働外: "bg-slate-500",
+} as const;
+type VehicleStatus = keyof typeof VEHICLE_STATUS_DOT;
+
+/** 拠点に「停まっている」と見なす距離（m）。敷地の広さを考えて少し広めに取る。 */
+const AT_PLACE_RADIUS_M = 120;
+
+/** 2点間の概算距離（m）。数百m の判定にしか使わないので簡易式で十分。 */
+function distanceM(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const dLat = (aLat - bLat) * 111_320;
+  const dLng = (aLng - bLng) * 111_320 * Math.cos((aLat * Math.PI) / 180);
+  return Math.sqrt(dLat * dLat + dLng * dLng);
+}
+
+// 車両の頭上ラベル: 共通 VehiclePlate（SVG字形）を画像化した札。状態は右上の色ドットと短い文字で示す。
+function VehicleLabel({
+  vehicle,
+  status,
+  selected = false,
+  manual = false,
+}: {
+  vehicle: VehiclePlateData;
+  status: VehicleStatus;
+  selected?: boolean;
+  /** 運営が地図で手を置いた位置。打刻やGPSと見分けが付くようにする（監査 K-9） */
+  manual?: boolean;
+}) {
+  return (
+    <>
+      {/* 通常表示（札）。重なって負けたら .vl-collapsed でドットに縮退する */}
+      <div className="vl-full flex flex-col items-center">
+        <MapPlateLabel vehicle={vehicle} selected={selected}>
+          {/* 状態は色で示す（全車が同じ文字を並べても情報量が無いため）。稼働外は既定なので文字を出さない */}
+          <span
+            className={`absolute -right-1.5 -top-1.5 block h-3 w-3 rounded-full border-2 border-white shadow ${VEHICLE_STATUS_DOT[status]}`}
+          />
+          {status !== "稼働外" && (
+            <span className="absolute left-1/2 top-full mt-0.5 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-950/90 px-1.5 py-0.5 text-[8px] font-bold leading-none text-slate-100 shadow-sm">
+              {status}
+            </span>
+          )}
+          {/* 手動配置の見分け。集計には使わない位置なので、見た目で区別できるようにする */}
+          {manual && (
+            <span
+              title="運営が地図で置いた位置（打刻やGPSではありません）"
+              className="absolute -bottom-1 -right-1 rounded-full border border-dashed border-white bg-slate-700 px-1 py-px text-[8px] font-bold leading-none text-white shadow"
+            >
+              手動
+            </span>
+          )}
+          {/* 台数バッジ（束の代表だけ。中身は declutter が入れる。空なら非表示）。
+              札の内側の左上に置く。外へ出すと隣の札を覆い、下に出すと縮退ドットと場所を
+              取り合う（どちらも 2026-09-08 の監査・実画面で確認）。地名の一部は隠れるが、
+              見分けに使う4桁の数字は隠さない。 */}
+          <span className="vl-count absolute left-1 top-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-amber-950 shadow ring-1 ring-white empty:hidden" />
+        </MapPlateLabel>
+        <span aria-hidden className="mt-0.5 block h-2 w-px bg-white shadow" />
+      </div>
+      {/* 縮退表示: 状態色ドット（存在と状態だけは常に示す） */}
+      <div className="vl-dot flex flex-col items-center">
+        <span
+          className={`block h-3 w-3 rounded-full border-2 border-white shadow-md ${VEHICLE_STATUS_DOT[status]}`}
+        />
+      </div>
+    </>
+  );
+}
+
+// 設定モーダルのスイッチ行。
+function SwitchRow({
+  label,
+  note,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  note?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 py-1.5 ${disabled ? "opacity-40" : ""}`}
+    >
+      <div className="min-w-0">
+        <div className="text-xs font-semibold text-slate-700">{label}</div>
+        {note && <div className="text-[11px] text-slate-400">{note}</div>}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+          checked ? "bg-violet-600" : "bg-slate-300"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+            checked ? "left-[18px]" : "left-0.5"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+export function FleetMapBoard({ embedded = false }: { embedded?: boolean }) {
+  /** 配置モード。ON の間だけピンを掴める（地図のパンを止めるので誤操作しない） */
+  const [placing, setPlacing] = useState(false);
+  /** 現在・移動予定・過去の事実を同じ地図に混ぜないための表示モード。 */
+  const [mapMode, setMapMode] = useState<MapMode>("current");
+  /** 履歴モード（Stage 0.6）。null = ライブ（現在） */
+  const [historyDate, setHistoryDate] = useState<string | null>(null);
+  /** 履歴モードの時刻。存在しない中間位置を連続表示しないため明示入力にする。 */
+  const [historyTime, setHistoryTime] = useState("12:00");
+
+  // 履歴モードでは as-of（その時刻の位置）を取りに行く。ライブは従来どおり最新。
+  const asOfIso = useMemo(() => {
+    if (!historyDate) return null;
+    return new Date(`${historyDate}T${historyTime}:00+09:00`).toISOString();
+  }, [historyDate, historyTime]);
+
+  const { data, error: vehiclesError, isLoading, mutate } = useApi<{
+    vehicles: MapVehicle[];
+    asOf: string | null;
+    historyNeighbors: { previousAt: string | null; nextAt: string | null } | null;
+    /** 車両ごとの実ナンバー GLB（非公開バケットの署名URL）。未生成の車は入らない */
+    plateModelUrls?: Record<string, string>;
+  }>(
+    asOfIso ? `/api/admin/map/vehicles?at=${encodeURIComponent(asOfIso)}` : "/api/admin/map/vehicles",
+    // 履歴は勝手に更新されない方が読みやすい（ライブだけ自動更新）
+    { refreshInterval: asOfIso ? 0 : 15000, keepPreviousData: true },
+  );
+  const historyNeighbors = data?.asOf === asOfIso ? data.historyNeighbors : null;
+  const fleetCounts = useMemo(() => {
+    const vehicles = data?.vehicles ?? [];
+    return {
+      working: vehicles.filter((v) => v.session?.open || v.position?.sessionStatus === "open").length,
+      pending: vehicles.filter((v) => v.position?.parkingPending).length,
+      parked: vehicles.filter((v) => v.position?.source === "report").length,
+      unknown: vehicles.filter((v) => !v.position).length,
+    };
+  }, [data?.vehicles]);
+  const plateModelUrls = useMemo(() => data?.plateModelUrls ?? {}, [data]);
+  const selectHistoryAt = (at: string) => {
+    const [date, time] = new Date(at)
+      .toLocaleString("sv-SE", { timeZone: "Asia/Tokyo", hour12: false })
+      .split(" ");
+    setHistoryDate(date);
+    setHistoryTime(time.slice(0, 5));
+  };
+  const { data: placesData, refresh: refreshPlaces } = useApi<{ places: MapPlace[] }>(
+    "/api/admin/map/places",
+  );
+  const places = useMemo(() => placesData?.places ?? [], [placesData]);
+
+  // 駐車区画（migration 126）。出発地＝稼働開始を押す場所の正体
+  const { data: slotData, refresh: refreshSlots } = useApi<{ slots: ParkingSlot[] }>(
+    "/api/admin/map/parking-slots",
+  );
+  const slots = useMemo(() => slotData?.slots ?? [], [slotData]);
+  /** 区画を描いている拠点。null = 描いていない */
+  const [slotPlace, setSlotPlace] = useState<MapPlace | null>(null);
+  const [slotLabel, setSlotLabel] = useState("");
+  const [slotVehicleId, setSlotVehicleId] = useState("");
+  const [slotSaving, setSlotSaving] = useState(false);
+  const [slotError, setSlotError] = useState("");
+
+  // 配達エリア（コースの属性・migration 125）
+  const { data: courseAreaData, refresh: refreshCourseAreas } = useApi<{ courses: CourseArea[] }>(
+    "/api/admin/map/course-areas",
+  );
+  const courseAreas = useMemo(() => courseAreaData?.courses ?? [], [courseAreaData]);
+  /** エリアを編集中のコース。null = 編集していない */
+  const [editingAreaCourse, setEditingAreaCourse] = useState<CourseArea | null>(null);
+  const [areaSaving, setAreaSaving] = useState(false);
+  const [areaError, setAreaError] = useState("");
+  const [areaPanelOpen, setAreaPanelOpen] = useState(false);
+  const drawRef = useRef<MapboxDraw | null>(null);
+
+  const located = useMemo(
+    () => (data?.vehicles ?? []).filter((v) => v.position != null),
+    [data],
+  );
+  const unlocated = useMemo(
+    () => (data?.vehicles ?? []).filter((v) => v.position == null),
+    [data],
+  );
+  const unlocatedCount = unlocated.length;
+  /** 「地図をクリックして置く」対象に選んだ車両。位置がまだ無い車はドラッグできないため、この導線が要る */
+  const [pendingPlaceVehicle, setPendingPlaceVehicle] = useState<MapVehicle | null>(null);
+
+  // --- 段階3「動かせる」: 札をそのまま掴んで動かす（監査 P3-3・J-1 で合意） ---
+  /** 掴んでいる札（1台だけ）。掴んでいる間は地図のパンを止め、他の札を薄くする */
+  const [draggingVehicleId, setDraggingVehicleId] = useState<string | null>(null);
+  /** 離した直後に出す確認。ここで「今ここにある」か「運ぶ手配」を選ぶまで保存しない */
+  const [dropConfirm, setDropConfirm] = useState<
+    { vehicle: MapVehicle; lat: number; lng: number; target: DropTarget } | null
+  >(null);
+  /** 直前の位置（「元に戻す」で書き戻す。地図は追記なので1行足して戻す） */
+  const [undoPosition, setUndoPosition] = useState<{ vehicle: MapVehicle; lat: number; lng: number } | null>(null);
+  /** ドラッグ直後の click を飲むための時刻。札のクリック（詳細）と競合させない */
+  const suppressPlateClickRef = useRef(0);
+  /** 掴む前の位置。確認をやめたら書き戻す */
+  const dragOriginRef = useRef<{ id: string; lng: number; lat: number } | null>(null);
+  /** 札マーカーの effect は places/slots を依存に持たないので、ref 経由で最新を読む */
+  const snapSourcesRef = useRef<{ places: MapPlace[]; slots: ParkingSlot[] }>({ places: [], slots: [] });
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  // 位置のドラッグ配置は配車権限を持つ人だけ（設計: docs/design/map-board.md）
+  const [canDispatch, setCanDispatch] = useState(false);
+  const [canViewShifts, setCanViewShifts] = useState(false);
+  /** 拠点ピンの追加権限（API 側は can_manage_org_settings） */
+  const [canWritePlaces, setCanWritePlaces] = useState(false);
+  useEffect(() => {
+    setCanDispatch(hasCapability("can_dispatch"));
+    setCanViewShifts(hasCapability("can_view_shifts"));
+    const writePlaces = hasCapability("can_manage_org_settings");
+    setCanWritePlaces(writePlaces);
+    canWritePlacesRef.current = writePlaces;
+  }, []);
+  const {
+    data: operationsData,
+    error: operationsError,
+    isLoading: operationsLoading,
+    mutate: mutateOperations,
+  } = useApi<MapOperationsData>(
+    canViewShifts ? "/api/admin/map/movements" : null,
+    { refreshInterval: mapMode === "movements" ? 60000 : 0 },
+  );
+  const activeMovements = useMemo(
+    () => (operationsData?.movements ?? []).filter(needsVehicleRelocation),
+    [operationsData],
+  );
+  const movementVehicleIds = useMemo(
+    () => new Set(activeMovements.map((movement) => movement.vehicleId)),
+    [activeMovements],
+  );
+  const displayedVehicles = useMemo(
+    () => (mapMode === "movements" ? located.filter((vehicle) => movementVehicleIds.has(vehicle.id)) : located),
+    [located, mapMode, movementVehicleIds],
+  );
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const selectedMovement = useMemo(
+    () =>
+      activeMovements.find((movement) => movement.vehicleId === selectedVehicleId) ??
+      activeMovements[0] ??
+      null,
+    [activeMovements, selectedVehicleId],
+  );
+  const selectedVehicle = useMemo(
+    () => (data?.vehicles ?? []).find((vehicle) => vehicle.id === (selectedMovement?.vehicleId ?? selectedVehicleId)) ?? null,
+    [data, selectedMovement, selectedVehicleId],
+  );
+  const selectedUpcomingUse = useMemo(
+    () =>
+      (operationsData?.upcomingUses ?? []).find(
+        (use) => use.vehicleId === (selectedMovement?.vehicleId ?? selectedVehicleId),
+      ) ?? null,
+    [operationsData, selectedMovement, selectedVehicleId],
+  );
+  const [movementForm, setMovementForm] = useState<MovementFormState | null>(null);
+  const [movementSaving, setMovementSaving] = useState(false);
+  const [movementError, setMovementError] = useState("");
+  const [completionPlaceId, setCompletionPlaceId] = useState("");
+  const [completingMovement, setCompletingMovement] = useState(false);
+  const [cancelMovement, setCancelMovement] = useState<VehicleMovement | null>(null);
+  const [placingMessage, setPlacingMessage] = useState<string | null>(null);
+  const placeMarkersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
+  /** 拠点の名前ポップアップ。編集中だけ外すため保持する */
+  const placePopupsRef = useRef<Map<string, mapboxgl.Popup>>(new Map());
+  const placeRootsRef = useRef<Root[]>([]);
+  const fittedRef = useRef(false);
+  // 3D 状態はボタンで持たず、地図の実ピッチから導出する（コンパス等どこから
+  // 変わってもトグル表示が追従する）。
+  const [pitch, setPitch] = useState(embedded ? 45 : 0);
+  const is3D = pitch > 5;
+  const vehicleLabelMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  /** 札 Marker と車両の対応（まとめ表示の判定用） */
+  const vehicleMarkerEntriesRef = useRef<{ marker: mapboxgl.Marker; vehicle: MapVehicle }[]>([]);
+  /** まとめ表示で車体を描かない車両 id。declutter が更新し、モデルのソースへ反映する */
+  const clusteredVehicleIdsRef = useRef<Set<string>>(new Set());
+  /** 束の代表 id → 束に含まれる車の座標（台数バッジのクリックで寄るため）。束でなければ null */
+  const clusterBoundsRef = useRef<Map<string, mapboxgl.LngLat[] | null>>(new Map());
+  /** 束の代表 id → 束の車両（詳細に全員分を出すため） */
+  const clusterMembersRef = useRef<Map<string, MapVehicle[]>>(new Map());
+  const vehicleLabelRootsRef = useRef<Root[]>([]);
+  /** 車両の見かけサイズ（倍率・リング半径・札のオフセット）。zoom/resize/moveend で更新 */
+  const presentationRef = useRef<VehicleMapPresentation | null>(null);
+  /** 吹き出しの重なり回避。データ更新後にも呼べるよう ref で保持する */
+  const declutterPlatesRef = useRef<() => void>(() => {});
+  /** 3Dモデルのソースへ最新の車両位置を流し込む（スタイル再読込時にも呼ぶ） */
+  const applyVehicleModelDataRef = useRef<() => void>(() => {});
+  const plateModelIdsRef = useRef<Set<string>>(new Set());
+  /** 面（駐車区画・配達エリア・拠点の円）のデータを流し込む（同上） */
+  const applyAreaDataRef = useRef<() => void>(() => {});
+
+  // 拠点ピンは既定で表示。設定モーダルから隠せる。
+  // 既定オフだと「設定の奥のトグルを知らないと拠点の編集に到達できない」状態だった（監査 P2-2）。
+  const [showPlaces, setShowPlaces] = useState(true);
+  const showPlacesRef = useRef(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsPanelRef = useRef<HTMLDivElement>(null);
+  const movementPanelRef = useRef<HTMLDivElement>(null);
+
+  // 共有ビュー（配車作戦盤 Stage 1）: 参加者の在席・カーソル・視点追従を Realtime で同期。
+  const [shareOn, setShareOn] = useState(false);
+  const [selfName] = useState(() => getStoredDriver()?.name ?? "運営");
+  const share = useSharedMapView({ getMap: () => mapRef.current, selfName, active: shareOn });
+
+  // 地図表示の設定（ベースマップ・ラベル・3D）。
+  const [viewPrefs, setViewPrefs] = useState<MapViewPrefs>(loadViewPrefs);
+  const viewPrefsRef = useRef(viewPrefs);
+  const currentBasemapRef = useRef(viewPrefs.basemap);
+
+  // 設定を地図へ反映する（style.load 後にも呼ばれる。ベースマップ切替は別処理）。
+  const applyViewPrefs = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const p = viewPrefsRef.current;
+    try {
+      map.setConfigProperty("basemap", "showPlaceLabels", p.placeLabels);
+      map.setConfigProperty("basemap", "showRoadLabels", p.roadLabels);
+      map.setConfigProperty("basemap", "showPointOfInterestLabels", p.poiLabels);
+      map.setConfigProperty("basemap", "showTransitLabels", p.transitLabels);
+      // 航空写真スタイルは 3D オブジェクトのトグル未対応のためスキップ。
+      if (p.basemap === "standard") {
+        map.setConfigProperty("basemap", "show3dObjects", p.objects3d);
+      }
+      if (p.terrain) {
+        if (!map.getSource("mapbox-dem")) {
+          map.addSource("mapbox-dem", {
+            type: "raster-dem",
+            url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+            tileSize: 512,
+            maxzoom: 14,
+          });
+        }
+        map.setTerrain({ source: "mapbox-dem", exaggeration: 1.2 });
+      } else if (map.getTerrain()) {
+        map.setTerrain(null);
+      }
+    } catch {
+      // スタイル読込中などは style.load 後に再適用されるため無視してよい
+    }
+  };
+  const applyViewPrefsRef = useRef(applyViewPrefs);
+  applyViewPrefsRef.current = applyViewPrefs;
+
+  useEffect(() => {
+    viewPrefsRef.current = viewPrefs;
+    try {
+      localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify(viewPrefs));
+    } catch {
+      // localStorage が使えない環境では保存を諦める（表示には影響しない）
+    }
+    const map = mapRef.current;
+    if (!map) return;
+    if (currentBasemapRef.current !== viewPrefs.basemap) {
+      // ベースマップはスタイルごと差し替え。style.load でライティング・
+      // トラックモデル・この設定が再適用される。
+      currentBasemapRef.current = viewPrefs.basemap;
+      map.setStyle(styleUrlFor(viewPrefs.basemap));
+    } else {
+      applyViewPrefs();
+    }
+    // applyViewPrefs は ref 経由でしか状態を読まない。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewPrefs]);
+
+  // 地点検索（住所・施設名 → 座標）。クリックで置くだけだと、住所しか分からない拠点を置けない。
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<GeocodeHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  /** ショートカット検索で選ばれた種別（結果から拠点を作るとき、この種別を初期選択にする） */
+  const [searchIconHint, setSearchIconHint] = useState<PlaceIcon>("pin");
+  /** 直近の検索条件（「このエリアを再検索」で使い回す） */
+  const [lastSearch, setLastSearch] = useState<
+    { kind: "text"; value: string; icon: PlaceIcon } | { kind: "category"; value: string; icon: PlaceIcon } | null
+  >(null);
+  /** 検索後に地図を動かしたか（Google マップの「このエリアを検索」と同じ考え方） */
+  const [movedSinceSearch, setMovedSinceSearch] = useState(false);
+  /** 一覧でホバー中の候補。地図上のピンを強調する */
+  const [hoveredHitId, setHoveredHitId] = useState<string | null>(null);
+  /** 検索窓にフォーカスがあるか。種別のショートカットはこの間だけ出す（帯を常設しない） */
+  const [searchFocused, setSearchFocused] = useState(false);
+  /** 宣言順の都合で effect から呼ぶための参照 */
+  const runSearchRef = useRef<(spec: { kind: "text" | "category"; value: string; icon: PlaceIcon }) => void>(
+    () => {},
+  );
+
+  // ピン追加フロー: adding=クリック待ち → draft=位置決定・名称入力中。
+  const [adding, setAdding] = useState(false);
+  const addingRef = useRef(false);
+  const [draft, setDraft] = useState<{ lat: number; lng: number } | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [draftIcon, setDraftIcon] = useState<PlaceIcon>("pin");
+  const [draftError, setDraftError] = useState("");
+  /** 編集中の拠点（名称・種別・位置・範囲）。null = 編集していない */
+  const [editingPlace, setEditingPlace] = useState<MapPlace | null>(null);
+  const [savingPlace, setSavingPlace] = useState(false);
+  const [placeEditError, setPlaceEditError] = useState("");
+  const editingPlaceRef = useRef<MapPlace | null>(null);
+  editingPlaceRef.current = editingPlace;
+  const canWritePlacesRef = useRef(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<MapPlace | null>(null);
+
+  // 拠点ピンの表示は手動トグルのみ（ズーム連動の自動非表示は「消えるのが早すぎる」
+  // ため廃止。ピンは吹き出しほど邪魔にならないので常時表示で問題ない）。
+  const applyPlacesVisibility = () => {
+    const visible = showPlacesRef.current;
+    placeMarkersRef.current.forEach((m) => {
+      const el = m.getElement();
+      // opacity は使わない（mapbox が3D遮蔽判定で毎フレーム上書きし、
+      // 非表示が巻き戻るバグになる）。mapbox が触らない visibility で制御する。
+      el.style.visibility = visible ? "" : "hidden";
+      el.style.pointerEvents = visible ? "" : "none";
+      if (!visible && (m.getPopup()?.isOpen() ?? false)) m.togglePopup();
+    });
+  };
+  // zoom リスナーには ref 経由で常に最新の関数を届ける（HMR・stale クロージャ対策）。
+  const applyPlacesVisibilityRef = useRef(applyPlacesVisibility);
+  applyPlacesVisibilityRef.current = applyPlacesVisibility;
+
+  useEffect(() => {
+    showPlacesRef.current = showPlaces;
+    applyPlacesVisibility();
+    // applyPlacesVisibility は ref 経由でしか状態を読まないため依存に含めない。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPlaces]);
+
+  useEffect(() => {
+    addingRef.current = adding;
+    const map = mapRef.current;
+    if (map) map.getCanvas().style.cursor = adding ? "crosshair" : "";
+  }, [adding]);
+
+  // 入力が落ち着いてから検索する（1文字ごとに叩かない）。
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) return; // 空にしただけでは結果を消さない（ショートカットの結果を保つ）
+    const timer = setTimeout(() => {
+      void runSearchRef.current({ kind: "text", value: q, icon: "pin" });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  /** 検索の実行（テキスト／カテゴリ共通）。範囲は常にいまの表示範囲。 */
+  const runSearch = useCallback(
+    async (spec: { kind: "text" | "category"; value: string; icon: PlaceIcon }) => {
+      const center = mapRef.current?.getCenter();
+      const proximity: [number, number] | null = center ? [center.lng, center.lat] : null;
+      const b = mapRef.current?.getBounds();
+      const bbox = b
+        ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((n) => n.toFixed(5)).join(",")
+        : null;
+      setSearchIconHint(spec.icon);
+      setLastSearch(spec);
+      setSearching(true);
+      setMovedSinceSearch(false);
+      try {
+        const hits =
+          spec.kind === "category"
+            ? await searchCategory(spec.value, proximity, bbox)
+            : await searchPlaces(spec.value, proximity, bbox);
+        setSearchResults(hits);
+      } catch (e) {
+        console.error("[map] search error", e);
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    },
+    [],
+  );
+
+  runSearchRef.current = (spec) => void runSearch(spec);
+
+  /** ショートカット（ガソリン・駐車場・ヤマト運輸など）で、いま見ている辺りを探す。 */
+  const runShortcut = (sc: (typeof SEARCH_SHORTCUTS)[number]) => {
+    setSearchQuery("");
+    void runSearch(
+      sc.category
+        ? { kind: "category", value: sc.category, icon: sc.icon }
+        : { kind: "text", value: sc.query ?? sc.label, icon: sc.icon },
+    );
+  };
+
+  const pickSearchResultRef = useRef<(hit: GeocodeHit) => void>(() => {});
+
+  /** 検索結果を選ぶ: その場所へ寄って、拠点の下書きにする（名称も埋める）。 */
+  const pickSearchResult = (hit: GeocodeHit) => {
+    setAdding(false);
+    setDraft({ lat: hit.lat, lng: hit.lng });
+    setDraftName((prev) => prev || hit.name);
+    setDraftIcon(searchIconHint); // ガソリン→給油所 のように種別まで引き継ぐ
+    setSearchResults([]);
+    setSearchQuery("");
+    mapRef.current?.flyTo({ center: [hit.lng, hit.lat], zoom: 16, duration: 800 });
+  };
+
+  pickSearchResultRef.current = pickSearchResult;
+
+  /**
+   * 検索窓の上段: ローカルの車両・ドライバー。
+   * 運営が地図で最初にやるのは「あの車どこ？」なので、住所検索と同じ窓から引けるようにする。
+   * 位置がまだ無い車も候補に出し、選んだらそのまま「地図をクリックして置く」に入る。
+   */
+  const vehicleHits = useMemo(() => {
+    const q = searchQuery.trim();
+    if (q.length < 1) return [];
+    const targets = (data?.vehicles ?? []).map((v) => ({
+      ...v,
+      driverName: v.position?.driverName ?? null,
+      hasPosition: v.position != null,
+    }));
+    return matchVehicles(targets, q, 6);
+  }, [data, searchQuery]);
+
+  /** 検索で選んだ車へ寄って詳細を開く。位置が無い車は「置く」導線へ。 */
+  const focusVehicleHit = (v: MapVehicle) => {
+    setSearchResults([]);
+    setSearchQuery("");
+    setSearchFocused(false);
+    if (!v.position) {
+      setPendingPlaceVehicle(v);
+      return;
+    }
+    setSelectedVehicleId(v.id);
+    const map = mapRef.current;
+    if (!map) return;
+    const openPopup = () => {
+      const entry = vehicleMarkerEntriesRef.current.find((e) => e.vehicle.id === v.id);
+      const popup = entry?.marker.getPopup();
+      if (entry && popup && !popup.isOpen()) entry.marker.togglePopup();
+    };
+    map.once("moveend", openPopup);
+    map.flyTo({
+      center: [v.position.lng, v.position.lat],
+      zoom: Math.max(map.getZoom(), 16),
+      duration: 800,
+    });
+  };
+
+  /** 「今ここにある」: 掴んで離した位置を、いまの位置として追記する（手動配置） */
+  const confirmDropHere = async () => {
+    const drop = dropConfirm;
+    if (!drop) return;
+    const origin = dragOriginRef.current;
+    setDropConfirm(null);
+    const ok = await savePosition(drop.vehicle, drop.lat, drop.lng);
+    if (!ok) {
+      restoreDraggedMarker();
+      return;
+    }
+    dragOriginRef.current = null;
+    // 位置は追記なので、戻すときも「元の位置」をもう1行足す
+    if (origin) setUndoPosition({ vehicle: drop.vehicle, lat: origin.lat, lng: origin.lng });
+  };
+
+  /** 「ここへ運ぶ手配にする」: 車は動かさず、届け先を決めた状態で移動フォームを開く */
+  const confirmDropAsMovement = () => {
+    const drop = dropConfirm;
+    if (!drop || drop.target.kind !== "place") return;
+    setDropConfirm(null);
+    restoreDraggedMarker();
+    openMovementForm(undefined, { vehicleId: drop.vehicle.id, toPlaceId: drop.target.placeId });
+  };
+
+  /** 確認をやめる: 札を掴む前の位置へ戻す */
+  const cancelDrop = () => {
+    setDropConfirm(null);
+    restoreDraggedMarker();
+  };
+
+  /** 「元に戻す」: 直前の位置をもう1行追記して書き戻す */
+  const undoLastPlacement = async () => {
+    const undo = undoPosition;
+    if (!undo) return;
+    setUndoPosition(null);
+    await savePosition(undo.vehicle, undo.lat, undo.lng);
+  };
+
+  /** 拠点の編集を開始する（その場所へ寄せて、パネルを出す）。 */
+  const openPlaceEditor = (place: MapPlace) => {
+    setEditingPlace(place);
+    setSearchResults([]);
+    mapRef.current?.flyTo({ center: [place.lng, place.lat], zoom: Math.max(mapRef.current.getZoom(), 15), duration: 600 });
+  };
+
+  /** 編集内容を保存する。 */
+  const savePlaceEdit = async () => {
+    if (!editingPlace || savingPlace) return;
+    const name = editingPlace.name.trim();
+    if (!name) return;
+    setSavingPlace(true);
+    setPlaceEditError("");
+    try {
+      await apiFetch(`/api/admin/map/places/${editingPlace.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name,
+          icon: editingPlace.icon,
+          lat: editingPlace.lat,
+          lng: editingPlace.lng,
+          radiusM: editingPlace.radius_m ?? 0,
+          allowParking: editingPlace.allow_parking !== false,
+        }),
+      });
+      setEditingPlace(null);
+      void refreshPlaces();
+    } catch (e) {
+      console.error(e);
+      setPlaceEditError(e instanceof Error ? e.message : "保存できませんでした");
+    } finally {
+      setSavingPlace(false);
+    }
+  };
+
+  // モーダルの Esc・初期フォーカス・focus trap（監査 P3-1）。
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  useModalKeys(settingsOpen, closeSettings, settingsPanelRef);
+  const closeMovementForm = useCallback(() => {
+    if (!movementSaving) setMovementForm(null);
+  }, [movementSaving]);
+  useModalKeys(movementForm != null, closeMovementForm, movementPanelRef);
+
+  // Esc で車両の詳細（popup）を閉じる。閉じるボタンを出さない設計なので、
+  // これが無いと開いた詳細を畳めなかった（監査 P3-2）。モーダルが開いている間は
+  // そちらが先に受ける（useModalKeys が capture で止める）。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // popup は Mapbox が開閉を持つので、選択状態を消すだけでは閉じない
+      let closed = false;
+      vehicleMarkerEntriesRef.current.forEach(({ marker }) => {
+        const popup = marker.getPopup();
+        if (popup?.isOpen()) {
+          popup.remove();
+          closed = true;
+        }
+      });
+      if (closed || selectedVehicleId) setSelectedVehicleId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedVehicleId]);
+
+  // Esc でピン追加を中止。
+  useEffect(() => {
+    if (!adding && !draft) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setAdding(false);
+        setDraft(null);
+        setDraftError("");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [adding, draft]);
+
+  // 地図の初期化（トークンがある時のみ）。
+  useEffect(() => {
+    if (!MAPBOX_TOKEN || !containerRef.current || mapRef.current) return;
+    mapboxgl.accessToken = MAPBOX_TOKEN;
+    const map = new mapboxgl.Map({
+      container: containerRef.current,
+      // Standard 系スタイル: ズーム14.5前後から建物が3Dで立ち上がる。
+      style: styleUrlFor(viewPrefsRef.current.basemap),
+      center: [135.76, 35.01], // 位置データが無い間のフォールバック（近畿圏）
+      zoom: 8,
+      pitch: embedded ? 45 : 0,
+      maxPitch: 85,
+      language: "ja",
+      // 帰属表示は規約上必須のため消せない。ⓘ アイコンへ畳むコンパクト表示は
+      // 公式に許可されているのでそれを使う（ロゴは表示のまま）。
+      attributionControl: false,
+    });
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
+    map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), "top-right");
+
+    // ピッチをUIへ同期（トグルがコンパス操作等にも追従する）。
+    map.on("pitch", () => setPitch(map.getPitch()));
+
+    // ピン追加モード中のクリックで位置を確定。
+    map.on("click", (e) => {
+      if (!addingRef.current) return;
+      setDraft({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+      setAdding(false);
+    });
+
+    // 時間帯ライティングを現在時刻から自動適用。10分ごとに再判定する。
+    const applyLight = () => {
+      map.setConfigProperty("basemap", "lightPreset", presetForHour(new Date().getHours()));
+    };
+    map.on("style.load", applyLight);
+    const lightTimer = setInterval(applyLight, 10 * 60 * 1000);
+
+    // ラベル・3D・地形などの表示設定を適用（設定モーダルから変更可能）。
+    map.on("style.load", () => applyViewPrefsRef.current());
+
+    // 車両の3Dモデル。**中身は実データ**（位置が記録された車両）で、下の effect から流し込む。
+    // 1車種＝「着色する車体」＋「固定色の部品（窓・タイヤ・灯火）」の2層（vehicleModels.VEHICLE_MAP_MODELS）。
+    // 足元には白地＋濃色線のコントラストリングを敷き、地図と重なっても形が読めるようにする（2026-09-02 プレビューで確定）。
+    const addVehicleLayers = () => {
+      if (map.getLayer("vehicles-3d-tinted")) return;
+      if (!map.getSource("vehicles-src")) {
+        map.addSource("vehicles-src", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      }
+      map.addLayer({
+        id: "vehicle-contrast",
+        type: "circle",
+        source: "vehicles-src",
+        paint: {
+          "circle-radius": presentationRef.current?.contrastRadiusPixels ?? 24,
+          "circle-color": "#ffffff",
+          "circle-opacity": 0.62,
+          "circle-stroke-color": "#334155",
+          "circle-stroke-opacity": 0.72,
+          "circle-stroke-width": 1.5,
+          "circle-pitch-alignment": "map",
+          "circle-pitch-scale": "viewport",
+        },
+      });
+      map.addLayer({
+        id: "vehicles-3d-tinted",
+        type: "model",
+        source: "vehicles-src",
+        layout: { "model-id": ["get", "tintedModel"] },
+        paint: {
+          "model-rotation": ["get", "rotation"], // 駐車の向き（feature ごと）
+          // 車体色は車両ごとの属性（vehicles.body_color）。車体だけのファイルなので強く混ぜてよい
+          "model-color": ["get", "color"],
+          "model-color-mix-intensity": 0.86,
+          // 夜のライティングでも沈まないよう自己発光させる
+          "model-emissive-strength": 0.45,
+        },
+      });
+      for (const part of VEHICLE_PAINT_PARTS) map.addLayer({
+        id: `vehicles-3d-${part.suffix}`, type: "model", source: "vehicles-src",
+        layout: { "model-id": ["get", `${part.key}Model`] },
+        paint: { "model-rotation": ["get", "rotation"], "model-color": ["get", `${part.key}Color`],
+          "model-color-mix-intensity": ["get", `${part.key}Mix`], "model-emissive-strength": 0.45 },
+      });
+      map.addLayer({
+        id: "vehicles-3d-fixed",
+        type: "model",
+        source: "vehicles-src",
+        layout: { "model-id": ["get", "fixedModel"] },
+        paint: {
+          "model-rotation": ["get", "rotation"],
+          "model-emissive-strength": 0.45,
+        },
+      });
+      // 灯火（ヘッドライト・テールランプ）だけの層。夜の稼働中の車は強く発光させて「まだ走っている車」を見せる
+      map.addLayer({
+        id: "vehicles-3d-lamps",
+        type: "model",
+        source: "vehicles-src",
+        layout: { "model-id": ["get", "lampsModel"] },
+        paint: {
+          "model-rotation": ["get", "rotation"],
+          "model-emissive-strength": ["case", ["boolean", ["get", "lampsOn"], false], 4, 0.45],
+        },
+      });
+      // 車両ごとの実ナンバーの面。番号は車1台につき1つの小さな GLB（非公開バケット）で、
+      // 未生成・番号未入力の車は plateModel が空になり、この層には出ない（既定のプレートのまま）
+      map.addLayer({
+        id: "vehicles-3d-plate",
+        type: "model",
+        source: "vehicles-src",
+        layout: { "model-id": ["get", "plateModel"] },
+        paint: {
+          "model-rotation": ["get", "rotation"],
+          "model-emissive-strength": 0.7,
+        },
+      });
+      presentationRef.current = null;
+      schedulePresentation(true);
+      // スタイル再読込のたびにソースは空で作り直されるので、その場で最新データを流し込む
+      applyVehicleModelDataRef.current();
+    };
+    // 見かけサイズ: 車両長を地図幅の約9%に保ち、寄って実寸に達したら等倍で止める。
+    // 倍率・リング半径・札のオフセットをまとめて rAF で更新し、差が出たものだけ反映する。
+    let presentationFrame: number | null = null;
+    let forcePresentationUpdate = false;
+    const updatePresentation = () => {
+      presentationFrame = null;
+      if (!map.getLayer("vehicles-3d-tinted")) return;
+      const container = map.getContainer();
+      const next = vehicleMapPresentation({
+        mapWidthPixels: container.clientWidth,
+        mapHeightPixels: container.clientHeight,
+        pitch: map.getPitch(),
+        zoom: map.getZoom(),
+        latitude: map.getCenter().lat,
+      });
+      // 検証用（アプリ内ブラウザ・プレビュー巡回から見かけサイズとズームを読める）
+      container.dataset.vehicleLengthPx = next.renderedLengthPixels.toFixed(1);
+      container.dataset.mapZoom = map.getZoom().toFixed(2);
+      container.dataset.vehicleModelVisible = next.modelVisible ? "1" : "0";
+      const changed = presentationChanged(forcePresentationUpdate ? null : presentationRef.current, next);
+      forcePresentationUpdate = false;
+      if (changed.scale) {
+        const scale = [next.modelScale, next.modelScale, next.modelScale];
+        map.setPaintProperty("vehicles-3d-tinted", "model-scale", scale);
+        map.setPaintProperty("vehicles-3d-fixed", "model-scale", scale);
+        for (const part of VEHICLE_PAINT_PARTS) if (map.getLayer(`vehicles-3d-${part.suffix}`)) map.setPaintProperty(`vehicles-3d-${part.suffix}`, "model-scale", scale);
+        if (map.getLayer("vehicles-3d-plate")) map.setPaintProperty("vehicles-3d-plate", "model-scale", scale);
+        if (map.getLayer("vehicles-3d-lamps")) map.setPaintProperty("vehicles-3d-lamps", "model-scale", scale);
+      }
+      if (changed.contrast && map.getLayer("vehicle-contrast")) {
+        map.setPaintProperty("vehicle-contrast", "circle-radius", Math.max(0, next.contrastRadiusPixels));
+      }
+      // 広域でも車体を小さく表示し、ズームに合わせて倍率を調整する。
+      if (changed.scale) {
+        const visibility = next.modelVisible ? "visible" : "none";
+        for (const id of ["vehicles-3d-tinted", "vehicles-3d-fixed", "vehicles-3d-lamps", "vehicles-3d-plate", ...VEHICLE_PAINT_PARTS.map(p => `vehicles-3d-${p.suffix}`), "vehicle-contrast"]) {
+          if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visibility);
+        }
+      }
+      presentationRef.current = next;
+      if (changed.offset) declutterPlatesRef.current();
+    };
+    const schedulePresentation = (force = false) => {
+      forcePresentationUpdate ||= force;
+      if (presentationFrame !== null) return;
+      presentationFrame = window.requestAnimationFrame(updatePresentation);
+    };
+    map.on("style.load", addVehicleLayers);
+    map.on("zoom", () => schedulePresentation());
+    map.on("pitch", () => schedulePresentation());
+    map.on("resize", () => schedulePresentation(true));
+    map.on("moveend", () => schedulePresentation());
+
+    // 面のレイヤー（駐車区画・配達エリア・拠点の円）はここで**空のまま**作っておく。
+    // データ側の effect で addSource すると、航空写真への切替（setStyle）でソースごと消え、
+    // 「保存したのに区画が出ない」状態になっていた（2026-08-10 実機指摘）。
+    // 3Dモデルと同じく「style.load で作り直し → ref でデータを流す」に揃える。
+    const empty = { type: "FeatureCollection" as const, features: [] };
+    const addAreaLayers = () => {
+      // スタイル読込前に addSource すると "Style is not done loading" で throw し、
+      // 地図の初期化ごと止まって**画面が出なくなる**（2026-08-10 実機）。必ず確認してから触る。
+      if (!map.isStyleLoaded()) return;
+      if (!map.getSource("place-areas")) {
+        map.addSource("place-areas", { type: "geojson", data: empty as never });
+        map.addLayer({
+          id: "place-areas-fill",
+          type: "fill",
+          source: "place-areas",
+          paint: { "fill-color": "#7c3aed", "fill-opacity": 0.12 },
+        });
+        map.addLayer({
+          id: "place-areas-line",
+          type: "line",
+          source: "place-areas",
+          paint: { "line-color": "#7c3aed", "line-width": 1.5, "line-opacity": 0.7 },
+        });
+      }
+      if (!map.getSource("course-areas")) {
+        map.addSource("course-areas", { type: "geojson", data: empty as never });
+        map.addLayer({
+          id: "course-areas-fill",
+          type: "fill",
+          source: "course-areas",
+          paint: { "fill-color": ["get", "color"], "fill-opacity": 0.14 },
+        });
+        map.addLayer({
+          id: "course-areas-line",
+          type: "line",
+          source: "course-areas",
+          paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.85 },
+        });
+        map.addLayer({
+          id: "course-areas-label",
+          type: "symbol",
+          source: "course-areas",
+          layout: { "text-field": ["get", "name"], "text-size": 12 },
+          paint: { "text-color": "#0f172a", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
+        });
+      }
+      if (!map.getSource("vehicle-lights")) {
+        // 夜だけ灯る車両のライト。**稼働中の車だけ**光らせる＝「まだ外に出ている車」が一目で分かる。
+        // 単なる演出ではなく情報にする（2026-08-11）。
+        map.addSource("vehicle-lights", { type: "geojson", data: empty as never });
+        map.addLayer({
+          id: "vehicle-lights-glow",
+          type: "circle",
+          source: "vehicle-lights",
+          paint: {
+            "circle-color": "#ffd9a0",
+            "circle-blur": 1,
+            "circle-opacity": 0.55,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 6, 16, 18, 20, 44],
+          },
+        });
+        map.addLayer({
+          id: "vehicle-lights-core",
+          type: "circle",
+          source: "vehicle-lights",
+          paint: {
+            "circle-color": "#fff4de",
+            "circle-opacity": 0.9,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 16, 4, 20, 9],
+          },
+        });
+      }
+      if (!map.getSource("parking-slots")) {
+        map.addSource("parking-slots", { type: "geojson", data: empty as never });
+        map.addLayer({
+          id: "parking-slots-fill",
+          type: "fill",
+          source: "parking-slots",
+          paint: { "fill-color": "#38bdf8", "fill-opacity": 0.18 },
+        });
+        map.addLayer({
+          id: "parking-slots-line",
+          type: "line",
+          source: "parking-slots",
+          paint: { "line-color": "#e0f2fe", "line-width": 1.5, "line-opacity": 0.95 },
+        });
+        map.addLayer({
+          id: "parking-slots-label",
+          type: "symbol",
+          source: "parking-slots",
+          layout: { "text-field": ["get", "label"], "text-size": 11 },
+          paint: { "text-color": "#0c4a6e", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
+        });
+      }
+      // スタイル差し替え直後は空なので、保持しているデータを流し直す
+      applyAreaDataRef.current();
+    };
+    map.on("style.load", addAreaLayers);
+    if (map.isStyleLoaded()) addAreaLayers();
+
+    // プレート吹き出しは実データから作る（下の「車両ラベル反映」effect）。
+    // 吹き出しの基本オフセット: 車両の画面上の高さに比例させる
+    // （ズーム18まで一定、以降は実寸固定で画面上大きくなるのに追従）。
+    const plateBaseOffset = () =>
+      presentationRef.current?.markerOffsetPixels
+      ?? vehicleMapPresentation({ mapWidthPixels: map.getContainer().clientWidth, mapHeightPixels: map.getContainer().clientHeight, pitch: map.getPitch(), zoom: map.getZoom(), latitude: map.getCenter().lat }).markerOffsetPixels;
+
+    // プレート吹き出しの重なり回避: 位置は動かさず（その場表示）、被ったら
+    // 画面の下側＝体感的に手前の車両だけ吹き出しを出し、負けた側は
+    // 状態色ドットに縮退する（存在は常に示す。消すと台数を誤認するため）。
+    const declutterPlates = () => {
+      const base = plateBaseOffset();
+      // 車体が画面上で重なる距離（見かけの車両長の0.9倍）。この距離の車は1つの束にまとめる。
+      // 広域（z13未満）は車体を描かないので長さが 0 になる。そのままだと束が作れず
+      // 「N台」バッジも束の popup も出なくなるため、札の高さ（92px）を基準に切り替える。
+      const clusterDistance = presentationRef.current?.modelVisible === false
+        ? 83
+        : (presentationRef.current?.renderedLengthPixels ?? 60) * 0.9;
+      const items = vehicleMarkerEntriesRef.current.map(({ marker, vehicle }) => ({
+        m: marker,
+        vehicle,
+        pos: map.project(marker.getLngLat()),
+      }));
+      items.sort((a, b) => b.pos.y - a.pos.y); // 下（手前）を優先
+      // 束: 手前の車を代表にし、代表から clusterDistance 以内の車を吸収する（代表だけ車体を描く）
+      const clusters: { anchor: (typeof items)[number]; members: (typeof items)[number][] }[] = [];
+      for (const item of items) {
+        const cluster = clusters.find(
+          (c) => Math.hypot(c.anchor.pos.x - item.pos.x, c.anchor.pos.y - item.pos.y) < clusterDistance,
+        );
+        if (cluster) cluster.members.push(item);
+        else clusters.push({ anchor: item, members: [item] });
+      }
+      const hidden = new Set<string>();
+      for (const cluster of clusters) {
+        for (const member of cluster.members) if (member !== cluster.anchor) hidden.add(member.vehicle.id);
+      }
+      const hiddenChanged = hidden.size !== clusteredVehicleIdsRef.current.size
+        || [...hidden].some((id) => !clusteredVehicleIdsRef.current.has(id));
+      clusteredVehicleIdsRef.current = hidden;
+      if (hiddenChanged) applyVehicleModelDataRef.current();
+
+      // 置いたものの矩形（札とドットの両方）。札同士だけでなくドットとも当たり判定する。
+      // ドットを見ていなかったので、縮退ドットが隣の札の数字と「N台」バッジを覆っていた（監査 P1-2）。
+      const placed: { x: number; y: number; halfW: number; halfH: number }[] = [];
+      const PLATE_HALF_W = 52; // 従来の 104×92 と同じ間隔（52+52 / 46+46）
+      const PLATE_HALF_H = 46;
+      const DOT_HALF = 10; // 直径12px + 余白
+      const overlaps = (x: number, y: number, halfW: number, halfH: number) =>
+        placed.some((r) => Math.abs(r.x - x) < r.halfW + halfW && Math.abs(r.y - y) < r.halfH + halfH);
+
+      for (const { m, pos, vehicle } of items) {
+        const cluster = clusters.find((c) => c.anchor.vehicle.id === vehicle.id);
+        // 束の代表は札を優先して残し、吸収された車は状態色ドットに縮退する（存在は常に示す）
+        const absorbed = !cluster;
+        // 札は base だけ上に浮くので、当たり判定も浮かせた後の位置で見る
+        const plateY = pos.y - base;
+        const collide = absorbed || overlaps(pos.x, plateY, PLATE_HALF_W, PLATE_HALF_H);
+        m.setOffset([0, collide ? -6 : -base]);
+        m.getPopup()?.setOffset(popupOffsetFor(collide ? 6 : base));
+        const node = m.getElement();
+        node.classList.toggle("vl-collapsed", collide);
+        // 台数バッジ: 束に2台以上あるとき代表の札に出す。クリックで束が離れて見えるまで寄る
+        const count = cluster ? cluster.members.length : 1;
+        const badge = node.querySelector<HTMLElement>(".vl-count");
+        if (badge) {
+          badge.textContent = count > 1 ? `${count}台` : "";
+          badge.title = count > 1 ? "重なっている車を離して見る" : "";
+        }
+        node.dataset.clusterCount = String(count);
+        // 縮退ドットは札より下の層に置く（札の数字とバッジを覆わせない）
+        node.style.zIndex = String(collide ? MAP_Z.vehicleDot : MAP_Z.plate);
+        clusterBoundsRef.current.set(vehicle.id, cluster && count > 1
+          ? cluster.members.map((member) => member.m.getLngLat())
+          : null);
+        clusterMembersRef.current.set(vehicle.id, cluster ? cluster.members.map((member) => member.vehicle) : [vehicle]);
+        if (collide) placed.push({ x: pos.x, y: pos.y - 6, halfW: DOT_HALF, halfH: DOT_HALF });
+        else placed.push({ x: pos.x, y: plateY, halfW: PLATE_HALF_W, halfH: PLATE_HALF_H });
+      }
+    };
+    declutterPlatesRef.current = declutterPlates;
+    map.on("moveend", declutterPlates);
+    map.on("zoom", declutterPlates);
+
+    // Option(Alt)+スクロールでカメラ微調整: 縦=傾き / 横=方角。
+    // トラックパッドの2本指スクロールで安定して動かせる（capture で先取りし
+    // ズームに食われないようにする）。
+    const container = containerRef.current;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      map.setPitch(Math.min(85, Math.max(0, map.getPitch() - e.deltaY * 0.2)));
+      if (e.deltaX !== 0) map.setBearing(map.getBearing() + e.deltaX * 0.3);
+    };
+    container.addEventListener("wheel", onWheel, { passive: false, capture: true });
+
+    mapRef.current = map;
+    return () => {
+      clearInterval(lightTimer);
+      if (presentationFrame !== null) window.cancelAnimationFrame(presentationFrame);
+      container.removeEventListener("wheel", onWheel, { capture: true });
+      vehicleLabelMarkersRef.current.forEach((m) => m.remove());
+      vehicleLabelMarkersRef.current = [];
+      const staleLabelRoots = vehicleLabelRootsRef.current;
+      vehicleLabelRootsRef.current = [];
+      setTimeout(() => staleLabelRoots.forEach((r) => r.unmount()), 0);
+      placeMarkersRef.current.forEach((m) => m.remove());
+      placeMarkersRef.current.clear();
+      const roots = [...placeRootsRef.current];
+      placeRootsRef.current = [];
+      setTimeout(() => roots.forEach((r) => r.unmount()), 0);
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // 拠点ピン反映（DB から取得したものを貼り直す）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    placeMarkersRef.current.forEach((m) => m.remove());
+    placeMarkersRef.current.clear();
+    const staleRoots = placeRootsRef.current;
+    placeRootsRef.current = [];
+    setTimeout(() => staleRoots.forEach((r) => r.unmount()), 0);
+
+    for (const place of places) {
+      const node = document.createElement("div");
+      node.style.zIndex = "1"; // 車両ピン(2)・プレート吹き出し(5)より背面
+      const root = createRoot(node);
+      root.render(<PlaceMarkerBadge icon={place.icon} />);
+      placeRootsRef.current.push(root);
+
+      // 名称はユーザー入力のため textContent で入れる（HTML 解釈させない）。
+      const popupNode = document.createElement("div");
+      popupNode.style.cssText = "padding:4px;font-size:12px;font-weight:700";
+      popupNode.textContent = place.name;
+      const popup = new mapboxgl.Popup({
+        offset: 20,
+        maxWidth: "260px",
+        closeButton: false,
+      }).setDOMContent(popupNode);
+
+      // 編集中の拠点はドラッグで動かせる（置いたら直せないのは実用に耐えない・2026-08-10 要望）。
+      // draggable の切り替えは下の effect が行う。ここで固定すると、編集を始めても
+      // マーカーが作り直されるまでドラッグできなかった（監査 P2-3）。
+      const isEditing = editingPlaceRef.current?.id === place.id;
+      const marker = new mapboxgl.Marker({ element: node, draggable: isEditing })
+        .setLngLat([place.lng, place.lat])
+        .setPopup(isEditing ? undefined : popup)
+        .addTo(map);
+      placePopupsRef.current.set(place.id, popup);
+      marker.on("dragend", () => {
+        const { lng, lat } = marker.getLngLat();
+        setEditingPlace((prev) => (prev && prev.id === place.id ? { ...prev, lat, lng } : prev));
+      });
+      if (isEditing) {
+        node.style.cursor = "grab";
+      } else if (canWritePlacesRef.current) {
+        // クリックで編集パネルを開く（従来は名前が出るだけだった）
+        node.addEventListener("click", () => openPlaceEditor(place));
+      }
+      marker.getElement().style.zIndex = String(MAP_Z.place);
+      placeMarkersRef.current.set(place.id, marker);
+    }
+    applyPlacesVisibilityRef.current();
+  }, [places]);
+
+  // 編集対象が変わったら、そのマーカーだけ draggable と popup を切り替える。
+  // 全マーカーの作り直しはしない（監査 P2-3）。
+  useEffect(() => {
+    const editingId = editingPlace?.id ?? null;
+    placeMarkersRef.current.forEach((marker, id) => {
+      const editing = id === editingId;
+      marker.setDraggable(editing);
+      marker.getElement().style.cursor = editing ? "grab" : "";
+      if (editing) {
+        marker.getPopup()?.remove();
+        marker.setPopup(undefined);
+      } else {
+        const popup = placePopupsRef.current.get(id);
+        if (popup && !marker.getPopup()) marker.setPopup(popup);
+      }
+    });
+  }, [editingPlace?.id]);
+
+  // ピン追加の位置プレビュー（名称入力中に仮ピンを立てる）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !draft) return;
+    // 検索で立てた位置は建物の中心などにズレることがあるので、つまんで直せるようにする
+    const m = new mapboxgl.Marker({ color: "#7c3aed", draggable: true })
+      .setLngLat([draft.lng, draft.lat])
+      .addTo(map);
+    m.on("dragend", () => {
+      const { lng, lat } = m.getLngLat();
+      setDraft({ lat, lng });
+    });
+    return () => {
+      m.remove();
+    };
+  }, [draft]);
+
+  /**
+   * 車両の状態を導出する。専用の記録が無い「積み込み中」は、
+   * **拠点（倉庫・拠点ピン）に停まっている稼働中**を推定で当てる（ユーザー案 2026-08-10）。
+   */
+  const statusOf = useCallback(
+    (v: MapVehicle): VehicleStatus => {
+      const p = v.position!;
+      if (p.parkingPending) return "駐車待ち";
+      if (p.sessionStatus !== "open") return p.source === "report" ? "駐車済み" : "稼働外";
+      const atPlace = places.some(
+        (pl) =>
+          (pl.icon === "warehouse" || pl.icon === "pin") &&
+          distanceM(p.lat, p.lng, pl.lat, pl.lng) <= AT_PLACE_RADIUS_M,
+      );
+      return atPlace ? "積み込み中" : "稼働中";
+    },
+    [places],
+  );
+
+  /** 位置を1件記録して一覧を更新する。ドラッグ・クリック配置の共通処理。 */
+  // 札のドラッグ（段階3）は places/slots を依存に持たない effect の中で判定するため、ref で渡す
+  snapSourcesRef.current = { places, slots };
+
+  /** 掴む前の位置へ札を戻す（確認をやめたとき・保存に失敗したとき） */
+  const restoreDraggedMarker = useCallback(() => {
+    const origin = dragOriginRef.current;
+    dragOriginRef.current = null;
+    if (!origin) return;
+    const entry = vehicleMarkerEntriesRef.current.find((e) => e.vehicle.id === origin.id);
+    entry?.marker.setLngLat([origin.lng, origin.lat]);
+  }, []);
+
+  const savePosition = useCallback(
+    async (vehicle: MapVehicle, lat: number, lng: number) => {
+      setPlacingMessage(`${plateText(vehicle)} の位置を保存しています…`);
+      // 楽観更新: 置いた位置をキャッシュへ即反映する（従来は再取得完了までピンが
+      // 一瞬元の位置へ戻っていた）。失敗時は revalidate で実際の状態に戻す。
+      const optimistic = () =>
+        mutate(
+          (prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              vehicles: prev.vehicles.map((v) =>
+                v.id === vehicle.id
+                  ? {
+                      ...v,
+                      position: {
+                        ...(v.position ?? {}),
+                        lat,
+                        lng,
+                        at: new Date().toISOString(),
+                        source: "manual",
+                        kind: "manual",
+                        sessionStatus: v.position?.sessionStatus ?? "closed",
+                        driverName: v.position?.driverName ?? "",
+                        placedBy: v.position?.placedBy ?? "",
+                        note: v.position?.note ?? null,
+                      },
+                    }
+                  : v,
+              ),
+            };
+          },
+          { revalidate: false },
+        );
+      void optimistic();
+      try {
+        await apiFetch("/api/admin/map/positions", {
+          method: "POST",
+          body: JSON.stringify({ vehicleId: vehicle.id, lat, lng }),
+        });
+        setPlacingMessage(`${plateText(vehicle)} の位置を記録しました`);
+        setTimeout(() => setPlacingMessage(null), 2500);
+        return true;
+      } catch (e) {
+        console.error(e);
+        setPlacingMessage("位置を保存できませんでした");
+        setTimeout(() => setPlacingMessage(null), 4000);
+        void mutate(); // 失敗時はサーバー状態へ戻す
+        return false;
+      }
+    },
+    [mutate],
+  );
+
+  // 車両を選んでから地図をクリックすると、そこへ置く（位置がまだ無い車の導線）
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !pendingPlaceVehicle) return;
+    map.getCanvas().style.cursor = "crosshair";
+    const onClick = (e: mapboxgl.MapMouseEvent) => {
+      const target = pendingPlaceVehicle;
+      setPendingPlaceVehicle(null);
+      void savePosition(target, e.lngLat.lat, e.lngLat.lng);
+    };
+    map.once("click", onClick);
+    return () => {
+      map.off("click", onClick);
+      map.getCanvas().style.cursor = "";
+    };
+  }, [pendingPlaceVehicle, savePosition]);
+
+  // 初回だけ、位置がある車が全部入るように地図を合わせる。
+  //
+  // 以前はここで「位置修正モードのつまみ」を全車ぶん作っていたが、段階3で
+  // 通常表示の札をそのまま掴んで動かす方式にしたため撤去した（監査 P3-3:
+  // 大量時につまみが格子状に重なって目的の車を選べなかった）。
+  // 位置修正モードは「位置なし車両を置く」専用に縮小している。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || located.length === 0 || fittedRef.current) return;
+    const bounds = new mapboxgl.LngLatBounds();
+    for (const v of located) bounds.extend([v.position!.lng, v.position!.lat]);
+    fittedRef.current = true;
+    map.fitBounds(bounds, { padding: 64, maxZoom: 14, pitch: embedded ? 45 : map.getPitch(), duration: 0 });
+  }, [located, embedded]);
+
+  // 配置モード中は地図のドラッグ移動を止める。
+  // （ピンを掴んだつもりで地図が動いてしまう、という迷いをなくす・2026-08-06 実機フィードバック）
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    // 置く場所をクリックで指すモードなので、地図が動くと狙いが定まらない。
+    // 札のドラッグ中の停止・再開は attachPlateDrag が別に持つ。
+    if (placing && canDispatch && !historyDate) map.dragPan.disable();
+    else if (!draggingVehicleId) map.dragPan.enable();
+  }, [placing, canDispatch, historyDate, draggingVehicleId]);
+
+  // エリア編集: mapbox-gl-draw を編集中だけ地図に載せる。
+  // 常時載せるとクリックが Draw に吸われて他の操作（拠点の選択・車両の配置）が効かなくなる。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!editingAreaCourse && !slotPlace) {
+      if (drawRef.current) {
+        map.removeControl(drawRef.current as unknown as mapboxgl.IControl);
+        drawRef.current = null;
+      }
+      return;
+    }
+    const draw = new MapboxDraw({
+      displayControlsDefault: false,
+      controls: { polygon: true, trash: true },
+      defaultMode: editingAreaCourse?.delivery_area ? "simple_select" : "draw_polygon",
+    });
+    map.addControl(draw as unknown as mapboxgl.IControl, "top-right");
+    drawRef.current = draw;
+    // 既存のエリアがあれば編集対象として読み込む（引き直しではなく修正ができるように）
+    if (editingAreaCourse?.delivery_area) {
+      draw.add({
+        type: "Feature",
+        properties: {},
+        geometry: editingAreaCourse.delivery_area,
+      } as never);
+    }
+    return () => {
+      if (drawRef.current) {
+        map.removeControl(drawRef.current as unknown as mapboxgl.IControl);
+        drawRef.current = null;
+      }
+    };
+  }, [editingAreaCourse, slotPlace]);
+
+  /** 区画を保存する。描いた形は最小面積の長方形に整えてから送る。 */
+  const saveParkingSlot = async () => {
+    const draw = drawRef.current;
+    if (!draw || !slotPlace || slotSaving) return;
+    const label = slotLabel.trim();
+    if (!label) {
+      setSlotError("区画名（例: 12番）を入力してください");
+      return;
+    }
+    const feature = draw.getAll().features.find((f) => f.geometry?.type === "Polygon");
+    if (!feature) {
+      setSlotError("区画が描かれていません。多角形ツールで囲ってください");
+      return;
+    }
+    const ring = (feature.geometry as unknown as { coordinates: [number, number][][] }).coordinates[0];
+    const rect = snapToRectangle(ring);
+    setSlotSaving(true);
+    setSlotError("");
+    try {
+      await apiFetch("/api/admin/map/parking-slots", {
+        method: "POST",
+        body: JSON.stringify({
+          placeId: slotPlace.id,
+          label,
+          vehicleId: slotVehicleId || null,
+          geometry: { type: "Polygon", coordinates: [rect] },
+        }),
+      });
+      // 続けて次の区画を描けるようにする（駐車場は区画が並んでいるので連続入力が普通）。
+      // deleteAll だけだと simple_select のままで多角形ツールが押せない状態になる（2026-08-10 指摘）
+      draw.deleteAll();
+      draw.changeMode("draw_polygon");
+      setSlotLabel(nextSlotLabel(label));
+      setSlotVehicleId("");
+      void refreshSlots();
+    } catch (e) {
+      console.error(e);
+      setSlotError(e instanceof Error ? e.message : "保存できませんでした");
+    } finally {
+      setSlotSaving(false);
+    }
+  };
+
+  /** 描いた面を保存する。複数描かれていたら MultiPolygon にまとめる。 */
+  const saveCourseArea = async () => {
+    const draw = drawRef.current;
+    const course = editingAreaCourse;
+    if (!draw || !course || areaSaving) return;
+    const features = draw.getAll().features.filter((f) => f.geometry?.type === "Polygon");
+    if (features.length === 0) {
+      setAreaError("エリアが描かれていません。多角形ツールで囲ってください");
+      return;
+    }
+    const area =
+      features.length === 1
+        ? (features[0].geometry as { type: "Polygon"; coordinates: number[][][] })
+        : {
+            type: "MultiPolygon" as const,
+            coordinates: features.map((f) => (f.geometry as { coordinates: number[][][] }).coordinates),
+          };
+    setAreaSaving(true);
+    setAreaError("");
+    try {
+      await apiFetch(`/api/admin/map/course-areas/${course.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ area }),
+      });
+      setEditingAreaCourse(null);
+      void refreshCourseAreas();
+    } catch (e) {
+      console.error(e);
+      setAreaError(e instanceof Error ? e.message : "保存できませんでした");
+    } finally {
+      setAreaSaving(false);
+    }
+  };
+
+  /** エリアを消す（コースは消さない）。 */
+  const clearCourseArea = async (course: CourseArea) => {
+    setAreaSaving(true);
+    try {
+      await apiFetch(`/api/admin/map/course-areas/${course.id}`, { method: "DELETE" });
+      setEditingAreaCourse(null);
+      void refreshCourseAreas();
+    } catch (e) {
+      console.error(e);
+      setAreaError(e instanceof Error ? e.message : "削除できませんでした");
+    } finally {
+      setAreaSaving(false);
+    }
+  };
+
+  /** その座標が駐車区画の中なら、その区画の向きを返す（区画外は 0）。 */
+  const slotBearingAt = useCallback(
+    (lng: number, lat: number): number => {
+      for (const sl of slots) {
+        const ring = sl.geometry?.coordinates?.[0];
+        if (ring && pointInRing(lng, lat, ring)) return sl.bearing ?? 0;
+      }
+      return 0;
+    },
+    [slots],
+  );
+
+  // 面のデータ反映。レイヤーは地図の初期化側で作ってあるので、ここは setData だけ。
+  useEffect(() => {
+    const apply = () => {
+      const map = mapRef.current;
+      if (!map) return;
+      const slotSrc = map.getSource("parking-slots") as mapboxgl.GeoJSONSource | undefined;
+      slotSrc?.setData({
+        type: "FeatureCollection",
+        features: slots.map((sl) => ({
+          type: "Feature",
+          properties: { label: sl.label },
+          geometry: sl.geometry,
+        })),
+      } as never);
+
+      const courseSrc = map.getSource("course-areas") as mapboxgl.GeoJSONSource | undefined;
+      courseSrc?.setData({
+        type: "FeatureCollection",
+        features: courseAreas
+          .filter((c) => c.delivery_area && c.id !== editingAreaCourse?.id) // 編集中は Draw 側が描く
+          .map((c) => ({
+            type: "Feature",
+            properties: { color: c.color || "#7c3aed", name: c.name },
+            geometry: c.delivery_area!,
+          })),
+      } as never);
+
+      // 夜（dusk/night）のときだけ、稼働中の車両にライトを灯す
+      const isNight = isNightJst();
+      const lightSrc = map.getSource("vehicle-lights") as mapboxgl.GeoJSONSource | undefined;
+      lightSrc?.setData({
+        type: "FeatureCollection",
+        features:
+          isNight && !historyDate
+            ? located
+                .filter((v) => v.position!.sessionStatus === "open")
+                .map((v) => ({
+                  type: "Feature",
+                  properties: {},
+                  geometry: { type: "Point", coordinates: [v.position!.lng, v.position!.lat] },
+                }))
+            : [],
+      } as never);
+
+      const placeSrc = map.getSource("place-areas") as mapboxgl.GeoJSONSource | undefined;
+      placeSrc?.setData({
+        type: "FeatureCollection",
+        features: places
+          .filter((pl) => pl.shape === "circle" && (pl.radius_m ?? 0) > 0)
+          .map((pl) => circlePolygon(pl.lat, pl.lng, pl.radius_m!)),
+      } as never);
+    };
+    applyAreaDataRef.current = apply;
+    apply();
+  }, [slots, courseAreas, editingAreaCourse, places, located, historyDate]);
+
+  // 検索結果を地図にピンで出す。一覧だけだと「どこにあるか」が分からない（2026-08-10 指摘）。
+  // 拠点ピンとは見た目を変える（白丸＋種別色のアイコン＋番号）。
+  const hitMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const hitRootsRef = useRef<Root[]>([]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    hitMarkersRef.current.forEach((m) => m.remove());
+    hitMarkersRef.current = [];
+    const stale = hitRootsRef.current;
+    hitRootsRef.current = [];
+    setTimeout(() => stale.forEach((r) => r.unmount()), 0);
+
+    searchResults.forEach((hit, i) => {
+      const node = document.createElement("div");
+      node.style.zIndex = String(MAP_Z.handle); // 検索ヒットはつまみと同じ層
+      node.style.cursor = "pointer";
+      node.title = hit.name;
+      node.classList.add("search-hit");
+      node.dataset.hitId = hit.id;
+      const root = createRoot(node);
+      root.render(<SearchHitMarker index={i + 1} icon={searchIconHint} />);
+      hitRootsRef.current.push(root);
+      const marker = new mapboxgl.Marker({ element: node, anchor: "bottom" })
+        .setLngLat([hit.lng, hit.lat])
+        .addTo(map);
+      node.addEventListener("click", () => pickSearchResultRef.current(hit));
+      node.addEventListener("mouseenter", () => setHoveredHitId(hit.id));
+      node.addEventListener("mouseleave", () => setHoveredHitId(null));
+      hitMarkersRef.current.push(marker);
+    });
+  }, [searchResults, searchIconHint]);
+
+  // hover の見た目は CSS クラスの切替だけで済ませる。
+  // 以前は hoveredHitId が上の effect の依存に入っていて、hover のたびに
+  // 全ヒットのマーカーと React root を作り直していた（監査 P3-4）。
+  useEffect(() => {
+    hitMarkersRef.current.forEach((m) => {
+      const el = m.getElement();
+      el.classList.toggle("is-active", el.dataset.hitId === hoveredHitId);
+    });
+  }, [hoveredHitId, searchResults]);
+
+  // 検索後に地図を動かしたら「このエリアを再検索」を出す（Google マップと同じ考え方）
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !lastSearch) return;
+    const onMove = () => setMovedSinceSearch(true);
+    map.on("moveend", onMove);
+    return () => {
+      map.off("moveend", onMove);
+    };
+  }, [lastSearch]);
+
+  // 車両ラベル反映: **実データ**の位置にプレート吹き出しと3Dモデルを置く。
+  // デモ車両（ハードコード10台）は廃止した（2026-08-07）。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // 3Dモデルのソースを実データで差し替える
+    // 同じ座標に重なった車は、描画だけ横へ並べる（記録は動かさない・監査 K-11）。
+    // 拠点で降ろした車は拠点の代表点がそのまま入ることが多く、寄っても1台にしか見えなかった。
+    const displayPoints = spreadOverlapping(
+      displayedVehicles.map((v) => ({
+        id: v.id,
+        lat: v.position!.lat,
+        lng: v.position!.lng,
+        bearingDeg: slotBearingAt(v.position!.lng, v.position!.lat),
+      })),
+    );
+    const displayPointOf = (v: MapVehicle) => displayPoints.get(v.id) ?? { lat: v.position!.lat, lng: v.position!.lng };
+
+    const applyModelData = () => {
+      const src = mapRef.current?.getSource("vehicles-src") as mapboxgl.GeoJSONSource | undefined;
+      // 実際に表示する車種だけ読み込む。全20仕様を地図起動時に取得しない。
+      const activeMap = mapRef.current;
+      if (!activeMap || !src) return;
+      const plateIds = new Set<string>();
+      const plateId = (v: MapVehicle) => `plate-${v.id}-${vehicleMapModelFor(mapModelKeyForVehicle(v)).id}-${v.number_prefix}-${v.number_class}-${v.number_hiragana}-${v.number_numeric}`;
+      for (const v of displayedVehicles) {
+        const url = plateModelUrls[v.id];
+        const model = vehicleMapModelFor(mapModelKeyForVehicle(v));
+        for (const [part, url] of [["tinted", model.tintedUrl], ["fixed", model.fixedUrl], ["lamps", model.lampsUrl], ...VEHICLE_PAINT_PARTS.map(p => [p.suffix, `/models/${model.id}-${p.suffix}.glb`])]) {
+          if (!activeMap.hasModel(`${model.id}-${part}`)) activeMap.addModel(`${model.id}-${part}`, url);
+        }
+        const id = plateId(v);
+        if (url) {
+          plateIds.add(id);
+          if (!activeMap.hasModel(id)) activeMap.addModel(id, url);
+        }
+      }
+      src.setData({
+        type: "FeatureCollection",
+        // まとめ表示で吸収された車は車体を描かない（代表の1台だけ）。札のドットで存在は示す
+        features: displayedVehicles.filter((v) => !clusteredVehicleIdsRef.current.has(v.id)).map((v) => {
+          // 車種（model_key、無ければメーカー＋車種名）。型式と手動で選んだ外観を共通の解決規則へ渡す
+          const model = vehicleMapModelFor(mapModelKeyForVehicle(v));
+          const at = displayPointOf(v);
+          return {
+            type: "Feature" as const,
+            geometry: { type: "Point" as const, coordinates: [at.lng, at.lat] },
+            properties: {
+              // 区画の中にいるならその区画の軸に合わせる。区画に対して斜めに刺さっていると
+              // 一気に嘘くさくなるため（2026-08-10）。区画外は正面固定（GPS の heading が入ったらそれを使う）
+              rotation: [0, 0, slotBearingAt(v.position!.lng, v.position!.lat)],
+              // 車体色（未設定は白）
+              color: v.body_color || "#ffffff",
+              ...Object.fromEntries(VEHICLE_PAINT_PARTS.flatMap(part => {
+                const material = model.fixedPaintMaterials.includes(part.material) ? `Fixed ${part.material}` : part.material;
+                const color = colorForVehicleMaterial(material, v.body_color, vehiclePartColors(v.part_colors));
+                return [[`${part.key}Model`, `${model.id}-${part.suffix}`], [`${part.key}Color`, color ?? "#ffffff"], [`${part.key}Mix`, color ? 0.86 : 0]];
+              })),
+              tintedModel: `${model.id}-tinted`,
+              fixedModel: `${model.id}-fixed`,
+              lampsModel: `${model.id}-lamps`,
+              // 実ナンバーの GLB（無い車は空文字。model-id が空なら描かれない）
+              plateModel: plateModelUrls[v.id] ? plateId(v) : "",
+              // 夜の稼働中だけライトを点ける（履歴表示では点けない）
+              lampsOn: isNightJst() && !historyDate && v.position!.sessionStatus === "open",
+            },
+          };
+        }),
+      });
+      for (const id of plateModelIdsRef.current) {
+        if (!plateIds.has(id) && activeMap.hasModel(id)) activeMap.removeModel(id);
+      }
+      plateModelIdsRef.current = plateIds;
+    };
+    applyVehicleModelDataRef.current = applyModelData;
+    applyModelData();
+
+    // 吹き出しを貼り直す
+    vehicleLabelMarkersRef.current.forEach((m) => m.remove());
+    vehicleLabelMarkersRef.current = [];
+    vehicleMarkerEntriesRef.current = [];
+    clusterBoundsRef.current.clear();
+    clusterMembersRef.current.clear();
+    const staleRoots = vehicleLabelRootsRef.current;
+    vehicleLabelRootsRef.current = [];
+    setTimeout(() => staleRoots.forEach((r) => r.unmount()), 0);
+
+    // 修正中は「つまみ」だけを出す（ラベルと重ねない）
+    if (canDispatch && placing && !historyDate) {
+      declutterPlatesRef.current();
+      return;
+    }
+
+    /**
+     * 札を掴んで動かす。タッチは長押し（350ms）、PC はドラッグ開始で掴む。
+     * 掴んでいる間は地図のパンを止め、他の札を薄くする（.vl-dragging）。
+     * 離した位置は確認シートに渡し、そこで選ぶまで保存しない。
+     */
+    const LONG_PRESS_MS = 350;
+    const MOVE_TOLERANCE_PX = 6;
+    const attachPlateDrag = (node: HTMLElement, marker: mapboxgl.Marker, vehicle: MapVehicle) => {
+      const toLngLat = (clientX: number, clientY: number) => {
+        const rect = map.getContainer().getBoundingClientRect();
+        return map.unproject([clientX - rect.left, clientY - rect.top]);
+      };
+
+      node.addEventListener("pointerdown", (down: PointerEvent) => {
+        if (down.pointerType === "mouse" && down.button !== 0) return;
+        // 台数バッジは「束を離して見る」動作を持っているので掴まない
+        if ((down.target as HTMLElement).closest(".vl-count")) return;
+
+        const origin = marker.getLngLat();
+        let timer: number | null = null;
+        let dragging = false;
+
+        const cancelTimer = () => {
+          if (timer !== null) window.clearTimeout(timer);
+          timer = null;
+        };
+        const begin = () => {
+          cancelTimer();
+          dragging = true;
+          node.classList.add("vl-grabbed");
+          map.getContainer().classList.add("vl-dragging");
+          map.dragPan.disable();
+          navigator.vibrate?.(15);
+          setDraggingVehicleId(vehicle.id);
+        };
+        const detach = () => {
+          cancelTimer();
+          document.removeEventListener("pointermove", onMove, true);
+          document.removeEventListener("pointerup", onUp, true);
+          document.removeEventListener("pointercancel", onCancel, true);
+        };
+        const stopDragging = () => {
+          if (!dragging) return;
+          dragging = false;
+          node.classList.remove("vl-grabbed");
+          map.getContainer().classList.remove("vl-dragging");
+          map.dragPan.enable();
+          setDraggingVehicleId(null);
+        };
+
+        function onMove(e: PointerEvent) {
+          if (e.pointerId !== down.pointerId) return;
+          const moved =
+            Math.abs(e.clientX - down.clientX) > MOVE_TOLERANCE_PX ||
+            Math.abs(e.clientY - down.clientY) > MOVE_TOLERANCE_PX;
+          if (!dragging) {
+            // タッチは動いたら「地図を動かしたい」と見なして長押しを中止する
+            if (down.pointerType === "touch") {
+              if (moved) {
+                cancelTimer();
+                detach();
+              }
+              return;
+            }
+            if (!moved) return;
+            begin(); // PC はドラッグ開始で掴む
+          }
+          e.preventDefault();
+          marker.setLngLat(toLngLat(e.clientX, e.clientY));
+        }
+
+        function onUp(e: PointerEvent) {
+          if (e.pointerId !== down.pointerId) return;
+          const wasDragging = dragging;
+          const dropped = marker.getLngLat();
+          stopDragging();
+          detach();
+          if (!wasDragging) return;
+          suppressPlateClickRef.current = Date.now();
+          dragOriginRef.current = { id: vehicle.id, lng: origin.lng, lat: origin.lat };
+          const { places: snapPlaces, slots: snapSlots } = snapSourcesRef.current;
+          setDropConfirm({
+            vehicle,
+            lat: dropped.lat,
+            lng: dropped.lng,
+            target: snapDrop(dropped.lat, dropped.lng, snapPlaces, snapSlots),
+          });
+        }
+
+        function onCancel(e: PointerEvent) {
+          if (e.pointerId !== down.pointerId) return;
+          if (dragging) marker.setLngLat(origin);
+          stopDragging();
+          detach();
+        }
+
+        // 掴んだあと札の外へ出ても追えるよう、動きと離しは document で受ける
+        // （setPointerCapture は端末やイベントの出どころによって例外になるため使わない）
+        document.addEventListener("pointermove", onMove, true);
+        document.addEventListener("pointerup", onUp, true);
+        document.addEventListener("pointercancel", onCancel, true);
+        if (down.pointerType === "touch") timer = window.setTimeout(begin, LONG_PRESS_MS);
+      });
+    };
+
+    for (const v of displayedVehicles) {
+      const p = v.position!;
+      const node = document.createElement("div");
+      node.className = "vehicle-label"; // globals.css で吹き出し⇔ドットを切替
+      node.setAttribute("role", "button");
+      node.setAttribute("tabindex", "0");
+      node.setAttribute("aria-label", `${plateText(v)} ${statusOf(v)}`);
+      node.style.zIndex = String(MAP_Z.plate); // 規約: lib/map/zIndex.ts
+      node.style.cursor = "pointer";
+      node.addEventListener("click", (event) => {
+        // 掴んで離した直後のクリックは詳細を開かない（段階3のドラッグと競合するため）
+        if (Date.now() - suppressPlateClickRef.current < 400) {
+          event.stopPropagation();
+          return;
+        }
+        // 台数バッジ: 束の車が離れて見えるまで寄る（位置は動かさない）
+        const bounds = clusterBoundsRef.current.get(v.id);
+        if ((event.target as HTMLElement).closest(".vl-count") && bounds && bounds.length > 1) {
+          event.stopPropagation();
+          const box = new mapboxgl.LngLatBounds(bounds[0], bounds[0]);
+          bounds.forEach((point) => box.extend(point));
+          map.fitBounds(box, { padding: 120, maxZoom: 19, duration: 900 });
+          return;
+        }
+        setSelectedVehicleId(v.id);
+      });
+      const root = createRoot(node);
+      root.render(
+        <VehicleLabel
+          vehicle={v}
+          status={statusOf(v)}
+          selected={mapMode === "movements" && selectedMovement?.vehicleId === v.id}
+          manual={p.source === "manual"}
+        />,
+      );
+      vehicleLabelRootsRef.current.push(root);
+
+      // クリック対象はこの吹き出し（通常時はピンを出さないため）
+      const popupNode = document.createElement("div");
+      const popupRoot = createRoot(popupNode);
+      popupRoot.render(<VehiclePopup vehicle={v} />);
+      vehicleLabelRootsRef.current.push(popupRoot);
+      const popup = new mapboxgl.Popup({
+        offset: popupOffsetFor(presentationRef.current?.markerOffsetPixels ?? 30),
+        maxWidth: "260px",
+        closeButton: false,
+        // 常に札の上へ開く。下へ開くと地図の下端で切れてスクロールできない（2026-09-07 指摘）。
+        // 上に入りきらない分は開いた後に地図の方を動かして収める（下の "open"）
+        anchor: "bottom",
+        // 他の札より前に出す（globals.css の .vehicle-popup）
+        className: "vehicle-popup",
+      }).setDOMContent(
+        popupNode,
+      );
+      // 開くたびに、束なら全員分の詳細に差し替える（束は zoom で変わるため開く時点で決める）。
+      // 高さは地図の高さに合わせて上限を決め、はみ出す分は地図を寄せる
+      popup.on("open", () => {
+        const members = clusterMembersRef.current.get(v.id) ?? [v];
+        const mapHeight = map.getContainer().clientHeight;
+        const maxHeight = Math.max(160, mapHeight - 96);
+        popupRoot.render(<VehiclePopupGroup vehicles={members} maxHeight={maxHeight} />);
+        window.requestAnimationFrame(() => {
+          const element = popup.getElement();
+          if (!element) return;
+          const box = element.getBoundingClientRect();
+          const frame = map.getContainer().getBoundingClientRect();
+          const margin = 12;
+          const dy = box.top < frame.top + margin ? box.top - (frame.top + margin) : 0;
+          const dx = box.left < frame.left + margin
+            ? box.left - (frame.left + margin)
+            : box.right > frame.right - margin ? box.right - (frame.right - margin) : 0;
+          if (dx !== 0 || dy !== 0) map.panBy([dx, dy], { duration: 320 });
+        });
+      });
+
+      const marker = new mapboxgl.Marker({
+        element: node,
+        anchor: "bottom",
+        offset: [0, -(presentationRef.current?.markerOffsetPixels ?? 30)],
+        // 3D建物に隠れても消さず、画面向きで車両座標へ追随させる
+        occludedOpacity: 1,
+        pitchAlignment: "viewport",
+        rotationAlignment: "viewport",
+      })
+        .setLngLat([displayPointOf(v).lng, displayPointOf(v).lat])
+        .setPopup(popup)
+        .addTo(map);
+      vehicleLabelMarkersRef.current.push(marker);
+      vehicleMarkerEntriesRef.current.push({ marker, vehicle: v });
+      // 段階3: 配車できる人は札をそのまま掴んで動かせる。
+      // 履歴・位置修正モード中は掴めない（見ているものと操作が食い違うため）。
+      if (canDispatch && !historyDate && !placing) attachPlateDrag(node, marker, v);
+    }
+    declutterPlatesRef.current();
+  }, [displayedVehicles, statusOf, canDispatch, placing, historyDate, slotBearingAt, mapMode, selectedMovement, plateModelUrls]);
+
+  // 2D/3D トグル: ピッチだけ変える（方位はユーザー操作を尊重してそのまま）。
+  const setView = (mode: "2d" | "3d") => {
+    mapRef.current?.easeTo({ pitch: mode === "3d" ? 62 : 0, duration: 900 });
+  };
+
+  // 拠点を選択 → その場所へフライト＆吹き出しを開く（ピッチ・方位は現状維持）。
+  const flyToPlace = (place: MapPlace) => {
+    setSettingsOpen(false);
+    const map = mapRef.current;
+    if (!map) return;
+    map.flyTo({ center: [place.lng, place.lat], zoom: 16.5, duration: 2200 });
+    placeMarkersRef.current.forEach((marker, id) => {
+      const open = marker.getPopup()?.isOpen() ?? false;
+      if (id === place.id ? !open : open) marker.togglePopup();
+    });
+  };
+
+  const saveDraft = async () => {
+    if (!draft || savingDraft) return;
+    const name = draftName.trim();
+    if (!name) {
+      setDraftError("名称を入力してください");
+      return;
+    }
+    setSavingDraft(true);
+    try {
+      await apiFetch("/api/admin/map/places", {
+        method: "POST",
+        body: JSON.stringify({ name, icon: draftIcon, lat: draft.lat, lng: draft.lng }),
+      });
+      setDraft(null);
+      setDraftName("");
+      setDraftIcon("pin");
+      setDraftError("");
+      setShowPlaces(true); // 追加した直後に見えないと不安なので表示をオンにする
+      void refreshPlaces();
+    } catch {
+      setDraftError("保存に失敗しました");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const deletePlace = async (place: MapPlace) => {
+    try {
+      await apiFetch(`/api/admin/map/places/${place.id}`, { method: "DELETE" });
+      void refreshPlaces();
+    } catch {
+      // 失敗時は一覧が変わらないだけなので握りつぶす（再試行可能）
+    }
+  };
+
+  const selectMapMode = (mode: MapMode) => {
+    setMapMode(mode);
+    setPlacing(false);
+    if (mode === "history") {
+      setHistoryDate((date) => date ?? todayJST());
+    } else {
+      setHistoryDate(null);
+    }
+    if (mode === "movements") setShowPlaces(true);
+  };
+
+  const fitMovements = () => {
+    const map = mapRef.current;
+    if (!map || activeMovements.length === 0) return;
+    const bounds = new mapboxgl.LngLatBounds();
+    for (const movement of activeMovements) {
+      const vehicle = (data?.vehicles ?? []).find((item) => item.id === movement.vehicleId);
+      if (vehicle?.position) bounds.extend([vehicle.position.lng, vehicle.position.lat]);
+      else if (movement.fromPlace) bounds.extend([movement.fromPlace.lng, movement.fromPlace.lat]);
+      if (movement.toPlace) bounds.extend([movement.toPlace.lng, movement.toPlace.lat]);
+    }
+    if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 90, maxZoom: 13.5, duration: 700 });
+  };
+
+  /** preset: 札を運ぶ先へドロップしたときに、車両と届け先を決めた状態で開く（段階3） */
+  const openMovementForm = (movement?: VehicleMovement, preset?: { vehicleId?: string; toPlaceId?: string }) => {
+    const vehicle = movement
+      ? (data?.vehicles ?? []).find((item) => item.id === movement.vehicleId) ?? null
+      : preset?.vehicleId
+        ? (data?.vehicles ?? []).find((item) => item.id === preset.vehicleId) ?? null
+        : selectedVehicle ?? located[0] ?? null;
+    const nearestPlace = vehicle?.position
+      ? [...(operationsData?.places ?? [])].sort(
+          (a, b) =>
+            distanceM(vehicle.position!.lat, vehicle.position!.lng, a.lat, a.lng) -
+            distanceM(vehicle.position!.lat, vehicle.position!.lng, b.lat, b.lng),
+        )[0]
+      : operationsData?.places[0];
+    const due = movement
+      ? dateTimeInJst(movement.dueAt)
+      : { date: todayJST(), time: "18:00" };
+    setMovementError("");
+    setMovementForm({
+      id: movement?.id ?? null,
+      expectedVersion: movement?.version ?? null,
+      vehicleId: movement?.vehicleId ?? vehicle?.id ?? "",
+      fromPlaceId: movement?.fromPlaceId ?? nearestPlace?.id ?? "",
+      toPlaceId:
+        movement?.toPlaceId ??
+        preset?.toPlaceId ??
+        (operationsData?.places ?? []).find((place) => place.id !== nearestPlace?.id)?.id ??
+        "",
+      assigneeDriverId: movement?.assigneeDriverId ?? "",
+      dueDate: due.date,
+      dueTime: due.time,
+      note: movement?.note ?? "",
+    });
+  };
+
+  const saveMovement = async () => {
+    if (!movementForm || movementSaving) return;
+    if (
+      !movementForm.vehicleId ||
+      !movementForm.fromPlaceId ||
+      !movementForm.toPlaceId ||
+      !movementForm.dueDate ||
+      !movementForm.dueTime
+    ) {
+      setMovementError("車両・出発地・届け先・期限を入力してください");
+      return;
+    }
+    if (movementForm.fromPlaceId === movementForm.toPlaceId) {
+      setMovementError("車両移動では、出発地と異なる届け先を選んでください");
+      return;
+    }
+    setMovementSaving(true);
+    setMovementError("");
+    try {
+      const draft = {
+        vehicleId: movementForm.vehicleId,
+        fromPlaceId: movementForm.fromPlaceId,
+        toPlaceId: movementForm.toPlaceId,
+        assigneeDriverId: movementForm.assigneeDriverId || null,
+        dueAt: new Date(`${movementForm.dueDate}T${movementForm.dueTime}:00+09:00`).toISOString(),
+        note: movementForm.note,
+      };
+      await apiFetch("/api/admin/map/movements", {
+        method: movementForm.id ? "PATCH" : "POST",
+        body: JSON.stringify(
+          movementForm.id
+            ? {
+                ...draft,
+                id: movementForm.id,
+                expectedVersion: movementForm.expectedVersion,
+                action: "save",
+              }
+            : draft,
+        ),
+      });
+      setMovementForm(null);
+      await mutateOperations();
+    } catch (error) {
+      setMovementError(error instanceof Error ? error.message : "保存できませんでした");
+    } finally {
+      setMovementSaving(false);
+    }
+  };
+
+  const finishMovement = async () => {
+    if (!selectedMovement || !completionPlaceId || movementSaving) return;
+    setMovementSaving(true);
+    setMovementError("");
+    try {
+      await apiFetch("/api/admin/map/movements", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id: selectedMovement.id,
+          expectedVersion: selectedMovement.version,
+          action: "complete",
+          actualPlaceId: completionPlaceId,
+          arrivedAt: new Date().toISOString(),
+        }),
+      });
+      setCompletingMovement(false);
+      setCompletionPlaceId("");
+      await Promise.all([mutateOperations(), mutate()]);
+    } catch (error) {
+      setMovementError(error instanceof Error ? error.message : "完了を記録できませんでした");
+    } finally {
+      setMovementSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mapMode !== "movements" || !selectedMovement) return;
+    if (selectedVehicleId !== selectedMovement.vehicleId) setSelectedVehicleId(selectedMovement.vehicleId);
+  }, [mapMode, selectedMovement, selectedVehicleId]);
+
+  const selectedArrowFrom: [number, number] | null = selectedVehicle?.position
+    ? [selectedVehicle.position.lng, selectedVehicle.position.lat]
+    : selectedMovement?.fromPlace
+      ? [selectedMovement.fromPlace.lng, selectedMovement.fromPlace.lat]
+      : null;
+  const selectedArrowTo: [number, number] | null = selectedMovement?.toPlace
+    ? [selectedMovement.toPlace.lng, selectedMovement.toPlace.lat]
+    : null;
+
+  return (
+    <>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {!embedded && <h1 className="text-xl font-bold text-slate-900">地図</h1>}
+          <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700">
+            ベータ
+          </span>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {/* 事実・予定・過去を混ぜず、見る目的を先に選ぶ。 */}
+            <div className="flex rounded-lg bg-slate-100 p-0.5">
+              <button
+                type="button"
+                onClick={() => selectMapMode("current")}
+                className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
+                  mapMode === "current" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                いま
+              </button>
+              {canViewShifts && (
+                <button
+                  type="button"
+                  onClick={() => selectMapMode("movements")}
+                  className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
+                    mapMode === "movements" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faRoute} className="mr-1.5 h-3 w-3" />
+                  車両移動
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => selectMapMode("history")}
+                className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
+                  mapMode === "history" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                履歴
+              </button>
+            </div>
+
+            {/* 位置を置く（配置モード）。ドラッグと地図移動の取り合いをなくすため明示的なモードにする */}
+            {canDispatch && mapMode === "current" && (
+              <button
+                type="button"
+                onClick={() => setPlacing((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  placing
+                    ? "bg-sky-600 text-white hover:bg-sky-700"
+                    : "border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3" />
+                {placing ? "位置の修正を終える" : "車の位置を直す"}
+              </button>
+            )}
+
+            {canDispatch && canViewShifts && mapMode !== "history" && (
+              <button
+                type="button"
+                onClick={() => openMovementForm()}
+                disabled={(operationsData?.places.length ?? 0) < 2 || located.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
+                移動を登録
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => void mutate()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              <FontAwesomeIcon icon={faRotateRight} className="h-3 w-3" />
+              更新
+            </button>
+          </div>
+        </div>
+
+        {/* 状況に応じた案内。何ができる状態なのかを常に1行で示す */}
+        {mapMode === "movements" ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <FontAwesomeIcon icon={faRoute} className="h-3 w-3 shrink-0" />
+            未完了で、出発地と届け先が異なる車両だけを表示しています。
+            <span className="font-semibold">{activeMovements.length} 台</span>
+            {activeMovements.length > 0 && (
+              <button type="button" onClick={fitMovements} className="ml-auto font-semibold underline underline-offset-2">
+                全体を見る
+              </button>
+            )}
+          </div>
+        ) : placingMessage ? (
+          <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+            <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
+            {placingMessage}
+          </div>
+        ) : placing ? (
+          <div className="flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-100 px-3 py-2 text-xs font-medium text-sky-900">
+            <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
+            位置なしの車を置きます: 下の一覧から車を選び、地図をクリックしてください。
+            すでに位置がある車は、ナンバー札を長押し（PCはドラッグ）でそのまま動かせます。
+            終わったら「位置の修正を終える」を押してください
+          </div>
+        ) : historyDate ? (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
+            履歴を表示しています。その時刻時点で記録されていた最後の位置を出しています（点と点は繋ぎません）
+          </div>
+        ) : canDispatch && !embedded ? (
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
+            ナンバー札を長押し（PCはそのままドラッグ）で車を動かせます。GPS がまだ無い車は
+            「車の位置を直す」から置いてください（打刻GPSは上書きしません）
+          </div>
+        ) : null}
+
+        {/* まだ位置が無い車両は掴むピンが無い。一覧から選んで地図をクリックして置く（鶏卵の解消） */}
+        {canDispatch && mapMode === "current" && unlocated.length > 0 && (!embedded || placing) && (
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+              <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3" />
+              まだ位置がない車両 {unlocated.length} 台
+              {pendingPlaceVehicle ? (
+                <span className="font-bold text-sky-700">
+                  — 地図をクリックすると {plateText(pendingPlaceVehicle)} をそこに置きます
+                </span>
+              ) : (
+                <span className="font-normal text-slate-400">— 車両を選んでから地図をクリック</span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {unlocated.map((v) => {
+                const selected = pendingPlaceVehicle?.id === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => setPendingPlaceVehicle(selected ? null : v)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                      selected
+                        ? "border-sky-600 bg-sky-600 text-white"
+                        : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {plateText(v)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 位置が1件も無いときは、その事実をはっきり出す（マーカーが無いのか、掴めないのか区別できるように） */}
+        {vehiclesError && <div role="alert" className="flex items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          <span>車両の位置を読み込めませんでした</span>
+          <button type="button" className="font-semibold underline" onClick={() => { void mutate(); }}>再読込</button>
+        </div>}
+        {!isLoading && !vehiclesError && mapMode !== "movements" && located.length === 0 && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <FontAwesomeIcon icon={faLocationDot} className="h-3 w-3 shrink-0" />
+            {embedded ? "車両の位置はまだありません。" : "位置が記録された車両がまだありません（打刻GPSも手動配置も0件）。"}
+            {embedded ? "" : historyDate
+              ? "別の日時を選んでみてください。"
+              : canDispatch
+                ? "上の一覧から車両を選び、地図をクリックすると置けます。"
+                : "GPS付きの出退勤打刻が入ると表示されます。"}
+          </div>
+        )}
+
+        {/* 履歴の日時指定。疎な記録を連続観測に見せないためスライダーは使わない。 */}
+        {mapMode === "history" && historyDate && (
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+            <p className="mb-1.5 text-[11px] font-semibold text-slate-600">表示する日時</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="grid w-full grid-cols-[minmax(0,1fr)_7rem] gap-2 sm:flex sm:w-auto">
+                <DatePicker
+                  ariaLabel="履歴の日付"
+                  value={reportDateStrToDate(historyDate)}
+                  displayFormat="yyyy/M/d（E）"
+                  toDate={reportDateStrToDate(todayJST())}
+                  onChange={(value) => value && setHistoryDate(dateToReportDateStr(value))}
+                  className="min-h-11 w-full sm:w-[164px]"
+                />
+                <div aria-label="履歴の時刻" className="sm:w-28">
+                  <TimePicker
+                    value={historyTime}
+                    onChange={(value) => value && setHistoryTime(value)}
+                    minuteStep={5}
+                    clearable={false}
+                    buttonClassName="min-h-11"
+                  />
+                </div>
+              </div>
+              <div className="grid w-full grid-cols-2 gap-2 sm:w-auto">
+                <button
+                  type="button"
+                  disabled={!historyNeighbors?.previousAt}
+                  onClick={() => historyNeighbors?.previousAt && selectHistoryAt(historyNeighbors.previousAt)}
+                  className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:text-slate-300"
+                >
+                  <FontAwesomeIcon icon={faChevronLeft} className="mr-1.5 size-3" />
+                  前の記録
+                </button>
+                <button
+                  type="button"
+                  disabled={!historyNeighbors?.nextAt}
+                  onClick={() => historyNeighbors?.nextAt && selectHistoryAt(historyNeighbors.nextAt)}
+                  className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:text-slate-300"
+                >
+                  次の記録
+                  <FontAwesomeIcon icon={faChevronRight} className="ml-1.5 size-3" />
+                </button>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-slate-500">
+              各車両は、指定日時以前の最後の記録位置です。記録と記録の間は推測しません。
+            </p>
+          </div>
+        )}
+
+        {embedded && data && mapMode === "current" && <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-700">
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-800">稼働中 {fleetCounts.working}</span>
+          {fleetCounts.pending > 0 && <span className="rounded-full bg-orange-50 px-2.5 py-1 text-orange-800">駐車待ち {fleetCounts.pending}</span>}
+          <span className="rounded-full bg-slate-100 px-2.5 py-1">駐車済み {fleetCounts.parked}</span>
+          {fleetCounts.unknown > 0 && <span className="rounded-full bg-slate-100 px-2.5 py-1">位置なし {fleetCounts.unknown}</span>}
+        </div>}
+        {!embedded && mapMode !== "movements" && <p className="text-xs text-slate-500">
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+            稼働中
+          </span>
+          <span className="ml-2 inline-flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-slate-400" />
+            退勤済み
+          </span>
+          {fleetCounts.parked > 0 && <span className="ml-2 inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-sky-500" />駐車済み</span>}
+          {fleetCounts.pending > 0 && <span className="ml-2 inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-orange-500" />駐車待ち</span>}
+          {unlocatedCount > 0 && (
+            <span className="ml-2 text-slate-400">位置情報のない車両 {unlocatedCount} 台は非表示</span>
+          )}
+        </p>}
+
+        {mapMode === "movements" && operationsError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            車両移動を読み込めませんでした。DB更新の適用後に、もう一度お試しください。
+          </div>
+        )}
+
+        {mapMode === "movements" && !operationsLoading && !operationsError && activeMovements.length === 0 && (
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-600">
+            移動が必要な車両はありません。新しく手配する場合は「移動を登録」を押してください。
+          </div>
+        )}
+
+        {!MAPBOX_TOKEN ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            Mapbox のアクセストークンが未設定です。環境変数{" "}
+            <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">
+              NEXT_PUBLIC_MAPBOX_TOKEN
+            </code>{" "}
+            を設定してください（ローカルは apps/web/.env.local、本番は Vercel の環境変数）。
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="relative overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+              <div ref={containerRef} className="h-[70vh] min-h-[420px] w-full" />
+              <AerialMovementArrow
+                map={mapRef.current}
+                from={selectedArrowFrom}
+                to={selectedArrowTo}
+                visible={mapMode === "movements" && selectedMovement != null}
+              />
+
+            {/* 視点の操作パネル＋設定＋共有ビュー */}
+            {/* 地図上の操作 UI。ラッパは pointer-events-none にして、押せる子だけ受ける。
+                以前は空白部分が地図のドラッグを奪っていた（監査 P2-5・375px では上部の帯全体） */}
+            <div
+              className={`pointer-events-none absolute left-3 right-3 top-3 z-[${MAP_Z.controls}] flex flex-col items-start gap-2 pr-9 md:pr-0 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto md:right-auto`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="pointer-events-auto flex overflow-hidden rounded-lg bg-white/95 p-1 shadow">
+                  {(["2d", "3d"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setView(mode)}
+                      className={`rounded-md px-2.5 py-1 text-xs font-bold uppercase transition-colors ${
+                        (mode === "3d") === is3D
+                          ? "bg-slate-900 text-white"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+                {mapMode !== "movements" && <>
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(true)}
+                  className="flex h-[34px] w-[34px] items-center justify-center rounded-lg bg-white/95 text-slate-500 shadow transition-colors hover:text-slate-800"
+                  aria-label="地図の設定"
+                >
+                  <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAreaPanelOpen((v) => !v)}
+                  className={`flex h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold shadow transition-colors ${
+                    areaPanelOpen || editingAreaCourse
+                      ? "bg-slate-900 text-white"
+                      : "bg-white/95 text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faDrawPolygon} className="h-3.5 w-3.5" />
+                  配達エリア
+                </button>
+                </>}
+                <button
+                  type="button"
+                  onClick={() => setShareOn((v) => !v)}
+                  className={`flex h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold shadow transition-colors ${
+                    shareOn ? "bg-slate-900 text-white" : "bg-white/95 text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faUsers} className="h-3.5 w-3.5" />
+                  {share.status === "connecting" ? "接続中..." : "共有"}
+                </button>
+              </div>
+
+              {/* 地点検索。住所や施設名で拠点を立てられるようにする（クリックだけだと場所を知らないと置けない） */}
+              {canWritePlaces && mapMode !== "movements" && (
+              <div className="relative w-[min(320px,calc(100vw-3rem))]">
+                <div className="pointer-events-auto flex items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 shadow-md backdrop-blur">
+                  <FontAwesomeIcon icon={faMagnifyingGlass} className="h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onFocus={() => setSearchFocused(true)}
+                    onBlur={() => setSearchFocused(false)}
+                    placeholder="車番・ドライバー・住所で探す"
+                    className="w-full bg-transparent text-xs outline-none placeholder:text-slate-400"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSearchResults([]);
+                      }}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                    </button>
+                    )}
+                </div>
+                  {/* よく調べる種別のショートカット。名前を知らない場所は種別からしか探せない。
+                      拠点を追加する文脈でしか使わないので、検索窓を触っている間だけ出す（監査 P2-6） */}
+                {(searchFocused || searchQuery) && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {SEARCH_SHORTCUTS.map((sc) => (
+                    <button
+                      key={sc.label}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => void runShortcut(sc)}
+                      className="rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-slate-900"
+                    >
+                      {sc.label}
+                    </button>
+                  ))}
+                </div>
+                )}
+
+                {(searching || searchResults.length > 0 || vehicleHits.length > 0) && (
+                  <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-[320px] overflow-y-auto rounded-lg bg-white shadow-lg">
+                    {vehicleHits.length > 0 && (
+                      <div className="border-b border-slate-200">
+                        <div className="px-3 py-1.5 text-[10px] font-semibold text-slate-400">車両・ドライバー</div>
+                        {vehicleHits.map((v) => (
+                          <button
+                            key={v.id}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => focusVehicleHit(v)}
+                            className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                          >
+                            <VehiclePlate vehicle={v} compact glow={false} className="w-[68px] shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-semibold text-slate-800">
+                                {[v.manufacturer, v.brand].filter(Boolean).join(" ") || plateText(v)}
+                              </span>
+                              <span className="block truncate text-[11px] text-slate-500">
+                                {v.position
+                                  ? `${statusOf(v)}${v.position.driverName ? `・${v.position.driverName}` : ""}`
+                                  : "位置なし — 選ぶと地図に置けます"}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {!searching && searchResults.length > 0 && (
+                      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5">
+                        <span className="text-[10px] font-semibold text-slate-400">
+                          いま表示中の範囲から {searchResults.length} 件
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchResults([]);
+                            setLastSearch(null);
+                          }}
+                          className="text-[10px] text-slate-400 hover:text-slate-600"
+                        >
+                          閉じる
+                        </button>
+                      </div>
+                      )}
+                    {searchResults.length > 0 && !searching && (
+                      <div className="px-3 pt-1.5 text-[10px] font-semibold text-slate-400">住所・施設</div>
+                    )}
+                    {searching && searchResults.length === 0 ? (
+                      <div className="px-3 py-2 text-[11px] text-slate-400">検索しています…</div>
+                    ) : (
+                      searchResults.map((hit) => (
+                        <button
+                          key={hit.id}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => pickSearchResult(hit)}
+                          className="block w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                        >
+                          <div className="text-xs font-semibold text-slate-800">{hit.name}</div>
+                          {hit.address && (
+                            <div className="truncate text-[11px] text-slate-500">{hit.address}</div>
+                            )}
+                        </button>
+                      ))
+                      )}
+                  </div>
+                  )}
+              </div>
+              )}
+
+              {/* 共有ビューの参加者。タップでその人の視点に追従（もう一度で解除） */}
+              {shareOn && share.status === "connected" && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {share.participants.map((p) => {
+                    const isSelf = p.id === share.selfId;
+                    const following = share.followingId === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={isSelf}
+                        onClick={() => share.setFollowingId(following ? null : p.id)}
+                        title={isSelf ? undefined : following ? "追従を解除" : "この人の視点に追従"}
+                        className={`flex items-center gap-1.5 rounded-full py-1 pl-1.5 pr-2.5 text-[11px] font-bold shadow transition-colors ${
+                          following ? "bg-slate-900 text-white" : "bg-white/95 text-slate-700 hover:bg-white"
+                        } ${isSelf ? "opacity-80" : ""}`}
+                      >
+                        <span
+                          className="h-3 w-3 rounded-full border border-white/70"
+                          style={{ backgroundColor: p.color }}
+                        />
+                        {isSelf ? `${p.name}（自分）` : p.name}
+                        {following && <span className="text-[10px] font-normal">追従中</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {shareOn && share.status === "error" && (
+                <p className="rounded-lg bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-rose-600 shadow">
+                  {share.errorMsg ?? "共有ビューに接続できませんでした"}
+                </p>
+              )}
+              {/* 地図を動かしたら再検索を促す（Google マップの「このエリアを検索」と同じ）。
+                  検索窓と同じ列に置く。top-3 に重ねると 375px でツールバーの
+                  「配達エリア」を覆っていた（監査 P2-4） */}
+              {lastSearch && movedSinceSearch && (
+                <button
+                  type="button"
+                  onClick={() => void runSearch(lastSearch)}
+                  className="rounded-full bg-slate-900/95 px-4 py-2 text-xs font-bold text-white shadow-lg hover:bg-slate-800"
+                >
+                  <FontAwesomeIcon icon={faRotateRight} className="mr-1.5 h-3 w-3" />
+                  このエリアを再検索
+                </button>
+              )}
+            </div>
+
+            {/* 段階3: 札を離したあとの確認。地図を割らずに下から重ねる */}
+            {dropConfirm && (
+              <div className={`absolute inset-x-3 bottom-3 z-[${MAP_Z.controls}] mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg`}>
+                <div className="flex items-start gap-2">
+                  <VehiclePlate vehicle={dropConfirm.vehicle} compact glow={false} className="w-[76px] shrink-0" />
+                  <p className="min-w-0 flex-1 text-sm text-slate-800">
+                    <span className="font-bold">{dropConfirm.target.label}</span>
+                    {dropConfirm.target.kind === "place" ? " に置きます" : " に置きます（拠点の外）"}
+                  </p>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void confirmDropHere()}
+                    className="flex-1 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                  >
+                    今ここにある
+                  </button>
+                  {dropConfirm.target.kind === "place" && (
+                    <button
+                      type="button"
+                      onClick={confirmDropAsMovement}
+                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      ここへ運ぶ手配にする
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={cancelDrop}
+                    className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700"
+                  >
+                    やめる
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 直前の手動配置を1手で戻す（位置は追記なので、元の位置をもう1行足す） */}
+            {!dropConfirm && undoPosition && (
+              <div className={`absolute inset-x-3 bottom-3 z-[${MAP_Z.controls}] mx-auto flex w-fit items-center gap-3 rounded-full bg-slate-900/95 px-4 py-2 text-xs font-semibold text-white shadow-lg`}>
+                {plateText(undoPosition.vehicle)} を動かしました
+                <button
+                  type="button"
+                  onClick={() => void undoLastPlacement()}
+                  className="font-bold text-amber-300 underline underline-offset-2"
+                >
+                  元に戻す
+                </button>
+                <button type="button" onClick={() => setUndoPosition(null)} aria-label="閉じる" className="text-slate-300 hover:text-white">
+                  <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+
+            {/* ピン追加モードの案内バナー */}
+
+            {adding && (
+              <div className="absolute inset-x-0 top-3 mx-auto flex w-fit items-center gap-3 rounded-full bg-slate-900/95 px-4 py-2 text-xs font-semibold text-white shadow-lg">
+                追加する位置を地図でクリックしてください
+                <button
+                  type="button"
+                  onClick={() => setAdding(false)}
+                  className="rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] hover:bg-white/25"
+                >
+                  中止（Esc）
+                </button>
+              </div>
+            )}
+
+            {mapMode === "movements" && (
+              <div className="absolute bottom-3 right-3 z-[40] hidden w-[320px] lg:block">
+                <MovementDetailCard
+                  movement={selectedMovement}
+                  vehicle={selectedVehicle}
+                  upcomingUse={selectedUpcomingUse}
+                  places={operationsData?.places ?? []}
+                  canDispatch={canDispatch}
+                  completing={completingMovement}
+                  completionPlaceId={completionPlaceId}
+                  saving={movementSaving}
+                  error={movementError}
+                  onEdit={() => selectedMovement && openMovementForm(selectedMovement)}
+                  onStartComplete={() => {
+                    setMovementError("");
+                    setCompletionPlaceId(selectedMovement?.toPlaceId ?? "");
+                    setCompletingMovement(true);
+                  }}
+                  onCompletionPlaceChange={setCompletionPlaceId}
+                  onComplete={() => void finishMovement()}
+                  onCancelComplete={() => setCompletingMovement(false)}
+                  onCancel={() => selectedMovement && setCancelMovement(selectedMovement)}
+                />
+              </div>
+            )}
+
+            {/* 配達エリア: コースを選んで面を描く（エリアはコースの属性・2026-08-10 合意） */}
+            {areaPanelOpen && !editingAreaCourse && (
+              <div className="absolute bottom-3 left-3 right-3 z-[40] max-h-[55%] overflow-y-auto rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:max-h-[70%] md:w-[min(280px,calc(100vw-3rem))]">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">配達エリア</span>
+                  <button
+                    type="button"
+                    onClick={() => setAreaPanelOpen(false)}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                  </button>
+                </div>
+                <p className="mb-2 text-[11px] text-slate-500">
+                  コースごとに担当区域を描けます。地図には色分けして重なります
+                </p>
+                <ul className="space-y-1">
+                  {courseAreas.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAreaError("");
+                          setEditingAreaCourse(c);
+                          setAreaPanelOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-slate-50"
+                      >
+                        <span
+                          className="h-3 w-3 shrink-0 rounded-sm"
+                          style={{ backgroundColor: c.color || "#7c3aed" }}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700">{c.name}</span>
+                        <span className="shrink-0 text-[10px] font-semibold text-slate-400">
+                          {c.delivery_area ? "編集" : "描く"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {courseAreas.length === 0 && (
+                    <li className="px-2 py-3 text-center text-[11px] text-slate-400">コースがありません</li>
+                  )}
+                </ul>
+              </div>
+            )}
+
+            {/* エリア描画中のパネル */}
+            {editingAreaCourse && (
+              <div className="absolute bottom-3 left-3 right-3 z-[40] rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:w-[min(280px,calc(100vw-3rem))]">
+                <div className="mb-1 flex items-center gap-2">
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-sm"
+                    style={{ backgroundColor: editingAreaCourse.color || "#7c3aed" }}
+                  />
+                  <span className="truncate text-xs font-bold text-slate-700">
+                    {editingAreaCourse.name} のエリア
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  右上の多角形ツールで囲みます。頂点をドラッグして直せます。
+                  ダブルクリックで閉じてください
+                </p>
+                {areaError && <div className="mt-2 text-[11px] text-red-600">{areaError}</div>}
+                <div className="mt-3 flex items-center justify-between">
+                  {editingAreaCourse.delivery_area ? (
+                    <button
+                      type="button"
+                      onClick={() => void clearCourseArea(editingAreaCourse)}
+                      className="text-[11px] font-semibold text-red-600 hover:underline"
+                    >
+                      エリアを削除
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingAreaCourse(null);
+                        setAreaError("");
+                      }}
+                      className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void saveCourseArea()}
+                      disabled={areaSaving}
+                      className="rounded-lg bg-slate-800 px-4 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      {areaSaving ? "保存中..." : "保存"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 駐車区画の作成（航空写真に合わせて囲む → 長方形に整えて保存） */}
+            {slotPlace && (
+              <div className="absolute bottom-3 left-3 right-3 z-[40] rounded-xl bg-white p-3 shadow-lg md:bottom-auto md:left-auto md:right-3 md:top-3 md:w-[min(300px,calc(100vw-3rem))]">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="truncate text-xs font-bold text-slate-700">
+                    {slotPlace.name} の駐車区画
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSlotPlace(null)}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  右上の多角形ツールで1区画を囲みます。ざっくりで構いません（最小の長方形に
+                  整えて保存します）。車の向きは長辺から自動で決まります
+                </p>
+
+                <label className="mt-2 block text-[11px] font-semibold text-slate-500">区画名</label>
+                <input
+                  type="text"
+                  value={slotLabel}
+                  onChange={(e) => setSlotLabel(e.target.value)}
+                  placeholder="例: 12番"
+                  maxLength={20}
+                  className="mt-0.5 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
+                />
+
+                <label className="mt-2 block text-[11px] font-semibold text-slate-500">
+                  定位置の車両（任意）
+                </label>
+                <select
+                  value={slotVehicleId}
+                  onChange={(e) => setSlotVehicleId(e.target.value)}
+                  className="mt-0.5 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs focus:border-slate-500 focus:outline-none"
+                >
+                  <option value="">未設定</option>
+                  {(data?.vehicles ?? []).map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {plateText(v)}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  設定すると「今日の車がどこにあるか」に答えられます
+                </p>
+
+                {slotError && <div className="mt-2 text-[11px] text-red-600">{slotError}</div>}
+
+                {/* 保存済みの区画をその場に出す（「作ったのに消えた」と見えないように） */}
+                {slots.filter((sl) => sl.place_id === slotPlace.id).length > 0 && (
+                  <div className="mt-2 max-h-28 overflow-y-auto rounded-lg border border-slate-200">
+                    {slots
+                      .filter((sl) => sl.place_id === slotPlace.id)
+                      .map((sl) => (
+                        <div
+                          key={sl.id}
+                          className="flex items-center justify-between border-b border-slate-100 px-2 py-1 last:border-b-0"
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              mapRef.current?.flyTo({ center: [sl.lng, sl.lat], zoom: 20, duration: 500 })
+                            }
+                            className="text-[11px] font-semibold text-slate-700 hover:underline"
+                          >
+                            {sl.label}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await apiFetch(`/api/admin/map/parking-slots/${sl.id}`, { method: "DELETE" });
+                              void refreshSlots();
+                            }}
+                            className="text-slate-300 hover:text-red-600"
+                            aria-label={`${sl.label}を削除`}
+                          >
+                            <FontAwesomeIcon icon={faTrashCan} className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-[10px] text-slate-400">
+                    この拠点に {slots.filter((sl) => sl.place_id === slotPlace.id).length} 区画
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void saveParkingSlot()}
+                    disabled={slotSaving}
+                    className="rounded-lg bg-slate-800 px-4 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    {slotSaving ? "保存中..." : "この区画を保存"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 拠点の編集パネル（登録済みのピンをクリックで開く） */}
+            {editingPlace && (
+              <div className="absolute inset-x-3 bottom-3 z-[40] mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">拠点を編集</span>
+                  <span className="text-[10px] text-slate-400">ピンをドラッグして移動できます</span>
+                </div>
+                <input
+                  type="text"
+                  value={editingPlace.name}
+                  onChange={(e) => setEditingPlace({ ...editingPlace, name: e.target.value })}
+                  maxLength={50}
+                  className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
+                />
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {(Object.keys(PLACE_ICONS) as PlaceIcon[]).map((key) => {
+                    const active = editingPlace.icon === key;
+                    const meta = PLACE_ICONS[key];
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setEditingPlace({ ...editingPlace, icon: key })}
+                        className={`flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold transition-colors ${
+                          active
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        <FontAwesomeIcon icon={meta.icon} className="h-3 w-3" />
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 範囲（円）。0 は点のまま。敷地やエリアを表すのに使う */}
+                <div className="mt-3">
+                  <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>範囲（半径）</span>
+                    <span className="font-bold text-slate-700">
+                      {editingPlace.radius_m ? `${editingPlace.radius_m} m` : "点のまま"}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1000}
+                    step={10}
+                    value={editingPlace.radius_m ?? 0}
+                    onChange={(e) =>
+                      setEditingPlace({ ...editingPlace, radius_m: Number(e.target.value) || null })
+                    }
+                    className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-violet-600"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    0 にすると点として扱います。敷地全体を示したいときに広げてください
+                  </p>
+                </div>
+
+                {/* 日報の「車の置き場所」の候補に出すか。客先・給油所などを候補から外すのに使う */}
+                <CheckboxField
+                  className="mt-3"
+                  variant="row"
+                  label="日報の置き場所の候補に出す"
+                  checked={editingPlace.allow_parking !== false}
+                  onCheckedChange={(checked) => setEditingPlace({ ...editingPlace, allow_parking: checked })}
+                />
+
+                {/* 駐車区画。ここが「出発地（稼働開始を押す場所）」の正体になる */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const place = editingPlace;
+                    setEditingPlace(null);
+                    setSlotError("");
+                    setSlotLabel("");
+                    setSlotVehicleId("");
+                    setSlotPlace(place);
+                    // 区画は航空写真を見ながら合わせる（ユーザー方針 2026-08-10）
+                    setViewPrefs((prev) => ({ ...prev, basemap: "satellite" }));
+                    mapRef.current?.flyTo({ center: [place.lng, place.lat], zoom: 19, duration: 700 });
+                  }}
+                  className="mt-3 flex w-full items-center justify-between rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <FontAwesomeIcon icon={faSquareParking} className="h-3 w-3" />
+                    駐車区画を設定
+                  </span>
+                  <span className="text-[10px] font-normal text-slate-400">
+                    {slots.filter((sl) => sl.place_id === editingPlace.id).length} 区画
+                  </span>
+                </button>
+
+                {placeEditError && <div className="mt-2 text-[11px] text-red-600">{placeEditError}</div>}
+
+                <div className="mt-3 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(editingPlace)}
+                    className="text-[11px] font-semibold text-red-600 hover:underline"
+                  >
+                    削除
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingPlace(null);
+                        setPlaceEditError("");
+                        void refreshPlaces(); // ドラッグした位置を元に戻す
+                      }}
+                      className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void savePlaceEdit()}
+                      disabled={savingPlace || !editingPlace.name.trim()}
+                      className="rounded-lg bg-slate-800 px-4 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      {savingPlace ? "保存中..." : "保存"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ピン追加フォーム（位置決定後） */}
+            {draft && (
+              <div className="absolute inset-x-3 bottom-3 z-[40] mx-auto w-full max-w-sm rounded-xl bg-white p-3 shadow-lg">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">拠点を追加</span>
+                  <span className="text-[10px] text-slate-400">位置はドラッグで微調整できます</span>
+                </div>
+                <input
+                  type="text"
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveDraft();
+                  }}
+                  placeholder="名称（例: サンパルク伏見桃山 12番）"
+                  maxLength={50}
+                  autoFocus
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-violet-500 focus:outline-none"
+                />
+                <div className="mt-2 flex gap-1.5">
+                  {(Object.keys(PLACE_ICONS) as PlaceIcon[]).map((key) => {
+                    const meta = PLACE_ICONS[key];
+                    const active = draftIcon === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setDraftIcon(key)}
+                        className={`flex flex-1 flex-col items-center gap-1 rounded-lg border px-1 py-1.5 text-[10px] font-semibold transition-colors ${
+                          active
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 text-slate-500 hover:border-slate-400"
+                        }`}
+                      >
+                        <FontAwesomeIcon icon={meta.icon} className="h-3.5 w-3.5" />
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {draftError && <div className="mt-2 text-[11px] text-red-600">{draftError}</div>}
+                <div className="mt-2.5 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraft(null);
+                      setDraftName("");
+                      setDraftError("");
+                    }}
+                    className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveDraft()}
+                    disabled={savingDraft}
+                    className="rounded-lg bg-violet-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    {savingDraft ? "保存中…" : "保存"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {isLoading && !data && (
+              <div className="absolute inset-0 z-[40] bg-white/60 p-4">
+                <Skeleton className="h-full w-full rounded-lg" />
+              </div>
+            )}
+            </div>
+            {mapMode === "movements" && (
+              <div className="lg:hidden">
+                <MovementDetailCard
+                  movement={selectedMovement}
+                  vehicle={selectedVehicle}
+                  upcomingUse={selectedUpcomingUse}
+                  places={operationsData?.places ?? []}
+                  canDispatch={canDispatch}
+                  completing={completingMovement}
+                  completionPlaceId={completionPlaceId}
+                  saving={movementSaving}
+                  error={movementError}
+                  onEdit={() => selectedMovement && openMovementForm(selectedMovement)}
+                  onStartComplete={() => {
+                    setMovementError("");
+                    setCompletionPlaceId(selectedMovement?.toPlaceId ?? "");
+                    setCompletingMovement(true);
+                  }}
+                  onCompletionPlaceChange={setCompletionPlaceId}
+                  onComplete={() => void finishMovement()}
+                  onCancelComplete={() => setCompletingMovement(false)}
+                  onCancel={() => selectedMovement && setCancelMovement(selectedMovement)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 地図の設定モーダル */}
+      {settingsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setSettingsOpen(false)}
+        >
+          <div
+            ref={settingsPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="map-settings-title"
+            tabIndex={-1}
+            className="w-full max-w-md rounded-xl bg-white shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <h2 id="map-settings-title" className="text-sm font-bold text-slate-900">地図の設定</h2>
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+                aria-label="閉じる"
+              >
+                <FontAwesomeIcon icon={faXmark} className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4">
+              <div>
+                <div className="mb-1 text-xs font-bold text-slate-700">地図の表示</div>
+                <div className="flex items-center justify-between py-1.5">
+                  <span className="text-xs font-semibold text-slate-700">ベースマップ</span>
+                  <div className="flex overflow-hidden rounded-lg bg-slate-100 p-0.5">
+                    {(
+                      [
+                        { key: "standard", label: "標準" },
+                        { key: "satellite", label: "航空写真" },
+                      ] as const
+                    ).map((b) => (
+                      <button
+                        key={b.key}
+                        type="button"
+                        onClick={() => setViewPrefs((p) => ({ ...p, basemap: b.key }))}
+                        className={`rounded-md px-2.5 py-1 text-xs font-bold transition-colors ${
+                          viewPrefs.basemap === b.key
+                            ? "bg-slate-900 text-white"
+                            : "text-slate-500 hover:text-slate-700"
+                        }`}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="divide-y divide-slate-50">
+                  <SwitchRow
+                    label="地名"
+                    note="市区町名・山や川の名前"
+                    checked={viewPrefs.placeLabels}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, placeLabels: v }))}
+                  />
+                  <SwitchRow
+                    label="道路名・路線番号"
+                    checked={viewPrefs.roadLabels}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, roadLabels: v }))}
+                  />
+                  <SwitchRow
+                    label="施設名（POI）"
+                    checked={viewPrefs.poiLabels}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, poiLabels: v }))}
+                  />
+                  <SwitchRow
+                    label="交通機関（駅・バス停）"
+                    checked={viewPrefs.transitLabels}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, transitLabels: v }))}
+                  />
+                  <SwitchRow
+                    label="3D建物・ランドマーク"
+                    note={
+                      viewPrefs.basemap === "satellite" ? "航空写真では変更できません" : undefined
+                    }
+                    disabled={viewPrefs.basemap === "satellite"}
+                    checked={viewPrefs.objects3d}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, objects3d: v }))}
+                  />
+                  <SwitchRow
+                    label="3D地形（山の起伏）"
+                    note="3D視点と組み合わせると立体的になります"
+                    checked={viewPrefs.terrain}
+                    onChange={(v) => setViewPrefs((p) => ({ ...p, terrain: v }))}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <SwitchRow
+                  label="拠点ピンを表示"
+                  checked={showPlaces}
+                  onChange={(v) => setShowPlaces(v)}
+                />
+                <div className="mb-1.5 text-xs font-bold text-slate-700">拠点ピン</div>
+                {places.length === 0 ? (
+                  <p className="rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] text-slate-400">
+                    まだ拠点がありません。下のボタンから地図にピンを打って追加できます。
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                    {places.map((place) => {
+                      const meta = PLACE_ICONS[place.icon] ?? PLACE_ICONS.pin;
+                      return (
+                        <li key={place.id} className="flex items-center gap-2.5 px-3 py-2">
+                          <span
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${meta.bg}`}
+                          >
+                            <FontAwesomeIcon icon={meta.icon} className="h-3 w-3 text-white" />
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => flyToPlace(place)}
+                            className="min-w-0 flex-1 truncate text-left text-xs font-semibold text-slate-700 hover:text-violet-700"
+                            title="この拠点へ移動"
+                          >
+                            {place.name}
+                          </button>
+                          {place.allow_parking === false && (
+                            <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                              日報の候補外
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(place)}
+                            className="shrink-0 text-slate-300 transition-colors hover:text-red-500"
+                            aria-label={`${place.name} を削除`}
+                          >
+                            <FontAwesomeIcon icon={faTrashCan} className="h-3.5 w-3.5" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setAdding(true);
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  <FontAwesomeIcon icon={faPlus} className="h-3 w-3" />
+                  地図にピンを打って追加
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {movementForm && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+          onClick={() => !movementSaving && setMovementForm(null)}
+        >
+          <div
+            ref={movementPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="movement-form-title"
+            className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-xl sm:max-w-lg sm:rounded-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 id="movement-form-title" className="text-base font-bold text-slate-900">
+                  {movementForm.id ? "車両移動の手配を変更" : "車両移動を登録"}
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">予定を保存しても、車の現在位置は変わりません</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMovementForm(null)}
+                disabled={movementSaving}
+                className="flex min-h-11 min-w-11 items-center justify-center text-slate-400 hover:text-slate-700"
+                aria-label="閉じる"
+              >
+                <FontAwesomeIcon icon={faXmark} className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <label className="block text-xs font-bold text-slate-700">
+                車両
+                <select
+                  value={movementForm.vehicleId}
+                  disabled={movementForm.id != null}
+                  onChange={(event) => setMovementForm({ ...movementForm, vehicleId: event.target.value })}
+                  className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
+                >
+                  <option value="">選んでください</option>
+                  {(data?.vehicles ?? []).map((vehicle) => (
+                    <option key={vehicle.id} value={vehicle.id}>{plateText(vehicle)}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                <label className="block min-w-0 text-xs font-bold text-slate-700">
+                  出発地
+                  <select
+                    value={movementForm.fromPlaceId}
+                    onChange={(event) => setMovementForm({ ...movementForm, fromPlaceId: event.target.value })}
+                    className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm"
+                  >
+                    <option value="">選択</option>
+                    {(operationsData?.places ?? []).map((place) => <option key={place.id} value={place.id}>{place.name}</option>)}
+                  </select>
+                </label>
+                <FontAwesomeIcon icon={faArrowRight} className="mb-4 h-3.5 w-3.5 text-amber-600" />
+                <label className="block min-w-0 text-xs font-bold text-slate-700">
+                  届け先
+                  <select
+                    value={movementForm.toPlaceId}
+                    onChange={(event) => setMovementForm({ ...movementForm, toPlaceId: event.target.value })}
+                    className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm"
+                  >
+                    <option value="">選択</option>
+                    {(operationsData?.places ?? []).map((place) => <option key={place.id} value={place.id}>{place.name}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              <label className="block text-xs font-bold text-slate-700">
+                運ぶ人
+                <select
+                  value={movementForm.assigneeDriverId}
+                  onChange={(event) => setMovementForm({ ...movementForm, assigneeDriverId: event.target.value })}
+                  className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+                >
+                  <option value="">未設定（要確認にする）</option>
+                  {(operationsData?.drivers ?? []).map((driver) => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
+                </select>
+              </label>
+
+              <div>
+                <p className="text-xs font-bold text-slate-700">届ける期限</p>
+                <div className="mt-1 grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
+                  <DatePicker
+                    ariaLabel="届ける日"
+                    value={reportDateStrToDate(movementForm.dueDate)}
+                    displayFormat="yyyy/M/d（E）"
+                    onChange={(value) => value && setMovementForm({ ...movementForm, dueDate: dateToReportDateStr(value) })}
+                    className="min-h-11 w-full"
+                  />
+                  <div aria-label="届ける時刻">
+                    <TimePicker
+                      value={movementForm.dueTime}
+                      onChange={(value) => value && setMovementForm({ ...movementForm, dueTime: value })}
+                      minuteStep={5}
+                      clearable={false}
+                      buttonClassName="min-h-11"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <label className="block text-xs font-bold text-slate-700">
+                連絡メモ（任意）
+                <textarea
+                  value={movementForm.note}
+                  maxLength={200}
+                  rows={3}
+                  onChange={(event) => setMovementForm({ ...movementForm, note: event.target.value })}
+                  placeholder="鍵の場所など"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </label>
+              {movementError && <p className="text-xs font-semibold text-red-600">{movementError}</p>}
+            </div>
+            <div className="sticky bottom-0 flex gap-2 border-t border-slate-200 bg-white px-5 py-4">
+              <button
+                type="button"
+                disabled={movementSaving}
+                onClick={() => setMovementForm(null)}
+                className="min-h-11 flex-1 rounded-lg border border-slate-300 text-sm font-semibold text-slate-600"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={movementSaving}
+                onClick={() => void saveMovement()}
+                className="min-h-11 flex-1 rounded-lg bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {movementSaving ? "保存中..." : movementForm.assigneeDriverId ? "手配を保存" : "要確認で保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={deleteTarget != null}
+        title="拠点の削除"
+        message={`「${deleteTarget?.name ?? ""}」を削除しますか?`}
+        confirmLabel="削除"
+        onConfirm={() => {
+          if (deleteTarget) void deletePlace(deleteTarget);
+          setEditingPlace(null);
+        }}
+        onClose={() => setDeleteTarget(null)}
+      />
+      <ConfirmDialog
+        open={cancelMovement != null}
+        title="車両移動の手配を取り消す"
+        message="この手配だけを取り消します。配車や車の現在位置は変更しません。"
+        confirmLabel="手配を取り消す"
+        onConfirm={() => {
+          const target = cancelMovement;
+          setCancelMovement(null);
+          if (!target) return;
+          void (async () => {
+            try {
+              await apiFetch("/api/admin/map/movements", {
+                method: "PATCH",
+                body: JSON.stringify({
+                  id: target.id,
+                  expectedVersion: target.version,
+                  action: "cancel",
+                }),
+              });
+              setMovementError("");
+              await mutateOperations();
+            } catch (error) {
+              setMovementError(error instanceof Error ? error.message : "取り消せませんでした");
+            }
+          })();
+        }}
+        onClose={() => setCancelMovement(null)}
+      />
+    </>
+  );
+}

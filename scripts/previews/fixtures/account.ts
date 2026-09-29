@@ -10,7 +10,7 @@ export const accountFixture: PreviewFixture<State> = {
   scenarios: {
     nofactor: { label: "確認方法なし", description: "登録済みの確認方法がなく運営へ案内" },
     lastkey: { label: "最後の鍵", description: "SMS未確認の場合、最後の鍵は削除できない" },
-    normal: { label: "登録済み", description: "架空のPasskeyを追加登録する" },
+    normal: { label: "設定済み", description: "架空のかんたんログイン端末を追加する" },
     empty: { label: "未登録", description: "初めての登録を試す" },
     expired: { label: "期限切れ", description: "最初の認証が期限切れになり、再試行で成功する" },
     used: { label: "使用済み", description: "最初の認証が使用済みで拒否され、再試行で成功する" },
@@ -47,7 +47,7 @@ export const accountFixture: PreviewFixture<State> = {
       state.attempts += 1;
       const token = String(body.challengeToken);
       if (!state.tokens.delete(token) || (scenario === "used" && state.attempts === 1)) {
-        throw new Error("認証をやり直してください。もう一度Passkeyを登録できます");
+        throw new Error("認証をやり直してください。もう一度かんたんログインを設定できます");
       }
       if (scenario === "expired" && state.attempts === 1) {
         throw new Error("セッションの有効期限が切れました。もう一度お試しください");

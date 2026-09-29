@@ -1891,7 +1891,7 @@ export default function UsersPage() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">Passkey</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">かんたんログイン</label>
                     {editingDriver?.has_passkey ? (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700">
                         <FontAwesomeIcon icon={faCircleCheck} className="w-2.5 h-2.5" />

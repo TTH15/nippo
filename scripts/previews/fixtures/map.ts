@@ -3,11 +3,12 @@
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 
 type Position = {
-  lat: number; lng: number; at: string | null; kind: "checkin" | "checkout" | "manual" | "gps";
-  source?: "punch" | "manual" | "gps"; placedBy?: string; note?: string | null;
-  sessionStatus: "open" | "closed"; driverName: string;
+  lat: number; lng: number; at: string | null; kind: "checkin" | "checkout" | "manual" | "gps" | "report";
+  source?: "punch" | "manual" | "gps" | "report"; placedBy?: string; note?: string | null; placeName?: string | null;
+  sessionStatus: "open" | "closed"; driverName: string; parkingPending?: boolean;
 };
 type MockVehicle = {
+  session?: { open: boolean; driverName: string; startedAt: string | null } | null;
   id: string; number_prefix: string | null; number_class: string | null; number_hiragana: string | null; number_numeric: string | null;
   plate_color: string; manufacturer: string | null; brand: string | null; model_key: string | null; model_code?: string | null; part_colors?: Record<string, string>; body_color: string | null;
   current_mileage?: number; last_oil_change_mileage?: number; oil_change_interval?: number; is_ev?: boolean; next_shaken_date?: string | null;

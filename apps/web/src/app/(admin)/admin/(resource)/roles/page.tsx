@@ -20,6 +20,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { swrFetcher } from "@/lib/swr";
 import { hasCapability } from "@/lib/capabilities";
+import { ApiPermissionCatalog } from "./ApiPermissionCatalog";
 
 // ============================================================
 // ロール・権限管理（§2-6）。
@@ -573,6 +574,7 @@ export default function RolesPage() {
             })}
           </div>
         )}
+        <ApiPermissionCatalog roles={roles} />
       </div>
 
       <ConfirmDialog

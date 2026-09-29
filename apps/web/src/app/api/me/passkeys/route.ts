@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
     return NextResponse.json({ keys: data ?? [], canRecoverWithSms: !!identity.phone }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json({ error: "Passkeyの一覧を読み込めませんでした" }, { status: 503 });
+    return NextResponse.json({ error: "かんたんログインの設定を読み込めませんでした" }, { status: 503 });
   }
 }
 
@@ -33,7 +33,7 @@ export async function DELETE(req: NextRequest) {
   if (reauthError) return reauthError;
   const body = await req.json().catch(() => null);
   if (typeof body?.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.id)) {
-    return NextResponse.json({ error: "削除するPasskeyを選んでください" }, { status: 400 });
+    return NextResponse.json({ error: "削除するログイン端末を選んでください" }, { status: 400 });
   }
   const { data, error } = await supabase.rpc("manage_passkey", {
     p_driver_id: user.driverId, p_identity_id: user.identityId, p_org_id: user.orgId,
@@ -41,8 +41,8 @@ export async function DELETE(req: NextRequest) {
   });
   if (error || !data?.notificationId) {
     const status = error?.code === "P0002" ? 404 : error?.code === "P0001" ? 409 : 503;
-    return NextResponse.json({ error: status === 409 ? "最後のPasskeyです。先に電話番号を確認するか、別のPasskeyを登録してください"
-      : status === 404 ? "Passkeyが見つかりません" : "削除できませんでした。時間をおいてお試しください" }, { status });
+    return NextResponse.json({ error: status === 409 ? "最後のログイン端末です。先に電話番号を確認するか、別の端末を設定してください"
+      : status === 404 ? "ログイン端末が見つかりません" : "削除できませんでした。時間をおいてお試しください" }, { status });
   }
   afterSafely(() => deliverStoredNotifications(orgId, [data.notificationId]));
   return NextResponse.json({ ok: true });

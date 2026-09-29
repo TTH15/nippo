@@ -5,6 +5,7 @@ import type { AuthUser } from "./types";
 import {
   DEFAULT_ROLE_CAPABILITIES,
   OWN_PERMISSIONS,
+  expandCapabilities,
   type Capability,
 } from "./capabilities";
 import { checkPermission, type Grants, type PermissionScope, type PermissionSpec } from "./policy";
@@ -40,10 +41,10 @@ export async function resolveGrants(driverId: string, fallbackRole?: string): Pr
       .from("role_capabilities")
       .select("capability")
       .eq("role_id", driver.role_id);
-    capabilities = new Set((caps ?? []).map((c) => c.capability as Capability));
+    capabilities = expandCapabilities((caps ?? []).map((c) => c.capability as Capability));
   } else {
     const roleKey = driver?.role ?? fallbackRole ?? "";
-    capabilities = new Set(DEFAULT_ROLE_CAPABILITIES[roleKey] ?? []);
+    capabilities = expandCapabilities(DEFAULT_ROLE_CAPABILITIES[roleKey] ?? []);
   }
 
   // migration 104 未適用の環境でも壊れないよう、role テキスト 'DRIVER' も稼働とみなす。

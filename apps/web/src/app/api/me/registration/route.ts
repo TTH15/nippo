@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const { data: driver } = await supabase
     // tenant-scope-ok: requireAuth由来の本人user.driverIdだけを読み書きする
     .from("drivers")
-    .select("postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, kyc_verified_at")
+    .select("postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, kyc_verified_at, onboarding_requires_passkey")
     .eq("id", user.driverId)
     .single();
 
@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
     hasLicensePhoto,
     hasFacePhoto,
     hasPasskey: (count ?? 0) > 0,
+    passkeyRequired: driver?.onboarding_requires_passkey === true,
     postalCode: driver?.postal_code ?? "",
     address: driver?.address ?? "",
     addressMatchesLicense: (driver?.address_matches_license as boolean | null) ?? null,

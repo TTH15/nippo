@@ -3,8 +3,8 @@ import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createState>> = {
   id: "me", title: "マイページ・ログイン設定", pathname: "/me",
   scenarios: {
-    normal: { label: "招待ユーザー", description: "PIN変更を表示せずPasskeyを登録できる" },
-    registered: { label: "Passkey登録済み", description: "登録済みの案内を表示する" },
+    normal: { label: "招待ユーザー", description: "PIN変更を表示せず、かんたんログインを設定できる" },
+    registered: { label: "設定済み", description: "設定済みの案内を表示する" },
     legacy: { label: "旧PINユーザー", description: "PIN変更を表示しない" },
     lastkey: { label: "最後の鍵", description: "最後の鍵の削除を防ぐ" },
   },
