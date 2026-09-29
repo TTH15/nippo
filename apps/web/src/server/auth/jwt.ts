@@ -41,7 +41,7 @@ export async function signToken(payload: {
     .setProtectedHeader({ alg: "HS256" })
     .setAudience(`hakotora-${purpose}`)
     .setIssuedAt()
-    .setExpirationTime(purpose === "admin" ? "15m" : "30d")
+    .setExpirationTime(purpose === "admin" ? "8h" : "30d")
     .sign(secret());
 }
 

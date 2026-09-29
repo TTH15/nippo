@@ -54,6 +54,12 @@
 
 各UI改修では、既存画面を再利用した隔離プレビューで通常・失敗・復旧・権限なしをPC/スマホ幅で操作する。本番認証・DB・通知はプレビューに接続しない。モバイル内部配布の公開条件は[初回内部配布手順](../deployment/mobile-internal-first-build-2026-09.md)に従う。
 
+### 運営セッションの期限調整（2026/09/30・公開候補）
+
+運営画面へのPasskeyログインで発行するJWTの絶対期限を15分から8時間に延ばす。15分では操作中でも突然管理APIが401となり、運営画面からログイン入口へ戻る。業務用30日JWTとは分離したまま、管理APIは引き続き `purpose=admin` と `aud=hakotora-admin` を必須にする。`/api/auth/session` による管理JWT延長は認めない。運営トークンは同じタブの `sessionStorage` にのみ保存し、ブラウザのタブを閉じると消える。既発行の15分JWTは延長されず、次のPasskeyログインで8時間のJWTを受け取る。
+
+有効期間の延長はトークン流出時に利用可能な時間も延ばす。短命化や自動再認証を改めて設計する場合は、作業中の入力を失わない導線と、管理用Passkeyの承認・失効手順を揃える。
+
 ## 外部資料と未確認事項
 
 - [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)は、口座等の重要変更や復旧後に再認証を求める考え方の根拠。
