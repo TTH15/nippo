@@ -17,7 +17,7 @@ import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
 import { formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import { Button } from "@/lib/ui/button";
-import { faTrash, faUser, faPhone, faCircleCheck, faCircleXmark, faCommentSms, faFingerprint, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faTrash, faUser, faPhone, faCircleCheck, faCommentSms, faFingerprint, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { SaveFailureNotice } from "@/lib/components/SaveFailureNotice";
@@ -93,13 +93,10 @@ function AuthStatusIcons({ driver, showLabels = false }: { driver: Driver; showL
             role="img"
             aria-label={description}
             title={description}
-            className={`inline-flex h-7 items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium whitespace-nowrap ${
-              registered ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-400"
-            }`}
+            className="inline-flex h-7 items-center gap-1 text-[11px] font-medium whitespace-nowrap"
           >
-            <FontAwesomeIcon icon={icon} aria-hidden="true" className="h-3.5 w-3.5" />
-            {showLabels && <span>{label}</span>}
-            <FontAwesomeIcon icon={registered ? faCircleCheck : faCircleXmark} aria-hidden="true" className="h-2.5 w-2.5" />
+            <FontAwesomeIcon icon={icon} aria-hidden="true" className={`h-4 w-4 ${registered ? "text-emerald-700" : "text-slate-300"}`} />
+            {showLabels && <span className="text-slate-600">{label}</span>}
           </span>
         );
       })}
