@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faCircleCheck, faCommentSms } from "@fortawesome/free-solid-svg-icons";
 import { faApple, faGooglePlay } from "@fortawesome/free-brands-svg-icons";
@@ -688,6 +689,9 @@ export function OnboardingWizard({
                 <button onClick={lookup} disabled={busy || joinCode.trim().length < 4} className={btnCls}>
                   {busy ? "確認中..." : "確認"}
                 </button>
+                <Link href="/login" className="block min-h-11 py-3 text-center text-sm font-medium text-slate-600 underline underline-offset-4">
+                  ログインへ
+                </Link>
               </>
             )}
 

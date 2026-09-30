@@ -24,7 +24,7 @@ export default function OnboardingPreview() {
       tryResume: async () => {
         if (scenario === "loading") return new Promise(() => {});
         if (scenario === "error") throw new Error("登録内容を読み込めませんでした");
-        return scenario === "normal" ? null : { ...reg };
+        return scenario === "normal" || scenario === "code" ? null : { ...reg };
       },
       sendOtp: async () => {},
       join: async () => ({ alreadyApplied: false, reg: { ...reg } }),
@@ -38,5 +38,5 @@ export default function OnboardingPreview() {
     };
   }, [scenario]);
   return <><div className="p-3"><ScenarioBar /></div><OnboardingWizard adapter={adapter}
-    passkeyOverride={scenario !== "unsupported"} initialInvite="preview-invite" persistDraft={false} /></>;
+    passkeyOverride={scenario !== "unsupported"} initialInvite={scenario === "code" ? "" : "preview-invite"} persistDraft={false} /></>;
 }

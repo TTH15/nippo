@@ -3,6 +3,7 @@ import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 export const onboardingFixture: PreviewFixture<Record<string, never>> = {
   id: "onboarding", title: "招待・初期登録", pathname: "/join",
   scenarios: {
+    code: { label: "参加コード入口", description: "登録済みの人はログインへ戻れる" },
     normal: { label: "招待から", description: "架空の招待とSMS認証で登録する" },
     resumed: { label: "登録を再開", description: "未設定のかんたんログインから再開する" },
     incomplete: { label: "SMSから再開", description: "SMSログイン後に登録の続きを表示する" },
