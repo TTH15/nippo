@@ -33,6 +33,8 @@ import { DailyReportForm } from "../src/components/DailyReportForm";
 import { ShiftsScreen } from "../src/screens/ShiftsScreen";
 import { RewardsScreen } from "../src/screens/RewardsScreen";
 import { MeScreen } from "../src/screens/MeScreen";
+import { LoginScreen } from "../src/screens/LoginScreen";
+import { failNextAuthSave } from "./auth-secure-store";
 import { formatDuration } from "../src/format";
 import { getStoredDriver, setAuth, setPreviewSession, setPreviewReportFailure, setPreviewNextShift } from "./services";
 
@@ -41,7 +43,7 @@ if (!__DEV__) throw new Error("ネイティブホーム試作は画面確認専�
 type Purpose = "work" | "move";
 type Session = { workDate: string; purpose: Purpose; startedAt: number; fuelRequested: boolean; fueled: boolean };
 type MainPage = "ホーム" | "シフト" | "報酬" | "マイページ";
-type Routes = { Tabs: undefined; Notifications: undefined; EndReport: undefined; Settings: undefined; AccountDetails: { section: AccountSection }; Scan: { purpose: Purpose; origin?: RibbonOrigin }; Active: undefined; Finish: { origin?: RibbonOrigin } | undefined; Parking: undefined };
+type Routes = { Tabs: undefined; LoginReview: undefined; Notifications: undefined; EndReport: undefined; Settings: undefined; AccountDetails: { section: AccountSection }; Scan: { purpose: Purpose; origin?: RibbonOrigin }; Active: undefined; Finish: { origin?: RibbonOrigin } | undefined; Parking: undefined };
 const Stack = createNativeStackNavigator<Routes>();
 const mainPages = [{ name: "ホーム", symbol: "house" }, { name: "シフト", symbol: "calendar" }, { name: "報酬", symbol: "yensign" }, { name: "マイページ", symbol: "person.crop.circle" }] as const;
 const ink = "#192333";
@@ -61,6 +63,7 @@ type PreviewState = {
   reportSubmitted: (date: string) => void;
   openShifts: () => void;
   openNotifications: () => void;
+  openLoginReview: () => void;
   tab: MainPage;
   setTab: (value: MainPage) => void;
   off: boolean;
@@ -194,7 +197,7 @@ function EndReport() {
 }
 
 function Tabs() {
-  const { tab, setTab, session, openNotifications } = usePreview();
+  const { tab, setTab, session, openNotifications, openLoginReview } = usePreview();
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -212,13 +215,23 @@ function Tabs() {
           <AppIcon name="bell" size={22} color={ink} />
           {unreadCount > 0 && <View style={{ position: "absolute", top: 6, right: 7, width: 7, height: 7, borderRadius: 4, backgroundColor: "#D64545" }} />}
         </Pressable>
-        <MenuView testID="open-main-menu" actions={mainPages.map(page => ({ id: page.name, title: page.name, image: Platform.OS === "ios" ? page.symbol : undefined, state: tab === page.name ? "on" as const : "off" as const }))} onPressAction={event => { const selected = mainPages.find(page => page.name === event.nativeEvent.event); if (selected) setTab(selected.name); }}>
+        <MenuView testID="open-main-menu" actions={[...mainPages.map(page => ({ id: page.name, title: page.name, image: Platform.OS === "ios" ? page.symbol : undefined, state: tab === page.name ? "on" as const : "off" as const })), { id: "login-review", title: "ログイン確認" }]} onPressAction={event => { if (event.nativeEvent.event === "login-review") { openLoginReview(); return; } const selected = mainPages.find(page => page.name === event.nativeEvent.event); if (selected) setTab(selected.name); }}>
           <View accessible accessibilityRole="button" accessibilityLabel="メニューを開く" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}><AppIcon name="bars" size={23} color={ink} /></View>
         </MenuView>
       </View>
     </View>
     <View style={{ flex: 1, backgroundColor: surface }}>{tab === "ホーム" ? <Home /> : tab === "シフト" ? <ShiftsScreen /> : tab === "報酬" ? <RewardsScreen /> : <MyPage />}</View>
     {session && <View style={{ backgroundColor: surface, height: 78, paddingHorizontal: 12, paddingVertical: 5 }}><MiniBar /></View>}
+  </View>;
+}
+
+function LoginReview({ navigation }: NativeStackScreenProps<Routes, "LoginReview">) {
+  const [armed, setArmed] = useState(false);
+  return <View style={{ flex: 1, backgroundColor: surface }}>
+    <Pressable testID="fail-next-auth-save" accessibilityRole="button" onPress={() => { failNextAuthSave(); setArmed(true); }} style={{ minHeight: 44, paddingHorizontal: 20, justifyContent: "center", backgroundColor: "#FFF7DD" }}>
+      <Text style={{ color: ink, fontSize: 13 }}>{armed ? "次の端末保存は失敗します" : "次の端末保存を失敗させる"}</Text>
+    </Pressable>
+    <LoginScreen onLoggedIn={() => navigation.goBack()} />
   </View>;
 }
 
@@ -368,7 +381,7 @@ function NativeHomeContent() {
     navigation.reset({ index: 0, routes: [{ name: "Tabs" }] });
   };
   return <AuthContext.Provider value={{ driver: getStoredDriver()!, logout: () => Alert.alert("画面確認モード", "端末のログイン情報は変更していません。") }}>
-    <Context.Provider value={{ endOfDay, nextShift, setNextShift, reportSubmitted, openReport: () => navigation.navigate("EndReport"), openShifts: () => setTab("シフト"), openNotifications: () => navigation.navigate("Notifications"), tab, setTab, session, now, off, setOff, locationKnown, setLocationKnown, settings: () => navigation.navigate("Settings"), openAccount: section => navigation.navigate("AccountDetails", { section }), open, start, finish, parking,
+    <Context.Provider value={{ endOfDay, nextShift, setNextShift, reportSubmitted, openReport: () => navigation.navigate("EndReport"), openShifts: () => setTab("シフト"), openNotifications: () => navigation.navigate("Notifications"), openLoginReview: () => navigation.navigate("LoginReview"), tab, setTab, session, now, off, setOff, locationKnown, setLocationKnown, settings: () => navigation.navigate("Settings"), openAccount: section => navigation.navigate("AccountDetails", { section }), open, start, finish, parking,
       openParking: () => navigation.navigate("Parking"),
       saveParking: located => {
         setParking(located ? "located" : "unlocated");
@@ -380,6 +393,7 @@ function NativeHomeContent() {
     }}>
       <NavigationContainer ref={navigation} theme={theme}>
         <Stack.Navigator initialRouteName="Tabs">
+          <Stack.Screen name="LoginReview" component={LoginReview} options={{ title: "ログイン確認", headerBackTitle: "ホーム" }} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: "通知", headerBackTitle: "ホーム" }} />
           <Stack.Screen name="EndReport" component={EndReport} options={{ title: "日報", headerBackTitle: "ホーム" }} />
           <Stack.Screen name="Settings" component={Settings} options={{ title: "地図・振動", headerBackTitle: "マイページ" }} />

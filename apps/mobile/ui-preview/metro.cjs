@@ -14,6 +14,7 @@ module.exports = function withUiPreview(config, root) {
       if (context.dev !== true || context.customResolverOptions?.exporting) throw new Error("画面確認のbundleはdev=trueのみ。配布/OTAへ使わないでください");
       return { type: "sourceFile", filePath };
     };
+    if (name === "expo-secure-store" && context.originModulePath.endsWith("/src/auth/secureStoreStorage.ts")) return replacement(mock("auth-secure-store.ts"));
     if (name === "./ReportSourceImagePicker" && context.originModulePath.endsWith("/DailyReportForm.tsx")) return replacement(mock("ReportSourceImagePreview.tsx"));
     if (aliases[name]) return replacement(aliases[name]);
     if (name.startsWith("@platform/") || name.startsWith("@repo/core/api/")) throw new Error(`本番サービスの読み込みを遮断: ${name}`);

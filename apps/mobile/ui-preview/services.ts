@@ -4,6 +4,7 @@ import { previewReportCourse as course, previewReportForm, savePreviewReport } f
 export { setPreviewReportFailure } from "./report-fixture";
 import { nextPreviewShiftDate } from "./end-of-day";
 import { previewVehicle } from "./vehicle";
+import { secureStoreStorage } from "../src/auth/secureStoreStorage";
 // 画面調整専用。APIへのフォールバック・端末ストレージへの読み書きは行わない。
 import type { StoredDriver } from "@repo/core/auth";
 import type { WorkSession } from "../src/api/work";
@@ -26,7 +27,11 @@ export const configureApi = () => {};
 export const getStoredDriver = () => driver;
 export const getToken = () => driver ? "preview-only" : null;
 export const clearAuth = () => { driver = null; };
-export const setAuth = () => { driver = sampleDriver; };
+export const setAuth = (token = "preview-only", value: StoredDriver = sampleDriver) => {
+  driver = value;
+  secureStoreStorage.setItem("nippo_token", token);
+  secureStoreStorage.setItem("nippo_driver", JSON.stringify(value));
+};
 export async function bootstrap() { console.info("[ハコ虎] 画面確認モード：架空データ・本番送信なし"); }
 export function setPreviewSession(state: "idle" | "working" | "moving" | "ended") {
   const value: WorkSession = { id: "preview-session", vehicle_id: vehicle.id, status: state === "ended" ? "closed" : "open", purpose: state === "moving" ? "move" : "work", started_at: new Date(Date.now() - 2 * 3600_000).toISOString(), start_odometer: 12345, ended_at: state === "ended" ? new Date().toISOString() : null, end_odometer: state === "ended" ? 12410 : null };
