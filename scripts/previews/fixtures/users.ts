@@ -9,6 +9,7 @@ type Identity = {
 export type MockDriver = {
   id: string; name: string; display_name?: string | null; role?: string; role_id?: string | null;
   faceUrl?: string | null; phone_verified_at?: string | null; has_passkey?: boolean;
+  dob?: string | null;
   company_code?: string; office_code: string; driver_code: string; list_no?: number | null; created_at?: string;
   license_expiry_date?: string | null; status?: string; active_from_month?: string | null; active_until_month?: string | null;
   postal_code?: string | null; address?: string | null; phone?: string | null;
@@ -44,6 +45,7 @@ function makeDriver(i: number, name: string, overrides: Partial<MockDriver> = {}
   return {
     id: `driver-${i + 1}`, name, display_name: null, role: "DRIVER", role_id: i === 0 ? "role-admin" : "role-driver",
     faceUrl: null, phone_verified_at: i % 3 === 2 ? null : "2026-06-01T09:00:00+09:00", has_passkey: i % 4 !== 3,
+    dob: i === 5 ? null : `199${i % 10}-0${1 + (i % 9)}-15`,
     company_code: "DEFAULT", office_code: office, driver_code: code, list_no: i + 1,
     created_at: `2026-0${1 + (i % 6)}-1${i % 9}T09:00:00+09:00`,
     license_expiry_date: i === 1 ? "2026-09-20" : i === 5 ? null : `2028-0${1 + (i % 9)}-15`,

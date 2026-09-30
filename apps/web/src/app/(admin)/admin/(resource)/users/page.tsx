@@ -16,6 +16,7 @@ import { getCompany } from "@/config/companies";
 import { hasCapability } from "@/lib/capabilities";
 import { computeLicenseLevel } from "@repo/core/logic/license";
 import { formatJPPhoneDisplay } from "@repo/core/logic/profile";
+import { formatDateSlashWeekdayJP } from "@repo/core/logic/calendar";
 import { Button } from "@/lib/ui/button";
 import { faTrash, faUser, faPhone, faCircleCheck, faCommentSms, faFingerprint, faTriangleExclamation, faIdCard, faMoneyBillWave, faBuildingColumns, faChevronDown, faChevronUp, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { format } from "date-fns";
@@ -47,6 +48,7 @@ type Driver = {
   faceUrl?: string | null;
   /** 電話番号が Twilio(SMS OTP) 認証済みか（identities.phone_verified_at）。 */
   phone_verified_at?: string | null;
+  dob?: string | null;
   /** Passkeyを1件以上登録済みか（identities.id経由のpasskey_credentials）。 */
   has_passkey?: boolean;
   company_code?: string;
@@ -1470,6 +1472,12 @@ export default function UsersPage() {
                   </div>
                 )}
               </div>
+              {editingDriver && (
+                <div>
+                  <span className="block text-xs font-medium text-slate-400 mb-1.5">生年月日</span>
+                  <span className="text-sm text-slate-700">{editingDriver.dob ? formatDateSlashWeekdayJP(editingDriver.dob) : "未登録"}</span>
+                </div>
+              )}
               </>
               )}
 

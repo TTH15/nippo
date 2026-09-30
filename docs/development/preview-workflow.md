@@ -19,8 +19,10 @@
 管理画面の本番 `page.tsx` を**そのまま**使い、認証・API・Next Router だけを fixture（架空データと読み書きの定義）へ差し替えて動かす runner。ページ・データ状態・閲覧者の権限を URL だけで指定できるので、AI や人が「この状態の画面を開いて直す」を1手で始められる。ChatGPT で整理した方針（別コピーを作らず同一コード・fixture・シナリオURL・役割URL）を hakotora の既存 runner に載せたもの。
 
 - 起動: `npm run preview:admin -- admin --port 3197` → `http://127.0.0.1:3197/preview/admin`（一覧）
-- ページ: `/preview/admin/<slug>`。登録済みは `dashboard`（/admin）・`vehicles`（/admin/vehicles）・`users`（/admin/users）・`roles`（/admin/roles、API権限一覧）など。`roles` は既存のロール画面本体と架空のロール・メンバーを使用する。
+- ページ: `/preview/admin/<slug>`。登録済みは `dashboard`（/admin）・`vehicles`（/admin/vehicles）・`users`（/admin/users）・`courses`（/admin/courses）・`roles`（/admin/roles、API権限一覧）など。`roles` は既存のロール画面本体と架空のロール・メンバーを使用する。
 - ドライバー一覧: `npm run preview:admin -- admin --port 3197` → `/preview/admin/users?scenario=normal&role=admin`。本番ページと架空の認証状態を使い、SMS認証・パスキー登録の両状態をPC表・スマホ一覧で確認する。実認証・DBには接続しない。
+- コース管理: `/preview/admin/courses?scenario=normal&role=admin`。本番のコース管理ページと単価エディタを直接使い、新規コースの作成、売上・支払単価の入力を架空データで確認する。`empty` / `long-name` と共通の `loading` / `error` を切り替えられる。保存先はプレビュー内メモリのみ。
+- ドライバー詳細: `/preview/admin/users?scenario=normal&role=admin` の行を開く。基本情報に架空の生年月日を表示し、未登録例も含む。実在の本人情報は読み込まない。
 - データ状態: `?scenario=normal|empty|long-name|large|loading|error`（fixture 固有＋共通の loading/error。未知の値は normal）
 - 権限: `?role=admin|accounting|viewer`（本番のプリセット ADMIN / ACCOUNTING / ADMIN_VIEWER の capability 束を写す。メニューのロック・書込ボタン・コスト表示が本番と同じ判定で変わる）
 - 例: `http://127.0.0.1:3197/preview/admin/vehicles?scenario=long-name&role=viewer`

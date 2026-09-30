@@ -16,6 +16,7 @@ import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 import DashboardPage from "@/app/(admin)/admin/page";
 import VehiclesPage from "@/app/(admin)/admin/(resource)/vehicles/page";
 import UsersPage from "@/app/(admin)/admin/(resource)/users/page";
+import CoursesPage from "@/app/(admin)/admin/(delivery)/courses/page";
 import MapPage from "@/app/(admin)/admin/(ops)/map/page";
 import PaymentsPage from "@/app/(admin)/admin/(accounting)/payments/page";
 import SubmitPage from "../submit";
@@ -31,6 +32,7 @@ import { onboardingFixture } from "./onboarding";
 import { dashboardFixture } from "./dashboard";
 import { vehiclesFixture } from "./vehicles";
 import { usersFixture } from "./users";
+import { coursesFixture } from "./courses";
 import RolesPage from "@/app/(admin)/admin/(resource)/roles/page";
 import { rolesFixture } from "./roles";
 import { mapFixture } from "./map";
@@ -69,6 +71,7 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("dashboard", dashboardFixture, DashboardPage),
   entry("vehicles", vehiclesFixture, VehiclesPage),
   entry("users", usersFixture, UsersPage),
+  entry("courses", coursesFixture, CoursesPage),
   entry("roles", rolesFixture, RolesPage),
   entry("payments", paymentsFixture, PaymentsPage),
   entry("account", accountFixture, AccountPage),
