@@ -2,7 +2,7 @@ import { AccountDetailScreen } from "./src/screens/AccountDetailScreen";
 import { accountSectionTitles } from "./src/components/MyPageMenu";
 import "./global.css";
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, StyleSheet, Alert } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer, useNavigation, useIsFocused, useNavigationContainerRef } from "@react-navigation/native";
@@ -29,6 +29,7 @@ import { BottomTabBar } from "./src/components/BottomTabBar";
 import { ModeSwitchFab } from "./src/components/ModeSwitchFab";
 import { WorkSessionProvider } from "./src/WorkSessionContext";
 import { stopVehicleTracking } from "./src/backgroundVehicleLocation";
+import { flushAuthStorage } from "./src/auth/secureStoreStorage";
 import { WorkingMiniBar } from "./src/components/WorkingMiniBar";
 
 const Tab = createBottomTabNavigator();
@@ -73,7 +74,13 @@ export default function App() {
       .catch(() => setReady(true));
   }, []);
 
-  const logout = () => { void stopVehicleTracking(); clearAuth(); setDriver(null); };
+  const logout = () => {
+    void stopVehicleTracking();
+    clearAuth();
+    void flushAuthStorage()
+      .then(() => setDriver(null))
+      .catch(() => Alert.alert("ログアウトできませんでした", "端末の保存データを消せませんでした。もう一度お試しください。"));
+  };
 
   // ログイン後にゲート状態を取得。
   useEffect(() => {
