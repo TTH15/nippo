@@ -14,7 +14,8 @@ import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
 // 公開・電話番号でログイン（初回ログイン／機種変／復旧の共通経路）。認証不要。
 // 検証済み電話への SMS OTP で本人確認しセッション発行（§2-1a のブートストラップ）。
 // 用途: ①仮承認直後の初回ログイン（PIN 無し）②Passkey/端末を失った復旧。
-// ログイン後、本登録が未完なら /join で再開し、完了済みもPasskey未登録なら登録を案内する。
+// ログイン後、申請途中のドライバーは /join で再開し、運営権限を持つ既存ユーザーは
+// KYC項目の状態にかかわらずPasskey未登録なら登録を案内する。
 // その先で新しい端末に Passkey を登録し直せる。
 // ============================================================
 
@@ -60,7 +61,8 @@ export default function RecoverPage() {
     if (adminRecovery || !hasAdmin) {
       try {
         const reg = await apiFetch<{ complete: boolean; kycVerified: boolean; hasPasskey: boolean }>("/api/me/registration");
-        if (!reg.complete && !reg.kycVerified) {
+        // 既存の運営アカウントはKYC項目が未入力でも参加申請へ戻さない。
+        if (!hasAdmin && !reg.complete && !reg.kycVerified) {
           router.push("/join");
           return;
         }

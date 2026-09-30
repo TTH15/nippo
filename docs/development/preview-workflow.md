@@ -43,8 +43,8 @@
 
 | URL | 再利用元・確認する操作 |
 |---|---|
-| `/preview/admin/onboarding?scenario=normal` | `/join/OnboardingWizard.tsx`。架空の規約確認・氏名・電話・任意の6桁SMSコードから必須のPasskey設定へ。`resumed` / `incomplete` は途中再開、`registered` は登録済み、`unsupported` は非対応で先へ進めない状態、`retry` は初回失敗から再試行、`complete` は申請済み |
-| `/preview/admin/recover?scenario=normal` | `/login/recover/page.tsx`。架空の電話と任意の6桁コードでSMSログイン後の設定へ。`registered` はホーム、`incomplete` は `/join` の続き、`retry` は登録失敗→再試行 |
+| `/preview/admin/onboarding?scenario=normal` | `/join/OnboardingWizard.tsx`。架空の規約確認・氏名・電話・任意の6桁SMSコードから必須のPasskey設定へ。`code` は参加コード入口からログインへ戻る導線、`resumed` / `incomplete` は途中再開、`registered` は登録済み、`unsupported` は非対応で先へ進めない状態、`retry` は初回失敗から再試行、`complete` は申請済み |
+| `/preview/admin/recover?scenario=normal` | `/login/recover/page.tsx`。架空の電話と任意の6桁コードでSMSログイン後の設定へ。`registered` はホーム、`incomplete` は `/join` の続き、`admin-incomplete&next=admin` は登録項目が不足した既存運営アカウントのPasskey設定、`retry` は登録失敗→再試行 |
 | `/preview/admin/login?scenario=pinless&next=driver` | `/login/page.tsx`。ドライバー選択後にPasskey/SMSを表示。旧番号/PINログインのフォームは撤去 |
 | `/preview/admin/me?scenario=normal` | `/(user)/me/page.tsx`。PIN欄なし・電話確認・Passkey管理。`legacy` でもPIN操作は表示しない。`registered` は登録済み |
 | `/preview/admin/shifts?scenario=readiness` | `/admin/shifts/page.tsx` の未解決一覧（予定の未解決）。`readiness` は期限切れを含む8件、`readiness-light` は期限切れなし、`readiness-many` は40件・長いコース名、`conflict` はセル編集の409（他の人が先に変えた）。歯車の設定モーダルは4タブ（提出締切・便・必要人数・未解決の期限）で、いずれも `/api/admin/shift-deadlines` `/api/admin/shift-slots` `/api/admin/shifts/requirements` `/api/admin/shifts/readiness-settings` の fixture 付き。未保存のまま閉じると確認が出る |

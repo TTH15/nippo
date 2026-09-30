@@ -18,6 +18,13 @@ const adapterFor = (reg: Reg): WizardAdapter => ({
 afterEach(cleanup);
 
 describe("登録再開時のログイン設定", () => {
+  it("参加コード入口から既存アカウントのログインへ戻れる", async () => {
+    const adapter = adapterFor(registration());
+    vi.mocked(adapter.tryResume).mockResolvedValue(null);
+    render(<OnboardingWizard adapter={adapter} persistDraft={false} />);
+    expect(await screen.findByText("運営から受け取った参加コードを入力してください。")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "ログインへ" })).toHaveAttribute("href", "/login");
+  });
   it("途中再開でも未登録ならPasskey設定を先に出す", async () => {
     render(<OnboardingWizard adapter={adapterFor(registration())} persistDraft={false} />);
     expect(await screen.findByRole("button", { name: "設定する" })).toBeEnabled();
