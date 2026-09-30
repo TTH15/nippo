@@ -5,7 +5,7 @@ import { applyBoardChanges, sameBoardValue, type BoardChange } from "@/lib/shift
 
 const names = ["佐藤 翔太", "田中 美咲", "鈴木 大輔", "高橋 健太", "伊藤 彩", "渡辺 直樹"];
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-export type PreviewShift = { id: string; shift_date: string; course_id: string; cycle_no: number; slot: number; driver_id: string | null; vehicle_id?: string | null };
+export type PreviewShift = { id: string; shift_date: string; course_id: string; cycle_no: number; slot: number; driver_id: string | null; vehicle_id?: string | null; uses_external_vehicle?: boolean };
 const LIVE_BOARD_KEY = "hakotora_preview_shared_memo_live_v1";
 function loadLiveBoard(): { board: Record<string, unknown> | null; revision: number } | null {
   try {
@@ -193,6 +193,8 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
           const chosen = lane.routeId === state.courses[0].id ? state.drivers.slice(0, 2) : state.drivers.slice(3, 4);
           assignments[`${lane.id}|${day}`] = chosen.map(person => ({ placementId: `${lane.id}-${day}-${person.id}`, personKey: person.id, driverId: person.id, name: person.display_name || person.name }));
           const assignedDriverId = lane.routeId === state.courses[0].id ? state.drivers[2].id : state.drivers[3].id;
+          // 通常シナリオの初日は片便だけ。全便追加と出力の C1 表示を確認できるようにする。
+          if (scenario === "normal" && day === start && lane.routeId === state.courses[0].id && cycle === 2) continue;
           // 車両は日付とレーンで回して、4色のプレートが一覧に混ざるようにする
           const vehicle = state.vehicles.length
             ? state.vehicles[(date.getUTCDate() + lanes.indexOf(lane)) % state.vehicles.length]
@@ -210,6 +212,19 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
     return { courses: state.courses, drivers: state.drivers, shifts: state.shifts.filter(s => s.shift_date >= start && s.shift_date <= end), requests: [], slots: [], vehicles: state.vehicles, vehicle_driver_links: [], vehicle_loans: [], recent_assignments: [], driver_leases: state.driverLeases };
   },
   write(state, { path, body }, { role, scenario }) {
+    if (path === "/api/admin/shifts/vehicle") {
+      if (role !== "admin") throw new Error("この操作の権限がありません。");
+      const { shiftDate, courseId, cycleNo = 0, slot, vehicleId, usesExternalVehicle, expectedVehicleId, hasExpectation } = body as {
+        shiftDate: string; courseId: string; cycleNo?: number; slot: number; vehicleId: string | null;
+        usesExternalVehicle?: boolean; expectedVehicleId?: string | null; hasExpectation?: boolean;
+      };
+      const row = state.shifts.find(s => s.shift_date === shiftDate && s.course_id === courseId && s.cycle_no === cycleNo && s.slot === slot);
+      if (!row?.driver_id) throw new Error("この枠にドライバーがいません。");
+      if (hasExpectation && (row.vehicle_id ?? null) !== (expectedVehicleId ?? null)) throw new Error("別の変更が保存されています。最新の状態を確認してください。");
+      row.vehicle_id = vehicleId;
+      row.uses_external_vehicle = usesExternalVehicle === true;
+      return { shift: row };
+    }
     if (path === "/api/admin/shifts/memo/read") {
       if (role !== "admin") throw new Error("この操作の権限がありません。");
       const year = Number(body.year), month = Number(body.month);

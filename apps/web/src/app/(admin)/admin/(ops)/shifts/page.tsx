@@ -59,6 +59,7 @@ import ShiftImportModal, { isImportableShiftFile, mergeImportFiles } from "./Shi
 import PersonalShiftMemoBoard from "./PersonalShiftMemoBoard";
 import { ShiftExportDialog } from "./ShiftExportDialog";
 import type { ShiftExportCell, ShiftExportData } from "@/lib/shiftExport/data";
+import { groupShiftExportCourses } from "@/lib/shiftExport/groupCourses";
 import type { SpotJob } from "../spot-jobs/types";
 import { shouldShowCycleBadgesForSelection } from "@repo/core/logic/courseCycle";
 import { formatDateSlashWeekdayJP } from "@repo/core/logic/calendar";
@@ -624,6 +625,7 @@ export default function ShiftsPage() {
     courseId: string;
     cycleNo: number;
     nextSlot: number;
+    remainingCycleNos?: number[];
   } | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   // 同時編集カーソル（誰がどのセルを触っているか）。表示中は自動接続・未設定なら黙って無効。
@@ -1549,6 +1551,31 @@ export default function ShiftsPage() {
     commitAddDriverToCourse(date, driverId, courseId, freeSlot, cycleNo);
   };
 
+  /** コース名から未割当の全便を追加。満員の便は従来の増枠確認を順に出す。 */
+  const addDriverToAllCourseCycles = (date: string, driverId: string, courseId: string, cycleNos: number[]) => {
+    if (!canWrite || isDriverOffDay(driverId, date)) return;
+    const driver = drivers.find((item) => item.id === driverId);
+    const course = courses.find((item) => item.id === courseId);
+    if (!driver || !course || !getDriverCourseIds(driver).includes(courseId)) return;
+    const missing = cycleNos.filter((cycleNo) =>
+      !findDriverPlacementsOnDate(localShifts, date, driverId).some((p) => p.courseId === courseId && p.cycleNo === cycleNo),
+    );
+    const fullIndex = missing.findIndex((cycleNo) => findFreeSlotOnCourse(date, courseId, localShifts, cycleNo) === null);
+    if (fullIndex >= 0) {
+      const cycleNo = missing[fullIndex];
+      setOverCapacityPrompt({
+        date, driverId, courseId, cycleNo,
+        nextSlot: slotCountFor(course, date, cycleNo) + 1,
+        remainingCycleNos: missing.filter((_, index) => index !== fullIndex),
+      });
+      return;
+    }
+    for (const cycleNo of missing) {
+      const slot = findFreeSlotOnCourse(date, courseId, localShifts, cycleNo);
+      if (slot !== null) commitAddDriverToCourse(date, driverId, courseId, slot, cycleNo);
+    }
+  };
+
   /** 「いつもの人数」（courses.max_drivers）を更新。失敗しても割当自体は成立している前提 */
   const updateCourseUsualCount = async (courseId: string, count: number) => {
     const prev = courses;
@@ -1603,29 +1630,33 @@ export default function ShiftsPage() {
   };
 
   // ============================================================
-  // D&D コピー（A3）: 割当済みセルをドラッグしてコース割当を複製する。
+  // D&D コピー（A3）: コース札と車両札をそれぞれドラッグして複製する。
   //   同一ドライバーの行 → ドロップ位置までの範囲フィル（連日コピー）
   //   別ドライバーのセル → その日へ単セルコピー（担当可能コースのみ）
-  // 車両・時間上書きは複製しない（車両は日毎の配車、時間はコース標準が効く）。
+  // 時間上書きは複製しない（コース標準が効く）。
   // ============================================================
   const [dragSource, setDragSource] = useState<{
     date: string;
     driverId: string;
-    /** ドラッグ元の枠（コース×便）。便を落とすと複製先の便が決まらない */
-    frames: { courseId: string; cycleNo: number }[];
+    kind: "course" | "vehicle";
+    frames?: { courseId: string; cycleNo: number }[];
+    vehicleId?: string;
   } | null>(null);
   const [dragOverCell, setDragOverCell] = useState<{ date: string; driverId: string } | null>(null);
 
   /** ドロップ可能か（自セル・全休日・担当可能コースなしは不可）。 */
   const isValidDropTarget = (date: string, driverId: string): boolean => {
-    if (!dragSource || !canWrite) return false;
+    if (!dragSource || (dragSource.kind === "course" ? !canWrite : !canDispatch)) return false;
     if (dragSource.date === date && dragSource.driverId === driverId) return false;
+    if (dragSource.kind === "vehicle") {
+      return findDriverPlacementsOnDate(localShifts, date, driverId).length > 0;
+    }
     if (isDriverOffDay(driverId, date)) return false;
     if (driverId !== dragSource.driverId) {
       const d = drivers.find((x) => x.id === driverId);
       if (!d) return false;
       const allowed = new Set(getDriverCourseIds(d));
-      if (!dragSource.frames.some((f) => allowed.has(f.courseId))) return false;
+      if (!dragSource.frames?.some((f) => allowed.has(f.courseId))) return false;
     }
     return true;
   };
@@ -1718,10 +1749,10 @@ export default function ShiftsPage() {
 
   const handleCellDrop = (targetDate: string, targetDriverId: string) => {
     if (!dragSource) return;
-    const { date: srcDate, driverId: srcDriverId, frames } = dragSource;
+    const { date: srcDate, driverId: srcDriverId, frames, kind, vehicleId } = dragSource;
     setDragSource(null);
     setDragOverCell(null);
-    if (frames.length === 0) return;
+    if (kind === "course" && !frames?.length) return;
     if (targetDriverId === srcDriverId) {
       // 横フィル: ドラッグ元〜ドロップ位置の全日（元日を除く）へ連日コピー
       const si = displayDates.indexOf(srcDate);
@@ -1729,9 +1760,14 @@ export default function ShiftsPage() {
       if (si < 0 || ti < 0) return;
       const [a, b] = si < ti ? [si, ti] : [ti, si];
       const dates = displayDates.slice(a, b + 1).filter((d) => d !== srcDate);
-      copyCoursesTo(frames, srcDriverId, dates);
+      if (kind === "vehicle" && vehicleId) {
+        for (const date of dates) {
+          if (findDriverPlacementsOnDate(localShifts, date, srcDriverId).length > 0) setVehicleForDriverOnDate(date, srcDriverId, vehicleId);
+        }
+      } else if (frames) copyCoursesTo(frames, srcDriverId, dates);
     } else {
-      copyCoursesTo(frames, targetDriverId, [targetDate]);
+      if (kind === "vehicle" && vehicleId) setVehicleForDriverOnDate(targetDate, targetDriverId, vehicleId);
+      else if (frames) copyCoursesTo(frames, targetDriverId, [targetDate]);
     }
   };
 
@@ -2329,7 +2365,6 @@ export default function ShiftsPage() {
       const cells: ShiftExportCell[] = displayDates.map((date) => {
         if (isDriverOffDay(driver.id, date)) return { kind: "off" };
         const placements = findDriverPlacementsOnDate(localShifts, date, driver.id);
-        // 便（cycle_no）まで含めてラベルにする。コース名だけだと C1/C2 が同じ行に見える
         const entries = placements
           .map((p) => ({ placement: p, course: courses.find((c) => c.id === p.courseId) }))
           .filter((e): e is { placement: typeof placements[number]; course: Course } => Boolean(e.course))
@@ -2356,11 +2391,15 @@ export default function ShiftsPage() {
           kind: "courses",
           plate,
           externalVehicle: prow?.uses_external_vehicle === true,
-          courses: entries.map(({ placement: p, course: c }) => ({
-            label: courseCycleLabel(c, p.cycleNo),
+          courses: groupShiftExportCourses(entries.map(({ placement: p, course: c }) => ({
+            courseId: c.id,
+            cycleNo: p.cycleNo,
+            label: courseShiftLabel(c),
             color: c.color,
             slotLabel: slotLabelById(c.slot_id) ?? undefined,
-          })),
+            activeCycleNos: activeCourseCycleNos(c),
+            cycleBadge: courseCycleBadge(c, p.cycleNo),
+          }))),
         };
       });
       return {
@@ -3151,22 +3190,6 @@ export default function ShiftsPage() {
                                       type="button"
                                       disabled={!canOpenCell}
                                       onClick={() => setEditingCell({ date, driverId: driver.id })}
-                                      draggable={canWrite && hasAny}
-                                      onDragStart={(e) => {
-                                        if (!canWrite || !hasAny) return;
-                                        e.dataTransfer.setData("text/plain", "shift-copy");
-                                        e.dataTransfer.effectAllowed = "copy";
-                                        setDragSource({
-                                          date,
-                                          driverId: driver.id,
-                                          // 便まで持って運ぶ（同じコースの別便を取り違えない）
-                                          frames: [
-                                            ...new Map(
-                                              placements.map((p) => [`${p.courseId}|${p.cycleNo ?? 0}`, { courseId: p.courseId, cycleNo: p.cycleNo ?? 0 }]),
-                                            ).values(),
-                                          ],
-                                        });
-                                      }}
                                       onDragEnd={() => {
                                         setDragSource(null);
                                         setDragOverCell(null);
@@ -3174,7 +3197,7 @@ export default function ShiftsPage() {
                                       title={
                                         canOpenCell
                                           ? canWrite && hasAny
-                                            ? "クリックして編集／ドラッグでコピー"
+                                            ? "クリックして編集。コース札と車両札は別々にドラッグでコピー"
                                             : "クリックして編集"
                                           : vehicleTitle
                                       }
@@ -3245,8 +3268,19 @@ export default function ShiftsPage() {
                                             return (
                                               <span
                                                 key={course.id}
-                                                title={courseAbbrevTooltip(course)}
-                                                className="flex h-6 w-full min-w-0 items-center overflow-hidden rounded-[6px] px-1.5"
+                                                title={`${courseAbbrevTooltip(course)}（ドラッグでコースだけコピー）`}
+                                                draggable={canWrite}
+                                                onDragStart={(e) => {
+                                                  if (!canWrite) return;
+                                                  e.stopPropagation();
+                                                  e.dataTransfer.setData("text/plain", "shift-course-copy");
+                                                  e.dataTransfer.effectAllowed = "copy";
+                                                  setDragSource({
+                                                    kind: "course", date, driverId: driver.id,
+                                                    frames: [...new Set(coursePlacements.map((p) => p.cycleNo ?? 0))].map((cycleNo) => ({ courseId: course.id, cycleNo })),
+                                                  });
+                                                }}
+                                                className={cn("flex h-6 w-full min-w-0 items-center overflow-hidden rounded-[6px] px-1.5", canWrite && "cursor-grab active:cursor-grabbing")}
                                                 style={courseCellSurface(course.color)}
                                               >
                                                 <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-slate-900">
@@ -3270,7 +3304,18 @@ export default function ShiftsPage() {
                                           {display.meetingTime && placementMeetingTimes(date, placements).length > 0 && <span className="w-full text-center text-[10px] text-slate-500">集合 {placementMeetingTimes(date, placements).join(" / ")}</span>}
                                           {!display.shift && !display.vehicle && (!display.meetingTime || placementMeetingTimes(date, placements).length === 0) && <span className="text-center text-[11px] text-slate-500">稼働</span>}
                                           {display.vehicle && (
-                                            <span className="mt-0.5 flex w-full min-w-0 items-center justify-center">
+                                            <span
+                                              className={cn("mt-0.5 flex w-full min-w-0 items-center justify-center", canDispatch && currentVid && "cursor-grab active:cursor-grabbing")}
+                                              draggable={canDispatch && Boolean(currentVid)}
+                                              title={currentVid && canDispatch ? "ドラッグで車両だけコピー" : vehicleTitle}
+                                              onDragStart={(e) => {
+                                                if (!canDispatch || !currentVid) return;
+                                                e.stopPropagation();
+                                                e.dataTransfer.setData("text/plain", "shift-vehicle-copy");
+                                                e.dataTransfer.effectAllowed = "copy";
+                                                setDragSource({ kind: "vehicle", date, driverId: driver.id, vehicleId: currentVid });
+                                              }}
+                                            >
                                               {currentVid && hoverVehiclePlate ? (
                                                 <DuplicateVehicleFrame active={isDuplicateVehicle(date, currentVid)} title={DUPLICATE_VEHICLE_TITLE}>
                                                   <VehiclePlate
@@ -3503,8 +3548,7 @@ export default function ShiftsPage() {
                 </div>
                 <div className="flex items-center gap-1.5 basis-full">
                   <span className="text-slate-500">
-                    割当済みセルはドラッグでコピーできます（同じ行＝離した日まで連日コピー／別ドライバーの行＝その日へコピー。
-                    希望休・担当外・定員満の日は自動でスキップ。車両はコピーされません）。
+                    コース札・車両札は別々にドラッグできます。同じ行は離した日まで、別の行はその日へコピーします。
                     「コース軸」に切り替えると、行=コースで埋まり具合を確認できます。
                     スマホでは1日ずつの日別ビューになります（ドラッグや軸の切替はPC向けの機能です）。
                   </span>
@@ -3742,7 +3786,7 @@ export default function ShiftsPage() {
 
       {/* いつもの人数を超える割当の確認（この日だけ増枠 or 既定人数ごと更新） */}
       {overCapacityPrompt && (() => {
-        const { date, driverId, courseId, cycleNo, nextSlot } = overCapacityPrompt;
+        const { date, driverId, courseId, cycleNo, nextSlot, remainingCycleNos } = overCapacityPrompt;
         const course = courses.find((c) => c.id === courseId);
         const driver = drivers.find((d) => d.id === driverId);
         if (!course || !driver) return null;
@@ -3751,6 +3795,7 @@ export default function ShiftsPage() {
           setOverCapacityPrompt(null);
           commitAddDriverToCourse(date, driverId, courseId, nextSlot, cycleNo);
           if (updateUsual) void updateCourseUsualCount(courseId, nextSlot);
+          if (remainingCycleNos?.length) addDriverToAllCourseCycles(date, driverId, courseId, remainingCycleNos);
         };
         return (
           <div
@@ -4018,7 +4063,9 @@ export default function ShiftsPage() {
                       ).map(([, group]) => group);
                       const chip = ({ course, cycleNos }: { course: Course; cycleNos: number[] }) => (
                         <div key={course.id} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-2 py-1.5">
-                          <span className="text-[13px] font-medium text-slate-700">{courseShiftLabel(course)}</span>
+                          <button type="button" onClick={() => addDriverToAllCourseCycles(date, driverId, course.id, cycleNos)} className="rounded px-1 text-[13px] font-medium text-slate-700 hover:bg-slate-200" title={`${courseShiftLabel(course)}の全便を追加`}>
+                            {courseShiftLabel(course)}
+                          </button>
                           {cycleNos.map((cycleNo) => (
                             <button key={cycleNo} type="button" onClick={() => addDriverToCourseOnDate(date, driverId, course.id, cycleNo)} className="rounded-md bg-white px-2 py-1 text-[11px] font-bold text-slate-700 shadow-sm transition-colors hover:bg-slate-200">
                               ＋{cycleNo ? courseCycleBadge(course, cycleNo) : "追加"}
