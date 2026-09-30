@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 import path from "node:path";
 const require = createRequire(import.meta.url);
+vi.mock("../src/auth/secureStoreStorage", () => ({ secureStoreStorage: { setItem: vi.fn(), removeItem: vi.fn(), getItem: vi.fn() } }));
 const withUiPreview = require("../ui-preview/metro.cjs");
 const root = "/workspace/apps/mobile";
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.resetModules(); });
@@ -19,6 +20,7 @@ it("devだけをfixtureへ解決し、本番サービスと配布向けbundleを
   expect(config.resolver.resolveRequest(context, "@repo/core/api", "ios").filePath).toBe(path.join(root, "ui-preview/services.ts"));
   expect(config.resolver.resolveRequest(context, "src/bootstrap.ts", "ios").filePath).toBe(path.join(root, "ui-preview/services.ts"));
   expect(config.resolver.resolveRequest(context, "App.tsx", "ios").filePath).toBe(path.join(root, "ui-preview/App.tsx"));
+  expect(config.resolver.resolveRequest({ ...context, originModulePath: path.join(root, "src/auth/secureStoreStorage.ts") }, "expo-secure-store", "ios").filePath).toBe(path.join(root, "ui-preview/auth-secure-store.ts"));
   expect(() => config.resolver.resolveRequest(context, "@platform/api-client", "ios")).toThrow();
   expect(() => config.resolver.resolveRequest({ ...context, dev: false }, "@repo/core/api", "ios")).toThrow();
   expect(() => config.resolver.resolveRequest({ ...context, customResolverOptions: { exporting: true } }, "@repo/core/api", "ios")).toThrow();
@@ -37,6 +39,14 @@ it("架空の出退勤・日報・認証をメモリ内で処理し、未対応A
   api.clearAuth(); expect(api.getStoredDriver()).toBeNull();
   api.setAuth(); expect(api.getStoredDriver()?.id).toBe("preview-driver");
   expect(fetch).not.toHaveBeenCalled();
+});
+it("ログイン確認の端末保存失敗は一度だけ発生し、再試行できる", async () => {
+  vi.stubGlobal("__DEV__", true);
+  const storage = await import("../ui-preview/auth-secure-store");
+  storage.failNextAuthSave();
+  await expect(storage.setItemAsync("nippo_token", "preview-only")).rejects.toThrow();
+  await storage.setItemAsync("nippo_token", "preview-only");
+  expect(await storage.getItemAsync("nippo_token")).toBe("preview-only");
 });
 it("fixture自身もproductionでの実行を拒否する", async () => {
   vi.stubGlobal("__DEV__", false);

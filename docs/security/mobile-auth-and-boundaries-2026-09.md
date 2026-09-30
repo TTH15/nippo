@@ -68,6 +68,8 @@
 
 PR #55を`main`の`4250c861`へ統合し、Vercel本番`dpl_7EBNgSoi7xLvi4RuPtnrCKLbH5ck`が`hakotora.jp`を配信する。PRの全体CIと候補ビルドが成功。本番の未認証リクエストでは更新APIが401、ログアウトAPIが`__Host-`付きCookieを`Secure`・`HttpOnly`で削除する応答を確認した。実利用者のPasskey認証と30日経過の実測は未確認。
 
+2026/09/30のモバイル画面確認: Expo Goの隔離UIで実ログイン画面を開き、Passkey/SMSの架空認証後に端末保存を一度失敗させ、保存再試行からホーム/パスキー設定へ進む操作を確認した。モバイルの全63テストも成功。Expo Goの認証・保存fixtureは実OSの鍵と認証ストレージを使用しないため、署名済み実機での検証は引き続き必要。
+
 ## 外部資料と未確認事項
 
 - [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)は、口座等の重要変更や復旧後に再認証を求める考え方の根拠。

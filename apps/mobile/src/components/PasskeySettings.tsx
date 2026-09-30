@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, TextInput, Pressable, ActivityIndicator } from "react-native";
-import { AppIcon } from "./AppIcon";
 import { apiFetch } from "@repo/core/api";
 import { PASSKEY_LABEL, supportsPasskey, registerPasskey, reauthenticateWithPasskey, passkeyError } from "../auth/passkey";
 
@@ -71,10 +70,6 @@ export function PasskeySettings() {
         </View>)}
         {!status.canRecoverWithSms && <Text className="text-sm text-brand-600">端末を失ったときに備え、電話番号を確認してください。</Text>}
         {supported ? <>
-          <View className="flex-row flex-wrap gap-3">
-            {([['face-smile', 'Face ID'], ['fingerprint', '指紋'], ['braille', 'パターン'], ['lock', '画面ロックのPIN']] as const).map(([icon, label]) =>
-              <View key={icon} className="flex-row items-center gap-1"><AppIcon name={icon} size={14} color="#454c56" /><Text className="text-xs text-brand-600">{label}</Text></View>)}
-          </View>
           {button(status.keys.length ? "パスキーを追加" : "設定する", () => void run(() => begin({ kind: "register" })), !!pending || !!confirmKey)}
         </> : <Text className="text-sm text-brand-600">この端末では設定できません。SMSでログインしてください。</Text>}
       </> : !message ? <ActivityIndicator /> : null}
