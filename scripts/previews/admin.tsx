@@ -91,8 +91,9 @@ export default function AdminPreviewApp() {
       event.preventDefault();
       navigate(url.pathname + url.search);
     };
-    document.addEventListener("click", click);
-    return () => document.removeEventListener("click", click);
+    // モーダル内のクリックは伝播を止めるため、capture で本番リンクを拾う。
+    document.addEventListener("click", click, true);
+    return () => document.removeEventListener("click", click, true);
   }, []);
   const slug = slugFromPreviewPath(location.pathname);
   const page = slug ? findPageBySlug(slug) : undefined;

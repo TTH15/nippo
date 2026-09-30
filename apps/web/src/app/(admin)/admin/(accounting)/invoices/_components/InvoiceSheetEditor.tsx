@@ -113,6 +113,9 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   const [outgoingTarget, setOutgoingTarget] = useState<"corp" | "driver">(
     initial.kind === "outgoing" && initial.parties.toParty.startsWith("drv-") ? "driver" : "corp",
   );
+  const [incomingTarget, setIncomingTarget] = useState<"driver" | "individual">(
+    initial.kind === "incoming" && initial.parties.fromParty === "individual" ? "individual" : "driver",
+  );
 
   const { data: addrData } = useApi<{ addresses: AddressRow[] }>(
     st.kind === "outgoing" && outgoingTarget === "corp" ? "/api/admin/invoice-addresses" : null,
@@ -145,7 +148,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   // （過去に遡って請求書を作成するケースがあるため）。
   // all=1: ページングなしの全件（limit はサーバで100にクランプされ、101人目以降が
   // セレクトから黙って欠けるため使わない）。
-  const needDrivers = st.kind === "incoming" || outgoingTarget === "driver";
+  const needDrivers = (st.kind === "incoming" && incomingTarget === "driver") || outgoingTarget === "driver";
   const { data: driverData } = useApi<{ drivers: DriverRow[] }>(
     needDrivers ? "/api/admin/users?all=1&status=all" : null,
   );
@@ -153,6 +156,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
 
   const changeKind = (kind: InvoiceKind) => {
     setOutgoingTarget("corp");
+    setIncomingTarget("driver");
     setSt((prev) => {
       const base = blankEditorState(kind);
       return {
@@ -251,6 +255,16 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
     }));
   };
 
+  const changeIncomingTarget = (target: "driver" | "individual") => {
+    if (target === incomingTarget) return;
+    setIncomingTarget(target);
+    setSt((prev) => ({
+      ...prev, fromName: "", fromAddrHtml: "", fromTel: "",
+      bankName: "", bankNo: "", bankHolder: "",
+      parties: { ...prev.parties, fromParty: target === "individual" ? "individual" : "" },
+    }));
+  };
+
   const selectDriver = (id: string) => {
     const d = drivers.find((x) => x.id === id);
     setSt((prev) => ({
@@ -278,6 +292,7 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
   const persistRef = useRef<(state: EditorState) => Promise<void>>(async () => {});
 
   const persist = useCallback(async (state: EditorState) => {
+    if (state.kind === "incoming" && state.parties.fromParty === "individual" && !state.fromName.trim()) return;
     if (savingRef.current) {
       pendingRef.current = true; // 進行中の保存が終わったら、その時点の最新でもう一度保存する
       return;
@@ -302,7 +317,10 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
         setSavedId(newId);
         setStRaw((p) => ({ ...p, id: newId }));
         // リロード時に同一レコードを編集できるよう URL を差し替え（再マウントは伴わない）。
-        window.history.replaceState(null, "", `/admin/invoices/${encodeURIComponent(newId)}/edit`);
+        // 隔離プレビューでは作成ページの fixture を維持する（再読み込み時も本番パスへ出さない）。
+        if (!window.location.pathname.startsWith("/preview/admin/")) {
+          window.history.replaceState(null, "", `/admin/invoices/${encodeURIComponent(newId)}/edit`);
+        }
       }
       setSaveStatus("saved");
       // 一覧・プレビューの SWR キャッシュを再取得させる。
@@ -407,6 +425,14 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
           </div>
         )}
 
+        {st.kind === "incoming" && (
+          <div className="w-40">
+            <CustomSelect size="sm" clearable={false} value={incomingTarget}
+              onChange={(v) => changeIncomingTarget(v === "individual" ? "individual" : "driver")}
+              options={[{ value: "driver", label: "登録済みドライバー" }, { value: "individual", label: "個人（未登録）" }]} />
+          </div>
+        )}
+
         <div className="w-60">
           {st.kind === "outgoing" ? (
             outgoingTarget === "corp" ? (
@@ -429,6 +455,9 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
                 }))}
               />
             )
+          ) : incomingTarget === "individual" ? (
+            <input aria-label="請求元の氏名" value={st.fromName} onChange={(e) => setSt((p) => ({ ...p, fromName: e.target.value }))}
+              placeholder="請求元の氏名" className="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
           ) : (
             <CustomSelect
               size="sm"

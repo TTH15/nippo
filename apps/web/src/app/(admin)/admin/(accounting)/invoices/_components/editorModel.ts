@@ -500,8 +500,8 @@ export function validateForSave(st: EditorState): string[] {
     }
     if (!st.toName.trim()) errors.push("請求先の名称が空です。");
   } else {
-    if (!st.parties.fromParty.startsWith("drv-")) {
-      errors.push("請求元（ドライバー）が選択されていません。上部のメニューから請求元を選んでください。");
+    if (!st.parties.fromParty.startsWith("drv-") && st.parties.fromParty !== "individual") {
+      errors.push("請求元が選択されていません。上部のメニューから選んでください。");
     }
     if (!st.fromName.trim()) errors.push("請求元の名称が空です。");
   }
@@ -515,8 +515,11 @@ export function validateForSave(st: EditorState): string[] {
 
 /** POST/PATCH 用の保存ボディ。 */
 export function saveBodyFromEditor(st: EditorState): Record<string, unknown> {
+  const periodStart = parsePeriodJa(st.period).start;
   return {
     ...(st.id ? { id: st.id } : {}),
+    ...(!st.id && periodStart ? { month: `${periodStart.getFullYear()}-${String(periodStart.getMonth() + 1).padStart(2, "0")}` } : {}),
+    ...(st.kind === "incoming" && st.parties.fromParty === "individual" ? { driverId: null } : {}),
     section: st.section,
     counterpartyInvoiceAddressId: st.counterpartyInvoiceAddressId,
     clientName: st.kind === "incoming" ? st.fromName : st.toName,

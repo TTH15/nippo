@@ -132,10 +132,12 @@ function InvoiceNewPageContent() {
   const section = searchParams?.get("section") ?? "";
   const counterparty = searchParams?.get("counterparty") ?? "";
   const driver = searchParams?.get("driver") ?? "";
+  const individual = kind === "incoming" && searchParams?.get("individual") === "1";
   // 自社 → ドライバー個人（売上請求書）。自動集計は行わず空の下書きから始める。
   const toDriver = kind === "outgoing" ? (searchParams?.get("toDriver") ?? "") : "";
-  const wantDraft =
-    kind === "incoming" ? Boolean(month && driver) : Boolean(!toDriver && month && section);
+  const wantDraft = !individual && (
+    kind === "incoming" ? Boolean(month && driver) : Boolean(!toDriver && month && section)
+  );
   const draftKey = wantDraft
     ? kind === "incoming"
       ? `/api/admin/invoices/draft?month=${encodeURIComponent(month)}&driver=${encodeURIComponent(driver)}`
@@ -198,7 +200,14 @@ function InvoiceNewPageContent() {
           <InvoiceSheetEditor
             mode="new"
             initial={
-              toDriver
+              individual
+                ? {
+                    ...blankEditorState(kind),
+                    period: month ? periodForMonth(month) : blankEditorState(kind).period,
+                    fromName: "",
+                    parties: { fromParty: "individual", toParty: "ace_creation" },
+                  }
+                : toDriver
                 ? buildDriverRecipientInitial(month, toDriver, recipientDriver)
                 : buildInitial(kind, wantDraft ? draft : undefined)
             }

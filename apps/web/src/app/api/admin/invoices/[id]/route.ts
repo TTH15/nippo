@@ -95,8 +95,7 @@ export async function GET(
   return NextResponse.json({
     invoice: {
       direction:
-        (data.payload as any)?.parties?.toParty === "ace_creation" &&
-        String((data.payload as any)?.parties?.fromParty ?? "").startsWith("drv-")
+        (data.payload as any)?.parties?.toParty === "ace_creation"
           ? "incoming"
           : "outgoing",
       id: data.id,
