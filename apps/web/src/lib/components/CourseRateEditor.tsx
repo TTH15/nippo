@@ -129,11 +129,12 @@ export const CourseRateEditor = forwardRef<
     carrierId?: string | null;
     usesCycles?: boolean;
     cycles?: { cycleNo: number; label?: string | null }[];
+    compact?: boolean;
     previewData?: CourseRatePreviewData;
     onError: (msg: string) => void;
     onDirty?: () => void;
   }
->(function CourseRateEditor({ courseId, carrierId, usesCycles = false, cycles = [], previewData, onError, onDirty }, ref) {
+>(function CourseRateEditor({ courseId, carrierId, usesCycles = false, cycles = [], compact = false, previewData, onError, onDirty }, ref) {
   const [units, setUnits] = useState<Unit[]>([]);
   const [carrierMissing, setCarrierMissing] = useState(false);
   const [rates, setRates] = useState<Record<string, UnitRate>>({});
@@ -523,7 +524,7 @@ export const CourseRateEditor = forwardRef<
     const quantitySide = revenue ? "revenue" : "payout";
 
     return (
-      <section className="relative z-10 self-start rounded-2xl border border-slate-200 bg-slate-50/95 p-4 shadow-sm sm:p-5">
+      <section className="relative z-10 min-w-0 self-start rounded-2xl border border-slate-200 bg-slate-50/95 p-4 shadow-sm sm:p-5">
         <div className="mb-4 flex items-baseline justify-between gap-3">
           <h3 className="text-lg font-bold text-slate-900">{revenue ? "売上" : "支払"}</h3>
           <span className="text-[11px] text-slate-400">{revenue ? "取引先からの契約単価" : "ドライバーへの契約単価"}</span>
@@ -624,22 +625,22 @@ export const CourseRateEditor = forwardRef<
         <p className="py-10 text-center text-xs text-slate-400">読み込み中…</p>
       ) : (
         <div className="relative">
-          <div aria-hidden="true" className="pointer-events-none absolute left-[4.75rem] right-[5.25rem] top-1/2 hidden -translate-y-1/2 lg:block">
+          <div aria-hidden="true" className={`pointer-events-none absolute left-[4.75rem] right-[5.25rem] top-1/2 hidden -translate-y-1/2 ${compact ? "" : "lg:block"}`}>
             <div className="mr-[14px] h-1 rounded-l-full bg-slate-300" />
             <span className="absolute right-0 top-1/2 -translate-y-1/2 border-y-[9px] border-l-[14px] border-y-transparent border-l-slate-300" />
           </div>
-          <div className="grid gap-4 lg:grid-cols-[6rem_minmax(0,1fr)_5rem_minmax(0,1fr)_6rem] lg:items-start lg:gap-3">
-            <div className="relative z-20 hidden flex-col items-center lg:flex lg:self-center">
+          <div className={`grid gap-4 ${compact ? "grid-cols-1" : "lg:grid-cols-[6rem_minmax(0,1fr)_5rem_minmax(0,1fr)_6rem] lg:items-start lg:gap-3"}`}>
+            <div className={`relative z-20 hidden flex-col items-center lg:self-center ${compact ? "" : "lg:flex"}`}>
               <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-blue-200 bg-blue-50 text-blue-600 shadow-sm"><FontAwesomeIcon icon={faBuilding} className="h-4 w-4" /></div>
               <span className="mt-1 text-[10px] text-slate-500">取引先</span>
             </div>
             {renderSide("revenue")}
-            <div className="relative z-20 hidden flex-col items-center lg:flex lg:self-center">
+            <div className={`relative z-20 hidden flex-col items-center lg:self-center ${compact ? "" : "lg:flex"}`}>
               <div className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-slate-800 text-lg text-white shadow-sm"><FontAwesomeIcon icon={faWarehouse} className="h-5 w-5" /></div>
               <span className="mt-1 text-[10px] font-medium text-slate-600">自社</span>
             </div>
             {renderSide("payout")}
-            <div className="relative z-20 hidden flex-col items-center lg:flex lg:self-center">
+            <div className={`relative z-20 hidden flex-col items-center lg:self-center ${compact ? "" : "lg:flex"}`}>
               <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-orange-200 bg-orange-50 text-orange-600 shadow-sm"><FontAwesomeIcon icon={faUser} className="h-4 w-4" /></div>
               <span className="mt-1 text-[10px] text-slate-500">ドライバー</span>
             </div>
