@@ -372,6 +372,8 @@ PC 1280 幅と 375×812 で一覧・車両（通常／長い名前×閲覧のみ
 ## モバイルの認証・駐車選択（2026/09/21）
 
 `npm run preview:isolated -w @repo/mobile -- --port 3201` → `http://127.0.0.1:3201/preview/admin/mobile`。
+
+ログイン情報の端末保存失敗は `?screen=login&scenario=storage-error` で確認する。実ログイン画面を表示し、隔離されたSecureStore fixtureが最初の保存だけ失敗する。Passkey・SMSの認証応答も架空データで、本番APIや端末の鍵には接続しない。
 本番 `LoginScreen` / `PasskeySettings` / `ParkingChoice` をDOMアダプターで使い、ロゴ・色・文言・選択肢を再利用する。`screen=login|settings|parking`、`scenario=normal|empty|long-name|loading|error|cancel|unsupported|nofactor`。架空SMSは123456。本番認証/API/DB/通知/OS Passkeyから隔離し、CSPのconnect-src noneを維持する。
 
 1280/768/390/320pxで認証・SMS誤入力/復旧・再確認・鍵の追加/削除・長文・読込/失敗・駐車の3択/位置なしをローカルChromeで確認。Codex内ブラウザ表示要求はqueued、同ブラウザ内の操作は未確認。ネイティブ実描画、実SMS、鍵同期、GPS、退勤/日報APIの実結合は対象外。[実機の残確認](../design/mobile-passkey-distribution-2026-09.md)。

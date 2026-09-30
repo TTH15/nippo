@@ -2,11 +2,16 @@ import { previewRequests, previewRequestSlots, savePreviewRequests, requestPerio
 import { previewAccountBank, previewAccountProfile } from "../../apps/mobile/ui-preview/account-fixture";
 import { previewVehicle } from "../../apps/mobile/ui-preview/vehicle";
 import { previewReportForm, savePreviewReport } from "../../apps/mobile/ui-preview/report-fixture";
+import { secureStoreStorage } from "../../apps/mobile/src/auth/secureStoreStorage";
 export const scenario = new URLSearchParams(location.search).get("scenario") || "normal";
 let keys = scenario === "empty" ? [] : [{ id: "fake-key", name: scenario === "long-name" ? "業務用スマートフォンのかんたんログイン".repeat(4) : "ハコ虎アプリ" }];
 let recent = false;
 let failed = false;
-export function setAuth() { recent = true; }
+export function setAuth(token = "preview-only", driver = { name: "サンプルドライバー" }) {
+  recent = true;
+  secureStoreStorage.setItem("nippo_token", token);
+  secureStoreStorage.setItem("nippo_driver", JSON.stringify(driver));
+}
 export async function apiFetch(path: string, options: { body?: string; method?: string } = {}) {
   const route = new URL(path, "https://preview.invalid");
   if (route.pathname === "/api/reports/profile") return previewAccountProfile();
