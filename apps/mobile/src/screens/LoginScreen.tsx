@@ -5,23 +5,42 @@ import { setAuth, type StoredDriver } from "@repo/core/auth";
 
 import { PASSKEY_LABEL, supportsPasskey, loginWithPasskey, passkeyError } from "../auth/passkey";
 import { PasskeySettings } from "../components/PasskeySettings";
+import { flushAuthStorage } from "../auth/secureStoreStorage";
 
 // ログインはパスキーとSMS。初めての方は招待リンクからブラウザで登録する。
 
 const INPUT = "bg-white border border-brand-200 rounded-lg py-2.5 px-4 text-lg font-semibold text-center tracking-widest text-brand-900";
+const STORAGE_ERROR = "端末にログイン情報を保存できませんでした。もう一度お試しください。";
+
+type LoginResult = { token: string; driver: StoredDriver };
+
+async function saveLogin(result: LoginResult): Promise<void> {
+  setAuth(result.token, result.driver);
+  await flushAuthStorage();
+}
 
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
 
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState("");
+  const [saveFailed, setSaveFailed] = useState(false);
+  const pendingLogin = useRef<LoginResult | null>(null);
   const [sms, setSms] = useState(!supportsPasskey());
   async function login() {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError("");
     try {
-      const result = await loginWithPasskey();
-      setAuth(result.token, result.driver); onLoggedIn();
+      if (!pendingLogin.current) pendingLogin.current = await loginWithPasskey();
+      try {
+        await saveLogin(pendingLogin.current);
+      } catch {
+        setSaveFailed(true);
+        setError(STORAGE_ERROR);
+        return;
+      }
+      pendingLogin.current = null;
+      onLoggedIn();
     } catch (e) { setError(passkeyError(e)); }
     finally { lock.current = false; setBusy(false); }
   }
@@ -36,7 +55,7 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
 
           {sms ? <PhoneLogin onLoggedIn={onLoggedIn} onBack={supportsPasskey() ? () => setSms(false) : undefined} /> : <View className="p-5 gap-4">
             <Pressable accessibilityRole="button" disabled={busy} onPress={() => void login()} className="min-h-[48px] py-3 px-3 rounded-lg items-center bg-brand-900">
-              {busy ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium text-center">{PASSKEY_LABEL}</Text>}
+              {busy ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium text-center">{saveFailed ? "保存を再試行" : PASSKEY_LABEL}</Text>}
             </Pressable>
             {error ? <Text accessibilityRole="alert" className="text-red-600 text-sm">{error}</Text> : null}
             <Pressable accessibilityRole="button" disabled={busy} onPress={() => setSms(true)} className="min-h-[44px] justify-center items-center">
@@ -57,12 +76,16 @@ function PhoneLogin({ onLoggedIn, onBack }: { onLoggedIn: () => void; onBack?: (
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const pendingLogin = useRef<LoginResult | null>(null);
 
   const sendCode = async () => {
     if (lock.current) return;
     lock.current = true;
     setLoading(true);
     setError("");
+    pendingLogin.current = null;
+    setSaveFailed(false);
     try {
       await apiFetch("/api/otp/send", { method: "POST", body: JSON.stringify({ phone: phone.trim() }) }, { skipAuthRedirect: true });
       setStep("otp");
@@ -79,12 +102,21 @@ function PhoneLogin({ onLoggedIn, onBack }: { onLoggedIn: () => void; onBack?: (
     setLoading(true);
     setError("");
     try {
-      const res = await apiFetch<{ token: string; driver: StoredDriver }>(
-        "/api/auth/recover/verify",
-        { method: "POST", body: JSON.stringify({ phone: phone.trim(), code: code.trim() }) },
-        { skipAuthRedirect: true },
-      );
-      setAuth(res.token, res.driver);
+      if (!pendingLogin.current) {
+        pendingLogin.current = await apiFetch<LoginResult>(
+          "/api/auth/recover/verify",
+          { method: "POST", body: JSON.stringify({ phone: phone.trim(), code: code.trim() }) },
+          { skipAuthRedirect: true },
+        );
+      }
+      try {
+        await saveLogin(pendingLogin.current);
+      } catch {
+        setSaveFailed(true);
+        setError(STORAGE_ERROR);
+        return;
+      }
+      pendingLogin.current = null;
       setStep("setup");
     } catch (e) {
       setError(e instanceof Error ? e.message : "確認に失敗しました");
@@ -114,7 +146,7 @@ function PhoneLogin({ onLoggedIn, onBack }: { onLoggedIn: () => void; onBack?: (
             />
 
           </View>
-          {error ? <Text className="text-red-600 text-[13px] text-center">{error}</Text> : null}
+          {error ? <Text accessibilityRole="alert" className="text-red-600 text-[13px] text-center">{error}</Text> : null}
           <Pressable
             className={`py-2.5 rounded-lg items-center active:opacity-80 bg-brand-900 ${!phone.trim() || loading ? "opacity-50" : ""}`}
             onPress={sendCode}
@@ -130,25 +162,25 @@ function PhoneLogin({ onLoggedIn, onBack }: { onLoggedIn: () => void; onBack?: (
             <TextInput
               className={INPUT}
               value={code}
-              onChangeText={(t) => setCode(t.replace(/\D/g, "").slice(0, 6))}
+              onChangeText={(t) => { setCode(t.replace(/\D/g, "").slice(0, 6)); pendingLogin.current = null; setSaveFailed(false); }}
               keyboardType="number-pad"
               maxLength={6}
               placeholder="______"
               autoFocus
             />
           </View>
-          {error ? <Text className="text-red-600 text-[13px] text-center">{error}</Text> : null}
+          {error ? <Text accessibilityRole="alert" className="text-red-600 text-[13px] text-center">{error}</Text> : null}
           <Pressable
             className={`py-2.5 rounded-lg items-center active:opacity-80 bg-brand-900 ${code.length !== 6 || loading ? "opacity-50" : ""}`}
             onPress={verify}
             disabled={code.length !== 6 || loading}
           >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium text-base">ログイン</Text>}
+            {loading ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium text-base">{saveFailed ? "保存を再試行" : "ログイン"}</Text>}
           </Pressable>
           <Pressable onPress={sendCode} disabled={loading} className="min-h-[44px] items-center justify-center">
             <Text className="text-accent-600 text-[13px]">コードを再送する</Text>
           </Pressable>
-          <Pressable disabled={loading} onPress={() => { setStep("phone"); setCode(""); setError(""); }} className="min-h-[44px] items-center justify-center"><Text className="text-brand-700 text-sm">番号を入れ直す</Text></Pressable>
+          <Pressable disabled={loading} onPress={() => { setStep("phone"); setCode(""); setError(""); pendingLogin.current = null; setSaveFailed(false); }} className="min-h-[44px] items-center justify-center"><Text className="text-brand-700 text-sm">番号を入れ直す</Text></Pressable>
         </>
       )}
 

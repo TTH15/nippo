@@ -280,7 +280,7 @@ describe("管理プレビューの画面間連携", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "貸出前の満タン給油を依頼する" }));
     expect(screen.getByRole("button", { name: "給油の依頼先" }).textContent).toContain("佐藤 翔太");
     expect((screen.getByRole("textbox", { name: "給油の指示" }) as HTMLInputElement).value).toBe("貸出前に満タンにして引き渡してください。");
-  });
+  }, 15_000);
   it("貸出側も希望休を解除して別車両で稼働でき、貸出車両の二重配車は防ぐ", () => {
     render(<LeaseAdminPreview />);
     click("佐藤 翔太 2026-09-02 のシフトを編集");

@@ -29,7 +29,7 @@ const vehiclePhotoRoutes = new Map(vehiclePhotoData.length ? [
   ["/__local_vehicle_photo/rear", vehiclePhotoData[1]],
   ["/__local_vehicle_photo/left", vehiclePhotoData[0]],
 ] : []);
-const aliases = { "react-native": "native.tsx", "@expo/vector-icons": "icons.tsx", "expo-symbols": "symbols.tsx", "@repo/core/api": "services.ts", "@repo/core/auth": "services.ts", "react-native-passkey": "passkey.ts" };
+const aliases = { "react-native": "native.tsx", "@expo/vector-icons": "icons.tsx", "expo-symbols": "symbols.tsx", "@repo/core/api": "services.ts", "@repo/core/auth": "services.ts", "react-native-passkey": "passkey.ts", "expo-secure-store": "secureStore.ts" };
 const result = await require("esbuild").build({
   entryPoints: [path.join(preview, "entry.tsx")], bundle: true, outfile: path.join(out, "app.js"),
   platform: "browser", format: "esm", jsx: "automatic", loader: { ".png": "dataurl" }, metafile: true,

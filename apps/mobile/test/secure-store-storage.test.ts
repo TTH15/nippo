@@ -30,5 +30,19 @@ describe("secureStoreStorage", () => {
     deleteItemAsync.mockRejectedValueOnce(new Error("device storage unavailable"));
     secureStoreStorage.removeItem("nippo_driver");
     await expect(flushAuthStorage()).rejects.toThrow("device storage unavailable");
+    deleteItemAsync.mockResolvedValueOnce();
+    secureStoreStorage.removeItem("nippo_driver");
+    await flushAuthStorage();
+  });
+
+  it("ログイン保存失敗後に同じ値を再保存できる", async () => {
+    setItemAsync.mockRejectedValueOnce(new Error("device storage unavailable"));
+    setItemAsync.mockResolvedValueOnce();
+    secureStoreStorage.setItem("nippo_token", "new-token");
+    await expect(flushAuthStorage()).rejects.toThrow("device storage unavailable");
+
+    secureStoreStorage.setItem("nippo_token", "new-token");
+    await flushAuthStorage();
+    expect(setItemAsync).toHaveBeenLastCalledWith("nippo_token", "new-token");
   });
 });

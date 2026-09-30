@@ -19,7 +19,7 @@ function Preview() {
   return <><nav className="flex flex-wrap gap-3 p-3 border-b border-brand-200 text-xs">
     <span>隔離プレビュー</span>{["qr-test", "vehicle-photo-test", "meter-guides", "login", "settings", "parking", "home-design"].map((key, i) => <button key={key} onClick={() => setScreen(key)}>{["QR読取テスト", "車体撮影テスト", "メーターガイド比較", "ログイン", "設定", "退勤時の駐車", "ホームの画面案"][i]}</button>)}<a href="?screen=rest-playground">休みの遊び案</a>
     <select aria-label="シナリオ" defaultValue={new URLSearchParams(location.search).get("scenario") || "normal"} onChange={e => { location.search = `screen=${screen}&scenario=${e.target.value}`; }}>
-      {["normal", "empty", "long-name", "loading", "error", "cancel", "unsupported", "nofactor"].map(s => <option key={s}>{s}</option>)}
+      {["normal", "empty", "long-name", "loading", "error", "storage-error", "cancel", "unsupported", "nofactor"].map(s => <option key={s}>{s}</option>)}
     </select>
   </nav><main className={screen === "home-design" || screen === "meter-guides" || screen === "vehicle-photo-test" ? "max-w-7xl mx-auto" : "max-w-lg mx-auto"}>
     {screen === "home-design" ? <HomeDesignReview /> : screen === "meter-guides" ? <MeterGuideStudy /> : screen === "vehicle-photo-test" ? <VehiclePhotoTest /> : screen === "qr-test" || screen === "base-qr" ? <QrTransitionTest /> : screen === "login" ? <LoginScreen onLoggedIn={() => setScreen("settings")} /> : screen === "settings" ? <div className="p-4"><PasskeySettings /></div> : <div className="p-4 space-y-4">
