@@ -1,6 +1,8 @@
 import InvoicePreviewPage from "@/app/(admin)/admin/(accounting)/invoices/[id]/preview/page";
 import InvoiceEditPage from "@/app/(admin)/admin/(accounting)/invoices/[id]/edit/page";
-import { invoicePreviewFixture, invoiceEditFixture } from "./invoices";
+import InvoiceListPage from "@/app/(admin)/admin/(accounting)/invoices/page";
+import InvoiceNewPage from "@/app/(admin)/admin/(accounting)/invoices/new/page";
+import { invoicePreviewFixture, invoiceEditFixture, invoiceListFixture, invoiceNewFixture, individualInvoicePreviewFixture, individualInvoiceEditFixture } from "./invoices";
 import ReportKindsPage from "@/app/(admin)/admin/report-kinds/page";
 import ReportImageTemplatesPage from "@/app/(admin)/admin/(settings)/report-image-templates/page";
 import ReportImagesPage from "@/app/(admin)/admin/(ops)/report-images/page";
@@ -60,6 +62,10 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("report-images", reportImagesFixture, ReportImagesPage),
   entry("invoice-preview", invoicePreviewFixture, InvoicePreviewPage),
   entry("invoice-edit", invoiceEditFixture, InvoiceEditPage),
+  entry("invoice-individual-preview", individualInvoicePreviewFixture, InvoicePreviewPage),
+  entry("invoice-individual-edit", individualInvoiceEditFixture, InvoiceEditPage),
+  entry("invoice-list", invoiceListFixture, InvoiceListPage),
+  entry("invoice-new", invoiceNewFixture, InvoiceNewPage),
   entry("dashboard", dashboardFixture, DashboardPage),
   entry("vehicles", vehiclesFixture, VehiclesPage),
   entry("users", usersFixture, UsersPage),

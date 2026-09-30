@@ -345,6 +345,8 @@ PC 1280 幅と 375×812 で一覧・車両（通常／長い名前×閲覧のみ
 
 請求書の本番ページを `invoice-edit` / `invoice-preview` に登録。例: `/preview/admin/invoice-preview?scenario=unsafe-address&role=admin`。通常、対象なし、長文、45行、特殊文字、取得中・取得失敗に対応する。編集の自動保存・保存失敗もfixture内で試せる。動的IDはfixtureの`params`から供給し、画面遷移時にはデータを初期化する。本番DB・Storageの認可検証は別途API/DBテストで行う。
 
+未登録の個人からの請求書は、本番の請求書一覧と新規作成ページを直接使う `invoice-list` / `invoice-new` で確認する。`npm run preview:admin -- admin --port 3207` → `/preview/admin/invoice-list?scenario=normal&role=admin` から「自社に請求」→「請求書を作成」→「個人（未登録）」→「個人の請求書を作成」と進む。作成ページ単体は `/preview/admin/invoice-new?kind=incoming&individual=1&month=2026-09&scenario=normal&role=admin`、帳票の閲覧は `/preview/admin/invoice-preview?scenario=individual&role=admin`。氏名、明細、振込先、税、保存失敗を架空データで操作できる。一覧の `empty` / `long-name` / `large` / `loading` / `error` と管理者・経理・閲覧役も確認する。再読み込みまたはシナリオ切替で新規作成中のデータは初期化し、本番API・DB・通知へは接続しない。再利用元は `apps/web/src/app/(admin)/admin/(accounting)/invoices/page.tsx` と `new/page.tsx`、帳票は既存 `InvoiceSheetEditor` / `PaginatedInvoiceSheet`。
+
 報告種別の本番ページは `/preview/admin/report-kinds?scenario=normal&role=admin`。通常・未設定・長文・40件・対象消失・取得中・取得失敗、追加/編集/削除と保存失敗を模擬する。フィールドの定義・検証は純粋な`lib/reportKindFields.ts`を本番UIと共有し、サーバーサービスをbundleに含めない。DB上の会社分離そのものはfixtureではなくAPI/SQLテストで確認する。
 
 ### シフトメモの日別必要人数（2026-09-14）

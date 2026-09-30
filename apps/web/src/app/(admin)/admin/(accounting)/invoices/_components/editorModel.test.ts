@@ -28,6 +28,28 @@ describe("blankEditorState", () => {
   });
 });
 
+describe("未登録の個人からの請求書", () => {
+  it("個人名・明細・対象月を保存し、再読込後も受領請求書として扱う", () => {
+    const state: EditorState = {
+      ...blankEditorState("incoming"),
+      fromName: "架空 太郎",
+      period: "2026年8月1日〜2026年8月31日",
+      parties: { fromParty: "individual", toParty: "ace_creation" },
+      main: [{ title: "単発配送", qty: "1", unit: "回", price: "20000", priceBasis: "exclusive" }],
+    };
+    expect(validateForSave(state)).toEqual([]);
+    const body = saveBodyFromEditor(state) as { month: string; clientName: string; driverId: null; payload: Record<string, unknown> };
+    expect(body.month).toBe("2026-08");
+    expect(body.clientName).toBe("架空 太郎");
+    expect(body.driverId).toBeNull();
+    const restored = editorFromInvoice({ id: "individual-1", direction: "incoming", payload: body.payload });
+    expect(restored.kind).toBe("incoming");
+    expect(restored.parties.fromParty).toBe("individual");
+    expect(restored.fromName).toBe("架空 太郎");
+    expect(editorFromInvoice({ id: "individual-1", payload: body.payload }).kind).toBe("incoming");
+  });
+});
+
 describe("defaultTargetPeriod", () => {
   it("前月の1日〜末日（うるう年2月）", () => {
     expect(defaultTargetPeriod(new Date(2024, 2, 15))).toBe("2024年2月1日〜2024年2月29日");

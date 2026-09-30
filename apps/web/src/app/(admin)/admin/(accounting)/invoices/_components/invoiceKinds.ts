@@ -109,6 +109,6 @@ export function resolveInvoiceKind(parties: unknown): InvoiceKind {
   const p = (parties ?? {}) as { fromParty?: unknown; toParty?: unknown };
   const to = String(p.toParty ?? "");
   const from = String(p.fromParty ?? "");
-  if (to === "ace_creation" && from.startsWith("drv-")) return "incoming";
+  if (to === "ace_creation" && (from.startsWith("drv-") || from === "individual")) return "incoming";
   return "outgoing";
 }

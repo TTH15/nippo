@@ -69,7 +69,7 @@
 ### M2 本番データ / インフラ（ops・早めに）
 - 本番DBへ migration 089→098 適用（順序厳守）。
 - 本番Supabaseに `kyc-documents`(089) ・ `meter-photos`(098) バケット存在確認（無ければ手動作成）。
-- ADMIN_VIEWER アカウント発行（`create-admin.ts --readonly`）。
+- 旧管理者コードによるアカウント発行は廃止。運営権限は本人の既存membershipへロール画面から付与する。
 
 ### M3 通知（LINE主軸 ＋ アプリ内プッシュは任意）
 - **LINE公式アカウント + Messaging API チャネル開設**。

@@ -149,6 +149,7 @@ export default function InvoicesPage() {
   const [createOutgoingTarget, setCreateOutgoingTarget] = useState<"corp" | "driver">("corp");
   // 作成ピッカーで選ぶドライバー。受領はドライバーごとに自動集計して作成する。
   const [createDriverId, setCreateDriverId] = useState<string>("");
+  const [createIndividual, setCreateIndividual] = useState(false);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() =>
     normalizeColumnWidths(initialFinderState.columnWidths),
@@ -201,10 +202,11 @@ export default function InvoicesPage() {
   );
   const counterpartyFolders = useMemo(() => {
     if (selectedDirection === "incoming") {
-      return drivers
-        .map((d) => d.name)
-        .filter(Boolean)
-        .sort((a, b) => a.localeCompare(b, "ja"));
+      return Array.from(new Set([
+        ...drivers.map((d) => d.name),
+        ...invoices.filter((i) => i.month === selectedMonth && i.direction === "incoming")
+          .map((i) => i.counterpartyName || i.clientName),
+      ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "ja"));
     }
     return Array.from(
       new Set(
@@ -637,12 +639,6 @@ export default function InvoicesPage() {
             </Button>
           )}
         </div>
-        <p className="text-xs text-slate-500 mb-5 leading-relaxed">
-          登録済みの請求データから請求書を作成・管理します。
-          <a href="/admin/counterparties" className="underline hover:text-slate-700">取引先</a>
-          からコース単位の集計を見ながら、ワンクリックで下書きを開けます。
-        </p>
-
         {errorMessage && (
           <div className="mb-4 px-3 py-2 text-sm rounded border border-amber-200 bg-amber-50 text-amber-800">
             {errorMessage}
@@ -1125,27 +1121,47 @@ export default function InvoicesPage() {
                 </>
               )}
               {selectedDirection === "incoming" && (
-                <div>
-                  <label className="block text-xs text-slate-600 mb-1">請求元（ドライバー）</label>
-                  <CustomSelect
-                    options={driverOptions}
-                    value={createDriverId}
-                    onChange={(v) => setCreateDriverId(v)}
-                    placeholder="ドライバーを選択…"
-                    clearable={false}
-                    size="default"
-                  />
-                  <p className="mt-1.5 text-[11px] text-slate-400 leading-relaxed">
-                    ドライバーごとに当月の日報実績・固定経費・臨時経費を自動集計して下書きを作成します。
-                  </p>
-                </div>
+                <>
+                  <div>
+                    <label className="block text-xs text-slate-600 mb-1">請求元の種別</label>
+                    <CustomSelect
+                      options={[{ value: "driver", label: "登録済みドライバー" }, { value: "individual", label: "個人（未登録）" }]}
+                      value={createIndividual ? "individual" : "driver"}
+                      onChange={(v) => setCreateIndividual(v === "individual")}
+                      clearable={false}
+                      size="default"
+                    />
+                  </div>
+                  {!createIndividual && (
+                    <div>
+                      <label className="block text-xs text-slate-600 mb-1">請求元（ドライバー）</label>
+                      <CustomSelect
+                        options={driverOptions}
+                        value={createDriverId}
+                        onChange={(v) => setCreateDriverId(v)}
+                        placeholder="ドライバーを選択…"
+                        clearable={false}
+                        size="default"
+                      />
+                      <p className="mt-1.5 text-[11px] text-slate-400 leading-relaxed">
+                        ドライバーごとに当月の日報実績・固定経費・臨時経費を自動集計して下書きを作成します。
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
             <div className="px-5 py-3 flex justify-end gap-2 border-t border-slate-100">
               <Button variant="ghost" size="sm" onClick={() => setShowCreatePicker(false)}>
                 キャンセル
               </Button>
-              {selectedDirection === "outgoing" && createOutgoingTarget === "driver" ? (
+              {selectedDirection === "incoming" && createIndividual ? (
+                <Button asChild variant="default" size="sm">
+                  <a href={`/admin/invoices/new?month=${encodeURIComponent(selectedMonth)}&kind=incoming&individual=1`}>
+                    個人の請求書を作成
+                  </a>
+                </Button>
+              ) : selectedDirection === "outgoing" && createOutgoingTarget === "driver" ? (
                 // ドライバー個人宛は集計元が無い（白紙）。編集して初めて実体になる
                 <Button asChild variant="default" size="sm" className={!createDriverId ? "pointer-events-none opacity-50" : undefined}>
                   <a
