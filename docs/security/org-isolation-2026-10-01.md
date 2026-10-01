@@ -20,7 +20,7 @@
 - 本番プロジェクト`nippo-ace`で、`SUPABASE_SERVICE_ROLE_KEY`と`JWT_SECRET`は閲覧可能な**Config**型として保存され、Vercel画面は「秘密らしい値なのでローテーションしてSecret型で保存を検討」と警告している。警告だけで漏えい・悪用が判明したわけではない。値は表示・取得していない。
 - この2つと`SUPABASE_URL`は、単一の設定値がProduction・Preview・Developmentの全環境に割り当てられている。プレビューのサーバーコードにも本番service role権限が届き得るので、会社間分離とは別の高優先境界として切り離す。
 - 対処順は、隔離SupabaseをPreview/Developmentへ用意して疎通確認→本番用キーをProductionだけにする→`SUPABASE_SERVICE_ROLE_KEY`を新しいSecretへ移して旧キーを失効→`JWT_SECRET`を影響範囲（通常JWT、管理更新Cookie、WebAuthn短命トークン等）を確認して切り替える。JWT署名鍵を単純に入れ替えると既存セッションが失効するため、移行手順が要る。資格情報のローテーションは未実施。
-- 既存の開発用DB接続先`wdbifbzwxivgefyxpzbi`は、2026/10/01の読み取り接続で`tenant/user ... not found`となった。現時点でPreviewの切替先として使えない。Previewから本番値を外す前に、隔離DBの復旧または新規作成、migration適用、ダミーデータと認証疎通を確認する。
+- 既存の開発用Supabaseプロジェクト`wdbifbzwxivgefyxpzbi`はManagement API上で`INACTIVE`。2026/10/01の読み取りDB接続は`tenant/user ... not found`となった。削除済みではなく停止中のため、現時点でPreviewの切替先として使えない。Previewから本番値を外す前に、この隔離DBを再開してmigration・ダミーデータ・認証疎通を確認する。ブラウザのSupabase Dashboardはログイン画面まで確認し、再開操作は行っていない。
 
 ## 未完了の監査と設計
 
