@@ -139,6 +139,7 @@ function Home() {
         <Text style={{ color: "#526074", fontSize: 15 }}>{completed ? "今日の手続きは完了です" : "稼働は終了しました"}</Text></View>
       {!completed ? <CloseoutSummary day={endOfDay} parking={parking} onReport={openReport} onParking={openParking} />
         : <View style={{ padding: 22, gap: 12, backgroundColor: "white", borderRadius: 22 }}><Text style={{ color: "#526074", fontSize: 13 }}>次の稼働</Text><Text style={{ color: ink, fontSize: 23, fontWeight: "600" }}>{nextShift ? displayShiftDate(nextPreviewShiftDate(endOfDay.finishedOn)) : "まだ予定はありません"}</Text><Pressable accessibilityRole="button" onPress={openShifts} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10 }}><Text style={{ color: "#526074", fontSize: 15 }}>シフトを確認</Text><AppIcon name="chevron-right" size={12} color="#526074" /></Pressable></View>}
+      {completed && <Action testID="edit-completed-report" onPress={openReport}>日報を修正する</Action>}
       {completed && parking === "unlocated" && <Text style={{ color: "#526074", fontSize: 13 }}>駐車写真は送信済みです。位置は運営が確認します。</Text>}
     </View> : <>
     {session ? <Text style={{ fontSize: 26, fontWeight: "700", color: ink }}>{session.purpose === "work" ? "稼働中" : "車両移動中"}</Text> : <View style={{ gap: 7, paddingBottom: 5 }}>
@@ -179,7 +180,7 @@ function Home() {
     {!!maps.error && <Text accessibilityRole="alert" style={{ color: "#B91C1C" }}>{maps.error}</Text>}
     {!session && parking === "pending" && <View style={{ gap: 8 }}><Text style={{ color: "#526074", fontSize: 12 }}>確認用：駐車候補の通知</Text><Action testID="parking-notice" onPress={openParking}>駐車を完了しましたか？</Action></View>}
     {!session && parking && parking !== "pending" && <Text style={{ color: "#526074" }}>{parking === "located" ? "駐車写真と場所を記録しました（架空）" : "駐車写真を記録しました。位置は未確定です（架空）"}</Text>}
-    {session ? <><Action onPress={open}>進行中の画面を開く</Action>{session.purpose === "work" && <Action testID="working-report" onPress={openReport}>日報を書く・修正する</Action>}</> : <RibbonControl mode="start" onInteractionChange={lockScroll} onOpen={origin => scan("work", origin)} />}
+    {session ? <Action onPress={open}>進行中の画面を開く</Action> : <RibbonControl mode="start" onInteractionChange={lockScroll} onOpen={origin => scan("work", origin)} />}
     </>}
   </ScrollView>;
 }
