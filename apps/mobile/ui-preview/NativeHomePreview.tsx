@@ -119,7 +119,7 @@ function Home() {
   const mapRef = useRef<MapView>(null);
   const [dragging, setDragging] = useState(false);
   const lockScroll = (active: boolean) => { scroll.current?.setNativeProps({ scrollEnabled: !active }); setDragging(active); };
-  if (off && !session && !endOfDay) return <ScrollView testID="native-home-off" contentInsetAdjustmentBehavior="never" contentContainerStyle={{ padding: 16, paddingBottom: 36, gap: 18 }}>
+  if (off && !session && !endOfDay) return <ScrollView testID="native-home-off" alwaysBounceVertical={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={{ padding: 16, paddingBottom: 36, gap: 18 }}>
     <Text accessibilityRole="header" style={{ color: ink, fontSize: 28, fontWeight: "700" }}>今日はお休み</Text>
     <View testID="off-day-scene" style={{ overflow: "hidden", borderRadius: 22 }}><VehicleScene mode="off" compactHeight={380} /></View>
     <View style={{ borderTopWidth: 1, borderColor: border, paddingTop: 17, gap: 6 }}>
@@ -132,7 +132,7 @@ function Home() {
       <Text style={{ color: "#526074", fontSize: 14, fontWeight: "600" }}>臨時で稼働</Text><AppIcon name="chevron-right" size={12} color="#526074" />
     </Pressable>
   </ScrollView>;
-  return <ScrollView ref={scroll} testID="native-home" scrollEnabled={!dragging} bounces={!dragging} contentInsetAdjustmentBehavior="never" contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 16 }}>
+  return <ScrollView ref={scroll} testID="native-home" scrollEnabled={!dragging} bounces={!dragging} alwaysBounceVertical={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 16 }}>
     {!session && endOfDay ? <View testID="end-of-day-home" style={{ gap: 24, paddingTop: 36, paddingBottom: 20 }}>
       {completed && <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "#E4F3EC", alignItems: "center", justifyContent: "center" }}><AppIcon name="check" size={27} color="#287958" /></View>}
       <View style={{ gap: 10 }}><Text accessibilityRole="header" style={{ color: ink, fontSize: 28, fontWeight: "700" }}>{completed ? "お疲れ様でした" : "終了の手続き"}</Text>
