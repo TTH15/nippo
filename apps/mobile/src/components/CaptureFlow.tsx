@@ -10,6 +10,7 @@ import { AppState, Modal, View, Text, Pressable, ActivityIndicator, Image, Platf
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { AppIcon } from "./AppIcon";
+import { LicenseGuideOutline } from "./LicenseGuideOutline";
 import type { InspectionAngle } from "../api/work";
 import { CaptureActions } from "./CaptureActions";
 import { VanGuideOutline } from "./VanGuideOutline";
@@ -382,7 +383,7 @@ export function CaptureFlow({
         )}
         {step === "license" && (
           <View className="absolute left-6 right-6 top-1/2 -mt-24 items-center">
-            <View className="w-full aspect-[1.6] rounded-xl border-2 border-white/90" />
+            <LicenseGuideOutline />
           </View>
         )}
         {step === "inspection" && !shot && (
