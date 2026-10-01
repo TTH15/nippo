@@ -149,7 +149,8 @@ function Home() {
       {!session && <View style={{ height: 320, backgroundColor: "#DBE7D8", overflow: "hidden" }}>
         {locationKnown && (parking === null || parking === "located")
           ? <MapView ref={mapRef} style={{ width: "100%", height: "100%" }} mapType="standard" initialRegion={parkingMapRegion} scrollEnabled zoomEnabled rotateEnabled={false} pitchEnabled={false} toolbarEnabled={false} showsUserLocation={false} onTouchStart={() => lockScroll(true)} onTouchEnd={() => lockScroll(false)} onTouchCancel={() => lockScroll(false)}>
-              <Marker coordinate={{ latitude: previewParkingPlace.latitude, longitude: previewParkingPlace.longitude }} anchor={{ x: .5, y: .98 }} title={`${previewVehicle.number_prefix} ${previewVehicle.number_class} ${previewVehicle.number_hiragana} ${previewVehicle.number_numeric}`} description={`${previewParkingPlace.name}に駐車中`} tracksViewChanges={false}>
+              {/* MapKitはanchorを使わないため、車両画像の中心を座標に重ねる。 */}
+              <Marker coordinate={{ latitude: previewParkingPlace.latitude, longitude: previewParkingPlace.longitude }} anchor={{ x: .5, y: .82 }} centerOffset={{ x: 0, y: -58 }} title={`${previewVehicle.number_prefix} ${previewVehicle.number_class} ${previewVehicle.number_hiragana} ${previewVehicle.number_numeric}`} description={`${previewParkingPlace.name}に駐車中`} tracksViewChanges={false}>
                 <View style={{ alignItems: "center" }}>
                   <View style={{ backgroundColor: "white", borderRadius: 11, paddingHorizontal: 11, paddingVertical: 7, alignItems: "center", gap: 2, shadowColor: "#192333", shadowOffset: { width: 0, height: 2 }, shadowOpacity: .16, shadowRadius: 5 }}>
                     <VehiclePlate vehicle={previewVehicle} width={94} />
