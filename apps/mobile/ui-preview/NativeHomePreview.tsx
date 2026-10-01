@@ -95,18 +95,18 @@ function Action({ children, onPress, tone = "plain", testID }: { children: React
   }}><Text style={{ color: tone === "danger" ? "white" : ink, fontSize: 16, fontWeight: "600" }}>{children}</Text></Pressable>;
 }
 
-function MiniBar({ inline = false }: { inline?: boolean }) {
+function MiniBar({ bottomInset }: { bottomInset: number }) {
   const { session, now, open } = usePreview();
   if (!session) return null;
   const label = session.purpose === "work" ? "稼働中" : "車両移動中";
   return <Pressable testID="session-mini-bar" accessibilityRole="button"
     accessibilityLabel={`${label}、${formatDuration(now - session.startedAt)}。画面を開く`} onPress={open}
-    style={{ flex: 1, minHeight: 48, paddingHorizontal: 16, paddingVertical: 4, flexDirection: "row", alignItems: "center", gap: 10,
-      borderRadius: 22, borderWidth: 1, borderColor: "#FFFFFF24", backgroundColor: "#192B46" }}>
+    style={{ flex: 1, minHeight: 48, paddingHorizontal: 20, paddingTop: 5, paddingBottom: bottomInset + 5, flexDirection: "row", alignItems: "center", gap: 10,
+      borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTopWidth: 1, borderTopColor: "#FFFFFF24", backgroundColor: "#192B46" }}>
     <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: "#4AE59B" }} />
-    <Image accessible={false} source={require("./scene/assets/mini-vehicle.png")} resizeMode="contain" style={{ width: inline ? 44 : 64, height: inline ? 32 : 44 }} />
+    <Image accessible={false} source={require("./scene/assets/mini-vehicle.png")} resizeMode="contain" style={{ width: 64, height: 44 }} />
     <View style={{ flex: 1, gap: 2 }}><Text style={{ color: "white", fontWeight: "700", fontSize: 15 }}>{label}</Text>
-      {!inline && <Text style={{ color: "#D7E2F1", fontSize: 12, fontVariant: ["tabular-nums"] }}>{formatDuration(now - session.startedAt)}</Text>}
+      <Text style={{ color: "#D7E2F1", fontSize: 12, fontVariant: ["tabular-nums"] }}>{formatDuration(now - session.startedAt)}</Text>
     </View><AppIcon name="chevron-up" size={15} color="#EAF1FA" iconStyle="solid" />
   </Pressable>;
 }
@@ -224,7 +224,7 @@ function Tabs() {
       </View>
     </View>
     <View style={{ flex: 1, backgroundColor: surface }}>{tab === "ホーム" ? <Home /> : tab === "シフト" ? <ShiftsScreen /> : tab === "報酬" ? <RewardsScreen /> : <MyPage />}</View>
-    {session && <View style={{ backgroundColor: surface, height: 78, paddingHorizontal: 12, paddingVertical: 5 }}><MiniBar /></View>}
+    {session && <View style={{ height: 72 + insets.bottom, backgroundColor: "#192B46" }}><MiniBar bottomInset={insets.bottom} /></View>}
   </View>;
 }
 
