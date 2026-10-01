@@ -1,8 +1,8 @@
 import { workCaptureSteps } from "../src/capture/steps";
 
-export type PreviewCaptureStep = "qr" | "safety" | "license" | "alcohol" | "front" | "right" | "rear" | "left" | "meter" | "review";
+export type PreviewCaptureStep = "qr" | "safety" | "license" | "declaration" | "front" | "right" | "rear" | "left" | "meter" | "review";
 export const CAPTURE_LABELS: Record<PreviewCaptureStep, string> = {
-  qr: "車両のQR", safety: "免許証の携帯確認", license: "免許証の撮影", alcohol: "アルコール確認", front: "車両の前", right: "車両の右", rear: "車両の後", left: "車両の左", meter: "メーターパネル全体", review: "送信内容の確認",
+  qr: "車両のQR", safety: "免許証の携帯確認", license: "免許証の撮影", declaration: "飲酒の自己申告", front: "車両の前", right: "車両の右", rear: "車両の後", left: "車両の左", meter: "メーターパネル全体", review: "送信内容の確認",
 };
 export function previewCapturePlan(target: "in" | "out", inspection: boolean, spotLicense = false): PreviewCaptureStep[] {
   const base = workCaptureSteps(target, inspection, spotLicense ? "license" : "safety").filter(step => target === "in" || step !== "meter");
@@ -10,7 +10,7 @@ export function previewCapturePlan(target: "in" | "out", inspection: boolean, sp
   for (const step of base) {
     if (step === "inspection") plan.push("front", "right", "rear", "left");
     else plan.push(step);
-    if ((target === "out" && step === "qr") || step === "safety" || step === "license") plan.push("alcohol");
+    if ((target === "out" && step === "qr") || step === "safety" || step === "license") plan.push("declaration");
   }
   return [...plan, "review"];
 }
