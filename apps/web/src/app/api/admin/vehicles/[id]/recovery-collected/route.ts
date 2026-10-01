@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
 import { todayJST } from "@/lib/date";
+import { belongsToOrg, isUuid } from "@/server/db/adminResourceScope";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +15,11 @@ export async function PUT(
   if (isAuthError(user)) return user;
 
   const { id: vehicleId } = await params;
-  if (!vehicleId) {
+  if (!isUuid(vehicleId)) {
     return NextResponse.json({ error: "vehicle id required" }, { status: 400 });
+  }
+  if (!(await belongsToOrg("vehicles", vehicleId, user.orgId))) {
+    return NextResponse.json({ error: "車両が見つかりません" }, { status: 404 });
   }
 
   try {

@@ -2,19 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAnyPermission, isAuthError } from "@/server/auth";
 import { UNITS_MANAGE_CAPS } from "@/server/auth/domainCaps";
 import { resolveOrgId } from "@/server/db/tenant";
-import { orgOwnsCarrier } from "@/server/carriers/orgCarriers";
+import { orgOwnsUnit } from "@/server/carriers/orgCarriers";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
 
 const BILLING_TYPES = ["PER_PIECE", "FIXED"];
-
-/** unit を当 org が管理してよいか（unit の carrier が当 org の有効化集合にあるか）。 */
-async function orgOwnsUnit(orgId: string, unitId: string): Promise<boolean> {
-  const { data } = await supabase.from("units").select("carrier_id").eq("id", unitId).maybeSingle();
-  if (!data?.carrier_id) return false;
-  return orgOwnsCarrier(supabase, orgId, data.carrier_id as string);
-}
 
 // PATCH: unit 更新
 export async function PATCH(
@@ -25,7 +18,7 @@ export async function PATCH(
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
-  if (!(await orgOwnsUnit(orgId, id))) {
+  if (!(await orgOwnsUnit(supabase, orgId, id))) {
     return NextResponse.json({ error: "unit が見つかりません" }, { status: 404 });
   }
 
@@ -65,7 +58,7 @@ export async function DELETE(
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
-  if (!(await orgOwnsUnit(orgId, id))) {
+  if (!(await orgOwnsUnit(supabase, orgId, id))) {
     return NextResponse.json({ error: "unit が見つかりません" }, { status: 404 });
   }
 

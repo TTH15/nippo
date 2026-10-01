@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { orgOwnsUnit } from "@/server/carriers/orgCarriers";
+import { resolveOrgId } from "@/server/db/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +12,7 @@ const INPUT_TYPES = ["INT", "TEXT", "TIME", "BOOL"];
 export async function POST(req: NextRequest) {
   const user = await requirePermission(req, "can_manage_carriers");
   if (isAuthError(user)) return user;
+  const orgId = await resolveOrgId(user.driverId);
 
   const body = await req.json().catch(() => ({}));
   const unitId = typeof body.unit_id === "string" ? body.unit_id : "";
@@ -22,6 +25,9 @@ export async function POST(req: NextRequest) {
 
   if (!unitId) return NextResponse.json({ error: "unit_id は必須です" }, { status: 400 });
   if (!label) return NextResponse.json({ error: "ラベルは必須です" }, { status: 400 });
+  if (!(await orgOwnsUnit(supabase, orgId, unitId))) {
+    return NextResponse.json({ error: "unit が見つかりません" }, { status: 404 });
+  }
   if (!fieldKey) fieldKey = `field_${Date.now()}`;
 
   const { data: maxRow } = await supabase

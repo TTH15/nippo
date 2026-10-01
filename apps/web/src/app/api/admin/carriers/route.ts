@@ -96,8 +96,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
-  // 作成したキャリアを当 org に有効化（company_carriers）。これで一覧に出る＝org専用扱い。
-  await supabase.from("company_carriers").insert({ org_id: orgId, carrier_id: data.id });
+  // 会社への有効化が失敗したキャリアを共有マスタに残さない。
+  const { error: linkError } = await supabase.from("company_carriers").insert({ org_id: orgId, carrier_id: data.id });
+  if (linkError) {
+    await supabase.from("carriers").delete().eq("id", data.id);
+    console.error("[carriers] company link failed", linkError);
+    return NextResponse.json({ error: "キャリアの保存に失敗しました" }, { status: 500 });
+  }
 
   return NextResponse.json({ carrier: { ...data, units: [] } });
 }

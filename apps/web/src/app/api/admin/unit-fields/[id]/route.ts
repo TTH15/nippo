@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { orgOwnsUnitField } from "@/server/carriers/orgCarriers";
+import { resolveOrgId } from "@/server/db/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,10 @@ export async function PATCH(
   const user = await requirePermission(req, "can_manage_carriers");
   if (isAuthError(user)) return user;
   const { id } = await params;
+  const orgId = await resolveOrgId(user.driverId);
+  if (!(await orgOwnsUnitField(supabase, orgId, id))) {
+    return NextResponse.json({ error: "報告フィールドが見つかりません" }, { status: 404 });
+  }
 
   const body = await req.json().catch(() => ({}));
   const patch: Record<string, unknown> = {};
@@ -50,6 +56,10 @@ export async function DELETE(
   const user = await requirePermission(req, "can_manage_carriers");
   if (isAuthError(user)) return user;
   const { id } = await params;
+  const orgId = await resolveOrgId(user.driverId);
+  if (!(await orgOwnsUnitField(supabase, orgId, id))) {
+    return NextResponse.json({ error: "報告フィールドが見つかりません" }, { status: 404 });
+  }
 
   const { error } = await supabase.from("unit_fields").delete().eq("id", id);
   if (error) {

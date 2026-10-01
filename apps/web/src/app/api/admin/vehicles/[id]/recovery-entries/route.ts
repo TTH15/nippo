@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
+import { belongsToOrg, isUuid } from "@/server/db/adminResourceScope";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,10 @@ export async function POST(
   if (isAuthError(user)) return user;
 
   const { id: vehicleId } = await params;
-  if (!vehicleId) return NextResponse.json({ error: "vehicle id required" }, { status: 400 });
+  if (!isUuid(vehicleId)) return NextResponse.json({ error: "vehicle id required" }, { status: 400 });
+  if (!(await belongsToOrg("vehicles", vehicleId, user.orgId))) {
+    return NextResponse.json({ error: "車両が見つかりません" }, { status: 404 });
+  }
 
   let body: { ym?: string; lease?: number; insurance?: number; note?: string | null };
   try {
@@ -59,8 +63,11 @@ export async function DELETE(
 
   const { id: vehicleId } = await params;
   const entryId = req.nextUrl.searchParams.get("entry_id");
-  if (!vehicleId || !entryId) {
+  if (!isUuid(vehicleId) || !isUuid(entryId)) {
     return NextResponse.json({ error: "entry_id required" }, { status: 400 });
+  }
+  if (!(await belongsToOrg("vehicles", vehicleId, user.orgId))) {
+    return NextResponse.json({ error: "車両が見つかりません" }, { status: 404 });
   }
 
   const { error } = await supabase

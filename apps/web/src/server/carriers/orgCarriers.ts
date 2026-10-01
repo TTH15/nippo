@@ -19,13 +19,45 @@ export async function loadOrgCarrierIds(
 
 /**
  * 当 org がそのキャリアを管理してよいか（company_carriers に有効化があるか）。
- * 未設定（loadOrgCarrierIds が null）の org は許可（読みのフォールバックと同じ＝087未適用でも壊さない）。
+ * 書き込みの認可には読み取り用の全件フォールバックを使わない。
  */
 export async function orgOwnsCarrier(
   supabase: SupabaseClient,
   orgId: string,
   carrierId: string,
 ): Promise<boolean> {
-  const ids = await loadOrgCarrierIds(supabase, orgId);
-  return ids === null || ids.includes(carrierId);
+  const { data, error } = await supabase
+    .from("company_carriers")
+    .select("carrier_id")
+    .eq("org_id", orgId)
+    .eq("carrier_id", carrierId)
+    .maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+
+/** 共有マスタの変更は、現在そのキャリアを使う会社が1社の間だけ許す。 */
+export async function orgCanEditCarrier(supabase: SupabaseClient, orgId: string, carrierId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    // tenant-scope-ok: 共有マスタを使う全会社の件数を確認し、1社だけのときに限り変更を許す
+    .from("company_carriers")
+    .select("org_id")
+    .eq("carrier_id", carrierId)
+    .limit(2);
+  if (error) throw error;
+  return data?.length === 1 && data[0].org_id === orgId;
+}
+
+/** unit_fields の変更前に、親 unit を通じて会社の有効化を確認する。 */
+export async function orgOwnsUnit(supabase: SupabaseClient, orgId: string, unitId: string): Promise<boolean> {
+  const { data, error } = await supabase.from("units").select("carrier_id").eq("id", unitId).maybeSingle();
+  if (error) throw error;
+  return !!data?.carrier_id && orgCanEditCarrier(supabase, orgId, data.carrier_id);
+}
+
+/** ID指定の報告フィールド変更では、親 unit まで辿って確認する。 */
+export async function orgOwnsUnitField(supabase: SupabaseClient, orgId: string, fieldId: string): Promise<boolean> {
+  const { data, error } = await supabase.from("unit_fields").select("unit_id").eq("id", fieldId).maybeSingle();
+  if (error) throw error;
+  return !!data?.unit_id && orgOwnsUnit(supabase, orgId, data.unit_id);
 }

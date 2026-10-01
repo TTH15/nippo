@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
-import { orgOwnsCarrier } from "@/server/carriers/orgCarriers";
+import { orgCanEditCarrier } from "@/server/carriers/orgCarriers";
 import { supabase } from "@/server/db/client";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export async function PATCH(
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
-  if (!(await orgOwnsCarrier(supabase, orgId, id))) return NOT_FOUND;
+  if (!(await orgCanEditCarrier(supabase, orgId, id))) return NOT_FOUND;
 
   const body = await req.json().catch(() => ({}));
   const patch: Record<string, unknown> = {};
@@ -54,7 +54,7 @@ export async function DELETE(
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
   const { id } = await params;
-  if (!(await orgOwnsCarrier(supabase, orgId, id))) return NOT_FOUND;
+  if (!(await orgCanEditCarrier(supabase, orgId, id))) return NOT_FOUND;
 
   // 配下に unit があれば削除不可（unit を先に消す/無効化）
   const { count: unitCount } = await supabase
