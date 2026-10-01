@@ -209,7 +209,9 @@ function Tabs() {
   }, [focused]);
   return <View style={{ flex: 1, backgroundColor: surface }}>
     <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 16, paddingBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: surface }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}><Image accessible={false} source={require("../assets/logo-icon.png")} resizeMode="contain" style={{ width: 42, height: 42, borderRadius: 8 }} /><Text accessibilityRole="header" style={{ color: ink, fontSize: 23, fontWeight: "800" }}>ハコ虎</Text></View>
+      <View style={{ width: 118, height: 42, overflow: "hidden" }}>
+        <Image accessibilityLabel="ハコ虎" source={require("../assets/logo-primary.png")} resizeMode="contain" style={{ position: "absolute", left: -5, top: -18, width: 128, height: 85 }} />
+      </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
         <Pressable testID="open-notifications" accessibilityRole="button" accessibilityLabel={unreadCount > 0 ? `通知、未読${unreadCount}件` : "通知"} onPress={openNotifications} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
           <AppIcon name="bell" size={22} color={ink} />
