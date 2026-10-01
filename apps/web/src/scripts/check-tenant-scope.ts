@@ -6,8 +6,8 @@
  * そのまま他社データの露出になる（実際に vehicles-unlinked / admin/shifts /
  * oil-alert-count の3件で発生した）。
  *
- * この検査は「テナント列を持つテーブルへのクエリに org 絞りがあるか」を
- * 機械的に確認する。RLS の代わりの二重防御。
+ * テナント列を持つ表のorg絞りと、指定した親経由表の審査コメントを
+ * 機械的に確認する。RLSを迂回するservice role接続の補助検査。
  *
  * Run: cd apps/web && npx tsx src/scripts/check-tenant-scope.ts
  * CI 用: 違反があれば exit 1。
@@ -25,6 +25,10 @@ function loadTenantTables(): Map<string, string> {
   for (const file of fs.readdirSync(MIGRATIONS).filter(f => f.endsWith(".sql"))) {
     for (const [table, column] of tenantTablesFromSql(fs.readFileSync(path.join(MIGRATIONS, file), "utf8"))) tables.set(table, column);
   }
+  // org列を持たず親の所属で境界が決まる子テーブル。新規クエリには
+  // 親のorg確認を明示した tenant-scope-ok を必須にする。
+  tables.set("vehicle_recovery_entries", "__parent_vehicle_scope__");
+  tables.set("vehicle_recovery_collected", "__parent_vehicle_scope__");
   return tables;
 }
 
@@ -61,13 +65,13 @@ function walk(dir: string, out: string[] = []): string[] {
 
 function main() {
   const tenantTables = loadTenantTables();
-  console.log(`[tenant-scope] テナント列を持つテーブル: ${tenantTables.size}件`);
+  console.log(`[tenant-scope] 静的検査対象テーブル: ${tenantTables.size}件（親経由2件を含む）`);
 
   const files = walk(ROOT);
   const violations = files.flatMap((f) => scanFile(f, tenantTables));
 
   if (violations.length === 0) {
-    console.log("[tenant-scope] ✅ org 絞りの漏れは見つかりませんでした");
+    console.log("[tenant-scope] ✅ 未審査のクエリは見つかりませんでした");
     return;
   }
 
@@ -83,7 +87,7 @@ function main() {
     }
   }
   console.log(
-    "\n  対処: .eq(\"org_id\", orgId) を追加するか、意図的なら行末に // tenant-scope-ok: 理由 を書く",
+    "\n  対処: 会社列のある表はorgで絞る。親経由表は親の所属を確認し、// tenant-scope-ok: 理由 を記す",
   );
   process.exitCode = 1;
 }

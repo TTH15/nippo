@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
   // 回収v2: 繰越＋自動カレンダー月＋日額自動計上＋手動行 から回収済み額を算出
   const [{ data: manualRows }, dailyMap] = await Promise.all([
     supabase
+      // tenant-scope-ok: owner_org_id一致のvehiclesから作ったvehicleIdsだけを読む
       .from("vehicle_recovery_entries")
       .select("id, vehicle_id, ym, lease, insurance, note")
       .in("vehicle_id", vehicleIds),

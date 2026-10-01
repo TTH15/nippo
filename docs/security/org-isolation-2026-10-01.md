@@ -4,7 +4,7 @@
 
 - Web API は `apps/web/src/server/db/client.ts` で service role 接続を使う。Supabase の service role は RLS を迂回するため、業務データの会社境界は各APIの認証・権限・org確認とDBの整合制約に依存する。RLSを有効にしただけでは、この接続の誤ったクエリを防げない。
 - 本番DBを読み取り専用で確認した。`public` の通常・分割テーブル105件は全件RLS有効、policyは0件。`anon`・`authenticated` が SELECT できるテーブルはそれぞれ0件。migration 159（一般ロール権限の剥奪）と186（担当コース同一会社ガード）は台帳にある。したがって「RLSが未設定でanonキーから全件見える」という状態ではない。一方、service roleを使うAPIのorg漏れはRLSで止まらない。
-- `npm run check:tenant` はmigrationから会社列を検出した76表の直接クエリを静的に検査し、現状は通過する。対象外の共有マスタや親経由の子表、`tenant-scope-ok`例外、RPC、Storageの中身は検査結果だけでは保証されない。
+- `npm run check:tenant` はmigrationから会社列を検出した76表と、今回追加した車両回収の親経由2表の直接クエリを静的に検査し、現状は通過する。対象外の共有マスタや他の親経由の子表、`tenant-scope-ok`例外、RPC、Storageの中身は検査結果だけでは保証されない。
 - 週次レポート `ハコ虎週次レポート` と既存の `mobile-auth-and-boundaries-2026-09.md` には、担当コースのAPI検査・migration 186の適用が記録されている。これは担当コースの境界確認であり、全表・全APIの隔離完了を意味しない。
 
 ## 今回閉じたAPIの抜け
@@ -13,6 +13,13 @@
 - `unit_fields` の追加・編集・削除に、指定IDが利用者の会社に属する経路の確認がなかった。親unit→carrier→`company_carriers`を確認し、見つからない場合は404にした。
 - キャリア・unit・報告フィールドは共有マスタ。複数社が同じキャリアを有効化すると、一社の定義変更が他社の表示・集計へ波及する。マスタ変更APIでは有効化が1社だけの場合に限り編集を認める。共有中の定義は読み取れるが編集できない。会社固有の上書き機能は別設計にする。
 - `POST`/`DELETE /api/admin/vehicles/[id]/recovery-entries` と `PUT /api/admin/vehicles/[id]/recovery-collected` は、車両管理権限を調べるだけで車両IDの会社を確認していなかった。他社の車両IDを指定した場合に手動回収額や回収済み印を変更できる経路を、親車両の`owner_org_id`確認と404で閉じた。書き込み前に拒否するサーバーテストを追加した。過去の悪用有無は未調査。
+- この2つの子表を `check:tenant` の親経由検査対象に追加した。既存の6クエリは親車両の確認根拠を各所に明記した。これは新規クエリの無審査追加をCIで検出する仕組みであり、コメントの根拠が正しいかはレビューと越境テストで確認する。
+
+## Vercel環境変数の確認
+
+- 本番プロジェクト`nippo-ace`で、`SUPABASE_SERVICE_ROLE_KEY`と`JWT_SECRET`は閲覧可能な**Config**型として保存され、Vercel画面は「秘密らしい値なのでローテーションしてSecret型で保存を検討」と警告している。警告だけで漏えい・悪用が判明したわけではない。値は表示・取得していない。
+- この2つと`SUPABASE_URL`は、単一の設定値がProduction・Preview・Developmentの全環境に割り当てられている。プレビューのサーバーコードにも本番service role権限が届き得るので、会社間分離とは別の高優先境界として切り離す。
+- 対処順は、隔離SupabaseをPreview/Developmentへ用意して疎通確認→本番用キーをProductionだけにする→`SUPABASE_SERVICE_ROLE_KEY`を新しいSecretへ移して旧キーを失効→`JWT_SECRET`を影響範囲（通常JWT、管理更新Cookie、WebAuthn短命トークン等）を確認して切り替える。JWT署名鍵を単純に入れ替えると既存セッションが失効するため、移行手順が要る。資格情報のローテーションは未実施。
 
 ## 未完了の監査と設計
 
@@ -21,4 +28,4 @@
 3. 隔離テストDBへ2社のfixtureを入れ、ID直指定の読取・変更・削除、他社IDを含む配列、RPCとStorageを拒否する結合テストを増やす。今回のテストはガード関数の単体テストであり、本番API全経路の証明ではない。
 4. org列がNULL許容の子表を再点検し、書き込み経路と既存データを確認してからNOT NULL/複合FKへ進む。RLSをservice roleの防御として数えず、DB制約とAPI認可を重ねる。
 
-本番DBへの今回の操作は読み取りだけ。API変更はこの文書の作成時点では本番未反映。
+本番DBへの今回の操作は読み取りだけ。API修正は`c16cf52c`でmainへ反映し、Vercel本番の新規デプロイがReadyになった。認証済み利用者による本番の他社ID試験は行っていない。

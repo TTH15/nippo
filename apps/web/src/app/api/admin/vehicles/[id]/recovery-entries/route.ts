@@ -35,6 +35,7 @@ export async function POST(
   if (!ym) return NextResponse.json({ error: "対象月(ym)が不正です" }, { status: 400 });
 
   const { data, error } = await supabase
+    // tenant-scope-ok: belongsToOrgで自社車両と確認したvehicleIdだけに追加
     .from("vehicle_recovery_entries")
     .insert({
       vehicle_id: vehicleId,
@@ -71,6 +72,7 @@ export async function DELETE(
   }
 
   const { error } = await supabase
+    // tenant-scope-ok: belongsToOrgで自社車両と確認したvehicleIdに固定して削除
     .from("vehicle_recovery_entries")
     .delete()
     .eq("id", entryId)

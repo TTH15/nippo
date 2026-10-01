@@ -37,6 +37,7 @@ export async function GET(
 
   const [{ data: manualRows }, dailyMap] = await Promise.all([
     supabase
+      // tenant-scope-ok: 直上でowner_org_id一致を確認したvehicleIdに固定
       .from("vehicle_recovery_entries")
       .select("id, vehicle_id, ym, lease, insurance, note")
       .eq("vehicle_id", vehicleId)

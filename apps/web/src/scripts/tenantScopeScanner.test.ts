@@ -17,4 +17,9 @@ describe("tenant scope scanner", () => {
  it("schema付きSQLのtenant列も抽出", () => {
    expect(tenantTablesFromSql('ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS org_id uuid;').get('drivers')).toBe('org_id');
  });
+ it("親車両で会社が決まる子表はID絞りだけでは通さない", () => {
+   const children = new Map([["vehicle_recovery_entries", "__parent_vehicle_scope__"]]);
+   expect(scanTenantQueries('db.from("vehicle_recovery_entries").delete().eq("vehicle_id", id)', children)).toHaveLength(1);
+   expect(scanTenantQueries('// tenant-scope-ok: 自社車両のIDを確認済み\ndb.from("vehicle_recovery_entries").delete().eq("vehicle_id", id)', children)).toEqual([]);
+ });
 });

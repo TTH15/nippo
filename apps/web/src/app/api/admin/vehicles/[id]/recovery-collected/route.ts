@@ -36,6 +36,7 @@ export async function PUT(
     if (collected) {
       const collectedDate = todayJST(); // 日本時間の日付（YYYY-MM-DD）
       const { error } = await supabase
+        // tenant-scope-ok: belongsToOrgで自社車両と確認したvehicleIdだけに更新
         .from("vehicle_recovery_collected")
         .upsert(
           { vehicle_id: vehicleId, month, collected_at: collectedDate },
@@ -48,6 +49,7 @@ export async function PUT(
       }
     } else {
       const { error } = await supabase
+        // tenant-scope-ok: belongsToOrgで自社車両と確認したvehicleIdに固定して削除
         .from("vehicle_recovery_collected")
         .delete()
         .eq("vehicle_id", vehicleId)
