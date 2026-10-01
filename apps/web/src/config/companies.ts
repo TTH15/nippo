@@ -38,7 +38,7 @@ export const companies = {
     logoPath: "/logo/hakotora-logo_secondary_logo.svg",
     faviconPath: "/logo/hakotora-logo_icon.svg",
     title: "ハコ虎 | 現場の全てを、一つに。",
-    description: "物流現場のデータを積み重ねるプラットフォーム（ACE CREATION）",
+    description: "物流現場のデータを積み重ねるプラットフォーム",
     invoiceIssuer: {
       name: "株式会社ACE CREATION",
       addressHtml: "〒615-0904<br/>京都市右京区梅津堤上町21 KKハウスⅡ 101",
