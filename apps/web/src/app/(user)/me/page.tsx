@@ -103,7 +103,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   // 実施車両は誤送信防止のため自動選択しない（毎回タップで明示選択。過去に
   // 「最後に選んだ車両」の復元が裏更新でユーザー選択を上書きし、別車両で
   // 報告が上がる事故があった）。選択状態にはこのエフェクトから一切触れない。
-  const { data: vehBundle, isInitialLoading: vehiclesLoading } = useApi<{
+  const { data: vehBundle, isInitialLoading: vehiclesLoading, error: vehiclesError, refresh: refreshVehicles } = useApi<{
     vehicles: Vehicle[];
     unlinked: Vehicle[];
   }>(isReport ? "me/report-vehicles" : null, {
@@ -111,9 +111,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     fetcher: async () => {
       const [vehiclesRes, unlinkedRes] = await Promise.all([
         apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles", { cache: "no-store" }),
-        apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }).catch(
-          () => ({ vehicles: [] as Vehicle[] }),
-        ),
+        apiFetch<{ vehicles: Vehicle[] }>("/api/reports/vehicles-unlinked", { cache: "no-store" }),
       ]);
       return {
         vehicles: vehiclesRes.vehicles ?? [],
@@ -136,6 +134,9 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     () => dedupeVehiclesById(vehicles, unlinkedVehicles),
     [vehicles, unlinkedVehicles],
   );
+
+  // 紐付け車がなくても、取得済みの他車を明示選択できるようにする。
+  const displayedVehicles = vehicles.length > 0 ? vehicles : unlinkedVehicles;
 
   const vehicleCandidates = useMemo(
     () => excludeVehicleId(allKnownVehicles, selectedVehicleId),
@@ -280,10 +281,15 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
             ) : (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">実施車両</label>
-                {vehicles.length > 0 ? (
+                {vehiclesError ? (
+                  <div className="text-xs text-red-600" role="alert">
+                    車両を取得できませんでした。
+                    <button type="button" onClick={() => void refreshVehicles()} className="ml-2 underline">再読み込み</button>
+                  </div>
+                ) : displayedVehicles.length > 0 ? (
                   <div className="space-y-2">
                     <div className="flex gap-2 overflow-x-auto">
-                      {vehicles.map((v) => (
+                      {displayedVehicles.map((v) => (
                         <button
                           key={v.id}
                           type="button"

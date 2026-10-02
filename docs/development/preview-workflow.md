@@ -407,3 +407,8 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 ### 2026/09/29 Webログイン入口
 
 `npm run preview:admin -- admin --port 3230` で `http://127.0.0.1:3230/preview/admin/login?scenario=normal&role=admin` を開く。本番ログインページを隔離し、PCは軽バンと配送拠点の二分入口、スマホはドライバーログインを直接表示する。運営画面からの再認証は `next=admin` で開き、Passkeyと設定・復旧を表示する。`scenario=no-access` は権限なしの拒否を確認できる。実SMS・OS Passkey・本番API・DBには接続しない。
+
+### 2026/10/02 ドライバーのオイル交換報告
+
+`npm run preview:admin -- admin --port 3234` → `http://127.0.0.1:3234/preview/admin/driver-report`。
+本番 `apps/web/src/app/(user)/me/page.tsx` の `MePageContent forceReport` とドライバーナビを直接再利用。通常は紐付け0台・他車2台とし、`linked` / `empty` / `vehicle-error` / `loading` / `error` を切り替える。車両選択、他車の確認、送信、保存失敗と再送信は架空データのメモリ内で完結し、本番認証・API・DB・通知へ接続しない。再読込・シナリオ切替で初期化する。実際の会社別車両データ・承認処理は未検証。

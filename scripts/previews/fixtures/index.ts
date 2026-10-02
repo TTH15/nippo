@@ -26,6 +26,8 @@ import LoginPreview from "../login";
 import OnboardingPreview from "../onboarding";
 import RecoverPreview from "../recover";
 import MePreview from "../me";
+import ReportPreview from "../report";
+import { reportFixture } from "./report";
 import { recoverFixture } from "./recover";
 import { meFixture } from "./me";
 import { onboardingFixture } from "./onboarding";
@@ -57,6 +59,7 @@ export type PreviewPageEntry = {
 const entry = <S,>(slug: string, fixture: PreviewFixture<S>, Page: ComponentType): PreviewPageEntry => ({ slug, fixture: fixture as PreviewFixture<any>, Page });
 
 export const PREVIEW_PAGES: PreviewPageEntry[] = [
+  entry("driver-report", reportFixture, ReportPreview),
   entry("organization", organizationFixture, OrganizationPage),
   entry("shifts", shiftsFixture, ShiftsPage),
   entry("report-kinds", reportKindsFixture, ReportKindsPage),
