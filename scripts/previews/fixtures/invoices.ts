@@ -1,6 +1,6 @@
 // 本番の請求書編集・プレビューページを再利用。値はすべて架空。
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
-import { blankEditorState, payloadFromEditor } from "@/app/(admin)/admin/(accounting)/invoices/_components/editorModel";
+import { blankEditorState, payloadFromEditor, type EditorState } from "@/app/(admin)/admin/(accounting)/invoices/_components/editorModel";
 
 const id = "preview-invoice";
 function createInvoice(scenario: string, invoiceId = id) {
@@ -17,7 +17,7 @@ function createInvoice(scenario: string, invoiceId = id) {
     };
     return { id: invoiceId, clientName: state.fromName, invoiceNo: state.invoiceNo, direction: "incoming", status: "draft", payload: payloadFromEditor(state) };
   }
-  const state = { ...blankEditorState("outgoing"), id: invoiceId,
+  const state: EditorState = { ...blankEditorState("outgoing"), id: invoiceId,
     toName: "サンプル配送株式会社", fromName: "プレビュー運送株式会社",
     toAddrHtml: scenario === "unsafe-address" ? '〒100-0000<br/><img src=x onerror="window.__addressExecuted=true">\n検証ビル<別館>' : "〒100-0000<br/>東京都サンプル区一丁目<br/>配送ビル 2階",
     fromAddrHtml: scenario === "unsafe-address" ? '<svg onload="window.__addressExecuted=true"></svg><br/>請求元<本館>' : "〒150-0000<br/>東京都プレビュー区二丁目<br/>運送センター 3階",
@@ -27,6 +27,19 @@ function createInvoice(scenario: string, invoiceId = id) {
     main: Array.from({ length: scenario === "large" ? 45 : 2 }, (_, i) => ({ title: scenario === "long-name" ? "サンプル配送センターから集合住宅への配送業務（午前便・午後便・追加対応）" : `配送業務 ${i + 1}`, qty: "10", price: "1000", unit: "件", priceBasis: "exclusive" as const })),
     deduct: [], notes: "架空データによる確認用です。", parties: { fromParty: "ace_creation", toParty: "" },
   };
+  if (scenario === "cycle-days") {
+    state.period = "2026年8月1日〜2026年8月31日";
+    state.invoiceNo = "PREVIEW-CYCLE-DAYS";
+    state.displayBasis = "inclusive";
+    state.taxEnabled = false;
+    state.main = [
+      { title: "架空配送（固定売上・全日・稼働日・架空 太郎）", qty: "2", price: "17000", unit: "日", priceBasis: "inclusive" },
+      { title: "架空配送（固定売上・1便・稼働日・架空 太郎）", qty: "1", price: "8500", unit: "日", priceBasis: "inclusive" },
+      { title: "架空配送（固定売上・2便・稼働日・架空 太郎）", qty: "1", price: "8500", unit: "日", priceBasis: "inclusive" },
+      { title: "分担配送（固定売上・1便・稼働日・架空 太郎）", qty: "1", price: "8500", unit: "日", priceBasis: "inclusive" },
+      { title: "分担配送（固定売上・2便・稼働日・架空 花子）", qty: "1", price: "8500", unit: "日", priceBasis: "inclusive" },
+    ];
+  }
   if (scenario === "long-name") state.toAddrHtml += "<br/>" + "長い建物名・東棟連絡通路".repeat(5) + " 1001号室";
   return { id: invoiceId, clientName: state.toName, invoiceNo: state.invoiceNo, direction: "outgoing", status: "draft", payload: payloadFromEditor(state) };
 }
@@ -35,6 +48,7 @@ const base: PreviewFixture<State> = {
   id: "invoice-preview", title: "請求書プレビュー", pathname: `/admin/invoices/${id}/preview`, params: { id },
   scenarios: {
     normal: { label: "通常", description: "既存の改行を含む住所" },
+    "cycle-days": { label: "全日と片便", description: "同人の全日・片便と別人の分担を架空データで確認" },
     individual: { label: "未登録の個人", description: "単発配送の受領請求書" },
     empty: { label: "対象なし", description: "請求書が見つからない状態" },
     "long-name": { label: "長い住所・明細", description: "建物名の折り返し" },

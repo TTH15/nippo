@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeCounterpartyMonthBillingDetail } from "./computeCounterpartyMonthRevenue";
 
 export type SnapshotMainLine = {
+  unit?: string;
   lineKey: string;
   rowType: "system" | "sales_log_revenue" | "merged" | "custom_main";
   refId: string | null;
@@ -217,6 +218,7 @@ export async function buildCounterpartyBillingSnapshot(
       unitPrice: s.unitPrice,
       amount: roundMoney(s.amount),
       priceBasis: s.priceBasis,
+      unit: s.unit,
     });
   }
 

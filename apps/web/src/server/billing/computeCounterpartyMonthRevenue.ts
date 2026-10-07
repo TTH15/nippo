@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { applyQuantityRule } from "@/server/billing/quantityRule";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { buildContext, buildContributions, dropSupersededLegacyReports, isCountableReport } from "@/server/aggregation/compute";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "../aggregation/pagination";
+import { countFixedBillingDays } from "./fixedBillingDays";
 import { getDisplayName } from "@/lib/displayName";
 
 // ============================================================
@@ -47,7 +49,35 @@ export type SystemBillingLine = {
   unitPrice: number;
   amount: number;
   priceBasis: "exclusive" | "inclusive";
+  unit?: string;
 };
+
+/** 月次の手動統合に使われた固定キーを保持する（会社・取引先・対象月で限定）。 */
+async function loadManualMergedFixedKeys(
+  supabase: SupabaseClient, orgId: string, invoiceAddressId: string, startDate: string, endDate: string,
+): Promise<Set<string>> {
+  const merged = await fetchAllRows<{ id: string }>((from, to) => supabase
+    .from("counterparty_monthly_merged_lines")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("invoice_address_id", invoiceAddressId)
+    .gte("month_yyyy_mm", startDate.slice(0, 7))
+    .lte("month_yyyy_mm", endDate.slice(0, 7))
+    .order("id", { ascending: true }).range(from, to));
+  const keys = new Set<string>();
+  for (let i = 0; i < merged.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const ids = merged.slice(i, i + IN_CLAUSE_BATCH_SIZE).map((row) => row.id);
+    const sources = await fetchAllRows<{ source_line_key: string }>((from, to) => supabase
+      // tenant-scope-ok: ids は直上で会社・取引先・対象月を絞った統合親行のID
+      .from("counterparty_monthly_merged_line_sources")
+      .select("source_line_key")
+      .in("merged_line_id", ids)
+      .order("merged_line_id", { ascending: true }).order("source_line_key", { ascending: true })
+      .range(from, to));
+    for (const row of sources) if (row.source_line_key.startsWith("fx:")) keys.add(row.source_line_key);
+  }
+  return keys;
+}
 
 /**
  * 取引先に紐づくコースごとの件数・売上行を v2 集計（course_unit_rates / course_fixed_rates）で算出する。
@@ -97,10 +127,6 @@ export async function computeCounterpartyMonthBillingDetail(
     const mode = revenueModeByCourse.get(courseId) ?? "BOTH";
     return mode === "PER_PIECE" || mode === "BOTH";
   };
-  const revenueUsesFixed = (courseId: string) => {
-    const mode = revenueModeByCourse.get(courseId) ?? "BOTH";
-    return mode === "FIXED" || mode === "BOTH";
-  };
   const effectiveReports = dropSupersededLegacyReports(data.reports);
   const bundleByCourse = new Map(data.fixedRateBundles.map((b) => [b.courseId, b]));
   const aggregationContext = buildContext(data.units, data.unitRates, data.fixedRates, data.fixedRateBundles, data.courseBillingMeta);
@@ -110,11 +136,17 @@ export async function computeCounterpartyMonthBillingDetail(
     .filter((item) => item.courseId != null && allowed.has(item.courseId))
     .reduce((sum, item) => sum + item.revenue, 0);
 
-  // 3. 表示名・並び（unit 名/並び、ドライバー名）
-  const [{ data: unitRows }, { data: driverRows }] = await Promise.all([
+  // 3. 表示名・並びと、キーを保持する必要がある既存の手動統合
+  const hasCycleBundle = orderedCourseIds.some((id) => {
+    const required = bundleByCourse.get(id)?.requiredCycleNos;
+    return required?.length === 2 && required.includes(1) && required.includes(2);
+  });
+  const [{ data: unitRows }, { data: driverRows }, preservedLineKeys] = await Promise.all([
     supabase.from("units").select("id, name, sort_order"),
     // 明細の担当者名。自社ドライバーだけを引く（他社の氏名を読まない）
     supabase.from("drivers").select("id, name, display_name").eq("org_id", orgId),
+    hasCycleBundle ? loadManualMergedFixedKeys(supabase, orgId, counterpartyInvoiceAddressId, startDate, endDate)
+      : Promise.resolve(new Set<string>()),
   ]);
   const unitNameById = new Map<string, string>();
   const unitSortById = new Map<string, number>();
@@ -130,8 +162,10 @@ export async function computeCounterpartyMonthBillingDetail(
   // 4. 集計
   // 従量: courseId -> `${cycleNo}:${unitId}` -> driverId -> 計算数量
   const puQty = new Map<string, Map<string, Map<string, number>>>();
-  // 固定: courseId -> driverId -> 稼働日数
-  const fixedDays = new Map<string, Map<string, number>>();
+  const fixedDays = countFixedBillingDays({
+    reports: data.reports, allowedCourseIds: allowed, fixedRates: fixedByCourse,
+    bundles: bundleByCourse, revenueModes: revenueModeByCourse, revenueBases: revenueFixedBasisByCourse, preservedLineKeys,
+  });
 
   const addPu = (courseId: string, cycleUnitKey: string, driverId: string, qty: number) => {
     let byUnit = puQty.get(courseId);
@@ -140,12 +174,6 @@ export async function computeCounterpartyMonthBillingDetail(
     if (!byDriver) byUnit.set(cycleUnitKey, (byDriver = new Map()));
     byDriver.set(driverId, (byDriver.get(driverId) ?? 0) + qty);
   };
-  const addFixed = (rateKey: string, driverId: string) => {
-    let byDriver = fixedDays.get(rateKey);
-    if (!byDriver) fixedDays.set(rateKey, (byDriver = new Map()));
-    byDriver.set(driverId, (byDriver.get(driverId) ?? 0) + 1);
-  };
-
   for (const r of effectiveReports) {
     if (!isCountableReport(r)) continue;
     const courseId = r.courseId;
@@ -167,23 +195,6 @@ export async function computeCounterpartyMonthBillingDetail(
       const qty = e.valueNum ?? 0;
       if (!qty) continue;
       addPu(courseId, `${rate.cycleNo ?? 0}:${e.unitId}`, driverId, applyQuantityRule(qty, rate.revenueQuantityRule));
-    }
-
-    // 固定（course_fixed_rates が非0なら 1 report = 1 稼働日）
-    const fixedKey = fixedByCourse.has(`${courseId}:${r.cycleNo ?? 0}`)
-      ? `${courseId}:${r.cycleNo ?? 0}`
-      : `${courseId}:0`;
-    const fx = fixedByCourse.get(fixedKey);
-    if (fx && revenueUsesFixed(courseId) && fx.fixedRevenue !== 0) {
-      addFixed(fixedKey, driverId);
-    } else if (revenueUsesFixed(courseId) && (r.cycleNo ?? 0) === 0) {
-      // サイクル導入前の cycle_no=0 日報は「その日フル稼働」の意味で、
-      // 便別の日当行では拾えない。全日日当（bundle）を1日分として計上する。
-      // これを落とすと請求明細から丸ごと消える（2026-08-28 実地確認）。
-      const bundle = bundleByCourse.get(courseId);
-      if (bundle && (bundle.revenueContractAmount != null || bundle.fixedRevenue != null)) {
-        addFixed(`${courseId}:bundle`, driverId);
-      }
     }
   }
 
@@ -239,7 +250,7 @@ export async function computeCounterpartyMonthBillingDetail(
     for (const [fixedKey, fdMap] of fixedDays) {
       const [fixedCourseId, cycleNo] = fixedKey.split(":");
       if (fixedCourseId !== courseId) continue;
-      // cycle_no=0 の旧日報は全日日当（bundle）を1日分として計上する
+      // 旧cycle0と同人・同日C1+C2を全日日当（bundle）として計上する
       const bundle = cycleNo === "bundle" ? bundleByCourse.get(courseId) : null;
       const fx = bundle ? null : fixedByCourse.get(fixedKey);
       if (!fx && !bundle) continue;
@@ -257,6 +268,7 @@ export async function computeCounterpartyMonthBillingDetail(
         const suffix = bundle ? "・全日" : cycleNo !== "0" ? `・${cycleNo}便` : "";
         systemLines.push({
           kind: "course_fixed",
+          unit: "日",
           lineKey: `fx:${courseId}:cycle:${cycleNo}:drv:${driverId}`,
           courseId,
           courseName,
