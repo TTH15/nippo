@@ -49,6 +49,7 @@ import { ShiftDisplayOptions } from "@/lib/components/ShiftDisplayOptions";
 import { ShiftLeaseFilters, ShiftLeaseBadge } from "@/lib/components/ShiftLeaseFilters";
 import { indexShiftLeases, shiftLeaseMode, shiftLeaseGroups, SHIFT_LEASE_NAMES, type ShiftLease, type ShiftLeaseFilter } from "@/lib/shiftLease";
 import { DEFAULT_SHIFT_DISPLAY, SHIFT_DISPLAY_KEY, readShiftDisplay, type ShiftDisplay } from "@/lib/shiftDisplay";
+import { activeCourseCycleNos, displayCourseCycleNos } from "@/lib/shiftDisplayCycles";
 import { ImageExportDialog } from "@/lib/components/ImageExportDialog";
 import { ShiftDriverOrderDialog, type ShiftDriverOrderItem } from "@/lib/components/ShiftDriverOrderDialog";
 import { captureDispatchImage } from "@/lib/captureDispatchImage";
@@ -112,14 +113,6 @@ function courseCycleLabel(course: Course, cycleNo: number): string {
 function courseCycleBadge(course: Course, cycleNo: number): string {
   const cycle = course.course_cycles?.find((item) => item.cycle_no === cycleNo);
   return cycle?.label?.trim() || `C${cycleNo}`;
-}
-
-function activeCourseCycleNos(course: Course): number[] {
-  return course.uses_cycles
-    ? (course.course_cycles ?? [])
-      .filter((cycle) => cycle.active !== false)
-      .map((cycle) => cycle.cycle_no)
-    : [];
 }
 
 /** 同日×同ドライバーの車両上書き用（ISO日付 と UUID はどちらもハイフンを含むため区切りに | を使う） */
@@ -736,8 +729,13 @@ export default function ShiftsPage() {
   }, [fleetVehicles]);
 
   const driversWithCourses = useMemo(
-    () => drivers.filter((d) => getDriverCourseIds(d).length > 0),
-    [drivers],
+    () => {
+      // 稼働終了時には担当コースを解除する。過去の割当がある人は表・出力に残す。
+      // 実績コースを現在の担当コースへ足さない（割当可否と表示を分ける）。
+      const assigned = new Set(shifts.map(s => s.driver_id));
+      return drivers.filter(d => getDriverCourseIds(d).length > 0 || assigned.has(d.id));
+    },
+    [drivers, shifts],
   );
 
   const [confirmState, setConfirmState] = useState<{
@@ -1096,20 +1094,22 @@ export default function ShiftsPage() {
       effectiveMaxSlotByCourseDate.get(`${date}:${course.id}:${cycleNo}`) ?? 0,
     );
 
-  /**
-   * サイクル導入前の shift は cycle_no=0 のまま保持される。
-   * サイクル制へ切り替えた後も、その日に旧形式の割当があれば標準コースとして走査する。
-   */
-  const cycleNosForCourseOnDate = (course: Course, date: string): number[] => {
-    if (!course.uses_cycles) return [0];
-    const cycleNos = (course.course_cycles ?? [])
-      .filter((cycle) => cycle.active !== false)
-      .map((cycle) => cycle.cycle_no);
-    if ((effectiveMaxSlotByCourseDate.get(`${date}:${course.id}:0`) ?? 0) > 0) {
-      cycleNos.unshift(0);
+  // ローカル解除を反映した当日実績。無効便や便制へ切替前後の実績も表示へ残す。
+  const assignedCycleNosByCourseDate = useMemo(() => {
+    const byCourseDate = new Map<string, number[]>();
+    for (const key of effectiveMaxSlotByCourseDate.keys()) {
+      const [date, courseId, cycleNo] = key.split(":");
+      const courseDate = `${date}:${courseId}`;
+      const cycleNos = byCourseDate.get(courseDate) ?? [];
+      cycleNos.push(Number(cycleNo));
+      byCourseDate.set(courseDate, cycleNos);
     }
-    return [...new Set(cycleNos)];
-  };
+    return byCourseDate;
+  }, [effectiveMaxSlotByCourseDate]);
+
+  // 編集候補はactiveCourseCycleNosのまま。表示のために実績便を有効化しない。
+  const cycleNosForCourseOnDate = (course: Course, date: string): number[] =>
+    displayCourseCycleNos(course, assignedCycleNosByCourseDate.get(`${date}:${course.id}`) ?? []);
 
   // slot_id を便名に解決（NULL/不明＝「全休」）。希望休一覧/注記用。
   const slotName = (slotId: string | null): string =>
@@ -2022,8 +2022,7 @@ export default function ShiftsPage() {
   const assignedDriverIdsOnDate = (date: string): Set<string> => {
     const assigned = new Set<string>();
     courses.forEach((course) => {
-      const cycleNos = activeCourseCycleNos(course);
-      for (const cycleNo of cycleNos.length ? cycleNos : [0]) {
+      for (const cycleNo of cycleNosForCourseOnDate(course, date)) {
         const maxSlots = slotCountFor(course, date, cycleNo);
         for (let slot = 1; slot <= maxSlots; slot++) {
           const driverId = getCurrentDriverId(date, course.id, slot, cycleNo);

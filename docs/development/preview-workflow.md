@@ -412,3 +412,9 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 
 `npm run preview:admin -- admin --port 3234` → `http://127.0.0.1:3234/preview/admin/driver-report`。
 本番 `apps/web/src/app/(user)/me/page.tsx` の `MePageContent forceReport` とドライバーナビを直接再利用。通常は紐付け0台・他車2台とし、`linked` / `empty` / `vehicle-error` / `loading` / `error` を切り替える。車両選択、他車の確認、送信、保存失敗と再送信は架空データのメモリ内で完結し、本番認証・API・DB・通知へ接続しない。再読込・シナリオ切替で初期化する。実際の会社別車両データ・承認処理は未検証。
+
+### 2026/10/07 過去期間の所属名簿（ローカル候補）
+
+`npm run preview:admin -- admin --port 3241`。`/preview/admin/shifts?scenario=period-roster&role=viewer` と `/preview/admin/payments?scenario=period-roster&role=accounting` で本番page.tsxをそのまま再利用。シフトは8月に移動すると担当解除済の終了者（鈴木）を表示し、9月開始の人（佐藤）を除外。ペイメントは8月に終了者の報酬と期間外の調整行を表示、新規者を除外する。PC1280/スマホ390、前後半/月切替/出力プレビューを確認。reset/再読込で架空データに戻る。本番DB・認証・APIには接続しない。PNG/PDF実ファイルのダウンロード確認は残る。
+
+追加レビュー用に「過去コース（廃止済）」の現在無効なC1だけを8月実績へ含めた。終了者のC1がPC表・スマホ日別の稼働欄に残り、未割当欄には入らないことと、管理者の追加候補が有効C2だけであることを確認。PC1280/スマホ390で確認、スマホのページ横はみ出しなし。PNG/PDF実ファイルはユーザーの「実出力確認は、無しでいいです。」という指示で検証を省略し、公開ブロッカーから外す（未検証のまま）。
