@@ -1,4 +1,5 @@
 // 本番 /admin/shifts/page.tsx と PersonalShiftMemoBoard を架空データで操作する。
+import { isMemberInPeriod } from "@/lib/drivers/activePeriod";
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 import type { ReflectGroup, ReflectInput, ReflectPreview } from "@/lib/shiftMemo/reflect";
 import { applyBoardChanges, sameBoardValue, type BoardChange } from "@/lib/shiftMemo/sharedBoardSync";
@@ -14,8 +15,8 @@ function loadLiveBoard(): { board: Record<string, unknown> | null; revision: num
   } catch { return null; }
 }
 function createData(scenario: string) {
-  const drivers = Array.from({ length: scenario === "large" ? 48 : 6 }, (_, i) => ({ id: id(i + 1), name: names[i % 6], display_name: scenario === "long-name" ? `${names[i % 6]}（配送応援・午前午後兼務）` : null, list_no: i + 1, status: "active", works_as_driver: true, driver_courses: [{ course_id: id(101) }, { course_id: id(102) }] }));
-  const courses = [{ id: id(101), name: "豊中サンプル", summary_title: "豊中サンプル", color: "#fbbf24", max_drivers: 4, uses_cycles: true, course_cycles: [{ cycle_no: 1, label: "C1", active: true }, { cycle_no: 2, label: "C2", active: true }] },
+  const drivers = Array.from({ length: scenario === "large" ? 48 : 6 }, (_, i) => ({ id: id(i + 1), name: names[i % 6], display_name: scenario === "long-name" ? `${names[i % 6]}（配送応援・午前午後兼務）` : null, list_no: i + 1, status: scenario === "period-roster" && i === 2 ? "inactive" : "active", active_from_month: scenario === "period-roster" && i === 0 ? "2026-09" : "2026-01", active_until_month: scenario === "period-roster" && i === 2 ? "2026-08" : null, created_at: "2026-01-01T00:00:00Z", works_as_driver: true, driver_courses: scenario === "period-roster" && i === 2 ? [] : [{ course_id: id(101) }, { course_id: id(102) }] }));
+  const courses = [{ id: id(101), name: scenario === "period-roster" ? "過去コース（廃止済）" : "豊中サンプル", archived_at: scenario === "period-roster" ? "2026-09-01" : null, summary_title: scenario === "period-roster" ? "過去コース" : "豊中サンプル", color: "#fbbf24", max_drivers: 4, uses_cycles: true, course_cycles: [{ cycle_no: 1, label: "C1", active: scenario !== "period-roster" }, { cycle_no: 2, label: "C2", active: true }] },
     { id: id(102), name: "吹田サンプル", summary_title: "吹田サンプル", color: "#38bdf8", max_drivers: 4, uses_cycles: false, course_cycles: [] }];
   // 曜日の必要人数（共有の基準）。豊中C1だけ埋まっていて、残りは未設定
   const baselines = [0, 1, 2, 3, 4, 5, 6].map(weekday => ({
@@ -128,7 +129,7 @@ function readinessResponse(state: ShiftsFixtureState, scenario: string) {
 
 export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
   id: "shifts", title: "シフト・シフトメモ", pathname: "/admin/shifts",
-  scenarios: { normal: { label: "通常", description: "個人・共有メモを切り替え" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, transfer: { label: "メモ受け渡し", description: "自作枠・未登録の名前札・別コースへの反映" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "shared-live": { label: "2タブ共同", description: "別タブとの参加・更新を試す" }, "shared-peers": { label: "共同編集者", description: "共有メモの参加者表示" }, "shared-disjoint": { label: "別の箇所", description: "他の人の変更も残す" }, "shared-conflict": { label: "共有メモ競合", description: "同じ箇所の変更を検出" }, "shared-save-error": { label: "共有メモ保存失敗", description: "保存失敗から再試行" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札はメモだけに残し、任意で登録ドライバーへ合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
+  scenarios: { "period-roster": { label: "過去の所属", description: "8月は終了者（担当解除済）を表示、9月開始の人は非表示" }, normal: { label: "通常", description: "個人・共有メモを切り替え" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, transfer: { label: "メモ受け渡し", description: "自作枠・未登録の名前札・別コースへの反映" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "shared-live": { label: "2タブ共同", description: "別タブとの参加・更新を試す" }, "shared-peers": { label: "共同編集者", description: "共有メモの参加者表示" }, "shared-disjoint": { label: "別の箇所", description: "他の人の変更も残す" }, "shared-conflict": { label: "共有メモ競合", description: "同じ箇所の変更を検出" }, "shared-save-error": { label: "共有メモ保存失敗", description: "保存失敗から再試行" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札はメモだけに残し、任意で登録ドライバーへ合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
   createState: ({ scenario, driver }) => {
     // 本番利用者の保存キーには触れない。シナリオを開くたびに架空メモを初期化する。
     if (typeof localStorage !== "undefined") {
@@ -187,14 +188,15 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
       const lanes = state.courses.flatMap(course => (course.uses_cycles ? [1, 2] : [0]).map(cycle => ({ id: `base-${course.id}${cycle ? `-${cycle}` : ""}`, routeId: course.id, name: cycle ? `C${cycle}` : course.name, color: course.color, activeWeekdays: [0, 1, 2, 3, 4, 5, 6], requiredCount: 2, custom: false })));
       for (let date = new Date(`${start}T12:00:00Z`); date.toISOString().slice(0, 10) <= end; date.setUTCDate(date.getUTCDate() + 1)) {
         const day = date.toISOString().slice(0, 10);
-        if (scenario === "empty") continue;
+        if (scenario === "empty" || (scenario === "period-roster" && day.slice(0, 7) !== "2026-08")) continue;
         for (const lane of lanes) {
           const cycle = lane.id.endsWith("-2") ? 2 : lane.id.endsWith("-1") ? 1 : 0;
           const chosen = lane.routeId === state.courses[0].id ? state.drivers.slice(0, 2) : state.drivers.slice(3, 4);
           assignments[`${lane.id}|${day}`] = chosen.map(person => ({ placementId: `${lane.id}-${day}-${person.id}`, personKey: person.id, driverId: person.id, name: person.display_name || person.name }));
           const assignedDriverId = lane.routeId === state.courses[0].id ? state.drivers[2].id : state.drivers[3].id;
           // 通常シナリオの初日は片便だけ。全便追加と出力の C1 表示を確認できるようにする。
-          if (scenario === "normal" && day === start && lane.routeId === state.courses[0].id && cycle === 2) continue;
+          if (lane.routeId === state.courses[0].id && cycle === 2 &&
+            ((scenario === "normal" && day === start) || scenario === "period-roster")) continue;
           // 車両は日付とレーンで回して、4色のプレートが一覧に混ざるようにする
           const vehicle = state.vehicles.length
             ? state.vehicles[(date.getUTCDate() + lanes.indexOf(lane)) % state.vehicles.length]
@@ -209,7 +211,12 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
         localStorage.setItem(key, JSON.stringify({ version: 1, lanes, laneOrder: lanes.map(lane => lane.id), hiddenLaneIds: [], assignments: { ...old.assignments, ...assignments }, extraPeople: [], notes: {} }));
       }
     }
-    return { courses: state.courses, drivers: state.drivers, shifts: state.shifts.filter(s => s.shift_date >= start && s.shift_date <= end), requests: [], slots: [], vehicles: state.vehicles, vehicle_driver_links: [], vehicle_loans: [], recent_assignments: [], driver_leases: state.driverLeases };
+    const shifts = state.shifts.filter(s => s.shift_date >= start && s.shift_date <= end);
+    const assigned = new Set(shifts.map(s => s.driver_id));
+    const drivers = scenario === "period-roster" ? state.drivers.filter(d => isMemberInPeriod(d, start, end) || assigned.has(d.id)) : state.drivers;
+    const assignedCourses = new Set(shifts.map(s => s.course_id));
+    const courses = scenario === "period-roster" ? state.courses.filter(c => !c.archived_at || assignedCourses.has(c.id)) : state.courses;
+    return { courses, drivers, shifts, requests: [], slots: [], vehicles: state.vehicles, vehicle_driver_links: [], vehicle_loans: [], recent_assignments: [], driver_leases: state.driverLeases };
   },
   write(state, { path, body }, { role, scenario }) {
     if (path === "/api/admin/shifts/vehicle") {

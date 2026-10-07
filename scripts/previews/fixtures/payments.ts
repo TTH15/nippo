@@ -1,6 +1,7 @@
 // 支払い（月次の報酬と経費）の fixture。
 // 固定控除の期間・名前・金額をその場で直せるようにした改修（2026-09-09）を、
 // 本番のページ本体で確かめるために用意した。実在の金額・氏名は使わない。
+import { isMemberInPeriod, type DriverMembershipPeriod } from "@/lib/drivers/activePeriod";
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 
 type Fixed = { id: string; name: string; amount: number; valid_from: string; valid_to: string | null };
@@ -86,14 +87,29 @@ export const paymentsFixture: PreviewFixture<State> = {
   title: "支払い",
   pathname: "/admin/payments",
   scenarios: {
+    "period-roster": { label: "過去の所属", description: "8月は終了者を表示、新規者を除外。期間外の金額行は保持" },
     normal: { label: "通常", description: "2名。1人目は固定「リース代」とリース契約が二重になっている" },
     empty: { label: "対象なし", description: "その月に支払い対象がいない" },
   },
   createState: ({ scenario }) => seed(scenario),
 
-  read: (state, { path, params }) => {
+  read: (state, { path, params }, { scenario }) => {
     if (path === "/api/admin/payments") {
-      return { month: params.get("month") ?? "", rows: state.rows };
+      const month = params.get("month") ?? "";
+      if (scenario === "period-roster") {
+        const periods: Record<string, DriverMembershipPeriod> = {
+          [D1]: { status: "inactive", active_from_month: "2026-01", active_until_month: "2026-08" },
+          [D2]: { status: "active", created_at: "2026-09-01T00:00:00Z" },
+          [D3]: { status: "inactive", active_until_month: "2026-07" },
+        };
+        const rows = state.rows.flatMap(row => {
+          if (isMemberInPeriod(periods[row.driverId], `${month}-01`, `${month}-31`)) return [{ ...row, outsideActivePeriod: false }];
+          // D3は期間外でも既存の調整金額を保持。D1/D2は対象月の実績なし。
+          return row.driverId === D3 ? [{ ...row, outsideActivePeriod: true }] : [];
+        });
+        return { month, rows };
+      }
+      return { month, rows: state.rows };
     }
     if (path === "/api/admin/driver-expenses") {
       return { expenses: state.fixed[params.get("driver_id") ?? ""] ?? [] };

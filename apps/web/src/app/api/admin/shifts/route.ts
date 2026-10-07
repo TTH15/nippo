@@ -5,6 +5,18 @@ import { supabase } from "@/server/db/client";
 import { adminMutationError, belongsToOrg, isDateOnly, isUuid } from "@/server/db/adminResourceScope";
 import { isMissingOrgColumn } from "@/server/db/orgColumn";
 import { logShiftChange } from "@/server/shiftLog";
+import { isMemberInPeriod } from "@/lib/drivers/activePeriod";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "@/server/aggregation/pagination";
+
+// IN句のURL上限と行数上限をそれぞれ避ける。各queryは一意なorderとrangeを指定する。
+async function fetchByIds<T>(ids: string[], query: (ids: string[], from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let i = 0; i < ids.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const slice = ids.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+    rows.push(...await fetchAllRows((from, to) => query(slice, from, to)));
+  }
+  return rows;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -23,40 +35,33 @@ export async function GET(req: NextRequest) {
     // ダッシュボードの件数取得は名簿詳細や車両を取得しない。
     if (req.nextUrl.searchParams.get("countDrivers") === "1") {
       const [courses, drivers] = await Promise.all([
-        supabase.from("courses").select("id").eq("org_id", orgId),
-        supabase.from("drivers").select("id").eq("org_id", orgId).eq("works_as_driver", true),
+        fetchAllRows((from, to) => supabase.from("courses").select("id").eq("org_id", orgId).order("id").range(from, to)),
+        fetchAllRows((from, to) => supabase.from("drivers").select("id").eq("org_id", orgId).eq("works_as_driver", true).order("id").range(from, to)),
       ]);
-      if (courses.error || drivers.error) throw courses.error ?? drivers.error;
-      const courseIds = (courses.data ?? []).map(c => c.id), driverIds = (drivers.data ?? []).map(d => d.id);
-      if (!courseIds.length || !driverIds.length) return NextResponse.json({ count: 0 });
-      // tenant-scope-ok: courseIds / driverIds は自社の courses・drivers（.eq("org_id", orgId)）から作った集合
-      const { data, error } = await supabase.from("shifts").select("driver_id")
-        .in("course_id", courseIds).in("driver_id", driverIds).gte("shift_date", startDate).lte("shift_date", endDate);
-      if (error) throw error;
-      return NextResponse.json({ count: new Set((data ?? []).map(s => s.driver_id)).size });
+      const courseIds = courses.map(c => c.id), driverIds = new Set(drivers.map(d => d.id));
+      if (!courseIds.length || !driverIds.size) return NextResponse.json({ count: 0 });
+      const rows = await fetchByIds(courseIds, (slice, from, to) => supabase.from("shifts").select("driver_id")
+        // tenant-scope-ok: slice は自社の courses（org_id）から作った集合。driverIdsでも応答を絞る
+        .in("course_id", slice).gte("shift_date", startDate).lte("shift_date", endDate).order("id").range(from, to));
+      return NextResponse.json({ count: new Set(rows.filter(s => driverIds.has(s.driver_id)).map(s => s.driver_id)).size });
     }
     // 関連表を読む前に自社の集合を確定する。空集合を「条件なし」にしない。
-    const [courseResult, driverResult, fleetResult] = await Promise.all([
-      supabase.from("courses").select("*, course_cycles(id, cycle_no, label, meeting_place, meeting_time, arrival_time, end_time, max_drivers, sort_order, active)").eq("org_id", orgId).order("sort_order"),
-      supabase.from("drivers").select("id, name, display_name, role, list_no, shift_sort_order, driver_code, status, works_as_driver, driver_identities(driver_courses(course_id))").eq("org_id", orgId).order("shift_sort_order", { ascending: true, nullsFirst: false }).order("list_no", { ascending: true, nullsFirst: false }).order("name"),
-      supabase.from("vehicles").select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, is_ev, is_disposed, is_unavailable, unavailable_reason, last_oil_change_mileage, oil_change_interval").eq("owner_org_id", orgId).order("manufacturer").order("brand"),
+    const [courses, members, vehicles] = await Promise.all([
+      fetchAllRows((from, to) => supabase.from("courses").select("*, course_cycles(id, cycle_no, label, meeting_place, meeting_time, arrival_time, end_time, max_drivers, sort_order, active)").eq("org_id", orgId).order("sort_order").order("id").range(from, to)),
+      fetchAllRows((from, to) => supabase.from("drivers").select("id, name, display_name, role, list_no, shift_sort_order, driver_code, status, works_as_driver, active_from_month, active_until_month, created_at, driver_identities(driver_courses(course_id))").eq("org_id", orgId).order("shift_sort_order", { ascending: true, nullsFirst: false }).order("list_no", { ascending: true, nullsFirst: false }).order("name").order("id").range(from, to)),
+      fetchAllRows((from, to) => supabase.from("vehicles").select("id, number_prefix, number_class, number_hiragana, number_numeric, manufacturer, brand, current_mileage, is_ev, is_disposed, is_unavailable, unavailable_reason, last_oil_change_mileage, oil_change_interval").eq("owner_org_id", orgId).order("manufacturer").order("brand").order("id").range(from, to)),
     ]);
-    for (const result of [courseResult, driverResult, fleetResult]) if (result.error) throw result.error;
     const mastersAt = performance.now();
-    const courses = courseResult.data ?? [];
-    const members = driverResult.data ?? [];
-    const vehicles = fleetResult.data ?? [];
     const courseIds = courses.map(c => c.id), driverIds = members.map(d => d.id), vehicleIds = vehicles.map(v => v.id);
     const driverById = new Map(members.map(d => [d.id, d]));
     const fleetById = new Map(vehicles.map(v => [v.id, v]));
     // tenant-scope-ok: courseIds / driverIds は自社の courses・drivers（.eq("org_id", orgId)）から作った集合
-    const shiftsResult = courseIds.length ? await supabase.from("shifts")
+    const shiftRows = await fetchByIds(courseIds, (slice, from, to) => supabase.from("shifts")
       .select("id, shift_date, course_id, cycle_no, slot, driver_id, vehicle_id, uses_external_vehicle, meeting_place, meeting_time, arrival_time, end_time")
-      .in("course_id", courseIds).gte("shift_date", startDate).lte("shift_date", endDate) : { data: [], error: null };
-    if (shiftsResult.error) throw shiftsResult.error;
+      .in("course_id", slice).gte("shift_date", startDate).lte("shift_date", endDate).order("id").range(from, to));
     const shiftsAt = performance.now();
     // 既存の不正な横断参照もレスポンスへ流さない。
-    const shifts = (shiftsResult.data ?? []).filter(s => !s.driver_id || driverById.has(s.driver_id)).map(s => {
+    const shifts = shiftRows.filter(s => !s.driver_id || driverById.has(s.driver_id)).map(s => {
       const driver = driverById.get(s.driver_id);
       const vehicle = fleetById.get(s.vehicle_id);
       return { ...s, vehicle_id: vehicle?.id ?? null, vehicles: vehicle && !vehicle.is_disposed ? vehicle : null,
@@ -64,33 +69,46 @@ export async function GET(req: NextRequest) {
     });
     const recent = new Date(`${startDate}T00:00:00Z`);
     recent.setUTCDate(recent.getUTCDate() - 35);
-    const empty = { data: [], error: null };
-    const results = await Promise.all([
-      driverIds.length && vehicleIds.length ? supabase.from("vehicle_drivers").select("driver_id, vehicle_id").in("driver_id", driverIds).in("vehicle_id", vehicleIds) : empty,
-      vehicleIds.length ? supabase.from("vehicle_loans").select("vehicle_id, loan_date, note").in("vehicle_id", vehicleIds).gte("loan_date", startDate).lte("loan_date", endDate) : empty,
-      // tenant-scope-ok: driverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
-      driverIds.length ? supabase.from("shift_requests").select("*").in("driver_id", driverIds).gte("request_date", startDate).lte("request_date", endDate) : empty,
-      // tenant-scope-ok: 便は共有マスタ。元請→下請へ設定が伝わる構造を保つため全社で見える（編集は owner_org_id の会社だけ）
-      supabase.from("shift_request_slots").select("id, name, start_time, end_time").eq("active", true).order("sort_order"),
-      // tenant-scope-ok: courseIds / driverIds は自社の courses・drivers（.eq("org_id", orgId)）から作った集合
-      courseIds.length && driverIds.length ? supabase.from("shifts").select("driver_id, course_id, shift_date").in("course_id", courseIds).in("driver_id", driverIds).gte("shift_date", recent.toISOString().slice(0, 10)).lt("shift_date", startDate) : empty,
-      // 区分の表示用。自社のdriver集合で絞り、報酬権限のない閲覧者へ金額を返さない。
-      // tenant-scope-ok: driverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
-      driverIds.length ? supabase.from("driver_leases").select("id, driver_id, mode, valid_from, valid_to")
-        .in("driver_id", driverIds).lte("valid_from", endDate).or(`valid_to.is.null,valid_to.gte.${startDate}`) : empty,
+    const [links, loans, requests, slots, assignments, leases] = await Promise.all([
+      (async () => {
+        const rows = [];
+        for (let i = 0; i < driverIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+          const driverSlice = driverIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+          rows.push(...await fetchByIds(vehicleIds, (vehicleSlice, from, to) => supabase.from("vehicle_drivers")
+            // tenant-scope-ok: 両sliceは自社のdriversとvehiclesから作った集合
+            .select("driver_id, vehicle_id").in("driver_id", driverSlice).in("vehicle_id", vehicleSlice).order("id").range(from, to)));
+        }
+        return rows;
+      })(),
+      fetchByIds(vehicleIds, (slice, from, to) => supabase.from("vehicle_loans").select("vehicle_id, loan_date, note")
+        .in("vehicle_id", slice).gte("loan_date", startDate).lte("loan_date", endDate).order("id").range(from, to)),
+      // tenant-scope-ok: slice は自社の drivers（org_id）から作った集合
+      fetchByIds(driverIds, (slice, from, to) => supabase.from("shift_requests").select("*")
+        .in("driver_id", slice).gte("request_date", startDate).lte("request_date", endDate).order("id").range(from, to)),
+      // tenant-scope-ok: 便は共有マスタ。元請→下請へ設定が伝わる構造を保つ（編集は所有会社だけ）
+      fetchAllRows((from, to) => supabase.from("shift_request_slots").select("id, name, start_time, end_time")
+        .eq("active", true).order("sort_order").order("id").range(from, to)),
+      // tenant-scope-ok: slice は自社の courses（org_id）から作った集合。応答はdriverByIdでも絞る
+      fetchByIds(courseIds, (slice, from, to) => supabase.from("shifts").select("driver_id, course_id, shift_date")
+        .in("course_id", slice).gte("shift_date", recent.toISOString().slice(0, 10)).lt("shift_date", startDate).order("id").range(from, to)),
+      // 区分のみ。金額は返さない。取得失敗はnullで知らせ、空の契約一覧と区別する。
+      // tenant-scope-ok: slice は自社の drivers（org_id）から作った集合
+      fetchByIds(driverIds, (slice, from, to) => supabase.from("driver_leases").select("id, driver_id, mode, valid_from, valid_to")
+        .in("driver_id", slice).lte("valid_from", endDate).or(`valid_to.is.null,valid_to.gte.${startDate}`).order("id").range(from, to)).catch(() => null),
     ]);
-    const [links, loans, requests, slots, assignments, leases] = results;
-    for (const result of [links, loans, requests, slots, assignments]) if (result.error) throw result.error;
     const detailsAt = performance.now();
     const courseSet = new Set(courseIds);
-    const drivers = members.filter(d => d.works_as_driver && d.status === "active").map(d => ({ ...d,
+    const assignedDriverIds = new Set(shifts.map(s => s.driver_id));
+    const assignedCourseIds = new Set(shifts.map(s => s.course_id));
+    const drivers = members.filter(d => d.works_as_driver &&
+      (isMemberInPeriod(d, startDate, endDate) || assignedDriverIds.has(d.id))).map(d => ({ ...d,
       driver_identities: (d.driver_identities ?? []).map(identity => ({ ...identity, driver_courses: (identity.driver_courses ?? []).filter(c => courseSet.has(c.course_id)) })),
     }));
-    return NextResponse.json({ courses: courses.filter(c => !c.archived_at), shifts, drivers,
-      requests: requests.data, slots: slots.data, vehicles: vehicles.filter(v => !v.is_disposed),
-      vehicle_driver_links: links.data, vehicle_loans: loans.data, recent_assignments: assignments.data,
+    return NextResponse.json({ courses: courses.filter(c => !c.archived_at || assignedCourseIds.has(c.id)), shifts, drivers,
+      requests, slots, vehicles: vehicles.filter(v => !v.is_disposed),
+      vehicle_driver_links: links, vehicle_loans: loans, recent_assignments: assignments.filter(s => driverById.has(s.driver_id)),
       // nullは取得失敗。空配列（契約なし）へ置換せず、画面で再試行を案内する。
-      driver_leases: leases.error ? null : (leases.data ?? []).map(({ id, driver_id, mode, valid_from, valid_to }) => ({ id, driver_id, mode, valid_from, valid_to })) }, {
+      driver_leases: leases === null ? null : leases.map(({ id, driver_id, mode, valid_from, valid_to }) => ({ id, driver_id, mode, valid_from, valid_to })) }, {
       headers: { "Server-Timing": `masters;dur=${(mastersAt - startedAt).toFixed(1)}, shifts;dur=${(shiftsAt - mastersAt).toFixed(1)}, details;dur=${(detailsAt - shiftsAt).toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}` },
     });
   } catch (error) {
