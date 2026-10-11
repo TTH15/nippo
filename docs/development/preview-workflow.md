@@ -422,3 +422,7 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 
 `npm run preview:admin -- admin --port 3207` → `http://127.0.0.1:3207/preview/admin/invoice-preview?scenario=cycle-days&role=admin`。
 本番の請求書プレビュー／編集ページとInvoiceSheetをそのまま再利用。全日2日×税込17,000円、独立した片便および別人分担の4行×税込8,500円、合計68,000円を表示する。`invoice-edit`へ切り替えて数量編集・模擬保存を試せる。全て架空データで、本番DB・認証・API・請求書には接続しない。固定日数の生成処理は画面fixtureで実行せず、請求下書きまでの結合テストで別途検証する。
+
+## 2026/10/11 共有メモと日報番号
+
+[限定リリース記録](shared-memo-daily-release-2026-10-11.md)に本番ページ再利用元・起動方法・scenario・制限を記載。daily/vehicle-number、shifts/shared-live・shared-slow・shared-missed・shared-lost-response・plate-overlapを追加。

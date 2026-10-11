@@ -1,3 +1,4 @@
+import { readHiddenPeople } from "./sharedBoardSync";
 import { readRequiredCountOverrides, type DayOverride } from "./board";
 
 export type TransferLane = {
@@ -18,6 +19,7 @@ export type ShiftMemoBoardData = {
   hiddenLaneIds: string[];
   assignments: Record<string, TransferPerson[]>;
   extraPeople: string[];
+  hiddenPeople?: Record<string, true>;
   notes: Record<string, string>;
   dayOverrides?: Record<string, DayOverride>;
   requiredCountOverrides?: Record<string, number>;
@@ -152,6 +154,8 @@ export function parseShiftMemoTransfer(
   const board: ShiftMemoBoardData = {
     version: 1, lanes, laneOrder: source.laneOrder, hiddenLaneIds: source.hiddenLaneIds,
     assignments, extraPeople: source.extraPeople, notes, dayOverrides,
+    ...(source.hiddenPeople === undefined ? {} : { hiddenPeople: Object.fromEntries(Object.entries(readHiddenPeople(source.hiddenPeople)).filter(([key]) =>
+      key.startsWith("driver:") ? driverIds.has(key.slice(7)) : (source.extraPeople as string[]).includes(key.slice(7)))) }),
     requiredCountOverrides: readRequiredCountOverrides(source.requiredCountOverrides),
     routeOrder, hiddenRouteIds,
     widths: object(source.widths) && [source.widths.day, source.widths.lane, source.widths.detail].every((n) => typeof n === "number" && Number.isFinite(n))

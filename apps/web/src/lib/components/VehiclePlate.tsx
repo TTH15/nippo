@@ -191,7 +191,7 @@ export function VehiclePlate({
   const classSlotW = maxGlyphW(classCat.glyphs, /^\d$/);
 
   const interactive = typeof onClick === "function";
-  const wrapperClass = `relative block text-left rounded-lg overflow-visible ${
+  const wrapperClass = `relative isolate block text-left rounded-lg overflow-visible ${
     interactive ? "border-2 transition-all" : "border-0"
   } ${
     interactive

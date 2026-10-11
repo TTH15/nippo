@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     console.error("[shared shift memo] load error", error);
     return NextResponse.json({ error: "共有メモを読み込めませんでした" }, { status: 503 });
   }
-  return NextResponse.json({ board: data?.board ?? null, revision: data?.revision ?? 0, updatedAt: data?.updated_at ?? null });
+  return NextResponse.json({ board: data?.board ?? null, revision: data?.revision ?? 0, updatedAt: data?.updated_at ?? null }, { headers: { "Cache-Control": "private, no-store", Vary: "Authorization" } });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -29,6 +29,7 @@ export async function PATCH(req: NextRequest) {
   const valueFields = new Set<string>(BOARD_VALUE_FIELDS);
   const validValue = (change: BoardChange) => {
     if (change.value === null) return mapFields.has(change.field);
+    if (change.field === "hiddenPeople") return change.value === true && /^(driver|custom):.+$/.test(change.key ?? "");
     if (change.field === "notes") return typeof change.value === "string" && change.value.length <= 2000;
     if (change.field === "dayOverrides") return change.value === "on" || change.value === "off";
     if (change.field === "requiredCountOverrides") return Number.isInteger(change.value) && Number(change.value) >= 0 && Number(change.value) <= 10;
@@ -38,11 +39,12 @@ export async function PATCH(req: NextRequest) {
   if (initialBoard !== null && (typeof initialBoard !== "object" || Array.isArray(initialBoard) || initialBoard.version !== 1
     || !Array.isArray(initialBoard.lanes) || !Array.isArray(initialBoard.laneOrder)
     || !initialBoard.assignments || typeof initialBoard.assignments !== "object" || Array.isArray(initialBoard.assignments)
+    || (initialBoard.hiddenPeople !== undefined && (!initialBoard.hiddenPeople || typeof initialBoard.hiddenPeople !== "object" || Array.isArray(initialBoard.hiddenPeople) || Object.entries(initialBoard.hiddenPeople).some(([key,value]) => value !== true || key.length > 200 || !/^(driver|custom):.+$/.test(key))))
     || JSON.stringify(initialBoard).length > 1048576)
     || !Array.isArray(changes) || changes.length < 1 || changes.length > 1000 || JSON.stringify(changes).length > 1048576
     || changes.some((change) => !change || typeof change !== "object" || !Object.hasOwn(change, "expected") || !Object.hasOwn(change, "value")
       || !(mapFields.has(change.field) && typeof change.key === "string" && change.key.length > 0 && change.key.length <= 200
-        || valueFields.has(change.field) && change.key === undefined) || !validValue(change))) {
+        || valueFields.has(change.field) && change.key === undefined) || !validValue(change) || (change.field === "hiddenPeople" && !/^(driver|custom):.+$/.test(change.key ?? "")))) {
     return NextResponse.json({ error: "共有メモの内容を確認してください" }, { status: 400 });
   }
   const orgId = user.orgId ?? await resolveOrgId(user.driverId);
@@ -54,5 +56,5 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "共有メモを保存できませんでした" }, { status: 503 });
   }
   if (!data?.saved) return NextResponse.json({ error: "同じ箇所を他の人が更新しました。最新の内容を確認してください", revision: data?.revision }, { status: 409 });
-  return NextResponse.json({ revision: data.revision, board: data.board });
+  return NextResponse.json({ revision: data.revision, board: data.board }, { headers: { "Cache-Control": "private, no-store", Vary: "Authorization" } });
 }

@@ -60,6 +60,7 @@ const adminReplacements = new Map([
   ["@/lib/map/sharedView", "kernel/sharedView.tsx"],
   ["@/lib/realtime/cellCursors", "kernel/shifts.ts"],
   ["@/server/shiftRequests/diff", "kernel/shifts.ts"],
+  ["@/server/reportKinds/answers", "kernel/reportAnswers.ts"],
   ["@simplewebauthn/browser", "kernel/webauthn-browser.ts"],
 ].map(([from, to]) => [from, path.join(root, "scripts/previews", to)]));
 const entry = productionPageEntries.get(feature) ?? path.join(source, "app/preview", feature, "page.tsx");
