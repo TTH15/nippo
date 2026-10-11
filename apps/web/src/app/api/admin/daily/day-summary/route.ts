@@ -4,6 +4,11 @@ import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 
+import { loadVehicleNumberEvidence } from "@/server/daily/vehicleNumberEvidence";
+import { loadReportContents } from "@/server/aggregation/reportContent";
+import type { ReportVehicleNumber } from "@/lib/reportVehicleNumber";
+import type { ReportContentUnit } from "@/lib/reportContent";
+
 export const dynamic = "force-dynamic";
 
 type VehiclePlatePayload = {
@@ -101,6 +106,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    const [numberEvidence, contentByReport] = await Promise.all([
+      loadVehicleNumberEvidence(supabase, orgId, reportRows),
+      loadReportContents(supabase, orgId, reportRows.map(row => row.id)),
+    ]);
+
     const reportsByDriver: Record<
       string,
       {
@@ -118,6 +128,9 @@ export async function GET(req: NextRequest) {
         vehicle_id: string | null;
         meter_value: number | null;
         vehicle_plate: VehiclePlatePayload | null;
+        vehicle_number_evidence: ReportVehicleNumber | null;
+        vehicle_number_unavailable: boolean;
+        content: ReportContentUnit[];
         amazon_am_mochidashi?: number;
         amazon_am_completed?: number;
         amazon_pm_mochidashi?: number;
@@ -146,6 +159,9 @@ export async function GET(req: NextRequest) {
         vehicle_id: r.vehicle_id ?? null,
         meter_value: r.meter_value != null ? Number(r.meter_value) : null,
         vehicle_plate: toPlatePayload(veh),
+        vehicle_number_evidence: numberEvidence.values.get(r.id) ?? null,
+        vehicle_number_unavailable: numberEvidence.unavailable && !veh?.number_numeric,
+        content: contentByReport.get(r.id) ?? [],
         amazon_am_mochidashi: r.amazon_am_mochidashi != null ? Number(r.amazon_am_mochidashi) : 0,
         amazon_am_completed: r.amazon_am_completed != null ? Number(r.amazon_am_completed) : 0,
         amazon_pm_mochidashi: r.amazon_pm_mochidashi != null ? Number(r.amazon_pm_mochidashi) : 0,
