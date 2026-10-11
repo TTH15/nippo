@@ -8,7 +8,7 @@ export function ReportVehicleNumber({ report, className = "" }: { report: {
   vehicle_number_evidence?: NumberEvidence | null; vehicle_number_unavailable?: boolean;
 }; className?: string }) {
   const plate = report.vehicle_plate;
-  if (plate?.number_numeric?.trim()) return <VehiclePlate vehicle={plate} compact className={`max-w-[150px] ${className}`} />;
+  if (plate?.number_numeric?.trim()) return <VehiclePlate vehicle={plate} compact className={`w-[100px] max-w-full shrink-0 ${className}`} />;
   const evidence = reportVehicleNumber(report.content) ?? report.vehicle_number_evidence;
   if (!evidence) return <span className="text-xs text-slate-400">{report.vehicle_number_unavailable ? "番号確認待ち" : "未登録"}</span>;
   return <span className={`inline-flex max-w-[150px] flex-col items-center gap-0.5 ${className}`}>
