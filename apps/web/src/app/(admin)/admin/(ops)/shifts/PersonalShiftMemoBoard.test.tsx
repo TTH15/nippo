@@ -265,12 +265,12 @@ describe("共有メモの保存と同期", () => {
     expect(canonical.board.hiddenPeople).toEqual({ "driver:d3": true });
     expect(canonical.board.assignments[key]).toHaveLength(1);
     expect(JSON.parse(String(patches()[0][1]?.body)).changes).toEqual([{ field: "hiddenPeople", key: "driver:d3", expected: null, value: true }]);
-    fireEvent.click(screen.getByRole("button", { name: /非表示にする.*[01]人/ })); await flush(300);
+    fireEvent.click(screen.getByRole("button", { name: /非表示の札.*[01]人/ })); await flush(300);
     expect(screen.getByRole("button", { name: "追加候補を名前札に戻す" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /^2日/ }));
     expect(screen.getByRole("button", { name: "追加候補を名前札に戻す" })).toBeVisible();
     result.unmount(); await mount();
-    fireEvent.click(screen.getByRole("button", { name: /非表示にする.*1人/ })); await flush(300);
+    fireEvent.click(screen.getByRole("button", { name: /非表示の札.*1人/ })); await flush(300);
     fireEvent.click(screen.getByRole("button", { name: "追加候補を名前札に戻す" })); await flush(80);
     expect(canonical.board.hiddenPeople).toEqual({});
     expect(canonical.board.assignments[key]).toHaveLength(1);
@@ -281,7 +281,7 @@ describe("共有メモの保存と同期", () => {
   it("配置済み札を非表示先へドロップしても配置を外さず、別の候補の同時非表示を保つ", async () => {
     canonical.board.assignments = { [key]: [{ placementId: "p3", personKey: "driver:d3", driverId: "d3", name: "追加候補" }] };
     await mount();
-    fireEvent.drop(screen.getByRole("button", { name: /非表示にする.*0人/ }).parentElement!, { dataTransfer: { getData: () => JSON.stringify({ personKey: "driver:d3", name: "追加候補", sourceKey: key, placementId: "p3" }) } });
+    fireEvent.drop(screen.getByRole("button", { name: /非表示の札.*0人/ }).parentElement!, { dataTransfer: { getData: () => JSON.stringify({ personKey: "driver:d3", name: "追加候補", sourceKey: key, placementId: "p3" }) } });
     canonical = { board: { ...canonical.board, hiddenPeople: { "driver:other": true } }, revision: 2 };
     fireEvent.click(screen.getByRole("button", { name: "更新" })); await flush(80);
     expect(canonical.board.hiddenPeople).toEqual({ "driver:d3": true, "driver:other": true });
@@ -292,9 +292,9 @@ describe("共有メモの保存と同期", () => {
   it("閲覧者は非表示一覧を確認できるが、復元もドロップ保存もできない", async () => {
     canonical.board.hiddenPeople = { "driver:d3": true };
     render(<PersonalShiftMemoBoard {...props} mode="shared" canEdit={false} onPendingChange={pending} />); await flush();
-    fireEvent.click(screen.getByRole("button", { name: /非表示にする.*1人/ })); await flush(300);
+    fireEvent.click(screen.getByRole("button", { name: /非表示の札.*1人/ })); await flush(300);
     expect(screen.getByRole("button", { name: "追加候補を名前札に戻す" })).toBeDisabled();
-    fireEvent.drop(screen.getByRole("button", { name: /非表示にする.*1人/ }).parentElement!, { dataTransfer: { getData: () => JSON.stringify({ personKey: "driver:d3", name: "追加候補" }) } });
+    fireEvent.drop(screen.getByRole("button", { name: /非表示の札.*1人/ }).parentElement!, { dataTransfer: { getData: () => JSON.stringify({ personKey: "driver:d3", name: "追加候補" }) } });
     await flush(1000); expect(patches()).toHaveLength(0);
   });
 
