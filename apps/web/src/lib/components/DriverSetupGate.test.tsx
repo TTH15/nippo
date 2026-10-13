@@ -170,3 +170,17 @@ it("SMS送信失敗では60秒待機を開始せず、そのまま再試行で�
   await screen.findByLabelText("認証コード");
   expect(screen.getByRole("button", { name: /再送まであと/ })).toBeDisabled();
 });
+
+it("SMS確認の保存後に応答が失敗しても、同じ番号の最新確認済み状態から復帰する", async () => {
+  m.bank = readyBank; gate();
+  fireEvent.click(await screen.findByRole("button", { name: "認証コードを送信" }));
+  fireEvent.change(await screen.findByLabelText("認証コード"), { target: { value: "123456" } });
+  const normal = m.api.getMockImplementation()!;
+  m.api.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === "/api/me/phone/verify") { m.verified = true; throw new Error("SMS確認は完了しました。ログイン設定を読み込み直してください"); }
+    return normal(path, init);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "電話番号を確認" }));
+  await screen.findByRole("button", { name: "確認しました" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});

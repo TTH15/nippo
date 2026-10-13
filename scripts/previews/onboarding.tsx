@@ -24,10 +24,10 @@ export default function OnboardingPreview() {
       tryResume: async () => {
         if (scenario === "loading") return new Promise(() => {});
         if (scenario === "error") throw new Error("登録内容を読み込めませんでした");
-        return scenario === "normal" || scenario === "code" ? null : { ...reg };
+        return ["normal", "code", "sms-error", "sms-send-error"].includes(scenario) ? null : { ...reg };
       },
-      sendOtp: async () => {},
-      join: async () => ({ alreadyApplied: false, reg: { ...reg } }),
+      sendOtp: async () => { if (scenario === "sms-send-error" && attempts++ === 0) throw new Error("認証コードの送信に失敗しました"); },
+      join: async (payload) => { if (payload.code !== "123456") throw new Error("認証コードが正しくありません"); return { alreadyApplied: false, reg: { ...reg } }; },
       registerPasskey: async () => {
         if (scenario === "retry" && attempts++ === 0) throw new Error("登録できませんでした");
         reg.hasPasskey = true;

@@ -4,6 +4,8 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck } from "@fortawesome/free-solid-svg-icons";
 
+const normalizeDigits = (value: string) => value.replace(/[０-９]/g, digit => String.fromCharCode(digit.charCodeAt(0) - 0xfee0)).replace(/\D/g, "");
+
 /** 6マスは表示専用。貼り付け・SMS補完・編集は単一の標準inputで扱う。 */
 export function OtpCodeInput({ value, onChange, disabled = false, confirmed = false, invalid = false }: {
   value: string; onChange: (value: string) => void; disabled?: boolean; confirmed?: boolean; invalid?: boolean;
@@ -13,6 +15,7 @@ export function OtpCodeInput({ value, onChange, disabled = false, confirmed = fa
   const [position, setPosition] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const pasted = useRef(false);
+  const composing = useRef(false);
   useLayoutEffect(() => {
     if (!pasted.current) return;
     input.current?.setSelectionRange(value.length, value.length);
@@ -31,7 +34,7 @@ export function OtpCodeInput({ value, onChange, disabled = false, confirmed = fa
         onFocus={event => { setFocused(true); setPosition(event.target.selectionStart ?? value.length); }} onBlur={() => setFocused(false)}
         onSelect={event => setPosition(event.currentTarget.selectionStart ?? 0)}
         onPaste={event => {
-          const digits = event.clipboardData.getData("text").replace(/\D/g, "");
+          const digits = normalizeDigits(event.clipboardData.getData("text"));
           if (digits.length !== 6) return;
           event.preventDefault();
           if (digits === value) { event.currentTarget.setSelectionRange(6, 6); setPosition(6); }
@@ -44,7 +47,9 @@ export function OtpCodeInput({ value, onChange, disabled = false, confirmed = fa
           const next = Math.min(value.length, Math.max(0, Math.floor((event.clientX - rect.left) / (rect.width / 6)) + 1));
           event.currentTarget.setSelectionRange(next, next); setPosition(next);
         }}
-        onChange={event => { const next = event.target.value.replace(/\D/g, "").slice(0, 6); onChange(next); setPosition(Math.min(event.target.selectionStart ?? next.length, next.length)); }} />
+        onCompositionStart={() => { composing.current = true; }}
+        onCompositionEnd={event => { composing.current = false; const next = normalizeDigits(event.currentTarget.value).slice(0, 6); onChange(next); setPosition(next.length); }}
+        onChange={event => { if (composing.current) return; const next = normalizeDigits(event.target.value).slice(0, 6); onChange(next); setPosition(Math.min(event.target.selectionStart ?? next.length, next.length)); }} />
     </div>
     <p id={`${id}-hint`} role={confirmed ? "status" : undefined} className="mt-2 text-xs text-slate-500">{confirmed ? "電話番号を確認しました" : "SMSに届いた6桁の数字"}</p>
   </div>;

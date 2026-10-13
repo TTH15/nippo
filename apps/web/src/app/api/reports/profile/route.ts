@@ -49,13 +49,14 @@ export async function GET(req: NextRequest) {
   let identityPhone: string | null = null;
   let hasPasskey = false;
   if (identityId) {
-    const [{ data: identityRow }, { count }] = await Promise.all([
+    const [{ data: identityRow, error: identityError }, { count, error: passkeyError }] = await Promise.all([
       supabase.from("identities").select("phone, phone_verified_at").eq("id", identityId).maybeSingle(),
       supabase
         .from("passkey_credentials")
         .select("id", { count: "exact", head: true })
         .eq("identity_id", identityId),
     ]);
+    if (identityError || !identityRow || passkeyError) return NextResponse.json({ error: "登録状況を確認できませんでした。もう一度お試しください" }, { status: 503 });
     phoneVerified = Boolean(identityRow?.phone_verified_at);
     identityPhone = identityRow?.phone ?? null;
     hasPasskey = (count ?? 0) > 0;

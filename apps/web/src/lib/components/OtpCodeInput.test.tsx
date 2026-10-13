@@ -48,3 +48,11 @@ it("数字以外は入れず、認証成功は入力を止めて6マスにチェ
   expect(screen.getByRole("status")).toHaveTextContent("電話番号を確認しました");
   expect(screen.getByLabelText("認証コード").parentElement?.querySelectorAll('svg')).toHaveLength(6);
 });
+
+it("全角6桁の貼り付けとIME確定は半角へ揃える", async () => {
+  const user = userEvent.setup(); render(<Form />);
+  const input = screen.getByLabelText("認証コード");
+  await user.click(input); await user.paste("１２３４５６"); expect(input).toHaveValue("123456");
+  fireEvent.compositionStart(input); fireEvent.change(input, { target: { value: "８" } });
+  fireEvent.compositionEnd(input, { target: { value: "８" } }); expect(input).toHaveValue("8");
+});

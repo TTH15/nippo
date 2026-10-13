@@ -18,11 +18,13 @@ export async function GET(req: NextRequest) {
   const identityId = await resolveIdentityId(user);
   if (!identityId) return NextResponse.json({ error: "アカウント情報が不完全です" }, { status: 400 });
 
-  const { data: identity } = await supabase
+  const { data: identity, error: identityError } = await supabase
     .from("identities")
     .select("name, dob, license_expiry, license_photo_path, face_photo_path")
     .eq("id", identityId)
     .single();
+  if (identityError || !identity) return NextResponse.json({ error: "登録状況を確認できませんでした。もう一度お試しください" }, { status: 503 });
+
   const { data: driver, error: driverError } = await supabase
     // tenant-scope-ok: requireAuth由来の本人user.driverIdだけを読み書きする
     .from("drivers")

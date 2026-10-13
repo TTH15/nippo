@@ -129,7 +129,15 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
         if (!next.profile.phoneVerified) throw new Error("電話番号の確認状況を再読み込みしてください");
         setPhoneSuccess(true);
       } else { resendCooldown.start(); setCodeSent(true); setCode(""); }
-    } catch (error) { setPhoneError(error instanceof Error ? (error.message.startsWith("登録状況を確認できませんでした") ? "" : error.message) : "確認できませんでした。もう一度お試しください"); }
+    } catch (error) {
+      if (verify) {
+        try {
+          const next = await refresh();
+          if (next.profile.phoneVerified && formatJPPhoneDisplay(next.profile.phone || "") === formatJPPhoneDisplay(phone)) { setPhoneSuccess(true); return; }
+        } catch { /* 状態の取得失敗は再読み込みの入口を残す */ }
+      }
+      setPhoneError(error instanceof Error ? (error.message.startsWith("登録状況を確認できませんでした") ? "" : error.message) : "確認できませんでした。もう一度お試しください");
+    }
     finally { setBusy(null); }
   }
   async function confirmBankEdit(previousBank: SetupBank) {

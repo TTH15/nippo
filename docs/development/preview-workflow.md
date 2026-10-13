@@ -436,3 +436,7 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 - 口座フォームは銀行/支店、種別/番号、名義の3行。種別は普通/当座/貯蓄、銀行入力48px/文字16px。1280/768/390/320pxで通常入力の内部スクロールなしを確認。新項目はfixtureでも個別保存し、マイページ・内容確認・パスキー変更で反映する。口座種別は共通Selectの下線variantで四角いfocus枠を出さない。本番の支店/種別保存には設計文書に記載の未適用migrationが必要。
 
 - 2026/10/13更新: 口座変更ボタンでstubパスキー確認を行ってから編集を開く。中止では編集を開かず、通常の保存は再確認なし。期限切れ/保存失敗時は入力保持して「パスキーで再確認して保存」へ。常設の本人確認説明/成功メッセージは削除。初回登録は確認不要を維持。
+
+### SMS認証の共通UI（2026/10/13）
+
+`npm run preview:admin -- admin --port 3241` → `/preview/admin/onboarding?scenario=normal`。本番OnboardingWizardを再利用し、OtpCodeInputとuseSmsResendCooldownを初回準備・My-pageと共用。架空の氏名/生年月日/携帯番号を入力してSMS画面へ進む。コード123456で確認、000000は誤コード。`sms-error`で誤コード復帰、`sms-send-error`で初回送信失敗を確認できる。送信先表示・番号変更・6桁貼付・最終桁削除・再送60秒待機を試す。本番adapter/招待/KYC手順は維持し、モックSMS/Passkey/保存だけを使う。レビュー結果と未適用DB・mobile条件は `docs/design/driver-start-setup-2026-10-review.md`。
