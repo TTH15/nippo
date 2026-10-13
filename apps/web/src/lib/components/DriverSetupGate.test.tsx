@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DriverSetupGate, DriverSetupPanel } from "./DriverSetupGate";
 const m = vi.hoisted(() => ({ api: vi.fn(), verified: false, bank: { bankName: "", bankNo: "", bankHolder: "" }, failRead: false, failSave: false, persistPhone: true }));
 vi.mock("@/lib/api", () => ({ apiFetch: m.api, clearAuth: vi.fn() }));
@@ -30,22 +30,31 @@ async function fillBank() {
   fireEvent.change(screen.getByLabelText("口座名義（カナ）"), { target: { value: readyBank.bankHolder } });
 }
 describe("利用開始前の登録確認", () => {
-  it.each([[false, false], [true, false], [false, true]])("電話=%s・口座=%sの未完了では通常画面を出さない", async (phone, bank) => {
+  it.each([[false, false], [true, false], [false, true]])("電話=%s・口座=%sの未完了では通常画面の上にモーダルを出す", async (phone, bank) => {
     m.verified = phone; if (bank) m.bank = readyBank;
     gate(); await screen.findByText("090-0000-0000");
-    expect(screen.queryByText("通常の業務画面")).toBeNull();
+    expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).toHaveAttribute("inert");
     expect(screen.getByRole("button", { name: "利用を開始する" })).toBeDisabled();
+  });
+  it("背景クリックやEscapeで未完了モーダルを閉じない", async () => {
+    gate(); const dialog = await screen.findByRole("dialog", { name: "利用開始の準備" });
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(dialog.parentElement!);
+    expect(dialog).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "編集を閉じる" })).toBeNull();
+    expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).toHaveAttribute("aria-hidden", "true");
   });
   it("両方登録済みならそのまま業務画面へ進む", async () => {
     m.verified = true; m.bank = readyBank; gate();
-    expect(await screen.findByText("通常の業務画面")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).not.toHaveAttribute("inert"));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
   it("取得失敗を未登録と扱わず、再読み込みで復帰する", async () => {
     m.failRead = true; gate(); await screen.findByText("登録状況を確認できませんでした。");
     expect(screen.queryByLabelText("銀行名・支店")).toBeNull();
     m.failRead = false; fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
     await screen.findByLabelText("銀行名・支店");
-    expect(screen.queryByText("通常の業務画面")).toBeNull();
+    expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).toHaveAttribute("inert");
   });
   it("保存失敗は入力を保持し、再保存とSMS確認がそろってから進む", async () => {
     gate(); await fillBank(); m.failSave = true;
@@ -61,9 +70,23 @@ describe("利用開始前の登録確認", () => {
     fireEvent.change(screen.getByLabelText("認証コード"), { target: { value: "123456" } });
     fireEvent.click(screen.getByRole("button", { name: "確認する" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "利用を開始する" })).toBeEnabled());
-    expect(screen.queryByText("通常の業務画面")).toBeNull();
+    expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).toHaveAttribute("inert");
     fireEvent.click(screen.getByRole("button", { name: "利用を開始する" }));
-    await screen.findByText("通常の業務画面");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).not.toHaveAttribute("inert");
+  });
+  it("モーダル完了後のマイページにも確認済みの状態を反映する", async () => {
+    m.bank = readyBank;
+    render(<DriverSetupGate><DriverSetupPanel /></DriverSetupGate>);
+    const modal = within(await screen.findByRole("dialog", { name: "利用開始の準備" }));
+    fireEvent.click(await modal.findByRole("button", { name: "認証コードを送信" }));
+    fireEvent.change(await modal.findByLabelText("認証コード"), { target: { value: "123456" } });
+    fireEvent.click(modal.getByRole("button", { name: "確認する" }));
+    await waitFor(() => expect(modal.getByRole("button", { name: "利用を開始する" })).toBeEnabled());
+    fireEvent.click(modal.getByRole("button", { name: "利用を開始する" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.getAllByText("完了")).toHaveLength(2));
+    expect(screen.queryByRole("button", { name: "認証コードを送信" })).toBeNull();
   });
   it("SMS APIが成功しても取得結果が未確認なら進めない", async () => {
     m.bank = readyBank; m.persistPhone = false; gate();

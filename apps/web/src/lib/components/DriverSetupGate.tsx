@@ -4,6 +4,7 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch, clearAuth } from "@/lib/api";
+import { EditorModal } from "@/lib/components/EditorModal";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { useUnsavedChanges } from "@/lib/recordForms/useUnsavedChanges";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
@@ -98,7 +99,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   }
 
   const complete = !!state && state.profile.phoneVerified && hasSetupBank(state.bank) && !loadError;
-  if (required && entered && complete) return <>{children}</>;
+  const blocked = required && !(entered && complete);
   const body = <>
     {loadError && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
       <p>登録状況を確認できませんでした。</p><button type="button" onClick={() => void retry()} disabled={loading || !!busy} className="mt-2 min-h-11 font-semibold underline">再読み込み</button>
@@ -137,17 +138,21 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
         {bankSaved && <p role="status" className="mt-3 text-sm text-green-700">振込口座を保存しました</p>}
       </section>
     </div>}
-    {required && <button type="button" disabled={!complete || !!busy || loading || dirty} onClick={() => setEntered(true)} className={`${buttonClass} mt-6 w-full`}>利用を開始する</button>}
   </>;
   if (!required) return <section className="mb-8" aria-label="登録情報"><h2 className="mb-3 text-base font-bold text-slate-900">登録情報</h2>{body}</section>;
-  return <main className="min-h-screen bg-[var(--color-bg)] px-4 py-8"><div className="mx-auto max-w-lg">
-    <div className="mb-6"><img src="/logo/hakotora-logo_secondary_logo.svg" alt="ハコ虎" className="h-12 w-auto" /></div>
-    <h1 className="mb-2 text-xl font-bold text-slate-900">利用開始の準備</h1>
-    <p className="mb-6 text-sm text-slate-600">電話番号の確認と振込口座の登録が必要です。</p>
-    {body}
-    <button type="button" disabled={!!busy} onClick={() => setLogoutConfirming(true)} className="mt-4 min-h-11 w-full text-sm text-slate-500">ログアウト</button>
-    <ConfirmDialog open={logoutConfirming} title="ログアウト" message={dirty ? "入力中の振込口座を破棄してログアウトしますか？" : "ログアウトしますか？"} confirmLabel="ログアウト" cancelLabel="戻る" tone="neutral" onClose={() => setLogoutConfirming(false)} onConfirm={() => { clearAuth(); window.location.href = "/login"; }} />
-  </div></main>;
+  return <>
+    {/* 背景は入力中に操作できない。解除時に再取得し、登録前の表示を残さない。 */}
+    <div key={entered ? "ready" : "setup"} data-driver-setup-background inert={blocked || undefined} aria-hidden={blocked || undefined}>{children}</div>
+    {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" dismissible={false} onClose={() => {}} footer={<>
+      <button type="button" disabled={!complete || !!busy || loading || dirty} onClick={() => setEntered(true)} className={`${buttonClass} w-full`}>利用を開始する</button>
+      <button type="button" disabled={!!busy} onClick={() => setLogoutConfirming(true)} className="mt-2 min-h-11 w-full text-sm text-slate-500">ログアウト</button>
+    </>}>
+      <p className="mb-4 text-sm text-slate-600">電話番号の確認と振込口座の登録が必要です。</p>
+      {body}
+      <ConfirmDialog open={logoutConfirming} title="ログアウト" message={dirty ? "入力中の振込口座を破棄してログアウトしますか？" : "ログアウトしますか？"} confirmLabel="ログアウト" cancelLabel="戻る" tone="neutral" onClose={() => setLogoutConfirming(false)} onConfirm={() => { clearAuth(); window.location.href = "/login"; }} />
+    </EditorModal>}
+  </>;
+
 }
 
 function SetupBadge({ complete }: { complete: boolean }) {

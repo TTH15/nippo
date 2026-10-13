@@ -417,3 +417,6 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 
 `npm run preview:admin -- admin --port 3241` → `http://127.0.0.1:3241/preview/admin/driver-setup?scenario=both-missing`。
 本番DriverSetupGate / DriverSetupPanel / MePageContentとNav・UserBottomNavを再利用する。`/preview/admin/me?scenario=normal` でマイページを直接開く。両方未完了・電話だけ未確認・口座だけ不足・番号なし・完了・長文・loading/error・保存後の取得失敗を切替可能。架空SMSは123456、000000は誤コード。次の保存失敗、再送、再保存、再読み込み、編集取り消し、初期化を試せる。fixtureはメモリ内のみで本番API/DB/認証/SMS/通知へ接続しない。PCでは監査用に本文を出す。1280/768/390/320pxと入力保持・完了遷移をアプリ内ブラウザで確認。実SMS・実保存・ネイティブは未検証。[設計とレビュー範囲](../design/driver-start-setup-2026-10.md)。
+
+
+- 2026/10/13追記: 利用開始準備は通常画面の上のモーダルへ変更。背景操作を止め、モーダル内だけスクロールする。未完了では背景クリック・Escapeで閉じない。保存失敗は `driver-setup?scenario=save-error`、保存後の取得失敗は `scenario=refresh-error` で試す。準備モーダル中は背面のfixture操作バーも覆うため、状態はURLで指定する。完了後のマイページ反映・背景操作/スクロール復帰、Tab巡回、ログアウト確認からの復帰と4幅を再確認。

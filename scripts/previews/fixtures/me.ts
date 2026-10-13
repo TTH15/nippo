@@ -1,6 +1,6 @@
 import { accountFixture } from "./account";
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
-export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createState> & { phoneVerified: boolean; phoneSent: boolean; bank: { bankName: string; bankNo: string; bankHolder: string }; readAttempts: number }> = {
+export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createState> & { phoneVerified: boolean; phoneSent: boolean; bank: { bankName: string; bankNo: string; bankHolder: string }; readAttempts: number; writeAttempts: number }> = {
   id: "me", title: "マイページ・ログイン設定", pathname: "/me",
   scenarios: {
     "both-missing": { label: "両方未完了", description: "SMSと振込口座の両方が必要" },
@@ -8,6 +8,7 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
     "no-phone": { label: "電話番号なし", description: "運営へ登録を依頼" },
     "bank-missing": { label: "口座未登録", description: "電話番号のみ確認済み" },
     "long-name": { label: "長い名前", description: "長い名義・支店名" },
+    "save-error": { label: "保存失敗", description: "最初の口座保存だけ失敗し、再保存で復帰" },
     "refresh-error": { label: "保存後の取得失敗", description: "保存後の再確認が一度失敗し、再読み込みで復帰" },
     normal: { label: "招待ユーザー", description: "PIN変更を表示せず、かんたんログインを設定できる" },
     registered: { label: "設定済み", description: "設定済みの案内を表示する" },
@@ -15,7 +16,7 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
     lastkey: { label: "最後の鍵", description: "最後の鍵の削除を防ぐ" },
   },
   createState: (context) => ({ ...accountFixture.createState({ ...context, scenario: context.scenario === "registered" ? "normal" : context.scenario === "normal" ? "empty" : context.scenario }),
-    phoneVerified: !["both-missing", "phone-missing", "no-phone"].includes(context.scenario), phoneSent: false, readAttempts: 0,
+    phoneVerified: !["both-missing", "phone-missing", "no-phone"].includes(context.scenario), phoneSent: false, readAttempts: 0, writeAttempts: 0,
     bank: ["normal", "registered", "phone-missing", "long-name"].includes(context.scenario)
       ? { bankName: context.scenario === "long-name" ? "見本銀行 配送事業者共同営業センター支店" : "見本銀行 中央支店", bankNo: "1234567", bankHolder: context.scenario === "long-name" ? "カブシキガイシャ ミホンハイソウサービス ダイヒョウトリシマリヤク ミホン タロウ" : "ミホン タロウ" }
       : { bankName: "", bankNo: "", bankHolder: "" },
@@ -32,7 +33,7 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
     if (path === "/api/me/line") return { configured: false, linked: false, linkedAt: null, blocked: false };
     if (path === "/api/me/push") return { configured: false, publicKey: null };
     if (path === "/api/me/registration") {
-      if (scenario === "refresh-error" && state.bank.bankNo && state.readAttempts++ === 0) throw new Error("登録状況の再確認に失敗しました");
+      if (scenario === "refresh-error" && state.bank.bankNo && state.readAttempts++ < 2) throw new Error("登録状況の再確認に失敗しました");
       return { complete: true, kycVerified: true, hasPasskey: state.hasPasskey, ...state.bank };
     }
     return [];
@@ -47,6 +48,7 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
       state.phoneVerified = true; state.phoneSent = false; return { ok: true };
     }
     if (request.path === "/api/me/registration") {
+      if (context.scenario === "save-error" && state.writeAttempts++ === 0) throw new Error("保存できませんでした。入力を残したまま再度保存してください");
       const { bankName, bankNo, bankHolder } = request.body;
       if (typeof bankName !== "string" || typeof bankNo !== "string" || typeof bankHolder !== "string") throw new Error("振込口座を入力してください");
       state.bank = { bankName, bankNo, bankHolder }; return { ok: true };
