@@ -140,7 +140,8 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     </label>)}
     {!required && !editingBank && <button type="submit" disabled={!!busy} className={`${buttonClass} w-full`}>{busy === "bank" ? "保存中…" : "振込口座を登録"}</button>}
   </form>;
-  const phoneSection = state && <section className="rounded-lg border border-slate-200 bg-white p-4">
+  const setupSectionClass = required ? "w-full py-3" : "rounded-lg border border-slate-200 bg-white p-4";
+  const phoneSection = state && <section className={setupSectionClass}>
     <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">電話番号の確認</h2><SetupBadge complete={state.profile.phoneVerified} /></div>
     {state.profile.phoneVerified ? <p className="text-base font-semibold text-slate-900">{formatJPPhoneDisplay(state.profile.phone || phone)}</p> : <>
       <label className="block space-y-2 text-sm text-slate-600"><span>電話番号 <span className="text-xs text-red-700">必須</span></span><input aria-label="電話番号" type="tel" autoComplete="tel" inputMode="tel" value={phone} disabled={!!busy || codeSent} onChange={event => setPhone(event.target.value)} className={inputClass} placeholder="090-1234-5678" /></label>
@@ -153,7 +154,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     </>}
     {phoneError && <p role="alert" className="mt-3 text-sm text-red-700">{phoneError}</p>}
   </section>;
-  const bankSection = state && <section className="rounded-lg border border-slate-200 bg-white p-4">
+  const bankSection = state && <section className={setupSectionClass}>
     <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">振込口座</h2><SetupBadge complete={hasSetupBank(state.bank)} completeLabel="登録済み" /></div>
     {changingBank ? <>
       <BankSummary bank={state.bank} />
@@ -192,7 +193,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   </>;
   return <>
     <div key={entered ? "ready" : "setup"} data-driver-setup-background inert={blocked || undefined} aria-hidden={blocked || undefined}>{children}</div>
-    {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" fixedHeight dismissible={false} onClose={() => {}} footer={footer}>{status}{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}{bankEditor}</EditorModal>}
+    {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" fixedHeight dismissible={false} onClose={() => {}} footer={footer}><div className="flex min-h-full flex-col justify-center">{status}{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}</div>{bankEditor}</EditorModal>}
   </>;
 }
 function BankSummary({ bank, reveal = false }: { bank: BankAccount; reveal?: boolean }) {
