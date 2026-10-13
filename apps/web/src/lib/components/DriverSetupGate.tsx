@@ -192,7 +192,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   </>;
   return <>
     <div key={entered ? "ready" : "setup"} data-driver-setup-background inert={blocked || undefined} aria-hidden={blocked || undefined}>{children}</div>
-    {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" dismissible={false} onClose={() => {}} footer={footer}>{status}{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}{bankEditor}</EditorModal>}
+    {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" fixedHeight dismissible={false} onClose={() => {}} footer={footer}>{status}{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}{bankEditor}</EditorModal>}
   </>;
 }
 function BankSummary({ bank, reveal = false }: { bank: BankAccount; reveal?: boolean }) {
