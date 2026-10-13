@@ -99,3 +99,12 @@ it("既存口座の支店・種別の補完もパスキーを要求し、確認�
   expect((await POST(req({ ...full, bankBranch: "別支店" }, proof))).status).toBe(403);
   expect((await POST(req(full, proof))).status).toBe(200);
 });
+
+it("旧形式番号の表記整理と不足名義の初回補完は許可し、番号変更は拒否する", async () => {
+  m.row.bank_name = "見本銀行 中央支店"; m.row.bank_no = "普通 01234567";
+  const filled = { bankName: "見本銀行", bankBranch: "中央支店", bankType: "ordinary", bankNo: "01234567", bankHolder: "ミホン" };
+  expect((await POST(req({ ...filled, bankNo: "9999999" }))).status).toBe(403);
+  expect((await POST(req(filled))).status).toBe(200);
+  expect(m.row.bank_no).toBe("01234567"); expect(m.row.bank_account_type).toBe("ordinary"); expect(m.row.bank_name).toBe("見本銀行 中央支店");
+  expect(m.filters).toContainEqual(["bank_no", "普通 01234567"]); expect(m.rpc).not.toHaveBeenCalled();
+});

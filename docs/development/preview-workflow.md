@@ -460,3 +460,7 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 ## 2026/10/11 共有メモと日報番号
 
 [限定リリース記録](shared-memo-daily-release-2026-10-11.md)に本番ページ再利用元・起動方法・scenario・制限を記載。daily/vehicle-number、shifts/shared-live・shared-slow・shared-missed・shared-lost-response・plate-overlapを追加。
+
+### 旧形式口座の利用開始（2026/10/14）
+
+`npm run preview:admin -- admin --port 3243` → `/preview/admin/driver-setup?scenario=legacy-bank-complete` は新しい支店・種別がなくてもモーダルを出さない。`legacy-bank-incomplete` は架空の「普通 01234567」と未入力名義を持ち、支店不足の具体的な表示→支店と名義補完→利用開始を試す。本番DriverSetupGate/MePageContentを再利用し、保存はfixture内のみ。320×600/1280×800を確認。本番DB・SMS・OS Passkeyには接続しない。
