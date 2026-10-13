@@ -8,6 +8,7 @@ vi.mock("@simplewebauthn/browser", () => ({ startAuthentication: m.passkey }));
 vi.mock("@/lib/webauthnHost", () => ({ useIsWebAuthnHost: () => true }));
 const readyBank = { bankName: "見本銀行 中央支店", bankNo: "1234567", bankHolder: "ミホン タロウ" };
 beforeEach(() => {
+  sessionStorage.removeItem("nippo_phone_resend_after");
   m.verified = false; m.phone = "09000000000"; m.hasKey = true; m.bank = { bankName: "", bankNo: "", bankHolder: "" };
   m.failRead = false; m.failSave = false; m.persistPhone = true; m.passkey.mockReset().mockResolvedValue({ id: "key" });
   m.api.mockReset().mockImplementation(async (path: string, init?: RequestInit) => {
@@ -138,6 +139,15 @@ it("番号を入力し直すとコード欄を閉じて番号編集に戻る", a
   fireEvent.click(screen.getByRole("button", { name: "番号を入力し直す" }));
   expect(screen.getByLabelText("電話番号")).toBeEnabled();
   await waitFor(() => expect(screen.queryByLabelText("認証コード")).toBeNull());
+  expect(screen.getByRole("button", { name: /送信まであと/ })).toBeDisabled();
+});
+it("SMS送信失敗では60秒待機を開始せず、そのまま再試行できる", async () => {
+  gate(); await screen.findByLabelText("電話番号");
+  m.api.mockRejectedValueOnce(new Error("認証コードの送信に失敗しました"));
   fireEvent.click(screen.getByRole("button", { name: "認証コードを送信" }));
-  expect(await screen.findByLabelText("認証コード")).toHaveValue("");
+  await screen.findByText("認証コードの送信に失敗しました");
+  expect(screen.getByRole("button", { name: "認証コードを送信" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "認証コードを送信" }));
+  await screen.findByLabelText("認証コード");
+  expect(screen.getByRole("button", { name: /再送まであと/ })).toBeDisabled();
 });

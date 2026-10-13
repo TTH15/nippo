@@ -6,6 +6,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 import { OtpCodeInput } from "@/lib/components/OtpCodeInput";
 import { disclosureTransition, instantTransition, setupConfirmationDelayMs } from "@/lib/ui/motion";
+import { useSmsResendCooldown } from "@/lib/hooks/useSmsResendCooldown";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck, faLock } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch } from "@/lib/api";
@@ -31,6 +32,7 @@ export function DriverSetupGate({ children }: { children: ReactNode }) {
 export function DriverSetupPanel({ required = false, children, onDirtyChange }: { required?: boolean; children?: ReactNode; onDirtyChange?: (dirty: boolean) => void }) {
   const id = useId();
   const reduceMotion = useReducedMotion();
+  const resendCooldown = useSmsResendCooldown();
   const supported = useIsWebAuthnHost();
   const [state, setState] = useState<SetupState | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -125,7 +127,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     } finally { setBusy(null); }
   }
   async function phoneAction(verify: boolean) {
-    if (!phone.trim() || busy || phoneSuccess) return;
+    if (!phone.trim() || busy || phoneSuccess || (!verify && resendCooldown.seconds > 0)) return;
     setPhoneError(""); setBusy(verify ? "verify" : "send");
     try {
       await apiFetch(`/api/me/phone/${verify ? "verify" : "send"}`, { method: "POST", body: JSON.stringify({ phone: phone.trim(), ...(verify ? { code } : {}) }) });
@@ -133,7 +135,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
         const next = await refresh();
         if (!next.profile.phoneVerified) throw new Error("電話番号の確認状況を再読み込みしてください");
         setPhoneSuccess(true);
-      } else { setCodeSent(true); setCode(""); }
+      } else { resendCooldown.start(); setCodeSent(true); setCode(""); }
     } catch (error) { setPhoneError(error instanceof Error ? (error.message.startsWith("登録状況を確認できませんでした") ? "" : error.message) : "確認できませんでした。もう一度お試しください"); }
     finally { setBusy(null); }
   }
@@ -168,9 +170,9 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
         </motion.div>}
       <SmoothCollapse open={codeSent || phoneSuccess}>
         <OtpCodeInput value={code} onChange={value => { setCode(value); setPhoneError(""); }} disabled={!!busy} confirmed={phoneSuccess} invalid={!!phoneError} />
-        {!phoneSuccess && <button type="button" disabled={!!busy} onClick={() => void phoneAction(false)} className="mt-2 min-h-11 text-sm text-slate-600 underline">コードを再送する</button>}
+        {!phoneSuccess && <button type="button" disabled={!!busy || resendCooldown.seconds > 0} onClick={() => void phoneAction(false)} className="mt-2 min-h-11 text-sm tabular-nums text-slate-600 underline disabled:text-slate-400 disabled:no-underline">{resendCooldown.seconds > 0 ? `再送まであと${resendCooldown.seconds}秒` : "コードを再送する"}</button>}
       </SmoothCollapse>
-      {!required && <button type="button" disabled={!!busy || phoneSuccess || !phone.trim() || (codeSent && code.length !== 6)} onClick={() => void phoneAction(codeSent)} className={`${buttonClass} mt-4 w-full`}>{phoneSuccess ? "確認しました" : busy ? "確認中…" : codeSent ? "電話番号を確認" : "認証コードを送信"}</button>}
+      {!required && <button type="button" disabled={!!busy || phoneSuccess || !phone.trim() || (codeSent ? code.length !== 6 : resendCooldown.seconds > 0)} onClick={() => void phoneAction(codeSent)} className={`${buttonClass} mt-4 w-full`}>{phoneSuccess ? "確認しました" : busy ? "確認中…" : codeSent ? "電話番号を確認" : resendCooldown.seconds > 0 ? `送信まであと${resendCooldown.seconds}秒` : "認証コードを送信"}</button>}
     </>}
     {phoneError && <p role="alert" className="mt-3 text-sm text-red-700">{phoneError}</p>}
   </section>;
@@ -207,7 +209,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   const active = steps[stepIndex];
   const action = state && (phoneSuccess ? <button type="button" disabled className={`${buttonClass} w-full`}>確認しました</button>
     : complete ? <button key="complete" type="button" disabled={!!busy || loading || dirty} onClick={() => setEntered(true)} className={`${buttonClass} w-full`}>利用を開始する</button>
-    : active === "phone" ? <button key="phone" type="button" disabled={!!busy || loading || !phone.trim() || (codeSent && code.length !== 6)} onClick={() => state.profile.phoneVerified ? setStepIndex(stepIndex + 1) : void phoneAction(codeSent)} className={`${buttonClass} w-full`}>{busy ? "確認中…" : state.profile.phoneVerified ? "次へ" : codeSent ? "電話番号を確認" : "認証コードを送信"}</button>
+    : active === "phone" ? <button key="phone" type="button" disabled={!!busy || loading || !phone.trim() || (!state.profile.phoneVerified && (codeSent ? code.length !== 6 : resendCooldown.seconds > 0))} onClick={() => state.profile.phoneVerified ? setStepIndex(stepIndex + 1) : void phoneAction(codeSent)} className={`${buttonClass} w-full`}>{busy ? "確認中…" : state.profile.phoneVerified ? "次へ" : codeSent ? "電話番号を確認" : resendCooldown.seconds > 0 ? `送信まであと${resendCooldown.seconds}秒` : "認証コードを送信"}</button>
     : !changingBank ? <button key="bank" type="submit" form={`${id}-bank-form`} disabled={!!busy || loading || loadError} className={`${buttonClass} w-full`}>{busy === "bank" ? "保存中…" : "口座を登録して利用を開始"}</button> : null);
   const footer = <>{action}
     {steps.length > 0 && <div className="relative mt-3 flex min-h-11 items-center justify-center">{stepIndex > 0 && <button type="button" disabled={!!busy} onClick={() => setStepIndex(stepIndex - 1)} className="absolute left-0 min-h-11 px-2 text-xs text-slate-600">戻る</button>}<p aria-label="登録の進み具合" aria-live="polite" className="text-sm font-medium tabular-nums text-slate-600">{stepIndex + 1} / {steps.length}</p></div>}
