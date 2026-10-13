@@ -44,3 +44,19 @@ it("口座変更ページからマイページへ移っても保存した架空�
   expect(await returned.fetch("/api/me/registration")).toMatchObject(target);
   returned.reset(); expect(await returned.fetch("/api/me/registration")).toMatchObject({ bankNo: "1234567" });
 });
+
+it("管理画面で保存した独立口座を本人の変更ページでも読み、旧形式は未保存なら維持する", async () => {
+ const { usersFixture } = await import("../../../../../scripts/previews/fixtures/users");
+ const context = { scenario: "bank-legacy-other", role: "admin" as const };
+ const admin = createFixtureStore(usersFixture, context); admin.reset();
+ const old = (await admin.fetch("/api/admin/users/driver-1") as { driver: Record<string, unknown> }).driver;
+ expect(old.bank_no).toBe("別段 01234567"); expect(old.bank_account_type).toBeNull();
+ await admin.fetch("/api/admin/users/driver-1", { method:"PUT", body: JSON.stringify({ displayName:"見本" }) });
+ expect((await admin.fetch("/api/admin/users/driver-1", { fresh:true }) as { driver: Record<string, unknown> }).driver.bank_no).toBe("別段 01234567");
+ const next = { bankName:"見本銀行", bankBranch:"中央支店", bankType:"other", bankTypeOther:"別段", bankNo:"01234567", bankHolder:"ミホン タロウ" };
+ await admin.fetch("/api/admin/users/driver-1", { method:"PUT", body: JSON.stringify(next) });
+ const self = createFixtureStore(meFixture,context);
+ expect(await self.fetch("/api/me/registration")).toMatchObject(next);
+ expect((await admin.fetch("/api/admin/users/driver-1", { fresh:true }) as { driver: Record<string, unknown> }).driver).toMatchObject({ bank_name:"見本銀行", bank_branch_name:"中央支店", bank_no:"01234567", bank_account_type:"other", bank_account_type_other:"別段" });
+ admin.reset();
+});

@@ -464,3 +464,9 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 ### 旧形式口座の利用開始（2026/10/14）
 
 `npm run preview:admin -- admin --port 3243` → `/preview/admin/driver-setup?scenario=legacy-bank-complete` は新しい支店・種別がなくてもモーダルを出さない。`legacy-bank-incomplete` は架空の「普通 01234567」と未入力名義を持ち、支店不足の具体的な表示→支店と名義補完→利用開始を試す。本番DriverSetupGate/MePageContentを再利用し、保存はfixture内のみ。320×600/1280×800を確認。本番DB・SMS・OS Passkeyには接続しない。
+
+### 口座保存形式の統一・その他（2026/10/14）
+
+`npm run preview:admin -- admin --port 3245`。管理は `/preview/admin/users?scenario=bank-legacy-other&role=admin`（見本 太郎→契約）、本人は `/preview/admin/bank-change?scenario=bank-other&role=admin`、初回は `/preview/admin/driver-setup?scenario=bank-missing&role=admin` で種別のその他を選ぶ。
+
+bank-canonical / bank-other / bank-legacy / bank-legacy-otherでは、上部の管理画面・マイページ・口座変更ボタンを同じタブで切替すると架空の保存値を共有する。フル再読込や初期化ではリセット。実UsersPage/DriverSetupPanel/MePageContentを再利用し、旧結合値→管理保存→本人確認→本人保存→管理再表示、具体名不足、普通への変更で具体名クリアを操作できる。保存失敗は共通の「次の保存を失敗させる」を使用。全値は架空で本番API/DB/SMS/OS Passkeyへ接続しない。新migrationは本番未適用。

@@ -1,3 +1,4 @@
+import { bankAccountLegacyDisplay } from "@/lib/bankAccount";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
@@ -6,7 +7,7 @@ import { resolveIdentityId } from "@/server/identity";
 export const dynamic = "force-dynamic";
 
 const DRIVER_FIELDS =
-  "name, office_code, driver_code, display_name, postal_code, address, phone, bank_name, bank_no, bank_holder";
+  "name, office_code, driver_code, display_name, postal_code, address, phone, bank_name, bank_no, bank_holder, bank_branch_name, bank_account_type, bank_account_type_other";
 
 /** ログイン中ドライバーのプロフィール（表示・配達受託者控オーバーレイ用） */
 export async function GET(req: NextRequest) {
@@ -73,9 +74,7 @@ export async function GET(req: NextRequest) {
     phoneVerified,
     hasPasskey,
     canChangePin: false,
-    bankName: driver.bank_name ?? "",
-    bankNo: driver.bank_no ?? "",
-    bankHolder: driver.bank_holder ?? "",
+    ...bankAccountLegacyDisplay(driver),
     identities,
   });
 }

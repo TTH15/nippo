@@ -12,7 +12,7 @@ const pillOff = `${pill} border-slate-300 bg-white text-slate-600 hover:border-s
 const pillOn = `${pill} border-slate-900 bg-slate-900 text-white`;
 
 export function ScenarioBar() {
-  const { store, search } = usePreviewRuntime();
+  const { store, search, navigate } = usePreviewRuntime();
   useStoreRevision(store);
   const currentPath = window.location.pathname;
   const go = (next: { scenario?: string; role?: PreviewRole }) => {
@@ -26,6 +26,9 @@ export function ScenarioBar() {
         一覧
       </a>
       <span className="font-bold text-slate-700">{store.fixture.title}</span>
+      {store.scenario.startsWith("bank-") && ["bank-canonical", "bank-other", "bank-legacy", "bank-legacy-other"].includes(store.scenario) && <span className="flex items-center gap-1" aria-label="口座プレビューの画面">
+        {[["管理画面", "/admin/users"], ["マイページ", "/me"], ["口座変更", "/account/bank-change"]].map(([label, path]) => <button key={path} type="button" className={pillOff} onClick={() => navigate(path)}>{label}</button>)}
+      </span>}
       <span className="flex flex-wrap items-center gap-1" aria-label="シナリオ">
         {Object.entries(store.scenarios).map(([key, definition]) => (
           <button key={key} type="button" title={definition.description} className={key === store.scenario ? pillOn : pillOff} onClick={() => go({ scenario: key })}>

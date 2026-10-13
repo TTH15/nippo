@@ -1,3 +1,6 @@
+import { adminBankAccountUpdates } from "@/lib/adminBankAccount";
+import type { BankStorage } from "@/lib/bankAccount";
+import { bankPreviewScenarios, getPreviewBank, savePreviewBank, resetPreviewBank } from "./bankPreviewStore";
 // ドライバー一覧（本番 /admin/users のページ本体）用の架空データ。実在の個人情報は含まない。
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 
@@ -13,7 +16,7 @@ export type MockDriver = {
   company_code?: string; office_code: string; driver_code: string; list_no?: number | null; created_at?: string;
   license_expiry_date?: string | null; status?: string; active_from_month?: string | null; active_until_month?: string | null;
   postal_code?: string | null; address?: string | null; phone?: string | null;
-  bank_name?: string | null; bank_no?: string | null; bank_holder?: string | null;
+  bank_name?: string | null; bank_no?: string | null; bank_holder?: string | null; bank_branch_name?: string | null; bank_account_type?: BankStorage["bank_account_type"]; bank_account_type_other?: string | null;
   driver_identities?: Identity[];
 };
 type Lease = { id?: string; mode: "MONTHLY" | "DAILY"; amount: number; valid_from: string; valid_to?: string | null };
@@ -99,16 +102,19 @@ export const usersFixture: PreviewFixture<State> = {
   title: "ドライバー一覧",
   pathname: "/admin/users",
   scenarios: {
+    ...bankPreviewScenarios,
     normal: { label: "通常", description: "稼働中8名・稼働終了2名。免許期限間近・コース未設定・電話未認証を含む" },
     empty: { label: "0件", description: "ドライバーが1人もいない" },
     "long-name": { label: "長い名前", description: "長い氏名・表示名・住所・銀行名と1文字の氏名" },
     large: { label: "大量", description: "45名。20名ずつの追加読み込み" },
   },
-  createState: ({ scenario }) => ({
-    drivers: scenario === "empty" ? [] : scenario === "long-name" ? longNameDrivers() : scenario === "large" ? manyDrivers() : seedDrivers(),
+  createState: (context) => ({
+    drivers: context.scenario in bankPreviewScenarios ? [makeDriver(0, "見本 太郎", { ...getPreviewBank(context), company_code: "TST", office_code: "000001", driver_code: "TST000001", driver_identities: [identity(0, 1, "000001", "TST000001", ["course-1"])] })] : context.scenario === "empty" ? [] : context.scenario === "long-name" ? longNameDrivers() : context.scenario === "large" ? manyDrivers() : seedDrivers(),
     leases: new Map(),
   }),
-  read: (state, { path, params }) => {
+  onReset: context => resetPreviewBank(context),
+  read: (state, { path, params }, context) => {
+    const shared = getPreviewBank(context); if (shared && state.drivers[0]) Object.assign(state.drivers[0], shared);
     if (path === "/api/admin/users") {
       const status = params.get("status") ?? "active";
       const list = state.drivers.filter((d) => (d.status ?? "active") === status);
@@ -130,7 +136,7 @@ export const usersFixture: PreviewFixture<State> = {
     }
     return undefined;
   },
-  write: (state, { path, method, body }) => {
+  write: (state, { path, method, body }, context) => {
     if (path === "/api/admin/users" && method === "POST") {
       const i = state.drivers.length;
       const driver = makeDriver(i, String(body.name ?? "新規ドライバー"), {
@@ -138,7 +144,7 @@ export const usersFixture: PreviewFixture<State> = {
         office_code: String(body.officeCode ?? "0901"), driver_code: String(body.driverCode ?? String(1100 + i)),
         phone_verified_at: null, has_passkey: false, license_expiry_date: (body.licenseExpiryDate as string) ?? null,
         postal_code: (body.postalCode as string) ?? null, address: (body.address as string) ?? null, phone: (body.phone as string) ?? null,
-        bank_name: (body.bankName as string) ?? null, bank_no: (body.bankNo as string) ?? null, bank_holder: (body.bankHolder as string) ?? null,
+        ...adminBankAccountUpdates(body),
         driver_identities: [identity(i, 1, String(body.officeCode ?? "0901"), String(body.driverCode ?? String(1100 + i)), Array.isArray(body.courseIds) ? (body.courseIds as string[]) : [])],
       });
       state.drivers.push(driver);
@@ -166,7 +172,10 @@ export const usersFixture: PreviewFixture<State> = {
     if (match && method === "PUT") {
       const driver = state.drivers.find((d) => d.id === match[1]);
       if (!driver) return undefined;
+      Object.assign(driver, adminBankAccountUpdates(body));
+      if (driver.id === "driver-1") savePreviewBank(context, { bank_name: driver.bank_name ?? null, bank_no: driver.bank_no ?? null, bank_holder: driver.bank_holder ?? null, bank_branch_name: driver.bank_branch_name ?? null, bank_account_type: driver.bank_account_type ?? null, bank_account_type_other: driver.bank_account_type_other ?? null });
       for (const [key, value] of Object.entries(body)) {
+        if (key.startsWith("bank")) continue;
         if (["courseIds", "courseIds2", "officeCode2", "driverNumber2"].includes(key)) continue;
         (driver as Record<string, unknown>)[snake(key)] = value;
       }

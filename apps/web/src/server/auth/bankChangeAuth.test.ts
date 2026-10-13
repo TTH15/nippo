@@ -52,7 +52,7 @@ it("使用済み記録が保存できない場合は成功にしない", async (
 it("支店が明示された保存値だけを分離し、従来の銀行・支店文字列を推測分割しない", () => {
   expect(bankSnapshotValues({ bank_name: "見本銀行 中央支店", bank_no: "01234567", bank_holder: "ミホン", bank_branch_name: "中央支店", bank_account_type: "ordinary" })).toEqual({ bankName: "見本銀行", bankBranch: "中央支店", bankType: "ordinary", bankNo: "01234567", bankHolder: "ミホン" });
   expect(bankSnapshotValues({ bank_name: "古い銀行 支店", bank_no: "1234567", bank_holder: "ミホン" })).toEqual({ bankName: "古い銀行 支店", bankNo: "1234567", bankHolder: "ミホン" });
-  expect(bankSnapshotValues({ bank_name: "変更後銀行 別支店", bank_no: "1234567", bank_holder: "ミホン", bank_branch_name: "中央支店", bank_account_type: "ordinary" })).not.toHaveProperty("bankBranch");
+  expect(bankSnapshotValues({ bank_name: "変更後銀行 別支店", bank_no: "1234567", bank_holder: "ミホン", bank_branch_name: "中央支店", bank_account_type: "ordinary" })).toMatchObject({ bankBranch: "中央支店", bankType: "ordinary" });
 });
 
 it("編集開始の確認は変更前の口座とセッションに限定し、保存時に1回だけ使う", async () => {
@@ -68,4 +68,13 @@ it("編集開始の確認は変更前の口座とセッションに限定し、�
   expect(await consumeBankChangeGrant(req(proof), user, before, after)).toBe(false);
   vi.advanceTimersByTime(300000);
   expect(await consumeBankChangeGrant(req(proof), user, before, after)).toBe(false);
+});
+
+it("その他の具体名は変更前と変更後の確認情報へ束縛する", async () => {
+ const customBefore = { ...before, bank_branch_name: "中央支店", bank_account_type: "other" as const, bank_account_type_other: "別段" };
+ const customAfter = { ...after, bankBranch: "中央支店", bankType: "other" as const, bankTypeOther: "別段" };
+ const proof = await issueBankChangeGrant(req(), user, bankBeforeHash(customBefore), bankAfterHash(customAfter));
+ expect(await consumeBankChangeGrant(req(proof), user, { ...customBefore, bank_account_type_other: "別種別" }, customAfter)).toBe(false);
+ expect(await consumeBankChangeGrant(req(proof), user, customBefore, { ...customAfter, bankTypeOther: "別種別" })).toBe(false);
+ expect(await consumeBankChangeGrant(req(proof), user, customBefore, customAfter)).toBe(true);
 });

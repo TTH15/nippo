@@ -1,3 +1,4 @@
+import { bankAccountLegacyDisplay } from "@/lib/bankAccount";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError, hasCapabilityCached } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { data: driver } = await supabase
     .from("drivers")
     .select(
-      "id, name, phone, identity_id, postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, kyc_verified_at",
+      "id, name, phone, identity_id, postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, bank_branch_name, bank_account_type, bank_account_type_other, kyc_verified_at",
     )
     .eq("id", driverId)
     .eq("org_id", orgId)
@@ -54,8 +55,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     postalCode: driver.postal_code ?? "",
     address: driver.address ?? "",
     addressMatchesLicense: (driver.address_matches_license as boolean | null) ?? null,
-    bankName: showBank ? (driver.bank_name ?? "") : "",
-    bankNo: showBank ? (driver.bank_no ?? "") : "",
+    bankName: showBank ? bankAccountLegacyDisplay(driver).bankName : "",
+    bankNo: showBank ? bankAccountLegacyDisplay(driver).bankNo : "",
     bankHolder: showBank ? (driver.bank_holder ?? "") : "",
     kycVerified: !!driver.kyc_verified_at,
   });

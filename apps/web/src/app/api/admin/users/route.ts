@@ -1,3 +1,4 @@
+import { adminBankAccountUpdates } from "@/lib/adminBankAccount";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, hasCapabilityCached, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
   // users/[id]（詳細）と同じ方針を一覧・all=1 にも適用する（2026-08-14 権限監査）。
   const canViewBank = await hasCapabilityCached(user, "can_view_bank_accounts");
   const maskBank = <T extends Record<string, unknown>>(r: T): T =>
-    canViewBank ? r : { ...r, bank_name: null, bank_no: null, bank_holder: null };
+    canViewBank ? r : { ...r, bank_name: null, bank_no: null, bank_holder: null, bank_branch_name: null, bank_account_type: null, bank_account_type_other: null };
   const url = req.nextUrl;
   const limitRaw = Number(url.searchParams.get("limit") || "20");
   const cursorRaw = Number(url.searchParams.get("cursor") || "0");
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest) {
       .from("drivers")
       .select(`
         id, name, display_name, role, office_code, driver_code, list_no, status, active_from_month, active_until_month,
-        postal_code, address, phone, bank_name, bank_no, bank_holder,
+        postal_code, address, phone, bank_name, bank_no, bank_holder, bank_branch_name, bank_account_type, bank_account_type_other,
         driver_identities (
           id, slot, driver_code, office_code, label,
           driver_courses ( course_id, courses (id, name, color) )
@@ -105,7 +106,7 @@ export async function GET(req: NextRequest) {
     .from("drivers")
     .select(`
       id, name, display_name, role, role_id, identity_id, office_code, driver_code, list_no, license_expiry_date, status, active_from_month, active_until_month, created_at,
-      postal_code, address, phone, bank_name, bank_no, bank_holder,
+      postal_code, address, phone, bank_name, bank_no, bank_holder, bank_branch_name, bank_account_type, bank_account_type_other,
       driver_identities (
         id, slot, driver_code, office_code, label,
         driver_courses (
@@ -241,6 +242,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
+    let bankUpdates: Record<string, unknown>;
+    try { bankUpdates = adminBankAccountUpdates(body); }
+    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "口座情報を確認してください" }, { status: 400 }); }
     const {
       name,
       officeCode,
@@ -353,9 +357,7 @@ export async function POST(req: NextRequest) {
         // 電話番号は E.164 で保存する。国内表記のまま入れると SMS ログインの
         // 照合（toE164JP した値で引く）に掛からなくなる（2026-08-05 本番で確認）。
         phone: typeof phone === "string" ? toE164JP(phone) || phone.trim() || null : null,
-        bank_name: typeof bankName === "string" ? bankName.trim() || null : null,
-        bank_no: typeof bankNo === "string" ? bankNo.trim() || null : null,
-        bank_holder: typeof bankHolder === "string" ? bankHolder.trim() || null : null,
+        ...bankUpdates,
         license_expiry_date:
           typeof licenseExpiryDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(licenseExpiryDate)
             ? licenseExpiryDate

@@ -1,3 +1,4 @@
+import { adminBankAccountUpdates } from "@/lib/adminBankAccount";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError, getCapabilities } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -28,7 +29,7 @@ export async function GET(
     .from("drivers")
     .select(`
       id, name, display_name, role, role_id, identity_id, company_code, office_code, driver_code, list_no, created_at, license_expiry_date,
-      postal_code, address, phone, bank_name, bank_no, bank_holder, status, active_from_month, active_until_month,
+      postal_code, address, phone, bank_name, bank_no, bank_holder, bank_branch_name, bank_account_type, bank_account_type_other, status, active_from_month, active_until_month,
       driver_identities (
         id, slot, driver_code, office_code, label,
         driver_courses (
@@ -49,7 +50,7 @@ export async function GET(
   if (!caps.has("can_view_bank_accounts")) {
     driver.bank_name = null;
     driver.bank_no = null;
-    driver.bank_holder = null;
+    driver.bank_holder = null; driver.bank_branch_name = null; driver.bank_account_type = null; driver.bank_account_type_other = null;
   }
   // 電話番号が Twilio(SMS OTP) で認証済みか（identities.phone_verified_at・仮登録で刻まれる）。
   let phoneVerifiedAt: string | null = null;
@@ -91,6 +92,9 @@ export async function PUT(
 
   try {
     const body = await req.json();
+    let bankUpdates: Record<string, unknown>;
+    try { bankUpdates = adminBankAccountUpdates(body); }
+    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "口座情報を確認してください" }, { status: 400 }); }
     const {
       name,
       officeCode,
@@ -193,9 +197,7 @@ export async function PUT(
       }
       updates.phone = nextPhone;
     }
-    if (bankName !== undefined) updates.bank_name = typeof bankName === "string" ? bankName.trim() || null : null;
-    if (bankNo !== undefined) updates.bank_no = typeof bankNo === "string" ? bankNo.trim() || null : null;
-    if (bankHolder !== undefined) updates.bank_holder = typeof bankHolder === "string" ? bankHolder.trim() || null : null;
+    Object.assign(updates, bankUpdates);
     if (licenseExpiryDate !== undefined) {
       updates.license_expiry_date =
         typeof licenseExpiryDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(licenseExpiryDate)

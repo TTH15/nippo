@@ -4,29 +4,23 @@ import { NextRequest } from "next/server";
 import { supabase } from "@/server/db/client";
 import { sessionFingerprint, RECENT_AUTH_SECONDS } from "./recentAuth";
 import type { AuthUser } from "./types";
-import type { BankAccount, BankAccountType } from "@/lib/bankAccount";
+import { bankAccountFromStorage, type BankAccount, type BankStorage } from "@/lib/bankAccount";
 
-export type BankSnapshot = { bank_name: string | null; bank_no: string | null; bank_holder: string | null; bank_branch_name?: string | null; bank_account_type?: BankAccountType | null };
+export type BankSnapshot = BankStorage;
 const secret = () => {
   if (!process.env.JWT_SECRET) throw new Error("Missing JWT_SECRET");
   return new TextEncoder().encode(process.env.JWT_SECRET);
 };
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-export const bankBeforeHash = (bank: BankSnapshot) => hash([bank.bank_name, bank.bank_no, bank.bank_holder, bank.bank_branch_name ?? null, bank.bank_account_type ?? null]);
-export const bankAfterHash = (bank: BankAccount) => hash([bank.bankName, bank.bankNo, bank.bankHolder, bank.bankBranch ?? null, bank.bankType ?? null]);
-export const bankSnapshotValues = (bank: BankSnapshot): BankAccount => {
-  const combined = bank.bank_name ?? "";
-  const suffix = bank.bank_branch_name ? ` ${bank.bank_branch_name}` : "";
-  const structured = !!suffix && combined.endsWith(suffix);
-  return { bankName: structured ? combined.slice(0, -suffix.length) : combined, bankNo: bank.bank_no ?? "", bankHolder: bank.bank_holder ?? "",
-    ...(structured ? { bankBranch: bank.bank_branch_name!, bankType: bank.bank_account_type ?? "" } : {}) };
-};
+export const bankBeforeHash = (bank: BankSnapshot) => hash([bank.bank_name, bank.bank_no, bank.bank_holder, bank.bank_branch_name ?? null, bank.bank_account_type ?? null, ...(bank.bank_account_type_other ? [bank.bank_account_type_other] : [])]);
+export const bankAfterHash = (bank: BankAccount) => hash([bank.bankName, bank.bankNo, bank.bankHolder, bank.bankBranch ?? null, bank.bankType ?? null, ...(bank.bankTypeOther ? [bank.bankTypeOther] : [])]);
+export const bankSnapshotValues = bankAccountFromStorage;
 
 export async function readOwnBank(user: AuthUser): Promise<BankSnapshot> {
   // tenant-scope-ok: 呼び出し元のrequireAuthで確定した本人の所属行だけを参照する
-  const { data, error } = await supabase.from("drivers").select("bank_name, bank_no, bank_holder, bank_branch_name, bank_account_type").eq("id", user.driverId).maybeSingle();
+  const { data, error } = await supabase.from("drivers").select("bank_name, bank_no, bank_holder, bank_branch_name, bank_account_type, bank_account_type_other").eq("id", user.driverId).maybeSingle();
   if (error || !data || ![data.bank_name, data.bank_no, data.bank_holder].every(value => value === null || typeof value === "string")) throw new Error("Bank status unavailable");
-  return { bank_name: data.bank_name ?? null, bank_no: data.bank_no ?? null, bank_holder: data.bank_holder ?? null, bank_branch_name: data.bank_branch_name ?? null, bank_account_type: data.bank_account_type ?? null };
+  return { bank_name: data.bank_name ?? null, bank_no: data.bank_no ?? null, bank_holder: data.bank_holder ?? null, bank_branch_name: data.bank_branch_name ?? null, bank_account_type: data.bank_account_type ?? null, bank_account_type_other: data.bank_account_type_other ?? null };
 }
 
 /** パスキー検証済みの口座変更用。編集開始では変更前口座を束縛し、保存で一度だけ消費する。 */
