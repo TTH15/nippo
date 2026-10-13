@@ -80,6 +80,7 @@ export function createFixtureStore<S>(fixture: PreviewFixture<S>, location: { sc
   const context: FixtureContext = { scenario, role: location.role, driver: previewDriverFor(location.role) };
   let state = fixture.createState(context);
   let revision = 0;
+  let resetVersion = 0;
   let failNextWrite = false;
   const cache = new Map<string, Resolution>();
   const subscribers = new Set<() => void>();
@@ -112,6 +113,7 @@ export function createFixtureStore<S>(fixture: PreviewFixture<S>, location: { sc
     role: location.role,
     driver: context.driver,
     scenarios: known,
+    get resetVersion() { return resetVersion; },
     get revision() {
       return revision;
     },
@@ -123,9 +125,11 @@ export function createFixtureStore<S>(fixture: PreviewFixture<S>, location: { sc
     },
     getSnapshot: () => revision,
     resolve,
-    async fetch(key: string, init?: { method?: string; body?: unknown }): Promise<unknown> {
+    async fetch(key: string, init?: { method?: string; body?: unknown; fresh?: boolean }): Promise<unknown> {
       const request = parseRequest(key, init);
       if (request.method === "GET") {
+        // 再取得はこの応答だけを読み直す。購読通知するとSWRの再取得が循環する。
+        if (init?.fresh) cache.delete(key);
         const resolution = resolve(key);
         if (resolution.status === "pending") return new Promise(() => {});
         if (resolution.status === "error") throw resolution.error;
@@ -153,6 +157,7 @@ export function createFixtureStore<S>(fixture: PreviewFixture<S>, location: { sc
     reset() {
       fixture.onReset?.(context);
       state = fixture.createState(context);
+      resetVersion += 1;
       failNextWrite = false;
       notify();
     },

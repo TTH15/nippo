@@ -4,8 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { PasskeyManagement } from "@/lib/components/PasskeyManagement";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
+import { DriverSetupPanel } from "@/lib/components/DriverSetupGate";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
@@ -18,7 +17,7 @@ import { validateAnswers, type AnswerAttachment } from "@/lib/reportKindFields";
 import type { Profile, VehiclePlateData as Vehicle, ReportKindOption } from "@repo/core/types";
 import { toLocalDateStr, toLocalTimeStr } from "@repo/core/logic/calendar";
 import { dedupeVehiclesById, excludeVehicleId } from "@repo/core/logic/vehicle";
-import { buildProfileEntries, formatJPPhoneDisplay } from "@repo/core/logic/profile";
+import { buildProfileEntries } from "@repo/core/logic/profile";
 import { isValidReportDateTime, countAttachmentsByField } from "@repo/core/logic/report";
 import { LineLinkSection } from "./LineLinkSection";
 import { PushNotificationSection } from "./PushNotificationSection";
@@ -26,6 +25,7 @@ import { PushNotificationSection } from "./PushNotificationSection";
 export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
   const router = useRouter();
   const [logoutConfirming, setLogoutConfirming] = useState(false);
+  const [accountDirty, setAccountDirty] = useState(false);
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get("tab");
   // 独立ページ /report からは forceReport で報告フォームを表示。
@@ -51,15 +51,10 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [confirmVehicle, setConfirmVehicle] = useState<Vehicle | null>(null);
-  const [phoneStep, setPhoneStep] = useState<"input" | "otp">("input");
-  const [phoneInput, setPhoneInput] = useState("");
-  const [phoneCode, setPhoneCode] = useState("");
-  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
-  const [phoneMessage, setPhoneMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   useBodyScrollLock(showVehicleModal);
 
   // プロフィールを SWR キャッシュ（遷移をまたいで保持＝再訪時の点滅をなくす）。
-  const { data: profileData, isInitialLoading: profileLoading, refresh: refreshProfile } = useApi<Profile>(
+  const { data: profileData, isInitialLoading: profileLoading, error: profileError, refresh: refreshProfile } = useApi<Profile>(
     "/api/reports/profile",
   );
   useEffect(() => {
@@ -74,11 +69,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
   }>("/api/me/registration");
   const needsRegistration = !!regData && !regData.complete && !regData.kycVerified;
   const awaitingKycReview = !!regData && regData.complete && !regData.kycVerified;
-  // 既存の電話番号があれば入力欄に初期値として流し込む（再訪時に空にしない）。
-  useEffect(() => {
-    if (profileData?.phone) setPhoneInput((prev) => prev || profileData.phone);
-  }, [profileData]);
-
   // 報告種別（設定マスタ）を取得。先頭を既定選択に。
   const { data: kindsData } = useApi<{ kinds: ReportKindOption[] }>(
     isReport ? "/api/me/report-kinds" : null,
@@ -143,44 +133,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     [allKnownVehicles, selectedVehicleId],
   );
 
-  const handleSendPhoneCode = async () => {
-    setPhoneMessage(null);
-    setPhoneSubmitting(true);
-    try {
-      await apiFetch("/api/me/phone/send", {
-        method: "POST",
-        body: JSON.stringify({ phone: phoneInput.trim() }),
-      });
-      setPhoneStep("otp");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "認証コードの送信に失敗しました";
-      setPhoneMessage({ type: "error", text: msg });
-    } finally {
-      setPhoneSubmitting(false);
-    }
-  };
-
-  const handleVerifyPhone = async () => {
-    setPhoneMessage(null);
-    setPhoneSubmitting(true);
-    try {
-      await apiFetch("/api/me/phone/verify", {
-        method: "POST",
-        body: JSON.stringify({ phone: phoneInput.trim(), code: phoneCode.trim() }),
-      });
-      setPhoneMessage({ type: "ok", text: "電話番号を確認しました" });
-      setPhoneStep("input");
-      setPhoneCode("");
-      setProfile((prev) => (prev ? { ...prev, phone: phoneInput.trim(), phoneVerified: true } : prev));
-      void refreshProfile(); // 同上（再訪時に「未確認」へ戻らないように）
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "確認に失敗しました";
-      setPhoneMessage({ type: "error", text: msg });
-    } finally {
-      setPhoneSubmitting(false);
-    }
-  };
-
   const handleMiscReportSubmit = async (e?: React.FormEvent, confirmed = false) => {
     e?.preventDefault();
     setReportMessage(null);
@@ -234,7 +186,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
     }
   };
 
-  const profileEntries = buildProfileEntries(profile);
+  const profileEntries = buildProfileEntries(profile).filter(entry => !["銀行名", "口座番号", "口座名義", "電話番号"].includes(entry.label));
 
   if (isReport) {
     return (
@@ -505,6 +457,8 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
         </div>
       )}
 
+      <DriverSetupPanel onDirtyChange={setAccountDirty} />
+
       <div className="mb-6">
         <TeamPointsCard />
       </div>
@@ -517,6 +471,8 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
               <Skeleton key={i} className="h-5 w-full max-w-xs" />
             ))}
           </div>
+        ) : profileError ? (
+          <div role="alert" className="text-sm text-red-700">プロフィールを取得できませんでした。<button type="button" onClick={() => void refreshProfile()} className="ml-2 min-h-11 underline">再読み込み</button></div>
         ) : profileEntries.length === 0 ? (
           <p className="text-sm text-slate-500">登録内容はありません</p>
         ) : (
@@ -532,91 +488,6 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
             ))}
           </dl>
         )}
-      </section>
-
-      <section className="mt-10">
-        <h2 className="text-base font-bold text-slate-900 mb-4">電話番号の確認</h2>
-        <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-4 max-w-sm">
-          {profile?.phoneVerified ? (
-            <div className="flex items-center gap-2 text-sm text-slate-700">
-              <FontAwesomeIcon icon={faCircleCheck} className="w-4 h-4 text-green-600" />
-              <span>{formatJPPhoneDisplay(profile.phone)} を確認済みです</span>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-600">
-              ログインできなくなった時のために、SMSで本人確認できるようにしておきます。
-            </p>
-          )}
-          {!profile?.phoneVerified && phoneStep === "input" && (
-            <>
-              <input
-                type="tel"
-                inputMode="tel"
-                value={phoneInput}
-                onChange={(e) => setPhoneInput(e.target.value)}
-                className="w-full py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none transition-colors"
-                placeholder="090-1234-5678"
-                autoComplete="tel"
-              />
-              {phoneMessage && (
-                <p
-                  className={`text-sm ${phoneMessage.type === "ok" ? "text-green-600" : "text-red-600"
-                    }`}
-                >
-                  {phoneMessage.text}
-                </p>
-              )}
-              <button
-                type="button"
-                onClick={handleSendPhoneCode}
-                disabled={phoneSubmitting || !phoneInput.trim()}
-                className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {phoneSubmitting ? "送信中..." : "認証コードを送信"}
-              </button>
-            </>
-          )}
-          {!profile?.phoneVerified && phoneStep === "otp" && (
-            <>
-              <p className="text-sm text-slate-600">{phoneInput} に送った6桁の認証コードを入力してください。</p>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={phoneCode}
-                onChange={(e) => setPhoneCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                className="w-full text-center text-2xl tracking-[0.5em] font-mono py-2.5 px-4 border border-slate-200 rounded-lg focus:border-slate-400 focus:outline-none"
-                placeholder="______"
-                maxLength={6}
-              />
-              {phoneMessage && (
-                <p
-                  className={`text-sm ${phoneMessage.type === "ok" ? "text-green-600" : "text-red-600"
-                    }`}
-                >
-                  {phoneMessage.text}
-                </p>
-              )}
-              <button
-                type="button"
-                onClick={handleVerifyPhone}
-                disabled={phoneSubmitting || phoneCode.length !== 6}
-                className="w-full py-2.5 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {phoneSubmitting ? "確認中..." : "確認する"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPhoneStep("input");
-                  setPhoneMessage(null);
-                }}
-                className="w-full text-sm text-slate-500 hover:text-slate-700"
-              >
-                ‹ 番号を入れ直す
-              </button>
-            </>
-          )}
-        </div>
       </section>
 
       <LineLinkSection />
@@ -640,7 +511,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
       <ConfirmDialog
         open={logoutConfirming}
         title="ログアウトしますか？"
-        message="次に使うときは、もう一度ログインが必要です。"
+        message={accountDirty ? "入力中の振込口座を破棄してログアウトしますか？" : "次に使うときは、もう一度ログインが必要です。"}
         confirmLabel="ログアウト"
         onConfirm={() => {
           clearAuth();

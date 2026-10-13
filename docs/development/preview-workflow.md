@@ -412,3 +412,8 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 
 `npm run preview:admin -- admin --port 3234` → `http://127.0.0.1:3234/preview/admin/driver-report`。
 本番 `apps/web/src/app/(user)/me/page.tsx` の `MePageContent forceReport` とドライバーナビを直接再利用。通常は紐付け0台・他車2台とし、`linked` / `empty` / `vehicle-error` / `loading` / `error` を切り替える。車両選択、他車の確認、送信、保存失敗と再送信は架空データのメモリ内で完結し、本番認証・API・DB・通知へ接続しない。再読込・シナリオ切替で初期化する。実際の会社別車両データ・承認処理は未検証。
+
+### Webの利用開始準備・マイページ（2026/10/13）
+
+`npm run preview:admin -- admin --port 3241` → `http://127.0.0.1:3241/preview/admin/driver-setup?scenario=both-missing`。
+本番DriverSetupGate / DriverSetupPanel / MePageContentとNav・UserBottomNavを再利用する。`/preview/admin/me?scenario=normal` でマイページを直接開く。両方未完了・電話だけ未確認・口座だけ不足・番号なし・完了・長文・loading/error・保存後の取得失敗を切替可能。架空SMSは123456、000000は誤コード。次の保存失敗、再送、再保存、再読み込み、編集取り消し、初期化を試せる。fixtureはメモリ内のみで本番API/DB/認証/SMS/通知へ接続しない。PCでは監査用に本文を出す。1280/768/390/320pxと入力保持・完了遷移をアプリ内ブラウザで確認。実SMS・実保存・ネイティブは未検証。[設計とレビュー範囲](../design/driver-start-setup-2026-10.md)。
