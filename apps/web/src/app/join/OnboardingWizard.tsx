@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronLeft, faCircleCheck, faCommentSms } from "@fortawesome/free-solid-svg-icons";
+import { faChevronLeft, faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { faApple, faGooglePlay } from "@fortawesome/free-brands-svg-icons";
+import { OtpCodeInput } from "@/lib/components/OtpCodeInput";
+import { useSmsResendCooldown } from "@/lib/hooks/useSmsResendCooldown";
 import { PasskeySetup } from "@/lib/components/PasskeySetup";
 import { registerPasskey } from "@/lib/registerPasskey";
 import { apiFetch, setAuth, getStoredDriver } from "@/lib/api";
@@ -245,6 +247,7 @@ export function OnboardingWizard({
   const [licenseParts, setLicenseParts] = useState<DateParts>(EMPTY_PARTS);
   const [phone, setPhone] = useState("");
   const [otpCode, setOtpCode] = useState("");
+  const resendCooldown = useSmsResendCooldown();
   const [reg, setReg] = useState<Reg | null>(null);
   const [previews, setPreviews] = useState<{ license?: string; face?: string }>({});
   const [error, setError] = useState("");
@@ -397,10 +400,12 @@ export function OnboardingWizard({
   };
 
   const sendCode = async () => {
+    if (busy || resendCooldown.seconds > 0) return;
     setBusy(true);
     setError("");
     try {
       await api.sendOtp(phone.trim());
+      resendCooldown.start(); setOtpCode("");
       setStep("otp");
     } catch (err) {
       setError(err instanceof Error ? err.message : "認証コードの送信に失敗しました");
@@ -619,7 +624,7 @@ export function OnboardingWizard({
     setError("");
     if (step === "name") setStep("welcome");
     else if (step === "phone") setStep("name");
-    else if (step === "otp") setStep("phone");
+    else if (step === "otp") { setOtpCode(""); setStep("phone"); }
     else if (step === "license") setStep("address");
     else if (step === "face") setStep("license");
   };
@@ -795,29 +800,26 @@ export function OnboardingWizard({
                 )}
                 <p className="text-xs text-slate-400">この番号に SMS で認証コードを送ります。</p>
                 {error && <p className="text-sm text-red-600 text-center">{error}</p>}
-                <button onClick={sendCode} disabled={busy || !canProceed} className={btnCls}>
-                  {busy ? "送信中..." : "認証コードを送信"}
+                <button onClick={sendCode} disabled={busy || !canProceed || resendCooldown.seconds > 0} className={btnCls}>
+                  {busy ? "送信中..." : resendCooldown.seconds > 0 ? `送信まであと${resendCooldown.seconds}秒` : "認証コードを送信"}
                 </button>
               </>
             )}
 
             {step === "otp" && (
               <>
-                <div className="flex justify-center pt-2">
-                  <FontAwesomeIcon icon={faCommentSms} className="h-9 w-9 text-slate-400" />
+                <h2 className="text-base font-semibold text-slate-900">認証コードを入力してください</h2>
+                <div className="flex min-h-14 items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="min-w-0"><p className="text-xs text-slate-500">送信先</p><p className="whitespace-nowrap text-base font-medium text-slate-900">{formatJPMobile(phone)}</p></div>
+                  <button type="button" disabled={busy} onClick={back} className="min-h-11 min-w-11 shrink-0 px-2 text-sm font-semibold text-slate-600 underline">変更</button>
                 </div>
-                <p className="text-sm text-slate-600 text-center">
-                  {formatJPMobile(phone)} に送った
-                  <br />
-                  6桁の認証コードを入力してください。
-                </p>
-                <OtpSlots value={otpCode} onChange={setOtpCode} />
-                {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+                <OtpCodeInput value={otpCode} onChange={value => { setOtpCode(value); setError(""); }} disabled={busy} invalid={!!error} />
+                {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
                 <button onClick={submitJoin} disabled={busy || !canProceed} className={btnCls}>
                   {busy ? "確認中..." : "認証して進む"}
                 </button>
-                <button onClick={sendCode} disabled={busy} className="w-full text-sm text-blue-600 hover:text-blue-800">
-                  コードを再送する
+                <button onClick={sendCode} disabled={busy || resendCooldown.seconds > 0} className="min-h-11 w-full text-sm tabular-nums text-slate-600 underline disabled:text-slate-400 disabled:no-underline">
+                  {resendCooldown.seconds > 0 ? `再送まであと${resendCooldown.seconds}秒` : "コードを再送する"}
                 </button>
               </>
             )}
@@ -1069,50 +1071,6 @@ function FloatingLineField({
       <label className="pointer-events-none absolute left-1 top-6 text-slate-400 transition-all duration-150 peer-focus:top-0.5 peer-focus:text-xs peer-focus:text-slate-500 peer-[:not(:placeholder-shown)]:top-0.5 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:text-slate-500">
         {label}
       </label>
-    </div>
-  );
-}
-
-// SMS認証コードの6桁入力。
-function OtpSlots({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [focused, setFocused] = useState(false);
-  const composing = useRef(false);
-  const activeIndex = Math.min(value.length, 5);
-  return (
-    <div className="relative py-2">
-      <div className="flex justify-center gap-3">
-        {Array.from({ length: 6 }, (_, i) => (
-          <div
-            key={i}
-            className={`w-10 border-b-2 pb-1 text-center font-mono text-2xl text-slate-900 transition-colors ${
-              value[i] ? "border-slate-900" : focused && i === activeIndex ? "border-slate-500" : "border-slate-200"
-            }`}
-          >
-            {value[i] ?? " "}
-          </div>
-        ))}
-      </div>
-      <input
-        type="text"
-        inputMode="numeric"
-        maxLength={6}
-        value={value}
-        onChange={(e) => {
-          const raw = e.target.value;
-          onChange((composing.current ? raw : toHalfWidthDigits(raw)).slice(0, 6));
-        }}
-        onCompositionStart={() => {
-          composing.current = true;
-        }}
-        onCompositionEnd={(e) => {
-          composing.current = false;
-          onChange(toHalfWidthDigits(e.currentTarget.value).slice(0, 6));
-        }}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        autoComplete="one-time-code"
-        className="absolute inset-0 h-full w-full opacity-0"
-      />
     </div>
   );
 }

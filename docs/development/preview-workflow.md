@@ -413,6 +413,40 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 `npm run preview:admin -- admin --port 3234` → `http://127.0.0.1:3234/preview/admin/driver-report`。
 本番 `apps/web/src/app/(user)/me/page.tsx` の `MePageContent forceReport` とドライバーナビを直接再利用。通常は紐付け0台・他車2台とし、`linked` / `empty` / `vehicle-error` / `loading` / `error` を切り替える。車両選択、他車の確認、送信、保存失敗と再送信は架空データのメモリ内で完結し、本番認証・API・DB・通知へ接続しない。再読込・シナリオ切替で初期化する。実際の会社別車両データ・承認処理は未検証。
 
+### Webの利用開始準備・マイページ（2026/10/13）
+
+`npm run preview:admin -- admin --port 3241` → `http://127.0.0.1:3241/preview/admin/driver-setup?scenario=both-missing`。
+本番DriverSetupGate / DriverSetupPanel / MePageContentとNav・UserBottomNavを再利用する。`/preview/admin/me?scenario=normal` でマイページを直接開く。両方未完了・電話だけ未確認・口座だけ不足・番号なし・完了・長文・loading/error・保存後の取得失敗を切替可能。架空SMSは123456、000000は誤コード。次の保存失敗、再送、再保存、再読み込み、編集取り消し、初期化を試せる。fixtureはメモリ内のみで本番API/DB/認証/SMS/通知へ接続しない。PCでは監査用に本文を出す。1280/768/390/320pxと入力保持・完了遷移をアプリ内ブラウザで確認。実SMS・実保存・ネイティブは未検証。[設計とレビュー範囲](../design/driver-start-setup-2026-10.md)。
+
+
+- 2026/10/13追記: 利用開始準備は通常画面の上のモーダルへ変更。背景操作を止め、モーダル内だけスクロールする。未完了では背景クリック・Escapeで閉じない。保存失敗は `driver-setup?scenario=save-error`、保存後の取得失敗は `scenario=refresh-error` で試す。準備モーダル中は背面のfixture操作バーも覆うため、状態はURLで指定する。完了後のマイページ反映・背景操作/スクロール復帰、Tab巡回、ログアウト確認からの復帰と4幅を再確認。
+
+- 2026/10/13最終追記: 電話番号入力・SMS確認 → 口座登録の2ページ構成、完了済みは省略、下部に丸の進捗を表示。準備モーダルのログアウトを削除。`no-phone` は番号入力から初回確認する。マイページの口座は確認カードと専用変更モーダルにし、変更内容確認後にパスキーで確定。`bank-no-passkey` / `bank-passkey-cancel` / `bank-passkey-error` / `bank-expired` / `bank-conflict` / `bank-change-error` を追加。OS Passkeyはstubで、本番の検証を意味しない。4幅・ページ省略・期限切れ・競合復帰を確認。適用前のmobile互換性とサーバー認可のレビューは設計文書を参照。
+
+### 利用開始準備の3案比較（2026/10/13）
+
+同じ3241 runnerで `/preview/admin/driver-setup-designs` を開く。A下線・コンパクト（外枠480px/入力56px/文字24px）、B淡い背景（480px/56px/24px）、Cコード入力に集中（448px/60px/コード32px）を並べる。各案は実DriverSetupGateとNav/MePageContentの隔離iframe。電話入力→送信→コード123456→口座まで操作でき、3案を初期化で戻せる。design=a/b/cのCSS変更はpreviewだけ。本番API/認証/DB/SMSには接続しない。比較用の3URLだけ同一origin iframeを許可し、他のrunnerページはframe-ancestors noneのまま。PCは3列、1000px以下は縦並び。
+
+- 2026/10/13最終仕様: `/preview/admin/driver-setup?scenario=both-missing` で電話→単一input/6マスOTP→チェック→口座を試す。`no-phone` で初回番号入力、`phone-missing` で電話だけ、`bank-missing` で口座だけ。外枠/タイトル/主操作位置は固定、進捗は1 / 2・2 / 2（省略時1 / 1）。SMSの架空コード123456、誤コード000000、変更/再送に対応。3案比較の装飾はOTPの透明inputを上書きしないよう適用対象を制限した。本番サービス未接続。実SMSの自動補完とOSキーボードは未検証。
+
+- 2026/10/13修正: both-missing / phone-missing / no-phoneは電話番号を空から入力する。未登録モックの仮番号による入力拒否を解消。OTPの端のフォーカス枠を内側へ収め、数字のあるマスをクリックしても最後の1桁まで削除可能にした。6桁の貼り付けは途中の入力を全置換し、各マスに1字表示する。変更後の表示はページを再読み込みする。
+
+- SMS送信後は60秒の再送待機を実時間で表示する。確認コード入力は待機中も可能。同じタブの再読込やfixture初期化でも待機期限を維持する。再送成功で60秒へ戻り、送信失敗は待機を開始しない。
+
+- 口座フォームは銀行/支店、種別/番号、名義の3行。種別は普通/当座/貯蓄、銀行入力48px/文字16px。1280/768/390/320pxで通常入力の内部スクロールなしを確認。新項目はfixtureでも個別保存し、マイページ・内容確認・パスキー変更で反映する。口座種別は共通Selectの下線variantで四角いfocus枠を出さない。本番の支店/種別保存には設計文書に記載の未適用migrationが必要。
+
+- 2026/10/13更新: 口座変更ボタンでstubパスキー確認を行ってから編集を開く。中止では編集を開かず、通常の保存は再確認なし。期限切れ/保存失敗時は入力保持して「パスキーで再確認して保存」へ。常設の本人確認説明/成功メッセージは削除。初回登録は確認不要を維持。
+
+### SMS認証の共通UI（2026/10/13）
+
+`npm run preview:admin -- admin --port 3241` → `/preview/admin/onboarding?scenario=normal`。本番OnboardingWizardを再利用し、OtpCodeInputとuseSmsResendCooldownを初回準備・My-pageと共用。架空の氏名/生年月日/携帯番号を入力してSMS画面へ進む。コード123456で確認、000000は誤コード。`sms-error`で誤コード復帰、`sms-send-error`で初回送信失敗を確認できる。送信先表示・番号変更・6桁貼付・最終桁削除・再送60秒待機を試す。本番adapter/招待/KYC手順は維持し、モックSMS/Passkey/保存だけを使う。レビュー結果と未適用DB・mobile条件は `docs/design/driver-start-setup-2026-10-review.md`。
+
+### アプリからWebへの口座変更（2026/10/14）
+
+- Web専用ページ: `npm run preview:admin -- admin --port 3241` → `/preview/admin/bank-change?scenario=normal`。本番 `/account/bank-change` と共通DriverSetupPanelの口座編集を再利用し、初回ゲート/電話入力/準備モーダルを表示しない。`bank-passkey-cancel`、`bank-no-passkey`、`bank-expired`、`bank-change-error`、`bank-missing`で中止/未設定/期限/保存失敗/未登録を確認。
+- アプリ側: `node scripts/serve-mobile-preview.mjs --port 3242` → `/preview/admin/mobile?screen=account`。本番MeScreenをHTMLアダプターで表示し、振込口座→Webで口座を変更から3241の隔離ページを開く。画面確認の口座未登録で初回入力/保存を試せる。
+- Web内の口座fixtureは同じシナリオ/役割で遷移しても保存値を保持し、初期化で戻す。Web・nativeプレビューは別の架空データで、両サーバー間の保存値は同期しない。本番のアプリ復帰時の再取得はコードへ実装したが、OS復帰そのものは実機確認が必要。
+- Expoの画面確認モードはWeb案内をAlertに隔離し、本番URLへ移動しない。配布向けMetro設定には影響させない。
 ### 2026/10/07 過去期間の所属名簿（ローカル候補）
 
 `npm run preview:admin -- admin --port 3241`。`/preview/admin/shifts?scenario=period-roster&role=viewer` と `/preview/admin/payments?scenario=period-roster&role=accounting` で本番page.tsxをそのまま再利用。シフトは8月に移動すると担当解除済の終了者（鈴木）を表示し、9月開始の人（佐藤）を除外。ペイメントは8月に終了者の報酬と期間外の調整行を表示、新規者を除外する。PC1280/スマホ390、前後半/月切替/出力プレビューを確認。reset/再読込で架空データに戻る。本番DB・認証・APIには接続しない。PNG/PDF実ファイルのダウンロード確認は残る。

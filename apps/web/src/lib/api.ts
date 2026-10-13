@@ -4,6 +4,7 @@
 // 認証ロジックの実体は @repo/core/auth（プラットフォーム非依存）にあり、ここでは
 // Web 用ストレージ（localStorage）と 401 遷移（window.location）を注入する。
 // 既存の各画面は従来どおり @/lib/api から import すればよい（実体を再エクスポート）。
+import { bankChangeUnauthorizedPath } from "@repo/core/logic/bankChange";
 import { configureAuth, getStoredDriver, getToken, setAuth as setCoreAuth, clearAuth as clearCoreAuth, type KeyValueStorage, type StoredDriver } from "@repo/core/auth";
 import { apiFetch as coreApiFetch } from "@repo/core/api";
 
@@ -150,7 +151,7 @@ configureAuth({
   onUnauthorized: () => {
     if (typeof window !== "undefined") {
       clearAdminToken();
-      window.location.href = "/login";
+      window.location.href = bankChangeUnauthorizedPath(window.location.pathname, new URLSearchParams(window.location.search).get("returnTo"));
     }
   },
 });

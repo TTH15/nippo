@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 vi.mock("@/lib/api", () => ({ apiFetch: vi.fn(), setAuth: vi.fn(), getStoredDriver: () => null }));
 vi.mock("@/lib/webauthnHost", () => ({ useIsWebAuthnHost: () => true }));
 vi.mock("@/lib/ocr/licenseExpiryOcr", () => ({ prefetchLicenseOcr: vi.fn(), ocrLicenseExpiryFromBase64: vi.fn() }));
@@ -15,7 +15,8 @@ const adapterFor = (reg: Reg): WizardAdapter => ({
   join: vi.fn(), registerPasskey: vi.fn(), getRegistration: vi.fn().mockResolvedValue(reg),
   saveRegistration: vi.fn(), uploadPhoto: vi.fn(),
 });
-afterEach(cleanup);
+beforeEach(() => sessionStorage.removeItem("nippo_phone_resend_after"));
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("登録再開時のログイン設定", () => {
   it("参加コード入口から既存アカウントのログインへ戻れる", async () => {
@@ -64,4 +65,46 @@ describe("登録再開時のログイン設定", () => {
     fireEvent.click(screen.getByRole("button", { name: "もう一度読み込む" }));
     expect(await screen.findByRole("button", { name: "設定する" })).toBeEnabled();
   });
+});
+
+async function enterSms(adapter: WizardAdapter) {
+  vi.mocked(adapter.tryResume).mockResolvedValue(null);
+  vi.mocked(adapter.lookupInvite).mockResolvedValue({ organizationName: "見本運送" });
+  render(<OnboardingWizard adapter={adapter} initialInvite="preview" persistDraft={false} />);
+  fireEvent.click(await screen.findByRole("checkbox")); fireEvent.click(screen.getByRole("button", { name: "はじめる" }));
+  const fields = screen.getAllByRole("textbox");
+  ["見本", "太郎", "ミホン", "タロウ"].forEach((value, i) => fireEvent.change(fields[i], { target: { value } }));
+  const dates = screen.getAllByRole("combobox");
+  ["1995", "4", "2"].forEach((value, i) => fireEvent.change(dates[i], { target: { value } }));
+  fireEvent.click(screen.getByRole("button", { name: "次へ" }));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "09012345678" } });
+  fireEvent.click(screen.getByRole("button", { name: "認証コードを送信" }));
+}
+it("オンボーディングも単一inputの6マスUIで誤コードから修正して登録を進める", async () => {
+  const adapter = adapterFor(registration());
+  vi.mocked(adapter.join).mockRejectedValueOnce(new Error("認証コードが正しくありません")).mockResolvedValue({ alreadyApplied: false, reg: registration() });
+  await enterSms(adapter);
+  const input = await screen.findByLabelText("認証コード");
+  expect(screen.getAllByRole("textbox")).toHaveLength(1);
+  expect(input).toHaveAttribute("autocomplete", "one-time-code");
+  expect(screen.getByRole("button", { name: "再送まであと60秒" })).toBeDisabled();
+  fireEvent.change(input, { target: { value: "000000" } }); fireEvent.click(screen.getByRole("button", { name: "認証して進む" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("認証コードが正しくありません");
+  fireEvent.change(input, { target: { value: "123456" } }); expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "認証して進む" }));
+  await screen.findByRole("button", { name: "設定する" });
+  expect(adapter.join).toHaveBeenLastCalledWith(expect.objectContaining({ code: "123456", phone: "09012345678" }));
+});
+it("番号を変更しても再送待機を保ち、60秒後の再送成功でコードをクリアする", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const adapter = adapterFor(registration()); await enterSms(adapter); await screen.findByLabelText("認証コード");
+  fireEvent.change(screen.getByLabelText("認証コード"), { target: { value: "123" } });
+  fireEvent.click(screen.getByRole("button", { name: "変更" }));
+  expect(screen.getByRole("button", { name: /送信まであと/ })).toBeDisabled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  fireEvent.click(screen.getByRole("button", { name: "認証コードを送信" }));
+  await act(async () => {});
+  expect(screen.getByLabelText("認証コード")).toHaveValue("");
+  expect(adapter.sendOtp).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("button", { name: "再送まであと60秒" })).toBeDisabled();
 });

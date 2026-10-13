@@ -6,9 +6,10 @@ vi.mock("@/server/db/client", () => ({ supabase: { from: mock.from } }));
 vi.mock("@/server/auth", () => ({ requireAuth: mock.auth, isAuthError: (value: unknown) => value instanceof NextResponse }));
 vi.mock("@/server/identity", () => ({ resolveIdentityId: vi.fn() }));
 vi.mock("bcryptjs", () => ({ default: { hash: mock.hash } }));
+import { resolveIdentityId } from "@/server/identity";
 import { GET, PATCH } from "./route";
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); vi.mocked(resolveIdentityId).mockResolvedValue(null);
   mock.auth.mockResolvedValue({ driverId: "self", orgId: "own-company" });
   mock.hash.mockResolvedValue("new-hash");
   mock.result = { data: null, error: null };
@@ -47,4 +48,17 @@ describe("既存PINだけの変更", () => {
     expect((await PATCH(request())).status).toBe(401);
     expect(mock.from).not.toHaveBeenCalled();
   });
+});
+
+it.each(["identities", "passkey_credentials"])("%s取得失敗を電話未確認として返さない", async failed => {
+  vi.mocked(resolveIdentityId).mockResolvedValue("person");
+  mock.from.mockImplementation(table => {
+    const query = { select: () => query, eq: () => query,
+      single: async () => ({ data: { name: "見本" } }), order: async () => ({ data: [] }),
+      maybeSingle: async () => ({ data: { phone: "+819012345678", phone_verified_at: "2026-10-13" }, error: table === failed ? { message: "offline" } : null }),
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve({ count: 1, error: table === failed ? { message: "offline" } : null }).then(resolve) };
+    return query;
+  });
+  const response = await GET(new NextRequest("http://localhost/api/reports/profile"));
+  expect(response.status).toBe(503); expect(await response.json()).not.toHaveProperty("phoneVerified");
 });

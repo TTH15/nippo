@@ -1,3 +1,5 @@
+import { normalizeBankAccount, bankFields, requiresBankChangePasskey } from "@/lib/bankAccount";
+import { readOwnBank, bankSnapshotValues, consumeBankChangeGrant, type BankSnapshot } from "@/server/auth/bankChangeAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
@@ -16,17 +18,23 @@ export async function GET(req: NextRequest) {
   const identityId = await resolveIdentityId(user);
   if (!identityId) return NextResponse.json({ error: "アカウント情報が不完全です" }, { status: 400 });
 
-  const { data: identity } = await supabase
+  const { data: identity, error: identityError } = await supabase
     .from("identities")
     .select("name, dob, license_expiry, license_photo_path, face_photo_path")
     .eq("id", identityId)
     .single();
-  const { data: driver } = await supabase
+  if (identityError || !identity) return NextResponse.json({ error: "登録状況を確認できませんでした。もう一度お試しください" }, { status: 503 });
+
+  const { data: driver, error: driverError } = await supabase
     // tenant-scope-ok: requireAuth由来の本人user.driverIdだけを読み書きする
     .from("drivers")
-    .select("postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, kyc_verified_at, onboarding_requires_passkey")
+    .select("postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, bank_branch_name, bank_account_type, kyc_verified_at, onboarding_requires_passkey")
     .eq("id", user.driverId)
     .single();
+
+  if (driverError || !driver) return NextResponse.json({ error: "登録状況を確認できませんでした。もう一度お試しください" }, { status: 503 });
+
+  const bank = bankSnapshotValues({ bank_name: driver.bank_name ?? null, bank_no: driver.bank_no ?? null, bank_holder: driver.bank_holder ?? null, bank_branch_name: driver.bank_branch_name ?? null, bank_account_type: driver.bank_account_type ?? null });
 
   const hasLicensePhoto = !!identity?.license_photo_path;
   const hasFacePhoto = !!identity?.face_photo_path;
@@ -55,7 +63,9 @@ export async function GET(req: NextRequest) {
     postalCode: driver?.postal_code ?? "",
     address: driver?.address ?? "",
     addressMatchesLicense: (driver?.address_matches_license as boolean | null) ?? null,
-    bankName: driver?.bank_name ?? "",
+    bankName: bank.bankName,
+    bankBranch: bank.bankBranch ?? "",
+    bankType: bank.bankType ?? "",
     bankNo: driver?.bank_no ?? "",
     bankHolder: driver?.bank_holder ?? "",
     complete,
@@ -71,6 +81,27 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
+    if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "登録内容を確認してください" }, { status: 400 });
+    const bankTouched = bankFields.some(key => Object.hasOwn(body, key));
+    let bankBefore: BankSnapshot | null = null;
+    if (bankTouched) {
+      if (["dob", "licenseExpiry", "postalCode", "address", "addressMatchesLicense"].some(key => Object.hasOwn(body, key))) return NextResponse.json({ error: "振込口座はほかの登録内容と分けて保存してください" }, { status: 400 });
+      try { bankBefore = await readOwnBank(user); }
+      catch { return NextResponse.json({ error: "振込口座を確認できませんでした。もう一度お試しください" }, { status: 503 }); }
+      const previous = bankSnapshotValues(bankBefore);
+      const bank = normalizeBankAccount({ ...previous, ...Object.fromEntries(bankFields.filter(key => Object.hasOwn(body, key)).map(key => [key, body[key]])) });
+      if (!bank) return NextResponse.json({ error: "銀行名、支店名、口座種別、8桁以内の口座番号、口座名義を確認してください" }, { status: 400 });
+      const changed = bankFields.some(key => (bank[key] ?? "") !== (previous[key] ?? "").trim());
+      if (requiresBankChangePasskey(previous, bank)) {
+        let confirmed;
+        try { confirmed = await consumeBankChangeGrant(req, user, bankBefore, bank); }
+        catch { return NextResponse.json({ error: "本人確認を確認できませんでした。もう一度お試しください" }, { status: 503 }); }
+        if (!confirmed) return NextResponse.json({ error: "振込口座を変更するには、パスキーでもう一度本人確認をしてください", code: "BANK_PASSKEY_REQUIRED" }, { status: 403 });
+      }
+      // 同じ口座の再送は書き換えず、確認情報の再利用を求めない。
+      if (!changed) return NextResponse.json({ ok: true });
+      for (const key of bankFields) if (bank[key] !== undefined) body[key] = bank[key];
+    }
     const idUpdate: Record<string, unknown> = {};
     const drvUpdate: Record<string, unknown> = {};
 
@@ -95,7 +126,10 @@ export async function POST(req: NextRequest) {
     if (body.addressMatchesLicense !== undefined) {
       drvUpdate.address_matches_license = body.addressMatchesLicense === true;
     }
-    if (body.bankName !== undefined) drvUpdate.bank_name = str(body.bankName) || null;
+    // 既存の管理画面・請求書・mobileが使う銀行＋支店表記も維持する。
+    if (body.bankName !== undefined) drvUpdate.bank_name = [str(body.bankName), str(body.bankBranch)].filter(Boolean).join(" ") || null;
+    if (body.bankBranch !== undefined) drvUpdate.bank_branch_name = str(body.bankBranch) || null;
+    if (body.bankType !== undefined) drvUpdate.bank_account_type = str(body.bankType) || null;
     if (body.bankNo !== undefined) drvUpdate.bank_no = str(body.bankNo) || null;
     if (body.bankHolder !== undefined) drvUpdate.bank_holder = str(body.bankHolder) || null;
 
@@ -111,16 +145,22 @@ export async function POST(req: NextRequest) {
     }
     if (Object.keys(drvUpdate).length > 0) {
       // tenant-scope-ok: requireAuth由来の本人user.driverIdだけを読み書きする
-      const { error } = await supabase.from("drivers").update(drvUpdate).eq("id", user.driverId);
+      let query = supabase.from("drivers").update(drvUpdate).eq("id", user.driverId);
+      if (bankBefore) {
+        // 初回登録も比較更新する。他端末が先に登録した口座を無確認で上書きしない。
+        for (const key of ["bank_name", "bank_no", "bank_holder", "bank_branch_name", "bank_account_type"] as const) query = bankBefore[key] == null ? query.is(key, null) : query.eq(key, bankBefore[key]);
+      }
+      const { data, error } = bankBefore ? await query.select("id").maybeSingle() : await query;
       if (error) {
-        console.error("[registration] driver update", error);
+        console.error("[registration] driver update failed");
         return NextResponse.json({ error: "保存に失敗しました" }, { status: 500 });
       }
+      if (bankBefore && !data) return NextResponse.json({ error: "振込口座が変更されています。登録内容を読み込み直してください", code: "BANK_ACCOUNT_CHANGED" }, { status: 409 });
     }
 
     return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("[registration]", err);
+  } catch {
+    console.error("[registration] failed");
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

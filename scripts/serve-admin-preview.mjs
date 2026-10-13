@@ -147,7 +147,10 @@ if (!args.includes("--build")) {
   const allowed = new Map([["/", "index.html"], [`/preview/${feature}`, "index.html"], ["/app.js", "app.js"], ["/app.css", "app.css"], ["/style.css", "style.css"]]);
   for (const asset of assets) allowed.set("/" + asset.split("/").map(encodeURIComponent).join("/"), asset);
   const server = createServer(async (req, res) => {
-    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
+    const pathname = requestUrl.pathname;
+    // 隔離デザイン比較の3案だけ、同一originの比較ページに埋め込みを許可する。
+    const frameAncestors = isAdminRunner && pathname === "/preview/admin/driver-setup" && ["a", "b", "c"].includes(requestUrl.searchParams.get("design")) ? "'self'" : "'none'";
     // admin runner はページごとのURL（/preview/admin/<slug>）を同じHTMLで受ける。クエリは無視する
     const target = allowed.get(pathname) ?? (isAdminRunner && /^\/preview\/admin(?:\/[a-z0-9-]+)?$/.test(pathname) ? "index.html" : undefined);
     if (!target || !["GET", "HEAD"].includes(req.method ?? "")) { res.writeHead(404); res.end("Not found"); return; }
@@ -158,7 +161,7 @@ if (!args.includes("--build")) {
       res.writeHead(200, {
         "Content-Type": (target.endsWith(".js") || target.endsWith(".mjs")) ? "text/javascript; charset=utf-8" : target.endsWith(".css") ? "text/css; charset=utf-8" : target.endsWith(".svg") ? "image/svg+xml" : target.endsWith(".ttf") ? "font/ttf" : target.endsWith(".wasm") ? "application/wasm" : /\.(traineddata|bcmap|pfb)$/.test(target) ? "application/octet-stream" : target.endsWith(".png") ? "image/png" : target.endsWith(".webp") ? "image/webp" : target.endsWith(".pdf") ? "application/pdf" : target.endsWith(".glb") ? "model/gltf-binary" : "text/html; charset=utf-8",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "'self' https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/3dtiles/v1/ https://a.tiles.mapbox.com/3dtiles/v1/ https://b.tiles.mapbox.com/3dtiles/v1/ https://api.mapbox.com/models/v1/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : feature === "shifts" ? `http://127.0.0.1:${port}/fonts/SawarabiGothic-Regular.ttf` : "'self'"}; script-src 'self' ${strictCsp ? `'nonce-${nonce}' 'strict-dynamic' ` : ""}'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:${mapboxEnabled ? " https://api.mapbox.com/styles/v1/mapbox/" : ""}; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        "Content-Security-Policy": `default-src 'self'; connect-src ${mapboxEnabled ? "'self' https://api.mapbox.com/v4/ https://api.mapbox.com/raster/v1/ https://api.mapbox.com/styles/v1/mapbox/ https://api.mapbox.com/fonts/v1/mapbox/ https://api.mapbox.com/3dtiles/v1/ https://a.tiles.mapbox.com/3dtiles/v1/ https://b.tiles.mapbox.com/3dtiles/v1/ https://api.mapbox.com/models/v1/ https://api.mapbox.com/map-sessions/v1 https://api.mapbox.com/search/geocode/v6/forward https://events.mapbox.com/" : feature === "shifts" ? `http://127.0.0.1:${port}/fonts/SawarabiGothic-Regular.ttf` : "'self'"}; script-src 'self' ${strictCsp ? `'nonce-${nonce}' 'strict-dynamic' ` : ""}'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:${mapboxEnabled ? " https://api.mapbox.com/styles/v1/mapbox/" : ""}; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${frameAncestors}`,
       });
       res.end(req.method === "HEAD" ? undefined : body);
     } catch { res.writeHead(404); res.end("Not found"); }

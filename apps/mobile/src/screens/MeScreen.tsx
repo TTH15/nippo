@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator, AppState } from "react-native";
+import { openBankChangeWeb } from "../bankChangeWeb";
 import { AppIcon } from "../components/AppIcon";
 import { apiFetch } from "@repo/core/api";
 import type { Profile } from "@repo/core/types";
@@ -11,7 +12,7 @@ import { MyPageMenu, type AccountSection, type BankStatus } from "../components/
 // ============================================================
 // マイページの入口と、プロフィール/ログイン・電話番号/振込口座の詳細。
 // 振込口座は web オンボーディングから除外されたため（§2-1a 2026-07-25）、
-// ここが収集の正: 初回の報酬支払いまでに登録してもらう（未登録なら案内を表示）。
+// 未登録は初回入力、登録済みの変更はWebの専用ページへ案内する。
 // 表示・検証ロジックは Web と同じ @repo/core/logic/profile を再利用。
 // 諸報告（書き込み系）は今回スコープ外。
 // ============================================================
@@ -32,6 +33,8 @@ export function MeScreen({ section = "home", onOpen, onAppSettings, onUnsavedCha
   const [phoneMessage, setPhoneMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   const [bankName, setBankName] = useState("");
+  const [bankBranch, setBankBranch] = useState("");
+  const [bankType, setBankType] = useState("");
   const [bankNo, setBankNo] = useState("");
   const [bankHolder, setBankHolder] = useState("");
   const [originalBank, setOriginalBank] = useState("");
@@ -44,11 +47,11 @@ export function MeScreen({ section = "home", onOpen, onAppSettings, onUnsavedCha
     if (!active) return;
     let alive = true;
     setBankStatus("loading");
-    apiFetch<{ bankName: string; bankNo: string; bankHolder: string }>("/api/me/registration")
+    apiFetch<{ bankName: string; bankNo: string; bankHolder: string; bankBranch?: string; bankType?: string }>("/api/me/registration")
       .then((r) => {
         if (!alive) return;
         setOriginalBank(JSON.stringify([(r.bankName || "").trim(), (r.bankNo || "").trim(), (r.bankHolder || "").trim()]));
-        setBankName(r.bankName || "");
+        setBankName(r.bankName || ""); setBankBranch(r.bankBranch || ""); setBankType(r.bankType || "");
         setBankNo(r.bankNo || "");
         setBankHolder(r.bankHolder || "");
         setBankRegistered(!!(r.bankName && r.bankNo && r.bankHolder));
@@ -85,9 +88,23 @@ export function MeScreen({ section = "home", onOpen, onAppSettings, onUnsavedCha
   }, [revision, active]);
 
   useEffect(() => {
-    onUnsavedChange?.(section === "bank" && !!originalBank && JSON.stringify([bankName.trim(), bankNo.trim(), bankHolder.trim()]) !== originalBank);
-  }, [section, originalBank, bankName, bankNo, bankHolder, onUnsavedChange]);
+    onUnsavedChange?.(section === "bank" && !bankRegistered && !!originalBank && JSON.stringify([bankName.trim(), bankNo.trim(), bankHolder.trim()]) !== originalBank);
+  }, [section, originalBank, bankName, bankNo, bankHolder, bankRegistered, onUnsavedChange]);
   useEffect(() => () => onUnsavedChange?.(false), [onUnsavedChange]);
+  useEffect(() => {
+    let previous = AppState.currentState;
+    const subscription = AppState.addEventListener("change", next => {
+      if (next === "active" && previous !== "active" && active && section === "bank" && bankRegistered) { setBankMessage(null); setRevision(value => value + 1); }
+      previous = next;
+    });
+    return () => subscription.remove();
+  }, [active, section, bankRegistered]);
+  const openBankWeb = async () => {
+    setBankMessage(null); setBankSubmitting(true);
+    try { await openBankChangeWeb(); }
+    catch { setBankMessage({ type: "error", text: "Webを開けませんでした。もう一度お試しください。" }); }
+    finally { setBankSubmitting(false); }
+  };
   const entries = buildProfileEntries(profile).filter(e => !["銀行名", "口座番号", "口座名義"].includes(e.label));
 
   const sendPhoneCode = async () => {
@@ -107,7 +124,7 @@ export function MeScreen({ section = "home", onOpen, onAppSettings, onUnsavedCha
   };
 
   const submitBank = async () => {
-    if (bankStatus === "loading" || bankStatus === "error") return;
+    if (bankRegistered || bankStatus === "loading" || bankStatus === "error") return;
     setBankMessage(null);
     setBankSubmitting(true);
     try {
@@ -185,6 +202,15 @@ export function MeScreen({ section = "home", onOpen, onAppSettings, onUnsavedCha
                 報酬の振込先です。初回のお支払いまでにご登録ください。
               </Text>
             )}
+            {bankRegistered ? <>
+              <View className="gap-1"><Text className="text-[13px] text-brand-600">銀行・支店</Text><Text className="text-base text-brand-900">{[bankName, bankBranch].filter(Boolean).join(" ")}</Text></View>
+              {!!bankType && <View className="gap-1"><Text className="text-[13px] text-brand-600">口座種別</Text><Text className="text-base text-brand-900">{({ ordinary: "普通", current: "当座", savings: "貯蓄" } as Record<string, string>)[bankType] || bankType}</Text></View>}
+              <View className="gap-1"><Text className="text-[13px] text-brand-600">口座番号</Text><Text className="text-base text-brand-900">末尾 {bankNo.slice(-4)}</Text></View>
+              <View className="gap-1"><Text className="text-[13px] text-brand-600">口座名義（カナ）</Text><Text className="text-base text-brand-900">{bankHolder}</Text></View>
+              <Pressable testID="account-change-bank-web" accessibilityRole="button" onPress={() => void openBankWeb()} disabled={bankSubmitting} className="min-h-12 flex-row items-center justify-center gap-2 rounded-lg border border-brand-200 bg-white px-4 py-3">
+                <AppIcon name="arrow-up-right-from-square" size={14} color="#334155" iconStyle="solid" /><Text className="text-brand-900 font-medium">Webで口座を変更</Text>
+              </Pressable>
+            </> : <>
             <View className="gap-1">
               <Text className="text-[13px] text-brand-600">銀行名・支店</Text>
               <TextInput accessibilityLabel="銀行名・支店" className={INPUT} value={bankName} onChangeText={setBankName} placeholder="◯◯銀行 ◯◯支店" />
@@ -217,6 +243,8 @@ export function MeScreen({ section = "home", onOpen, onAppSettings, onUnsavedCha
             >
               {bankSubmitting ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-medium">保存する</Text>}
             </Pressable>
+            </>}
+            {bankRegistered && bankMessage?.type === "error" && <Text accessibilityRole="alert" className="text-[13px] text-red-600">{bankMessage.text}</Text>}
           </View>
 
         </>}

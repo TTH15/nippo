@@ -19,7 +19,7 @@ export async function apiFetch<T = unknown>(path: string, init?: RequestInit, op
   const { store, navigate } = getPreviewRuntime();
   try {
     if (path === "/api/admin/shifts/memo/board" && !init?.method) store.invalidate();
-    return (await store.fetch(path, { method: init?.method, body: init?.body })) as T;
+    return (await store.fetch(path, { method: init?.method, body: init?.body, fresh: init?.cache === "no-store", headers: init?.headers })) as T;
   } catch (error) {
     // fixtureが明示的に401を返すシナリオだけ、本番と同じログイン導線を試す。
     if (!options?.skipAuthRedirect && error instanceof Error && "status" in error && error.status === 401) {

@@ -19,6 +19,9 @@ export const reorderTransition = {
 
 export const instantTransition = { duration: 0 };
 
+/** 電話番号の確認済み表示を見せてから次の入力へ進む。 */
+export const setupConfirmationDelayMs = 650;
+
 /** PCログイン入口の左右パネル切替。 */
 export const loginSceneTransition = {
   duration: 0.62,

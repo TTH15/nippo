@@ -79,3 +79,14 @@ describe("ログイン入口", () => {
     expect(mock.push).not.toHaveBeenCalledWith("/admin");
   });
 });
+
+it("口座変更からのパスキーログインは専用ページへ戻る", async () => {
+  window.history.replaceState(null, "", "/login?next=driver&returnTo=%2Faccount%2Fbank-change");
+  render(<LoginPage />); fireEvent.click(within(document.querySelector(".login-mobile") as HTMLElement).getByRole("button", { name: "パスキーでログイン" }));
+  await waitFor(() => expect(mock.push).toHaveBeenCalledWith("/account/bank-change"));
+});
+it("外部URLのreturnToはログイン後の遷移に使わない", async () => {
+  window.history.replaceState(null, "", "/login?next=driver&returnTo=https%3A%2F%2Fexample.com");
+  render(<LoginPage />); fireEvent.click(within(document.querySelector(".login-mobile") as HTMLElement).getByRole("button", { name: "パスキーでログイン" }));
+  await waitFor(() => expect(mock.push).toHaveBeenCalledWith("/submit"));
+});

@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
-import { Check, ChevronDown, X } from "lucide-react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCheck, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 
 export interface SelectOption {
   value: string;
@@ -17,6 +18,7 @@ interface CustomSelectProps {
   id?: string;
   ariaLabel?: string;
   triggerClassName?: string;
+  variant?: "default" | "underline";
   showSelectedDescription?: boolean;
   showOptionDescriptions?: boolean;
   value?: string;
@@ -34,6 +36,7 @@ export function CustomSelect({
   id,
   ariaLabel,
   triggerClassName,
+  variant = "default",
   showSelectedDescription = true,
   showOptionDescriptions = false,
   value,
@@ -163,12 +166,9 @@ export function CustomSelect({
         onClick={toggleOpen}
         disabled={disabled}
         className={`
-          w-full ${triggerHeight} ${triggerPadding} flex items-center justify-between ${isXs ? "gap-0.5" : "gap-2"}
-          bg-white border-2 border-slate-200 ${isXs ? "rounded-lg" : "rounded-xl"}
-          transition-all duration-200
-          ${disabled ? "opacity-50 cursor-not-allowed" : "hover:border-slate-300 focus:border-slate-500 focus:outline-none " + (isXs ? "focus:ring-2 focus:ring-slate-200" : "focus:ring-4 focus:ring-slate-100")}
+          w-full ${triggerHeight} ${variant === "underline" ? "px-0 py-2" : triggerPadding} flex items-center justify-between ${isXs ? "gap-0.5" : "gap-2"}
+          ${variant === "underline" ? `appearance-none transition-none rounded-none border-0 border-b-2 border-slate-300 bg-transparent shadow-none outline-none focus:border-slate-900 focus:ring-0 ${disabled ? "opacity-50 cursor-not-allowed" : "hover:border-slate-400"} ${isOpen ? "border-slate-900" : ""}` : `bg-white border-2 border-slate-200 ${isXs ? "rounded-lg" : "rounded-xl"} transition-all duration-200 ${disabled ? "opacity-50 cursor-not-allowed" : "hover:border-slate-300 focus:border-slate-500 focus:outline-none " + (isXs ? "focus:ring-2 focus:ring-slate-200" : "focus:ring-4 focus:ring-slate-100")} ${isOpen ? (isXs ? "border-slate-500 ring-2 ring-slate-200" : "border-slate-500 ring-4 ring-slate-100") : ""}`}
           ${triggerClassName ?? ""}
-          ${isOpen ? (isXs ? "border-slate-500 ring-2 ring-slate-200" : "border-slate-500 ring-4 ring-slate-100") : ""}
         `}
       >
         <div className={`flex items-center ${isXs ? "gap-0.5" : "gap-2"} flex-1 min-w-0`}>
@@ -204,11 +204,11 @@ export function CustomSelect({
               className="hover:bg-slate-100 rounded-full p-0.5"
               onClick={handleClear}
             >
-              <X className="w-4 h-4 text-slate-400" />
+              <FontAwesomeIcon icon={faXmark} className="w-4 h-4 text-slate-400" />
             </motion.div>
           )}
           <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
-            <ChevronDown
+            <FontAwesomeIcon icon={faChevronDown}
               className={`text-slate-400 shrink-0 ${isXs ? "w-3 h-3" : isSm || isMd ? "w-4 h-4" : "w-5 h-5"}`}
             />
           </motion.div>
@@ -272,7 +272,7 @@ export function CustomSelect({
                         </div>
                         {isSelected && (
                           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="flex-shrink-0">
-                            <Check
+                            <FontAwesomeIcon icon={faCheck}
                               className={`text-slate-600 ${isXs ? "w-3.5 h-3.5" : isSm || isMd ? "w-4 h-4" : "w-5 h-5"}`}
                             />
                           </motion.div>

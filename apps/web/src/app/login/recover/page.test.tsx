@@ -19,7 +19,7 @@ vi.mock("@/lib/components/PasskeySetup", () => ({
 import RecoverPage from "./page";
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); window.history.replaceState(null, "", "/login/recover");
   mock.storedDriver = null;
   mock.setLoginSession.mockImplementation((_token, driver) => { mock.storedDriver = driver; });
   mock.api.mockImplementation(async (path: string) => {
@@ -64,4 +64,12 @@ describe("電話番号でのログイン後", () => {
     await finishSmsLogin();
     await waitFor(() => expect(mock.push).toHaveBeenCalledWith("/join"));
   });
+});
+
+it("口座変更からのSMSログインは登録済みなら専用ページへ戻る", async () => {
+  window.history.replaceState(null, "", "/login/recover?next=driver&returnTo=%2Faccount%2Fbank-change");
+  const normal = mock.api.getMockImplementation()!;
+  mock.api.mockImplementation(async (path, ...rest) => path === "/api/me/registration" ? { complete: true, kycVerified: true, hasPasskey: true } : normal(path, ...rest));
+  render(<RecoverPage />); await finishSmsLogin();
+  await waitFor(() => expect(mock.push).toHaveBeenCalledWith("/account/bank-change"));
 });

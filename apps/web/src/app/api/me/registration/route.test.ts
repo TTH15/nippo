@@ -2,20 +2,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 const mock = vi.hoisted(() => ({ auth: vi.fn(), from: vi.fn(), eq: vi.fn(), count: 0,
-  passkeyRequired: false, error: null as unknown }));
+  passkeyRequired: false, identityFailed: false, error: null as unknown }));
 vi.mock("@/server/auth", () => ({ requireAuth: mock.auth, isAuthError: (value: unknown) => value instanceof NextResponse }));
 vi.mock("@/server/identity", () => ({ resolveIdentityId: async () => "self-identity" }));
 vi.mock("@/server/db/client", () => ({ supabase: { from: mock.from } }));
 import { GET } from "./route";
 const req = () => new NextRequest("http://localhost/api/me/registration");
 beforeEach(() => {
-  vi.clearAllMocks(); mock.count = 0; mock.passkeyRequired = false; mock.error = null;
+  vi.clearAllMocks(); mock.count = 0; mock.passkeyRequired = false; mock.error = null; mock.identityFailed = false;
   mock.auth.mockResolvedValue({ driverId: "self-driver", identityId: "self-identity" });
   mock.from.mockImplementation((table) => {
     const query = { select: () => query, eq: (key: string, value: string) => { mock.eq(table, key, value); return query; },
       single: async () => ({ data: table === "drivers"
         ? { onboarding_requires_passkey: mock.passkeyRequired }
-        : {} }),
+        : {}, error: table === "identities" && mock.identityFailed ? { message: "offline" } : null }),
       then: (resolve: (value: unknown) => unknown) => Promise.resolve({ count: mock.count, error: mock.error }).then(resolve),
     };
     return query;
@@ -44,4 +44,10 @@ describe("登録再開時のPasskey状態", () => {
     expect((await GET(req())).status).toBe(401);
     expect(mock.from).not.toHaveBeenCalled();
   });
+});
+
+it("本人情報の取得失敗をKYC未登録として返さない", async () => {
+  mock.identityFailed = true;
+  const response = await GET(req()); expect(response.status).toBe(503);
+  expect(await response.json()).not.toHaveProperty("complete");
 });

@@ -74,3 +74,22 @@ it("保存済み番号なし・確認済みでは送信と検証を進めない"
   expect((await verify(withoutPhone())).status).toBe(409);
   expect(m.send).not.toHaveBeenCalled(); expect(m.check).not.toHaveBeenCalled(); expect(m.grant).not.toHaveBeenCalled();
 });
+
+it("電話が両方とも空の本人は入力した電話をSMSで初回登録できる", async () => {
+  m.enrollment.mockResolvedValue({ identity: { phone: null, phone_verified_at: null }, phone: null, canRegister: true });
+  expect((await send(req())).status).toBe(200);
+  m.check.mockResolvedValue(true);
+  const filters: unknown[] = []; const q = { update: () => q, select: () => q, eq: (...x: unknown[]) => { filters.push(x); return q; }, is: (...x: unknown[]) => { filters.push(x); return q; }, maybeSingle: async () => ({ data: { id: "person" }, error: null }) };
+  m.from.mockReturnValue(q);
+  expect((await verify(req())).status).toBe(200);
+  expect(filters).toContainEqual(["phone", null]);
+  expect(m.check).toHaveBeenCalledWith("+819000000001", "123456");
+});
+it("保存済み番号が不正な場合やSMS確認中に番号が登録された場合は初回扱いで上書きしない", async () => {
+  m.enrollment.mockResolvedValue({ identity: { phone: "invalid", phone_verified_at: null }, phone: null, canRegister: false });
+  expect((await send(req())).status).toBe(403); expect((await verify(req())).status).toBe(403);
+  m.enrollment.mockResolvedValueOnce({ identity: { phone: null, phone_verified_at: null }, phone: null, canRegister: true })
+    .mockResolvedValueOnce({ identity: { phone: "+819099999999", phone_verified_at: null }, phone: "+819099999999", canRegister: false });
+  m.check.mockResolvedValue(true);
+  expect((await verify(req())).status).toBe(409); expect(m.from).not.toHaveBeenCalled();
+});

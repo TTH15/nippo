@@ -35,6 +35,15 @@ describe("createFixtureStore", () => {
     expect(first).toEqual({ status: "ok", data: { items: [{ id: "1", name: "サンプル管理者の品" }], limit: "20" } });
     expect(store.resolve("/api/items?limit=20")).toBe(first);
   });
+  it("明示的な再取得は取得エラーを読み直し、購読の再取得ループを起こさない", async () => {
+    let attempts = 0; let notifications = 0;
+    const store = createFixtureStore({ ...fixture, read: () => { if (attempts++ === 0) throw new Error("temporary"); return { ok: true }; } }, { scenario: "normal", role: "admin" });
+    store.subscribe(() => { notifications += 1; });
+    await expect(store.fetch("/api/items")).rejects.toThrow("temporary");
+    await expect(store.fetch("/api/items")).rejects.toThrow("temporary");
+    await expect(store.fetch("/api/items", { fresh: true })).resolves.toEqual({ ok: true });
+    expect(attempts).toBe(2); expect(notifications).toBe(0); expect(store.revision).toBe(0);
+  });
   it("empty は createState に伝わる", () => {
     const store = createFixtureStore(fixture, { scenario: "empty", role: "viewer" });
     expect(store.resolve("/api/items")).toMatchObject({ status: "ok", data: { items: [] } });
